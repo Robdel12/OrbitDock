@@ -139,7 +139,7 @@ final class MCPBridge {
 
     logger.debug("MCP Bridge: \(request.method) \(request.path)")
 
-    // CORS preflight
+    // OPTIONS probe
     if request.method == "OPTIONS" {
       return HTTPResponse(status: 200, body: [:])
     }
@@ -843,9 +843,6 @@ private struct HTTPResponse {
     let response = """
     HTTP/1.1 \(status) \(statusText)\r
     Content-Type: application/json\r
-    Access-Control-Allow-Origin: *\r
-    Access-Control-Allow-Methods: GET, POST, OPTIONS\r
-    Access-Control-Allow-Headers: Content-Type\r
     Content-Length: \(jsonData.count)\r
     Connection: close\r
     \r

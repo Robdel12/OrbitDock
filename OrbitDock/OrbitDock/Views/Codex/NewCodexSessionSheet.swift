@@ -438,7 +438,7 @@ struct NewCodexSessionSheet: View {
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.surfaceBorder, lineWidth: 1)
     )
-    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: useWorktree)
+    .animation(Motion.bouncy, value: useWorktree)
     .onChange(of: useWorktree) { _, isOn in
       if isOn, !selectedPathIsGit {
         useWorktree = false
@@ -531,7 +531,7 @@ struct NewCodexSessionSheet: View {
           Capsule()
             .fill(selectedAutonomy.color.opacity(0.4))
             .frame(width: 2, height: 20)
-            .padding(.top, 2)
+            .padding(.top, Spacing.xxs)
 
           VStack(alignment: .leading, spacing: Spacing.xxs) {
             HStack(spacing: Spacing.sm) {
@@ -578,7 +578,7 @@ struct NewCodexSessionSheet: View {
           .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.leading, Spacing.lg)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedAutonomy)
+        .animation(Motion.bouncy, value: selectedAutonomy)
       }
       .padding(.horizontal, Spacing.lg)
       .padding(.vertical, Spacing.md)
@@ -723,7 +723,7 @@ struct NewCodexSessionSheet: View {
                 .font(.system(size: 8, weight: .bold, design: .rounded))
                 .foregroundStyle(Color.providerCodex)
                 .padding(.horizontal, 5)
-                .padding(.vertical, 2)
+                .padding(.vertical, Spacing.xxs)
                 .background(Color.providerCodex.opacity(OpacityTier.light), in: Capsule())
             }
           }
@@ -850,8 +850,8 @@ private struct CompactAutonomySelector: View {
       }
     }
     #endif
-    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredLevel)
-    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selection)
+    .animation(Motion.bouncy, value: hoveredLevel)
+    .animation(Motion.bouncy, value: selection)
   }
 }
 
@@ -879,7 +879,6 @@ private struct AutonomyLevelButton: View {
   @ViewBuilder
   private var buttonContent: some View {
     let iconColor = isActive ? Color.backgroundSecondary : (isHovered ? level.color : level.color.opacity(0.6))
-    let shadowColor = isActive ? level.color.opacity(0.4) : Color.clear
     let scale = isActive ? 1.05 : 1.0
 
     Image(systemName: level.icon)
@@ -888,7 +887,7 @@ private struct AutonomyLevelButton: View {
       .frame(width: 30, height: 30)
       .background(backgroundCircle)
       .overlay(strokeCircle)
-      .shadow(color: shadowColor, radius: 6, y: 2)
+      .themeShadow(Shadow.glow(color: isActive ? level.color : .clear))
       .scaleEffect(scale)
   }
 

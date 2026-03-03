@@ -48,7 +48,7 @@ struct CodeReviewFeedbackCard: View {
   // MARK: - Card Header
 
   private var cardHeader: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Spacing.sm) {
       Image(systemName: "text.bubble.fill")
         .font(.system(size: TypeScale.body, weight: .medium))
         .foregroundStyle(Color.statusQuestion)
@@ -60,14 +60,14 @@ struct CodeReviewFeedbackCard: View {
       Text("\(totalComments)")
         .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
         .foregroundStyle(Color.statusQuestion)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
+        .padding(.horizontal, Spacing.sm_)
+        .padding(.vertical, Spacing.xxs)
         .background(Color.statusQuestion.opacity(OpacityTier.light), in: Capsule())
 
       Spacer()
 
       if sections.count > 1 {
-        HStack(spacing: 3) {
+        HStack(spacing: Spacing.gap) {
           Image(systemName: "doc.on.doc")
             .font(.system(size: 8, weight: .medium))
           Text("\(sections.count) files")
@@ -80,8 +80,8 @@ struct CodeReviewFeedbackCard: View {
         .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textQuaternary)
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 10)
+    .padding(.horizontal, Spacing.lg_)
+    .padding(.vertical, Spacing.md_)
     .background(Color.statusQuestion.opacity(OpacityTier.subtle))
   }
 
@@ -158,7 +158,7 @@ private struct FileSectionView: View {
             Rectangle()
               .fill(Color.white.opacity(OpacityTier.tint))
               .frame(height: 1)
-              .padding(.leading, 12)
+              .padding(.leading, Spacing.md)
           }
           CommentEntryView(
             comment: comment,
@@ -176,7 +176,7 @@ private struct FileSectionView: View {
 
   private var fileSectionHeader: some View {
     Button(action: onToggleCollapse) {
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
           .font(.system(size: 7, weight: .bold))
           .foregroundStyle(Color.statusQuestion.opacity(0.4))
@@ -197,7 +197,7 @@ private struct FileSectionView: View {
           .padding(.vertical, 1)
           .background(Color.white.opacity(OpacityTier.tint), in: Capsule())
       }
-      .padding(.horizontal, 10)
+      .padding(.horizontal, Spacing.md_)
       .padding(.vertical, 7)
       .background(Color.statusQuestion.opacity(OpacityTier.tint))
       .contentShape(Rectangle())
@@ -207,7 +207,7 @@ private struct FileSectionView: View {
 
   private var showMoreButton: some View {
     Button(action: onShowAll) {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: "ellipsis")
           .font(.system(size: 8, weight: .bold))
         Text("\(hiddenCount) more comment\(hiddenCount == 1 ? "" : "s")")
@@ -215,7 +215,7 @@ private struct FileSectionView: View {
       }
       .foregroundStyle(Color.statusQuestion.opacity(0.7))
       .frame(maxWidth: .infinity)
-      .padding(.vertical, 6)
+      .padding(.vertical, Spacing.sm_)
       .background(Color.statusQuestion.opacity(OpacityTier.tint))
       .contentShape(Rectangle())
     }
@@ -258,7 +258,7 @@ private struct CommentEntryView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
       commentLineRefRow
 
       if let code = comment.code {
@@ -267,8 +267,8 @@ private struct CommentEntryView: View {
 
       commentBodyQuote
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.md_)
     .background(isHovered && onNavigateToFile != nil ? Color.statusQuestion.opacity(0.06) : Color.clear)
     .contentShape(Rectangle())
     .onHover { hovering in
@@ -282,8 +282,8 @@ private struct CommentEntryView: View {
   }
 
   private var commentLineRefRow: some View {
-    HStack(spacing: 6) {
-      HStack(spacing: 4) {
+    HStack(spacing: Spacing.sm_) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: "text.line.first.and.arrowtriangle.forward")
           .font(.system(size: 8, weight: .medium))
         Text(comment.lineRef)
@@ -299,7 +299,7 @@ private struct CommentEntryView: View {
 
       // Deep link hint on hover
       if isHovered, onNavigateToFile != nil {
-        HStack(spacing: 3) {
+        HStack(spacing: Spacing.gap) {
           Image(systemName: "arrow.turn.up.right")
             .font(.system(size: 7, weight: .bold))
           Text("Jump to diff")
@@ -312,7 +312,7 @@ private struct CommentEntryView: View {
   }
 
   private var commentBodyQuote: some View {
-    HStack(alignment: .top, spacing: 8) {
+    HStack(alignment: .top, spacing: Spacing.sm) {
       Rectangle()
         .fill(Color.statusQuestion.opacity(0.4))
         .frame(width: EdgeBar.width)
@@ -345,7 +345,7 @@ private struct TagBadgeView: View {
       .font(.system(size: TypeScale.micro, weight: .semibold))
       .foregroundStyle(color)
       .padding(.horizontal, 7)
-      .padding(.vertical, 2)
+      .padding(.vertical, Spacing.xxs)
       .background(color.opacity(OpacityTier.light), in: Capsule())
       .overlay(Capsule().strokeBorder(color.opacity(OpacityTier.medium), lineWidth: 0.5))
   }
@@ -370,7 +370,7 @@ private struct DiffCodeBlock: View {
       }
     }
     .frame(maxHeight: 120)
-    .padding(.vertical, 4)
+    .padding(.vertical, Spacing.xs)
     .background(
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .fill(Color.backgroundPrimary.opacity(0.5))

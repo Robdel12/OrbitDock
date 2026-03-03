@@ -36,7 +36,7 @@ final class AppFileLogger: @unchecked Sendable {
     let shouldTruncate = ProcessInfo.processInfo
       .environment["ORBITDOCK_TRUNCATE_APP_LOG_ON_START"] == "1" || debugDefaultTruncate
     let flags = O_WRONLY | O_CREAT | (shouldTruncate ? O_TRUNC : O_APPEND)
-    let fd = open(logPath, flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+    let fd = open(logPath, flags, S_IRUSR | S_IWUSR)
     guard fd >= 0 else { return }
 
     // Route both stdout and stderr to app.log for consistent diagnostics capture.

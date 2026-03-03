@@ -115,17 +115,17 @@ struct CompleteWorktreeSheet: View {
     VStack(spacing: 0) {
       HStack {
         Text("Complete or Archive")
-          .font(.system(size: 13, weight: .semibold))
+          .font(.system(size: TypeScale.body, weight: .semibold))
         Spacer()
       }
-      .padding(.horizontal, 16)
-      .padding(.top, 16)
-      .padding(.bottom, 12)
+      .padding(.horizontal, Spacing.lg)
+      .padding(.top, Spacing.lg)
+      .padding(.bottom, Spacing.md)
 
       Divider()
 
       ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Spacing.md) {
           contextSection
 
           Picker("Action", selection: $mode) {
@@ -141,7 +141,7 @@ struct CompleteWorktreeSheet: View {
             archiveInfoSection
           }
         }
-        .padding(16)
+        .padding(Spacing.lg)
       }
 
       Divider()
@@ -161,8 +161,8 @@ struct CompleteWorktreeSheet: View {
         .buttonStyle(.borderedProminent)
         .tint(mode == .archive ? Color.accent : Color.statusPermission)
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 12)
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .ifMacOS { view in
@@ -172,14 +172,14 @@ struct CompleteWorktreeSheet: View {
   }
 
   private var contextSection: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
       Text(displayName)
-        .font(.system(size: 13, weight: .semibold))
+        .font(.system(size: TypeScale.body, weight: .semibold))
         .foregroundStyle(Color.textPrimary)
         .lineLimit(1)
 
       Text(worktree.worktreePath)
-        .font(.system(size: 11, design: .monospaced))
+        .font(.system(size: TypeScale.meta, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
         .lineLimit(2)
         .truncationMode(.middle)
@@ -187,9 +187,9 @@ struct CompleteWorktreeSheet: View {
   }
 
   private var completeOptionsSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: Spacing.md_) {
       Text("Complete removes this worktree directory from disk and can clean up branch references.")
-        .font(.system(size: 11))
+        .font(.system(size: TypeScale.meta))
         .foregroundStyle(Color.textSecondary)
         .fixedSize(horizontal: false, vertical: true)
 
@@ -201,27 +201,27 @@ struct CompleteWorktreeSheet: View {
       Toggle("Force remove if there are local changes", isOn: $forceRemove)
 
       Text("Use force only when you are sure local changes in this worktree are disposable.")
-        .font(.system(size: 10))
+        .font(.system(size: TypeScale.micro))
         .foregroundStyle(Color.textQuaternary)
         .fixedSize(horizontal: false, vertical: true)
     }
-    .font(.system(size: 12, weight: .medium))
+    .font(.system(size: TypeScale.caption, weight: .medium))
     .foregroundStyle(Color.textPrimary)
   }
 
   private var archiveInfoSection: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
       Text("Archive keeps Git state untouched and only hides this worktree in OrbitDock.")
-        .font(.system(size: 11))
+        .font(.system(size: TypeScale.meta))
         .foregroundStyle(Color.textSecondary)
         .fixedSize(horizontal: false, vertical: true)
 
       Label("Directory is kept on disk", systemImage: "folder")
-        .font(.system(size: 11))
+        .font(.system(size: TypeScale.meta))
         .foregroundStyle(Color.textTertiary)
 
       Label("Local and remote branches are unchanged", systemImage: "arrow.triangle.branch")
-        .font(.system(size: 11))
+        .font(.system(size: TypeScale.meta))
         .foregroundStyle(Color.textTertiary)
     }
   }

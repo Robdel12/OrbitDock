@@ -51,7 +51,7 @@ struct ToastView: View {
 
   var body: some View {
     Button(action: onTap) {
-      HStack(spacing: 10) {
+      HStack(spacing: Spacing.md_) {
         // Status indicator
         ZStack {
           Circle()
@@ -64,19 +64,19 @@ struct ToastView: View {
         }
 
         // Content
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(toast.sessionName)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(.primary)
             .lineLimit(1)
 
           Text(message)
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
 
-        Spacer(minLength: 8)
+        Spacer(minLength: Spacing.sm)
 
         // Dismiss button (shown on hover)
         if isHovering {
@@ -91,12 +91,12 @@ struct ToastView: View {
           .transition(.opacity)
         }
       }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 10)
+      .padding(.horizontal, Spacing.lg_)
+      .padding(.vertical, Spacing.md_)
       .background(
         RoundedRectangle(cornerRadius: 12, style: .continuous)
           .fill(Color.panelBackground)
-          .shadow(color: .black.opacity(0.3), radius: 12, x: 0, y: 4)
+          .themeShadow(Shadow.lg)
       )
       .overlay(
         RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -118,12 +118,12 @@ struct ToastContainer: View {
   @ObservedObject var toastManager: ToastManager
 
   var body: some View {
-    VStack(alignment: .trailing, spacing: 8) {
+    VStack(alignment: .trailing, spacing: Spacing.sm) {
       ForEach(toastManager.toasts.prefix(3)) { toast in
         ToastView(
           toast: toast,
           onTap: {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            withAnimation(Motion.standard) {
               router.navigateToSession(scopedID: toast.sessionId, runtimeRegistry: runtimeRegistry)
             }
             toastManager.dismiss(toast)
@@ -138,10 +138,10 @@ struct ToastContainer: View {
         ))
       }
     }
-    .padding(.horizontal, 16)
+    .padding(.horizontal, Spacing.lg)
     .padding(.top, 48)
-    .padding(.bottom, 16)
-    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: toastManager.toasts)
+    .padding(.bottom, Spacing.lg)
+    .animation(Motion.gentle, value: toastManager.toasts)
   }
 }
 
@@ -156,7 +156,7 @@ struct ToastContainer: View {
       Spacer()
       HStack {
         Spacer()
-        VStack(alignment: .trailing, spacing: 8) {
+        VStack(alignment: .trailing, spacing: Spacing.sm) {
           ToastView(
             toast: SessionToast(
               sessionId: "1",
@@ -179,7 +179,7 @@ struct ToastContainer: View {
             onDismiss: {}
           )
         }
-        .padding(16)
+        .padding(Spacing.lg)
       }
     }
   }

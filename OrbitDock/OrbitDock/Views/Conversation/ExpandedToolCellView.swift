@@ -220,13 +220,13 @@ enum ExpandedToolLayout {
   // Fonts
   static let codeFont = PlatformFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
   static let codeFontStrong = PlatformFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
-  static let diffContentFont = PlatformFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-  static let headerFont = PlatformFont.systemFont(ofSize: 13, weight: .semibold)
-  static let subtitleFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-  static let lineNumFont = PlatformFont.monospacedSystemFont(ofSize: 10, weight: .medium)
-  static let sectionLabelFont = PlatformFont.systemFont(ofSize: 9, weight: .bold)
-  static let statsFont = PlatformFont.monospacedSystemFont(ofSize: 10, weight: .medium)
-  static let todoTitleFont = PlatformFont.systemFont(ofSize: 12, weight: .semibold)
+  static let diffContentFont = PlatformFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .regular)
+  static let headerFont = PlatformFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+  static let subtitleFont = PlatformFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .regular)
+  static let lineNumFont = PlatformFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .medium)
+  static let sectionLabelFont = PlatformFont.systemFont(ofSize: TypeScale.mini, weight: .bold)
+  static let statsFont = PlatformFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .medium)
+  static let todoTitleFont = PlatformFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
   static let todoSecondaryFont = PlatformFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
   static let todoRowHorizontalPadding: CGFloat = 10
   static let todoRowVerticalPadding: CGFloat = 8
@@ -342,14 +342,25 @@ enum ExpandedToolLayout {
         return genericHeight(input: input, output: output, cardWidth: cardWidth)
       case let .webSearch(_, input, output):
         return genericHeight(input: input, output: output, cardWidth: cardWidth)
-      case let .generic(_, input, output):
-        return genericHeight(input: input, output: output, cardWidth: cardWidth)
+      case let .generic(toolName, input, output):
+        return genericHeight(toolName: toolName, input: input, output: output, cardWidth: cardWidth)
     }
   }
 
   struct StructuredPayloadEntry {
     let keyPath: String
     let value: String
+  }
+
+  struct AskUserQuestionOption {
+    let label: String
+    let description: String?
+  }
+
+  struct AskUserQuestionItem {
+    let header: String?
+    let question: String
+    let options: [AskUserQuestionOption]
   }
 
   private static let maxStructuredPayloadEntries = 120
@@ -382,6 +393,35 @@ enum ExpandedToolLayout {
     }
     guard let text else { return [] }
     return text.components(separatedBy: "\n")
+  }
+
+  static func askUserQuestionItems(from text: String?) -> [AskUserQuestionItem]? {
+    guard let raw = text?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+      return nil
+    }
+    guard let data = raw.data(using: .utf8),
+          let json = try? JSONSerialization.jsonObject(with: data, options: []),
+          let root = json as? [String: Any],
+          let questions = root["questions"] as? [[String: Any]]
+    else {
+      return nil
+    }
+
+    let items = questions.compactMap { question -> AskUserQuestionItem? in
+      guard let prompt = question["question"] as? String, !prompt.isEmpty else {
+        return nil
+      }
+      let header = question["header"] as? String
+      let options = (question["options"] as? [[String: Any]] ?? []).compactMap { option -> AskUserQuestionOption? in
+        guard let label = option["label"] as? String, !label.isEmpty else {
+          return nil
+        }
+        return AskUserQuestionOption(label: label, description: option["description"] as? String)
+      }
+      return AskUserQuestionItem(header: header, question: prompt, options: options)
+    }
+
+    return items.isEmpty ? nil : items
   }
 
   private static func collectStructuredEntries(_ value: Any, path: String, into entries: inout [StructuredPayloadEntry]) {
@@ -484,8 +524,8 @@ enum ExpandedToolLayout {
   static func globHeight(grouped: [(dir: String, files: [String])], cardWidth: CGFloat = 0) -> CGFloat {
     let textWidth = contentTextWidth(cardWidth: cardWidth)
     let fileTextWidth = textWidth > 0 ? textWidth - 28 : 0
-    let dirFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .medium)
-    let fileFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+    let dirFont = PlatformFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
+    let fileFont = PlatformFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .regular)
 
     var h: CGFloat = sectionPadding + contentTopPad
     for (dir, files) in grouped {
@@ -512,7 +552,7 @@ enum ExpandedToolLayout {
   static func grepHeight(grouped: [(file: String, matches: [String])], cardWidth: CGFloat = 0) -> CGFloat {
     let textWidth = contentTextWidth(cardWidth: cardWidth)
     let matchTextWidth = textWidth > 0 ? textWidth - 16 : 0
-    let fileFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+    let fileFont = PlatformFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
 
     var h: CGFloat = sectionPadding + contentTopPad
     for (file, matches) in grouped {
@@ -537,19 +577,49 @@ enum ExpandedToolLayout {
     return h
   }
 
-  static func genericHeight(input: String?, output: String?, cardWidth: CGFloat = 0) -> CGFloat {
+  static func genericHeight(toolName: String? = nil, input: String?, output: String?, cardWidth: CGFloat = 0) -> CGFloat {
     let textWidth = contentTextWidth(cardWidth: cardWidth)
     var h: CGFloat = contentTopPad
 
     if let input, !input.isEmpty {
-      let inputLines = payloadDisplayLines(from: input)
       h += sectionPadding + sectionHeaderHeight
-      if textWidth > 0 {
-        for line in inputLines {
-          h += measuredTextHeight(line.isEmpty ? " " : line, font: codeFont, maxWidth: textWidth)
+      if toolName?.lowercased() == "question", let questions = askUserQuestionItems(from: input) {
+        let titleFont = PlatformFont.systemFont(ofSize: 12.5, weight: .semibold)
+        let optionFont = PlatformFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+        let detailFont = PlatformFont.systemFont(ofSize: TypeScale.meta, weight: .regular)
+        let sectionSpacing: CGFloat = 8
+        let rowSpacing: CGFloat = 6
+        let optionSpacing: CGFloat = 5
+        for (index, question) in questions.enumerated() {
+          if let header = question.header, !header.isEmpty {
+            h += measuredTextHeight(header, font: detailFont, maxWidth: textWidth)
+            h += 3
+          }
+          h += measuredTextHeight(question.question, font: titleFont, maxWidth: textWidth)
+          if !question.options.isEmpty {
+            h += rowSpacing
+            for option in question.options {
+              h += measuredTextHeight(option.label, font: optionFont, maxWidth: textWidth)
+              if let description = option.description, !description.isEmpty {
+                h += 2 + measuredTextHeight(description, font: detailFont, maxWidth: textWidth)
+              }
+              h += optionSpacing
+            }
+            h -= optionSpacing
+          }
+          if index < questions.count - 1 {
+            h += sectionSpacing
+          }
         }
       } else {
-        h += CGFloat(inputLines.count) * contentLineHeight
+        let inputLines = payloadDisplayLines(from: input)
+        if textWidth > 0 {
+          for line in inputLines {
+            h += measuredTextHeight(line.isEmpty ? " " : line, font: codeFont, maxWidth: textWidth)
+          }
+        } else {
+          h += CGFloat(inputLines.count) * contentLineHeight
+        }
       }
       h += sectionPadding
     }
@@ -693,11 +763,11 @@ enum ExpandedToolLayout {
 
     private static let codeFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
     private static let codeFontStrong = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
-    private static let headerFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
-    private static let subtitleFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-    private static let lineNumFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
-    private static let sectionLabelFont = NSFont.systemFont(ofSize: 9, weight: .bold)
-    private static let statsFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
+    private static let headerFont = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+    private static let subtitleFont = NSFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .regular)
+    private static let lineNumFont = NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .medium)
+    private static let sectionLabelFont = NSFont.systemFont(ofSize: TypeScale.mini, weight: .bold)
+    private static let statsFont = NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .medium)
 
     // ── Subviews ──
 
@@ -808,7 +878,7 @@ enum ExpandedToolLayout {
 
       // Cancel button (shell-only)
       cancelButton.bezelStyle = .rounded
-      cancelButton.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+      cancelButton.font = NSFont.systemFont(ofSize: TypeScale.meta, weight: .semibold)
       cancelButton.contentTintColor = NSColor(Color.statusError)
       cancelButton.target = self
       cancelButton.action = #selector(handleCancelTap(_:))
@@ -990,7 +1060,7 @@ enum ExpandedToolLayout {
           bashAttr.append(NSAttributedString(
             string: "$ ",
             attributes: [
-              .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .bold),
+              .font: NSFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .bold),
               .foregroundColor: bashColor,
             ]
           ))
@@ -1018,7 +1088,7 @@ enum ExpandedToolLayout {
 
         case let .read(filename, path, language, lines):
           titleField.stringValue = filename ?? "Read"
-          titleField.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
+          titleField.font = NSFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .semibold)
           titleField.textColor = Self.textPrimary
           subtitleField.isHidden = path == nil
           subtitleField.stringValue = path.map { ToolCardStyle.shortenPath($0) } ?? ""
@@ -1186,8 +1256,8 @@ enum ExpandedToolLayout {
           buildGenericContent(input: input, output: output, width: width)
         case let .webSearch(_, input, output):
           buildGenericContent(input: input, output: output, width: width)
-        case let .generic(_, input, output):
-          buildGenericContent(input: input, output: output, width: width)
+        case let .generic(toolName, input, output):
+          buildGenericContent(toolName: toolName, input: input, output: output, width: width)
       }
     }
 
@@ -1223,7 +1293,7 @@ enum ExpandedToolLayout {
       // Write new file header
       if isWriteNew {
         let header = NSTextField(labelWithString: "NEW FILE (\(lines.count) lines)")
-        header.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        header.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .bold)
         header.textColor = Self.addedAccentColor
         header.frame = NSRect(x: Self.headerHPad, y: y + 6, width: width - Self.headerHPad * 2, height: 16)
         contentContainer.addSubview(header)
@@ -1320,7 +1390,7 @@ enum ExpandedToolLayout {
 
         // Prefix (in contentContainer — stays fixed)
         let prefixLabel = NSTextField(labelWithString: line.prefix)
-        prefixLabel.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
+        prefixLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .bold)
         prefixLabel.textColor = prefixColor
         prefixLabel.frame = NSRect(
           x: gutterMetrics.prefixX,
@@ -1429,7 +1499,7 @@ enum ExpandedToolLayout {
 
         let dirText = "\(dir == "." ? "(root)" : dir) (\(files.count))"
         let dirLabel = NSTextField(labelWithString: dirText)
-        dirLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+        dirLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
         dirLabel.textColor = Self.textSecondary
         dirLabel.lineBreakMode = .byCharWrapping
         dirLabel.maximumNumberOfLines = 0
@@ -1443,7 +1513,7 @@ enum ExpandedToolLayout {
         for file in files {
           let filename = file.components(separatedBy: "/").last ?? file
           let fileLabel = NSTextField(labelWithString: filename)
-          fileLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+          fileLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .regular)
           fileLabel.textColor = Self.textTertiary
           fileLabel.lineBreakMode = .byCharWrapping
           fileLabel.maximumNumberOfLines = 0
@@ -1472,7 +1542,7 @@ enum ExpandedToolLayout {
         let matchSuffix = matches.isEmpty ? "" : " (\(matches.count))"
         let fileText = shortPath + matchSuffix
         let fileLabel = NSTextField(labelWithString: fileText)
-        fileLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+        fileLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
         fileLabel.textColor = Self.textPrimary
         fileLabel.lineBreakMode = .byCharWrapping
         fileLabel.maximumNumberOfLines = 0
@@ -1675,14 +1745,20 @@ enum ExpandedToolLayout {
 
     // ── Generic (input + output) ──
 
-    private func buildGenericContent(input: String?, output: String?, width: CGFloat) {
+    private func buildGenericContent(toolName: String? = nil, input: String?, output: String?, width: CGFloat) {
       var y: CGFloat = Self.contentTopPad
 
-      buildPayloadSection(title: "INPUT", payload: input, width: width, y: &y)
+      buildPayloadSection(title: "INPUT", payload: input, toolName: toolName, width: width, y: &y)
       buildPayloadSection(title: "OUTPUT", payload: output, width: width, y: &y)
     }
 
-    private func buildPayloadSection(title: String, payload: String?, width: CGFloat, y: inout CGFloat) {
+    private func buildPayloadSection(
+      title: String,
+      payload: String?,
+      toolName: String? = nil,
+      width: CGFloat,
+      y: inout CGFloat
+    ) {
       guard let payload, !payload.isEmpty else { return }
 
       let header = NSTextField(labelWithString: "")
@@ -1697,7 +1773,85 @@ enum ExpandedToolLayout {
       y += Self.sectionHeaderHeight + Self.sectionPadding
 
       let textWidth = width - Self.headerHPad * 2
-      if let entries = ExpandedToolLayout.structuredPayloadEntries(from: payload) {
+      if toolName?.lowercased() == "question",
+         let questions = ExpandedToolLayout.askUserQuestionItems(from: payload)
+      {
+        for (index, question) in questions.enumerated() {
+          if let headerText = question.header, !headerText.isEmpty {
+            let headerLabel = NSTextField(labelWithString: headerText.uppercased())
+            headerLabel.font = NSFont.systemFont(ofSize: TypeScale.mini, weight: .bold)
+            headerLabel.textColor = Self.textQuaternary
+            headerLabel.frame = NSRect(
+              x: Self.headerHPad,
+              y: y,
+              width: textWidth,
+              height: ExpandedToolLayout.measuredTextHeight(headerText, font: NSFont.systemFont(ofSize: TypeScale.mini, weight: .bold), maxWidth: textWidth)
+            )
+            contentContainer.addSubview(headerLabel)
+            y += headerLabel.frame.height + 3
+          }
+
+          let promptLabel = NSTextField(labelWithString: question.question)
+          promptLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+          promptLabel.textColor = Self.textPrimary
+          promptLabel.lineBreakMode = .byWordWrapping
+          promptLabel.maximumNumberOfLines = 0
+          promptLabel.isSelectable = true
+          let promptHeight = ExpandedToolLayout.measuredTextHeight(
+            question.question,
+            font: NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
+            maxWidth: textWidth
+          )
+          promptLabel.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: promptHeight)
+          contentContainer.addSubview(promptLabel)
+          y += promptHeight
+
+          if !question.options.isEmpty {
+            y += 6
+            for option in question.options {
+              let optionLabel = NSTextField(labelWithString: "• \(option.label)")
+              optionLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+              optionLabel.textColor = Self.textSecondary
+              optionLabel.lineBreakMode = .byWordWrapping
+              optionLabel.maximumNumberOfLines = 0
+              optionLabel.isSelectable = true
+              let optionText = "• \(option.label)"
+              let optionHeight = ExpandedToolLayout.measuredTextHeight(
+                optionText,
+                font: NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
+                maxWidth: textWidth
+              )
+              optionLabel.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: optionHeight)
+              contentContainer.addSubview(optionLabel)
+              y += optionHeight
+
+              if let detail = option.description, !detail.isEmpty {
+                let detailLabel = NSTextField(labelWithString: detail)
+                detailLabel.font = NSFont.systemFont(ofSize: TypeScale.meta, weight: .regular)
+                detailLabel.textColor = Self.textTertiary
+                detailLabel.lineBreakMode = .byWordWrapping
+                detailLabel.maximumNumberOfLines = 0
+                detailLabel.isSelectable = true
+                let detailHeight = ExpandedToolLayout.measuredTextHeight(
+                  detail,
+                  font: NSFont.systemFont(ofSize: TypeScale.meta, weight: .regular),
+                  maxWidth: textWidth
+                )
+                detailLabel.frame = NSRect(x: Self.headerHPad + 14, y: y + 2, width: textWidth - 14, height: detailHeight)
+                contentContainer.addSubview(detailLabel)
+                y += detailHeight + 2
+              }
+
+              y += 5
+            }
+            y -= 5
+          }
+
+          if index < questions.count - 1 {
+            y += 8
+          }
+        }
+      } else if let entries = ExpandedToolLayout.structuredPayloadEntries(from: payload) {
         for entry in entries {
           let label = NSTextField(labelWithAttributedString: payloadAttributedLine(key: entry.keyPath, value: entry.value))
           label.lineBreakMode = .byCharWrapping

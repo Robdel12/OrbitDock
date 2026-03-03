@@ -39,12 +39,12 @@ struct AttentionBanner: View {
     let overflow = attentionSessions.count - visible.count
 
     if !visible.isEmpty {
-      VStack(spacing: 4) {
+      VStack(spacing: Spacing.xs) {
         ForEach(visible, id: \.scopedID) { session in
           AttentionBannerItem(
             session: session,
             onSelect: {
-              withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+              withAnimation(Motion.standard) {
                 router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
               }
             }
@@ -56,7 +56,7 @@ struct AttentionBanner: View {
             .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(Color.textTertiary)
             .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.vertical, 4)
+            .padding(.vertical, Spacing.xs)
         }
       }
       .transition(.move(edge: .top).combined(with: .opacity))
@@ -112,17 +112,17 @@ private struct AttentionBannerItem: View {
     Button(action: onSelect) {
       HStack(spacing: 0) {
         // Colored edge bar
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
           .fill(edgeColor)
           .frame(width: EdgeBar.width)
-          .padding(.vertical, 4)
+          .padding(.vertical, Spacing.xs)
 
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.md_) {
           // Pulsing status dot
           Circle()
             .fill(edgeColor)
             .frame(width: 8, height: 8)
-            .shadow(color: edgeColor.opacity(0.5), radius: 4)
+            .themeShadow(Shadow.glow(color: edgeColor, intensity: 0.5))
             .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: true)
 
           // Context text with inline duration
@@ -147,8 +147,8 @@ private struct AttentionBannerItem: View {
             .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md_)
+        .padding(.vertical, Spacing.sm)
       }
       .background(
         RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
@@ -167,7 +167,7 @@ private struct AttentionBannerItem: View {
 // MARK: - Preview
 
 #Preview {
-  VStack(spacing: 16) {
+  VStack(spacing: Spacing.lg) {
     AttentionBanner(
       sessions: [
         Session(
@@ -214,7 +214,7 @@ private struct AttentionBannerItem: View {
       ]
     )
   }
-  .padding(24)
+  .padding(Spacing.xl)
   .background(Color.backgroundPrimary)
   .frame(width: 800)
   .environment(AppRouter())

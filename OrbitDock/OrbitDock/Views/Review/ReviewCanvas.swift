@@ -307,7 +307,7 @@ struct ReviewCanvas: View {
     let totalAdds = model.files.reduce(0) { $0 + $1.stats.additions }
     let totalDels = model.files.reduce(0) { $0 + $1.stats.deletions }
 
-    return HStack(spacing: 8) {
+    return HStack(spacing: Spacing.sm) {
       // Current file indicator
       if let file = currentFile(model) {
         let fileName = file.newPath.components(separatedBy: "/").last ?? file.newPath
@@ -322,19 +322,19 @@ struct ReviewCanvas: View {
       // History toggle
       if hasResolvedComments {
         Button {
-          withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+          withAnimation(Motion.snappy) {
             showResolvedComments.toggle()
           }
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Image(systemName: showResolvedComments ? "eye.fill" : "eye.slash")
               .font(.system(size: TypeScale.micro, weight: .medium))
             Text("History")
               .font(.system(size: TypeScale.caption, weight: .medium))
           }
           .foregroundStyle(showResolvedComments ? Color.statusQuestion : Color.white.opacity(0.3))
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
           .background(
             showResolvedComments ? Color.statusQuestion.opacity(0.1) : Color.clear,
             in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
@@ -354,7 +354,7 @@ struct ReviewCanvas: View {
             }
           }
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Circle()
               .fill(isFollowing ? Color.accent : Color.white.opacity(0.2))
               .frame(width: 5, height: 5)
@@ -367,7 +367,7 @@ struct ReviewCanvas: View {
       }
 
       // Stats
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Text("+\(totalAdds)")
           .foregroundStyle(Color.diffAddedAccent.opacity(0.8))
         Text("\u{2212}\(totalDels)")
@@ -376,7 +376,7 @@ struct ReviewCanvas: View {
       .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
     }
     .padding(.horizontal, Spacing.md)
-    .padding(.vertical, 6)
+    .padding(.vertical, Spacing.sm_)
     .background(Color.backgroundSecondary)
     .overlay(alignment: .bottom) {
       Rectangle()
@@ -546,14 +546,14 @@ struct ReviewCanvas: View {
             }
           }
 
-          Color.clear.frame(height: 32)
+          Color.clear.frame(height: Spacing.xxl)
         }
       }
       .onChange(of: cursorIndex) { _, newIdx in
         let currentTargets = computeVisibleTargets(model)
         guard !currentTargets.isEmpty else { return }
         let safe = min(newIdx, currentTargets.count - 1)
-        withAnimation(.spring(response: 0.15, dampingFraction: 0.9)) {
+        withAnimation(Motion.snappy) {
           proxy.scrollTo(currentTargets[safe].scrollId, anchor: .center)
         }
       }
@@ -616,28 +616,28 @@ struct ReviewCanvas: View {
       ? "Send \(sendCount) selected"
       : "Send \(sendCount) comment\(sendCount == 1 ? "" : "s") to model"
 
-    return HStack(spacing: 8) {
+    return HStack(spacing: Spacing.sm) {
       // Clear selection button (only when selection active)
       if hasSelection {
         Button {
           selectedCommentIds.removeAll()
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Image(systemName: "xmark")
               .font(.system(size: TypeScale.micro, weight: .bold))
             Text("\(selectedCount) selected")
               .font(.system(size: TypeScale.caption, weight: .medium))
           }
           .foregroundStyle(.white.opacity(0.7))
-          .padding(.horizontal, 10)
-          .padding(.vertical, 8)
+          .padding(.horizontal, Spacing.md_)
+          .padding(.vertical, Spacing.sm)
           .background(.white.opacity(OpacityTier.light), in: Capsule())
         }
         .buttonStyle(.plain)
       }
 
       Button(action: sendReview) {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           Image(systemName: "paperplane.fill")
             .font(.system(size: TypeScale.body, weight: .medium))
 
@@ -648,20 +648,20 @@ struct ReviewCanvas: View {
             .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
             .foregroundStyle(.white.opacity(0.5))
             .padding(.horizontal, 5)
-            .padding(.vertical, 2)
+            .padding(.vertical, Spacing.xxs)
             .background(.white.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.sm))
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
         .background(Color.statusQuestion, in: Capsule())
-        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+        .themeShadow(Shadow.md)
       }
       .buttonStyle(.plain)
     }
-    .padding(.bottom, 16)
+    .padding(.bottom, Spacing.lg)
     .transition(.move(edge: .bottom).combined(with: .opacity))
-    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: sendCount)
+    .animation(Motion.gentle, value: sendCount)
   }
 
   // MARK: - File Section Header
@@ -679,7 +679,7 @@ struct ReviewCanvas: View {
       Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
         .font(.system(size: TypeScale.micro, weight: .semibold))
         .foregroundStyle(isCursor ? Color.accent : Color.white.opacity(0.25))
-        .frame(width: 24)
+        .frame(width: Spacing.xl)
 
       // Change type icon
       ZStack {
@@ -690,16 +690,16 @@ struct ReviewCanvas: View {
           .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(changeTypeColor(file.changeType))
       }
-      .padding(.trailing, 8)
+      .padding(.trailing, Spacing.sm)
 
       // File path — dir dimmed, filename bold
       filePathLabel(file.newPath)
-        .padding(.trailing, 8)
+        .padding(.trailing, Spacing.sm)
 
       // Stats badge
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         if file.stats.additions > 0 {
-          HStack(spacing: 2) {
+          HStack(spacing: Spacing.xxs) {
             Text("+")
               .foregroundStyle(Color.diffAddedAccent.opacity(0.7))
             Text("\(file.stats.additions)")
@@ -707,7 +707,7 @@ struct ReviewCanvas: View {
           }
         }
         if file.stats.deletions > 0 {
-          HStack(spacing: 2) {
+          HStack(spacing: Spacing.xxs) {
             Text("\u{2212}")
               .foregroundStyle(Color.diffRemovedAccent.opacity(0.7))
             Text("\(file.stats.deletions)")
@@ -719,33 +719,33 @@ struct ReviewCanvas: View {
 
       // Review status badge
       if let addressed = isFileAddressed(file.newPath) {
-        HStack(spacing: 3) {
+        HStack(spacing: Spacing.gap) {
           Image(systemName: addressed ? "checkmark" : "clock")
             .font(.system(size: 8, weight: .bold))
           Text(addressed ? "Updated" : "In review")
             .font(.system(size: TypeScale.micro, weight: .semibold))
         }
         .foregroundStyle(addressed ? Color.accent : Color.statusQuestion)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
+        .padding(.horizontal, Spacing.sm_)
+        .padding(.vertical, Spacing.xxs)
         .background(
           (addressed ? Color.accent : Color.statusQuestion).opacity(OpacityTier.light),
           in: Capsule()
         )
       }
 
-      Spacer(minLength: 16)
+      Spacer(minLength: Spacing.lg)
 
       // Collapsed hunk count hint
       if isCollapsed {
         Text("\(file.hunks.count) hunk\(file.hunks.count == 1 ? "" : "s")")
           .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(Color.textTertiary)
-          .padding(.trailing, 8)
+          .padding(.trailing, Spacing.sm)
       }
     }
-    .padding(.vertical, 8)
-    .padding(.trailing, 8)
+    .padding(.vertical, Spacing.sm)
+    .padding(.trailing, Spacing.sm)
     .background(isCursor ? Color.accent.opacity(OpacityTier.light) : Color.backgroundSecondary)
     .contentShape(Rectangle())
   }
@@ -946,7 +946,7 @@ struct ReviewCanvas: View {
     guard fileIdx < model.files.count else { return }
     let fileId = model.files[fileIdx].id
 
-    withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+    withAnimation(Motion.snappy) {
       if collapsedFiles.contains(fileId) {
         collapsedFiles.remove(fileId)
       } else {
@@ -967,7 +967,7 @@ struct ReviewCanvas: View {
   private func toggleHunkCollapse(model: DiffModel, fileIdx: Int, hunkIdx: Int) {
     let hunkKey = "\(fileIdx)-\(hunkIdx)"
 
-    withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+    withAnimation(Motion.snappy) {
       if collapsedHunks.contains(hunkKey) {
         collapsedHunks.remove(hunkKey)
       } else {
@@ -1400,13 +1400,13 @@ struct ReviewCanvas: View {
         // Auto-expand collapsed file/hunk
         let fileId = file.id
         if collapsedFiles.contains(fileId) {
-          _ = withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+          _ = withAnimation(Motion.snappy) {
             collapsedFiles.remove(fileId)
           }
         }
         let hunkKey = "\(f)-\(h)"
         if collapsedHunks.contains(hunkKey) {
-          _ = withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+          _ = withAnimation(Motion.snappy) {
             collapsedHunks.remove(hunkKey)
           }
         }
@@ -1446,7 +1446,7 @@ struct ReviewCanvas: View {
 
     // Expand file if collapsed
     if collapsedFiles.contains(file.id) {
-      _ = withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+      _ = withAnimation(Motion.snappy) {
         collapsedFiles.remove(file.id)
       }
     }
@@ -1458,7 +1458,7 @@ struct ReviewCanvas: View {
           // Expand hunk if collapsed
           let hunkKey = "\(fileIdx)-\(hunkIdx)"
           if collapsedHunks.contains(hunkKey) {
-            _ = withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+            _ = withAnimation(Motion.snappy) {
               collapsedHunks.remove(hunkKey)
             }
           }
@@ -1670,7 +1670,7 @@ struct ReviewCanvas: View {
 
           // Dismiss button
           Button {
-            withAnimation(.easeOut(duration: 0.15)) {
+            withAnimation(Motion.hover) {
               showReviewBanner = false
             }
           } label: {
@@ -1787,8 +1787,8 @@ struct ReviewCanvas: View {
               }
             }
           }
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
         }
         .background(Color.backgroundSecondary)
 
@@ -1811,19 +1811,19 @@ struct ReviewCanvas: View {
                 }
             }
           }
-          .padding(.horizontal, 8)
+          .padding(.horizontal, Spacing.sm)
         }
 
         // Right edge: follow toggle + stats
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           Divider()
-            .frame(height: 16)
+            .frame(height: Spacing.lg)
             .foregroundStyle(Color.panelBorder)
 
           // Show/hide resolved comments toggle
           if hasResolvedComments {
             Button {
-              withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+              withAnimation(Motion.snappy) {
                 showResolvedComments.toggle()
               }
             } label: {
@@ -1838,7 +1838,7 @@ struct ReviewCanvas: View {
             .buttonStyle(.plain)
 
             Divider()
-              .frame(height: 12)
+              .frame(height: Spacing.md)
               .foregroundStyle(Color.panelBorder)
           }
 
@@ -1875,7 +1875,7 @@ struct ReviewCanvas: View {
           }
           .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
         }
-        .padding(.trailing, 8)
+        .padding(.trailing, Spacing.sm)
       }
       .padding(.vertical, Spacing.sm)
     }
@@ -1887,7 +1887,7 @@ struct ReviewCanvas: View {
     let changeColor = chipColor(file.changeType)
     let reviewStatus = isFileAddressed(file.newPath)
 
-    return HStack(spacing: 4) {
+    return HStack(spacing: Spacing.xs) {
       // Review status dot — tiny indicator overlaid on the change bar
       if let addressed = reviewStatus {
         Circle()
@@ -1896,7 +1896,7 @@ struct ReviewCanvas: View {
       } else {
         RoundedRectangle(cornerRadius: 1)
           .fill(changeColor)
-          .frame(width: 2, height: 14)
+          .frame(width: 2, height: Spacing.lg_)
       }
 
       Text(fileName)
@@ -1957,7 +1957,7 @@ struct ReviewCanvas: View {
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
-      HStack(spacing: 3) {
+      HStack(spacing: Spacing.gap) {
         Image(systemName: icon)
           .font(.system(size: 8, weight: .medium))
         Text(label)
@@ -1965,7 +1965,7 @@ struct ReviewCanvas: View {
       }
       .foregroundStyle(isSelected ? Color.accent : .secondary)
       .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, 3)
+      .padding(.vertical, Spacing.gap)
       .background(
         isSelected ? Color.accent.opacity(OpacityTier.light) : Color.backgroundTertiary.opacity(0.5),
         in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)

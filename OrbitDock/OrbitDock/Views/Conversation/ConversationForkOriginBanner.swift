@@ -23,17 +23,17 @@ struct ConversationForkOriginBanner: View {
         userInfo: ["sessionId": sourceScopedID]
       )
     } label: {
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Image(systemName: "arrow.triangle.branch")
           .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(Color.accent)
 
         Text("Forked from")
-          .font(.system(size: 12))
+          .font(.system(size: TypeScale.caption))
           .foregroundStyle(.secondary)
 
         Text(sourceName ?? sourceSessionId.prefix(8).description)
-          .font(.system(size: 12, weight: .medium))
+          .font(.system(size: TypeScale.caption, weight: .medium))
           .foregroundStyle(Color.accent)
           .lineLimit(1)
 
@@ -41,17 +41,17 @@ struct ConversationForkOriginBanner: View {
           .font(.system(size: 9, weight: .semibold))
           .foregroundStyle(Color.accent.opacity(0.6))
       }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 10)
+      .padding(.horizontal, Spacing.lg_)
+      .padding(.vertical, Spacing.md_)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(Color.accent.opacity(0.06))
       .overlay(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
           .strokeBorder(Color.accent.opacity(0.15), lineWidth: 1)
       )
-      .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+      .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
     }
     .buttonStyle(.plain)
-    .padding(.bottom, 8)
+    .padding(.bottom, Spacing.sm)
   }
 }

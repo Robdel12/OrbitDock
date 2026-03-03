@@ -21,7 +21,7 @@ struct ApprovalDiffPreview: View {
     VStack(alignment: .leading, spacing: 0) {
       // Toggle header
       Button {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+        withAnimation(Motion.standard) {
           isExpanded.toggle()
         }
       } label: {

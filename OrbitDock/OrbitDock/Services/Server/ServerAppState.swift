@@ -1095,6 +1095,19 @@ final class ServerAppState {
     )
   }
 
+  /// Update collaboration mode for a Codex direct session (`default` or `plan`).
+  func updateCodexCollaborationMode(sessionId: String, mode: CodexCollaborationMode) {
+    logger.info("Updating Codex collaboration mode \(sessionId) to \(mode.displayName)")
+    session(sessionId).permissionMode = mode.permissionMode
+    permissionModes[sessionId] = mode.rawValue
+    connection.updateSessionConfig(
+      sessionId: sessionId,
+      approvalPolicy: nil,
+      sandboxMode: nil,
+      permissionMode: mode.rawValue
+    )
+  }
+
   /// Subscribe to a session's updates (called when viewing a session)
   func subscribeToSession(_ sessionId: String) {
     guard !subscribedSessions.contains(sessionId) else { return }
@@ -1648,7 +1661,13 @@ final class ServerAppState {
 
   private func hasActivePendingApproval(sessionId: String, requestId: String) -> Bool {
     guard let normalizedRequestId = normalizedApprovalRequestId(requestId) else { return false }
-    return nextPendingApprovalRequestId(sessionId: sessionId) == normalizedRequestId
+    if nextPendingApprovalRequestId(sessionId: sessionId) == normalizedRequestId {
+      return true
+    }
+    if normalizedApprovalRequestId(session(sessionId).pendingApproval?.id) == normalizedRequestId {
+      return true
+    }
+    return false
   }
 
   private func mergeMessage(_ existing: TranscriptMessage, with incoming: TranscriptMessage) -> TranscriptMessage {

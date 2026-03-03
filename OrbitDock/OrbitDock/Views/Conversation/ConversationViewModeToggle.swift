@@ -39,9 +39,9 @@ struct ConversationViewModeToggle: View {
   private var toggleSpacing: CGFloat {
     switch presentation {
       case .iconOnly:
-        isCompact ? 4 : 2
+        isCompact ? Spacing.xs : Spacing.xxs
       case .compactLabeled:
-        4
+        Spacing.xs
     }
   }
 
@@ -51,9 +51,9 @@ struct ConversationViewModeToggle: View {
     }
     return switch presentation {
       case .iconOnly:
-        isCompact ? 4 : 3
+        isCompact ? Spacing.xs : Spacing.gap
       case .compactLabeled:
-        4
+        Spacing.xs
     }
   }
 
@@ -62,7 +62,7 @@ struct ConversationViewModeToggle: View {
     let isSelected = chatViewMode == mode
 
     Button {
-      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+      withAnimation(Motion.gentle) {
         chatViewMode = mode
       }
     } label: {
@@ -78,7 +78,7 @@ struct ConversationViewModeToggle: View {
             )
 
         case .compactLabeled:
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: mode.icon)
               .font(.system(size: 10, weight: .medium))
             Text(modeTitle(mode))
@@ -86,7 +86,7 @@ struct ConversationViewModeToggle: View {
           }
           .foregroundStyle(isSelected ? Color.accent : Color.textSecondary)
           .padding(.horizontal, Spacing.sm + 2)
-          .padding(.vertical, 6)
+          .padding(.vertical, Spacing.sm_)
           .background(
             isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
             in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)

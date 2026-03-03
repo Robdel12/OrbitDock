@@ -126,13 +126,13 @@ struct SystemContextCard: View {
     VStack(alignment: .leading, spacing: 0) {
       // Header — always visible
       Button {
-        withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+        withAnimation(Motion.snappy) {
           isExpanded.toggle()
         }
       } label: {
         HStack(spacing: Spacing.sm) {
           Image(systemName: context.icon)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: TypeScale.meta, weight: .semibold))
             .foregroundStyle(Color.textTertiary)
 
           Text(context.label)
@@ -150,7 +150,7 @@ struct SystemContextCard: View {
           Spacer()
 
           Image(systemName: "chevron.right")
-            .font(.system(size: 9, weight: .semibold))
+            .font(.system(size: TypeScale.mini, weight: .semibold))
             .foregroundStyle(Color.textQuaternary)
             .rotationEffect(.degrees(isExpanded ? 90 : 0))
         }
@@ -292,77 +292,77 @@ struct UserBashCard: View {
   }
 
   var body: some View {
-    VStack(alignment: .trailing, spacing: 10) {
+    VStack(alignment: .trailing, spacing: Spacing.md_) {
       // Meta line - right aligned
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Text(formatTime(timestamp))
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textQuaternary)
 
         Text("You")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.textTertiary)
       }
 
       // Bash card - right aligned
       VStack(alignment: .leading, spacing: 0) {
         // Header
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.md_) {
           // Terminal icon
           Image(systemName: "terminal.fill")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(terminalColor)
             .frame(width: 16)
 
           if bash.hasInput {
             // Command with prompt
             Text("$")
-              .font(.system(size: 11, weight: .bold, design: .monospaced))
+              .font(.system(size: TypeScale.meta, weight: .bold, design: .monospaced))
               .foregroundStyle(terminalColor.opacity(0.8))
 
             Text(bash.input)
-              .font(.system(size: 12, design: .monospaced))
+              .font(.system(size: TypeScale.caption, design: .monospaced))
               .foregroundStyle(.primary.opacity(0.9))
               .lineLimit(isExpanded ? nil : 1)
           } else {
             // No input - show label
             Text("Terminal output")
-              .font(.system(size: 12, weight: .medium))
+              .font(.system(size: TypeScale.caption, weight: .medium))
               .foregroundStyle(.secondary)
           }
 
           Spacer()
 
           // Status indicators
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             if showErrorState {
               Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 9))
+                .font(.system(size: TypeScale.mini))
                 .foregroundStyle(Color.feedbackCaution)
             }
 
             if bash.hasOutput {
               Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: TypeScale.mini, weight: .semibold))
                 .foregroundStyle(Color.textTertiary)
                 .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
           }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Spacing.lg_)
+        .padding(.vertical, Spacing.md_)
         .background(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .fill(terminalColor.opacity(isHovering ? 0.12 : 0.08))
         )
         .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .strokeBorder(terminalColor.opacity(0.15), lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture {
           if bash.hasOutput {
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+            withAnimation(Motion.snappy) {
               isExpanded.toggle()
             }
           }
@@ -378,15 +378,15 @@ struct UserBashCard: View {
 
             if showErrorState {
               outputSection(text: bash.stderr, isError: true)
-                .padding(.top, bash.stdout.isEmpty ? 0 : 8)
+                .padding(.top, bash.stdout.isEmpty ? 0 : Spacing.sm)
             }
           }
-          .padding(12)
+          .padding(Spacing.md)
           .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
               .fill(Color.backgroundTertiary)
           )
-          .padding(.top, 8)
+          .padding(.top, Spacing.sm)
           .transition(.opacity.combined(with: .move(edge: .top)))
         }
       }
@@ -403,21 +403,21 @@ struct UserBashCard: View {
   private func outputSection(text: String, isError: Bool) -> some View {
     let displayText = text.count > 3_000 ? String(text.prefix(3_000)) + "\n..." : text
 
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: Spacing.xs) {
       if isError {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
           Image(systemName: "exclamationmark.triangle.fill")
             .font(.system(size: 8))
           Text("stderr")
-            .font(.system(size: 9, weight: .semibold))
+            .font(.system(size: TypeScale.mini, weight: .semibold))
         }
-        .foregroundStyle(Color.statusWaiting.opacity(0.8))
+        .foregroundStyle(Color.feedbackCaution.opacity(0.8))
       }
 
       ScrollView {
         Text(displayText)
-          .font(.system(size: 11, design: .monospaced))
-          .foregroundStyle(isError ? Color.statusWaiting.opacity(0.85) : .primary.opacity(0.85))
+          .font(.system(size: TypeScale.meta, design: .monospaced))
+          .foregroundStyle(isError ? Color.feedbackCaution.opacity(0.85) : .primary.opacity(0.85))
           .textSelection(.enabled)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
@@ -451,49 +451,49 @@ struct UserSlashCommandCard: View {
   }
 
   var body: some View {
-    VStack(alignment: .trailing, spacing: 10) {
+    VStack(alignment: .trailing, spacing: Spacing.md_) {
       // Meta line
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Text(formatTime(timestamp))
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textQuaternary)
 
         Text("You")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.textTertiary)
       }
 
       // Command card (only show if there's a command name)
       if hasCommand {
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.md_) {
           // Slash icon
           Image(systemName: "slash.circle.fill")
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.caption, weight: .medium))
             .foregroundStyle(commandColor)
 
           // Command name
           Text(command.name)
-            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+            .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
             .foregroundStyle(commandColor)
 
           // Args (if present)
           if command.hasArgs {
             Text(command.args)
-              .font(.system(size: 12))
+              .font(.system(size: TypeScale.caption))
               .foregroundStyle(.primary.opacity(0.85))
               .lineLimit(1)
           }
 
           Spacer()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Spacing.lg_)
+        .padding(.vertical, Spacing.md_)
         .background(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .fill(commandColor.opacity(isHovering ? 0.12 : 0.08))
         )
         .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .strokeBorder(commandColor.opacity(0.15), lineWidth: 1)
         )
         .onHover { isHovering = $0 }
@@ -501,26 +501,26 @@ struct UserSlashCommandCard: View {
 
       // Output (if present)
       if command.hasOutput {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           Image(systemName: hasCommand ? "arrow.turn.down.right" : "text.bubble")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(hasCommand ? Color.textTertiary : commandColor)
 
           Text(command.stdout)
-            .font(.system(size: 12))
+            .font(.system(size: TypeScale.caption))
             .foregroundStyle(hasCommand ? Color.textSecondary : Color.textPrimary)
             .lineLimit(3)
 
           Spacer()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, hasCommand ? 8 : 10)
+        .padding(.horizontal, Spacing.lg_)
+        .padding(.vertical, hasCommand ? Spacing.sm : Spacing.md_)
         .background(
-          RoundedRectangle(cornerRadius: hasCommand ? 8 : 10, style: .continuous)
+          RoundedRectangle(cornerRadius: hasCommand ? Radius.ml : Radius.lg, style: .continuous)
             .fill(hasCommand ? Color.backgroundTertiary : commandColor.opacity(0.08))
         )
         .overlay(
-          RoundedRectangle(cornerRadius: hasCommand ? 8 : 10, style: .continuous)
+          RoundedRectangle(cornerRadius: hasCommand ? Radius.ml : Radius.lg, style: .continuous)
             .strokeBorder(hasCommand ? Color.clear : commandColor.opacity(0.15), lineWidth: 1)
         )
       }
@@ -544,16 +544,16 @@ struct SystemCaveatView: View {
   let caveat: ParsedSystemCaveat
 
   var body: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Spacing.sm) {
       Image(systemName: "info.circle")
-        .font(.system(size: 10, weight: .medium))
+        .font(.system(size: TypeScale.micro, weight: .medium))
 
       Text("System notice")
-        .font(.system(size: 11, weight: .medium))
+        .font(.system(size: TypeScale.meta, weight: .medium))
     }
     .foregroundStyle(Color.textQuaternary)
-    .padding(.horizontal, 12)
-    .padding(.vertical, 6)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm_)
   }
 }
 
@@ -580,9 +580,9 @@ struct ParsedTaskNotification {
 
     var color: Color {
       switch self {
-        case .completed: .statusSuccess
+        case .completed: .feedbackPositive
         case .running: .accent
-        case .failed: .statusWaiting
+        case .failed: .feedbackCaution
       }
     }
 
@@ -753,15 +753,15 @@ struct ShellContextCard: View {
   private let shellColor = Color.shellAccent
 
   var body: some View {
-    VStack(alignment: .trailing, spacing: 10) {
+    VStack(alignment: .trailing, spacing: Spacing.md_) {
       // Meta line
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Text(formatTime(timestamp))
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textQuaternary)
 
         Text("You")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.textTertiary)
       }
 
@@ -770,7 +770,7 @@ struct ShellContextCard: View {
         // Header pill
         HStack(spacing: Spacing.sm) {
           Image(systemName: "terminal.fill")
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: TypeScale.micro, weight: .semibold))
             .foregroundStyle(shellColor)
 
           Text("Shell Context")
@@ -840,7 +840,7 @@ private struct ShellContextCommandRow: View {
   @State private var isHovering = false
 
   private var accentColor: Color {
-    command.hasError ? .orange : .shellAccent
+    command.hasError ? .feedbackWarning : .shellAccent
   }
 
   private var hasOutput: Bool {
@@ -850,66 +850,66 @@ private struct ShellContextCommandRow: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       // Command header
-      HStack(spacing: 10) {
+      HStack(spacing: Spacing.md_) {
         if !command.command.isEmpty {
           Text("$")
-            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .font(.system(size: TypeScale.meta, weight: .bold, design: .monospaced))
             .foregroundStyle(accentColor.opacity(0.8))
 
           Text(command.command)
-            .font(.system(size: 12, design: .monospaced))
+            .font(.system(size: TypeScale.caption, design: .monospaced))
             .foregroundStyle(Color.textPrimary)
             .lineLimit(isExpanded ? nil : 1)
         } else {
           Text("Output")
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.caption, weight: .medium))
             .foregroundStyle(Color.textSecondary)
         }
 
         Spacer()
 
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           // Exit code badge
           if let code = command.exitCode {
             Text("exit \(code)")
-              .font(.system(size: 9, weight: .semibold, design: .monospaced))
-              .foregroundStyle(command.hasError ? .orange : Color.textTertiary)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
+              .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
+              .foregroundStyle(command.hasError ? Color.feedbackWarning : Color.textTertiary)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.xxs)
               .background(
                 Capsule()
-                  .fill((command.hasError ? Color.orange : Color.textTertiary).opacity(OpacityTier.subtle))
+                  .fill((command.hasError ? Color.feedbackWarning : Color.textTertiary).opacity(OpacityTier.subtle))
               )
           }
 
           if command.hasError {
             Image(systemName: "exclamationmark.triangle.fill")
-              .font(.system(size: 9))
-              .foregroundStyle(.orange)
+              .font(.system(size: TypeScale.mini))
+              .foregroundStyle(Color.feedbackWarning)
           }
 
           if hasOutput {
             Image(systemName: "chevron.down")
-              .font(.system(size: 9, weight: .semibold))
+              .font(.system(size: TypeScale.mini, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
               .rotationEffect(.degrees(isExpanded ? 0 : -90))
           }
         }
       }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 10)
+      .padding(.horizontal, Spacing.lg_)
+      .padding(.vertical, Spacing.md_)
       .background(
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
           .fill(accentColor.opacity(isHovering ? OpacityTier.light : OpacityTier.subtle))
       )
       .overlay(
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
           .strokeBorder(accentColor.opacity(0.15), lineWidth: 1)
       )
       .contentShape(Rectangle())
       .onTapGesture {
         if hasOutput {
-          withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+          withAnimation(Motion.snappy) {
             isExpanded.toggle()
           }
         }
@@ -924,22 +924,22 @@ private struct ShellContextCommandRow: View {
 
         ScrollView {
           Text(displayOutput)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: TypeScale.meta, design: .monospaced))
             .foregroundStyle(
               command.hasError
-                ? Color.orange.opacity(0.85)
+                ? Color.feedbackWarning.opacity(0.85)
                 : Color.textPrimary.opacity(0.85)
             )
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 200)
-        .padding(12)
+        .padding(Spacing.md)
         .background(
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
             .fill(Color.backgroundTertiary)
         )
-        .padding(.top, 8)
+        .padding(.top, Spacing.sm)
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
@@ -962,37 +962,37 @@ struct TaskNotificationCard: View {
   }
 
   var body: some View {
-    VStack(alignment: .trailing, spacing: 10) {
+    VStack(alignment: .trailing, spacing: Spacing.md_) {
       // Meta line
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Text(formatTime(timestamp))
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textQuaternary)
 
         Text("Background Task")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.textTertiary)
       }
 
       // Task notification card
       VStack(alignment: .leading, spacing: 0) {
         // Header
-        HStack(spacing: 10) {
+        HStack(spacing: Spacing.md_) {
           // Status icon
           Image(systemName: notification.status.icon)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(taskColor)
 
           // Task description
-          VStack(alignment: .leading, spacing: 2) {
+          VStack(alignment: .leading, spacing: Spacing.xxs) {
             Text(notification.cleanDescription)
-              .font(.system(size: 12, weight: .medium))
+              .font(.system(size: TypeScale.caption, weight: .medium))
               .foregroundStyle(.primary.opacity(0.9))
               .lineLimit(isExpanded ? nil : 1)
 
-            HStack(spacing: 6) {
+            HStack(spacing: Spacing.sm_) {
               Text(notification.status.label)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: TypeScale.micro, weight: .semibold))
                 .foregroundStyle(taskColor)
 
               Text("•")
@@ -1000,7 +1000,7 @@ struct TaskNotificationCard: View {
                 .foregroundStyle(Color.textQuaternary)
 
               Text(notification.taskId)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: TypeScale.micro, design: .monospaced))
                 .foregroundStyle(Color.textTertiary)
             }
           }
@@ -1010,25 +1010,25 @@ struct TaskNotificationCard: View {
           // Expand indicator (if output file exists)
           if !notification.outputFile.isEmpty {
             Image(systemName: "chevron.down")
-              .font(.system(size: 9, weight: .semibold))
+              .font(.system(size: TypeScale.mini, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
               .rotationEffect(.degrees(isExpanded ? 0 : -90))
           }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Spacing.lg_)
+        .padding(.vertical, Spacing.md_)
         .background(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .fill(taskColor.opacity(isHovering ? 0.12 : 0.08))
         )
         .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .strokeBorder(taskColor.opacity(0.15), lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onTapGesture {
           if !notification.outputFile.isEmpty {
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+            withAnimation(Motion.snappy) {
               isExpanded.toggle()
             }
             if isExpanded, outputContent == nil {
@@ -1040,20 +1040,20 @@ struct TaskNotificationCard: View {
 
         // Output panel
         if isExpanded, !notification.outputFile.isEmpty {
-          VStack(alignment: .leading, spacing: 8) {
+          VStack(alignment: .leading, spacing: Spacing.sm) {
             if isLoadingOutput {
-              HStack(spacing: 8) {
+              HStack(spacing: Spacing.sm) {
                 ProgressView()
                   .controlSize(.small)
                 Text("Loading output...")
-                  .font(.system(size: 11))
+                  .font(.system(size: TypeScale.meta))
                   .foregroundStyle(.secondary)
               }
-              .padding(.vertical, 8)
+              .padding(.vertical, Spacing.sm)
             } else if let output = outputContent {
               ScrollView {
                 Text(output.count > 5_000 ? String(output.prefix(5_000)) + "\n..." : output)
-                  .font(.system(size: 11, design: .monospaced))
+                  .font(.system(size: TypeScale.meta, design: .monospaced))
                   .foregroundStyle(.primary.opacity(0.85))
                   .textSelection(.enabled)
                   .frame(maxWidth: .infinity, alignment: .leading)
@@ -1061,16 +1061,16 @@ struct TaskNotificationCard: View {
               .frame(maxHeight: 250)
             } else {
               Text("Output file not found")
-                .font(.system(size: 11))
+                .font(.system(size: TypeScale.meta))
                 .foregroundStyle(Color.textTertiary)
             }
           }
-          .padding(12)
+          .padding(Spacing.md)
           .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
               .fill(Color.backgroundTertiary)
           )
-          .padding(.top, 8)
+          .padding(.top, Spacing.sm)
           .transition(.opacity.combined(with: .move(edge: .top)))
         }
       }
@@ -1106,7 +1106,7 @@ struct TaskNotificationCard: View {
 // MARK: - Previews
 
 #Preview("Bash Cards") {
-  VStack(alignment: .trailing, spacing: 20) {
+  VStack(alignment: .trailing, spacing: Spacing.section) {
     UserBashCard(
       bash: ParsedBashContent(
         input: "git status",
@@ -1125,13 +1125,13 @@ struct TaskNotificationCard: View {
       timestamp: Date()
     )
   }
-  .padding(32)
+  .padding(Spacing.xxl)
   .frame(width: 600)
   .background(Color.backgroundPrimary)
 }
 
 #Preview("Slash Commands") {
-  VStack(alignment: .trailing, spacing: 20) {
+  VStack(alignment: .trailing, spacing: Spacing.section) {
     UserSlashCommandCard(
       command: ParsedSlashCommand(
         name: "/rename",
@@ -1162,13 +1162,13 @@ struct TaskNotificationCard: View {
       timestamp: Date()
     )
   }
-  .padding(32)
+  .padding(Spacing.xxl)
   .frame(width: 600)
   .background(Color.backgroundPrimary)
 }
 
 #Preview("Task Notifications") {
-  VStack(alignment: .trailing, spacing: 20) {
+  VStack(alignment: .trailing, spacing: Spacing.section) {
     TaskNotificationCard(
       notification: ParsedTaskNotification(
         taskId: "b1b8cae",
@@ -1199,7 +1199,7 @@ struct TaskNotificationCard: View {
       timestamp: Date()
     )
   }
-  .padding(32)
+  .padding(Spacing.xxl)
   .frame(width: 600)
   .background(Color.backgroundPrimary)
 }
@@ -1256,7 +1256,7 @@ struct TaskNotificationCard: View {
       timestamp: Date()
     )
   }
-  .padding(32)
+  .padding(Spacing.xxl)
   .frame(width: 600)
   .background(Color.backgroundPrimary)
 }

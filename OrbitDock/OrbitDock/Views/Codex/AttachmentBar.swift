@@ -35,7 +35,7 @@ struct AttachmentBar: View {
 
   var body: some View {
     ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         if !images.isEmpty {
           attachmentCountBadge(
             icon: "photo",
@@ -60,17 +60,17 @@ struct AttachmentBar: View {
             .transition(.scale.combined(with: .opacity))
         }
       }
-      .padding(.horizontal, isCompactLayout ? 10 : 8)
-      .padding(.vertical, 2)
-      .animation(.spring(response: 0.35, dampingFraction: 0.8), value: images.count)
-      .animation(.spring(response: 0.35, dampingFraction: 0.8), value: mentions.count)
+      .padding(.horizontal, isCompactLayout ? Spacing.md_ : Spacing.sm)
+      .padding(.vertical, Spacing.xxs)
+      .animation(Motion.gentle, value: images.count)
+      .animation(Motion.gentle, value: mentions.count)
     }
-    .padding(.horizontal, isCompactLayout ? 4 : 0)
-    .padding(.vertical, isCompactLayout ? 3 : 0)
+    .padding(.horizontal, isCompactLayout ? Spacing.xs : 0)
+    .padding(.vertical, isCompactLayout ? Spacing.gap : 0)
     .background(
       Group {
         if isCompactLayout {
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .fill(Color.backgroundTertiary.opacity(0.5))
         }
       }
@@ -78,13 +78,13 @@ struct AttachmentBar: View {
     .overlay(
       Group {
         if isCompactLayout {
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
         }
       }
     )
-    .padding(.horizontal, 12)
-    .padding(.top, isCompactLayout ? 3 : 1)
+    .padding(.horizontal, Spacing.md)
+    .padding(.top, isCompactLayout ? Spacing.gap : 1)
   }
 
   private func imageChip(_ image: AttachedImage) -> some View {
@@ -100,28 +100,28 @@ struct AttachmentBar: View {
           .resizable()
           .aspectRatio(contentMode: .fill)
           .frame(width: chipSize, height: chipSize)
-          .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
       #else
         Image(uiImage: image.thumbnail)
           .resizable()
           .aspectRatio(contentMode: .fill)
           .frame(width: chipSize, height: chipSize)
-          .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
       #endif
 
       removeButton {
         removeImage(withID: image.id)
       }
-      .padding(2)
+      .padding(Spacing.xxs)
       .zIndex(1)
     }
     .frame(width: chipSize, height: chipSize)
     .overlay(
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
         .strokeBorder(Color.white.opacity(isCompactLayout ? 0.07 : 0.05), lineWidth: 1)
     )
-    .shadow(color: .black.opacity(isCompactLayout ? 0.14 : 0.08), radius: 2, y: 1)
-    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .themeShadow(Shadow.sm)
+    .contentShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
     .contextMenu {
       Button("Remove Image", role: .destructive) {
         removeImage(withID: image.id)
@@ -150,8 +150,8 @@ struct AttachmentBar: View {
       .contentShape(Circle())
       .padding(.vertical, 1)
     }
-    .padding(.horizontal, 8)
-    .padding(.vertical, isCompactLayout ? 4 : 3)
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.gap)
     .background(Color.accent.opacity(isCompactLayout ? 0.12 : 0.08))
     .overlay {
       if isCompactLayout {
@@ -160,7 +160,7 @@ struct AttachmentBar: View {
       }
     }
     .clipShape(Capsule())
-    .shadow(color: .black.opacity(isCompactLayout ? 0.1 : 0.05), radius: 1, y: 1)
+    .themeShadow(Shadow.sm)
     .help(mention.path)
     .contextMenu {
       Button("Remove Mention", role: .destructive) {
@@ -170,7 +170,7 @@ struct AttachmentBar: View {
   }
 
   private func attachmentCountBadge(icon: String, count: Int, tint: Color) -> some View {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       Image(systemName: icon)
         .font(.system(size: 9, weight: .semibold))
       Text("\(count)")
@@ -178,18 +178,18 @@ struct AttachmentBar: View {
     }
     .foregroundStyle(tint)
     .padding(.horizontal, 7)
-    .padding(.vertical, 4)
+    .padding(.vertical, Spacing.xs)
     .background(tint.opacity(0.14), in: Capsule())
   }
 
   private func removeImage(withID id: String) {
-    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+    withAnimation(Motion.gentle) {
       images.removeAll { $0.id == id }
     }
   }
 
   private func removeMention(withID id: String) {
-    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+    withAnimation(Motion.gentle) {
       mentions.removeAll { $0.id == id }
     }
   }
@@ -215,7 +215,7 @@ struct AttachmentBar: View {
     }
     .buttonStyle(.plain)
     .contentShape(Rectangle())
-    .shadow(color: .black.opacity(0.2), radius: 1, y: 1)
+    .themeShadow(Shadow.sm)
   }
 
   private func fileIcon(for name: String) -> String {

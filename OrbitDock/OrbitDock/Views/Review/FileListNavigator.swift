@@ -49,7 +49,7 @@ struct FileListNavigator: View {
 
   private var sourceSelector: some View {
     ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         sourceButton(
           label: "All Changes",
           icon: "square.stack.3d.up",
@@ -70,9 +70,9 @@ struct FileListNavigator: View {
           }
         }
       }
-      .padding(.horizontal, 8)
+      .padding(.horizontal, Spacing.sm)
     }
-    .padding(.vertical, 8)
+    .padding(.vertical, Spacing.sm)
   }
 
   private func sourceButton(
@@ -83,14 +83,14 @@ struct FileListNavigator: View {
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: icon)
           .font(.system(size: TypeScale.micro, weight: .medium))
         Text(label)
           .font(.system(size: TypeScale.caption, weight: isSelected ? .semibold : .medium))
       }
       .foregroundStyle(isSelected ? (isLive ? Color.accent : .primary) : .secondary)
-      .padding(.horizontal, 8)
+      .padding(.horizontal, Spacing.sm)
       .padding(.vertical, 5)
       .background(
         isSelected
@@ -112,18 +112,18 @@ struct FileListNavigator: View {
     let totalAdds = files.reduce(0) { $0 + $1.stats.additions }
     let totalDels = files.reduce(0) { $0 + $1.stats.deletions }
 
-    return HStack(spacing: 8) {
+    return HStack(spacing: Spacing.sm) {
       Text("\(files.count) file\(files.count == 1 ? "" : "s")")
         .font(.system(size: TypeScale.caption, weight: .medium))
         .foregroundStyle(.secondary)
 
       if hasResolvedComments, let binding = showResolvedComments {
         Button {
-          withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+          withAnimation(Motion.snappy) {
             binding.wrappedValue.toggle()
           }
         } label: {
-          HStack(spacing: 3) {
+          HStack(spacing: Spacing.gap) {
             Image(systemName: binding.wrappedValue ? "eye.fill" : "eye.slash")
               .font(.system(size: 8, weight: .medium))
             Text("History")
@@ -150,7 +150,7 @@ struct FileListNavigator: View {
         }
       }
 
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Text("+\(totalAdds)")
           .foregroundStyle(Color.diffAddedAccent)
         Text("\u{2212}\(totalDels)")
@@ -187,11 +187,11 @@ struct FileListNavigator: View {
             }
           }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
       }
       .onChange(of: selectedFileId) { _, newId in
         if let id = newId {
-          withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+          withAnimation(Motion.snappy) {
             proxy.scrollTo(id, anchor: .center)
           }
         }
@@ -202,7 +202,7 @@ struct FileListNavigator: View {
   // MARK: - Empty State
 
   private var emptyFileList: some View {
-    VStack(spacing: 8) {
+    VStack(spacing: Spacing.sm) {
       Image(systemName: "doc.text")
         .font(.system(size: 20, weight: .light))
         .foregroundStyle(Color.textTertiary)

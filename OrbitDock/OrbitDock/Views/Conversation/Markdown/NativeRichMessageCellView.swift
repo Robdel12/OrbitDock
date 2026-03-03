@@ -847,7 +847,7 @@ struct NativeRichMessageRowModel {
       let sizeText = Self.formatBytes(totalBytes)
 
       let label = NSTextField(labelWithString: "\(countText)  \u{00B7}  \(sizeText)")
-      label.font = .systemFont(ofSize: 12, weight: .medium)
+      label.font = .systemFont(ofSize: TypeScale.caption, weight: .medium)
       label.textColor = NSColor.secondaryLabelColor
       label.sizeToFit()
       label.frame.origin = CGPoint(x: 34, y: (Self.imageHeaderHeight - label.frame.height) / 2)
@@ -859,7 +859,7 @@ struct NativeRichMessageRowModel {
     /// Monospaced dimension label: "1234 × 567 • 50.3 KB"
     private static func makeDimensionLabel(text: String) -> NSTextField {
       let label = NSTextField(labelWithString: text)
-      label.font = .monospacedSystemFont(ofSize: 10, weight: .medium)
+      label.font = .monospacedSystemFont(ofSize: TypeScale.micro, weight: .medium)
       label.textColor = NSColor(Color.textQuaternary)
       label.sizeToFit()
       return label
@@ -874,7 +874,7 @@ struct NativeRichMessageRowModel {
       badge.layer?.backgroundColor = NSColor(Color.accent).withAlphaComponent(0.9).cgColor
 
       let label = NSTextField(labelWithString: "\(number)")
-      label.font = .systemFont(ofSize: 11, weight: .bold)
+      label.font = .systemFont(ofSize: TypeScale.meta, weight: .bold)
       label.textColor = .white
       label.alignment = .center
       label.sizeToFit()

@@ -23,35 +23,35 @@ import SwiftUI
       VStack(alignment: .leading, spacing: 0) {
         // Header
         HStack {
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: "terminal.fill")
-              .font(.system(size: 12, weight: .semibold))
+              .font(.system(size: TypeScale.caption, weight: .semibold))
             Text("OrbitDock")
-              .font(.system(size: 13, weight: .semibold))
+              .font(.system(size: TypeScale.body, weight: .semibold))
           }
           .foregroundStyle(headerTitleColor)
 
           Spacer()
 
           if !activeSessions.isEmpty {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               Circle()
                 .fill(Color.statusWorking)
                 .frame(width: 6, height: 6)
               Text("\(activeSessions.count)")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .font(.system(size: TypeScale.meta, weight: .bold, design: .rounded))
                 .foregroundStyle(Color.statusWorking)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.gap)
             .background(Color.statusWorking.opacity(colorScheme == .dark ? 0.16 : 0.12), in: Capsule())
           }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.lg_)
 
         // Provider Usage
-        VStack(spacing: 6) {
+        VStack(spacing: Spacing.sm_) {
           ForEach(UsageServiceRegistry.shared.allProviders) { provider in
             ProviderMenuBarSection(
               provider: provider,
@@ -61,8 +61,8 @@ import SwiftUI
             )
           }
         }
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.bottom, Spacing.sm)
 
         menuDivider
 
@@ -80,7 +80,7 @@ import SwiftUI
             if !recentSessions.isEmpty {
               if !activeSessions.isEmpty {
                 menuDivider
-                  .padding(.vertical, 8)
+                  .padding(.vertical, Spacing.sm)
               }
 
               sectionHeader("Recent")
@@ -94,8 +94,8 @@ import SwiftUI
               emptyView
             }
           }
-          .padding(.horizontal, 12)
-          .padding(.vertical, 8)
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.sm)
         }
         .frame(minHeight: 150, maxHeight: 320)
         .layoutPriority(1)
@@ -114,11 +114,11 @@ import SwiftUI
               NSApplication.shared.activate(ignoringOtherApps: true)
             }
           } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               Image(systemName: "macwindow")
-                .font(.system(size: 11))
+                .font(.system(size: TypeScale.meta))
               Text("Open Window")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: TypeScale.caption, weight: .medium))
             }
             .foregroundStyle(secondaryTextColor)
           }
@@ -130,13 +130,13 @@ import SwiftUI
             serverState.refreshSessionsList()
           } label: {
             Image(systemName: "arrow.clockwise")
-              .font(.system(size: 11, weight: .semibold))
+              .font(.system(size: TypeScale.meta, weight: .semibold))
               .foregroundStyle(tertiaryTextColor)
           }
           .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.md)
       }
       .frame(width: 332)
       .background(colorScheme == .dark ? Color.backgroundPrimary : Color(nsColor: .windowBackgroundColor))
@@ -144,18 +144,18 @@ import SwiftUI
 
     private func sectionHeader(_ title: String) -> some View {
       Text(title.uppercased())
-        .font(.system(size: 10, weight: .semibold, design: .rounded))
+        .font(.system(size: TypeScale.micro, weight: .semibold, design: .rounded))
         .foregroundStyle(tertiaryTextColor)
-        .padding(.horizontal, 4)
-        .padding(.bottom, 6)
+        .padding(.horizontal, Spacing.xs)
+        .padding(.bottom, Spacing.sm_)
     }
 
     private var emptyView: some View {
-      VStack(spacing: 10) {
+      VStack(spacing: Spacing.md_) {
         ZStack {
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .fill(Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.08))
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .strokeBorder(Color.primary.opacity(colorScheme == .dark ? 0.1 : 0.12), lineWidth: 1)
           Image(systemName: "terminal")
             .font(.system(size: 23, weight: .semibold))
@@ -164,11 +164,11 @@ import SwiftUI
         .frame(width: 52, height: 42)
 
         Text("No sessions")
-          .font(.system(size: 13, weight: .medium))
+          .font(.system(size: TypeScale.body, weight: .medium))
           .foregroundStyle(secondaryTextColor)
       }
       .frame(maxWidth: .infinity)
-      .padding(.vertical, 32)
+      .padding(.vertical, Spacing.xxl)
     }
 
     private var menuDivider: some View {
@@ -205,44 +205,44 @@ import SwiftUI
     }
 
     var body: some View {
-      HStack(spacing: 10) {
+      HStack(spacing: Spacing.md_) {
         // Status dot - using unified component
         SessionStatusDot(status: displayStatus, size: 6)
           .frame(width: 14)
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(session.displayName)
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.caption, weight: .medium))
             .foregroundStyle(.primary)
             .lineLimit(1)
 
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             if let branch = session.branch, !branch.isEmpty {
-              HStack(spacing: 2) {
+              HStack(spacing: Spacing.xxs) {
                 Image(systemName: "arrow.triangle.branch")
                   .font(.system(size: 8))
                 Text(branch)
-                  .font(.system(size: 10, design: .monospaced))
+                  .font(.system(size: TypeScale.micro, design: .monospaced))
               }
               .foregroundStyle(branchColor)
               .lineLimit(1)
             }
 
             Text(session.formattedDuration)
-              .font(.system(size: 10, design: .monospaced))
+              .font(.system(size: TypeScale.micro, design: .monospaced))
               .foregroundStyle(durationColor)
           }
         }
 
-        Spacer(minLength: 4)
+        Spacer(minLength: Spacing.xs)
 
         UnifiedModelBadge(model: session.model, provider: session.provider)
       }
-      .padding(.horizontal, 8)
-      .padding(.vertical, 6)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm_)
       .background(
         isHovering ? Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.09) : Color.clear,
-        in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
       )
       .onHover { isHovering = $0 }
     }

@@ -1,36 +1,50 @@
 import Foundation
+import Security
 
 struct ServerEndpointStore {
   static let endpointsStorageKey = "orbitdock.server.endpoints"
+  static let endpointTokenIdsStorageKey = "orbitdock.server.endpoint-token-ids"
 
   private let defaults: UserDefaults
   private let endpointsKey: String
+  private let endpointTokenIdsKey: String
   private let defaultPort: Int
+  private let tokenStore: ServerEndpointTokenStore
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
+
+  private static let includesLocalManagedEndpoint = false
 
   init(
     defaults: UserDefaults = .standard,
     endpointsKey: String = ServerEndpointStore.endpointsStorageKey,
+    endpointTokenIdsKey: String = ServerEndpointStore.endpointTokenIdsStorageKey,
+    tokenStore: ServerEndpointTokenStore = ServerEndpointTokenStore(),
     defaultPort: Int = ServerEndpointSettings.defaultPort
   ) {
     self.defaults = defaults
     self.endpointsKey = endpointsKey
+    self.endpointTokenIdsKey = endpointTokenIdsKey
+    self.tokenStore = tokenStore
     self.defaultPort = defaultPort
   }
 
   func endpoints() -> [ServerEndpoint] {
     guard let persisted = persistedEndpoints() else {
-      let seeded = [ServerEndpoint.localDefault(defaultPort: defaultPort)]
+      let seeded = Self.includesLocalManagedEndpoint
+        ? [ServerEndpoint.localDefault(defaultPort: defaultPort)]
+        : []
       save(seeded)
       return seeded
     }
 
     let normalized = normalizedEndpoints(persisted)
-    if normalized != persisted {
-      save(normalized)
+    let hydrated = hydratedEndpoints(normalized)
+    let containsInlineTokens = normalized.contains(where: { Self.normalizedToken($0.authToken) != nil })
+    if normalized != persisted || containsInlineTokens {
+      save(hydrated)
     }
-    return normalized
+    return hydrated
   }
 
   func defaultEndpoint() -> ServerEndpoint {
@@ -55,7 +69,13 @@ struct ServerEndpointStore {
 
   func save(_ rawEndpoints: [ServerEndpoint]) {
     let normalized = normalizedEndpoints(rawEndpoints)
-    guard let data = try? encoder.encode(normalized) else { return }
+    syncAuthTokens(from: normalized)
+    let redacted = normalized.map { endpoint -> ServerEndpoint in
+      var copy = endpoint
+      copy.authToken = nil
+      return copy
+    }
+    guard let data = try? encoder.encode(redacted) else { return }
     defaults.set(data, forKey: endpointsKey)
   }
 
@@ -125,17 +145,43 @@ struct ServerEndpointStore {
     return try? decoder.decode([ServerEndpoint].self, from: data)
   }
 
+  private func hydratedEndpoints(_ endpoints: [ServerEndpoint]) -> [ServerEndpoint] {
+    endpoints.map { endpoint in
+      var copy = endpoint
+      copy.authToken = tokenStore.token(for: endpoint.id) ?? Self.normalizedToken(endpoint.authToken)
+      return copy
+    }
+  }
+
+  private func syncAuthTokens(from endpoints: [ServerEndpoint]) {
+    let currentIds = Set(endpoints.map { $0.id.uuidString })
+    let previousIds = Set(defaults.stringArray(forKey: endpointTokenIdsKey) ?? [])
+
+    for removedId in previousIds.subtracting(currentIds) {
+      tokenStore.remove(forEndpointID: removedId)
+    }
+
+    for endpoint in endpoints {
+      tokenStore.set(Self.normalizedToken(endpoint.authToken), for: endpoint.id)
+    }
+
+    defaults.set(Array(currentIds).sorted(), forKey: endpointTokenIdsKey)
+  }
+
   private func normalizedEndpoints(_ rawEndpoints: [ServerEndpoint]) -> [ServerEndpoint] {
     var endpoints = rawEndpoints
+    if !Self.includesLocalManagedEndpoint {
+      endpoints.removeAll(where: \.isLocalManaged)
+    }
 
-    if endpoints.isEmpty {
+    if endpoints.isEmpty && Self.includesLocalManagedEndpoint {
       endpoints = [ServerEndpoint.localDefault(defaultPort: defaultPort)]
     }
 
     var seen = Set<UUID>()
     endpoints = endpoints.filter { seen.insert($0.id).inserted }
 
-    if !endpoints.contains(where: \.isLocalManaged) {
+    if Self.includesLocalManagedEndpoint && !endpoints.contains(where: \.isLocalManaged) {
       let shouldBeDefault = !endpoints.contains(where: { $0.isDefault && $0.isEnabled })
       var local = ServerEndpoint.localDefault(defaultPort: defaultPort)
       local.isDefault = shouldBeDefault
@@ -211,5 +257,68 @@ struct ServerEndpointStore {
       return "\(host):\(port)"
     }
     return host
+  }
+
+  private static func normalizedToken(_ token: String?) -> String? {
+    guard let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+      return nil
+    }
+    return trimmed
+  }
+}
+
+struct ServerEndpointTokenStore {
+  private let serviceName = "com.orbitdock.server-endpoint-token"
+
+  func token(for id: UUID) -> String? {
+    token(forEndpointID: id.uuidString)
+  }
+
+  func token(forEndpointID endpointID: String) -> String? {
+    var query = keychainQuery(forEndpointID: endpointID)
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    guard status == errSecSuccess, let data = result as? Data else { return nil }
+    return String(data: data, encoding: .utf8)
+  }
+
+  func set(_ token: String?, for id: UUID) {
+    set(token, forEndpointID: id.uuidString)
+  }
+
+  func set(_ token: String?, forEndpointID endpointID: String) {
+    guard let token, let tokenData = token.data(using: .utf8) else {
+      remove(forEndpointID: endpointID)
+      return
+    }
+
+    let query = keychainQuery(forEndpointID: endpointID)
+    let status = SecItemCopyMatching(query as CFDictionary, nil)
+
+    if status == errSecSuccess {
+      SecItemUpdate(query as CFDictionary, [kSecValueData as String: tokenData] as CFDictionary)
+      return
+    }
+
+    if status == errSecItemNotFound {
+      var addQuery = query
+      addQuery[kSecValueData as String] = tokenData
+      SecItemAdd(addQuery as CFDictionary, nil)
+    }
+  }
+
+  func remove(forEndpointID endpointID: String) {
+    SecItemDelete(keychainQuery(forEndpointID: endpointID) as CFDictionary)
+  }
+
+  private func keychainQuery(forEndpointID endpointID: String) -> [String: Any] {
+    [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: serviceName,
+      kSecAttrAccount as String: endpointID,
+    ]
   }
 }

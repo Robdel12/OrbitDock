@@ -113,7 +113,7 @@ struct RemoteProjectPicker: View {
         .font(.system(size: 12))
         .foregroundStyle(Color.accent)
 
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
         Text(URL(fileURLWithPath: selectedPath).lastPathComponent)
           .font(.system(size: TypeScale.body, weight: .medium))
           .foregroundStyle(Color.textPrimary)
@@ -158,7 +158,7 @@ struct RemoteProjectPicker: View {
     HStack(spacing: Spacing.xs) {
       ForEach(PickerTab.allCases, id: \.self) { tab in
         Button {
-          withAnimation(.easeOut(duration: 0.15)) {
+          withAnimation(Motion.hover) {
             activeTab = tab
           }
           if tab == .browse, directoryEntries.isEmpty {
@@ -279,7 +279,7 @@ struct RemoteProjectPicker: View {
           .font(.system(size: 14))
           .foregroundStyle(Color.accent)
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(URL(fileURLWithPath: project.path).lastPathComponent)
             .font(.system(size: TypeScale.body, weight: .medium))
             .foregroundStyle(Color.textPrimary)
@@ -293,13 +293,13 @@ struct RemoteProjectPicker: View {
 
         Spacer()
 
-        VStack(alignment: .trailing, spacing: 4) {
+        VStack(alignment: .trailing, spacing: Spacing.xs) {
           if worktreeCount > 0 {
             Text("\(worktreeCount) worktree\(worktreeCount == 1 ? "" : "s")")
               .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(Color.accent)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.xxs)
               .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
               .fixedSize(horizontal: true, vertical: false)
           }
@@ -344,7 +344,7 @@ struct RemoteProjectPicker: View {
           .font(.system(size: 14))
           .foregroundStyle(Color.accent)
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(URL(fileURLWithPath: group.repoPath).lastPathComponent)
             .font(.system(size: TypeScale.body, weight: .medium))
             .foregroundStyle(Color.textPrimary)
@@ -358,12 +358,12 @@ struct RemoteProjectPicker: View {
 
         Spacer()
 
-        VStack(alignment: .trailing, spacing: 4) {
+        VStack(alignment: .trailing, spacing: Spacing.xs) {
           Text("\(group.worktrees.count) worktree\(group.worktrees.count == 1 ? "" : "s")")
             .font(.system(size: TypeScale.micro, weight: .semibold))
             .foregroundStyle(Color.accent)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.xxs)
             .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
             .fixedSize(horizontal: true, vertical: false)
 
@@ -408,7 +408,7 @@ struct RemoteProjectPicker: View {
           .foregroundStyle(Color.accent)
           .frame(width: 20)
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(worktree.branchPath)
             .font(.system(size: TypeScale.body, weight: .medium))
             .foregroundStyle(Color.textPrimary)
@@ -422,12 +422,12 @@ struct RemoteProjectPicker: View {
 
         Spacer()
 
-        VStack(alignment: .trailing, spacing: 4) {
+        VStack(alignment: .trailing, spacing: Spacing.xs) {
           Text("worktree")
             .font(.system(size: TypeScale.micro, weight: .semibold))
             .foregroundStyle(Color.accent)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.xxs)
             .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
             .fixedSize(horizontal: true, vertical: false)
 
@@ -476,7 +476,7 @@ struct RemoteProjectPicker: View {
               .font(.system(size: 11, weight: .semibold))
               .foregroundStyle(Color.accent)
               .frame(width: 28, height: 28)
-              .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6))
+              .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md))
           }
           .buttonStyle(.plain)
         }
@@ -498,7 +498,7 @@ struct RemoteProjectPicker: View {
               .font(.system(size: TypeScale.caption, weight: .semibold))
               .foregroundStyle(Color.accent)
               .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, 4)
+              .padding(.vertical, Spacing.xs)
               .background(Color.accent.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.sm))
           }
           .buttonStyle(.plain)
@@ -557,8 +557,8 @@ struct RemoteProjectPicker: View {
           Text("repo")
             .font(.system(size: TypeScale.micro, weight: .semibold))
             .foregroundStyle(Color.accent)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.xxs)
             .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
         } else {
           Image(systemName: "chevron.right")
@@ -744,7 +744,7 @@ struct RemoteProjectPicker: View {
             .lineSpacing(2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .textSelection(.enabled)
-            .padding(.vertical, 2)
+            .padding(.vertical, Spacing.xxs)
         }
         .frame(maxHeight: 120)
       }

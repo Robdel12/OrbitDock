@@ -102,6 +102,6 @@ struct ToolIndicator: View {
           StandardToolCard(message: message, isExpanded: $isExpanded, isHovering: $isHovering)
       }
     }
-    .padding(.vertical, 6)
+    .padding(.vertical, Spacing.sm_)
   }
 }

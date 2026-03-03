@@ -65,7 +65,7 @@ struct CodexApprovalHistoryView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: Spacing.md_) {
       permissionPosture
 
       if !activeScopeGrants.isEmpty {
@@ -92,7 +92,7 @@ struct CodexApprovalHistoryView: View {
           .foregroundStyle(.secondary)
       } else {
         ScrollView {
-          LazyVStack(spacing: 8) {
+          LazyVStack(spacing: Spacing.sm) {
             ForEach(approvals) { approval in
               approvalRow(approval)
             }
@@ -117,7 +117,7 @@ struct CodexApprovalHistoryView: View {
   }
 
   private var permissionPosture: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
       Text("Permission Posture")
         .font(.headline)
 
@@ -129,8 +129,16 @@ struct CodexApprovalHistoryView: View {
               serverState.updateSessionConfig(sessionId: sessionId, autonomy: newValue)
             }
           )
+          let modeBinding = Binding(
+            get: {
+              CodexCollaborationMode.from(permissionMode: serverState.session(sessionId).permissionMode)
+            },
+            set: { newValue in
+              serverState.updateCodexCollaborationMode(sessionId: sessionId, mode: newValue)
+            }
+          )
 
-          VStack(alignment: .leading, spacing: 6) {
+          VStack(alignment: .leading, spacing: Spacing.sm_) {
             Picker("Autonomy", selection: autonomyBinding) {
               ForEach(AutonomyLevel.allCases) { level in
                 Text(level.displayName).tag(level)
@@ -142,6 +150,14 @@ struct CodexApprovalHistoryView: View {
             Text(autonomyBinding.wrappedValue.description)
               .font(.caption2)
               .foregroundStyle(.secondary)
+
+            Picker("Mode", selection: modeBinding) {
+              ForEach(CodexCollaborationMode.allCases) { mode in
+                Text(mode.displayName).tag(mode)
+              }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
           }
         } else if session.isDirectClaude {
           let permissionBinding = Binding(
@@ -151,7 +167,7 @@ struct CodexApprovalHistoryView: View {
             }
           )
 
-          VStack(alignment: .leading, spacing: 6) {
+          VStack(alignment: .leading, spacing: Spacing.sm_) {
             Picker("Permission Mode", selection: permissionBinding) {
               ForEach(ClaudePermissionMode.allCases) { mode in
                 Text(mode.displayName).tag(mode)
@@ -175,23 +191,23 @@ struct CodexApprovalHistoryView: View {
         .font(.caption2)
         .foregroundStyle(Color.textTertiary)
     }
-    .padding(10)
+    .padding(Spacing.md_)
     .background(Color.backgroundPrimary)
-    .clipShape(RoundedRectangle(cornerRadius: 10))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
   }
 
   private var activeGrantList: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
       Text("Active Grants")
         .font(.subheadline.weight(.semibold))
 
       ForEach(activeScopeGrants) { approval in
-        VStack(alignment: .leading, spacing: 4) {
-          HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          HStack(spacing: Spacing.sm) {
             Text(approval.toolName ?? approval.approvalType.rawValue.uppercased())
               .font(.caption.bold())
-              .padding(.horizontal, 8)
-              .padding(.vertical, 2)
+              .padding(.horizontal, Spacing.sm)
+              .padding(.vertical, Spacing.xxs)
               .background(Color.backgroundTertiary)
               .clipShape(Capsule())
 
@@ -215,20 +231,20 @@ struct CodexApprovalHistoryView: View {
               .truncationMode(.middle)
           }
         }
-        .padding(8)
+        .padding(Spacing.sm)
         .background(Color.backgroundPrimary)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: Radius.ml))
       }
     }
   }
 
   private func approvalRow(_ approval: ServerApprovalHistoryItem) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      HStack(spacing: Spacing.sm) {
         Text(approval.toolName ?? approval.approvalType.rawValue.uppercased())
           .font(.caption.bold())
-          .padding(.horizontal, 8)
-          .padding(.vertical, 2)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xxs)
           .background(Color.backgroundTertiary)
           .clipShape(Capsule())
 
@@ -266,7 +282,7 @@ struct CodexApprovalHistoryView: View {
 
       HStack {
         Text(approval.sessionId)
-          .font(.system(size: 10, design: .monospaced))
+          .font(.system(size: TypeScale.micro, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
           .truncationMode(.middle)
@@ -282,9 +298,9 @@ struct CodexApprovalHistoryView: View {
         }
       }
     }
-    .padding(8)
+    .padding(Spacing.sm)
     .background(Color.backgroundPrimary)
-    .clipShape(RoundedRectangle(cornerRadius: 8))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.ml))
   }
 
   private func decisionLabel(_ decision: String) -> String {

@@ -138,7 +138,7 @@ struct TaskCard: View {
   // MARK: - Header
 
   private var header: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       // Agent icon with status ring
       ZStack {
         Circle()
@@ -146,7 +146,7 @@ struct TaskCard: View {
           .frame(width: 32, height: 32)
 
         Image(systemName: agentInfo.icon)
-          .font(.system(size: 14, weight: .semibold))
+          .font(.system(size: TypeScale.subhead, weight: .semibold))
           .foregroundStyle(agentInfo.color)
 
         // Status ring
@@ -161,34 +161,34 @@ struct TaskCard: View {
         }
       }
 
-      VStack(alignment: .leading, spacing: 3) {
-        HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: Spacing.gap) {
+        HStack(spacing: Spacing.sm) {
           // Agent type badge
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Text(agentInfo.label)
-              .font(.system(size: 11, weight: .bold))
+              .font(.system(size: TypeScale.meta, weight: .bold))
           }
           .foregroundStyle(.white)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 3)
-          .background(agentInfo.color, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.gap)
+          .background(agentInfo.color, in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
 
           // Status
           if message.isInProgress {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               ProgressView()
                 .controlSize(.mini)
               Text("Running...")
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: TypeScale.micro, weight: .medium))
             }
             .foregroundStyle(agentInfo.color)
           } else if isComplete {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 11))
+                .font(.system(size: TypeScale.meta))
                 .foregroundStyle(Color(red: 0.4, green: 0.9, blue: 0.5))
               Text("Complete")
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: TypeScale.micro, weight: .medium))
                 .foregroundStyle(.secondary)
             }
           }
@@ -197,7 +197,7 @@ struct TaskCard: View {
         // Description
         if !description.isEmpty {
           Text(description)
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.caption, weight: .medium))
             .foregroundStyle(.primary.opacity(0.9))
             .lineLimit(1)
         }
@@ -205,7 +205,7 @@ struct TaskCard: View {
         // Result preview in header when complete
         if isComplete, !isExpanded {
           Text(output.prefix(100).replacingOccurrences(of: "\n", with: " "))
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -213,7 +213,7 @@ struct TaskCard: View {
 
       Spacer()
 
-      VStack(alignment: .trailing, spacing: 4) {
+      VStack(alignment: .trailing, spacing: Spacing.xs) {
         if !message.isInProgress {
           ToolCardDuration(duration: message.formattedDuration)
         }
@@ -229,13 +229,13 @@ struct TaskCard: View {
     VStack(alignment: .leading, spacing: 0) {
       // Result first (most important when complete)
       if isComplete {
-        VStack(alignment: .leading, spacing: 8) {
-          HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: "text.bubble.fill")
-              .font(.system(size: 10))
+              .font(.system(size: TypeScale.micro))
               .foregroundStyle(Color(red: 0.4, green: 0.9, blue: 0.5))
             Text("AGENT RESULT")
-              .font(.system(size: 9, weight: .bold, design: .rounded))
+              .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
               .foregroundStyle(Color(red: 0.4, green: 0.9, blue: 0.5).opacity(0.8))
               .tracking(0.5)
           }
@@ -246,7 +246,7 @@ struct TaskCard: View {
           }
           .frame(maxHeight: 300)
         }
-        .padding(14)
+        .padding(Spacing.lg_)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(red: 0.15, green: 0.25, blue: 0.18).opacity(0.5))
       }
@@ -256,14 +256,14 @@ struct TaskCard: View {
         subagentToolsSection
       } else if !hasLoadedSubagent, isExpanded {
         // Loading indicator
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           ProgressView()
             .controlSize(.small)
           Text("Loading agent activity...")
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(.secondary)
         }
-        .padding(12)
+        .padding(Spacing.md)
       }
 
       // Prompt section (collapsed by default if we have tools)
@@ -279,33 +279,33 @@ struct TaskCard: View {
     VStack(alignment: .leading, spacing: 0) {
       // Header with toggle
       Button {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+        withAnimation(Motion.standard) {
           showSubagentTools.toggle()
         }
       } label: {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           Image(systemName: "chevron.right")
-            .font(.system(size: 9, weight: .bold))
+            .font(.system(size: TypeScale.mini, weight: .bold))
             .rotationEffect(.degrees(showSubagentTools ? 90 : 0))
             .foregroundStyle(agentInfo.color)
 
           Image(systemName: "rectangle.stack.fill")
-            .font(.system(size: 10))
+            .font(.system(size: TypeScale.micro))
             .foregroundStyle(agentInfo.color.opacity(0.7))
 
           Text("AGENT ACTIVITY")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
             .foregroundStyle(agentInfo.color.opacity(0.8))
             .tracking(0.5)
 
           Text("(\(subagentTools.count) tools)")
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: TypeScale.mini, weight: .medium))
             .foregroundStyle(Color.textTertiary)
 
           Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
@@ -313,20 +313,20 @@ struct TaskCard: View {
 
       // Nested tool list
       if showSubagentTools {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           ForEach(Array(subagentTools.prefix(20).enumerated()), id: \.element.id) { _, tool in
             SubagentToolRow(tool: tool, color: agentInfo.color)
           }
 
           if subagentTools.count > 20 {
             Text("... +\(subagentTools.count - 20) more tools")
-              .font(.system(size: 10))
+              .font(.system(size: TypeScale.micro))
               .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 6)
+              .padding(.horizontal, Spacing.md)
+              .padding(.vertical, Spacing.sm_)
           }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
         .background(Color.backgroundTertiary.opacity(0.2))
       }
     }
@@ -335,27 +335,27 @@ struct TaskCard: View {
   // MARK: - Prompt Section
 
   private var promptSection: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      HStack(spacing: 6) {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(spacing: Spacing.sm_) {
         Image(systemName: "text.quote")
-          .font(.system(size: 10))
+          .font(.system(size: TypeScale.micro))
           .foregroundStyle(agentInfo.color.opacity(0.7))
         Text("PROMPT")
-          .font(.system(size: 9, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textQuaternary)
           .tracking(0.5)
       }
 
       ScrollView {
         Text(prompt)
-          .font(.system(size: 11))
+          .font(.system(size: TypeScale.meta))
           .foregroundStyle(.primary.opacity(0.7))
           .textSelection(.enabled)
           .frame(maxWidth: .infinity, alignment: .leading)
       }
       .frame(maxHeight: 150)
     }
-    .padding(12)
+    .padding(Spacing.md)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.backgroundTertiary.opacity(0.3))
   }
@@ -376,27 +376,27 @@ private struct SubagentToolRow: View {
   }
 
   var body: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Spacing.sm) {
       // Indent indicator
       Rectangle()
         .fill(color.opacity(0.3))
         .frame(width: 2)
-        .padding(.leading, 8)
+        .padding(.leading, Spacing.sm)
 
       // Tool icon
       Image(systemName: toolIcon)
-        .font(.system(size: 9, weight: .medium))
+        .font(.system(size: TypeScale.mini, weight: .medium))
         .foregroundStyle(toolColor)
         .frame(width: 14)
 
       // Tool name
       Text(tool.toolName)
-        .font(.system(size: 10, weight: .semibold))
+        .font(.system(size: TypeScale.micro, weight: .semibold))
         .foregroundStyle(toolColor)
 
       // Summary
       Text(tool.summary)
-        .font(.system(size: 10, design: .monospaced))
+        .font(.system(size: TypeScale.micro, design: .monospaced))
         .foregroundStyle(.secondary)
         .lineLimit(1)
 
@@ -412,8 +412,8 @@ private struct SubagentToolRow: View {
           .foregroundStyle(Color(red: 0.4, green: 0.9, blue: 0.5).opacity(0.7))
       }
     }
-    .padding(.vertical, 4)
-    .padding(.trailing, 12)
+    .padding(.vertical, Spacing.xs)
+    .padding(.trailing, Spacing.md)
   }
 }
 

@@ -149,35 +149,35 @@ struct AutonomyPill: View {
     var iconFontSize: CGFloat {
       switch self {
         case .regular: TypeScale.body
-        case .statusBar: 9
+        case .statusBar: TypeScale.mini
       }
     }
 
     var textFontSize: CGFloat {
       switch self {
         case .regular: TypeScale.body
-        case .statusBar: 10
+        case .statusBar: TypeScale.micro
       }
     }
 
     var horizontalPadding: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.md)
-        case .statusBar: 6
+        case .statusBar: Spacing.sm_
       }
     }
 
     var verticalPadding: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.sm)
-        case .statusBar: 3
+        case .statusBar: Spacing.gap
       }
     }
 
     var spacing: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.xs)
-        case .statusBar: 3
+        case .statusBar: Spacing.gap
       }
     }
 
@@ -415,7 +415,7 @@ struct AutonomyTrack: View {
                 Circle()
                   .stroke(level.color, lineWidth: isActive ? 0 : 1.5)
               )
-              .shadow(color: isActive ? level.color.opacity(0.6) : .clear, radius: 4)
+              .themeShadow(Shadow.glow(color: isActive ? level.color : .clear, intensity: 0.6))
               .position(x: x, y: 6)
               .contentShape(Rectangle().size(width: segmentWidth, height: 20))
               .onTapGesture {
@@ -473,7 +473,7 @@ struct AutonomyLevelRow: View {
               .font(.system(size: 8, weight: .bold, design: .rounded))
               .foregroundStyle(Color.autonomyAutonomous)
               .padding(.horizontal, 5)
-              .padding(.vertical, 2)
+              .padding(.vertical, Spacing.xxs)
               .background(Color.autonomyAutonomous.opacity(OpacityTier.light), in: Capsule())
           }
 
@@ -490,7 +490,7 @@ struct AutonomyLevelRow: View {
         Text(level.description)
           .font(.system(size: TypeScale.body, weight: .regular))
           .foregroundStyle(Color.textSecondary)
-          .padding(.leading, 32) // align with text after icon
+          .padding(.leading, Spacing.xxl) // align with text after icon
 
         // Metadata line: approval + sandbox
         HStack(spacing: Spacing.md) {
@@ -512,7 +512,7 @@ struct AutonomyLevelRow: View {
           }
           .foregroundStyle(level.isSandboxed ? Color.textTertiary : Color.autonomyOpen.opacity(0.8))
         }
-        .padding(.leading, 32) // align with text after icon
+        .padding(.leading, Spacing.xxl) // align with text after icon
       }
       .padding(.leading, Spacing.sm)
       .padding(.trailing, Spacing.lg)
@@ -523,7 +523,7 @@ struct AutonomyLevelRow: View {
         ? level.color.opacity(OpacityTier.tint)
         : Color.clear
     )
-    .animation(.easeOut(duration: 0.1), value: isHighlighted)
+    .animation(Motion.hover, value: isHighlighted)
   }
 }
 

@@ -43,38 +43,38 @@ struct SkillsTab: View {
 
   private var claudeSkillsView: some View {
     VStack(spacing: 0) {
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Text("\(claudeSkillNames.count) skill\(claudeSkillNames.count == 1 ? "" : "s")")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
         Spacer()
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm)
 
       Divider()
         .foregroundStyle(Color.panelBorder.opacity(0.5))
 
       ScrollView(.vertical, showsIndicators: true) {
-        LazyVStack(alignment: .leading, spacing: 2) {
+        LazyVStack(alignment: .leading, spacing: Spacing.xxs) {
           ForEach(claudeSkillNames, id: \.self) { name in
-            HStack(spacing: 8) {
+            HStack(spacing: Spacing.sm) {
               Image(systemName: "bolt.fill")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: TypeScale.meta, weight: .medium))
                 .foregroundStyle(Color.toolSkill)
 
               Text(name)
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: TypeScale.caption, weight: .medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
 
               Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm_)
           }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, Spacing.sm)
       }
     }
     .background(Color.backgroundPrimary)
@@ -85,16 +85,16 @@ struct SkillsTab: View {
   private var codexSkillsView: some View {
     VStack(spacing: 0) {
       // Header
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Text("\(skills.count) skill\(skills.count == 1 ? "" : "s")")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
 
         if !selectedSkills.isEmpty {
           Text("·")
             .foregroundStyle(Color.textQuaternary)
           Text("\(selectedSkills.count) attached")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(Color.accent)
         }
 
@@ -104,34 +104,34 @@ struct SkillsTab: View {
           serverState.listSkills(sessionId: sessionId)
         } label: {
           Image(systemName: "arrow.clockwise")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(.secondary)
             .frame(width: 24, height: 24)
-            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4))
+            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm))
         }
         .buttonStyle(.plain)
         .help("Refresh skills")
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm)
 
       Divider()
         .foregroundStyle(Color.panelBorder.opacity(0.5))
 
       // Skills list grouped by scope
       ScrollView(.vertical, showsIndicators: true) {
-        LazyVStack(alignment: .leading, spacing: 12) {
+        LazyVStack(alignment: .leading, spacing: Spacing.md) {
           ForEach(groupedSkills, id: \.scope) { group in
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
               // Scope header
-              HStack(spacing: 4) {
+              HStack(spacing: Spacing.xs) {
                 Image(systemName: iconForScope(group.scope))
-                  .font(.system(size: 10, weight: .medium))
+                  .font(.system(size: TypeScale.micro, weight: .medium))
                 Text(labelForScope(group.scope))
-                  .font(.system(size: 10, weight: .bold))
+                  .font(.system(size: TypeScale.micro, weight: .bold))
               }
               .foregroundStyle(.secondary)
-              .padding(.horizontal, 12)
+              .padding(.horizontal, Spacing.md)
 
               // Skills in this scope
               ForEach(group.skills) { skill in
@@ -140,7 +140,7 @@ struct SkillsTab: View {
             }
           }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, Spacing.sm)
       }
     }
     .background(Color.backgroundPrimary)
@@ -152,7 +152,7 @@ struct SkillsTab: View {
     let isAttached = selectedSkills.contains(skill.path)
 
     return Button {
-      withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+      withAnimation(Motion.snappy) {
         if isAttached {
           selectedSkills.remove(skill.path)
         } else {
@@ -160,20 +160,20 @@ struct SkillsTab: View {
         }
       }
     } label: {
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Image(systemName: isAttached ? "checkmark.circle.fill" : "bolt.fill")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(isAttached ? Color.accent : Color.toolSkill)
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(skill.name)
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.caption, weight: .medium))
             .foregroundStyle(.primary)
             .lineLimit(1)
 
           if let desc = skill.shortDescription ?? Optional(skill.description), !desc.isEmpty {
             Text(desc)
-              .font(.system(size: 11))
+              .font(.system(size: TypeScale.meta))
               .foregroundStyle(.secondary)
               .lineLimit(2)
           }
@@ -181,8 +181,8 @@ struct SkillsTab: View {
 
         Spacer(minLength: 0)
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 6)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm_)
       .background(isAttached ? Color.accent.opacity(0.08) : Color.clear)
       .contentShape(Rectangle())
     }

@@ -295,6 +295,15 @@ final class ServerRuntimeRegistry {
       configureFromSettings(startEnabled: false)
     }
 
+    #if os(iOS)
+      // iOS should never synthesize a localhost runtime fallback.
+      if activeEndpointId == nil {
+        activeEndpointId = runtimesByEndpointId.keys.first
+      }
+      recomputePrimaryEndpoint()
+      return
+    #endif
+
     if runtimesByEndpointId.isEmpty {
       let endpoint = ServerEndpoint.localDefault(defaultPort: ServerEndpointSettings.defaultPort)
       let runtime = runtimeFactory(endpoint)

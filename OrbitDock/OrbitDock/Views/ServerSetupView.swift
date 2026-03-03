@@ -48,7 +48,7 @@ struct ServerSetupView: View {
         HStack(spacing: Spacing.sm) {
           Image(systemName: "exclamationmark.triangle.fill")
             .foregroundStyle(Color.statusPermission)
-            .font(.system(size: 12))
+            .font(.system(size: TypeScale.caption))
           Text(error)
             .font(.system(size: TypeScale.body))
             .foregroundStyle(Color.statusPermission)
@@ -105,7 +105,7 @@ struct ServerSetupView: View {
           } else {
             Image(systemName: "chevron.right")
               .foregroundStyle(Color.textQuaternary)
-              .font(.system(size: 12))
+              .font(.system(size: TypeScale.caption))
           }
         }
         .padding(Spacing.lg)
@@ -148,7 +148,7 @@ struct ServerSetupView: View {
 
         Image(systemName: "chevron.right")
           .foregroundStyle(Color.textQuaternary)
-          .font(.system(size: 12))
+          .font(.system(size: TypeScale.caption))
       }
       .padding(Spacing.lg)
       .background(

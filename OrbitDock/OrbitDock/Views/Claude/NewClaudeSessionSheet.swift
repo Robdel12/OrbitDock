@@ -358,7 +358,7 @@ struct NewClaudeSessionSheet: View {
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.surfaceBorder, lineWidth: 1)
     )
-    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: useWorktree)
+    .animation(Motion.bouncy, value: useWorktree)
     .onChange(of: useWorktree) { _, isOn in
       if isOn, !selectedPathIsGit {
         // Directory isn't a git repo — prompt to init
@@ -466,7 +466,7 @@ struct NewClaudeSessionSheet: View {
           Capsule()
             .fill(selectedPermissionMode.color.opacity(0.4))
             .frame(width: 2, height: 20)
-            .padding(.top, 2)
+            .padding(.top, Spacing.xxs)
 
           VStack(alignment: .leading, spacing: Spacing.xxs) {
             HStack(spacing: Spacing.sm) {
@@ -492,7 +492,7 @@ struct NewClaudeSessionSheet: View {
           .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.leading, Spacing.lg)
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedPermissionMode)
+        .animation(Motion.bouncy, value: selectedPermissionMode)
       }
       .padding(.horizontal, Spacing.lg)
       .padding(.vertical, Spacing.md)
@@ -509,7 +509,7 @@ struct NewClaudeSessionSheet: View {
   private var toolRestrictionsCard: some View {
     VStack(alignment: .leading, spacing: 0) {
       Button {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+        withAnimation(Motion.bouncy) {
           showToolConfig.toggle()
         }
       } label: {
@@ -761,8 +761,8 @@ private struct CompactClaudePermissionSelector: View {
       }
     }
     #endif
-    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredMode)
-    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selection)
+    .animation(Motion.bouncy, value: hoveredMode)
+    .animation(Motion.bouncy, value: selection)
   }
 }
 
@@ -790,7 +790,6 @@ private struct PermissionModeButton: View {
   @ViewBuilder
   private var buttonContent: some View {
     let iconColor = isActive ? Color.backgroundSecondary : (isHovered ? mode.color : mode.color.opacity(0.6))
-    let shadowColor = isActive ? mode.color.opacity(0.4) : Color.clear
     let scale = isActive ? 1.05 : 1.0
 
     Image(systemName: mode.icon)
@@ -799,7 +798,7 @@ private struct PermissionModeButton: View {
       .frame(width: 30, height: 30)
       .background(backgroundCircle)
       .overlay(strokeCircle)
-      .shadow(color: shadowColor, radius: 6, y: 2)
+      .themeShadow(Shadow.glow(color: isActive ? mode.color : .clear))
       .scaleEffect(scale)
   }
 

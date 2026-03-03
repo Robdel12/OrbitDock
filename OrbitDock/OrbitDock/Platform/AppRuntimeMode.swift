@@ -32,7 +32,12 @@ enum AppRuntimeMode: String {
 
   var shouldStartMcpBridge: Bool {
     #if os(macOS)
-      self == .live || self == .remote
+      #if DEBUG
+        let enabledForDebug = ProcessInfo.processInfo.environment["ORBITDOCK_ENABLE_MCP_BRIDGE"] == "1"
+        return enabledForDebug && (self == .live || self == .remote)
+      #else
+        false
+      #endif
     #else
       false
     #endif

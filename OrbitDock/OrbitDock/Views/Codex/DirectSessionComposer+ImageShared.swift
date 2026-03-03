@@ -13,7 +13,7 @@ extension DirectSessionComposer {
   }
 
   func appendAttachedImage(_ attached: AttachedImage) {
-    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+    withAnimation(Motion.gentle) {
       attachedImages.append(attached)
     }
   }

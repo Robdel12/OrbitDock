@@ -82,14 +82,14 @@ struct ResolvedCommentMarker: View {
 
         Spacer(minLength: 0)
       }
-      .padding(.trailing, 12)
+      .padding(.trailing, Spacing.md)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .frame(minHeight: 22)
     .background(Color.statusQuestion.opacity(OpacityTier.tint))
     .contentShape(Rectangle())
     .onTapGesture {
-      withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+      withAnimation(Motion.snappy) {
         isExpanded.toggle()
       }
     }
@@ -133,18 +133,18 @@ struct ResolvedCommentMarker: View {
         .padding(.trailing, 9)
 
       // Comment content — compact single-line when possible
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
         Text(comment.body)
           .font(.system(size: TypeScale.body, design: .monospaced))
           .foregroundStyle(.primary.opacity(0.4))
           .fixedSize(horizontal: false, vertical: true)
 
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           if let tag = comment.tag {
             Text(tag.rawValue)
               .font(.system(size: 8, weight: .semibold))
               .foregroundStyle(Color.statusQuestion.opacity(0.5))
-              .padding(.horizontal, 4)
+              .padding(.horizontal, Spacing.xs)
               .padding(.vertical, 1)
               .background(Color.statusQuestion.opacity(OpacityTier.subtle), in: Capsule())
           }
@@ -157,15 +157,15 @@ struct ResolvedCommentMarker: View {
             Text("Reopen")
               .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.statusQuestion.opacity(0.5))
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.xxs)
               .background(Color.statusQuestion.opacity(OpacityTier.subtle), in: Capsule())
           }
           .buttonStyle(.plain)
         }
       }
       .padding(.vertical, 5)
-      .padding(.trailing, 12)
+      .padding(.trailing, Spacing.md)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.statusQuestion.opacity(OpacityTier.tint))

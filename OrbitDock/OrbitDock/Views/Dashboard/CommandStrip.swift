@@ -95,7 +95,7 @@ struct CommandStrip: View {
   }
 
   private var desktopStrip: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: Spacing.md_) {
       Text("OrbitDock")
         .font(.system(size: TypeScale.large, weight: .bold))
         .foregroundStyle(.primary)
@@ -109,8 +109,8 @@ struct CommandStrip: View {
       settingsButton
       serverSettingsButton
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 10)
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.md_)
   }
 
   private var padStrip: some View {
@@ -118,7 +118,7 @@ struct CommandStrip: View {
   }
 
   private var compactStrip: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: Spacing.md_) {
       Text("OrbitDock")
         .font(.system(size: TypeScale.subhead, weight: .bold))
         .foregroundStyle(.primary)
@@ -132,18 +132,18 @@ struct CommandStrip: View {
       settingsButton
       serverSettingsButton
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.md_)
   }
 
   @ViewBuilder
   private var syncIndicator: some View {
     if isInitialLoading || isRefreshingCachedSessions {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         ProgressView()
           .controlSize(.mini)
         Text("Syncing")
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(Color.textTertiary)
       }
     }
@@ -161,8 +161,8 @@ struct CommandStrip: View {
       }
     }
     .foregroundStyle(endpointSummaryColor)
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
     .background(endpointSummaryColor.opacity(0.14), in: Capsule())
     .help("Connected endpoints: \(connectedEndpointCount) of \(enabledEndpointCount)")
   }
@@ -187,9 +187,9 @@ struct CommandStrip: View {
         Text("New")
           .font(.system(size: TypeScale.body, weight: .semibold))
       }
-      .padding(.horizontal, 10)
+      .padding(.horizontal, Spacing.md_)
       .padding(.vertical, 5)
-      .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+      .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
       .foregroundStyle(Color.accent)
     }
     .menuStyle(.borderlessButton)
@@ -210,16 +210,16 @@ struct CommandStrip: View {
         Label("Codex Session", systemImage: "chevron.left.forwardslash.chevron.right")
       }
     } label: {
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Image(systemName: "plus")
           .font(.system(size: 10, weight: .bold))
         Text("New Session")
           .font(.system(size: TypeScale.body, weight: .semibold))
       }
-      .padding(.horizontal, 10)
+      .padding(.horizontal, Spacing.md_)
       .padding(.vertical, 5)
       .foregroundStyle(Color.accent)
-      .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+      .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
     }
     .menuStyle(.borderlessButton)
   }
@@ -230,7 +230,7 @@ struct CommandStrip: View {
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(serverSettingsIconColor)
         .frame(width: 28, height: 28)
-        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
     }
     .buttonStyle(.plain)
   }
@@ -241,7 +241,7 @@ struct CommandStrip: View {
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(Color.textSecondary)
         .frame(width: 28, height: 28)
-        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
     }
     .buttonStyle(.plain)
   }
@@ -259,7 +259,7 @@ struct CommandStrip: View {
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(Color.textSecondary)
         .frame(width: 28, height: 28)
-        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
     }
     .buttonStyle(.plain)
     .help("Search sessions (⌘K)")
@@ -331,10 +331,10 @@ struct CommandStrip: View {
         .foregroundStyle(compactOverflowTintColor)
         .frame(width: 28, height: 28)
         .background(
-          RoundedRectangle(cornerRadius: 6, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
             .fill(Color.backgroundTertiary)
             .overlay(
-              RoundedRectangle(cornerRadius: 6, style: .continuous)
+              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                 .stroke(compactOverflowTintColor.opacity(0.25), lineWidth: 1)
             )
         )
@@ -355,7 +355,7 @@ struct CommandStrip: View {
         case .connected:
           EmptyView()
         case .connecting:
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             ProgressView()
               .controlSize(.mini)
               .tint(Color.statusQuestion)
@@ -365,7 +365,7 @@ struct CommandStrip: View {
               .foregroundStyle(Color.statusQuestion)
           }
           .padding(.horizontal, 7)
-          .padding(.vertical, 3)
+          .padding(.vertical, Spacing.gap)
           .background(Color.statusQuestion.opacity(0.12), in: Capsule())
         case .disconnected:
           compactConnectionPill(
@@ -384,7 +384,7 @@ struct CommandStrip: View {
   }
 
   private func compactConnectionPill(text: String, icon: String, color: Color) -> some View {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       Image(systemName: icon)
         .font(.system(size: 8, weight: .bold))
       Text(text)
@@ -392,7 +392,7 @@ struct CommandStrip: View {
     }
     .foregroundStyle(color)
     .padding(.horizontal, 7)
-    .padding(.vertical, 3)
+    .padding(.vertical, Spacing.gap)
     .background(color.opacity(0.12), in: Capsule())
   }
 
@@ -457,9 +457,9 @@ struct CommandStrip: View {
   }
 
   private var statusSummaryPill: some View {
-    HStack(spacing: 6) {
+    HStack(spacing: Spacing.sm_) {
       if workingCount > 0 {
-        HStack(spacing: 3) {
+        HStack(spacing: Spacing.gap) {
           Image(systemName: "bolt.fill")
             .font(.system(size: 8, weight: .bold))
             .foregroundStyle(Color.statusWorking)
@@ -469,7 +469,7 @@ struct CommandStrip: View {
         }
       }
       if attentionCount > 0 {
-        HStack(spacing: 3) {
+        HStack(spacing: Spacing.gap) {
           Image(systemName: "exclamationmark.circle.fill")
             .font(.system(size: 8, weight: .bold))
             .foregroundStyle(Color.statusPermission)
@@ -479,7 +479,7 @@ struct CommandStrip: View {
         }
       }
       if readyCount > 0 {
-        HStack(spacing: 3) {
+        HStack(spacing: Spacing.gap) {
           Image(systemName: "bubble.left.fill")
             .font(.system(size: 8, weight: .bold))
             .foregroundStyle(Color.statusReply)
@@ -489,13 +489,13 @@ struct CommandStrip: View {
         }
       }
     }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
     .background(Color.surfaceHover.opacity(0.6), in: Capsule())
   }
 
   private var compactStatusSummaryPill: some View {
-    HStack(spacing: 6) {
+    HStack(spacing: Spacing.sm_) {
       if workingCount > 0 {
         Image(systemName: "bolt.fill")
           .font(.system(size: 8, weight: .bold))
@@ -522,14 +522,14 @@ struct CommandStrip: View {
       }
     }
     .padding(.horizontal, 7)
-    .padding(.vertical, 3)
+    .padding(.vertical, Spacing.gap)
     .background(Color.surfaceHover.opacity(0.6), in: Capsule())
   }
 
   // MARK: - Status Dot
 
   private func statusDot(count: Int, color: Color, icon: String) -> some View {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       Image(systemName: icon)
         .font(.system(size: 8, weight: .bold))
         .foregroundStyle(color)

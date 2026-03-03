@@ -87,9 +87,9 @@ struct ConversationView: View {
               sourceEndpointId: endpointId,
               sourceName: serverState.sessions.first(where: { $0.id == sourceId })?.displayName
             )
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.top, Spacing.sm)
+            .padding(.bottom, Spacing.xs)
           }
 
           conversationThread
@@ -97,8 +97,8 @@ struct ConversationView: View {
         .transition(.opacity)
       }
     }
-    .animation(.easeOut(duration: 0.25), value: isLoading)
-    .animation(.easeOut(duration: 0.25), value: messages.isEmpty)
+    .animation(Motion.fade, value: isLoading)
+    .animation(Motion.fade, value: messages.isEmpty)
     .onAppear {
       loadMessagesIfNeeded()
       queueRefreshFromServerState()

@@ -80,7 +80,7 @@ struct GenericUsageGauge: View {
         Image(systemName: window.paceStatus.icon)
           .font(.system(size: 8, weight: .bold))
           .foregroundStyle(paceColor)
-          .padding(2)
+          .padding(Spacing.xxs)
           .background(Color.backgroundTertiary, in: Circle())
           .offset(x: 4, y: -2)
       }

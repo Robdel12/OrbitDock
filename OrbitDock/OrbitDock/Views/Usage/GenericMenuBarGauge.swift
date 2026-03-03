@@ -21,7 +21,7 @@ struct GenericMenuBarGauge: View {
   /// Color for reset time based on urgency
   private var resetTimeColor: Color {
     if window.timeRemaining < 15 * 60 { return .statusError }
-    if window.timeRemaining < 60 * 60 { return .statusWaiting }
+    if window.timeRemaining < 60 * 60 { return .feedbackCaution }
     return subtleLabelColor
   }
 
@@ -29,8 +29,8 @@ struct GenericMenuBarGauge: View {
   private var projectedColor: Color {
     let projected = window.projectedAtReset
     if projected > 100 { return .statusError }
-    if projected > 90 { return .statusWaiting }
-    return .statusSuccess
+    if projected > 90 { return .feedbackCaution }
+    return .feedbackPositive
   }
 
   private var color: Color {
@@ -40,9 +40,9 @@ struct GenericMenuBarGauge: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
       // Label row
-      HStack(alignment: .firstTextBaseline, spacing: 6) {
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.sm_) {
         Text(windowLabel)
-          .font(.system(size: 10, weight: .medium, design: .rounded))
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .rounded))
           .foregroundStyle(secondaryLabelColor)
 
         // Warning if will exceed
@@ -54,7 +54,7 @@ struct GenericMenuBarGauge: View {
 
         if let resetTime = window.resetsAtFormatted(showDay: showDay) {
           Text("• \(resetTime)")
-            .font(.system(size: 9, weight: .medium, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .medium, design: .rounded))
             .foregroundStyle(resetTimeColor)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
@@ -62,15 +62,15 @@ struct GenericMenuBarGauge: View {
 
         Spacer()
 
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
           Text("\(Int(window.utilization))%")
-            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .font(.system(size: TypeScale.meta, weight: .bold, design: .monospaced))
             .foregroundStyle(color)
 
           // Projected usage
           if window.projectedAtReset > window.utilization + 5 {
             Text("→ \(Int(window.projectedAtReset.rounded()))%")
-              .font(.system(size: 10, weight: .bold, design: .rounded))
+              .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
               .foregroundStyle(projectedColor)
           }
         }
@@ -79,18 +79,18 @@ struct GenericMenuBarGauge: View {
       // Progress bar with projection
       GeometryReader { geo in
         ZStack(alignment: .leading) {
-          RoundedRectangle(cornerRadius: 2, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
             .fill(trackColor)
 
           // Projected usage (more visible)
           if window.projectedAtReset > window.utilization {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
               .fill(projectedColor.opacity(window.willExceed ? 0.5 : 0.35))
               .frame(width: geo.size.width * min(1, window.projectedAtReset / 100))
           }
 
           // Current usage
-          RoundedRectangle(cornerRadius: 2, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
             .fill(color)
             .frame(width: geo.size.width * min(1, window.utilization / 100))
         }
@@ -128,7 +128,7 @@ struct GenericMenuBarGauge: View {
 }
 
 #Preview {
-  VStack(spacing: 12) {
+  VStack(spacing: Spacing.md) {
     GenericMenuBarGauge(
       window: .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3_600)),
       provider: .claude

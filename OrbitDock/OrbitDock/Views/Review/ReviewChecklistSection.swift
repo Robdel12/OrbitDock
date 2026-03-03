@@ -29,13 +29,13 @@ struct ReviewChecklistSection: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       // Filter row
-      HStack(spacing: 2) {
+      HStack(spacing: Spacing.xxs) {
         filterButton("All", isSelected: showAll) { showAll = true }
         filterButton("Open", isSelected: !showAll) { showAll = false }
         Spacer()
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 6)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm_)
 
       Divider()
         .foregroundStyle(Color.panelBorder.opacity(0.5))
@@ -44,11 +44,11 @@ struct ReviewChecklistSection: View {
         HStack {
           Spacer()
           Text(showAll ? "No comments yet" : "No open comments")
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(Color.textTertiary)
           Spacer()
         }
-        .padding(.vertical, 16)
+        .padding(.vertical, Spacing.lg)
       } else {
         ForEach(filtered) { comment in
           HStack(spacing: 0) {
@@ -59,12 +59,12 @@ struct ReviewChecklistSection: View {
               } label: {
                 Image(systemName: selectedIds.contains(comment.id)
                   ? "checkmark.circle.fill" : "circle")
-                  .font(.system(size: 11))
+                  .font(.system(size: TypeScale.meta))
                   .foregroundStyle(selectedIds.contains(comment.id)
                     ? Color.accent : Color.white.opacity(0.3))
               }
               .buttonStyle(.plain)
-              .padding(.leading, 8)
+              .padding(.leading, Spacing.sm)
             }
 
             commentRow(comment)
@@ -86,21 +86,21 @@ struct ReviewChecklistSection: View {
           .foregroundStyle(Color.panelBorder.opacity(0.5))
 
         Button(action: onSendReview) {
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: "paperplane.fill")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
             Text(sendLabel)
-              .font(.system(size: 11, weight: .semibold))
+              .font(.system(size: TypeScale.meta, weight: .semibold))
             Text("S")
-              .font(.system(size: 9, weight: .bold, design: .monospaced))
+              .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
               .foregroundStyle(Color.statusQuestion.opacity(0.6))
-              .padding(.horizontal, 4)
+              .padding(.horizontal, Spacing.xs)
               .padding(.vertical, 1)
               .background(Color.statusQuestion.opacity(0.1), in: RoundedRectangle(cornerRadius: 3))
           }
           .foregroundStyle(Color.statusQuestion)
           .frame(maxWidth: .infinity)
-          .padding(.vertical, 10)
+          .padding(.vertical, Spacing.md_)
         }
         .buttonStyle(.plain)
       }
@@ -111,13 +111,13 @@ struct ReviewChecklistSection: View {
   private func filterButton(_ label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
     Button(action: action) {
       Text(label)
-        .font(.system(size: 10, weight: .medium))
+        .font(.system(size: TypeScale.micro, weight: .medium))
         .foregroundStyle(isSelected ? Color.accent : .secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .padding(.horizontal, Spacing.md_)
+        .padding(.vertical, Spacing.xs)
         .background(
           isSelected ? Color.accent.opacity(0.15) : Color.clear,
-          in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+          in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
         )
     }
     .buttonStyle(.plain)
@@ -126,28 +126,28 @@ struct ReviewChecklistSection: View {
   private func commentRow(_ comment: ServerReviewComment) -> some View {
     let fileName = comment.filePath.components(separatedBy: "/").last ?? comment.filePath
 
-    return HStack(spacing: 8) {
+    return HStack(spacing: Spacing.sm) {
       // Status dot
       Circle()
-        .fill(comment.status == .open ? Color.statusQuestion : Color.statusReady)
+        .fill(comment.status == .open ? Color.statusQuestion : Color.feedbackPositive)
         .frame(width: 5, height: 5)
 
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
         // File + line
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
           Text(fileName)
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
             .foregroundStyle(.primary.opacity(0.8))
             .lineLimit(1)
 
           Text(":\(comment.lineStart)")
-            .font(.system(size: 10, design: .monospaced))
+            .font(.system(size: TypeScale.micro, design: .monospaced))
             .foregroundStyle(Color.textTertiary)
         }
 
         // Body preview
         Text(String(comment.body.prefix(50)))
-          .font(.system(size: 10))
+          .font(.system(size: TypeScale.micro))
           .foregroundStyle(.secondary)
           .lineLimit(1)
       }
@@ -160,12 +160,12 @@ struct ReviewChecklistSection: View {
           .font(.system(size: 8, weight: .semibold))
           .foregroundStyle(Color.statusQuestion)
           .padding(.horizontal, 5)
-          .padding(.vertical, 2)
+          .padding(.vertical, Spacing.xxs)
           .background(Color.statusQuestion.opacity(0.12), in: Capsule())
       }
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 6)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm_)
     .background(Color.backgroundPrimary)
   }
 }

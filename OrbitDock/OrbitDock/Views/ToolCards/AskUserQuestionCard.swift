@@ -2,7 +2,7 @@
 //  AskUserQuestionCard.swift
 //  OrbitDock
 //
-//  Shows questions posed to the user with options
+//  Structured rendering for AskUserQuestion tool payloads.
 //
 
 import SwiftUI
@@ -11,16 +11,70 @@ struct AskUserQuestionCard: View {
   let message: TranscriptMessage
   @Binding var isExpanded: Bool
 
-  private var color: Color {
-    Color(red: 0.95, green: 0.65, blue: 0.25)
-  } // Amber
+  private let color = Color.toolQuestion
 
-  private var questions: [[String: Any]] {
-    (message.toolInput?["questions"] as? [[String: Any]]) ?? []
+  private struct ParsedOption: Hashable {
+    let label: String
+    let description: String?
+  }
+
+  private struct ParsedQuestion: Hashable {
+    let id: String
+    let header: String?
+    let question: String
+    let options: [ParsedOption]
+    let allowsMultipleSelection: Bool
+    let allowsOther: Bool
+    let isSecret: Bool
+  }
+
+  private var questions: [ParsedQuestion] {
+    guard let rawQuestions = message.toolInput?["questions"] as? [[String: Any]] else {
+      return []
+    }
+
+    return rawQuestions.enumerated().compactMap { index, raw in
+      let id = (raw["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let fallbackId = String(index)
+      let normalizedId = (id?.isEmpty == false) ? id! : fallbackId
+
+      let questionText = (raw["question"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      guard !questionText.isEmpty else { return nil }
+
+      let header = (raw["header"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      let normalizedHeader: String? = {
+        guard let header, !header.isEmpty else { return nil }
+        return header
+      }()
+
+      let options: [ParsedOption] = (raw["options"] as? [[String: Any]] ?? []).compactMap { option in
+        let label = (option["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !label.isEmpty else { return nil }
+        let description = (option["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ParsedOption(label: label, description: description?.isEmpty == true ? nil : description)
+      }
+
+      return ParsedQuestion(
+        id: normalizedId,
+        header: normalizedHeader,
+        question: questionText,
+        options: options,
+        allowsMultipleSelection: raw["allows_multiple_selection"] as? Bool ?? false,
+        allowsOther: raw["allows_other"] as? Bool ?? true,
+        isSecret: raw["is_secret"] as? Bool ?? false
+      )
+    }
   }
 
   private var output: String {
-    message.toolOutput ?? ""
+    (message.toolOutput ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private var firstQuestionPreview: String? {
+    guard let first = questions.first else { return nil }
+    return first.question
   }
 
   var body: some View {
@@ -31,33 +85,28 @@ struct AskUserQuestionCard: View {
     }
   }
 
-  // MARK: - Header
-
   private var header: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       Image(systemName: "questionmark.circle.fill")
-        .font(.system(size: 14, weight: .medium))
+        .font(.system(size: TypeScale.subhead, weight: .medium))
         .foregroundStyle(color)
 
-      VStack(alignment: .leading, spacing: 2) {
-        HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: Spacing.gap) {
+        HStack(spacing: Spacing.sm) {
           Text("Question")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(color)
 
           if questions.count > 1 {
-            Text("\(questions.count) questions")
-              .font(.system(size: 10, weight: .medium))
+            Text("\(questions.count) prompts")
+              .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(.secondary)
           }
         }
 
-        // Show first question as subtitle
-        if let firstQuestion = questions.first,
-           let text = firstQuestion["question"] as? String
-        {
-          Text(text.count > 80 ? String(text.prefix(80)) + "..." : text)
-            .font(.system(size: 11))
+        if let preview = firstQuestionPreview {
+          Text(preview.count > 88 ? String(preview.prefix(88)) + "..." : preview)
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -65,119 +114,134 @@ struct AskUserQuestionCard: View {
 
       Spacer()
 
-      if !message.isInProgress {
-        // Show if answered
-        if !output.isEmpty {
-          HStack(spacing: 4) {
-            Image(systemName: "checkmark.circle.fill")
-              .font(.system(size: 12))
-              .foregroundStyle(Color(red: 0.4, green: 0.9, blue: 0.5))
-            Text("Answered")
-              .font(.system(size: 10, weight: .medium))
-              .foregroundStyle(.secondary)
-          }
-        }
-
-        ToolCardDuration(duration: message.formattedDuration)
+      if !output.isEmpty {
+        Label("Answered", systemImage: "checkmark.circle.fill")
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(Color.feedbackPositive)
       }
 
       if message.isInProgress {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           ProgressView()
             .controlSize(.mini)
           Text("Waiting...")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(color)
         }
-      } else if !questions.isEmpty {
-        ToolCardExpandButton(isExpanded: $isExpanded)
+      } else {
+        ToolCardDuration(duration: message.formattedDuration)
+        if !questions.isEmpty {
+          ToolCardExpandButton(isExpanded: $isExpanded)
+        }
       }
     }
   }
-
-  // MARK: - Expanded Content
 
   private var expandedContent: some View {
-    VStack(alignment: .leading, spacing: 0) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
       ForEach(Array(questions.enumerated()), id: \.offset) { index, question in
-        questionView(question, index: index)
-
-        if index < questions.count - 1 {
-          Divider()
-            .padding(.horizontal, 12)
-        }
+        questionSection(question, index: index)
       }
 
-      // User's response
       if !output.isEmpty {
-        VStack(alignment: .leading, spacing: 6) {
-          Text("RESPONSE")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.textQuaternary)
-            .tracking(0.5)
+        VStack(alignment: .leading, spacing: Spacing.sm_) {
+          Text("Submitted Answer")
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(Color.textSecondary)
 
           Text(output)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(color)
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textPrimary)
             .textSelection(.enabled)
         }
-        .padding(12)
+        .padding(Spacing.md_)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(color.opacity(0.1))
+        .background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: CGFloat(Radius.md), style: .continuous))
       }
     }
+    .padding(Spacing.md)
   }
 
-  private func questionView(_ question: [String: Any], index: Int) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
-      // Question header
-      if let header = question["header"] as? String {
-        Text(header.uppercased())
-          .font(.system(size: 9, weight: .bold, design: .rounded))
-          .foregroundStyle(color.opacity(0.8))
-          .tracking(0.5)
+  @ViewBuilder
+  private func questionSection(_ question: ParsedQuestion, index: Int) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(alignment: .top, spacing: Spacing.sm) {
+        Text("\(index + 1).")
+          .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
+          .foregroundStyle(color)
+
+        VStack(alignment: .leading, spacing: Spacing.sm_) {
+          if let header = question.header {
+            Text(header.uppercased())
+              .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
+              .foregroundStyle(Color.textSecondary)
+              .tracking(0.5)
+          }
+
+          Text(question.question)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
+        Spacer(minLength: 0)
       }
 
-      // Question text
-      if let text = question["question"] as? String {
-        Text(text)
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(.primary)
-      }
+      if !question.options.isEmpty {
+        VStack(alignment: .leading, spacing: Spacing.sm_) {
+          ForEach(Array(question.options.enumerated()), id: \.offset) { optionIndex, option in
+            let optionTag = optionIndex < 26
+              ? String(Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")[optionIndex])
+              : "•"
+            HStack(alignment: .top, spacing: Spacing.sm) {
+              Text(optionTag)
+                .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+                .foregroundStyle(color)
+                .frame(width: 14)
 
-      // Options
-      if let options = question["options"] as? [[String: Any]] {
-        VStack(alignment: .leading, spacing: 4) {
-          ForEach(Array(options.enumerated()), id: \.offset) { _, option in
-            optionView(option)
+              VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text(option.label)
+                  .font(.system(size: TypeScale.meta, weight: .medium))
+                  .foregroundStyle(Color.textPrimary)
+
+                if let description = option.description {
+                  Text(description)
+                    .font(.system(size: TypeScale.micro))
+                    .foregroundStyle(Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+              }
+            }
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.sm_)
+            .background(Color.backgroundPrimary.opacity(0.75), in: RoundedRectangle(cornerRadius: CGFloat(Radius.sm), style: .continuous))
           }
         }
-        .padding(.top, 4)
+      }
+
+      HStack(spacing: Spacing.sm_) {
+        if question.allowsMultipleSelection {
+          chip("Multi-select")
+        }
+        if question.allowsOther {
+          chip("Custom answer")
+        }
+        if question.isSecret {
+          chip("Secret")
+        }
       }
     }
-    .padding(12)
+    .padding(Spacing.md_)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: CGFloat(Radius.md), style: .continuous))
   }
 
-  private func optionView(_ option: [String: Any]) -> some View {
-    HStack(alignment: .top, spacing: 8) {
-      Circle()
-        .fill(color.opacity(0.3))
-        .frame(width: 6, height: 6)
-        .padding(.top, 5)
-
-      VStack(alignment: .leading, spacing: 2) {
-        if let label = option["label"] as? String {
-          Text(label)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.primary.opacity(0.9))
-        }
-
-        if let desc = option["description"] as? String, !desc.isEmpty {
-          Text(desc)
-            .font(.system(size: 10))
-            .foregroundStyle(.secondary)
-        }
-      }
-    }
+  private func chip(_ label: String) -> some View {
+    Text(label)
+      .font(.system(size: TypeScale.mini, weight: .semibold))
+      .foregroundStyle(Color.textSecondary)
+      .padding(.horizontal, 7)
+      .padding(.vertical, Spacing.xs)
+      .background(Color.backgroundPrimary, in: Capsule())
   }
 }

@@ -22,9 +22,9 @@ struct ProviderUsageCard: View {
   }
 
   var body: some View {
-    HStack(spacing: 16) {
+    HStack(spacing: Spacing.lg) {
       // Provider branding
-      VStack(spacing: 2) {
+      VStack(spacing: Spacing.xxs) {
         Image(systemName: provider.icon)
           .font(.system(size: 14, weight: .bold))
           .foregroundStyle(provider.accentColor)
@@ -42,32 +42,32 @@ struct ProviderUsageCard: View {
 
         // Plan badge (if known)
         if let plan = planName {
-          VStack(spacing: 4) {
+          VStack(spacing: Spacing.xs) {
             Text(plan)
-              .font(.system(size: 9, weight: .bold))
+              .font(.system(size: TypeScale.mini, weight: .bold))
               .foregroundStyle(provider.accentColor)
 
             Text("Plan")
               .font(.system(size: 8, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
           }
-          .padding(.leading, 4)
+          .padding(.leading, Spacing.xs)
         }
       } else if isLoading {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           ProgressView()
             .controlSize(.small)
           Text("Loading...")
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(Color.textTertiary)
         }
       } else if let error {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           Image(systemName: errorIcon)
             .font(.system(size: 12))
             .foregroundStyle(isApiKeyMode ? provider.accentColor : Color.statusError)
           Text(errorLabel)
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(Color.textTertiary)
         }
         .help(error.localizedDescription)
@@ -79,9 +79,9 @@ struct ProviderUsageCard: View {
         )
       }
     }
-    .padding(.vertical, 10)
-    .padding(.horizontal, 14)
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .padding(.vertical, Spacing.md_)
+    .padding(.horizontal, Spacing.lg_)
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
     .help(helpText)
   }
 
@@ -139,7 +139,7 @@ struct ProviderUsageCard: View {
 }
 
 #Preview {
-  VStack(spacing: 12) {
+  VStack(spacing: Spacing.md) {
     ProviderUsageCard(
       provider: .claude,
       windows: [

@@ -106,8 +106,8 @@ enum PaceStatus: String, Sendable {
     switch self {
       case .unknown: .secondary
       case .relaxed: .accent
-      case .onTrack: .statusSuccess
-      case .borderline: .statusWaiting
+      case .onTrack: .feedbackPositive
+      case .borderline: .feedbackCaution
       case .exceeding, .critical: .statusError
     }
   }

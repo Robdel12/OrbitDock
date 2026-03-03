@@ -22,8 +22,8 @@ struct CapabilityBadge: View {
         .font(.system(size: 9, weight: .semibold))
     }
     .foregroundStyle(color)
-    .padding(.horizontal, 6)
-    .padding(.vertical, 3)
+    .padding(.horizontal, Spacing.sm_)
+    .padding(.vertical, Spacing.gap)
     .background(color.opacity(0.12), in: Capsule())
   }
 }

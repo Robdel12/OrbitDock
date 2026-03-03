@@ -56,16 +56,16 @@ struct CommandBar: View {
         compactStat(value: formatCompactTokens(trackedStats.tokens), label: "tokens")
       }
 
-      Spacer(minLength: 16)
+      Spacer(minLength: Spacing.lg)
 
       UsageGaugesPanel()
     }
-    .padding(.horizontal, 2)
-    .padding(.vertical, 8)
+    .padding(.horizontal, Spacing.xxs)
+    .padding(.vertical, Spacing.sm)
   }
 
   private func compactStat(value: String, label: String) -> some View {
-    HStack(spacing: 3) {
+    HStack(spacing: Spacing.gap) {
       Text(value)
         .font(.system(size: TypeScale.subhead, weight: .bold, design: .rounded))
         .foregroundStyle(.primary.opacity(0.85))
@@ -93,8 +93,8 @@ struct CommandBar: View {
     Rectangle()
       .fill(Color.surfaceBorder.opacity(0.25))
       .frame(width: 1)
-      .padding(.vertical, 4)
-      .padding(.horizontal, 12)
+      .padding(.vertical, Spacing.xs)
+      .padding(.horizontal, Spacing.md)
   }
 }
 
@@ -104,7 +104,7 @@ private struct UsageGaugesPanel: View {
   let registry = UsageServiceRegistry.shared
 
   var body: some View {
-    HStack(spacing: 16) {
+    HStack(spacing: Spacing.lg) {
       ForEach(registry.allProviders) { provider in
         ProviderGaugeMini(
           provider: provider,
@@ -122,11 +122,11 @@ private struct ProviderGaugeMini: View {
   let isLoading: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
       // Provider header
       HStack(spacing: 5) {
         Image(systemName: provider.icon)
-          .font(.system(size: 10, weight: .bold))
+          .font(.system(size: TypeScale.micro, weight: .bold))
           .foregroundStyle(provider.accentColor)
 
         Text(provider.displayName)
@@ -135,7 +135,7 @@ private struct ProviderGaugeMini: View {
       }
 
       if !windows.isEmpty {
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
           ForEach(windows) { window in
             MiniGauge(window: window, provider: provider)
           }
@@ -145,18 +145,18 @@ private struct ProviderGaugeMini: View {
           .controlSize(.small)
       } else {
         Text("—")
-          .font(.system(size: 11))
+          .font(.system(size: TypeScale.meta))
           .foregroundStyle(Color.textTertiary)
       }
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 8)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
     .frame(minWidth: 160)
     .background(
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
         .fill(provider.accentColor.opacity(0.06))
         .overlay(
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
             .stroke(provider.accentColor.opacity(0.10), lineWidth: 1)
         )
     )
@@ -173,8 +173,8 @@ private struct MiniGauge: View {
 
   private var projectedColor: Color {
     if window.projectedAtReset >= 100 { return .statusError }
-    if window.projectedAtReset >= 90 { return .statusWaiting }
-    return .statusSuccess
+    if window.projectedAtReset >= 90 { return .feedbackCaution }
+    return .feedbackPositive
   }
 
   private var paceLabel: String {
@@ -193,11 +193,11 @@ private struct MiniGauge: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: Spacing.xs) {
       // Label + percentage
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Text(window.label)
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(Color.textSecondary)
 
         Text("\(Int(window.utilization))%")
@@ -209,17 +209,17 @@ private struct MiniGauge: View {
       // Progress bar with projection
       GeometryReader { geo in
         ZStack(alignment: .leading) {
-          RoundedRectangle(cornerRadius: 2)
+          RoundedRectangle(cornerRadius: Radius.xs)
             .fill(Color.primary.opacity(0.1))
 
           // Projected (behind current)
           if showProjection {
-            RoundedRectangle(cornerRadius: 2)
+            RoundedRectangle(cornerRadius: Radius.xs)
               .fill(projectedColor.opacity(0.3))
               .frame(width: geo.size.width * min(1, window.projectedAtReset / 100))
           }
 
-          RoundedRectangle(cornerRadius: 2)
+          RoundedRectangle(cornerRadius: Radius.xs)
             .fill(usageColor)
             .frame(width: geo.size.width * min(1, window.utilization / 100))
         }
@@ -227,16 +227,16 @@ private struct MiniGauge: View {
       .frame(width: 70, height: 5)
 
       // Pace + projection
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         if !paceLabel.isEmpty {
           Text(paceLabel)
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: TypeScale.mini, weight: .medium))
             .foregroundStyle(projectedColor)
         }
 
         if showProjection {
           Text("→\(Int(window.projectedAtReset.rounded()))%")
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
             .foregroundStyle(projectedColor.opacity(0.8))
         }
       }
@@ -397,11 +397,11 @@ private struct StatsDetailPanel: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
       // Section header connecting to parent
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Image(systemName: icon)
-          .font(.system(size: 9, weight: .semibold))
+          .font(.system(size: TypeScale.mini, weight: .semibold))
           .foregroundStyle(accentColor)
 
         Text(title.uppercased())
@@ -414,21 +414,21 @@ private struct StatsDetailPanel: View {
           .foregroundStyle(Color.textQuaternary)
       }
 
-      HStack(alignment: .top, spacing: 12) {
+      HStack(alignment: .top, spacing: Spacing.md) {
         // Cost by model card
         if !stats.costByModel.isEmpty {
           DetailCard(icon: "cpu.fill", title: "Cost by Model", accentColor: accentColor) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
               ForEach(stats.costByModel.prefix(4), id: \.model) { item in
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                   // Model name with color dot
-                  HStack(spacing: 6) {
+                  HStack(spacing: Spacing.sm_) {
                     Circle()
                       .fill(item.color)
                       .frame(width: 8, height: 8)
 
                     Text(item.model)
-                      .font(.system(size: 11, weight: .medium))
+                      .font(.system(size: TypeScale.meta, weight: .medium))
                       .foregroundStyle(.primary)
                   }
                   .frame(width: 70, alignment: .leading)
@@ -436,10 +436,10 @@ private struct StatsDetailPanel: View {
                   // Progress bar
                   GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                      RoundedRectangle(cornerRadius: 2)
+                      RoundedRectangle(cornerRadius: Radius.xs)
                         .fill(Color.primary.opacity(0.08))
 
-                      RoundedRectangle(cornerRadius: 2)
+                      RoundedRectangle(cornerRadius: Radius.xs)
                         .fill(item.color.opacity(0.8))
                         .frame(width: geo.size.width * min(1, item.cost / max(totalModelCost, 1)))
                     }
@@ -448,7 +448,7 @@ private struct StatsDetailPanel: View {
 
                   // Cost
                   Text(formatCost(item.cost))
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .font(.system(size: TypeScale.meta, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
                     .frame(width: 50, alignment: .trailing)
                 }
@@ -459,16 +459,16 @@ private struct StatsDetailPanel: View {
 
         // Token breakdown card
         DetailCard(icon: "arrow.left.arrow.right", title: "Tokens", accentColor: accentColor) {
-          HStack(spacing: 16) {
+          HStack(spacing: Spacing.lg) {
             TokenStat(label: "Input", value: stats.inputTokens, color: .accent)
-            TokenStat(label: "Output", value: stats.outputTokens, color: .statusSuccess)
+            TokenStat(label: "Output", value: stats.outputTokens, color: .feedbackPositive)
           }
         }
 
         // Cache card (combined)
         if stats.cacheReadTokens > 0 || stats.cacheCreationTokens > 0 {
           DetailCard(icon: "memorychip", title: "Cache", accentColor: accentColor) {
-            HStack(spacing: 16) {
+            HStack(spacing: Spacing.lg) {
               TokenStat(label: "Read", value: stats.cacheReadTokens, color: .modelHaiku)
               TokenStat(label: "Write", value: stats.cacheCreationTokens, color: .modelSonnet)
             }
@@ -477,10 +477,10 @@ private struct StatsDetailPanel: View {
 
         // Cache savings card
         if stats.cacheSavings > 0.01 {
-          DetailCard(icon: "leaf.fill", title: "Saved", accentColor: .statusSuccess) {
+          DetailCard(icon: "leaf.fill", title: "Saved", accentColor: .feedbackPositive) {
             Text(formatCost(stats.cacheSavings))
-              .font(.system(size: 18, weight: .bold, design: .rounded))
-              .foregroundStyle(Color.statusSuccess)
+              .font(.system(size: TypeScale.thinkingHeading1, weight: .bold, design: .rounded))
+              .foregroundStyle(Color.feedbackPositive)
           }
         }
 
@@ -488,12 +488,12 @@ private struct StatsDetailPanel: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(12)
+    .padding(Spacing.md)
     .background(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .fill(accentColor.opacity(0.03))
         .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .strokeBorder(accentColor.opacity(0.15), lineWidth: 1)
         )
     )
@@ -522,19 +522,19 @@ private struct DetailCard<Content: View>: View {
   @ViewBuilder let content: Content
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 10) {
+    VStack(alignment: .leading, spacing: Spacing.md_) {
       // Header
       Label(title, systemImage: icon)
-        .font(.system(size: 9, weight: .bold, design: .rounded))
+        .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
         .foregroundStyle(Color.textSecondary)
         .textCase(.uppercase)
         .tracking(0.3)
 
       content
     }
-    .padding(10)
+    .padding(Spacing.md_)
     .background(
-      RoundedRectangle(cornerRadius: 6, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .fill(Color.primary.opacity(0.02))
     )
   }
@@ -546,13 +546,13 @@ private struct TokenStat: View {
   let color: Color
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
+    VStack(alignment: .leading, spacing: Spacing.gap) {
       Text(formatTokens(value))
-        .font(.system(size: 14, weight: .bold, design: .rounded))
+        .font(.system(size: TypeScale.subhead, weight: .bold, design: .rounded))
         .foregroundStyle(color)
 
       Text(label)
-        .font(.system(size: 9, weight: .medium))
+        .font(.system(size: TypeScale.mini, weight: .medium))
         .foregroundStyle(Color.textTertiary)
     }
   }
@@ -570,7 +570,7 @@ private struct TokenStat: View {
 // MARK: - Preview
 
 #Preview {
-  VStack(spacing: 24) {
+  VStack(spacing: Spacing.xl) {
     CommandBar(sessions: [
       Session(
         id: "1",
@@ -610,7 +610,7 @@ private struct TokenStat: View {
       ),
     ])
   }
-  .padding(24)
+  .padding(Spacing.xl)
   .background(Color.backgroundPrimary)
   .frame(width: 900)
 }

@@ -16,7 +16,7 @@ struct ContextCollapseBar: View {
   var body: some View {
     if hiddenLineCount > 0 {
       Button {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+        withAnimation(Motion.standard) {
           isExpanded.toggle()
         }
       } label: {
@@ -25,7 +25,7 @@ struct ContextCollapseBar: View {
           HStack(spacing: 0) {
             // Fold indicators
             Text("\u{22EF}")
-              .font(.system(size: 11, weight: .light))
+              .font(.system(size: TypeScale.meta, weight: .light))
               .foregroundStyle(Color.textTertiary)
               .frame(maxWidth: .infinity)
           }
@@ -52,7 +52,7 @@ struct ContextCollapseBar: View {
               .frame(height: 1)
               .frame(maxWidth: .infinity)
           }
-          .padding(.horizontal, 12)
+          .padding(.horizontal, Spacing.md)
         }
         .frame(height: 24)
         .frame(maxWidth: .infinity)

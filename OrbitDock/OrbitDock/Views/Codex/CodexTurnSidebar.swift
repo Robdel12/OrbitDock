@@ -236,29 +236,29 @@ struct CodexTurnSidebar: View {
   // MARK: - Rail Header
 
   private var railHeader: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Spacing.sm) {
       // Preset picker (segmented icon buttons)
-      HStack(spacing: 2) {
+      HStack(spacing: Spacing.xxs) {
         ForEach(RailPreset.allCases, id: \.self) { preset in
           presetButton(preset)
         }
       }
-      .padding(2)
-      .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+      .padding(Spacing.xxs)
+      .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
 
       Spacer()
 
       Button(action: onClose) {
         Image(systemName: "xmark")
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.micro, weight: .semibold))
           .foregroundStyle(Color.textTertiary)
           .frame(width: 24, height: 24)
-          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4))
+          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm))
       }
       .buttonStyle(.plain)
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 6)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm_)
     .background(Color.backgroundSecondary)
   }
 
@@ -266,22 +266,22 @@ struct CodexTurnSidebar: View {
     let isSelected = railPreset == preset
 
     return Button {
-      withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+      withAnimation(Motion.standard) {
         railPreset = preset
       }
     } label: {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: preset.icon)
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
         Text(preset.label)
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
       }
       .foregroundStyle(isSelected ? Color.accent : .secondary)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
       .background(
         isSelected ? Color.accent.opacity(0.15) : Color.clear,
-        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+        in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
       )
     }
     .buttonStyle(.plain)
@@ -290,7 +290,7 @@ struct CodexTurnSidebar: View {
   // MARK: - Preset Application
 
   private func applyPreset(_ preset: RailPreset) {
-    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+    withAnimation(Motion.standard) {
       expandPlan = preset.expandPlan
       expandChanges = preset.expandChanges
       expandServers = preset.expandServers
@@ -319,21 +319,21 @@ struct CodexTurnSidebar: View {
   // MARK: - Empty State
 
   private var emptyRailState: some View {
-    VStack(spacing: 12) {
+    VStack(spacing: Spacing.md) {
       Image(systemName: "sidebar.right")
         .font(.system(size: 32, weight: .light))
         .foregroundStyle(Color.textTertiary)
 
       Text("No Content Yet")
-        .font(.system(size: 13, weight: .medium))
+        .font(.system(size: TypeScale.body, weight: .medium))
         .foregroundStyle(.secondary)
 
       Text("Plan, changes, servers, and skills will appear here as the agent works")
-        .font(.system(size: 11))
+        .font(.system(size: TypeScale.meta))
         .foregroundStyle(Color.textTertiary)
         .multilineTextAlignment(.center)
     }
-    .padding(.horizontal, 24)
+    .padding(.horizontal, Spacing.xl)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color.backgroundPrimary)
   }
@@ -360,7 +360,7 @@ struct CodexTurnSidebar: View {
       // Progress header
       HStack {
         Text("\(completedCount(steps))/\(steps.count) steps")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
 
         Spacer()
@@ -368,8 +368,8 @@ struct CodexTurnSidebar: View {
         CircularProgressView(progress: progress(steps))
           .frame(width: 14, height: 14)
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm)
 
       Divider()
         .foregroundStyle(Color.panelBorder.opacity(0.5))
@@ -382,7 +382,7 @@ struct CodexTurnSidebar: View {
         )
       }
     }
-    .padding(.vertical, 4)
+    .padding(.vertical, Spacing.xs)
     .background(Color.backgroundPrimary)
   }
 
@@ -398,21 +398,21 @@ struct CodexTurnSidebar: View {
       // Stats header
       HStack {
         Text("\(model.files.count) file\(model.files.count == 1 ? "" : "s") changed")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
 
         Spacer()
 
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
           Text("+\(totalAdds)")
             .foregroundStyle(Color(red: 0.4, green: 0.95, blue: 0.5))
           Text("−\(totalDels)")
             .foregroundStyle(Color(red: 1.0, green: 0.5, blue: 0.5))
         }
-        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm)
 
       Divider()
         .foregroundStyle(Color.panelBorder.opacity(0.5))
@@ -420,31 +420,31 @@ struct CodexTurnSidebar: View {
       // Compact file list (max 5, then "+N more")
       VStack(alignment: .leading, spacing: 0) {
         ForEach(Array(model.files.prefix(5).enumerated()), id: \.element.id) { _, file in
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             Circle()
               .fill(compactChangeColor(file.changeType))
               .frame(width: 5, height: 5)
 
             Text(file.newPath.components(separatedBy: "/").last ?? file.newPath)
-              .font(.system(size: 10, design: .monospaced))
+              .font(.system(size: TypeScale.micro, design: .monospaced))
               .foregroundStyle(.primary.opacity(0.8))
               .lineLimit(1)
 
             Spacer()
           }
-          .padding(.horizontal, 12)
-          .padding(.vertical, 3)
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.gap)
         }
 
         if model.files.count > 5 {
           Text("+\(model.files.count - 5) more")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(Color.textTertiary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 3)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.gap)
         }
       }
-      .padding(.vertical, 4)
+      .padding(.vertical, Spacing.xs)
 
       // Open Review button
       if onOpenReview != nil {
@@ -454,15 +454,15 @@ struct CodexTurnSidebar: View {
         Button {
           onOpenReview?()
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Image(systemName: "doc.text.magnifyingglass")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
             Text("Open Review")
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.meta, weight: .medium))
           }
           .foregroundStyle(Color.accent)
           .frame(maxWidth: .infinity)
-          .padding(.vertical, 8)
+          .padding(.vertical, Spacing.sm)
         }
         .buttonStyle(.plain)
       }
@@ -500,7 +500,7 @@ private struct PlanStepRow: View {
   let isLast: Bool
 
   var body: some View {
-    HStack(alignment: .top, spacing: 10) {
+    HStack(alignment: .top, spacing: Spacing.md_) {
       // Status indicator with connector line
       VStack(spacing: 0) {
         statusIcon
@@ -515,24 +515,24 @@ private struct PlanStepRow: View {
       }
 
       // Step content
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
         Text(step.step)
-          .font(.system(size: 12))
+          .font(.system(size: TypeScale.caption))
           .foregroundStyle(textColor)
           .multilineTextAlignment(.leading)
           .fixedSize(horizontal: false, vertical: true)
 
         Text(statusLabel)
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(statusLabelColor)
       }
-      .padding(.bottom, isLast ? 0 : 12)
+      .padding(.bottom, isLast ? 0 : Spacing.md)
 
       Spacer(minLength: 0)
     }
-    .padding(.horizontal, 12)
+    .padding(.horizontal, Spacing.md)
     .contentShape(Rectangle())
-    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: step.status)
+    .animation(Motion.gentle, value: step.status)
   }
 
   @ViewBuilder
@@ -540,8 +540,8 @@ private struct PlanStepRow: View {
     switch step.status {
       case "completed":
         Image(systemName: "checkmark.circle.fill")
-          .font(.system(size: 16, weight: .medium))
-          .foregroundStyle(Color.statusReady)
+          .font(.system(size: TypeScale.large, weight: .medium))
+          .foregroundStyle(Color.feedbackPositive)
 
       case "inProgress":
         ZStack {
@@ -557,7 +557,7 @@ private struct PlanStepRow: View {
 
       case "failed":
         Image(systemName: "xmark.circle.fill")
-          .font(.system(size: 16, weight: .medium))
+          .font(.system(size: TypeScale.large, weight: .medium))
           .foregroundStyle(Color.statusPermission)
 
       default: // pending
@@ -587,7 +587,7 @@ private struct PlanStepRow: View {
 
   private var statusLabelColor: Color {
     switch step.status {
-      case "completed": .statusReady.opacity(0.8)
+      case "completed": .feedbackPositive.opacity(0.8)
       case "inProgress": Color.accent
       case "failed": .statusPermission
       default: .secondary.opacity(0.6)
@@ -596,7 +596,7 @@ private struct PlanStepRow: View {
 
   private var connectorColor: Color {
     switch step.status {
-      case "completed": .statusReady.opacity(0.3)
+      case "completed": .feedbackPositive.opacity(0.3)
       case "inProgress": Color.accent.opacity(0.3)
       default: Color.secondary.opacity(0.2)
     }
@@ -616,7 +616,7 @@ private struct CircularProgressView: View {
       Circle()
         .trim(from: 0, to: progress)
         .stroke(
-          progress >= 1.0 ? Color.statusReady : Color.accent,
+          progress >= 1.0 ? Color.feedbackPositive : Color.accent,
           style: StrokeStyle(lineWidth: 2, lineCap: .round)
         )
         .rotationEffect(.degrees(-90))
@@ -672,15 +672,15 @@ private struct TokenTimelineView: View {
         let fill = contextFillPercent(usage: usage, snapshotKind: kind)
         HStack {
           Text("Context")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(Color.textSecondary)
           Spacer()
           Text(String(format: "%.0f%%", fill))
-            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .font(.system(size: TypeScale.meta, weight: .bold, design: .monospaced))
             .foregroundStyle(fillColor(for: fill))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
 
         // Fill bar
         GeometryReader { geo in
@@ -693,18 +693,18 @@ private struct TokenTimelineView: View {
           }
         }
         .frame(height: 6)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.bottom, Spacing.sm)
 
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
           tokenStat("In", value: effectiveContextInputTokens(usage: usage, snapshotKind: kind))
           tokenStat("Out", value: usage.outputTokens)
           if usage.cachedTokens > 0 {
             tokenStat("Cache", value: usage.cachedTokens)
           }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.bottom, Spacing.sm)
       }
 
       // Per-turn rows
@@ -725,18 +725,18 @@ private struct TokenTimelineView: View {
             let currentInput = effectiveContextInputTokens(usage: usage, snapshotKind: turnSnapshotKind)
             let delta = Int(currentInput) - Int(prevInput)
 
-            HStack(spacing: 8) {
+            HStack(spacing: Spacing.sm) {
               Text("T\(index + 1)")
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
                 .foregroundStyle(Color.textTertiary)
                 .frame(width: 22, alignment: .trailing)
 
               // Mini fill bar
               GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                  RoundedRectangle(cornerRadius: 2)
+                  RoundedRectangle(cornerRadius: Radius.xs)
                     .fill(Color.surfaceBorder.opacity(0.2))
-                  RoundedRectangle(cornerRadius: 2)
+                  RoundedRectangle(cornerRadius: Radius.xs)
                     .fill(fillColor(for: fill))
                     .frame(width: geo.size.width * min(fill / 100, 1.0))
                 }
@@ -744,25 +744,25 @@ private struct TokenTimelineView: View {
               .frame(height: 4)
 
               Text(String(format: "%.0f%%", fill))
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
                 .foregroundStyle(fillColor(for: fill))
                 .frame(width: 32, alignment: .trailing)
 
               if delta > 0 {
                 Text("+\(formatK(delta))")
-                  .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                  .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
                   .foregroundStyle(Color.textSecondary)
               }
 
               Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xs)
           }
         }
       }
     }
-    .padding(.vertical, 4)
+    .padding(.vertical, Spacing.xs)
     .background(Color.backgroundPrimary)
   }
 
@@ -807,12 +807,12 @@ private struct TokenTimelineView: View {
   }
 
   private func tokenStat(_ label: String, value: UInt64) -> some View {
-    VStack(spacing: 2) {
+    VStack(spacing: Spacing.xxs) {
       Text(formatK(Int(value)))
-        .font(.system(size: 11, weight: .bold, design: .monospaced))
+        .font(.system(size: TypeScale.meta, weight: .bold, design: .monospaced))
         .foregroundStyle(Color.textPrimary)
       Text(label)
-        .font(.system(size: 9, weight: .medium))
+        .font(.system(size: TypeScale.mini, weight: .medium))
         .foregroundStyle(Color.textTertiary)
     }
   }

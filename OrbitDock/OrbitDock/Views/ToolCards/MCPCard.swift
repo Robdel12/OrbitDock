@@ -57,30 +57,30 @@ struct MCPCard: View {
   // MARK: - Header
 
   private var header: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       Image(systemName: MCPCard.serverIcon(serverName))
-        .font(.system(size: 14, weight: .medium))
+        .font(.system(size: TypeScale.subhead, weight: .medium))
         .foregroundStyle(color)
 
-      VStack(alignment: .leading, spacing: 2) {
-        HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        HStack(spacing: Spacing.sm) {
           Text(displayToolName)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(color)
 
           // Server badge
           Text(serverName)
-            .font(.system(size: 9, weight: .bold))
+            .font(.system(size: TypeScale.mini, weight: .bold))
             .foregroundStyle(.white.opacity(0.9))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.8), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.xxs)
+            .background(color.opacity(0.8), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
         }
 
         // Show primary parameter as subtitle
         if let subtitle = primaryParameter {
           Text(subtitle)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: TypeScale.meta, design: .monospaced))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -93,11 +93,11 @@ struct MCPCard: View {
       }
 
       if message.isInProgress {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           ProgressView()
             .controlSize(.mini)
           Text("Running...")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(color)
         }
       } else if message.toolInput != nil || message.toolOutput != nil {
@@ -151,13 +151,13 @@ struct MCPCard: View {
     VStack(alignment: .leading, spacing: 0) {
       // Input parameters
       if let input = message.toolInput, !input.isEmpty {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
           Text("INPUT")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
-          VStack(alignment: .leading, spacing: 4) {
+          VStack(alignment: .leading, spacing: Spacing.xs) {
             ForEach(Array(input.keys.sorted().prefix(10)), id: \.self) { key in
               if let value = input[key] {
                 parameterRow(key: key, value: value)
@@ -166,47 +166,47 @@ struct MCPCard: View {
 
             if input.count > 10 {
               Text("... +\(input.count - 10) more")
-                .font(.system(size: 10))
+                .font(.system(size: TypeScale.micro))
                 .foregroundStyle(Color.textTertiary)
             }
           }
         }
-        .padding(12)
+        .padding(Spacing.md)
       }
 
       // Output
       if let output = message.sanitizedToolOutput, !output.isEmpty {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
           Text("OUTPUT")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           ScrollView {
             Text(output.count > 1_000 ? String(output.prefix(1_000)) + "\n[...]" : output)
-              .font(.system(size: 11, design: .monospaced))
+              .font(.system(size: TypeScale.meta, design: .monospaced))
               .foregroundStyle(.primary.opacity(0.8))
               .textSelection(.enabled)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
           .frame(maxHeight: 150)
         }
-        .padding(12)
+        .padding(Spacing.md)
         .background(Color.backgroundTertiary.opacity(0.5))
       }
     }
   }
 
   private func parameterRow(key: String, value: Any) -> some View {
-    HStack(alignment: .top, spacing: 8) {
+    HStack(alignment: .top, spacing: Spacing.sm) {
       Text(key)
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .foregroundStyle(color.opacity(0.8))
         .frame(minWidth: 80, alignment: .trailing)
 
       let stringValue = formatValue(value)
       Text(stringValue.count > 200 ? String(stringValue.prefix(200)) + "..." : stringValue)
-        .font(.system(size: 10, design: .monospaced))
+        .font(.system(size: TypeScale.micro, design: .monospaced))
         .foregroundStyle(.primary.opacity(0.8))
         .textSelection(.enabled)
     }

@@ -62,7 +62,12 @@ final class CodexFileLogger: @unchecked Sendable {
     }
 
     // Create or open log file
-    FileManager.default.createFile(atPath: logPath, contents: nil)
+    FileManager.default.createFile(
+      atPath: logPath,
+      contents: nil,
+      attributes: [.posixPermissions: 0o600]
+    )
+    try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: logPath)
     fileHandle = FileHandle(forWritingAtPath: logPath)
     fileHandle?.seekToEndOfFile()
 
@@ -145,13 +150,13 @@ final class CodexFileLogger: @unchecked Sendable {
       "path": path,
     ]
     if let body, !body.isEmpty {
-      data["requestBody"] = body
+      data["requestBodyKeys"] = Array(body.keys).sorted()
     }
     if let responseStatus {
       data["responseStatus"] = responseStatus
     }
-    if let responseBody {
-      data["responseBody"] = responseBody
+    if let responseBody, !responseBody.isEmpty {
+      data["responseBodyKeys"] = Array(responseBody.keys).sorted()
     }
     if let durationMs {
       data["durationMs"] = String(format: "%.2f", durationMs)

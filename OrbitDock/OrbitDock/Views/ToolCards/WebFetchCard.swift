@@ -77,25 +77,25 @@ struct WebFetchCard: View {
   // MARK: - Header
 
   private var header: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       Image(systemName: "globe")
-        .font(.system(size: 14, weight: .medium))
+        .font(.system(size: TypeScale.subhead, weight: .medium))
         .foregroundStyle(color)
 
-      VStack(alignment: .leading, spacing: 2) {
-        HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        HStack(spacing: Spacing.sm) {
           Text("WebFetch")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(color)
 
           // Status indicator
           Image(systemName: status.icon)
-            .font(.system(size: 12))
+            .font(.system(size: TypeScale.caption))
             .foregroundStyle(status.color)
         }
 
         Text(domain)
-          .font(.system(size: 11, design: .monospaced))
+          .font(.system(size: TypeScale.meta, design: .monospaced))
           .foregroundStyle(.secondary)
           .lineLimit(1)
       }
@@ -107,11 +107,11 @@ struct WebFetchCard: View {
       }
 
       if message.isInProgress {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           ProgressView()
             .controlSize(.mini)
           Text("Fetching...")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(color)
         }
       } else {
@@ -125,15 +125,15 @@ struct WebFetchCard: View {
   private var expandedContent: some View {
     VStack(alignment: .leading, spacing: 0) {
       // URL
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: Spacing.sm_) {
         Text("URL")
-          .font(.system(size: 9, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textQuaternary)
           .tracking(0.5)
 
         HStack {
           Text(url)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: TypeScale.meta, design: .monospaced))
             .foregroundStyle(.primary.opacity(0.9))
             .textSelection(.enabled)
             .lineLimit(2)
@@ -146,50 +146,50 @@ struct WebFetchCard: View {
             }
           } label: {
             Image(systemName: "arrow.up.forward.square")
-              .font(.system(size: 11))
+              .font(.system(size: TypeScale.meta))
               .foregroundStyle(Color.textTertiary)
           }
           .buttonStyle(.plain)
           .help("Open in browser")
         }
       }
-      .padding(12)
+      .padding(Spacing.md)
 
       // Prompt
       if !prompt.isEmpty {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm_) {
           Text("PROMPT")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           Text(prompt.count > 200 ? String(prompt.prefix(200)) + "..." : prompt)
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(.primary.opacity(0.8))
             .textSelection(.enabled)
         }
-        .padding(12)
+        .padding(Spacing.md)
         .background(Color.backgroundTertiary.opacity(0.3))
       }
 
       // Output/Response
       if !output.isEmpty {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm_) {
           Text("RESPONSE")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           ScrollView {
             Text(output.count > 1_500 ? String(output.prefix(1_500)) + "\n[...]" : output)
-              .font(.system(size: 11, design: .monospaced))
+              .font(.system(size: TypeScale.meta, design: .monospaced))
               .foregroundStyle(.primary.opacity(0.8))
               .textSelection(.enabled)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
           .frame(maxHeight: 200)
         }
-        .padding(12)
+        .padding(Spacing.md)
         .background(Color.backgroundTertiary.opacity(0.5))
       }
     }

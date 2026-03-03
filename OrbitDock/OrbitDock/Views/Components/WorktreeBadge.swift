@@ -18,8 +18,8 @@ struct WorktreeBadge: View {
     }
     .foregroundStyle(Color.gitBranch.opacity(0.8))
     .padding(.horizontal, 5)
-    .padding(.vertical, 2)
-    .background(Color.gitBranch.opacity(0.10), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    .padding(.vertical, Spacing.xxs)
+    .background(Color.gitBranch.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
   }
 }
 

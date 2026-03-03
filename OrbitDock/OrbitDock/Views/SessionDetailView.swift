@@ -96,7 +96,7 @@ struct SessionDetailView: View {
             compact: layoutConfig == .split,
             navigateToFileId: $reviewFileId,
             onDismiss: {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              withAnimation(Motion.gentle) {
                 layoutConfig = .conversationOnly
               }
             },
@@ -116,7 +116,7 @@ struct SessionDetailView: View {
             .transition(.move(edge: .trailing).combined(with: .opacity))
         }
       }
-      .animation(.spring(response: 0.25, dampingFraction: 0.8), value: showTurnSidebar)
+      .animation(Motion.standard, value: showTurnSidebar)
 
       // Action bar (unified composer for direct sessions, simpler bar for passive sessions)
       if obs.isDirect {
@@ -127,7 +127,7 @@ struct SessionDetailView: View {
           unreadCount: $unreadCount,
           scrollToBottomTrigger: $scrollToBottomTrigger,
           onOpenSkills: {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            withAnimation(Motion.standard) {
               showTurnSidebar = true
             }
           }
@@ -184,28 +184,28 @@ struct SessionDetailView: View {
 
       switch keyPress.key {
         case KeyEquivalent("1"):
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          withAnimation(Motion.standard) {
             railPreset = .planFocused
             showTurnSidebar = true
           }
           return .handled
 
         case KeyEquivalent("2"):
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          withAnimation(Motion.standard) {
             railPreset = .reviewFocused
             showTurnSidebar = true
           }
           return .handled
 
         case KeyEquivalent("3"):
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          withAnimation(Motion.standard) {
             railPreset = .triage
             showTurnSidebar = true
           }
           return .handled
 
         case KeyEquivalent("r"):
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+          withAnimation(Motion.standard) {
             showTurnSidebar.toggle()
           }
           return .handled
@@ -220,7 +220,7 @@ struct SessionDetailView: View {
 
       // Cmd+D: Toggle conversation ↔ split
       if keyPress.modifiers == .command, keyPress.key == KeyEquivalent("d") {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(Motion.gentle) {
           layoutConfig = layoutConfig == .conversationOnly ? .split : .conversationOnly
         }
         return .handled
@@ -228,7 +228,7 @@ struct SessionDetailView: View {
 
       // Cmd+Shift+D: Review only
       if keyPress.modifiers == [.command, .shift], keyPress.key == KeyEquivalent("d") {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(Motion.gentle) {
           layoutConfig = .reviewOnly
         }
         return .handled
@@ -243,14 +243,14 @@ struct SessionDetailView: View {
     .onChange(of: serverState.session(sessionId).diff) { oldDiff, newDiff in
       guard obs.isDirect else { return }
       if oldDiff == nil, newDiff != nil, layoutConfig == .conversationOnly {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+        withAnimation(Motion.standard) {
           showDiffBanner = true
         }
         // Auto-dismiss after 8 seconds
         Task {
           try? await Task.sleep(for: .seconds(8))
           await MainActor.run {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            withAnimation(Motion.standard) {
               showDiffBanner = false
             }
           }
@@ -264,7 +264,7 @@ struct SessionDetailView: View {
       sessionId: sessionId,
       sessionScopedId: obs.scopedID,
       onClose: {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+        withAnimation(Motion.standard) {
           showTurnSidebar = false
         }
       },
@@ -272,7 +272,7 @@ struct SessionDetailView: View {
       selectedSkills: $selectedSkills,
       selectedCommentIds: $selectedCommentIds,
       onOpenReview: {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(Motion.gentle) {
           layoutConfig = .split
         }
       },
@@ -290,7 +290,7 @@ struct SessionDetailView: View {
       },
       onNavigateToComment: { comment in
         navigateToComment = comment
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(Motion.gentle) {
           if layoutConfig == .conversationOnly {
             layoutConfig = .split
           }
@@ -346,7 +346,7 @@ struct SessionDetailView: View {
 
       // Git branch
       if let branch = obs.branch, !branch.isEmpty {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
           Image(systemName: "arrow.triangle.branch")
             .font(.system(size: TypeScale.micro, weight: .semibold))
           Text(compactBranchLabel(branch))
@@ -390,7 +390,7 @@ struct SessionDetailView: View {
           unreadCount = 0
           scrollToBottomTrigger += 1
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Image(systemName: "arrow.down")
               .font(.system(size: TypeScale.micro, weight: .bold))
             Text("\(unreadCount) new")
@@ -422,8 +422,8 @@ struct SessionDetailView: View {
     }
     .frame(height: 30)
     .background(Color.backgroundSecondary)
-    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
-    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
+    .animation(Motion.standard, value: isPinned)
+    .animation(Motion.standard, value: unreadCount)
   }
 
   private var stripDivider: some View {
@@ -458,7 +458,7 @@ struct SessionDetailView: View {
           Image(systemName: copiedResume ? "checkmark" : "doc.on.doc")
             .font(.system(size: TypeScale.code, weight: .medium))
             .frame(width: 30, height: 30)
-            .foregroundStyle(copiedResume ? Color.statusSuccess : .secondary)
+            .foregroundStyle(copiedResume ? Color.feedbackPositive : .secondary)
             .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -486,7 +486,7 @@ struct SessionDetailView: View {
             unreadCount = 0
             scrollToBottomTrigger += 1
           } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               Image(systemName: "arrow.down")
                 .font(.system(size: TypeScale.caption, weight: .bold))
               Text("\(unreadCount)")
@@ -508,7 +508,7 @@ struct SessionDetailView: View {
             scrollToBottomTrigger += 1
           }
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
               .font(.system(size: TypeScale.body, weight: .medium))
             Text(isPinned ? "Following" : "Paused")
@@ -535,12 +535,12 @@ struct SessionDetailView: View {
               .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
               .foregroundStyle(.primary.opacity(OpacityTier.vivid))
               .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, 4)
+              .padding(.vertical, Spacing.xs)
               .background(Color.backgroundTertiary, in: Capsule())
           }
 
           if let branch = obs.branch, !branch.isEmpty {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: TypeScale.caption, weight: .semibold))
               Text(compactBranchLabel(branch))
@@ -548,7 +548,7 @@ struct SessionDetailView: View {
             }
             .foregroundStyle(Color.gitBranch)
             .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, 4)
+            .padding(.vertical, Spacing.xs)
             .background(Color.backgroundTertiary, in: Capsule())
           }
 
@@ -557,7 +557,7 @@ struct SessionDetailView: View {
               .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.textTertiary)
               .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, 4)
+              .padding(.vertical, Spacing.xs)
               .background(Color.backgroundTertiary, in: Capsule())
           }
         }
@@ -567,8 +567,8 @@ struct SessionDetailView: View {
     }
     .padding(.vertical, Spacing.sm)
     .background(Color.backgroundSecondary)
-    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
-    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
+    .animation(Motion.standard, value: isPinned)
+    .animation(Motion.standard, value: unreadCount)
   }
 
   // MARK: - Conversation Content
@@ -602,7 +602,7 @@ struct SessionDetailView: View {
           createdAt: "",
           updatedAt: nil
         )
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(Motion.gentle) {
           if layoutConfig == .conversationOnly {
             layoutConfig = .split
           }
@@ -618,7 +618,7 @@ struct SessionDetailView: View {
         ? String(filePath.dropFirst(obs.projectPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         : filePath
       reviewFileId = relative
-      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+      withAnimation(Motion.gentle) {
         if layoutConfig == .conversationOnly {
           layoutConfig = .split
         }
@@ -632,7 +632,7 @@ struct SessionDetailView: View {
   private var diffAvailableBanner: some View {
     let fileCount = diffFileCount
     return Button {
-      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+      withAnimation(Motion.gentle) {
         layoutConfig = .split
         showDiffBanner = false
       }
@@ -652,7 +652,7 @@ struct SessionDetailView: View {
     }
     .buttonStyle(.plain)
     .frame(maxWidth: .infinity)
-    .padding(.vertical, 4)
+    .padding(.vertical, Spacing.xs)
     .background(Color.backgroundSecondary)
     .transition(.move(edge: .top).combined(with: .opacity))
   }
@@ -696,7 +696,7 @@ struct SessionDetailView: View {
         Image(systemName: "arrow.triangle.branch")
           .font(.system(size: TypeScale.body, weight: .medium))
           .foregroundStyle(Color.accent)
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text("Worktree: \(branchName)")
             .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.textPrimary)
@@ -724,7 +724,7 @@ struct SessionDetailView: View {
         Spacer()
 
         Button("Keep") {
-          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          withAnimation(Motion.gentle) {
             worktreeCleanupDismissed = true
           }
         }
@@ -766,7 +766,7 @@ struct SessionDetailView: View {
           force: true,
           deleteBranch: deleteBranchOnCleanup
         )
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(Motion.gentle) {
           worktreeCleanupDismissed = true
         }
       } catch {

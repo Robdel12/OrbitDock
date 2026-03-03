@@ -239,7 +239,7 @@
 
       button.translatesAutoresizingMaskIntoConstraints = false
       button.isBordered = false
-      button.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+      button.font = NSFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
       button.contentTintColor = NSColor(Color.accent)
       button.target = self
       button.action = #selector(handleClick)
@@ -282,7 +282,7 @@
       layer?.backgroundColor = NSColor.clear.cgColor
 
       label.translatesAutoresizingMaskIntoConstraints = false
-      label.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+      label.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       label.textColor = NSColor(Color.textTertiary)
       label.alignment = .center
       addSubview(label)
@@ -541,7 +541,7 @@
       addSubview(glyphImage)
 
       summaryField.translatesAutoresizingMaskIntoConstraints = false
-      summaryField.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+      summaryField.font = NSFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .regular)
       summaryField.textColor = NSColor(Color.textTertiary)
       summaryField.lineBreakMode = .byTruncatingTail
       summaryField.maximumNumberOfLines = 1
@@ -558,7 +558,7 @@
 
       // Context label — unchanged line before the edit (dimmed)
       contextField.translatesAutoresizingMaskIntoConstraints = false
-      contextField.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+      contextField.font = NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular)
       contextField.textColor = NSColor.white.withAlphaComponent(0.25)
       contextField.lineBreakMode = .byTruncatingTail
       contextField.maximumNumberOfLines = 1
@@ -567,7 +567,7 @@
 
       // Snippet label — first changed line preview
       snippetField.translatesAutoresizingMaskIntoConstraints = false
-      snippetField.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+      snippetField.font = NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular)
       snippetField.lineBreakMode = .byTruncatingTail
       snippetField.maximumNumberOfLines = 1
       snippetField.isHidden = true
@@ -681,7 +681,7 @@
       hasLivePreview: Bool = false
     ) -> CGFloat {
       let inset = ConversationLayout.laneHorizontalInset
-      let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+      let font = NSFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .regular)
       // glyph leading: inset + 4 + 14 (glyph) + 4 (gap) = inset + 22
       // meta trailing area ~ 60pt reserve
       let textWidth = max(60, width - inset * 2 - 22 - 60)
@@ -727,14 +727,14 @@
         attributed.append(NSAttributedString(
           string: "\(preview.snippetPrefix) ",
           attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .bold),
+            .font: NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .bold),
             .foregroundColor: prefixColor.withAlphaComponent(0.7),
           ]
         ))
         attributed.append(NSAttributedString(
           string: preview.snippetText,
           attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+            .font: NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular),
             .foregroundColor: prefixColor.withAlphaComponent(0.7),
           ]
         ))
@@ -763,14 +763,14 @@
         attributed.append(NSAttributedString(
           string: "> ",
           attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .bold),
+            .font: NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .bold),
             .foregroundColor: color,
           ]
         ))
         attributed.append(NSAttributedString(
           string: livePreview,
           attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+            .font: NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular),
             .foregroundColor: color,
           ]
         ))

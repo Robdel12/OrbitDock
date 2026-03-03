@@ -71,7 +71,7 @@ struct EndpointSelectorField: View {
               }
               .foregroundStyle(Color.accent)
               .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, 6)
+              .padding(.vertical, Spacing.sm_)
               .background(
                 Color.accent.opacity(OpacityTier.tint),
                 in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
@@ -158,7 +158,7 @@ struct EndpointSelectorField: View {
       .font(.system(size: TypeScale.micro, weight: .semibold))
       .foregroundStyle(tint)
       .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, 3)
+      .padding(.vertical, Spacing.gap)
       .background(tint.opacity(OpacityTier.tint), in: Capsule())
       .overlay(
         Capsule()

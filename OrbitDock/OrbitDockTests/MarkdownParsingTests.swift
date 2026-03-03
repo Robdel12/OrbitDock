@@ -234,6 +234,52 @@ struct MarkdownParsingTests {
     #expect((paragraphStyle?.headIndent ?? 0) > (paragraphStyle?.firstLineHeadIndent ?? 0))
   }
 
+  @Test func nestedListItemsHaveIncreasingFirstLineIndent() {
+    let markdown = """
+    1. First item
+    2. Trigger these:
+       - update_plan
+       - one request_user_input flow
+    3. Confirm tool rows
+    """
+
+    let blocks = MarkdownSystemParser.parse(markdown)
+    let listText = blocks.compactMap { block -> NSAttributedString? in
+      if case let .text(text) = block { return text }
+      return nil
+    }.first
+
+    #expect(listText != nil)
+    guard let listText else { return }
+
+    let ns = listText.string as NSString
+
+    // Find a top-level numbered item and a nested bullet
+    let topRange = ns.range(of: "1.")
+    let nestedRange = ns.range(of: "•")
+    #expect(topRange.location != NSNotFound)
+    #expect(nestedRange.location != NSNotFound)
+    guard topRange.location != NSNotFound, nestedRange.location != NSNotFound else { return }
+
+    let topStyle = listText.attribute(
+      .paragraphStyle,
+      at: topRange.location,
+      effectiveRange: nil
+    ) as? NSParagraphStyle
+    let nestedStyle = listText.attribute(
+      .paragraphStyle,
+      at: nestedRange.location,
+      effectiveRange: nil
+    ) as? NSParagraphStyle
+
+    #expect(topStyle != nil)
+    #expect(nestedStyle != nil)
+    #expect(
+      (nestedStyle?.firstLineHeadIndent ?? 0) > (topStyle?.firstLineHeadIndent ?? 0),
+      "Nested bullets should have a larger firstLineHeadIndent than top-level items"
+    )
+  }
+
   @Test func listContinuationParagraphSpacingStaysAttachedToItem() {
     let markdown = """
     - Bullet two with continuation paragraph:

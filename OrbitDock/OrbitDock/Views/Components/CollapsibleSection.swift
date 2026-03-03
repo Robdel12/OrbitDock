@@ -19,11 +19,11 @@ struct CollapsibleSection<Content: View>: View {
     VStack(spacing: 0) {
       // Header
       Button {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+        withAnimation(Motion.standard) {
           isExpanded.toggle()
         }
       } label: {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           Image(systemName: "chevron.right")
             .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(Color.textTertiary)
@@ -34,22 +34,22 @@ struct CollapsibleSection<Content: View>: View {
             .foregroundStyle(.secondary)
 
           Text(title)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(.secondary)
 
           if let badge {
             Text(badge)
-              .font(.system(size: 11, weight: .medium, design: .rounded))
+              .font(.system(size: TypeScale.meta, weight: .medium, design: .rounded))
               .foregroundStyle(badgeColor)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.xxs)
               .background(badgeColor.opacity(0.12), in: Capsule())
           }
 
           Spacer()
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
+        .padding(.vertical, Spacing.md_)
+        .padding(.horizontal, Spacing.md)
         .contentShape(Rectangle())
         .background(Color.backgroundTertiary.opacity(0.3))
       }
@@ -70,16 +70,16 @@ struct CollapsibleSection<Content: View>: View {
 
   VStack(spacing: 1) {
     CollapsibleSection(title: "Plan", icon: "list.bullet.clipboard", isExpanded: $expanded, badge: "3/5") {
-      VStack(alignment: .leading, spacing: 4) {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
         Text("Step 1: Do the thing")
         Text("Step 2: Do more things")
       }
-      .padding(12)
+      .padding(Spacing.md)
     }
 
     CollapsibleSection(title: "Changes", icon: "doc.badge.plus", isExpanded: $collapsed) {
       Text("Diff content here")
-        .padding(12)
+        .padding(Spacing.md)
     }
   }
   .background(Color.backgroundSecondary)

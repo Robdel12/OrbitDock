@@ -739,7 +739,9 @@ enum MarkdownSystemParser {
 
         // Use a hanging indent so marker + content are inset from body text,
         // while wrapped lines align with the marker content start.
-        paragraph.firstLineHeadIndent = listInset
+        // leadingPrefixWidth accounts for nesting depth so nested items
+        // are visually indented further than their parent list items.
+        paragraph.firstLineHeadIndent = listInset + leadingPrefixWidth
         paragraph.headIndent = listInset + leadingPrefixWidth + markerWidth
         previousHeadIndent = paragraph.headIndent
         shouldApplyListStyle = true

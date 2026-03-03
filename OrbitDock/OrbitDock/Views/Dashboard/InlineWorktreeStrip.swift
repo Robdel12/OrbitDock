@@ -77,16 +77,16 @@ struct InlineWorktreeStrip: View {
         populatedStrip
       }
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 6)
+    .padding(.horizontal, Spacing.md_)
+    .padding(.vertical, Spacing.sm_)
     .background(
       RoundedRectangle(cornerRadius: CGFloat(Radius.md), style: .continuous)
         .fill(Color.backgroundTertiary.opacity(0.25))
     )
-    .padding(.horizontal, 10)
-    .padding(.top, 2)
-    .animation(.spring(response: 0.25, dampingFraction: 0.9), value: isExpanded)
-    .animation(.spring(response: 0.25, dampingFraction: 0.9), value: worktrees.count)
+    .padding(.horizontal, Spacing.md_)
+    .padding(.top, Spacing.xxs)
+    .animation(Motion.standard, value: isExpanded)
+    .animation(Motion.standard, value: worktrees.count)
     .sheet(item: $worktreeForCleanup) { wt in
       CompleteWorktreeSheet(
         worktree: wt,
@@ -147,13 +147,13 @@ struct InlineWorktreeStrip: View {
   // MARK: - Empty State
 
   private var emptyState: some View {
-    HStack(spacing: 6) {
+    HStack(spacing: Spacing.sm_) {
       Image(systemName: "arrow.triangle.branch")
-        .font(.system(size: 9, weight: .semibold))
+        .font(.system(size: TypeScale.mini, weight: .semibold))
         .foregroundStyle(Color.textQuaternary)
 
       Text("No worktrees")
-        .font(.system(size: 11, weight: .medium))
+        .font(.system(size: TypeScale.meta, weight: .medium))
         .foregroundStyle(Color.textQuaternary)
 
       Spacer()
@@ -161,15 +161,15 @@ struct InlineWorktreeStrip: View {
       Button {
         onOpenManageSheet()
       } label: {
-        HStack(spacing: 3) {
+        HStack(spacing: Spacing.gap) {
           Image(systemName: "plus")
             .font(.system(size: 8, weight: .bold))
           Text("New")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
         }
         .foregroundStyle(Color.accent.opacity(0.8))
         .padding(.horizontal, 7)
-        .padding(.vertical, 3)
+        .padding(.vertical, Spacing.gap)
         .background(Color.accent.opacity(0.08), in: Capsule())
       }
       .buttonStyle(.plain)
@@ -177,15 +177,15 @@ struct InlineWorktreeStrip: View {
       Button {
         serverState.connection.discoverWorktrees(repoPath: repoRoot)
       } label: {
-        HStack(spacing: 3) {
+        HStack(spacing: Spacing.gap) {
           Image(systemName: "arrow.clockwise")
             .font(.system(size: 8, weight: .bold))
           Text("Discover")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
         }
         .foregroundStyle(Color.textTertiary)
         .padding(.horizontal, 7)
-        .padding(.vertical, 3)
+        .padding(.vertical, Spacing.gap)
         .background(Color.surfaceHover, in: Capsule())
       }
       .buttonStyle(.plain)
@@ -204,7 +204,7 @@ struct InlineWorktreeStrip: View {
             worktreeSection(wt)
           }
         }
-        .padding(.top, 3)
+        .padding(.top, Spacing.gap)
       }
     }
   }
@@ -214,11 +214,11 @@ struct InlineWorktreeStrip: View {
   private var stripHeader: some View {
     HStack(spacing: 5) {
       Button {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+        withAnimation(Motion.standard) {
           isExpanded.toggle()
         }
       } label: {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
           Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
             .font(.system(size: 7, weight: .bold))
             .foregroundStyle(Color.textQuaternary)
@@ -229,11 +229,11 @@ struct InlineWorktreeStrip: View {
             .foregroundStyle(Color.gitBranch.opacity(0.7))
 
           Text("Worktrees")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: TypeScale.meta, weight: .semibold))
             .foregroundStyle(Color.textTertiary)
 
           Text("\(worktrees.count)")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
             .foregroundStyle(Color.gitBranch.opacity(0.6))
         }
         .contentShape(Rectangle())
@@ -245,15 +245,15 @@ struct InlineWorktreeStrip: View {
       Button {
         onOpenManageSheet()
       } label: {
-        HStack(spacing: 3) {
+        HStack(spacing: Spacing.gap) {
           Image(systemName: "plus")
             .font(.system(size: 8, weight: .bold))
           Text("New")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
         }
         .foregroundStyle(Color.accent.opacity(0.8))
         .padding(.horizontal, 7)
-        .padding(.vertical, 3)
+        .padding(.vertical, Spacing.gap)
         .background(Color.accent.opacity(0.08), in: Capsule())
       }
       .buttonStyle(.plain)
@@ -274,7 +274,7 @@ struct InlineWorktreeStrip: View {
         isRowExpanded: isRowExpanded,
         isPhoneCompact: isPhoneCompact,
         onToggleExpand: {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          withAnimation(Motion.standard) {
             if expandedWorktrees.contains(wt.id) {
               expandedWorktrees.remove(wt.id)
             } else {
@@ -301,27 +301,27 @@ struct InlineWorktreeStrip: View {
         if wtSessions.isEmpty {
           HStack(spacing: 5) {
             Text("No sessions yet")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
           }
-          .padding(.leading, 20)
-          .padding(.vertical, 4)
+          .padding(.leading, Spacing.section)
+          .padding(.vertical, Spacing.xs)
         } else {
           VStack(spacing: 1) {
             ForEach(wtSessions, id: \.scopedID) { session in
               WorktreeSessionRow(
                 session: session,
                 onSelect: {
-                  withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                  withAnimation(Motion.standard) {
                     router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
                   }
                 }
               )
-              .padding(.leading, 14)
+              .padding(.leading, Spacing.lg_)
             }
           }
-          .padding(.top, 2)
-          .padding(.bottom, 3)
+          .padding(.top, Spacing.xxs)
+          .padding(.bottom, Spacing.gap)
         }
       }
     }
@@ -438,8 +438,8 @@ private struct WorktreeStripRow: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      HStack(spacing: 6) {
+    VStack(alignment: .leading, spacing: Spacing.xxs) {
+      HStack(spacing: Spacing.sm_) {
         // Expand chevron (clickable to toggle sessions)
         Button(action: onToggleExpand) {
           Image(systemName: isRowExpanded ? "chevron.down" : "chevron.right")
@@ -458,13 +458,13 @@ private struct WorktreeStripRow: View {
         Button(action: onToggleExpand) {
           HStack(spacing: 5) {
             Text(displayName)
-              .font(.system(size: 12, weight: .medium))
+              .font(.system(size: TypeScale.caption, weight: .medium))
               .foregroundStyle(.primary)
               .lineLimit(1)
 
             if let label = statusLabel {
               Text(label)
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: TypeScale.mini, weight: .semibold))
                 .foregroundStyle(statusColor.opacity(0.9))
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
@@ -489,14 +489,14 @@ private struct WorktreeStripRow: View {
       }
 
       Text(relativePath)
-        .font(.system(size: 9, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textQuaternary)
         .lineLimit(1)
         .truncationMode(.middle)
         .padding(.leading, 22)
     }
-    .padding(.horizontal, 6)
-    .padding(.vertical, 4)
+    .padding(.horizontal, Spacing.sm_)
+    .padding(.vertical, Spacing.xs)
     .background(
       RoundedRectangle(cornerRadius: CGFloat(Radius.sm), style: .continuous)
         .fill(isHovering ? Color.surfaceHover : .clear)
@@ -506,10 +506,10 @@ private struct WorktreeStripRow: View {
 
   private var sessionCountBadge: some View {
     Text(sessionCount > 0 ? "\(sessionCount) \(sessionCount == 1 ? "session" : "sessions")" : "idle")
-      .font(.system(size: 10, weight: .medium, design: .rounded))
+      .font(.system(size: TypeScale.micro, weight: .medium, design: .rounded))
       .foregroundStyle(sessionCount > 0 ? Color.textTertiary : Color.textQuaternary)
       .padding(.horizontal, 7)
-      .padding(.vertical, 3)
+      .padding(.vertical, Spacing.gap)
       .background(Color.surfaceHover.opacity(0.55), in: Capsule())
   }
 
@@ -530,7 +530,7 @@ private struct WorktreeStripRow: View {
       }
     } label: {
       Image(systemName: "plus")
-        .font(.system(size: 9, weight: .bold))
+        .font(.system(size: TypeScale.mini, weight: .bold))
         .foregroundStyle(Color.accent)
         .frame(width: 18, height: 18)
         .contentShape(Rectangle())
@@ -570,7 +570,7 @@ private struct WorktreeStripRow: View {
       }
     } label: {
       Image(systemName: "ellipsis")
-        .font(.system(size: 10, weight: .bold))
+        .font(.system(size: TypeScale.micro, weight: .bold))
         .foregroundStyle(Color.textQuaternary)
         .frame(width: 18, height: 18)
         .contentShape(Rectangle())
@@ -618,7 +618,7 @@ private struct WorktreeStripRow: View {
       }
     } label: {
       Image(systemName: "ellipsis")
-        .font(.system(size: 10, weight: .bold))
+        .font(.system(size: TypeScale.micro, weight: .bold))
         .foregroundStyle(Color.textQuaternary)
         .frame(width: 18, height: 18)
         .contentShape(Rectangle())
@@ -671,7 +671,7 @@ private struct WorktreeSessionRow: View {
 
   var body: some View {
     Button(action: onSelect) {
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         // Status dot
         Circle()
           .fill(displayStatus.color)
@@ -679,7 +679,7 @@ private struct WorktreeSessionRow: View {
 
         // Session name
         Text(agentLabel)
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(session.isActive ? Color.textPrimary : Color.textTertiary)
           .lineLimit(1)
 
@@ -688,26 +688,26 @@ private struct WorktreeSessionRow: View {
         // Time ago
         if let time = timeLabel {
           Text(time)
-            .font(.system(size: 9, weight: .medium, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .medium, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
         }
 
         // Status badge for active sessions
         if session.isActive {
           Text(displayStatus.label)
-            .font(.system(size: 9, weight: .semibold))
+            .font(.system(size: TypeScale.mini, weight: .semibold))
             .foregroundStyle(displayStatus.color)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(displayStatus.color.opacity(0.1), in: Capsule())
         } else {
           Text("Ended")
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: TypeScale.mini, weight: .medium))
             .foregroundStyle(Color.textQuaternary)
         }
       }
-      .padding(.horizontal, 6)
-      .padding(.vertical, 3)
+      .padding(.horizontal, Spacing.sm_)
+      .padding(.vertical, Spacing.gap)
       .background(
         RoundedRectangle(cornerRadius: CGFloat(Radius.sm), style: .continuous)
           .fill(isHovering ? Color.surfaceHover : .clear)

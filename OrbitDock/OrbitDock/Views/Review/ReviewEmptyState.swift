@@ -11,7 +11,7 @@ struct ReviewEmptyState: View {
   let isSessionActive: Bool
 
   var body: some View {
-    VStack(spacing: 20) {
+    VStack(spacing: Spacing.section) {
       // Icon with subtle glow
       ZStack {
         Circle()
@@ -27,9 +27,9 @@ struct ReviewEmptyState: View {
           .foregroundStyle(Color.accent.opacity(0.5))
       }
 
-      VStack(spacing: 6) {
+      VStack(spacing: Spacing.sm_) {
         Text(isSessionActive ? "No Diffs Yet" : "No Changes")
-          .font(.system(size: 14, weight: .semibold))
+          .font(.system(size: TypeScale.subhead, weight: .semibold))
           .foregroundStyle(.secondary)
 
         Text(isSessionActive
@@ -43,7 +43,7 @@ struct ReviewEmptyState: View {
 
       if isSessionActive {
         // Keyboard shortcut hint
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
           keyboardHint("n")
           Text("/")
             .foregroundStyle(Color.textTertiary)
@@ -60,10 +60,10 @@ struct ReviewEmptyState: View {
 
   private func keyboardHint(_ key: String) -> some View {
     Text(key)
-      .font(.system(size: 9, weight: .semibold, design: .monospaced))
+      .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
       .foregroundStyle(Color.textTertiary)
       .padding(.horizontal, 5)
-      .padding(.vertical, 2)
+      .padding(.vertical, Spacing.xxs)
       .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
       .overlay(
         RoundedRectangle(cornerRadius: 3, style: .continuous)

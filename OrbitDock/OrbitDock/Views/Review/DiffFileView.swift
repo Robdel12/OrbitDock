@@ -59,7 +59,7 @@ struct DiffFileView: View {
         }
       }
       .onChange(of: focusedHunkIndex) { _, newIndex in
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+        withAnimation(Motion.standard) {
           proxy.scrollTo("hunk-\(newIndex)", anchor: .top)
         }
       }
@@ -80,16 +80,16 @@ struct DiffFileView: View {
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(changeTypeColor)
         }
-        .padding(.trailing, 8)
+        .padding(.trailing, Spacing.sm)
 
         // File path with hierarchy
         filePathView
-          .padding(.trailing, 8)
+          .padding(.trailing, Spacing.sm)
 
         // Stats badge
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           if fileDiff.stats.additions > 0 {
-            HStack(spacing: 2) {
+            HStack(spacing: Spacing.xxs) {
               Text("+")
                 .foregroundStyle(Color(red: 0.4, green: 0.95, blue: 0.5).opacity(0.7))
               Text("\(fileDiff.stats.additions)")
@@ -97,7 +97,7 @@ struct DiffFileView: View {
             }
           }
           if fileDiff.stats.deletions > 0 {
-            HStack(spacing: 2) {
+            HStack(spacing: Spacing.xxs) {
               Text("\u{2212}")
                 .foregroundStyle(Color(red: 1.0, green: 0.5, blue: 0.5).opacity(0.7))
               Text("\(fileDiff.stats.deletions)")
@@ -105,17 +105,17 @@ struct DiffFileView: View {
             }
           }
         }
-        .font(.system(size: 10, weight: .bold, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
 
         Spacer()
 
         // Hunk navigator
         if fileDiff.hunks.count > 1 {
-          HStack(spacing: 2) {
+          HStack(spacing: Spacing.xxs) {
             Text("\(focusedHunkIndex + 1)/\(fileDiff.hunks.count)")
-              .font(.system(size: 9, weight: .medium, design: .monospaced))
+              .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.textTertiary)
-              .padding(.trailing, 4)
+              .padding(.trailing, Spacing.xs)
 
             Button {
               focusedHunkIndex = max(0, focusedHunkIndex - 1)
@@ -124,7 +124,7 @@ struct DiffFileView: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 20, height: 20)
-                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(focusedHunkIndex <= 0)
@@ -136,37 +136,37 @@ struct DiffFileView: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: 20, height: 20)
-                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(focusedHunkIndex >= fileDiff.hunks.count - 1)
           }
-          .padding(.trailing, 8)
+          .padding(.trailing, Spacing.sm)
         }
 
         // Open in editor button
         Button {
           openFileInEditor(line: fileDiff.hunks.first?.newStart)
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Image(systemName: "arrow.up.forward.square")
               .font(.system(size: 10, weight: .medium))
             Text("Open")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
           }
           .foregroundStyle(isHeaderHovered ? .primary : .secondary)
-          .padding(.horizontal, 8)
+          .padding(.horizontal, Spacing.sm)
           .padding(.vertical, 5)
           .background(
             Color.surfaceHover.opacity(isHeaderHovered ? 1 : 0.5),
-            in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+            in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
           )
         }
         .buttonStyle(.plain)
         .help("Open in editor (\u{2318}O)")
       }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 10)
+      .padding(.horizontal, Spacing.lg_)
+      .padding(.vertical, Spacing.md_)
       .onHover { hovering in
         isHeaderHovered = hovering
       }
@@ -194,11 +194,11 @@ struct DiffFileView: View {
     return HStack(spacing: 0) {
       if !dirPath.isEmpty {
         Text(dirPath)
-          .font(.system(size: 12, weight: .regular, design: .monospaced))
+          .font(.system(size: TypeScale.caption, weight: .regular, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
       }
       Text(fileName)
-        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+        .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
         .foregroundStyle(.primary)
     }
     .lineLimit(1)

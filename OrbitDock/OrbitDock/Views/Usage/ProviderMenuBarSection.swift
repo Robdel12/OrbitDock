@@ -23,18 +23,18 @@ struct ProviderMenuBarSection: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 7) {
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Image(systemName: provider.icon)
           .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(provider.accentColor)
 
         Text(provider.displayName)
-          .font(.system(size: 11, weight: .semibold))
+          .font(.system(size: TypeScale.meta, weight: .semibold))
           .foregroundStyle(titleColor)
       }
 
       if !windows.isEmpty {
-        VStack(spacing: 8) {
+        VStack(spacing: Spacing.sm) {
           ForEach(windows) { window in
             GenericMenuBarGauge(window: window, provider: provider)
           }
@@ -46,26 +46,26 @@ struct ProviderMenuBarSection: View {
             .controlSize(.small)
           Spacer()
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, Spacing.sm_)
       } else if let error {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           if isApiKeyMode {
             Image(systemName: "key.fill")
               .font(.system(size: 9))
               .foregroundStyle(provider.accentColor)
           }
           Text(error.localizedDescription)
-            .font(.system(size: 10))
+            .font(.system(size: TypeScale.micro))
             .foregroundStyle(errorTextColor)
             .lineLimit(1)
         }
       }
     }
     .padding(.horizontal, 9)
-    .padding(.vertical, 8)
-    .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .padding(.vertical, Spacing.sm)
+    .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     .overlay {
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .strokeBorder(cardBorderColor, lineWidth: 1)
     }
   }
@@ -141,7 +141,7 @@ extension ProviderMenuBarSection {
 }
 
 #Preview {
-  VStack(spacing: 8) {
+  VStack(spacing: Spacing.sm) {
     ProviderMenuBarSection(
       provider: .claude,
       windows: [

@@ -126,21 +126,21 @@ struct ImageGallery: View {
   }
 
   var body: some View {
-    VStack(alignment: .trailing, spacing: 8) {
+    VStack(alignment: .trailing, spacing: Spacing.sm) {
       Button {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+        withAnimation(Motion.standard) {
           isExpanded.toggle()
         }
       } label: {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           Image(systemName: "photo.on.rectangle.angled")
             .font(.system(size: 11, weight: .semibold))
           Text(images.count == 1 ? "1 image" : "\(images.count) images")
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.caption, weight: .medium))
           Text("•")
             .foregroundStyle(Color.textQuaternary)
           Text(totalSize)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)
 
           Spacer()
@@ -151,10 +151,10 @@ struct ImageGallery: View {
             .rotationEffect(.degrees(isExpanded ? 90 : 0))
         }
         .foregroundStyle(.secondary)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .background(
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
             .fill(Color.backgroundTertiary.opacity(0.5))
         )
       }
@@ -173,7 +173,7 @@ struct ImageGallery: View {
             }
           }
         } else {
-          FlowLayout(spacing: 12) {
+          FlowLayout(spacing: Spacing.md) {
             ForEach(Array(images.enumerated()), id: \.element.id) { index, image in
               if let img = ImageCache.shared.image(for: image) {
                 ImageThumbnail(
@@ -243,37 +243,37 @@ struct SingleImageView: View {
 
   var body: some View {
     Button(action: onTap) {
-      VStack(alignment: .trailing, spacing: 6) {
+      VStack(alignment: .trailing, spacing: Spacing.sm_) {
         swiftUIImage
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(maxWidth: 400, maxHeight: 300)
-          .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
           .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
               .strokeBorder(Color.white.opacity(isHovering ? 0.25 : 0.1), lineWidth: 1)
           )
-          .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
+          .themeShadow(Shadow.md)
           .overlay(alignment: .bottomTrailing) {
             Image(systemName: "arrow.up.left.and.arrow.down.right")
               .font(.system(size: 12, weight: .semibold))
               .foregroundStyle(.white)
-              .padding(6)
-              .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-              .padding(8)
+              .padding(Spacing.sm_)
+              .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+              .padding(Spacing.sm)
               .opacity(isHovering ? 1 : 0)
           }
 
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           Text(imageDimensions)
           Text("•")
           Text(imageSize)
         }
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textQuaternary)
       }
       .scaleEffect(isHovering ? 1.01 : 1.0)
-      .animation(.easeOut(duration: 0.15), value: isHovering)
+      .animation(Motion.hover, value: isHovering)
     }
     .buttonStyle(.plain)
     #if os(macOS)
@@ -305,19 +305,19 @@ struct ImageThumbnail: View {
           .resizable()
           .aspectRatio(contentMode: .fill)
           .frame(width: 200, height: 150)
-          .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
           .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
               .strokeBorder(Color.white.opacity(isHovering ? 0.3 : 0.12), lineWidth: 1)
           )
-          .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 3)
+          .themeShadow(Shadow.md)
 
         Text("\(index + 1)")
-          .font(.system(size: 11, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.meta, weight: .bold, design: .rounded))
           .foregroundStyle(.white)
           .frame(width: 22, height: 22)
           .background(Color.accent.opacity(0.9), in: Circle())
-          .padding(8)
+          .padding(Spacing.sm)
 
         if isHovering {
           VStack {
@@ -327,15 +327,15 @@ struct ImageThumbnail: View {
               Image(systemName: "arrow.up.left.and.arrow.down.right")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white)
-                .padding(4)
-                .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                .padding(6)
+                .padding(Spacing.xs)
+                .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+                .padding(Spacing.sm_)
             }
           }
         }
       }
       .scaleEffect(isHovering ? 1.03 : 1.0)
-      .animation(.easeOut(duration: 0.15), value: isHovering)
+      .animation(Motion.hover, value: isHovering)
     }
     .buttonStyle(.plain)
     #if os(macOS)
@@ -394,9 +394,9 @@ struct ImageFullscreen: View {
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Spacing.md)
             .padding(.top, 50)
-            .padding(.bottom, images.count > 1 ? 80 : 12)
+            .padding(.bottom, images.count > 1 ? 80 : Spacing.md)
             .id(currentIndex)
         }
 
@@ -404,21 +404,21 @@ struct ImageFullscreen: View {
           HStack {
             if images.count > 1 {
               Text("\(currentIndex + 1) of \(images.count)")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: TypeScale.body, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.9))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm_)
                 .background(.black.opacity(0.5), in: Capsule())
             }
 
             Spacer()
 
-            HStack(spacing: 8) {
+            HStack(spacing: Spacing.sm) {
               Text(imageDimensions)
               Text("•")
               Text(imageSize)
             }
-            .font(.system(size: 12, weight: .medium, design: .monospaced))
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
             .foregroundStyle(.white.opacity(0.7))
 
             Spacer()
@@ -437,14 +437,14 @@ struct ImageFullscreen: View {
               .keyboardShortcut(.escape, modifiers: [])
             #endif
           }
-          .padding(12)
+          .padding(Spacing.md)
 
           Spacer()
 
           if images.count > 1 {
-            HStack(spacing: 16) {
+            HStack(spacing: Spacing.lg) {
               Button {
-                withAnimation(.easeOut(duration: 0.2)) {
+                withAnimation(Motion.fade) {
                   currentIndex = (currentIndex - 1 + images.count) % images.count
                 }
               } label: {
@@ -459,11 +459,11 @@ struct ImageFullscreen: View {
                 .keyboardShortcut(.leftArrow, modifiers: [])
               #endif
 
-              HStack(spacing: 8) {
+              HStack(spacing: Spacing.sm) {
                 ForEach(Array(images.enumerated()), id: \.element.id) { index, image in
                   if let thumb = ImageCache.shared.image(for: image) {
                     Button {
-                      withAnimation(.easeOut(duration: 0.2)) {
+                      withAnimation(Motion.fade) {
                         currentIndex = index
                       }
                     } label: {
@@ -476,9 +476,9 @@ struct ImageFullscreen: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: 56, height: 42)
-                        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
                         .overlay(
-                          RoundedRectangle(cornerRadius: 5, style: .continuous)
+                          RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
                             .strokeBorder(index == currentIndex ? Color.accent : Color.clear, lineWidth: 2)
                         )
                         .opacity(index == currentIndex ? 1.0 : 0.5)
@@ -487,12 +487,12 @@ struct ImageFullscreen: View {
                   }
                 }
               }
-              .padding(.horizontal, 14)
-              .padding(.vertical, 8)
+              .padding(.horizontal, Spacing.lg_)
+              .padding(.vertical, Spacing.sm)
               .background(.black.opacity(0.5), in: Capsule())
 
               Button {
-                withAnimation(.easeOut(duration: 0.2)) {
+                withAnimation(Motion.fade) {
                   currentIndex = (currentIndex + 1) % images.count
                 }
               } label: {
@@ -507,7 +507,7 @@ struct ImageFullscreen: View {
                 .keyboardShortcut(.rightArrow, modifiers: [])
               #endif
             }
-            .padding(.bottom, 16)
+            .padding(.bottom, Spacing.lg)
           }
         }
       }

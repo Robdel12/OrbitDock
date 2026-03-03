@@ -113,7 +113,7 @@ struct ContentView: View {
           return nil
         }()
 
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+        withAnimation(Motion.standard) {
           router.handleExternalNavigation(
             sessionID: sessionID,
             endpointId: endpointFromNotification,
@@ -127,7 +127,7 @@ struct ContentView: View {
     .focusable()
     .onKeyPress(keys: [.escape]) { _ in
       if router.showQuickSwitcher {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+        withAnimation(Motion.standard) {
           router.closeQuickSwitcher()
         }
         return .handled
@@ -185,7 +185,7 @@ struct ContentView: View {
       Color.black.opacity(0.5)
         .ignoresSafeArea()
         .onTapGesture {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          withAnimation(Motion.standard) {
             router.closeQuickSwitcher()
           }
         }

@@ -34,7 +34,7 @@ final class NativeCodeBlockView: PlatformView {
   private static let bgColor = PlatformColor(Color.backgroundCode)
   private static let borderColor = PlatformColor(Color.surfaceBorder)
   private static let lineNumberColor = PlatformColor(Color.textTertiary)
-  private static let lineNumberFont = PlatformFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+  private static let lineNumberFont = PlatformFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .regular)
 
   // MARK: - State
 
@@ -110,18 +110,18 @@ final class NativeCodeBlockView: PlatformView {
       languageDot.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(languageDot)
 
-      languageLabel.font = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+      languageLabel.font = PlatformFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
       languageLabel.textColor = PlatformColor(Color.textSecondary)
       languageLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(languageLabel)
 
-      lineCountLabel.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
+      lineCountLabel.font = PlatformFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
       lineCountLabel.textColor = PlatformColor(Color.textTertiary)
       lineCountLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(lineCountLabel)
 
       copyButton.isBordered = false
-      copyButton.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
+      copyButton.font = PlatformFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
       copyButton.contentTintColor = PlatformColor(Color.textSecondary)
       copyButton.target = self
       copyButton.action = #selector(handleCopy)
@@ -135,18 +135,18 @@ final class NativeCodeBlockView: PlatformView {
       languageDot.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(languageDot)
 
-      languageLabel.font = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+      languageLabel.font = PlatformFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
       languageLabel.textColor = PlatformColor(Color.textSecondary)
       languageLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(languageLabel)
 
-      lineCountLabel.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
+      lineCountLabel.font = PlatformFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
       lineCountLabel.textColor = PlatformColor(Color.textTertiary)
       lineCountLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(lineCountLabel)
 
       copyButton.setTitle("Copy", for: .normal)
-      copyButton.titleLabel?.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
+      copyButton.titleLabel?.font = PlatformFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
       copyButton.setTitleColor(PlatformColor(Color.textSecondary), for: .normal)
       copyButton.addTarget(self, action: #selector(handleCopy), for: .touchUpInside)
       copyButton.translatesAutoresizingMaskIntoConstraints = false
@@ -189,7 +189,7 @@ final class NativeCodeBlockView: PlatformView {
     // Expand button
     #if os(macOS)
       expandButton.isBordered = false
-      expandButton.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
+      expandButton.font = PlatformFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
       expandButton.contentTintColor = PlatformColor(Color.textTertiary)
       expandButton.target = self
       expandButton.action = #selector(handleExpandToggle)
@@ -197,7 +197,7 @@ final class NativeCodeBlockView: PlatformView {
       expandButton.isHidden = true
       addSubview(expandButton)
     #else
-      expandButton.titleLabel?.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
+      expandButton.titleLabel?.font = PlatformFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
       expandButton.setTitleColor(PlatformColor(Color.textTertiary), for: .normal)
       expandButton.addTarget(self, action: #selector(handleExpandToggle), for: .touchUpInside)
       expandButton.translatesAutoresizingMaskIntoConstraints = false

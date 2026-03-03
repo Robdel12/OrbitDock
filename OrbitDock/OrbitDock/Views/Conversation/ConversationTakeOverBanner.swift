@@ -37,7 +37,7 @@ struct TakeOverInputBar: View {
         )
       }
       .padding(.horizontal, Spacing.md)
-      .padding(.vertical, 10)
+      .padding(.vertical, Spacing.md_)
       .background(
         RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
           .fill(Color.backgroundTertiary)
@@ -52,7 +52,7 @@ struct TakeOverInputBar: View {
     }
     .buttonStyle(.plain)
     .onHover { hovering in
-      withAnimation(.easeOut(duration: 0.15)) {
+      withAnimation(Motion.hover) {
         isHovering = hovering
       }
     }

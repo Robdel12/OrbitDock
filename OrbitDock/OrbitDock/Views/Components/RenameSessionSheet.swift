@@ -49,18 +49,18 @@ struct RenameSessionSheet: View {
       // Header
       HStack {
         Text("Rename Session")
-          .font(.system(size: 13, weight: .semibold))
+          .font(.system(size: TypeScale.body, weight: .semibold))
         Spacer()
       }
-      .padding(.horizontal, 16)
-      .padding(.top, 16)
-      .padding(.bottom, 12)
+      .padding(.horizontal, Spacing.lg)
+      .padding(.top, Spacing.lg)
+      .padding(.bottom, Spacing.md)
 
       Divider()
 
       // Content
       formFields
-        .padding(16)
+        .padding(Spacing.lg)
 
       Divider()
 
@@ -88,8 +88,8 @@ struct RenameSessionSheet: View {
         .buttonStyle(.borderedProminent)
         .disabled(text == initialText)
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 12)
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .ifMacOS { view in
@@ -99,51 +99,51 @@ struct RenameSessionSheet: View {
   }
 
   private var formFields: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      VStack(alignment: .leading, spacing: Spacing.sm_) {
         Text("Project")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
 
         Text(session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown")
-          .font(.system(size: 13, weight: .medium))
+          .font(.system(size: TypeScale.body, weight: .medium))
           .foregroundStyle(.primary)
       }
 
       if let summary = session.summary {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm_) {
           Text("\(session.provider.displayName)'s Title")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(.secondary)
 
           Text(summary.strippingXMLTags())
-            .font(.system(size: 12))
+            .font(.system(size: TypeScale.caption))
             .foregroundStyle(.primary.opacity(0.8))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.md_)
+            .padding(.vertical, Spacing.sm_)
             .background(
               Color.backgroundTertiary.opacity(0.5),
-              in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+              in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
             )
         }
       }
 
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: Spacing.sm_) {
         Text("Custom Name")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
 
         TextField("Override with your own name...", text: $text)
           .textFieldStyle(.plain)
-          .font(.system(size: 13))
-          .padding(.horizontal, 10)
-          .padding(.vertical, 8)
-          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+          .font(.system(size: TypeScale.body))
+          .padding(.horizontal, Spacing.md_)
+          .padding(.vertical, Spacing.sm)
+          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
           .focused($isFocused)
       }
 
       Text("Leave empty to use the AI-generated title, or set a custom name.")
-        .font(.system(size: 11))
+        .font(.system(size: TypeScale.meta))
         .foregroundStyle(Color.textTertiary)
         .fixedSize(horizontal: false, vertical: true)
     }

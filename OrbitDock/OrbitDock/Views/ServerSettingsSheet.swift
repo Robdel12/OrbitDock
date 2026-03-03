@@ -118,19 +118,16 @@ struct ServerSettingsSheet: View {
 
     return HStack(alignment: .top, spacing: 0) {
       // Left accent bar — connection status
-      RoundedRectangle(cornerRadius: 2, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
         .fill(statusColor(for: endpointStatus))
         .frame(width: EdgeBar.width)
         .frame(maxHeight: .infinity)
-        .shadow(
-          color: endpointStatus == .connected ? statusColor(for: endpointStatus).opacity(0.3) : .clear,
-          radius: 4
-        )
+        .themeShadow(Shadow.glow(color: endpointStatus == .connected ? statusColor(for: endpointStatus) : .clear, intensity: 0.3))
 
       VStack(alignment: .leading, spacing: 0) {
         // Primary row — name + status + connection action + toggle + chevron
         Button {
-          withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+          withAnimation(Motion.standard) {
             expandedEndpointId = isExpanded ? nil : endpoint.id
           }
         } label: {
@@ -143,15 +140,15 @@ struct ServerSettingsSheet: View {
                   .lineLimit(1)
 
                 if isPrimary {
-                  HStack(spacing: 3) {
+                  HStack(spacing: Spacing.gap) {
                     Image(systemName: "crown.fill")
                       .font(.system(size: 8))
                     Text("Primary")
                       .font(.system(size: TypeScale.micro, weight: .bold))
                   }
                   .foregroundStyle(Color.accent)
-                  .padding(.horizontal, 6)
-                  .padding(.vertical, 2)
+                  .padding(.horizontal, Spacing.sm_)
+                  .padding(.vertical, Spacing.xxs)
                   .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
                 }
               }
@@ -311,7 +308,7 @@ struct ServerSettingsSheet: View {
       }
       .foregroundStyle(color)
       .padding(.horizontal, Spacing.md)
-      .padding(.vertical, 6)
+      .padding(.vertical, Spacing.sm_)
       .background(color.opacity(OpacityTier.subtle), in: Capsule())
     }
     .buttonStyle(.plain)

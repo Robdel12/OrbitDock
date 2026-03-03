@@ -35,10 +35,10 @@ struct GenericUsageBar: View {
 
       GeometryReader { geo in
         ZStack(alignment: .leading) {
-          RoundedRectangle(cornerRadius: 2, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
             .fill(Color.primary.opacity(0.08))
 
-          RoundedRectangle(cornerRadius: 2, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
             .fill(progressColor)
             .frame(width: geo.size.width * min(1, window.utilization / 100))
         }

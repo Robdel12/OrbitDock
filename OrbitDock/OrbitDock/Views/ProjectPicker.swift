@@ -88,15 +88,15 @@ import SwiftUI
           Button {
             openFinderPanel()
           } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               Image(systemName: "folder.badge.plus")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: TypeScale.meta, weight: .medium))
               Text("Finder")
                 .font(.system(size: TypeScale.caption, weight: .medium))
             }
             .foregroundStyle(Color.accent)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.md_)
+            .padding(.vertical, Spacing.sm_)
             .background(Color.accent.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.md))
           }
           .buttonStyle(.plain)
@@ -122,10 +122,10 @@ import SwiftUI
     private var selectedPathBanner: some View {
       HStack(spacing: Spacing.sm) {
         Image(systemName: "folder.fill")
-          .font(.system(size: 12))
+          .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.accent)
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(URL(fileURLWithPath: selectedPath).lastPathComponent)
             .font(.system(size: TypeScale.body, weight: .medium))
             .foregroundStyle(Color.textPrimary)
@@ -144,7 +144,7 @@ import SwiftUI
           selectedPathIsGit = true
         } label: {
           Image(systemName: "xmark.circle.fill")
-            .font(.system(size: 14))
+            .font(.system(size: TypeScale.subhead))
             .foregroundStyle(Color.textQuaternary)
         }
         .buttonStyle(.plain)
@@ -159,7 +159,7 @@ import SwiftUI
       HStack(spacing: 0) {
         ForEach(PickerTab.allCases, id: \.self) { tab in
           Button {
-            withAnimation(.easeOut(duration: 0.15)) {
+            withAnimation(Motion.hover) {
               activeTab = tab
             }
             if tab == .browse, directoryEntries.isEmpty {
@@ -206,7 +206,7 @@ import SwiftUI
           .padding(.vertical, Spacing.xl)
         } else {
           ScrollView {
-            LazyVStack(spacing: 2) {
+            LazyVStack(spacing: Spacing.xxs) {
               ForEach(groupedRecentProjects) { group in
                 groupedRecentProjectSection(group)
               }
@@ -218,7 +218,7 @@ import SwiftUI
     }
 
     private func groupedRecentProjectSection(_ group: GroupedRecentProject) -> some View {
-      VStack(spacing: 2) {
+      VStack(spacing: Spacing.xxs) {
         if let project = group.repoProject {
           repoProjectRow(
             project: project,
@@ -249,7 +249,7 @@ import SwiftUI
             .font(.system(size: 14))
             .foregroundStyle(Color.accent)
 
-          VStack(alignment: .leading, spacing: 2) {
+          VStack(alignment: .leading, spacing: Spacing.xxs) {
             Text(URL(fileURLWithPath: project.path).lastPathComponent)
               .font(.system(size: TypeScale.body, weight: .medium))
               .foregroundStyle(Color.textPrimary)
@@ -268,8 +268,8 @@ import SwiftUI
               Text("\(worktreeCount) worktree\(worktreeCount == 1 ? "" : "s")")
                 .font(.system(size: TypeScale.micro, weight: .semibold))
                 .foregroundStyle(Color.accent)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
+                .padding(.horizontal, Spacing.sm_)
+                .padding(.vertical, Spacing.xxs)
                 .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
             }
 
@@ -301,7 +301,7 @@ import SwiftUI
             .font(.system(size: 14))
             .foregroundStyle(Color.accent)
 
-          VStack(alignment: .leading, spacing: 2) {
+          VStack(alignment: .leading, spacing: Spacing.xxs) {
             Text(URL(fileURLWithPath: group.repoPath).lastPathComponent)
               .font(.system(size: TypeScale.body, weight: .medium))
               .foregroundStyle(Color.textPrimary)
@@ -319,8 +319,8 @@ import SwiftUI
             Text("\(group.worktrees.count) worktree\(group.worktrees.count == 1 ? "" : "s")")
               .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(Color.accent)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.xxs)
               .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
 
             Text(sessionCountLabel(group.totalSessionCount))
@@ -352,7 +352,7 @@ import SwiftUI
             .foregroundStyle(Color.accent)
             .frame(width: 20)
 
-          VStack(alignment: .leading, spacing: 2) {
+          VStack(alignment: .leading, spacing: Spacing.xxs) {
             Text(worktree.branchPath)
               .font(.system(size: TypeScale.body, weight: .medium))
               .foregroundStyle(Color.textPrimary)
@@ -370,8 +370,8 @@ import SwiftUI
             Text("worktree")
               .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(Color.accent)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.xxs)
               .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
 
             Text(sessionCountLabel(worktree.project.sessionCount))
@@ -404,10 +404,10 @@ import SwiftUI
               navigateBack()
             } label: {
               Image(systemName: "chevron.left")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: TypeScale.meta, weight: .semibold))
                 .foregroundStyle(Color.accent)
                 .frame(width: 28, height: 28)
-                .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6))
+                .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md))
             }
             .buttonStyle(.plain)
           }
@@ -429,7 +429,7 @@ import SwiftUI
                 .font(.system(size: TypeScale.caption, weight: .semibold))
                 .foregroundStyle(Color.accent)
                 .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, 4)
+                .padding(.vertical, Spacing.xs)
                 .background(Color.accent.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.sm))
             }
             .buttonStyle(.plain)
@@ -446,7 +446,7 @@ import SwiftUI
           .padding(.vertical, Spacing.xl)
         } else {
           ScrollView {
-            LazyVStack(spacing: 2) {
+            LazyVStack(spacing: Spacing.xxs) {
               ForEach(directoryEntries.filter(\.isDir)) { entry in
                 directoryEntryRow(entry)
               }
@@ -488,12 +488,12 @@ import SwiftUI
             Text("repo")
               .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(Color.accent)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.xxs)
               .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
           } else {
             Image(systemName: "chevron.right")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
           }
         }

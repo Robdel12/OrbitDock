@@ -183,9 +183,9 @@ struct ServerTestView: View {
       HStack {
         Text(session.provider.rawValue)
           .font(.caption)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
-          .background(session.provider == .codex ? Color.orange.opacity(0.2) : Color.blue.opacity(0.2))
+          .padding(.horizontal, Spacing.sm_)
+          .padding(.vertical, Spacing.xxs)
+          .background(session.provider == .codex ? Color.providerCodex.opacity(0.2) : Color.accent.opacity(0.2))
           .clipShape(Capsule())
 
         Text(session.workStatus.rawValue)
@@ -193,7 +193,7 @@ struct ServerTestView: View {
           .foregroundStyle(.secondary)
       }
     }
-    .padding(.vertical, 4)
+    .padding(.vertical, Spacing.xs)
   }
 
   private var statusColor: Color {

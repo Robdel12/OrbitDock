@@ -482,7 +482,7 @@ struct WorkStreamEntry: View {
         isHovering = hovering
       }
     }
-    .animation(.easeInOut(duration: 0.15), value: isHovering)
+    .animation(Motion.hover, value: isHovering)
   }
 
   // MARK: - Glyph View (SF Symbol or text fallback)
@@ -791,7 +791,7 @@ struct WorkStreamEntry: View {
 
       if isLongContent {
         Button {
-          withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+          withAnimation(Motion.snappy) {
             isContentExpanded.toggle()
           }
         } label: {
@@ -843,9 +843,9 @@ struct WorkStreamEntry: View {
     return VStack(alignment: .leading, spacing: 0) {
       MarkdownRepresentable(content: message.content, style: .thinking)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 12)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.top, Spacing.lg_)
+        .padding(.bottom, Spacing.md)
     }
     .background(
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
@@ -858,7 +858,7 @@ struct WorkStreamEntry: View {
     .frame(maxWidth: ConversationLayout.thinkingRailMaxWidth, alignment: .leading)
     .padding(.leading, laneHorizontalInset)
     .padding(.trailing, laneHorizontalInset)
-    .padding(.top, 4)
+    .padding(.top, Spacing.xs)
   }
 
   // MARK: - Edit Preview (mini diff for compactPreview mode)
@@ -946,19 +946,19 @@ struct WorkStreamEntry: View {
 
     return VStack(alignment: .leading, spacing: 0) {
       Button {
-        withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+        withAnimation(Motion.snappy) {
           isThinkingExpanded.toggle()
         }
       } label: {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           Image(systemName: "brain.head.profile")
             .font(.system(size: 10, weight: .semibold))
           Text("Thinking")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: TypeScale.meta, weight: .semibold))
 
           if !isThinkingExpanded {
             Text(message.thinking?.components(separatedBy: "\n").first ?? "")
-              .font(.system(size: 11))
+              .font(.system(size: TypeScale.meta))
               .foregroundStyle(thinkingColor.opacity(0.5))
               .lineLimit(1)
               .truncationMode(.tail)
@@ -972,8 +972,8 @@ struct WorkStreamEntry: View {
             .rotationEffect(.degrees(isThinkingExpanded ? 90 : 0))
         }
         .foregroundStyle(thinkingColor)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.lg_)
+        .padding(.vertical, Spacing.sm)
       }
       .buttonStyle(.plain)
 
@@ -982,15 +982,15 @@ struct WorkStreamEntry: View {
         Rectangle()
           .fill(thinkingColor.opacity(0.1))
           .frame(height: 1)
-          .padding(.horizontal, 10)
+          .padding(.horizontal, Spacing.md_)
 
         ScrollView {
           MarkdownRepresentable(content: thinking, style: .thinking)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 250)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Spacing.lg_)
+        .padding(.vertical, Spacing.md_)
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }

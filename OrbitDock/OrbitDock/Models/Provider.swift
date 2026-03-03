@@ -41,7 +41,7 @@ enum Provider: String, CaseIterable, Identifiable, Sendable {
   /// Color at different utilization thresholds
   func color(for utilization: Double) -> Color {
     if utilization >= 90 { return .statusError }
-    if utilization >= 70 { return .statusWaiting }
+    if utilization >= 70 { return .feedbackCaution }
     return accentColor
   }
 }

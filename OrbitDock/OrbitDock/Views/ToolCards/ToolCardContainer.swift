@@ -62,7 +62,7 @@ struct ToolCardContainer<Header: View, Content: View>: View {
       }
       .onTapGesture {
         if hasContent {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+          withAnimation(Motion.standard) {
             isExpanded.toggle()
           }
         }
@@ -107,12 +107,12 @@ struct ToolCardExpandButton: View {
 
   var body: some View {
     Button {
-      withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+      withAnimation(Motion.standard) {
         isExpanded.toggle()
       }
     } label: {
       Image(systemName: "chevron.right")
-        .font(.system(size: 10, weight: .semibold))
+        .font(.system(size: TypeScale.micro, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
         .rotationEffect(.degrees(isExpanded ? 90 : 0))
     }
@@ -134,14 +134,14 @@ struct ToolCardStatsBadge: View {
   var body: some View {
     if let color {
       Text(text)
-        .font(.system(size: 9, weight: .semibold))
+        .font(.system(size: TypeScale.mini, weight: .semibold))
         .foregroundStyle(color)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .padding(.horizontal, Spacing.sm_)
+        .padding(.vertical, Spacing.xxs)
+        .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     } else {
       Text(text)
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .foregroundStyle(.secondary)
     }
   }
@@ -155,7 +155,7 @@ struct ToolCardDuration: View {
   var body: some View {
     if let duration {
       Text(duration)
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
     }
   }

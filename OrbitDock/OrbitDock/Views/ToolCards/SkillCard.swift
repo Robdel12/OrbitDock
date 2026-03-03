@@ -40,19 +40,19 @@ struct SkillCard: View {
   private var header: some View {
     HStack(spacing: 12) {
       Image(systemName: "sparkles")
-        .font(.system(size: 14, weight: .medium))
+        .font(.system(size: TypeScale.subhead, weight: .medium))
         .foregroundStyle(color)
 
       VStack(alignment: .leading, spacing: 2) {
         HStack(spacing: 8) {
           Text("/\(skillName)")
-            .font(.system(size: 13, weight: .semibold, design: .monospaced))
+            .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
             .foregroundStyle(color)
         }
 
         if !args.isEmpty {
           Text(args.count > 60 ? String(args.prefix(60)) + "..." : args)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: TypeScale.meta, design: .monospaced))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -69,7 +69,7 @@ struct SkillCard: View {
           ProgressView()
             .controlSize(.mini)
           Text("Running...")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(color)
         }
       } else if !output.isEmpty {
@@ -86,36 +86,36 @@ struct SkillCard: View {
       if !args.isEmpty {
         VStack(alignment: .leading, spacing: 6) {
           Text("ARGUMENTS")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           Text(args)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: TypeScale.meta, design: .monospaced))
             .foregroundStyle(.primary.opacity(0.9))
             .textSelection(.enabled)
         }
-        .padding(12)
+        .padding(Spacing.md)
       }
 
       // Output
       if !output.isEmpty {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm_) {
           Text("OUTPUT")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           ScrollView {
             Text(output.count > 1_000 ? String(output.prefix(1_000)) + "\n[...]" : output)
-              .font(.system(size: 11, design: .monospaced))
+              .font(.system(size: TypeScale.meta, design: .monospaced))
               .foregroundStyle(.primary.opacity(0.8))
               .textSelection(.enabled)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
           .frame(maxHeight: 150)
         }
-        .padding(12)
+        .padding(Spacing.md)
         .background(Color.backgroundTertiary.opacity(0.5))
       }
     }

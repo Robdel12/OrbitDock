@@ -46,33 +46,33 @@ struct ReadCard: View {
   // MARK: - Header
 
   private var header: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: Spacing.md_) {
       Image(systemName: "doc.text.fill")
-        .font(.system(size: 12, weight: .medium))
+        .font(.system(size: TypeScale.caption, weight: .medium))
         .foregroundStyle(color)
 
       if let path = message.filePath {
         let filename = path.components(separatedBy: "/").last ?? path
 
         Text(filename)
-          .font(.system(size: 12, weight: .semibold, design: .monospaced))
+          .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
           .foregroundStyle(.primary)
           .lineLimit(1)
 
         Text(ToolCardStyle.shortenPath(path))
-          .font(.system(size: 10, design: .monospaced))
+          .font(.system(size: TypeScale.micro, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
       } else {
         Text("Read")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(color)
       }
 
       Spacer()
 
       if !message.isInProgress {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           ToolCardStatsBadge("\(lineCount) lines")
 
           if !language.isEmpty {
@@ -104,13 +104,13 @@ struct ReadCard: View {
       ForEach(Array(previewLines.enumerated()), id: \.offset) { index, line in
         HStack(alignment: .top, spacing: 0) {
           Text("\(index + 1)")
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
             .foregroundStyle(.white.opacity(0.25))
             .frame(width: 36, alignment: .trailing)
-            .padding(.trailing, 8)
+            .padding(.trailing, Spacing.sm)
 
           Text(SyntaxHighlighter.highlightLine(line.isEmpty ? " " : line, language: language.isEmpty ? nil : language))
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: TypeScale.meta, design: .monospaced))
             .textSelection(.enabled)
             .lineLimit(nil)
             .fixedSize(horizontal: false, vertical: true)
@@ -122,13 +122,13 @@ struct ReadCard: View {
 
       if hasMore {
         Text("... +\(lineCount - maxLines) more lines")
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(Color.textTertiary)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 6)
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.sm_)
       }
     }
-    .padding(.vertical, 6)
-    .padding(.horizontal, 4)
+    .padding(.vertical, Spacing.sm_)
+    .padding(.horizontal, Spacing.xs)
   }
 }

@@ -37,11 +37,11 @@ struct CommentComposerView: View {
         .frame(width: 1)
 
       // Composer content
-      VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: Spacing.sm) {
         // Line metadata + tag picker
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           if let lineLabel {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               Image(systemName: "text.line.first.and.arrowtriangle.forward")
                 .font(.system(size: 8, weight: .medium))
               Text(lineLabel)
@@ -62,7 +62,7 @@ struct CommentComposerView: View {
           Spacer()
 
           // Tag picker
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             ForEach(ServerReviewCommentTag.allCases, id: \.self) { t in
               tagCapsule(t, isSelected: tag == t)
             }
@@ -75,7 +75,7 @@ struct CommentComposerView: View {
           .scrollContentBackground(.hidden)
           .focused($isTextFocused)
           .frame(minHeight: 48, maxHeight: 96)
-          .padding(6)
+          .padding(Spacing.sm_)
           .background(
             RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
               .fill(Color.backgroundPrimary.opacity(0.6))
@@ -85,22 +85,22 @@ struct CommentComposerView: View {
               Text("Add a comment...")
                 .font(.system(size: TypeScale.code, design: .monospaced))
                 .foregroundStyle(Color.textTertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 14)
+                .padding(.horizontal, Spacing.md_)
+                .padding(.vertical, Spacing.lg_)
                 .allowsHitTesting(false)
             }
           }
 
         // Action row
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           Spacer()
 
           Button(action: onCancel) {
             Text("Cancel")
               .font(.system(size: TypeScale.body, weight: .medium))
               .foregroundStyle(.secondary)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 6)
+              .padding(.horizontal, Spacing.md)
+              .padding(.vertical, Spacing.sm_)
           }
           .buttonStyle(.plain)
 
@@ -110,8 +110,8 @@ struct CommentComposerView: View {
             Text("Comment")
               .font(.system(size: TypeScale.body, weight: .semibold))
               .foregroundStyle(.white)
-              .padding(.horizontal, 14)
-              .padding(.vertical, 6)
+              .padding(.horizontal, Spacing.lg_)
+              .padding(.vertical, Spacing.sm_)
               .background(
                 commentBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                   ? Color.statusQuestion.opacity(0.4)
@@ -154,8 +154,8 @@ struct CommentComposerView: View {
       Text(t.rawValue)
         .font(.system(size: TypeScale.caption, weight: .medium))
         .foregroundStyle(isSelected ? .white : Color.statusQuestion)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .padding(.horizontal, Spacing.md_)
+        .padding(.vertical, Spacing.xs)
         .background(
           isSelected
             ? Color.statusQuestion

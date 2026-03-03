@@ -66,14 +66,14 @@ struct EditCard: View {
           .fill(color)
           .frame(width: 4)
 
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
           fileInfo
           Spacer()
           diffStats
           controls
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Spacing.lg_)
+        .padding(.vertical, Spacing.md)
       }
       .background(Color.backgroundTertiary.opacity(0.7))
 
@@ -81,11 +81,11 @@ struct EditCard: View {
       diffContent
     }
     .background(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .fill(Color.backgroundTertiary.opacity(0.3))
     )
     .overlay(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .strokeBorder(color.opacity(0.25), lineWidth: 1)
     )
   }
@@ -97,15 +97,15 @@ struct EditCard: View {
     if let path = message.filePath {
       let filename = path.components(separatedBy: "/").last ?? path
 
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Image(systemName: "doc.text.fill")
-          .font(.system(size: 14, weight: .medium))
+          .font(.system(size: TypeScale.subhead, weight: .medium))
           .foregroundStyle(color)
 
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          HStack(spacing: Spacing.sm_) {
             Text(filename)
-              .font(.system(size: 13, weight: .semibold, design: .monospaced))
+              .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
               .foregroundStyle(.primary)
 
             // "View in Review" link — only when review canvas is available
@@ -113,15 +113,15 @@ struct EditCard: View {
               Button {
                 openFileInReview(path)
               } label: {
-                HStack(spacing: 3) {
+                HStack(spacing: Spacing.gap) {
                   Image(systemName: "arrow.up.right")
                     .font(.system(size: 8, weight: .bold))
                   Text("Review")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: TypeScale.mini, weight: .semibold))
                 }
                 .foregroundStyle(Color.accent)
                 .padding(.horizontal, 5)
-                .padding(.vertical, 2)
+                .padding(.vertical, Spacing.xxs)
                 .background(Color.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
               }
               .buttonStyle(.plain)
@@ -129,14 +129,14 @@ struct EditCard: View {
           }
 
           Text(ToolCardStyle.shortenPath(path))
-            .font(.system(size: 10, design: .monospaced))
+            .font(.system(size: TypeScale.micro, design: .monospaced))
             .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
         }
       }
     } else {
       Text(message.toolName ?? "Edit")
-        .font(.system(size: 13, weight: .semibold))
+        .font(.system(size: TypeScale.body, weight: .semibold))
         .foregroundStyle(color)
     }
   }
@@ -152,15 +152,15 @@ struct EditCard: View {
   }
 
   private var diffStats: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       if effectiveDeletions > 0 {
         Text("−\(effectiveDeletions)")
-          .font(.system(size: 11, weight: .semibold, design: .monospaced))
+          .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
           .foregroundStyle(Color(red: 1.0, green: 0.45, blue: 0.45))
       }
       if effectiveAdditions > 0 {
         Text("+\(effectiveAdditions)")
-          .font(.system(size: 11, weight: .semibold, design: .monospaced))
+          .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
           .foregroundStyle(Color(red: 0.4, green: 0.9, blue: 0.5))
       }
     }
@@ -169,24 +169,24 @@ struct EditCard: View {
   // MARK: - Controls
 
   private var controls: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Spacing.sm) {
       // Expand toggle if truncated
       if isTruncated {
         Button {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+          withAnimation(Motion.standard) {
             isExpanded.toggle()
           }
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Text(isExpanded ? "Collapse" : "Expand")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-              .font(.system(size: 9, weight: .semibold))
+              .font(.system(size: TypeScale.mini, weight: .semibold))
           }
           .foregroundStyle(.secondary)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
-          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
+          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
         }
         .buttonStyle(.plain)
       }
@@ -197,7 +197,7 @@ struct EditCard: View {
           _ = Platform.services.revealInFileBrowser(path)
         } label: {
           Image(systemName: "arrow.up.forward.square")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(Color.textTertiary)
         }
         .buttonStyle(.plain)
@@ -206,22 +206,22 @@ struct EditCard: View {
 
       // Status indicator
       if message.isInProgress {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           ProgressView()
             .controlSize(.mini)
           Text("Editing...")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(color)
         }
       } else {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 14))
+            .font(.system(size: TypeScale.subhead))
             .foregroundStyle(Color.statusWorking)
 
           if let duration = message.formattedDuration {
             Text(duration)
-              .font(.system(size: 10, weight: .medium, design: .monospaced))
+              .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.textTertiary)
           }
         }
@@ -265,15 +265,15 @@ struct EditCard: View {
       // Fallback
       else if let input = message.formattedToolInput {
         Text(input)
-          .font(.system(size: 13, design: .monospaced))
+          .font(.system(size: TypeScale.code, design: .monospaced))
           .foregroundStyle(.primary.opacity(0.9))
           .textSelection(.enabled)
-          .padding(14)
+          .padding(Spacing.lg_)
       } else {
         Text("No content")
-          .font(.system(size: 12))
+          .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.textTertiary)
-          .padding(14)
+          .padding(Spacing.lg_)
       }
     }
   }
@@ -476,10 +476,10 @@ struct ChangedDiffView: View {
     VStack(alignment: .leading, spacing: 0) {
       if displayLines.isEmpty {
         Text("No changed lines")
-          .font(.system(size: 12))
+          .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.textTertiary)
-          .padding(.horizontal, 14)
-          .padding(.vertical, 10)
+          .padding(.horizontal, Spacing.lg_)
+          .padding(.vertical, Spacing.md_)
       } else {
         ForEach(Array(displayLines.enumerated()), id: \.offset) { _, line in
           diffLineView(line)
@@ -487,15 +487,15 @@ struct ChangedDiffView: View {
       }
 
       if isTruncated {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           Image(systemName: "ellipsis")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
           Text("\(lines.count - maxLines) more changed lines")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
         }
         .foregroundStyle(Color.textTertiary)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.lg_)
+        .padding(.vertical, Spacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.backgroundTertiary.opacity(0.5))
       }
@@ -506,33 +506,33 @@ struct ChangedDiffView: View {
     HStack(alignment: .top, spacing: 0) {
       // Old line number
       Text(line.oldLineNum.map { String($0) } ?? "")
-        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
         .foregroundStyle(.white.opacity(0.35))
         .frame(width: 36, alignment: .trailing)
-        .padding(.trailing, 4)
+        .padding(.trailing, Spacing.xs)
 
       // New line number
       Text(line.newLineNum.map { String($0) } ?? "")
-        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
         .foregroundStyle(.white.opacity(0.35))
         .frame(width: 36, alignment: .trailing)
-        .padding(.trailing, 8)
+        .padding(.trailing, Spacing.sm)
 
       // Change indicator
       Text(line.prefix)
-        .font(.system(size: 13, weight: .bold, design: .monospaced))
+        .font(.system(size: TypeScale.code, weight: .bold, design: .monospaced))
         .foregroundStyle(prefixColor(for: line.type))
         .frame(width: 16)
 
       Text(line.content.isEmpty ? " " : line.content)
-        .font(.system(size: 12, design: .monospaced))
+        .font(.system(size: TypeScale.caption, design: .monospaced))
         .textSelection(.enabled)
         .lineLimit(nil)
         .fixedSize(horizontal: false, vertical: true)
 
       Spacer(minLength: 0)
     }
-    .padding(.vertical, 3)
+    .padding(.vertical, Spacing.gap)
     .background(backgroundColor(for: line.type))
   }
 
@@ -578,43 +578,43 @@ struct DiffSection: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       if showHeader {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           Image(systemName: isAddition ? "plus.circle.fill" : "minus.circle.fill")
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: TypeScale.micro, weight: .semibold))
           Text(isAddition ? "NEW FILE" : "REMOVED")
-            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
             .tracking(0.5)
           Text("(\(lines.count) lines)")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(.secondary)
           Spacer()
         }
         .foregroundStyle(accentColor)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .background(backgroundColor.opacity(0.5))
       }
 
       ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
         HStack(alignment: .top, spacing: 0) {
           Text("\(index + 1)")
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
             .foregroundStyle(.white.opacity(0.35))
             .frame(width: 36, alignment: .trailing)
-            .padding(.trailing, 8)
+            .padding(.trailing, Spacing.sm)
 
           Text(isAddition ? "+" : "−")
-            .font(.system(size: 13, weight: .bold, design: .monospaced))
+            .font(.system(size: TypeScale.code, weight: .bold, design: .monospaced))
             .foregroundStyle(accentColor)
             .frame(width: 16)
 
           Text(SyntaxHighlighter.highlightLine(line.isEmpty ? " " : line, language: language.isEmpty ? nil : language))
-            .font(.system(size: 13, design: .monospaced))
+            .font(.system(size: TypeScale.code, design: .monospaced))
             .textSelection(.enabled)
 
           Spacer(minLength: 0)
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, Spacing.gap)
         .background(backgroundColor)
       }
     }

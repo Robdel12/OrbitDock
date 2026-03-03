@@ -123,7 +123,7 @@ struct SessionHistorySection: View {
               chronologicalContent
             }
           }
-          .padding(.top, 12)
+          .padding(.top, Spacing.md)
         }
       }
     }
@@ -132,7 +132,7 @@ struct SessionHistorySection: View {
   // MARK: - Section Header
 
   private var sectionHeader: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: Spacing.md_) {
       Image(systemName: "chevron.right")
         .font(.system(size: 10, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
@@ -143,18 +143,18 @@ struct SessionHistorySection: View {
         .foregroundStyle(Color.textSecondary)
 
       Text("Session History")
-        .font(.system(size: 13, weight: .semibold))
+        .font(.system(size: TypeScale.body, weight: .semibold))
         .foregroundStyle(Color.textSecondary)
 
       Text("\(endedSessions.count)")
-        .font(.system(size: 11, weight: .medium, design: .rounded))
+        .font(.system(size: TypeScale.meta, weight: .medium, design: .rounded))
         .foregroundStyle(Color.textTertiary)
 
       Spacer()
 
       // View toggle (only when expanded)
       if isExpanded {
-        HStack(spacing: 2) {
+        HStack(spacing: Spacing.xxs) {
           viewToggleButton(icon: "list.bullet", isActive: !groupByProject) {
             groupByProject = false
           }
@@ -162,17 +162,17 @@ struct SessionHistorySection: View {
             groupByProject = true
           }
         }
-        .padding(2)
-        .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .padding(Spacing.xxs)
+        .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
       }
     }
-    .padding(.vertical, 10)
-    .padding(.horizontal, 14)
+    .padding(.vertical, Spacing.md_)
+    .padding(.horizontal, Spacing.lg_)
     .frame(maxWidth: .infinity, alignment: .leading)
     .contentShape(Rectangle())
-    .background(Color.backgroundTertiary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .background(Color.backgroundTertiary.opacity(0.3), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     .onTapGesture {
-      withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+      withAnimation(Motion.standard) {
         isExpanded.toggle()
       }
     }
@@ -186,7 +186,7 @@ struct SessionHistorySection: View {
         .frame(width: 24, height: 20)
         .background(
           isActive ? Color.accent.opacity(0.15) : Color.clear,
-          in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+          in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
         )
     }
     .buttonStyle(.plain)
@@ -195,7 +195,7 @@ struct SessionHistorySection: View {
   // MARK: - Chronological Content
 
   private var chronologicalContent: some View {
-    VStack(spacing: 16) {
+    VStack(spacing: Spacing.lg) {
       ForEach(dateGroups) { group in
         DateGroupSection(
           group: group,
@@ -206,18 +206,18 @@ struct SessionHistorySection: View {
       // Show more/less button
       if endedSessions.count > initialShowCount, !showAll {
         Button {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          withAnimation(Motion.standard) {
             showAll = true
           }
         } label: {
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: "chevron.down")
               .font(.system(size: 9, weight: .semibold))
             Text("Show all \(endedSessions.count) sessions")
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.meta, weight: .medium))
           }
           .foregroundStyle(Color.textTertiary)
-          .padding(.vertical, 10)
+          .padding(.vertical, Spacing.md_)
           .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
@@ -228,7 +228,7 @@ struct SessionHistorySection: View {
   // MARK: - Project Grouped Content
 
   private var projectGroupedContent: some View {
-    VStack(spacing: 12) {
+    VStack(spacing: Spacing.md) {
       ForEach(projectGroups) { group in
         ProjectHistoryGroup(
           group: group
@@ -270,29 +270,29 @@ struct DateGroupSection: View {
   var body: some View {
     let referenceDate = Date()
 
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
       // Date header
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Text(group.title.uppercased())
-          .font(.system(size: 10, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textTertiary)
           .tracking(0.5)
 
         Text("\(group.sessions.count)")
-          .font(.system(size: 10, weight: .semibold, design: .rounded))
+          .font(.system(size: TypeScale.micro, weight: .semibold, design: .rounded))
           .foregroundStyle(Color.textQuaternary)
 
         Rectangle()
           .fill(Color.surfaceBorder.opacity(0.3))
           .frame(height: 1)
       }
-      .padding(.horizontal, 4)
+      .padding(.horizontal, Spacing.xs)
 
       // Sessions
-      VStack(spacing: 2) {
+      VStack(spacing: Spacing.xxs) {
         ForEach(visibleSessions, id: \.scopedID) { session in
           HistorySessionRow(session: session, referenceDate: referenceDate) {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            withAnimation(Motion.standard) {
               router.dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
               router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
             }
@@ -302,10 +302,10 @@ struct DateGroupSection: View {
         // Truncation indicator
         if !showAll, group.sessions.count > maxCollapsed {
           Text("+ \(group.sessions.count - maxCollapsed) more")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(Color.textQuaternary)
-            .padding(.vertical, 4)
-            .padding(.horizontal, 12)
+            .padding(.vertical, Spacing.xs)
+            .padding(.horizontal, Spacing.md)
         }
       }
     }
@@ -336,17 +336,17 @@ struct HistorySessionRow: View {
 
   var body: some View {
     Button(action: onSelect) {
-      HStack(spacing: 12) {
+      HStack(spacing: Spacing.md) {
         // Status dot
         Circle()
           .fill(Color.statusEnded)
           .frame(width: 6, height: 6)
 
         // Project + Session name
-        VStack(alignment: .leading, spacing: 2) {
-          HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          HStack(spacing: Spacing.sm_) {
             Text(session.displayName)
-              .font(.system(size: 12, weight: .medium))
+              .font(.system(size: TypeScale.caption, weight: .medium))
               .foregroundStyle(Color.textSecondary)
               .lineLimit(1)
 
@@ -359,23 +359,23 @@ struct HistorySessionRow: View {
             }
           }
 
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             // Project
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               Image(systemName: "folder")
                 .font(.system(size: 9))
               Text(session.projectName ?? "Unknown")
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: TypeScale.micro, weight: .medium))
             }
             .foregroundStyle(Color.textTertiary)
 
             // Branch (if present)
             if let branch = session.branch, !branch.isEmpty {
-              HStack(spacing: 3) {
+              HStack(spacing: Spacing.gap) {
                 Image(systemName: "arrow.triangle.branch")
                   .font(.system(size: 9))
                 Text(branch)
-                  .font(.system(size: 10, weight: .medium))
+                  .font(.system(size: TypeScale.micro, weight: .medium))
               }
               .foregroundStyle(Color.gitBranch.opacity(0.7))
             }
@@ -386,23 +386,23 @@ struct HistorySessionRow: View {
 
         // Time ago
         Text(timeAgo)
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(Color.textQuaternary)
 
         // Duration
         Text(session.formattedDuration)
-          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
 
         // Model badge
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
       }
-      .padding(.vertical, 8)
-      .padding(.horizontal, 12)
+      .padding(.vertical, Spacing.sm)
+      .padding(.horizontal, Spacing.md)
       .frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(Rectangle())
       .background(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
           .fill(isHovering ? Color.surfaceHover : Color.clear)
       )
     }
@@ -469,11 +469,11 @@ struct ProjectHistoryGroup: View {
     VStack(alignment: .leading, spacing: 0) {
       // Project header
       Button {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+        withAnimation(Motion.standard) {
           isExpanded.toggle()
         }
       } label: {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           Image(systemName: "chevron.right")
             .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(Color.textQuaternary)
@@ -484,27 +484,27 @@ struct ProjectHistoryGroup: View {
             .foregroundStyle(Color.textTertiary)
 
           Text(group.projectName)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(Color.textSecondary)
 
           Text("\(group.sessions.count)")
-            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
 
           Spacer()
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 10)
+        .padding(.vertical, Spacing.sm)
+        .padding(.horizontal, Spacing.md_)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
 
       // Sessions
       if isExpanded {
-        VStack(spacing: 2) {
+        VStack(spacing: Spacing.xxs) {
           ForEach(visibleSessions, id: \.scopedID) { session in
             CompactHistoryRow(session: session, referenceDate: referenceDate) {
-              withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+              withAnimation(Motion.standard) {
                 router.dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
                 router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
               }
@@ -514,21 +514,21 @@ struct ProjectHistoryGroup: View {
           // Show more
           if group.sessions.count > maxCollapsed, !showAll {
             Button {
-              withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+              withAnimation(Motion.standard) {
                 showAll = true
               }
             } label: {
               Text("Show \(group.sessions.count - maxCollapsed) more")
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: TypeScale.micro, weight: .medium))
                 .foregroundStyle(Color.textTertiary)
-                .padding(.vertical, 6)
+                .padding(.vertical, Spacing.sm_)
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
           }
         }
-        .padding(.leading, 20)
-        .padding(.top, 4)
+        .padding(.leading, Spacing.section)
+        .padding(.top, Spacing.xs)
       }
     }
   }
@@ -557,13 +557,13 @@ struct CompactHistoryRow: View {
 
   var body: some View {
     Button(action: onSelect) {
-      HStack(spacing: 10) {
+      HStack(spacing: Spacing.md_) {
         Circle()
           .fill(Color.statusEnded)
           .frame(width: 5, height: 5)
 
         Text(session.displayName)
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
 
@@ -574,21 +574,21 @@ struct CompactHistoryRow: View {
         Spacer()
 
         Text(timeAgo)
-          .font(.system(size: 9, weight: .medium))
+          .font(.system(size: TypeScale.mini, weight: .medium))
           .foregroundStyle(Color.textQuaternary)
 
         Text(session.formattedDuration)
-          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textQuaternary)
 
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
       }
       .padding(.vertical, 5)
-      .padding(.horizontal, 10)
+      .padding(.horizontal, Spacing.md_)
       .frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(Rectangle())
       .background(
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
           .fill(isHovering ? Color.surfaceHover : Color.clear)
       )
     }
@@ -606,7 +606,7 @@ struct CompactHistoryRow: View {
 
 #Preview {
   ScrollView {
-    VStack(spacing: 24) {
+    VStack(spacing: Spacing.xl) {
       SessionHistorySection(
         sessions: [
           Session(
@@ -670,7 +670,7 @@ struct CompactHistoryRow: View {
         ]
       )
     }
-    .padding(24)
+    .padding(Spacing.xl)
   }
   .background(Color.backgroundPrimary)
   .frame(width: 800, height: 600)

@@ -125,7 +125,7 @@ struct DashboardView: View {
     .onChange(of: selectedIndex) { _, newIndex in
       guard newIndex >= 0, newIndex < activeSessions.count else { return }
       let targetID = DashboardScrollIDs.session(activeSessions[newIndex].scopedID)
-      withAnimation(.easeOut(duration: 0.15)) {
+      withAnimation(Motion.hover) {
         dashboardScrollAnchorID = targetID
       }
     }
@@ -172,29 +172,29 @@ struct DashboardView: View {
     VStack(alignment: .leading, spacing: 0) {
       skeletonCommandBarCard
       skeletonProjectStream
-        .padding(.top, 20)
+        .padding(.top, Spacing.section)
       skeletonHistorySection
-        .padding(.top, 24)
+        .padding(.top, Spacing.xl)
     }
     .allowsHitTesting(false)
     .accessibilityHidden(true)
   }
 
   private var skeletonCommandBarCard: some View {
-    HStack(spacing: 16) {
+    HStack(spacing: Spacing.lg) {
       skeletonLine(width: 180, height: 12)
       Spacer()
       skeletonLine(width: 120, height: 28)
       skeletonLine(width: 120, height: 28)
     }
-    .padding(.horizontal, 2)
-    .padding(.vertical, 6)
+    .padding(.horizontal, Spacing.xxs)
+    .padding(.vertical, Spacing.sm_)
   }
 
   private var skeletonProjectStream: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
       // Section header skeleton
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Circle()
           .fill(Color.surfaceHover)
           .frame(width: 10, height: 10)
@@ -203,22 +203,22 @@ struct DashboardView: View {
         skeletonLine(width: 28, height: 13)
         skeletonLine(width: 28, height: 13)
       }
-      .padding(.vertical, 10)
-      .padding(.horizontal, 2)
+      .padding(.vertical, Spacing.md_)
+      .padding(.horizontal, Spacing.xxs)
 
       // Project header skeleton
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         skeletonLine(width: 3, height: 14)
         skeletonLine(width: 100, height: 12)
         skeletonLine(width: 50, height: 10)
         Spacer()
       }
-      .padding(.horizontal, 10)
+      .padding(.horizontal, Spacing.md_)
 
       // Flat session row skeletons
-      VStack(spacing: 2) {
+      VStack(spacing: Spacing.xxs) {
         ForEach(0 ..< 3, id: \.self) { _ in
-          HStack(spacing: 10) {
+          HStack(spacing: Spacing.md_) {
             Circle()
               .fill(Color.surfaceHover)
               .frame(width: 8, height: 8)
@@ -232,44 +232,44 @@ struct DashboardView: View {
             skeletonLine(width: 40, height: 10)
           }
           .padding(.vertical, 7)
-          .padding(.horizontal, 10)
+          .padding(.horizontal, Spacing.md_)
         }
       }
     }
   }
 
   private var skeletonHistorySection: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      HStack(spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm) {
         skeletonLine(width: 150, height: 13)
         Spacer()
         skeletonLine(width: 36, height: 13)
       }
-      .padding(.vertical, 10)
-      .padding(.horizontal, 14)
-      .background(Color.backgroundTertiary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+      .padding(.vertical, Spacing.md_)
+      .padding(.horizontal, Spacing.lg_)
+      .background(Color.backgroundTertiary.opacity(0.3), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
 
-      VStack(spacing: 8) {
+      VStack(spacing: Spacing.sm) {
         ForEach(0 ..< 2, id: \.self) { _ in
-          HStack(spacing: 10) {
+          HStack(spacing: Spacing.md_) {
             skeletonLine(width: 18, height: 18)
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Spacing.sm_) {
               skeletonLine(height: 12)
               skeletonLine(width: 180, height: 10)
             }
             Spacer()
             skeletonLine(width: 48, height: 10)
           }
-          .padding(.horizontal, 12)
-          .padding(.vertical, 10)
-          .background(Color.backgroundSecondary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.md_)
+          .background(Color.backgroundSecondary.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
         }
       }
     }
   }
 
   private func skeletonLine(width: CGFloat? = nil, height: CGFloat = 12) -> some View {
-    RoundedRectangle(cornerRadius: 4, style: .continuous)
+    RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
       .fill(Color.surfaceHover.opacity(0.9))
       .frame(width: width, height: height)
   }
@@ -315,10 +315,10 @@ struct DashboardView: View {
   }
 
   private var multiEndpointConnectionBanner: some View {
-    VStack(spacing: 6) {
-      HStack(spacing: 8) {
+    VStack(spacing: Spacing.sm_) {
+      HStack(spacing: Spacing.sm) {
         Image(systemName: "network")
-          .font(.system(size: 11, weight: .semibold))
+          .font(.system(size: TypeScale.meta, weight: .semibold))
           .foregroundStyle(Color.textTertiary)
 
         Text("Endpoint Health")
@@ -332,21 +332,21 @@ struct DashboardView: View {
           .foregroundStyle(Color.textTertiary)
       }
 
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         ForEach(enabledEndpointHealth) { endpoint in
           endpointHealthChip(endpoint)
         }
       }
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 8)
+    .padding(.horizontal, Spacing.lg_)
+    .padding(.vertical, Spacing.sm)
     .background(Color.backgroundTertiary.opacity(0.55))
   }
 
   private func endpointHealthChip(_ endpoint: UnifiedEndpointHealth) -> some View {
-    HStack(spacing: 6) {
+    HStack(spacing: Spacing.sm_) {
       Image(systemName: connectionIcon(for: endpoint.status))
-        .font(.system(size: 9, weight: .semibold))
+        .font(.system(size: TypeScale.mini, weight: .semibold))
         .foregroundStyle(connectionColor(for: endpoint.status))
 
       Text(endpoint.endpointName)
@@ -355,12 +355,12 @@ struct DashboardView: View {
 
       if endpoint.counts.active > 0 {
         Text("\(endpoint.counts.active)")
-          .font(.system(size: 9, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textTertiary)
       }
     }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
     .background(Color.backgroundSecondary.opacity(0.7), in: Capsule())
   }
 
@@ -380,7 +380,7 @@ struct DashboardView: View {
   private func connectionColor(for status: ConnectionStatus) -> Color {
     switch status {
       case .connected:
-        Color.statusSuccess
+        Color.feedbackPositive
       case .connecting:
         Color.statusQuestion
       case .disconnected:
@@ -397,14 +397,14 @@ struct DashboardView: View {
     showSpinner: Bool = false,
     action: (String, () -> Void)? = nil
   ) -> some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Spacing.sm) {
       if showSpinner {
         ProgressView()
           .controlSize(.mini)
           .tint(color)
       } else {
         Image(systemName: icon)
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(color)
       }
 
@@ -420,8 +420,8 @@ struct DashboardView: View {
           Text(label)
             .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(Color.accent)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.horizontal, Spacing.md_)
+            .padding(.vertical, Spacing.xs)
             .background(
               Color.accent.opacity(OpacityTier.light),
               in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
@@ -430,8 +430,8 @@ struct DashboardView: View {
         .buttonStyle(.plain)
       }
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 8)
+    .padding(.horizontal, Spacing.lg_)
+    .padding(.vertical, Spacing.sm)
     .background(color.opacity(0.08))
   }
 
@@ -453,7 +453,7 @@ struct DashboardView: View {
     guard selectedIndex >= 0, selectedIndex < activeSessions.count else { return }
     let session = activeSessions[selectedIndex]
     dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
-    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+    withAnimation(Motion.standard) {
       router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
     }
   }

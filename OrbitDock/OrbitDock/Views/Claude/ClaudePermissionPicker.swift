@@ -287,7 +287,7 @@ struct ClaudePermissionTrack: View {
                 Circle()
                   .stroke(mode.color, lineWidth: isActive ? 0 : 1.5)
               )
-              .shadow(color: isActive ? mode.color.opacity(0.6) : .clear, radius: 4)
+              .themeShadow(Shadow.glow(color: isActive ? mode.color : .clear, intensity: 0.6))
               .position(x: x, y: 6)
               .contentShape(Rectangle().size(width: segmentWidth, height: 20))
               .onTapGesture {
@@ -345,7 +345,7 @@ struct ClaudePermissionRow: View {
               .font(.system(size: 8, weight: .bold, design: .rounded))
               .foregroundStyle(ClaudePermissionMode.default.color)
               .padding(.horizontal, 5)
-              .padding(.vertical, 2)
+              .padding(.vertical, Spacing.xxs)
               .background(ClaudePermissionMode.default.color.opacity(OpacityTier.light), in: Capsule())
           }
 
@@ -362,7 +362,7 @@ struct ClaudePermissionRow: View {
         Text(mode.description)
           .font(.system(size: TypeScale.body, weight: .regular))
           .foregroundStyle(Color.textSecondary)
-          .padding(.leading, 32)
+          .padding(.leading, Spacing.xxl)
       }
       .padding(.leading, Spacing.sm)
       .padding(.trailing, Spacing.lg)
@@ -373,7 +373,7 @@ struct ClaudePermissionRow: View {
         ? mode.color.opacity(OpacityTier.tint)
         : Color.clear
     )
-    .animation(.easeOut(duration: 0.1), value: isHighlighted)
+    .animation(Motion.hover, value: isHighlighted)
   }
 }
 

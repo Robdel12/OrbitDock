@@ -29,11 +29,11 @@ struct RateLimitBanner: View {
 
       Spacer()
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 8)
-    .background(bannerColor.opacity(0.12))
-    .clipShape(RoundedRectangle(cornerRadius: 8))
-    .padding(.horizontal, 12)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(bannerColor.opacity(OpacityTier.light))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.ml))
+    .padding(.horizontal, Spacing.md)
   }
 
   private var bannerColor: Color {

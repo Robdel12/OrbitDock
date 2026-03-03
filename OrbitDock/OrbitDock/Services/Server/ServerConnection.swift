@@ -542,19 +542,7 @@ class ServerConnection: ObservableObject {
     configuration.timeoutIntervalForResource = 0 // No resource timeout (WebSocket is long-lived)
     session = URLSession(configuration: configuration)
 
-    let wsURL: URL = {
-      guard let authToken, !authToken.isEmpty,
-            var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)
-      else {
-        return serverURL
-      }
-      var items = components.queryItems ?? []
-      items.append(URLQueryItem(name: "token", value: authToken))
-      components.queryItems = items
-      return components.url ?? serverURL
-    }()
-
-    webSocket = session?.webSocketTask(with: wsURL)
+    webSocket = session?.webSocketTask(with: websocketRequest())
     webSocket?.maximumMessageSize = Self.maxInboundWebSocketMessageBytes
     webSocket?.resume()
     startReceiving()
@@ -590,6 +578,14 @@ class ServerConnection: ObservableObject {
         }
       }
     }
+  }
+
+  private func websocketRequest() -> URLRequest {
+    var request = URLRequest(url: serverURL)
+    if let authToken, !authToken.isEmpty {
+      request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+    }
+    return request
   }
 
   private func completeConnectionIfNeeded(trigger: String) {
@@ -739,12 +735,12 @@ class ServerConnection: ObservableObject {
       routeMessage(message)
     } catch {
       logger.error("Failed to decode message: \(error.localizedDescription)")
-      logger.debug("Raw message: \(text.prefix(500))")
+      logger.debug("Dropped undecodable server frame (\(text.count) chars)")
     }
   }
 
   private func routeMessage(_ message: ServerToClientMessage) {
-    logger.info("Server message: \(String(describing: message).prefix(200))")
+    logger.debug("Server message received")
 
     switch message {
       case let .sessionsList(sessions):
@@ -939,7 +935,6 @@ class ServerConnection: ObservableObject {
   /// Send a message to the server
   @discardableResult
   func send(_ message: ClientToServerMessage, queueWhenDisconnected: Bool = false) -> OutboundSendDisposition {
-    let messageDesc = String(describing: message).prefix(200)
     guard case .connected = status else {
       if queueWhenDisconnected {
         enqueueConversationMessage(message)
@@ -949,7 +944,7 @@ class ServerConnection: ObservableObject {
         .warning,
         category: .send,
         "BLOCKED — not connected",
-        data: ["status": String(describing: status), "message": String(messageDesc)]
+        data: ["status": String(describing: status)]
       )
       logger.warning("Cannot send - not connected")
       return .dropped
@@ -967,15 +962,14 @@ class ServerConnection: ObservableObject {
           enqueueConversationMessage(message)
           return .queued
         }
-        connLog(.warning, category: .send, "BLOCKED — websocket unavailable", data: ["message": String(messageDesc)])
+        connLog(.warning, category: .send, "BLOCKED — websocket unavailable")
         return .dropped
       }
 
       connLog(
         .info,
         category: .send,
-        "Sending \(text.count) bytes",
-        data: ["type": String(messageDesc)]
+        "Sending \(text.count) bytes"
       )
 
       socket.send(.string(text)) { error in

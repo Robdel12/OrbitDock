@@ -31,21 +31,21 @@ struct SkillsPicker: View {
         if !selectedSkills.isEmpty {
           Text("\(selectedSkills.count)")
             .font(.caption2.bold())
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.xxs)
             .background(Color.accent)
             .foregroundStyle(.white)
             .clipShape(Capsule())
         }
       }
-      .padding(.horizontal, 14)
-      .padding(.top, 12)
-      .padding(.bottom, 8)
+      .padding(.horizontal, Spacing.lg_)
+      .padding(.top, Spacing.md)
+      .padding(.bottom, Spacing.sm)
 
       Divider()
 
       if skills.isEmpty {
-        VStack(spacing: 8) {
+        VStack(spacing: Spacing.sm) {
           Image(systemName: "bolt.slash")
             .font(.title2)
             .foregroundStyle(Color.textTertiary)
@@ -57,21 +57,21 @@ struct SkillsPicker: View {
             .foregroundStyle(Color.textTertiary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(.vertical, Spacing.xl)
       } else {
         ScrollView {
-          VStack(alignment: .leading, spacing: 12) {
+          VStack(alignment: .leading, spacing: Spacing.md) {
             ForEach(groupedSkills, id: \.scope) { group in
-              VStack(alignment: .leading, spacing: 4) {
+              VStack(alignment: .leading, spacing: Spacing.xs) {
                 // Scope header
-                HStack(spacing: 4) {
+                HStack(spacing: Spacing.xs) {
                   Image(systemName: iconForScope(group.scope))
                     .font(.caption2)
                   Text(labelForScope(group.scope))
                     .font(.caption.bold())
                 }
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, Spacing.lg_)
 
                 // Skills in this scope
                 ForEach(group.skills) { skill in
@@ -86,7 +86,7 @@ struct SkillsPicker: View {
               }
             }
           }
-          .padding(.vertical, 8)
+          .padding(.vertical, Spacing.sm)
         }
       }
     }
@@ -121,12 +121,12 @@ private struct SkillRow: View {
 
   var body: some View {
     Button(action: onToggle) {
-      HStack(spacing: 10) {
+      HStack(spacing: Spacing.md_) {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
           .font(.body)
           .foregroundStyle(isSelected ? AnyShapeStyle(Color.accent) : AnyShapeStyle(Color.textTertiary))
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(skill.name)
             .font(.callout.weight(.medium))
             .foregroundStyle(.primary)
@@ -141,8 +141,8 @@ private struct SkillRow: View {
         Spacer()
       }
       .contentShape(Rectangle())
-      .padding(.horizontal, 14)
-      .padding(.vertical, 4)
+      .padding(.horizontal, Spacing.lg_)
+      .padding(.vertical, Spacing.xs)
     }
     .buttonStyle(.plain)
   }

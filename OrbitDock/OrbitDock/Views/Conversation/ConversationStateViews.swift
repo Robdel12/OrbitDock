@@ -4,7 +4,7 @@ struct ConversationLoadingView: View {
   @State private var shimmer = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 24) {
+    VStack(alignment: .leading, spacing: Spacing.xl) {
       // Simulated user message
       skeletonBubble(alignment: .trailing, widths: [0.55])
 
@@ -45,9 +45,9 @@ struct ConversationLoadingView: View {
   }
 
   private func skeletonBubble(alignment: HorizontalAlignment, widths: [CGFloat]) -> some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
       ForEach(Array(widths.enumerated()), id: \.offset) { _, fraction in
-        RoundedRectangle(cornerRadius: 4)
+        RoundedRectangle(cornerRadius: Radius.sm)
           .fill(Color.textQuaternary.opacity(0.25))
           .frame(maxWidth: .infinity)
           .frame(height: 12)
@@ -55,10 +55,10 @@ struct ConversationLoadingView: View {
           .scaleEffect(x: fraction, anchor: alignment == .trailing ? .trailing : .leading)
       }
     }
-    .padding(.vertical, 12)
-    .padding(.horizontal, 16)
+    .padding(.vertical, Spacing.md)
+    .padding(.horizontal, Spacing.lg)
     .background(
-      RoundedRectangle(cornerRadius: 10)
+      RoundedRectangle(cornerRadius: Radius.lg)
         .fill(Color.backgroundSecondary.opacity(0.6))
     )
     .frame(maxWidth: .infinity, alignment: alignment == .trailing ? .trailing : .leading)
@@ -68,17 +68,17 @@ struct ConversationLoadingView: View {
 
 struct ConversationEmptyStateView: View {
   var body: some View {
-    VStack(spacing: 20) {
+    VStack(spacing: Spacing.section) {
       Image(systemName: "text.bubble")
         .font(.system(size: 36, weight: .light))
         .foregroundStyle(Color.textQuaternary)
 
-      VStack(spacing: 6) {
+      VStack(spacing: Spacing.sm_) {
         Text("No messages yet")
-          .font(.system(size: 16, weight: .medium))
+          .font(.system(size: TypeScale.large, weight: .medium))
           .foregroundStyle(Color.textSecondary)
         Text("Start the conversation in your terminal")
-          .font(.system(size: 13))
+          .font(.system(size: TypeScale.body))
           .foregroundStyle(Color.textTertiary)
       }
     }
@@ -91,18 +91,18 @@ struct ConversationLoadMoreButton: View {
 
   var body: some View {
     Button(action: onLoadMore) {
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Image(systemName: "arrow.up")
           .font(.system(size: 10, weight: .bold))
         Text("Load \(remainingCount) earlier")
-          .font(.system(size: 12, weight: .medium))
+          .font(.system(size: TypeScale.caption, weight: .medium))
       }
       .foregroundStyle(Color.textTertiary)
       .frame(maxWidth: .infinity)
-      .padding(.vertical, 14)
+      .padding(.vertical, Spacing.lg_)
     }
     .buttonStyle(.plain)
-    .padding(.bottom, 10)
+    .padding(.bottom, Spacing.md_)
   }
 }
 
@@ -112,9 +112,9 @@ struct ConversationMessageCountIndicator: View {
 
   var body: some View {
     Text("\(displayedCount) of \(totalCount) messages")
-      .font(.system(size: 11, weight: .medium))
+      .font(.system(size: TypeScale.meta, weight: .medium))
       .foregroundStyle(Color.textQuaternary)
       .frame(maxWidth: .infinity)
-      .padding(.bottom, 10)
+      .padding(.bottom, Spacing.md_)
   }
 }

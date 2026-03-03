@@ -61,7 +61,7 @@ struct AttentionStripView: View {
 
         Spacer()
       }
-      .padding(.horizontal, 12)
+      .padding(.horizontal, Spacing.md)
       .frame(height: 28)
       .background(Color.backgroundTertiary)
       .transition(.opacity.combined(with: .move(edge: .top)))

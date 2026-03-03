@@ -176,10 +176,11 @@ On launch, `ServerManager` still checks local install state for onboarding, whil
 ### Install Flow (triggered from ServerSetupView or Settings)
 1. Find binary (Bundle Resources → env var → `~/.orbitdock/bin/` → PATH)
 2. Copy to `~/.orbitdock/bin/` if from bundle
-3. `orbitdock-server init`
-4. `orbitdock-server install-hooks`
-5. `orbitdock-server install-service --enable`
-6. Wait for health check → connect WebSocket
+3. `orbitdock-server ensure-path`
+4. `orbitdock-server init`
+5. `orbitdock-server install-hooks`
+6. `orbitdock-server install-service --enable`
+7. Wait for health check → connect WebSocket
 
 ### Development
 In dev, run `make rust-run` — the app detects it via health check and skips setup. Set `ORBITDOCK_SERVER_PATH` in Xcode scheme to test the install flow with a debug binary.
@@ -626,7 +627,13 @@ For `.foregroundStyle(.primary)` and `.foregroundStyle(.secondary)`, SwiftUI's b
 - Don't use `.foregroundStyle(.tertiary)` or `.foregroundStyle(.quaternary)` — use `Color.textTertiary` / `Color.textQuaternary` instead
 - Don't use `.foregroundColor()` at all — use `.foregroundStyle()` with themed Color values
 - Don't use `.scaleEffect()` on ProgressView - use `.controlSize(.small)` instead
-- Don't use timers for animations - use SwiftUI animation modifiers
+- Don't use timers for animations - use `Motion.*` tokens
 - Don't store single @State values for data that varies by session - use dictionaries
-- Don't use system colors (.blue, .green, .purple, .orange) - use `Color.accent`, `Color.statusWorking`, etc.
+- Don't use system colors (.blue, .green, .purple, .orange) - use themed equivalents
 - Don't use generic gray backgrounds - use the cosmic palette (`Color.backgroundPrimary`, etc.)
+- Don't use raw pixel values for padding — use `Spacing.*` tokens
+- Don't use raw font sizes — use `TypeScale.*` tokens
+- Don't use raw corner radius values — use `Radius.*` tokens
+- Don't use raw `.shadow()` — use `.themeShadow(Shadow.*)` tokens
+- Don't use raw `.spring()` or `.easeOut()` — use `Motion.*` tokens
+- Don't use deprecated color aliases (statusSuccess, statusWaiting, statusReady, statusAttention, statusIdle)

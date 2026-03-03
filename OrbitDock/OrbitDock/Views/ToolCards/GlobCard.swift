@@ -57,18 +57,18 @@ struct GlobCard: View {
   // MARK: - Header
 
   private var header: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       Image(systemName: "folder.badge.gearshape")
-        .font(.system(size: 14, weight: .medium))
+        .font(.system(size: TypeScale.subhead, weight: .medium))
         .foregroundStyle(color)
 
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
         Text("Glob")
-          .font(.system(size: 13, weight: .semibold))
+          .font(.system(size: TypeScale.body, weight: .semibold))
           .foregroundStyle(color)
 
         Text(pattern)
-          .font(.system(size: 11, design: .monospaced))
+          .font(.system(size: TypeScale.meta, design: .monospaced))
           .foregroundStyle(.secondary)
           .lineLimit(1)
       }
@@ -76,9 +76,9 @@ struct GlobCard: View {
       Spacer()
 
       if !message.isInProgress {
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
           Text("\(fileCount) \(fileCount == 1 ? "file" : "files")")
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
             .foregroundStyle(color)
 
           ToolCardDuration(duration: message.formattedDuration)
@@ -108,55 +108,55 @@ struct GlobCard: View {
 
         VStack(alignment: .leading, spacing: 0) {
           // Directory header
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: "folder.fill")
-              .font(.system(size: 10))
+              .font(.system(size: TypeScale.micro))
               .foregroundStyle(.orange)
             Text(dir == "." ? "(root)" : dir)
-              .font(.system(size: 11, weight: .medium, design: .monospaced))
+              .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
               .foregroundStyle(.primary.opacity(0.8))
             Text("(\(dirFiles.count))")
-              .font(.system(size: 10, design: .monospaced))
+              .font(.system(size: TypeScale.micro, design: .monospaced))
               .foregroundStyle(Color.textTertiary)
           }
-          .padding(.vertical, 4)
-          .padding(.horizontal, 12)
+          .padding(.vertical, Spacing.xs)
+          .padding(.horizontal, Spacing.md)
 
           // Files
           ForEach(dirFiles.prefix(10), id: \.self) { file in
             let filename = file.components(separatedBy: "/").last ?? file
-            HStack(spacing: 6) {
+            HStack(spacing: Spacing.sm_) {
               Image(systemName: "doc")
-                .font(.system(size: 9))
+                .font(.system(size: TypeScale.mini))
                 .foregroundStyle(.secondary)
               Text(filename)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: TypeScale.meta, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, Spacing.xxs)
             .padding(.leading, 28)
-            .padding(.trailing, 12)
+            .padding(.trailing, Spacing.md)
           }
 
           if dirFiles.count > 10 {
             Text("... +\(dirFiles.count - 10) more")
-              .font(.system(size: 10))
+              .font(.system(size: TypeScale.micro))
               .foregroundStyle(Color.textTertiary)
               .padding(.leading, 28)
-              .padding(.vertical, 2)
+              .padding(.vertical, Spacing.xxs)
           }
         }
       }
 
       if hasMoreDirs {
         Text("... +\(sortedDirs.count - maxDirs) more directories")
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(Color.textTertiary)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 6)
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.sm_)
       }
     }
-    .padding(.vertical, 6)
+    .padding(.vertical, Spacing.sm_)
   }
 }

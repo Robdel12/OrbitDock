@@ -110,7 +110,7 @@ struct ModelEffortPopover: View {
     #endif
     .ifMacOS { $0.frame(width: 356) }
     .background(Color.backgroundSecondary)
-    .animation(.spring(response: 0.25, dampingFraction: 0.84), value: showModelPicker)
+    .animation(Motion.standard, value: showModelPicker)
     .ifMacOS { $0.onKeyPress(.escape) { dismiss(); return .handled } }
   }
 
@@ -147,7 +147,7 @@ struct ModelEffortPopover: View {
       }
 
       Button {
-        withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
+        withAnimation(Motion.standard) {
           showModelPicker.toggle()
           if !showModelPicker { searchQuery = "" }
         }
@@ -164,7 +164,7 @@ struct ModelEffortPopover: View {
                 Text("DEFAULT")
                   .font(.system(size: 7, weight: .bold, design: .rounded))
                   .foregroundStyle(Color.providerCodex)
-                  .padding(.horizontal, 4)
+                  .padding(.horizontal, Spacing.xs)
                   .padding(.vertical, 1)
                   .background(Color.providerCodex.opacity(OpacityTier.light), in: Capsule())
               }
@@ -305,7 +305,7 @@ struct ModelEffortPopover: View {
 
         if !showModelPicker, selectedEffort != .default {
           Button("Default") {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            withAnimation(Motion.standard) {
               selectedEffort = .default
             }
           }
@@ -315,7 +315,7 @@ struct ModelEffortPopover: View {
         }
       }
 
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Text("Current:")
           .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.textQuaternary)
@@ -336,7 +336,7 @@ struct ModelEffortPopover: View {
           ForEach(visibleEffortLevels, id: \.self) { level in
             EffortListRow(level: level, isSelected: level == selectedEffort)
               .onTapGesture {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                withAnimation(Motion.standard) {
                   selectedEffort = level
                 }
               }
@@ -369,7 +369,7 @@ struct ModelEffortPopover: View {
       selectedEffort = .default
     }
 
-    withAnimation(.spring(response: 0.24, dampingFraction: 0.86)) {
+    withAnimation(Motion.standard) {
       showModelPicker = false
     }
     searchQuery = ""
@@ -481,7 +481,7 @@ private struct CompactModelRow: View {
               Text("DEFAULT")
                 .font(.system(size: 7, weight: .bold, design: .rounded))
                 .foregroundStyle(accent)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, Spacing.xs)
                 .padding(.vertical, 1)
                 .background(accent.opacity(OpacityTier.light), in: Capsule())
             }
@@ -566,7 +566,7 @@ private struct EffortListRow: View {
     }
     .foregroundStyle(isSelected ? tint : Color.textSecondary)
     .padding(.horizontal, Spacing.md)
-    .padding(.vertical, isSelected ? Spacing.sm : 6)
+    .padding(.vertical, isSelected ? Spacing.sm : Spacing.sm_)
     .background(
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .fill(isSelected ? tint.opacity(OpacityTier.light) : isHovered ? Color.surfaceHover : .clear)

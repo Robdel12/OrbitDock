@@ -32,7 +32,7 @@ struct HeaderView: View {
   private var statusColor: Color {
     switch obs.workStatus {
       case .working: .statusWorking
-      case .waiting: .statusWaiting
+      case .waiting: .statusReply
       case .permission: .statusPermission
       case .unknown: .statusWorking.opacity(0.6)
     }
@@ -82,7 +82,7 @@ struct HeaderView: View {
       }
 
       // Action buttons
-      HStack(spacing: 2) {
+      HStack(spacing: Spacing.xxs) {
         navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
         overflowMenu
       }
@@ -95,7 +95,7 @@ struct HeaderView: View {
 
   private var backButton: some View {
     Button(action: { router.goToDashboard() }) {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: "chevron.left")
           .font(.system(size: TypeScale.caption, weight: .semibold))
         Text("Dashboard")
@@ -170,7 +170,7 @@ struct HeaderView: View {
 
       if let sidebarBinding = showTurnSidebar {
         Button {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+          withAnimation(Motion.standard) {
             sidebarBinding.wrappedValue.toggle()
           }
         } label: {
@@ -296,12 +296,12 @@ struct HeaderView: View {
         .truncationMode(.tail)
     }
     .padding(.horizontal, Spacing.sm)
-    .padding(.vertical, 6)
+    .padding(.vertical, Spacing.sm_)
     .background(
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .fill(Color.backgroundTertiary.opacity(0.58))
     )
-    .shadow(color: .black.opacity(0.22), radius: 6, y: 2)
+    .themeShadow(Shadow.md)
   }
 
   private var compactModeControls: some View {
@@ -322,20 +322,20 @@ struct HeaderView: View {
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .fill(Color.backgroundTertiary.opacity(0.58))
     )
-    .shadow(color: .black.opacity(0.22), radius: 6, y: 2)
+    .themeShadow(Shadow.md)
   }
 
   private func compactLayoutToggle(_ binding: Binding<LayoutConfiguration>) -> some View {
-    HStack(spacing: 2) {
+    HStack(spacing: Spacing.xxs) {
       ForEach(LayoutConfiguration.allCases, id: \.self) { config in
         let isSelected = binding.wrappedValue == config
         Button {
-          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          withAnimation(Motion.gentle) {
             binding.wrappedValue = isSelected ? .conversationOnly : config
           }
         } label: {
           Image(systemName: config.icon)
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(isSelected ? Color.accent : Color.textSecondary)
             .frame(width: 24, height: 22)
             .background(
@@ -404,7 +404,7 @@ struct HeaderView: View {
 
       if let sidebarBinding = showTurnSidebar {
         Button {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+          withAnimation(Motion.standard) {
             sidebarBinding.wrappedValue.toggle()
           }
         } label: {
@@ -416,7 +416,7 @@ struct HeaderView: View {
         Section("Layout") {
           ForEach(LayoutConfiguration.allCases, id: \.self) { config in
             Button {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              withAnimation(Motion.gentle) {
                 layoutBinding.wrappedValue = config
               }
             } label: {
@@ -440,7 +440,7 @@ struct HeaderView: View {
       }
     } label: {
       Image(systemName: "ellipsis.circle")
-        .font(.system(size: 14, weight: .semibold))
+        .font(.system(size: TypeScale.subhead, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
         .frame(width: 26, height: 26)
         .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
@@ -469,18 +469,18 @@ struct HeaderView: View {
   // MARK: - Layout Toggle
 
   private func layoutToggle(_ binding: Binding<LayoutConfiguration>) -> some View {
-    HStack(spacing: 2) {
+    HStack(spacing: Spacing.xxs) {
       ForEach(LayoutConfiguration.allCases, id: \.self) { config in
         let isSelected = binding.wrappedValue == config
 
         Button {
-          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          withAnimation(Motion.gentle) {
             // Clicking the active button toggles back to conversation-only
             binding.wrappedValue = isSelected ? .conversationOnly : config
           }
         } label: {
           Image(systemName: config.icon)
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(isSelected ? Color.accent : .secondary)
             .frame(width: 26, height: 22)
             .background(
@@ -604,7 +604,7 @@ struct StatusPillCompact: View {
   private var color: Color {
     switch workStatus {
       case .working: .statusWorking
-      case .waiting: .statusWaiting
+      case .waiting: .statusReply
       case .permission: .statusPermission
       case .unknown: .secondary
     }
@@ -659,19 +659,19 @@ struct ContextGaugeCompact: View {
 
   private var progressColor: Color {
     if stats.contextPercentage > 0.9 { return .statusError }
-    if stats.contextPercentage > 0.7 { return .statusWaiting }
+    if stats.contextPercentage > 0.7 { return .feedbackCaution }
     return .accent
   }
 
   var body: some View {
-    HStack(spacing: 6) {
+    HStack(spacing: Spacing.sm_) {
       // Mini progress bar
       GeometryReader { geo in
         ZStack(alignment: .leading) {
-          RoundedRectangle(cornerRadius: 2, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
             .fill(Color.primary.opacity(0.1))
 
-          RoundedRectangle(cornerRadius: 2, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
             .fill(progressColor)
             .frame(width: geo.size.width * stats.contextPercentage)
         }
@@ -679,7 +679,7 @@ struct ContextGaugeCompact: View {
       .frame(width: 32, height: 4)
 
       Text("\(Int(stats.contextPercentage * 100))%")
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .foregroundStyle(progressColor)
     }
   }
@@ -694,38 +694,38 @@ struct CodexTokenBadge: View {
   }
 
   var body: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Spacing.sm) {
       // Context fill percentage
       if let window = obs.contextWindow, window > 0 {
         Text("\(contextPercent)%")
-          .font(.system(size: 11, weight: .semibold, design: .monospaced))
+          .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
           .foregroundStyle(contextColor)
 
         Text("of \(formatTokenCount(window))")
-          .font(.system(size: 10))
+          .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textTertiary)
       } else {
         // Fallback if no window info yet
         Text(formatTokenCount(obs.effectiveContextInputTokens))
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
           .foregroundStyle(.secondary)
         Text("tokens")
-          .font(.system(size: 10))
+          .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textTertiary)
       }
 
       // Cache savings (compact)
       if cacheSavingsPercent >= 10 {
-        HStack(spacing: 2) {
+        HStack(spacing: Spacing.xxs) {
           Image(systemName: "bolt.fill")
             .font(.system(size: 8))
           Text("\(cacheSavingsPercent)%")
-            .font(.system(size: 10, design: .monospaced))
+            .font(.system(size: TypeScale.micro, design: .monospaced))
         }
-        .foregroundStyle(.green.opacity(0.85))
+        .foregroundStyle(Color.feedbackPositive.opacity(0.85))
       }
     }
-    .padding(.horizontal, 10)
+    .padding(.horizontal, Spacing.md_)
     .padding(.vertical, 5)
     .background(Color.surfaceHover, in: Capsule())
     .help(tokenTooltip)
@@ -738,7 +738,7 @@ struct CodexTokenBadge: View {
 
   private var contextColor: Color {
     if contextPercent >= 90 { return .statusError }
-    if contextPercent >= 70 { return .statusWaiting }
+    if contextPercent >= 70 { return .feedbackCaution }
     return .secondary
   }
 

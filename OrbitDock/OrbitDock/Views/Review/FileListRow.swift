@@ -75,12 +75,12 @@ struct FileListRow: View {
       }
       .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
     }
-    .padding(.horizontal, 8)
+    .padding(.horizontal, Spacing.sm)
     .padding(.vertical, 7)
     .background(
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .fill(isSelected ? Color.accent.opacity(OpacityTier.light) : (isHovered ? Color.surfaceHover : Color.clear))
-        .padding(.horizontal, 4)
+        .padding(.horizontal, Spacing.xs)
     )
     .overlay(alignment: .leading) {
       if isSelected {

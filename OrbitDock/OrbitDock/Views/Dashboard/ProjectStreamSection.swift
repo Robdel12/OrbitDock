@@ -144,7 +144,7 @@ struct ProjectStreamSection: View {
             }
           }
         }
-        .padding(.top, 4)
+        .padding(.top, Spacing.xs)
       }
     }
     .sheet(item: $worktreeSheetGroup) { group in
@@ -203,7 +203,7 @@ struct ProjectStreamSection: View {
 
   private var regularSectionHeader: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
-      HStack(alignment: .firstTextBaseline, spacing: 8) {
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
         Text("Active Sessions")
           .font(.system(size: TypeScale.headline, weight: .bold))
           .foregroundStyle(.primary)
@@ -212,12 +212,12 @@ struct ProjectStreamSection: View {
         Text("\(orderedSessions.count)")
           .font(.system(size: TypeScale.subhead, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textSecondary)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 3)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.gap)
           .background(Color.surfaceHover.opacity(0.7), in: Capsule())
 
         if let pulse = operationsPulse {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Circle()
               .fill(pulse.color)
               .frame(width: 6, height: 6)
@@ -226,7 +226,7 @@ struct ProjectStreamSection: View {
           }
           .foregroundStyle(pulse.color)
           .padding(.horizontal, 9)
-          .padding(.vertical, 4)
+          .padding(.vertical, Spacing.xs)
           .background(pulse.color.opacity(0.12), in: Capsule())
         }
       }
@@ -236,36 +236,36 @@ struct ProjectStreamSection: View {
       HStack(spacing: 0) {
         if isEditMode {
           // Edit mode toolbar — focused, minimal
-          HStack(spacing: 8) {
+          HStack(spacing: Spacing.sm) {
             Image(systemName: "arrow.up.and.down.text.horizontal")
-              .font(.system(size: 10, weight: .semibold))
+              .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(Color.accent)
 
             Text("Drag to reorder, tap")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textTertiary)
 
             Image(systemName: "eye.slash")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textTertiary)
 
             Text("to hide")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textTertiary)
           }
 
           Spacer()
 
           Button {
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+            withAnimation(Motion.standard) {
               isEditMode = false
               draggingProjectGroupKey = nil
             }
           } label: {
             Text("Done")
-              .font(.system(size: 11, weight: .semibold))
+              .font(.system(size: TypeScale.meta, weight: .semibold))
               .foregroundStyle(Color.accent)
-              .padding(.horizontal, 12)
+              .padding(.horizontal, Spacing.md)
               .padding(.vertical, 5)
               .background(Color.accent.opacity(0.15), in: Capsule())
           }
@@ -288,15 +288,15 @@ struct ProjectStreamSection: View {
               useCustomProjectOrder = false
             } label: {
               Text("Custom Order")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: TypeScale.mini, weight: .semibold))
                 .foregroundStyle(Color.accent)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.gap)
                 .background(Color.accent.opacity(0.12), in: Capsule())
             }
             .buttonStyle(.plain)
             .help("Custom project order overrides sort. Click to use sort order.")
-            .padding(.trailing, 6)
+            .padding(.trailing, Spacing.sm_)
           }
 
           if filter != .all || providerFilter != .all {
@@ -305,10 +305,10 @@ struct ProjectStreamSection: View {
               providerFilter = .all
             } label: {
               Text("Clear")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: TypeScale.mini, weight: .semibold))
                 .foregroundStyle(Color.textTertiary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.gap)
                 .background(Color.surfaceHover.opacity(0.5), in: Capsule())
             }
             .buttonStyle(.plain)
@@ -319,25 +319,25 @@ struct ProjectStreamSection: View {
               hiddenProjectGroups.removeAll()
             } label: {
               Text("Show Hidden \(hiddenProjectCount)")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: TypeScale.mini, weight: .semibold))
                 .foregroundStyle(Color.textTertiary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.gap)
                 .background(Color.surfaceHover.opacity(0.5), in: Capsule())
             }
             .buttonStyle(.plain)
-            .padding(.leading, 6)
+            .padding(.leading, Spacing.sm_)
           }
         }
       }
     }
-    .padding(.vertical, 14)
-    .padding(.horizontal, 2)
+    .padding(.vertical, Spacing.lg_)
+    .padding(.horizontal, Spacing.xxs)
   }
 
   private var phoneCompactSectionHeader: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.md_) {
+      HStack(spacing: Spacing.sm) {
         Text("Active Agents")
           .font(.system(size: TypeScale.subhead, weight: .bold))
           .foregroundStyle(.primary)
@@ -346,22 +346,22 @@ struct ProjectStreamSection: View {
           .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textTertiary)
           .padding(.horizontal, 7)
-          .padding(.vertical, 2)
+          .padding(.vertical, Spacing.xxs)
           .background(Color.surfaceHover.opacity(0.6), in: Capsule())
 
         Spacer()
 
         if isEditMode {
           Button {
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+            withAnimation(Motion.standard) {
               isEditMode = false
               draggingProjectGroupKey = nil
             }
           } label: {
             Text("Done")
-              .font(.system(size: 11, weight: .semibold))
+              .font(.system(size: TypeScale.meta, weight: .semibold))
               .foregroundStyle(Color.accent)
-              .padding(.horizontal, 12)
+              .padding(.horizontal, Spacing.md)
               .padding(.vertical, 5)
               .background(Color.accent.opacity(0.15), in: Capsule())
           }
@@ -371,7 +371,7 @@ struct ProjectStreamSection: View {
 
           // Standalone edit button for mobile
           Button {
-            withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+            withAnimation(Motion.standard) {
               if !useCustomProjectOrder {
                 projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
               }
@@ -380,10 +380,10 @@ struct ProjectStreamSection: View {
             }
           } label: {
             Image(systemName: "pencil")
-              .font(.system(size: 11, weight: .semibold))
+              .font(.system(size: TypeScale.meta, weight: .semibold))
               .foregroundStyle(Color.textSecondary)
               .frame(width: 28, height: 28)
-              .background(Color.surfaceHover.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              .background(Color.surfaceHover.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
           }
           .buttonStyle(.plain)
 
@@ -392,10 +392,10 @@ struct ProjectStreamSection: View {
               useCustomProjectOrder = false
             } label: {
               Text("Custom")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: TypeScale.micro, weight: .semibold))
                 .foregroundStyle(Color.accent)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.gap)
                 .background(Color.accent.opacity(0.12), in: Capsule())
             }
             .buttonStyle(.plain)
@@ -408,10 +408,10 @@ struct ProjectStreamSection: View {
             providerFilter = .all
           } label: {
             Text("Clear")
-              .font(.system(size: 10, weight: .semibold))
+              .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, 8)
-              .padding(.vertical, 3)
+              .padding(.horizontal, Spacing.sm)
+              .padding(.vertical, Spacing.gap)
               .background(Color.surfaceHover.opacity(0.5), in: Capsule())
           }
           .buttonStyle(.plain)
@@ -422,10 +422,10 @@ struct ProjectStreamSection: View {
             hiddenProjectGroups.removeAll()
           } label: {
             Text("Show \(hiddenProjectCount)")
-              .font(.system(size: 10, weight: .semibold))
+              .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, 8)
-              .padding(.vertical, 3)
+              .padding(.horizontal, Spacing.sm)
+              .padding(.vertical, Spacing.gap)
               .background(Color.surfaceHover.opacity(0.5), in: Capsule())
           }
           .buttonStyle(.plain)
@@ -433,7 +433,7 @@ struct ProjectStreamSection: View {
       }
 
       if shouldShowCompactSignalRow {
-        LazyVGrid(columns: compactSignalColumns, spacing: 6) {
+        LazyVGrid(columns: compactSignalColumns, spacing: Spacing.sm_) {
           if counts.attention > 0 || filter == .attention {
             compactSignalFilterChip(
               target: .attention,
@@ -481,14 +481,14 @@ struct ProjectStreamSection: View {
         }
       }
     }
-    .padding(.vertical, 12)
-    .padding(.horizontal, 2)
+    .padding(.vertical, Spacing.md)
+    .padding(.horizontal, Spacing.xxs)
   }
 
   private var compactSignalColumns: [GridItem] {
     [
-      GridItem(.flexible(minimum: 120), spacing: 6),
-      GridItem(.flexible(minimum: 120), spacing: 6),
+      GridItem(.flexible(minimum: 120), spacing: Spacing.sm_),
+      GridItem(.flexible(minimum: 120), spacing: Spacing.sm_),
     ]
   }
 
@@ -520,7 +520,7 @@ struct ProjectStreamSection: View {
       .ready > 0 || directCount > 0 || filter != .all || providerFilter != .all
     {
       ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           regularSignalPill(
             target: .attention,
             icon: "exclamationmark.circle.fill",
@@ -551,7 +551,7 @@ struct ProjectStreamSection: View {
           regularDirectControlPill
           regularProviderRail
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Spacing.xxs)
       }
     }
   }
@@ -569,9 +569,9 @@ struct ProjectStreamSection: View {
     return Button {
       filter = isActive ? .all : target
     } label: {
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Image(systemName: icon)
-          .font(.system(size: 10, weight: .bold))
+          .font(.system(size: TypeScale.micro, weight: .bold))
           .foregroundStyle(color)
 
         VStack(alignment: .leading, spacing: 1) {
@@ -586,15 +586,15 @@ struct ProjectStreamSection: View {
         Text("\(count)")
           .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
           .foregroundStyle(color)
-          .padding(.leading, 2)
+          .padding(.leading, Spacing.xxs)
       }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 8)
+      .padding(.horizontal, Spacing.md_)
+      .padding(.vertical, Spacing.sm)
       .background(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
           .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.20 : 0.45))
           .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
               .stroke(color.opacity(isActive ? 0.35 : 0.0), lineWidth: 1)
           )
       )
@@ -610,7 +610,7 @@ struct ProjectStreamSection: View {
     } label: {
       HStack(spacing: 7) {
         Image(systemName: "chevron.left.forwardslash.chevron.right")
-          .font(.system(size: 9, weight: .bold))
+          .font(.system(size: TypeScale.mini, weight: .bold))
           .foregroundStyle(Color.providerCodex)
 
         VStack(alignment: .leading, spacing: 1) {
@@ -622,13 +622,13 @@ struct ProjectStreamSection: View {
             .foregroundStyle(Color.textTertiary)
         }
       }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 8)
+      .padding(.horizontal, Spacing.md_)
+      .padding(.vertical, Spacing.sm)
       .background(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
           .fill((isDirectActive ? Color.providerCodex : Color.surfaceHover).opacity(isDirectActive ? 0.20 : 0.45))
           .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
               .stroke(Color.providerCodex.opacity(isDirectActive ? 0.35 : 0.0), lineWidth: 1)
           )
       )
@@ -637,7 +637,7 @@ struct ProjectStreamSection: View {
   }
 
   private var regularProviderRail: some View {
-    HStack(spacing: 6) {
+    HStack(spacing: Spacing.sm_) {
       regularProviderPill(
         target: .claude,
         label: "Claude",
@@ -673,13 +673,13 @@ struct ProjectStreamSection: View {
           .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
       }
       .foregroundStyle(isActive ? color : Color.textTertiary)
-      .padding(.horizontal, 8)
+      .padding(.horizontal, Spacing.sm)
       .padding(.vertical, 7)
       .background(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
           .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.20 : 0.45))
           .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
               .stroke(color.opacity(isActive ? 0.35 : 0.0), lineWidth: 1)
           )
       )
@@ -746,16 +746,16 @@ struct ProjectStreamSection: View {
         }
       }
     } label: {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: sort.icon)
-          .font(.system(size: 9, weight: .semibold))
+          .font(.system(size: TypeScale.mini, weight: .semibold))
         Text(sort.label)
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
       }
       .foregroundStyle(Color.textSecondary)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
-      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
+      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
     }
     .menuStyle(.borderlessButton)
     .fixedSize()
@@ -787,7 +787,7 @@ struct ProjectStreamSection: View {
         Divider()
 
         Button {
-          withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+          withAnimation(Motion.standard) {
             if !useCustomProjectOrder {
               projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
             }
@@ -814,16 +814,16 @@ struct ProjectStreamSection: View {
         .disabled(hiddenProjectCount == 0)
       }
     } label: {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: "folder.badge.gearshape")
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.micro, weight: .semibold))
         Text("Projects")
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
       }
       .foregroundStyle((!projectGroupOrder.isEmpty || hiddenProjectCount > 0) ? Color.accent : Color.textSecondary)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
-      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
+      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
     }
     .menuStyle(.borderlessButton)
     .fixedSize()
@@ -831,7 +831,7 @@ struct ProjectStreamSection: View {
 
   private var editProjectsButton: some View {
     Button {
-      withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+      withAnimation(Motion.standard) {
         if !useCustomProjectOrder {
           projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
         }
@@ -839,16 +839,16 @@ struct ProjectStreamSection: View {
         isEditMode = true
       }
     } label: {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: "pencil")
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.micro, weight: .semibold))
         Text("Edit")
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
       }
       .foregroundStyle(Color.textSecondary)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
-      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
+      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
     }
     .buttonStyle(.plain)
     .help("Reorder or hide projects")
@@ -858,25 +858,25 @@ struct ProjectStreamSection: View {
   // MARK: - Provider Toggle
 
   private var providerToggle: some View {
-    HStack(spacing: 2) {
+    HStack(spacing: Spacing.xxs) {
       ForEach(ActiveSessionProviderFilter.allCases) { option in
         Button {
           providerFilter = providerFilter == option ? .all : option
         } label: {
-          HStack(spacing: 3) {
+          HStack(spacing: Spacing.gap) {
             if option != .all {
               Image(systemName: option.icon)
                 .font(.system(size: 8, weight: .bold))
             }
             Text(option.label)
-              .font(.system(size: 10, weight: providerFilter == option ? .bold : .medium))
+              .font(.system(size: TypeScale.micro, weight: providerFilter == option ? .bold : .medium))
           }
           .foregroundStyle(providerFilter == option ? option.color : Color.textTertiary)
           .padding(.horizontal, 7)
-          .padding(.vertical, 4)
+          .padding(.vertical, Spacing.xs)
           .background(
             providerFilter == option ? option.color.opacity(OpacityTier.light) : Color.clear,
-            in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+            in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
           )
         }
         .buttonStyle(.plain)
@@ -957,7 +957,7 @@ struct ProjectStreamSection: View {
         .disabled(projectGroupOrder.isEmpty && !useCustomProjectOrder)
 
         Button {
-          withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+          withAnimation(Motion.standard) {
             if !useCustomProjectOrder {
               projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
             }
@@ -992,15 +992,15 @@ struct ProjectStreamSection: View {
         }
       }
     } label: {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: "line.3.horizontal.decrease.circle")
-          .font(.system(size: 11, weight: .semibold))
+          .font(.system(size: TypeScale.meta, weight: .semibold))
         Text("Filter")
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.micro, weight: .semibold))
       }
       .foregroundStyle((filter != .all || providerFilter != .all) ? Color.accent : Color.textSecondary)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
       .background(Color.surfaceHover.opacity(0.5), in: Capsule())
     }
     .menuStyle(.borderlessButton)
@@ -1015,16 +1015,16 @@ struct ProjectStreamSection: View {
     } label: {
       HStack(spacing: 5) {
         Image(systemName: providerFilter.icon)
-          .font(.system(size: 9, weight: .bold))
+          .font(.system(size: TypeScale.mini, weight: .bold))
         Text(providerFilter.label)
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.micro, weight: .semibold))
         Spacer(minLength: 0)
         Text("filtered")
           .font(.system(size: TypeScale.micro, weight: .semibold, design: .rounded))
       }
       .foregroundStyle(isActive ? color : Color.textTertiary)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 6)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm_)
       .background(
         RoundedRectangle(cornerRadius: 7, style: .continuous)
           .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.18 : 0.5))
@@ -1052,20 +1052,20 @@ struct ProjectStreamSection: View {
     } label: {
       HStack(spacing: 5) {
         Image(systemName: icon)
-          .font(.system(size: 9, weight: .bold))
+          .font(.system(size: TypeScale.mini, weight: .bold))
 
         VStack(alignment: .leading, spacing: 1) {
           Text(title)
             .font(.system(size: TypeScale.micro, weight: .semibold))
           Text("\(count)")
-            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.meta, weight: .bold, design: .rounded))
         }
 
         Spacer(minLength: 0)
       }
       .foregroundStyle(isActive ? color : color.opacity(0.78))
-      .padding(.horizontal, 8)
-      .padding(.vertical, 6)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm_)
       .background(
         RoundedRectangle(cornerRadius: 7, style: .continuous)
           .fill(isActive ? color.opacity(0.18) : color.opacity(0.10))
@@ -1111,15 +1111,15 @@ struct ProjectStreamSection: View {
         }
       }
     } label: {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: "line.3.horizontal.decrease.circle")
-          .font(.system(size: 11, weight: .semibold))
+          .font(.system(size: TypeScale.meta, weight: .semibold))
         Text("Filter")
           .font(.system(size: TypeScale.caption, weight: .semibold))
       }
       .foregroundStyle((filter != .all || providerFilter != .all) ? Color.accent : Color.textSecondary)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
       .background(Color.surfaceHover.opacity(0.5), in: Capsule())
     }
     .menuStyle(.borderlessButton)
@@ -1129,7 +1129,7 @@ struct ProjectStreamSection: View {
     Rectangle()
       .fill(Color.surfaceBorder.opacity(0.2))
       .frame(width: 1, height: 14)
-      .padding(.horizontal, 8)
+      .padding(.horizontal, Spacing.sm)
   }
 
   private func filterChip(
@@ -1143,15 +1143,15 @@ struct ProjectStreamSection: View {
     return Button {
       filter = filter == target ? .all : target
     } label: {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: icon)
-          .font(.system(size: 9, weight: .bold))
+          .font(.system(size: TypeScale.mini, weight: .bold))
         Text("\(count)")
-          .font(.system(size: 10, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
       }
       .foregroundStyle(isActive ? color : color.opacity(0.75))
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
       .background(
         Capsule()
           .fill(isActive ? color.opacity(0.20) : color.opacity(0.08))
@@ -1237,7 +1237,7 @@ struct ProjectStreamSection: View {
       }
     } label: {
       Image(systemName: "ellipsis.circle")
-        .font(.system(size: 12, weight: .semibold))
+        .font(.system(size: TypeScale.caption, weight: .semibold))
         .foregroundStyle(Color.textQuaternary)
     }
     .menuStyle(.borderlessButton)
@@ -1275,16 +1275,16 @@ struct ProjectStreamSection: View {
   }
 
   private func dragItemProvider(for group: ProjectGroup) -> NSItemProvider {
-    withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+    withAnimation(Motion.standard) {
       draggingProjectGroupKey = group.groupKey
     }
     return NSItemProvider(object: group.groupKey as NSString)
   }
 
   private func projectDragPreview(for group: ProjectGroup) -> some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Spacing.sm) {
       Image(systemName: "line.3.horizontal")
-        .font(.system(size: 10, weight: .bold))
+        .font(.system(size: TypeScale.micro, weight: .bold))
         .foregroundStyle(Color.textQuaternary)
 
       Text(group.projectName)
@@ -1296,11 +1296,11 @@ struct ProjectStreamSection: View {
         .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
         .foregroundStyle(Color.textTertiary)
         .padding(.horizontal, 7)
-        .padding(.vertical, 2)
+        .padding(.vertical, Spacing.xxs)
         .background(Color.surfaceHover.opacity(0.75), in: Capsule())
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 8)
+    .padding(.horizontal, Spacing.md_)
+    .padding(.vertical, Spacing.sm)
     .background(
       RoundedRectangle(cornerRadius: 9, style: .continuous)
         .fill(Color.backgroundSecondary.opacity(0.92))
@@ -1341,17 +1341,17 @@ struct ProjectStreamSection: View {
       Rectangle()
         .fill(Color.surfaceBorder.opacity(0.2))
         .frame(height: 1)
-        .padding(.horizontal, 4)
-        .padding(.top, isReorderCompacting ? 4 : 10)
+        .padding(.horizontal, Spacing.xs)
+        .padding(.top, isReorderCompacting ? Spacing.xs : Spacing.md_)
 
       // Project header
       Group {
         if isPhoneCompact {
-          VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+          VStack(alignment: .leading, spacing: Spacing.sm_) {
+            HStack(spacing: Spacing.sm) {
               if isEditMode {
                 Image(systemName: "line.3.horizontal")
-                  .font(.system(size: 10, weight: .bold))
+                  .font(.system(size: TypeScale.micro, weight: .bold))
                   .foregroundStyle(Color.textQuaternary)
                   .frame(width: 12, height: 12)
               } else {
@@ -1359,7 +1359,7 @@ struct ProjectStreamSection: View {
                   toggleProjectCollapsed(group)
                 } label: {
                   Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: TypeScale.mini, weight: .bold))
                     .foregroundStyle(Color.textQuaternary)
                     .frame(width: 12, height: 12)
                 }
@@ -1380,7 +1380,7 @@ struct ProjectStreamSection: View {
               }
 
               Text("\(group.sessions.count) \(group.sessions.count == 1 ? "agent" : "agents")")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .font(.system(size: TypeScale.micro, weight: .medium, design: .rounded))
                 .foregroundStyle(Color.textQuaternary)
 
               Spacer()
@@ -1388,7 +1388,7 @@ struct ProjectStreamSection: View {
               if isEditMode {
                 Button { hideProject(group) } label: {
                   Image(systemName: "eye.slash")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: TypeScale.meta, weight: .medium))
                     .foregroundStyle(Color.textTertiary)
                 }
                 .buttonStyle(.plain)
@@ -1440,10 +1440,10 @@ struct ProjectStreamSection: View {
             }
           }
         } else {
-          HStack(spacing: 8) {
+          HStack(spacing: Spacing.sm) {
             if isEditMode {
               Image(systemName: "line.3.horizontal")
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: TypeScale.micro, weight: .bold))
                 .foregroundStyle(Color.textQuaternary)
                 .frame(width: 12, height: 12)
             } else {
@@ -1451,7 +1451,7 @@ struct ProjectStreamSection: View {
                 toggleProjectCollapsed(group)
               } label: {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                  .font(.system(size: 9, weight: .bold))
+                  .font(.system(size: TypeScale.mini, weight: .bold))
                   .foregroundStyle(Color.textQuaternary)
                   .frame(width: 12, height: 12)
               }
@@ -1470,7 +1470,7 @@ struct ProjectStreamSection: View {
             }
 
             Text("\(group.sessions.count) \(group.sessions.count == 1 ? "agent" : "agents")")
-              .font(.system(size: 10, weight: .medium, design: .rounded))
+              .font(.system(size: TypeScale.micro, weight: .medium, design: .rounded))
               .foregroundStyle(Color.textQuaternary)
 
             if !isReorderCompacting, projectSignals.attention > 0 {
@@ -1512,7 +1512,7 @@ struct ProjectStreamSection: View {
             if isEditMode {
               Button { hideProject(group) } label: {
                 Image(systemName: "eye.slash")
-                  .font(.system(size: 11, weight: .medium))
+                  .font(.system(size: TypeScale.meta, weight: .medium))
                   .foregroundStyle(Color.textTertiary)
               }
               .buttonStyle(.plain)
@@ -1525,15 +1525,15 @@ struct ProjectStreamSection: View {
 
             if !isReorderCompacting, group.totalTokens > 0 {
               Text(formatTokens(group.totalTokens))
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color.textQuaternary)
             }
           }
         }
       }
-      .padding(.horizontal, 10)
-      .padding(.top, isReorderCompacting ? 8 : 14)
-      .padding(.bottom, isReorderCompacting ? 2 : 4)
+      .padding(.horizontal, Spacing.md_)
+      .padding(.top, isReorderCompacting ? Spacing.sm : Spacing.lg_)
+      .padding(.bottom, isReorderCompacting ? Spacing.xxs : Spacing.xs)
 
       if !isCollapsed {
         // Worktree strip (between header and session rows)
@@ -1554,7 +1554,7 @@ struct ProjectStreamSection: View {
         )
 
         // Session rows
-        VStack(spacing: 2) {
+        VStack(spacing: Spacing.xxs) {
           ForEach(group.sessions, id: \.scopedID) { session in
             let rowIndex = sessionIndexByID[session.scopedID]
             let isSelected = rowIndex == selectedIndex
@@ -1562,7 +1562,7 @@ struct ProjectStreamSection: View {
             FlatSessionRow(
               session: session,
               onSelect: {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                withAnimation(Motion.standard) {
                   router.dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
                   router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
                 }
@@ -1599,15 +1599,15 @@ struct ProjectStreamSection: View {
   }
 
   private func projectSignalChip(icon: String, count: Int, color: Color) -> some View {
-    HStack(spacing: 3) {
+    HStack(spacing: Spacing.gap) {
       Image(systemName: icon)
         .font(.system(size: 8, weight: .bold))
       Text("\(count)")
         .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
     }
     .foregroundStyle(color)
-    .padding(.horizontal, 6)
-    .padding(.vertical, 3)
+    .padding(.horizontal, Spacing.sm_)
+    .padding(.vertical, Spacing.gap)
     .background(color.opacity(0.10), in: Capsule())
   }
 
@@ -1619,7 +1619,7 @@ struct ProjectStreamSection: View {
         projectName: projectName
       )
     } label: {
-      HStack(spacing: 3) {
+      HStack(spacing: Spacing.gap) {
         Image(systemName: "arrow.triangle.branch")
           .font(.system(size: 8, weight: .bold))
         if count > 0 {
@@ -1628,8 +1628,8 @@ struct ProjectStreamSection: View {
         }
       }
       .foregroundStyle(color)
-      .padding(.horizontal, 6)
-      .padding(.vertical, 3)
+      .padding(.horizontal, Spacing.sm_)
+      .padding(.vertical, Spacing.gap)
       .background(color.opacity(0.10), in: Capsule())
     }
     .buttonStyle(.plain)
@@ -1638,7 +1638,7 @@ struct ProjectStreamSection: View {
   // MARK: - Empty State
 
   private var emptyState: some View {
-    VStack(spacing: 12) {
+    VStack(spacing: Spacing.md) {
       ZStack {
         Circle()
           .fill(Color.backgroundTertiary)
@@ -1649,27 +1649,27 @@ struct ProjectStreamSection: View {
           .foregroundStyle(Color.textTertiary)
       }
 
-      VStack(spacing: 4) {
+      VStack(spacing: Spacing.xs) {
         if filter != .all {
           Text("No \(filter.title) Sessions")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.textSecondary)
           Text("Try a different filter or clear the current one.")
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(Color.textTertiary)
         } else {
           Text("No Active Sessions")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.textSecondary)
 
           Text("Start an AI coding session to see it here.")
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(Color.textTertiary)
         }
       }
     }
     .frame(maxWidth: .infinity)
-    .padding(.vertical, 32)
+    .padding(.vertical, Spacing.xxl)
   }
 
   // MARK: - Data Builders
@@ -2014,7 +2014,7 @@ private struct ProjectGroupDropDelegate: DropDelegate {
   }
 
   func performDrop(info _: DropInfo) -> Bool {
-    withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+    withAnimation(Motion.standard) {
       draggingGroupKey = nil
     }
     return true
@@ -2116,7 +2116,7 @@ private struct ProjectGroupDropDelegate: DropDelegate {
       useCustomProjectOrder: $useCustomProjectOrder,
       hiddenProjectGroups: $hiddenProjectGroups
     )
-    .padding(24)
+    .padding(Spacing.xl)
   }
   .background(Color.backgroundPrimary)
   .frame(width: 900, height: 600)

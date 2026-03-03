@@ -58,18 +58,18 @@ struct CreateWorktreeSheet: View {
       // Header
       HStack {
         Text("New Worktree")
-          .font(.system(size: 13, weight: .semibold))
+          .font(.system(size: TypeScale.body, weight: .semibold))
         Spacer()
       }
-      .padding(.horizontal, 16)
-      .padding(.top, 16)
-      .padding(.bottom, 12)
+      .padding(.horizontal, Spacing.lg)
+      .padding(.top, Spacing.lg)
+      .padding(.bottom, Spacing.md)
 
       Divider()
 
       // Content
       formFields
-        .padding(16)
+        .padding(Spacing.lg)
 
       Divider()
 
@@ -89,8 +89,8 @@ struct CreateWorktreeSheet: View {
         .buttonStyle(.borderedProminent)
         .disabled(trimmedBranchName.isEmpty)
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 12)
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .ifMacOS { view in
@@ -100,18 +100,18 @@ struct CreateWorktreeSheet: View {
   }
 
   private var formFields: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      VStack(alignment: .leading, spacing: Spacing.sm_) {
         Text("Branch Name")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
 
         TextField("feat/my-feature", text: $branchName)
           .textFieldStyle(.plain)
-          .font(.system(size: 13, design: .monospaced))
-          .padding(.horizontal, 10)
-          .padding(.vertical, 8)
-          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+          .font(.system(size: TypeScale.code, design: .monospaced))
+          .padding(.horizontal, Spacing.md_)
+          .padding(.vertical, Spacing.sm)
+          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
           .focused($isFocused)
           .submitLabel(.done)
           .onSubmit {
@@ -120,23 +120,23 @@ struct CreateWorktreeSheet: View {
           }
       }
 
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: Spacing.sm_) {
         Text("Base Branch")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
 
         TextField("main (optional)", text: $baseBranch)
           .textFieldStyle(.plain)
-          .font(.system(size: 13, design: .monospaced))
-          .padding(.horizontal, 10)
-          .padding(.vertical, 8)
-          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+          .font(.system(size: TypeScale.code, design: .monospaced))
+          .padding(.horizontal, Spacing.md_)
+          .padding(.vertical, Spacing.sm)
+          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
       }
 
       Text(
         "Creates a linked worktree at \(repoPath)/.orbitdock-worktrees/\(trimmedBranchName.isEmpty ? "<branch>" : trimmedBranchName)/"
       )
-      .font(.system(size: 11))
+      .font(.system(size: TypeScale.meta))
       .foregroundStyle(Color.textTertiary)
       .fixedSize(horizontal: false, vertical: true)
     }

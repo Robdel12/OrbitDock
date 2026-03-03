@@ -87,15 +87,15 @@ struct TodoTaskCard: View {
   // MARK: - Header
 
   private var header: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       Image(systemName: operation.icon)
-        .font(.system(size: 14, weight: .medium))
+        .font(.system(size: TypeScale.subhead, weight: .medium))
         .foregroundStyle(color)
 
-      VStack(alignment: .leading, spacing: 2) {
-        HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        HStack(spacing: Spacing.sm) {
           Text(operation.label)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(color)
 
           // Status badge for updates
@@ -107,12 +107,12 @@ struct TodoTaskCard: View {
         // Show subject or task ID
         if !subject.isEmpty {
           Text(subject.count > 60 ? String(subject.prefix(60)) + "..." : subject)
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         } else if !taskId.isEmpty {
           Text("Task #\(taskId)")
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: TypeScale.meta, design: .monospaced))
             .foregroundStyle(.secondary)
         }
       }
@@ -124,11 +124,11 @@ struct TodoTaskCard: View {
       }
 
       if message.isInProgress {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           ProgressView()
             .controlSize(.mini)
           Text(operation.verb)
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(color)
         }
       } else if message.toolInput != nil || !output.isEmpty {
@@ -140,16 +140,16 @@ struct TodoTaskCard: View {
   @ViewBuilder
   private func statusBadge(_ status: String) -> some View {
     let (statusColor, statusIcon) = statusStyle(status)
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       Image(systemName: statusIcon)
         .font(.system(size: 8, weight: .bold))
       Text(status)
-        .font(.system(size: 9, weight: .bold))
+        .font(.system(size: TypeScale.mini, weight: .bold))
     }
     .foregroundStyle(.white.opacity(0.9))
-    .padding(.horizontal, 6)
-    .padding(.vertical, 2)
-    .background(statusColor, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    .padding(.horizontal, Spacing.sm_)
+    .padding(.vertical, Spacing.xxs)
+    .background(statusColor, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
   }
 
   private func statusStyle(_ status: String) -> (Color, String) {
@@ -173,13 +173,13 @@ struct TodoTaskCard: View {
     VStack(alignment: .leading, spacing: 0) {
       // Input details
       if let input = message.toolInput, !input.isEmpty {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
           Text("DETAILS")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
-          VStack(alignment: .leading, spacing: 4) {
+          VStack(alignment: .leading, spacing: Spacing.xs) {
             if !subject.isEmpty {
               detailRow(label: "Subject", value: subject)
             }
@@ -194,37 +194,37 @@ struct TodoTaskCard: View {
             }
           }
         }
-        .padding(12)
+        .padding(Spacing.md)
       }
 
       // Output
       if !output.isEmpty {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.sm_) {
           Text("RESULT")
-            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           Text(output.count > 500 ? String(output.prefix(500)) + "..." : output)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: TypeScale.meta, design: .monospaced))
             .foregroundStyle(.primary.opacity(0.8))
             .textSelection(.enabled)
         }
-        .padding(12)
+        .padding(Spacing.md)
         .background(Color.backgroundTertiary.opacity(0.5))
       }
     }
   }
 
   private func detailRow(label: String, value: String) -> some View {
-    HStack(alignment: .top, spacing: 8) {
+    HStack(alignment: .top, spacing: Spacing.sm) {
       Text(label)
-        .font(.system(size: 10, weight: .medium))
+        .font(.system(size: TypeScale.micro, weight: .medium))
         .foregroundStyle(Color.textTertiary)
         .frame(width: 70, alignment: .trailing)
 
       Text(value.count > 150 ? String(value.prefix(150)) + "..." : value)
-        .font(.system(size: 10))
+        .font(.system(size: TypeScale.micro))
         .foregroundStyle(.primary.opacity(0.8))
         .textSelection(.enabled)
     }

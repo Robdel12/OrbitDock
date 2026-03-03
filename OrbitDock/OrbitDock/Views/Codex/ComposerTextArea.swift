@@ -61,8 +61,8 @@ struct ComposerTextArea: View {
         Text(placeholder)
           .font(.system(size: TypeScale.body))
           .foregroundStyle(Color.textTertiary)
-          .padding(.top, 2)
-          .padding(.leading, 2)
+          .padding(.top, Spacing.xxs)
+          .padding(.leading, Spacing.xxs)
           .allowsHitTesting(false)
       }
 

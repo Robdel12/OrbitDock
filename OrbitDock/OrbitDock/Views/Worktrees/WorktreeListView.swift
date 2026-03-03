@@ -156,24 +156,24 @@ struct WorktreeListView: View {
   private var panelHeader: some View {
     HStack {
       Text("Worktrees")
-        .font(.system(size: 13, weight: .semibold))
+        .font(.system(size: TypeScale.body, weight: .semibold))
 
       Text(projectName)
-        .font(.system(size: 12, weight: .medium))
+        .font(.system(size: TypeScale.caption, weight: .medium))
         .foregroundStyle(Color.textSecondary)
 
       Spacer()
 
       Button { onDismiss() } label: {
         Image(systemName: "xmark")
-          .font(.system(size: 10, weight: .bold))
+          .font(.system(size: TypeScale.micro, weight: .bold))
           .foregroundStyle(Color.textTertiary)
       }
       .buttonStyle(.plain)
     }
-    .padding(.horizontal, 16)
-    .padding(.top, 16)
-    .padding(.bottom, 12)
+    .padding(.horizontal, Spacing.lg)
+    .padding(.top, Spacing.lg)
+    .padding(.bottom, Spacing.md)
   }
 
   @ViewBuilder
@@ -182,34 +182,34 @@ struct WorktreeListView: View {
       panelEmptyState
     } else {
       ScrollView {
-        VStack(spacing: 2) {
+        VStack(spacing: Spacing.xxs) {
           ForEach(worktrees) { wt in
             worktreeRow(wt)
           }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.sm)
       }
       .frame(maxHeight: 360)
     }
   }
 
   private var panelEmptyState: some View {
-    VStack(spacing: 8) {
+    VStack(spacing: Spacing.sm) {
       Image(systemName: "arrow.triangle.branch")
         .font(.system(size: 24))
         .foregroundStyle(Color.textQuaternary)
 
       Text("No worktrees found")
-        .font(.system(size: 12, weight: .medium))
+        .font(.system(size: TypeScale.caption, weight: .medium))
         .foregroundStyle(Color.textTertiary)
 
       Text("Create a worktree or discover existing ones.")
-        .font(.system(size: 11))
+        .font(.system(size: TypeScale.meta))
         .foregroundStyle(Color.textQuaternary)
     }
     .frame(maxWidth: .infinity)
-    .padding(.vertical, 24)
+    .padding(.vertical, Spacing.xl)
   }
 
   private var panelActionBar: some View {
@@ -218,7 +218,7 @@ struct WorktreeListView: View {
         serverState.connection.discoverWorktrees(repoPath: repoRoot)
       } label: {
         Label("Discover", systemImage: "arrow.clockwise")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
       }
       .buttonStyle(.plain)
       .foregroundStyle(Color.textSecondary)
@@ -229,13 +229,13 @@ struct WorktreeListView: View {
         showCreateSheet = true
       } label: {
         Label("New Worktree", systemImage: "plus")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
       }
       .buttonStyle(.borderedProminent)
       .controlSize(.small)
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 12)
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.md)
   }
 
   #if os(iOS)
@@ -422,23 +422,23 @@ struct WorktreeListView: View {
   // MARK: - Row
 
   private func worktreeRow(_ wt: ServerWorktreeSummary) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(spacing: 8) {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      HStack(spacing: Spacing.sm) {
         // Status dot
         Circle()
           .fill(statusColor(wt.status))
           .frame(width: 7, height: 7)
 
         // Branch name
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(wt.customName ?? wt.branch)
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.caption, weight: .medium))
             .foregroundStyle(.primary)
             .lineLimit(1)
 
           if wt.status != .active {
             Text(wt.status.rawValue.capitalized)
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(statusColor(wt.status).opacity(0.8))
           }
         }
@@ -448,7 +448,7 @@ struct WorktreeListView: View {
         // Session count
         if wt.activeSessionCount > 0 {
           Text("\(wt.activeSessionCount) \(wt.activeSessionCount == 1 ? "agent" : "agents")")
-            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .rounded))
             .foregroundStyle(Color.textTertiary)
         }
 
@@ -457,43 +457,43 @@ struct WorktreeListView: View {
 
       // Worktree path
       Text(wt.worktreePath)
-        .font(.system(size: 10, design: .monospaced))
+        .font(.system(size: TypeScale.micro, design: .monospaced))
         .foregroundStyle(Color.textQuaternary)
         .lineLimit(1)
         .truncationMode(.middle)
         .padding(.leading, 15)
 
       // Session launch buttons
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Button {
           onCreateClaudeSession(wt.worktreePath)
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Image(systemName: "play.fill")
               .font(.system(size: 7, weight: .bold))
             Text("New Claude")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
           }
           .foregroundStyle(Color.accent)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
-          .background(Color.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
+          .background(Color.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
         }
         .buttonStyle(.plain)
 
         Button {
           onCreateCodexSession(wt.worktreePath)
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Image(systemName: "play.fill")
               .font(.system(size: 7, weight: .bold))
             Text("New Codex")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
           }
           .foregroundStyle(Color.providerCodex)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
-          .background(Color.providerCodex.opacity(0.10), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
+          .background(Color.providerCodex.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
         }
         .buttonStyle(.plain)
 
@@ -501,9 +501,9 @@ struct WorktreeListView: View {
       }
       .padding(.leading, 15)
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 8)
-    .background(Color.surfaceHover.opacity(0.3), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    .padding(.horizontal, Spacing.md_)
+    .padding(.vertical, Spacing.sm)
+    .background(Color.surfaceHover.opacity(0.3), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
   }
 
   private func actionMenu(for wt: ServerWorktreeSummary, iconSize: CGFloat, frameSize: CGFloat) -> some View {

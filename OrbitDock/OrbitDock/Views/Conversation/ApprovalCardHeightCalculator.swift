@@ -34,6 +34,8 @@ enum ApprovalCardHeightCalculator {
       static let takeoverButtonHeight: CGFloat = 30
       static let questionOptionMinHeight: CGFloat = 30
       static let questionOptionTextInset: CGFloat = 20
+      static let questionPromptSectionInset: CGFloat = 10
+      static let questionPromptSectionSpacing: CGFloat = 6
     #else
       static let cardPadding: CGFloat = 14
       static let headerIconSize: CGFloat = 15
@@ -43,6 +45,8 @@ enum ApprovalCardHeightCalculator {
       static let takeoverButtonHeight: CGFloat = 42
       static let questionOptionMinHeight: CGFloat = 44
       static let questionOptionTextInset: CGFloat = 24
+      static let questionPromptSectionInset: CGFloat = 10
+      static let questionPromptSectionSpacing: CGFloat = 6
     #endif
   }
 
@@ -118,17 +122,29 @@ enum ApprovalCardHeightCalculator {
         font: PlatformFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
         width: contentWidth
       )
+      h += 4
+      h += measureTextHeight(
+        "Choose options or type answers for each prompt.",
+        font: PlatformFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
+        width: contentWidth
+      )
       h += CGFloat(Spacing.md)
       for (index, prompt) in prompts.enumerated() {
-        h += questionPromptHeight(prompt, width: contentWidth)
+        h += questionPromptSectionHeight(prompt, width: contentWidth)
         if index < prompts.count - 1 {
-          h += CGFloat(Spacing.sm)
+          h += CGFloat(Spacing.sm * 2 + Spacing.xs)
         }
       }
       h += CGFloat(Spacing.md) + Layout.submitButtonHeight
     } else if let prompt = prompts.first {
       let qFont = PlatformFont.systemFont(ofSize: TypeScale.reading, weight: .regular)
       h += measureTextHeight(prompt.question, font: qFont, width: contentWidth)
+      h += 4
+      h += measureTextHeight(
+        prompt.options.isEmpty ? "Type a quick response and submit." : "Tap one option to answer.",
+        font: PlatformFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
+        width: contentWidth
+      )
       if prompt.options.isEmpty {
         h += CGFloat(Spacing.md) + Layout.answerFieldHeight
         h += CGFloat(Spacing.md) + Layout.submitButtonHeight
@@ -219,38 +235,47 @@ enum ApprovalCardHeightCalculator {
     return option.label
   }
 
-  private static func questionPromptHeight(_ prompt: ApprovalQuestionPrompt, width: CGFloat) -> CGFloat {
-    var height: CGFloat = 0
+  private static func questionPromptSectionHeight(_ prompt: ApprovalQuestionPrompt, width: CGFloat) -> CGFloat {
+    let sectionContentWidth = max(1, width - Layout.questionPromptSectionInset * 2)
+    var components: [CGFloat] = []
+
     if let header = prompt.header, !header.isEmpty {
-      height += measureTextHeight(
-        header.uppercased(),
-        font: PlatformFont.systemFont(ofSize: TypeScale.micro, weight: .semibold),
-        width: width
+      components.append(
+        measureTextHeight(
+          header.uppercased(),
+          font: PlatformFont.systemFont(ofSize: TypeScale.micro, weight: .semibold),
+          width: sectionContentWidth
+        )
       )
-      height += 4
     }
 
-    height += measureTextHeight(
-      prompt.question,
-      font: PlatformFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
-      width: width
+    components.append(
+      measureTextHeight(
+        prompt.question,
+        font: PlatformFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
+        width: sectionContentWidth
+      )
     )
 
     if !prompt.options.isEmpty {
-      height += 6
+      var optionsHeight: CGFloat = 0
       for (index, option) in prompt.options.enumerated() {
-        height += questionOptionHeight(option, width: width)
+        optionsHeight += questionOptionHeight(option, width: sectionContentWidth)
         if index < prompt.options.count - 1 {
-          height += CGFloat(Spacing.xs)
+          optionsHeight += CGFloat(Spacing.xs)
         }
       }
+      components.append(optionsHeight)
     }
 
     if prompt.options.isEmpty || prompt.allowsOther {
-      height += 6 + Layout.answerFieldHeight
+      components.append(Layout.answerFieldHeight)
     }
 
-    return height
+    let componentSpacing =
+      max(0, CGFloat(components.count - 1)) * Layout.questionPromptSectionSpacing
+    let contentHeight = components.reduce(0, +) + componentSpacing
+    return contentHeight + (Layout.questionPromptSectionInset * 2)
   }
 
   private static func questionOptionHeight(_ option: ApprovalQuestionOption, width: CGFloat) -> CGFloat {

@@ -54,7 +54,12 @@ final class ConnectionFileLogger: @unchecked Sendable {
       try? FileManager.default.moveItem(atPath: logPath, toPath: rotated)
     }
 
-    FileManager.default.createFile(atPath: logPath, contents: nil)
+    FileManager.default.createFile(
+      atPath: logPath,
+      contents: nil,
+      attributes: [.posixPermissions: 0o600]
+    )
+    try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: logPath)
     fileHandle = FileHandle(forWritingAtPath: logPath)
     fileHandle?.seekToEndOfFile()
 

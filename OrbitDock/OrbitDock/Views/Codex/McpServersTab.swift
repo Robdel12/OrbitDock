@@ -64,7 +64,7 @@ struct McpServersTab: View {
       // Header
       HStack {
         Text("\(serverEntries.count) server\(serverEntries.count == 1 ? "" : "s")")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
 
         Spacer()
@@ -73,16 +73,16 @@ struct McpServersTab: View {
           serverState.refreshMcpServers(sessionId: sessionId)
         } label: {
           Image(systemName: "arrow.clockwise")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(.secondary)
             .frame(width: 24, height: 24)
-            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4))
+            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm))
         }
         .buttonStyle(.plain)
         .help("Refresh MCP servers")
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm)
 
       Divider()
         .foregroundStyle(Color.panelBorder.opacity(0.5))
@@ -94,7 +94,7 @@ struct McpServersTab: View {
             serverRow(entry)
           }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
       }
     }
     .background(Color.backgroundPrimary)
@@ -108,7 +108,7 @@ struct McpServersTab: View {
 
     VStack(alignment: .leading, spacing: 0) {
       Button {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+        withAnimation(Motion.standard) {
           if isExpanded {
             expandedServers.remove(entry.name)
           } else {
@@ -116,27 +116,27 @@ struct McpServersTab: View {
           }
         }
       } label: {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           // Status indicator
           statusDot(entry.status)
 
           // Server icon + name
           Image(systemName: MCPCard.serverIcon(entry.name))
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(MCPCard.serverColor(entry.name))
 
           Text(entry.name)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(MCPCard.serverColor(entry.name))
             .lineLimit(1)
 
           // Auth badge
           if let auth = entry.authStatus, auth != .unsupported {
             Text(authLabel(auth))
-              .font(.system(size: 9, weight: .bold))
+              .font(.system(size: TypeScale.mini, weight: .bold))
               .foregroundStyle(.white.opacity(0.9))
               .padding(.horizontal, 5)
-              .padding(.vertical, 2)
+              .padding(.vertical, Spacing.xxs)
               .background(authColor(auth).opacity(0.7), in: Capsule())
           }
 
@@ -145,20 +145,20 @@ struct McpServersTab: View {
           // Tool count
           if !entry.tools.isEmpty {
             Text("\(entry.tools.count) tool\(entry.tools.count == 1 ? "" : "s")")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textTertiary)
           }
 
           // Expand chevron (only if has tools)
           if !entry.tools.isEmpty {
             Image(systemName: "chevron.right")
-              .font(.system(size: 9, weight: .semibold))
+              .font(.system(size: TypeScale.mini, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
               .rotationEffect(.degrees(isExpanded ? 90 : 0))
           }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
@@ -166,11 +166,11 @@ struct McpServersTab: View {
       // Error message for failed servers
       if let error = entry.error {
         Text(error)
-          .font(.system(size: 10))
+          .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.statusPermission)
-          .padding(.horizontal, 12)
+          .padding(.horizontal, Spacing.md)
           .padding(.leading, 28)
-          .padding(.bottom, 6)
+          .padding(.bottom, Spacing.sm_)
       }
 
       // Expanded tool list
@@ -181,15 +181,15 @@ struct McpServersTab: View {
           }
         }
         .padding(.leading, 28)
-        .padding(.trailing, 12)
-        .padding(.bottom, 8)
+        .padding(.trailing, Spacing.md)
+        .padding(.bottom, Spacing.sm)
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
 
       if entry.id != serverEntries.last?.id {
         Divider()
           .foregroundStyle(Color.panelBorder.opacity(0.3))
-          .padding(.horizontal, 12)
+          .padding(.horizontal, Spacing.md)
       }
     }
   }
@@ -197,20 +197,20 @@ struct McpServersTab: View {
   // MARK: - Tool Row
 
   private func toolRow(_ tool: ServerMcpTool, color: Color) -> some View {
-    VStack(alignment: .leading, spacing: 2) {
+    VStack(alignment: .leading, spacing: Spacing.xxs) {
       Text(tool.name)
-        .font(.system(size: 12, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
         .foregroundStyle(color.opacity(0.9))
         .lineLimit(1)
 
       if let desc = tool.description, !desc.isEmpty {
         Text(desc)
-          .font(.system(size: 11))
+          .font(.system(size: TypeScale.meta))
           .foregroundStyle(.secondary)
           .lineLimit(2)
       }
     }
-    .padding(.vertical, 4)
+    .padding(.vertical, Spacing.xs)
   }
 
   // MARK: - Status Dot
@@ -220,7 +220,7 @@ struct McpServersTab: View {
     switch status {
       case .ready:
         Circle()
-          .fill(Color.statusReady)
+          .fill(Color.feedbackPositive)
           .frame(width: 8, height: 8)
 
       case .starting, .connecting:
@@ -323,7 +323,7 @@ struct McpServersTab: View {
     switch status {
       case .unsupported: .secondary
       case .notLoggedIn: Color.statusPermission
-      case .bearerToken: Color.statusReady
+      case .bearerToken: Color.feedbackPositive
       case .oauth: Color.accent
     }
   }

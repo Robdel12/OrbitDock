@@ -65,18 +65,18 @@ struct GrepCard: View {
   // MARK: - Header
 
   private var header: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       Image(systemName: "magnifyingglass")
-        .font(.system(size: 14, weight: .medium))
+        .font(.system(size: TypeScale.subhead, weight: .medium))
         .foregroundStyle(color)
 
-      VStack(alignment: .leading, spacing: 2) {
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
         Text("Grep")
-          .font(.system(size: 13, weight: .semibold))
+          .font(.system(size: TypeScale.body, weight: .semibold))
           .foregroundStyle(color)
 
         Text(pattern)
-          .font(.system(size: 11, design: .monospaced))
+          .font(.system(size: TypeScale.meta, design: .monospaced))
           .foregroundStyle(.secondary)
           .lineLimit(1)
       }
@@ -84,14 +84,14 @@ struct GrepCard: View {
       Spacer()
 
       if !message.isInProgress {
-        HStack(spacing: 12) {
+        HStack(spacing: Spacing.md) {
           if isFileListMode {
             Text("\(matchCount) \(matchCount == 1 ? "file" : "files")")
-              .font(.system(size: 11, weight: .semibold, design: .monospaced))
+              .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
               .foregroundStyle(color)
           } else {
             Text("\(matchCount) in \(grouped.count) \(grouped.count == 1 ? "file" : "files")")
-              .font(.system(size: 11, weight: .semibold, design: .monospaced))
+              .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
               .foregroundStyle(color)
           }
 
@@ -120,41 +120,41 @@ struct GrepCard: View {
       ForEach(Array(displayFiles.enumerated()), id: \.offset) { _, item in
         VStack(alignment: .leading, spacing: 0) {
           // File header
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: "doc.text")
-              .font(.system(size: 10))
+              .font(.system(size: TypeScale.micro))
               .foregroundStyle(color)
             Text(item.file.components(separatedBy: "/").suffix(3).joined(separator: "/"))
-              .font(.system(size: 11, weight: .medium, design: .monospaced))
+              .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
               .foregroundStyle(.primary.opacity(0.9))
               .lineLimit(1)
             if !item.matches.isEmpty {
               Text("(\(item.matches.count))")
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: TypeScale.micro, design: .monospaced))
                 .foregroundStyle(Color.textTertiary)
             }
           }
-          .padding(.vertical, 4)
-          .padding(.horizontal, 12)
+          .padding(.vertical, Spacing.xs)
+          .padding(.horizontal, Spacing.md)
 
           // Match lines
           if !item.matches.isEmpty {
             ForEach(Array(item.matches.prefix(5).enumerated()), id: \.offset) { _, match in
               Text(match)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: TypeScale.micro, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .padding(.vertical, 2)
+                .padding(.vertical, Spacing.xxs)
                 .padding(.leading, 28)
-                .padding(.trailing, 12)
+                .padding(.trailing, Spacing.md)
             }
 
             if item.matches.count > 5 {
               Text("... +\(item.matches.count - 5) more")
-                .font(.system(size: 10))
+                .font(.system(size: TypeScale.micro))
                 .foregroundStyle(Color.textTertiary)
                 .padding(.leading, 28)
-                .padding(.vertical, 2)
+                .padding(.vertical, Spacing.xxs)
             }
           }
         }
@@ -162,12 +162,12 @@ struct GrepCard: View {
 
       if hasMore {
         Text("... +\(grouped.count - maxFiles) more files")
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(Color.textTertiary)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 6)
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.sm_)
       }
     }
-    .padding(.vertical, 6)
+    .padding(.vertical, Spacing.sm_)
   }
 }

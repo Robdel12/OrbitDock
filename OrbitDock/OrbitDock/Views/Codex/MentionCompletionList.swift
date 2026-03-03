@@ -20,7 +20,7 @@ struct MentionCompletionList: View {
         VStack(alignment: .leading, spacing: 0) {
           ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
             Button { onSelect(file) } label: {
-              HStack(spacing: 8) {
+              HStack(spacing: Spacing.sm) {
                 Image(systemName: fileIcon(for: file.name))
                   .font(.caption2)
                   .foregroundStyle(Color.accent)
@@ -34,8 +34,8 @@ struct MentionCompletionList: View {
                 }
                 Spacer()
               }
-              .padding(.horizontal, 10)
-              .padding(.vertical, 6)
+              .padding(.horizontal, Spacing.md_)
+              .padding(.vertical, Spacing.sm_)
               .background(index == selectedIndex ? Color.accent.opacity(0.15) : Color.clear)
               .contentShape(Rectangle())
             }
@@ -51,10 +51,10 @@ struct MentionCompletionList: View {
     }
     .frame(maxHeight: 300)
     .background(Color.backgroundPrimary)
-    .clipShape(RoundedRectangle(cornerRadius: 8))
-    .shadow(color: .black.opacity(0.3), radius: 8, y: -2)
+    .clipShape(RoundedRectangle(cornerRadius: Radius.ml))
+    .themeShadow(Shadow.md)
     .overlay(
-      RoundedRectangle(cornerRadius: 8)
+      RoundedRectangle(cornerRadius: Radius.ml)
         .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
     )
   }

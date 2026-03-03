@@ -22,7 +22,7 @@ struct EndpointBadge: View {
     }
     .foregroundStyle(isDefault ? Color.accent : Color.textTertiary)
     .padding(.horizontal, 7)
-    .padding(.vertical, 3)
+    .padding(.vertical, Spacing.gap)
     .background(
       Capsule()
         .fill(isDefault ? Color.accent.opacity(OpacityTier.light) : Color.backgroundTertiary)

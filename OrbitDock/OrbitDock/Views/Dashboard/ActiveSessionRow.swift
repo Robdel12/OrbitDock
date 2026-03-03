@@ -82,14 +82,14 @@ struct ActiveSessionRow: View {
 
   var body: some View {
     Button(action: onSelect) {
-      HStack(spacing: 12) {
+      HStack(spacing: Spacing.md) {
         // Status dot with glow
         SessionStatusDot(status: displayStatus, size: 10, showGlow: true)
           .frame(width: 28)
 
         // Name + activity
-        VStack(alignment: .leading, spacing: 3) {
-          HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: Spacing.gap) {
+          HStack(spacing: Spacing.sm_) {
             Text(session.displayName)
               .font(.system(size: TypeScale.subhead, weight: .semibold))
               .foregroundStyle(.primary)
@@ -108,7 +108,7 @@ struct ActiveSessionRow: View {
             }
           }
 
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: activityIcon)
               .font(.system(size: TypeScale.caption, weight: .medium))
             Text(activityText)
@@ -177,7 +177,7 @@ struct ActiveSessionRow: View {
       // Future: could trigger terminal focus or direct approval
       onSelect()
     } label: {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: displayStatus == .question ? "eye" : "arrow.right.circle")
           .font(.system(size: TypeScale.caption, weight: .semibold))
         Text(displayStatus == .question ? "View" : "Review")
@@ -227,7 +227,7 @@ struct ActiveSessionRow: View {
           .opacity(OpacityTier.light) : (isHovering ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.6)))
 
       // Left accent bar when selected
-      RoundedRectangle(cornerRadius: 2, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
         .fill(Color.accent)
         .frame(width: EdgeBar.width)
         .padding(.leading, Spacing.xs)
@@ -235,7 +235,7 @@ struct ActiveSessionRow: View {
         .opacity(isSelected ? 1 : 0)
         .scaleEffect(x: 1, y: isSelected ? 1 : 0.5, anchor: .center)
     }
-    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
+    .animation(Motion.standard, value: isSelected)
   }
 
   private var rowBorder: some View {
@@ -253,7 +253,7 @@ struct ActiveSessionRow: View {
 // MARK: - Preview
 
 #Preview {
-  VStack(spacing: 8) {
+  VStack(spacing: Spacing.sm) {
     // Working session
     ActiveSessionRow(
       session: Session(

@@ -152,7 +152,7 @@
 
       // Cancel button (shell-only)
       cancelButton.setTitle("Stop", for: .normal)
-      cancelButton.titleLabel?.font = UIFont.systemFont(ofSize: 11, weight: .semibold)
+      cancelButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.meta, weight: .semibold)
       cancelButton.setTitleColor(UIColor(Color.statusError), for: .normal)
       cancelButton.isHidden = true
       cancelButton.addTarget(self, action: #selector(handleCancelTap), for: .touchUpInside)
@@ -308,7 +308,7 @@
           bashAttr.append(NSAttributedString(
             string: "$ ",
             attributes: [
-              .font: UIFont.monospacedSystemFont(ofSize: 12, weight: .bold),
+              .font: UIFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .bold),
               .foregroundColor: bashColor,
             ]
           ))
@@ -338,7 +338,7 @@
         case let .read(filename, path, language, lines):
           titleLabel.attributedText = nil
           titleLabel.text = filename ?? "Read"
-          titleLabel.font = UIFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
+          titleLabel.font = UIFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .semibold)
           titleLabel.textColor = EL.textPrimary
           subtitleLabel.isHidden = path == nil
           subtitleLabel.text = path.map { ToolCardStyle.shortenPath($0) }
@@ -512,8 +512,8 @@
           buildGenericContent(input: input, output: output, width: width)
         case let .webSearch(_, input, output):
           buildGenericContent(input: input, output: output, width: width)
-        case let .generic(_, input, output):
-          buildGenericContent(input: input, output: output, width: width)
+        case let .generic(toolName, input, output):
+          buildGenericContent(toolName: toolName, input: input, output: output, width: width)
       }
     }
 
@@ -543,7 +543,7 @@
 
       if isWriteNew {
         let header = UILabel()
-        header.font = UIFont.systemFont(ofSize: 10, weight: .bold)
+        header.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .bold)
         header.textColor = EL.addedAccentColor
         header.text = "NEW FILE (\(lines.count) lines)"
         header.frame = CGRect(x: EL.headerHPad, y: y + 6, width: width - EL.headerHPad * 2, height: 16)
@@ -629,7 +629,7 @@
 
         // Prefix (in contentContainer — stays fixed)
         let prefixLabel = UILabel()
-        prefixLabel.font = UIFont.monospacedSystemFont(ofSize: 13, weight: .bold)
+        prefixLabel.font = UIFont.monospacedSystemFont(ofSize: TypeScale.code, weight: .bold)
         prefixLabel.textColor = prefixColor
         prefixLabel.text = line.prefix
         prefixLabel.frame = CGRect(
@@ -717,8 +717,8 @@
 
     private func buildGlobContent(grouped: [(dir: String, files: [String])], width: CGFloat) {
       let textWidth = width - EL.headerHPad * 2
-      let dirFont = UIFont.monospacedSystemFont(ofSize: 11, weight: .medium)
-      let fileFont = UIFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+      let dirFont = UIFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
+      let fileFont = UIFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .regular)
       var y: CGFloat = EL.sectionPadding + EL.contentTopPad
 
       for (dir, files) in grouped {
@@ -732,7 +732,7 @@
         dirIcon.frame = CGRect(x: EL.headerHPad, y: y + 2, width: 14, height: 14)
         contentContainer.addSubview(dirIcon)
 
-        let dirLabel = makeCodeLabel(dirText, color: EL.textSecondary, fontSize: 11, weight: .medium)
+        let dirLabel = makeCodeLabel(dirText, color: EL.textSecondary, fontSize: TypeScale.meta, weight: .medium)
         dirLabel.frame = CGRect(x: EL.headerHPad + 18, y: y, width: textWidth - 18, height: dirH)
         contentContainer.addSubview(dirLabel)
         y += dirH + 2
@@ -742,7 +742,7 @@
         for file in files {
           let filename = file.components(separatedBy: "/").last ?? file
           let fileH = EL.measuredTextHeight(filename, font: fileFont, maxWidth: fileW)
-          let fileLabel = makeCodeLabel(filename, color: EL.textTertiary, fontSize: 11)
+          let fileLabel = makeCodeLabel(filename, color: EL.textTertiary, fontSize: TypeScale.meta)
           fileLabel.frame = CGRect(x: fileX, y: y, width: fileW, height: fileH)
           contentContainer.addSubview(fileLabel)
           y += fileH
@@ -756,7 +756,7 @@
 
     private func buildGrepContent(grouped: [(file: String, matches: [String])], width: CGFloat) {
       let textWidth = width - EL.headerHPad * 2
-      let fileFont = UIFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+      let fileFont = UIFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
       var y: CGFloat = EL.sectionPadding + EL.contentTopPad
 
       for (file, matches) in grouped {
@@ -764,7 +764,7 @@
         let matchSuffix = matches.isEmpty ? "" : " (\(matches.count))"
         let fileText = shortPath + matchSuffix
         let fileH = EL.measuredTextHeight(fileText, font: fileFont, maxWidth: textWidth)
-        let fileLabel = makeCodeLabel(fileText, color: EL.textPrimary, fontSize: 11, weight: .medium)
+        let fileLabel = makeCodeLabel(fileText, color: EL.textPrimary, fontSize: TypeScale.meta, weight: .medium)
         fileLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: fileH)
         contentContainer.addSubview(fileLabel)
         y += fileH + 2
@@ -931,15 +931,21 @@
 
     // ── Generic (input + output) ──
 
-    private func buildGenericContent(input: String?, output: String?, width: CGFloat) {
+    private func buildGenericContent(toolName: String? = nil, input: String?, output: String?, width: CGFloat) {
       let textWidth = width - EL.headerHPad * 2
       var y: CGFloat = EL.contentTopPad
 
-      buildPayloadSection(title: "INPUT", payload: input, textWidth: textWidth, y: &y)
+      buildPayloadSection(title: "INPUT", payload: input, toolName: toolName, textWidth: textWidth, y: &y)
       buildPayloadSection(title: "OUTPUT", payload: output, textWidth: textWidth, y: &y)
     }
 
-    private func buildPayloadSection(title: String, payload: String?, textWidth: CGFloat, y: inout CGFloat) {
+    private func buildPayloadSection(
+      title: String,
+      payload: String?,
+      toolName: String? = nil,
+      textWidth: CGFloat,
+      y: inout CGFloat
+    ) {
       guard let payload, !payload.isEmpty else { return }
 
       let header = makeSectionHeader(title)
@@ -947,7 +953,68 @@
       contentContainer.addSubview(header)
       y += EL.sectionHeaderHeight + EL.sectionPadding
 
-      if let entries = EL.structuredPayloadEntries(from: payload) {
+      if toolName?.lowercased() == "question",
+         let questions = EL.askUserQuestionItems(from: payload)
+      {
+        for (index, question) in questions.enumerated() {
+          if let headerText = question.header, !headerText.isEmpty {
+            let headerLabel = UILabel()
+            headerLabel.font = UIFont.systemFont(ofSize: TypeScale.mini, weight: .bold)
+            headerLabel.textColor = EL.textQuaternary
+            headerLabel.text = headerText.uppercased()
+            headerLabel.numberOfLines = 0
+            let headerHeight = EL.measuredTextHeight(headerText, font: UIFont.systemFont(ofSize: TypeScale.mini, weight: .bold), maxWidth: textWidth)
+            headerLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: headerHeight)
+            contentContainer.addSubview(headerLabel)
+            y += headerHeight + 3
+          }
+
+          let promptLabel = UILabel()
+          promptLabel.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+          promptLabel.textColor = EL.textPrimary
+          promptLabel.lineBreakMode = .byWordWrapping
+          promptLabel.numberOfLines = 0
+          promptLabel.text = question.question
+          let promptHeight = EL.measuredTextHeight(question.question, font: UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold), maxWidth: textWidth)
+          promptLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: promptHeight)
+          contentContainer.addSubview(promptLabel)
+          y += promptHeight
+
+          if !question.options.isEmpty {
+            y += 6
+            for option in question.options {
+              let optionLabel = UILabel()
+              optionLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+              optionLabel.textColor = EL.textSecondary
+              optionLabel.numberOfLines = 0
+              optionLabel.text = "• \(option.label)"
+              let optionHeight = EL.measuredTextHeight("• \(option.label)", font: UIFont.systemFont(ofSize: TypeScale.caption, weight: .medium), maxWidth: textWidth)
+              optionLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: optionHeight)
+              contentContainer.addSubview(optionLabel)
+              y += optionHeight
+
+              if let detail = option.description, !detail.isEmpty {
+                let detailLabel = UILabel()
+                detailLabel.font = UIFont.systemFont(ofSize: TypeScale.meta, weight: .regular)
+                detailLabel.textColor = EL.textTertiary
+                detailLabel.lineBreakMode = .byWordWrapping
+                detailLabel.numberOfLines = 0
+                detailLabel.text = detail
+                let detailHeight = EL.measuredTextHeight(detail, font: UIFont.systemFont(ofSize: TypeScale.meta, weight: .regular), maxWidth: textWidth - 14)
+                detailLabel.frame = CGRect(x: EL.headerHPad + 14, y: y + 2, width: textWidth - 14, height: detailHeight)
+                contentContainer.addSubview(detailLabel)
+                y += detailHeight + 2
+              }
+              y += 5
+            }
+            y -= 5
+          }
+
+          if index < questions.count - 1 {
+            y += 8
+          }
+        }
+      } else if let entries = EL.structuredPayloadEntries(from: payload) {
         for entry in entries {
           let label = makePayloadLabel(key: entry.keyPath, value: entry.value)
           let display = "\(entry.keyPath): \(entry.value)"
@@ -1012,7 +1079,7 @@
       return label
     }
 
-    private func makeFooterLabel(_ text: String, fontSize: CGFloat = 10) -> UILabel {
+    private func makeFooterLabel(_ text: String, fontSize: CGFloat = TypeScale.micro) -> UILabel {
       let label = UILabel()
       label.font = UIFont.systemFont(ofSize: fontSize, weight: .medium)
       label.textColor = EL.textQuaternary

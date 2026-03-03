@@ -146,8 +146,8 @@ struct FlatSessionRow: View {
           regularRowContent
         }
       }
-      .padding(.vertical, 10)
-      .padding(.horizontal, 10)
+      .padding(.vertical, Spacing.md_)
+      .padding(.horizontal, Spacing.md_)
       .background(rowBackground)
     }
     .buttonStyle(.plain)
@@ -178,7 +178,7 @@ struct FlatSessionRow: View {
   }
 
   private var regularRowContent: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: Spacing.md_) {
       // Status dot
       SessionStatusDot(status: displayStatus, size: 8, showGlow: displayStatus.needsAttention)
         .frame(width: 14)
@@ -209,7 +209,7 @@ struct FlatSessionRow: View {
 
           // Branch badge — subtle, after the name
           if let branch = inlineBranch {
-            HStack(spacing: 3) {
+            HStack(spacing: Spacing.gap) {
               Text(branch)
                 .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color.gitBranch.opacity(0.7))
@@ -241,7 +241,7 @@ struct FlatSessionRow: View {
 
       Spacer()
 
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         SessionStatusBadge(status: displayStatus, showIcon: true, size: .compact)
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
       }
@@ -249,12 +249,12 @@ struct FlatSessionRow: View {
   }
 
   private var compactRowContent: some View {
-    HStack(alignment: .top, spacing: 8) {
+    HStack(alignment: .top, spacing: Spacing.sm) {
       SessionStatusDot(status: displayStatus, size: 7, showGlow: displayStatus.needsAttention)
         .frame(width: 12)
-        .padding(.top, 2)
+        .padding(.top, Spacing.xxs)
 
-      VStack(alignment: .leading, spacing: 3) {
+      VStack(alignment: .leading, spacing: Spacing.gap) {
         HStack(spacing: 5) {
           Text(agentLabel)
             .font(.system(size: TypeScale.subhead, weight: .semibold))
@@ -288,7 +288,7 @@ struct FlatSessionRow: View {
 
   private var compactPrimaryMetaRow: some View {
     ViewThatFits(in: .horizontal) {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         SessionStatusBadge(status: displayStatus, showIcon: true, size: .compact)
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
         if session.isDirect {
@@ -299,7 +299,7 @@ struct FlatSessionRow: View {
         }
       }
 
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         SessionStatusBadge(status: displayStatus, showIcon: true, size: .compact)
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
         if session.isDirect {
@@ -307,7 +307,7 @@ struct FlatSessionRow: View {
         }
       }
 
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         SessionStatusBadge(status: displayStatus, showIcon: true, size: .compact)
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
       }
@@ -320,7 +320,7 @@ struct FlatSessionRow: View {
   }
 
   private var compactSecondaryMetaRow: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       if session.endpointName != nil {
         EndpointBadge(endpointName: session.endpointName)
       }
@@ -347,7 +347,7 @@ struct FlatSessionRow: View {
       .font(.system(size: TypeScale.micro, weight: .semibold))
       .foregroundStyle(Color.accent.opacity(0.65))
       .padding(.horizontal, 5)
-      .padding(.vertical, 2)
+      .padding(.vertical, Spacing.xxs)
       .background(Color.accent.opacity(0.10), in: Capsule())
   }
 
@@ -356,22 +356,22 @@ struct FlatSessionRow: View {
       .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
       .foregroundStyle(Color.textQuaternary)
       .padding(.horizontal, 5)
-      .padding(.vertical, 2)
+      .padding(.vertical, Spacing.xxs)
       .background(Color.surfaceHover.opacity(0.32), in: Capsule())
   }
 
   // MARK: - Attention Pill
 
   private func attentionPill(icon: String, text: String, color: Color) -> some View {
-    HStack(spacing: 3) {
+    HStack(spacing: Spacing.gap) {
       Image(systemName: icon)
         .font(.system(size: 8, weight: .bold))
       Text(text)
         .font(.system(size: TypeScale.body, weight: .semibold))
     }
     .foregroundStyle(color)
-    .padding(.horizontal, 6)
-    .padding(.vertical, 2)
+    .padding(.horizontal, Spacing.sm_)
+    .padding(.vertical, Spacing.xxs)
     .background(color.opacity(OpacityTier.light), in: Capsule())
   }
 
@@ -392,15 +392,15 @@ struct FlatSessionRow: View {
 
       // Cyan edge bar when selected
       if isSelected {
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
           .fill(Color.accent)
           .frame(width: EdgeBar.width)
-          .padding(.leading, 2)
+          .padding(.leading, Spacing.xxs)
           .padding(.vertical, Spacing.xs)
       }
     }
-    .animation(.spring(response: 0.2, dampingFraction: 0.8), value: isSelected)
-    .animation(.easeOut(duration: 0.12), value: isHovering)
+    .animation(Motion.snappy, value: isSelected)
+    .animation(Motion.hover, value: isHovering)
   }
 
   // MARK: - Formatting
@@ -418,7 +418,7 @@ struct FlatSessionRow: View {
 }
 
 #Preview {
-  VStack(spacing: 2) {
+  VStack(spacing: Spacing.xxs) {
     // Has summary — shows prompt as context
     FlatSessionRow(
       session: Session(
@@ -493,7 +493,7 @@ struct FlatSessionRow: View {
       onSelect: {}
     )
   }
-  .padding(16)
+  .padding(Spacing.lg)
   .background(Color.backgroundPrimary)
   .frame(width: 900)
 }

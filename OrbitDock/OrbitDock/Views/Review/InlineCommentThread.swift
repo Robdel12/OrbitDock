@@ -64,15 +64,15 @@ struct InlineCommentThread: View {
         .padding(.trailing, 9)
 
       // Comment body — now aligns with code content
-      VStack(alignment: .leading, spacing: 4) {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
         // Header: tag + timestamp + resolve toggle
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           if let tag = comment.tag {
             Text(tag.rawValue)
               .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(Color.statusQuestion)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.xxs)
               .background(Color.statusQuestion.opacity(OpacityTier.light), in: Capsule())
           }
 
@@ -105,8 +105,8 @@ struct InlineCommentThread: View {
             .foregroundStyle(Color.textQuaternary)
         }
       }
-      .padding(.vertical, 6)
-      .padding(.trailing, 12)
+      .padding(.vertical, Spacing.sm_)
+      .padding(.trailing, Spacing.md)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.statusQuestion.opacity(OpacityTier.tint))

@@ -112,9 +112,9 @@ struct DirectSessionComposer: View {
   private var connectionPillTint: Color {
     switch connectionStatus {
       case .connected:
-        .statusSuccess
+        .feedbackPositive
       case .connecting:
-        .statusWaiting
+        .feedbackCaution
       case .disconnected:
         .textQuaternary
       case .failed:
@@ -720,52 +720,52 @@ struct DirectSessionComposer: View {
       VStack(spacing: 0) {
         HStack {
           Text("Fork to Existing Worktree")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
           Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.top, Spacing.lg)
+        .padding(.bottom, Spacing.md)
 
         Divider()
 
         if forkToExistingCandidates.isEmpty {
-          VStack(spacing: 8) {
+          VStack(spacing: Spacing.sm) {
             Image(systemName: "arrow.triangle.branch")
-              .font(.system(size: 24))
+              .font(.system(size: TypeScale.chatHeading1))
               .foregroundStyle(Color.textQuaternary)
 
             Text("No existing worktrees")
-              .font(.system(size: 12, weight: .medium))
+              .font(.system(size: TypeScale.caption, weight: .medium))
               .foregroundStyle(Color.textTertiary)
 
             Text("Create one first or refresh to discover tracked worktrees.")
-              .font(.system(size: 11))
+              .font(.system(size: TypeScale.meta))
               .foregroundStyle(Color.textQuaternary)
           }
           .frame(maxWidth: .infinity)
-          .padding(.vertical, 24)
+          .padding(.vertical, Spacing.xl)
         } else {
           ScrollView {
-            VStack(spacing: 2) {
+            VStack(spacing: Spacing.xxs) {
               ForEach(forkToExistingCandidates) { wt in
                 Button {
                   serverState.forkSessionToExistingWorktree(sessionId: sessionId, worktreeId: wt.id)
                   showForkToExistingWorktreeSheet = false
                 } label: {
-                  HStack(spacing: 8) {
+                  HStack(spacing: Spacing.sm) {
                     Circle()
                       .fill(statusColor(for: wt.status))
                       .frame(width: 7, height: 7)
 
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Spacing.xxs) {
                       Text(wt.customName ?? wt.branch)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: TypeScale.caption, weight: .medium))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
                       Text(wt.worktreePath)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: TypeScale.micro, design: .monospaced))
                         .foregroundStyle(Color.textTertiary)
                         .lineLimit(1)
                     }
@@ -774,20 +774,20 @@ struct DirectSessionComposer: View {
 
                     if wt.activeSessionCount > 0 {
                       Text("\(wt.activeSessionCount)")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .font(.system(size: TypeScale.micro, weight: .medium, design: .rounded))
                         .foregroundStyle(Color.textQuaternary)
                     }
                   }
-                  .padding(.horizontal, 8)
-                  .padding(.vertical, 8)
+                  .padding(.horizontal, Spacing.sm)
+                  .padding(.vertical, Spacing.sm)
                   .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(obs.forkInProgress)
               }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.sm)
           }
           .frame(maxHeight: isCompactLayout ? .infinity : 320)
         }
@@ -799,7 +799,7 @@ struct DirectSessionComposer: View {
             refreshForkExistingWorktrees()
           } label: {
             Label("Refresh", systemImage: "arrow.clockwise")
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.meta, weight: .medium))
           }
           .buttonStyle(.plain)
           .foregroundStyle(Color.textSecondary)
@@ -811,8 +811,8 @@ struct DirectSessionComposer: View {
           }
           .keyboardShortcut(.cancelAction)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.md)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .ifMacOS { view in
@@ -866,7 +866,7 @@ struct DirectSessionComposer: View {
             )
           )
           .frame(width: geo.size.width * pct)
-          .shadow(color: color.opacity(isCompactLayout ? 0.55 : 0.22), radius: isCompactLayout ? 4 : 1.5, y: 0)
+          .themeShadow(Shadow.glow(color: color, intensity: isCompactLayout ? 0.55 : 0.22))
       }
     }
     .frame(height: isCompactLayout ? 3 : 2)
@@ -945,7 +945,7 @@ struct DirectSessionComposer: View {
 
   private var promptSuggestionChips: some View {
     ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         ForEach(obs.promptSuggestions, id: \.self) { suggestion in
           Button {
             sendSuggestion(suggestion)
@@ -954,16 +954,16 @@ struct DirectSessionComposer: View {
               .font(.caption)
               .foregroundStyle(Color.textSecondary)
               .lineLimit(1)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 6)
+              .padding(.horizontal, Spacing.md_)
+              .padding(.vertical, Spacing.sm_)
               .background(Color.backgroundSecondary)
-              .clipShape(RoundedRectangle(cornerRadius: 8))
+              .clipShape(RoundedRectangle(cornerRadius: Radius.ml))
           }
           .buttonStyle(.plain)
         }
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 6)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm_)
     }
   }
 
@@ -976,9 +976,9 @@ struct DirectSessionComposer: View {
     VStack(spacing: 0) {
       // Text input
       composerTextInput
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
+        .padding(.horizontal, Spacing.md_)
+        .padding(.top, Spacing.sm)
+        .padding(.bottom, Spacing.xs)
 
       // Unified footer: actions + metadata + send
       composerFooter
@@ -1001,7 +1001,7 @@ struct DirectSessionComposer: View {
         )
     )
     .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
-    .padding(.vertical, isCompactLayout ? Spacing.sm : 8)
+    .padding(.vertical, Spacing.sm)
   }
 
   // MARK: - Status Bar (informational metadata below composer)
@@ -1016,13 +1016,14 @@ struct DirectSessionComposer: View {
   }
 
   private var desktopStatusBar: some View {
-    HStack(spacing: 8) {
+    HStack(spacing: Spacing.sm) {
       if !isConnected {
         connectionStatusPill
       }
 
       if obs.isDirectCodex {
         AutonomyPill(sessionId: sessionId, size: .statusBar)
+        CodexModePill(sessionId: sessionId, size: .statusBar)
       } else if obs.isDirectClaude {
         ClaudePermissionPill(sessionId: sessionId, size: .statusBar)
       }
@@ -1046,20 +1047,21 @@ struct DirectSessionComposer: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, Spacing.lg + 10)
+    .padding(.horizontal, Spacing.lg + Spacing.md_)
     .padding(.top, 1)
     .padding(.bottom, 9)
   }
 
   private var compactStatusBar: some View {
     ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         if !isConnected {
           connectionStatusPill
         }
 
         if obs.isDirectCodex {
           AutonomyPill(sessionId: sessionId, size: .statusBar)
+          CodexModePill(sessionId: sessionId, size: .statusBar)
         } else if obs.isDirectClaude {
           ClaudePermissionPill(sessionId: sessionId, size: .statusBar)
         }
@@ -1085,23 +1087,23 @@ struct DirectSessionComposer: View {
   }
 
   private var connectionStatusPill: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       Image(systemName: connectionPillIcon)
-        .font(.system(size: 9, weight: .semibold))
+        .font(.system(size: TypeScale.mini, weight: .semibold))
       Text(connectionPillLabel)
-        .font(.system(size: 10, weight: .semibold))
+        .font(.system(size: TypeScale.micro, weight: .semibold))
         .lineLimit(1)
     }
     .foregroundStyle(connectionPillTint)
     .padding(.horizontal, 7)
-    .padding(.vertical, 3)
+    .padding(.vertical, Spacing.gap)
     .background(connectionPillTint.opacity(OpacityTier.light), in: Capsule())
   }
 
   private func connectionNoticeRow(_ message: String) -> some View {
-    HStack(spacing: 6) {
+    HStack(spacing: Spacing.sm_) {
       Image(systemName: connectionPillIcon)
-        .font(.system(size: 10, weight: .semibold))
+        .font(.system(size: TypeScale.micro, weight: .semibold))
         .foregroundStyle(connectionPillTint)
 
       Text(message)
@@ -1126,11 +1128,11 @@ struct DirectSessionComposer: View {
 
   private func statusBarCwdLabel(_ cwd: String) -> some View {
     let display = (cwd as NSString).lastPathComponent
-    return HStack(spacing: 2) {
+    return HStack(spacing: Spacing.xxs) {
       Image(systemName: "folder")
-        .font(.system(size: 9, weight: .medium))
+        .font(.system(size: TypeScale.mini, weight: .medium))
       Text(display)
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .lineLimit(1)
     }
     .foregroundStyle(Color.textQuaternary)
@@ -1138,17 +1140,17 @@ struct DirectSessionComposer: View {
   }
 
   private var workingSteerLabel: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       Circle()
         .fill(Color.composerSteer)
         .frame(width: 6, height: 6)
       Text("Working - Steering enabled")
-        .font(.system(size: 10, weight: .semibold))
+        .font(.system(size: TypeScale.micro, weight: .semibold))
         .foregroundStyle(Color.composerSteer)
         .lineLimit(1)
     }
-    .padding(.horizontal, 6)
-    .padding(.vertical, 3)
+    .padding(.horizontal, Spacing.sm_)
+    .padding(.vertical, Spacing.gap)
     .background(
       Color.composerSteer.opacity(OpacityTier.light),
       in: Capsule()
@@ -1168,9 +1170,9 @@ struct DirectSessionComposer: View {
   }
 
   private var desktopComposerFooter: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       // Ghost action icons
-      HStack(spacing: 2) {
+      HStack(spacing: Spacing.xxs) {
         if obs.workStatus == .working {
           CodexInterruptButton(sessionId: sessionId)
         }
@@ -1190,7 +1192,7 @@ struct DirectSessionComposer: View {
 
         if inputMode == .shell || inputMode == .reviewNotes {
           Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            withAnimation(Motion.gentle) {
               if inputMode == .shell { manualShellMode = false }
               if inputMode == .reviewNotes { manualReviewMode = false }
             }
@@ -1205,19 +1207,19 @@ struct DirectSessionComposer: View {
       Spacer()
 
       // Follow + Send
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         footerFollowControls
         composerSendButton
       }
     }
-    .padding(.horizontal, 10)
-    .padding(.bottom, 8)
+    .padding(.horizontal, Spacing.md_)
+    .padding(.bottom, Spacing.sm)
   }
 
   private var compactComposerFooter: some View {
-    HStack(spacing: 6) {
+    HStack(spacing: Spacing.sm_) {
       ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
           if obs.workStatus == .working {
             CodexInterruptButton(sessionId: sessionId, isCompact: true)
           }
@@ -1234,7 +1236,7 @@ struct DirectSessionComposer: View {
 
           compactWorkflowOverflowMenu
         }
-        .padding(.trailing, 4)
+        .padding(.trailing, Spacing.xs)
       }
       .scrollIndicators(.hidden)
 
@@ -1243,7 +1245,7 @@ struct DirectSessionComposer: View {
       composerSendButton
     }
     .padding(.horizontal, Spacing.sm)
-    .padding(.bottom, 8)
+    .padding(.bottom, Spacing.sm)
   }
 
   // MARK: - Footer Helpers
@@ -1253,7 +1255,7 @@ struct DirectSessionComposer: View {
     let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
     let displayPct = if tokenContextPercentage > 0, pct == 0 { "< 1" } else { "\(pct)" }
 
-    return HStack(spacing: 3) {
+    return HStack(spacing: Spacing.gap) {
       Text("\(displayPct)%")
         .foregroundStyle(color)
       if let window = obs.contextWindow {
@@ -1264,7 +1266,7 @@ struct DirectSessionComposer: View {
           .foregroundStyle(Color.textTertiary)
       }
     }
-    .font(.system(size: 10, weight: .medium, design: .monospaced))
+    .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
     .help(tokenTooltipText)
   }
 
@@ -1272,24 +1274,24 @@ struct DirectSessionComposer: View {
   private var footerModelLabel: some View {
     if obs.isDirectCodex, !selectedModel.isEmpty {
       Text(shortModelName(selectedModel))
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
         .lineLimit(1)
         .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
     } else if obs.isDirectClaude, !effectiveClaudeModel.isEmpty {
       Text(shortModelName(effectiveClaudeModel))
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
         .lineLimit(1)
     }
   }
 
   private func footerBranchLabel(_ branch: String) -> some View {
-    HStack(spacing: 2) {
+    HStack(spacing: Spacing.xxs) {
       Image(systemName: "arrow.triangle.branch")
-        .font(.system(size: 9, weight: .medium))
+        .font(.system(size: TypeScale.mini, weight: .medium))
       Text(branch)
-        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .lineLimit(1)
     }
     .foregroundStyle(Color.gitBranch.opacity(0.65))
@@ -1297,7 +1299,7 @@ struct DirectSessionComposer: View {
   }
 
   private var footerFollowControls: some View {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       if !isPinned, unreadCount > 0 {
         Button {
           isPinned = true
@@ -1305,10 +1307,10 @@ struct DirectSessionComposer: View {
           scrollToBottomTrigger += 1
         } label: {
           Text("\(unreadCount)")
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
             .foregroundStyle(.white)
             .padding(.horizontal, 5)
-            .padding(.vertical, 2)
+            .padding(.vertical, Spacing.xxs)
             .background(Color.accent, in: Capsule())
         }
         .buttonStyle(.plain)
@@ -1322,7 +1324,7 @@ struct DirectSessionComposer: View {
         }
       } label: {
         Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
-          .font(.system(size: isCompactLayout ? 13 : 11, weight: .semibold))
+          .font(.system(size: isCompactLayout ? TypeScale.body : TypeScale.meta, weight: .semibold))
           .foregroundStyle(isPinned ? Color.textQuaternary : Color.statusReply)
           .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
           .background(
@@ -1332,8 +1334,8 @@ struct DirectSessionComposer: View {
       }
       .buttonStyle(.plain)
     }
-    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
-    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
+    .animation(Motion.standard, value: isPinned)
+    .animation(Motion.standard, value: unreadCount)
   }
 
   private var composerSendButton: some View {
@@ -1344,7 +1346,7 @@ struct DirectSessionComposer: View {
             .controlSize(.small)
         } else {
           Image(systemName: isSessionWorking ? "arrow.uturn.right" : "arrow.up")
-            .font(.system(size: isCompactLayout ? TypeScale.subhead : 12, weight: .bold))
+            .font(.system(size: isCompactLayout ? TypeScale.subhead : TypeScale.caption, weight: .bold))
             .foregroundStyle(.white)
         }
       }
@@ -1352,7 +1354,7 @@ struct DirectSessionComposer: View {
       .background(
         Circle().fill(canSend ? composerBorderColor : Color.surfaceHover)
       )
-      .shadow(color: canSend ? composerBorderColor.opacity(0.4) : .clear, radius: 6, y: 0)
+      .themeShadow(Shadow.glow(color: canSend ? composerBorderColor : .clear))
     }
     .buttonStyle(.plain)
     .disabled(!canSend)
@@ -1371,10 +1373,10 @@ struct DirectSessionComposer: View {
     }
 
     return Text(text)
-      .font(.system(size: 10, weight: .medium, design: .monospaced))
+      .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
       .foregroundStyle(color)
-      .padding(.horizontal, 6)
-      .padding(.vertical, 3)
+      .padding(.horizontal, Spacing.sm_)
+      .padding(.vertical, Spacing.gap)
       .background(Color.surfaceHover.opacity(0.5), in: Capsule())
       .help(tokenTooltipText)
   }
@@ -1689,7 +1691,7 @@ struct DirectSessionComposer: View {
         }
 
         Button {
-          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          withAnimation(Motion.gentle) {
             manualShellMode.toggle()
             if manualShellMode { manualReviewMode = false }
           }
@@ -1716,7 +1718,7 @@ struct DirectSessionComposer: View {
           Text("\(min(attachmentCount, 9))")
             .font(.system(size: 8, weight: .bold, design: .monospaced))
             .foregroundStyle(.white)
-            .padding(.horizontal, 4)
+            .padding(.horizontal, Spacing.xs)
             .padding(.vertical, 1)
             .background(Color.accent, in: Capsule())
             .offset(x: 6, y: -5)
@@ -1776,7 +1778,7 @@ struct DirectSessionComposer: View {
         }
 
         Button {
-          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          withAnimation(Motion.gentle) {
             manualShellMode.toggle()
             if manualShellMode { manualReviewMode = false }
           }
@@ -1809,7 +1811,7 @@ struct DirectSessionComposer: View {
     tint: Color = .accent
   ) -> some View {
     Image(systemName: icon)
-      .font(.system(size: isCompactLayout ? 14 : 12, weight: isCompactLayout ? .semibold : .medium))
+      .font(.system(size: isCompactLayout ? TypeScale.subhead : TypeScale.caption, weight: isCompactLayout ? .semibold : .medium))
       .foregroundStyle(isActive ? tint : (isCompactLayout ? Color.textTertiary : Color.textQuaternary))
       .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
       .background(
@@ -1996,14 +1998,14 @@ struct DirectSessionComposer: View {
         case .sent:
           errorMessage = nil
           message = ""
-          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          withAnimation(Motion.gentle) {
             attachedImages = []
             attachedMentions = []
           }
         case .queued:
           errorMessage = "Offline: steering message queued and will send after reconnect."
           message = ""
-          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          withAnimation(Motion.gentle) {
             attachedImages = []
             attachedMentions = []
           }
@@ -2064,14 +2066,14 @@ struct DirectSessionComposer: View {
       case .sent:
         errorMessage = nil
         message = ""
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(Motion.gentle) {
           attachedImages = []
           attachedMentions = []
         }
       case .queued:
         errorMessage = "Offline: message queued and will send after reconnect."
         message = ""
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(Motion.gentle) {
           attachedImages = []
           attachedMentions = []
         }
@@ -2103,9 +2105,9 @@ struct DirectSessionComposer: View {
 
   private func statusColor(for status: ServerWorktreeStatus) -> Color {
     switch status {
-      case .active: .statusSuccess
+      case .active: .feedbackPositive
       case .orphaned: .statusReply
-      case .stale: .statusWaiting
+      case .stale: .feedbackCaution
       case .removing: .textQuaternary
       case .removed: .textQuaternary
     }
@@ -2277,7 +2279,7 @@ struct DirectSessionComposer: View {
     } else {
       file.relativePath
     }
-    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+    withAnimation(Motion.gentle) {
       attachedMentions.append(AttachedMention(id: file.id, name: file.name, path: absolutePath))
     }
   }
@@ -2434,7 +2436,7 @@ struct DirectSessionComposer: View {
       case .toggleShellMode:
         clearCommandDeckState()
         removeTrailingCommandDeckToken()
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(Motion.gentle) {
           manualShellMode.toggle()
           if manualShellMode { manualReviewMode = false }
         }
@@ -2484,7 +2486,7 @@ struct DirectSessionComposer: View {
   private func handleComposerTextAreaKeyCommand(_ keyCommand: ComposerTextAreaKeyCommand) -> Bool {
     switch keyCommand {
       case .commandShiftT:
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        withAnimation(Motion.gentle) {
           manualShellMode.toggle()
           if manualShellMode { manualReviewMode = false }
         }
@@ -2666,7 +2668,7 @@ struct CodexInterruptButton: View {
     .buttonStyle(.plain)
     .disabled(isInterrupting)
     .platformHover($isHovering)
-    .animation(.easeOut(duration: 0.15), value: isHovering)
+    .animation(Motion.hover, value: isHovering)
     .help("Stop")
     .onChange(of: workStatus) { _, newValue in
       if isInterrupting, newValue != .working {
@@ -2699,7 +2701,7 @@ private struct SkillCompletionList: View {
         VStack(alignment: .leading, spacing: 0) {
           ForEach(Array(skills.prefix(8).enumerated()), id: \.element.id) { index, skill in
             Button { onSelect(skill) } label: {
-              HStack(spacing: 8) {
+              HStack(spacing: Spacing.sm) {
                 Image(systemName: "bolt.fill")
                   .font(.caption2)
                   .foregroundStyle(Color.accent)
@@ -2715,8 +2717,8 @@ private struct SkillCompletionList: View {
                 }
                 Spacer()
               }
-              .padding(.horizontal, 10)
-              .padding(.vertical, 6)
+              .padding(.horizontal, Spacing.md_)
+              .padding(.vertical, Spacing.sm_)
               .background(index == selectedIndex ? Color.accent.opacity(0.15) : Color.clear)
               .contentShape(Rectangle())
             }
@@ -2732,10 +2734,10 @@ private struct SkillCompletionList: View {
     }
     .frame(maxHeight: 200)
     .background(Color.backgroundPrimary)
-    .clipShape(RoundedRectangle(cornerRadius: 8))
-    .shadow(color: .black.opacity(0.3), radius: 8, y: -2)
+    .clipShape(RoundedRectangle(cornerRadius: Radius.ml))
+    .themeShadow(Shadow.md)
     .overlay(
-      RoundedRectangle(cornerRadius: 8)
+      RoundedRectangle(cornerRadius: Radius.ml)
         .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
     )
   }
@@ -2804,15 +2806,15 @@ private struct ComposerCommandDeckList: View {
               Text(item.section)
                 .font(.system(size: TypeScale.caption, weight: .bold))
                 .foregroundStyle(Color.textQuaternary)
-                .padding(.horizontal, 10)
-                .padding(.top, index == 0 ? 8 : 10)
-                .padding(.bottom, 4)
+                .padding(.horizontal, Spacing.md_)
+                .padding(.top, index == 0 ? Spacing.sm : Spacing.md_)
+                .padding(.bottom, Spacing.xs)
             }
 
             Button {
               onSelect(item)
             } label: {
-              HStack(spacing: 8) {
+              HStack(spacing: Spacing.sm) {
                 Image(systemName: item.icon)
                   .font(.system(size: TypeScale.caption, weight: .semibold))
                   .foregroundStyle(item.tint)
@@ -2833,7 +2835,7 @@ private struct ComposerCommandDeckList: View {
 
                 Spacer()
               }
-              .padding(.horizontal, 10)
+              .padding(.horizontal, Spacing.md_)
               .padding(.vertical, 7)
               .background(
                 index == selectedIndex ? item.tint.opacity(0.18) : Color.clear,
@@ -2854,7 +2856,7 @@ private struct ComposerCommandDeckList: View {
     .frame(maxHeight: 290)
     .background(Color.backgroundPrimary)
     .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-    .shadow(color: .black.opacity(0.3), radius: 8, y: -2)
+    .themeShadow(Shadow.md)
     .overlay(
       RoundedRectangle(cornerRadius: Radius.lg)
         .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
@@ -2885,9 +2887,9 @@ private struct ComposerFilePickerPopover: View {
         .font(.system(size: TypeScale.subhead))
 
       if files.isEmpty {
-        VStack(spacing: 6) {
+        VStack(spacing: Spacing.sm_) {
           Image(systemName: "doc.text.magnifyingglass")
-            .font(.system(size: 18, weight: .semibold))
+            .font(.system(size: TypeScale.thinkingHeading1, weight: .semibold))
             .foregroundStyle(Color.textQuaternary)
           Text("No files found")
             .font(.system(size: TypeScale.subhead, weight: .semibold))
@@ -2901,12 +2903,12 @@ private struct ComposerFilePickerPopover: View {
               Button {
                 onSelect(file)
               } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                   Image(systemName: fileIcon(for: file.name))
                     .font(.system(size: TypeScale.caption, weight: .semibold))
                     .foregroundStyle(Color.composerPrompt)
                     .frame(width: 14)
-                  VStack(alignment: .leading, spacing: 2) {
+                  VStack(alignment: .leading, spacing: Spacing.xxs) {
                     Text(file.name)
                       .font(.system(size: TypeScale.subhead, weight: .semibold))
                       .foregroundStyle(Color.textPrimary)
@@ -2917,7 +2919,7 @@ private struct ComposerFilePickerPopover: View {
                   }
                   Spacer()
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, Spacing.md_)
                 .padding(.vertical, 7)
                 .contentShape(Rectangle())
               }
@@ -2972,9 +2974,9 @@ private struct ComposerClaudeModelPopover: View {
         .font(.system(size: TypeScale.subhead))
 
       if filteredModels.isEmpty {
-        VStack(spacing: 6) {
+        VStack(spacing: Spacing.sm_) {
           Image(systemName: "cpu")
-            .font(.system(size: 18, weight: .semibold))
+            .font(.system(size: TypeScale.thinkingHeading1, weight: .semibold))
             .foregroundStyle(Color.textQuaternary)
           Text("No Claude models available")
             .font(.system(size: TypeScale.subhead, weight: .semibold))
@@ -2989,13 +2991,13 @@ private struct ComposerClaudeModelPopover: View {
               Button {
                 selectedModel = model.value
               } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                   Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: TypeScale.caption, weight: .semibold))
                     .foregroundStyle(isSelected ? Color.providerClaude : Color.textQuaternary)
                     .frame(width: 14)
 
-                  VStack(alignment: .leading, spacing: 2) {
+                  VStack(alignment: .leading, spacing: Spacing.xxs) {
                     Text(model.displayName)
                       .font(.system(size: TypeScale.subhead, weight: .semibold))
                       .foregroundStyle(Color.textPrimary)
@@ -3006,7 +3008,7 @@ private struct ComposerClaudeModelPopover: View {
                   }
                   Spacer()
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, Spacing.md_)
                 .padding(.vertical, 7)
                 .background(
                   isSelected ? Color.providerClaude.opacity(0.14) : Color.clear,

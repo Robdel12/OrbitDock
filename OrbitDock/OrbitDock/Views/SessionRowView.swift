@@ -16,16 +16,16 @@ struct SessionRowView: View {
   }
 
   var body: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: Spacing.md_) {
       // Status dot - using unified component
       SessionStatusDot(status: displayStatus)
         .frame(width: 20)
 
       // Main content
-      VStack(alignment: .leading, spacing: 3) {
-        HStack(spacing: 6) {
+      VStack(alignment: .leading, spacing: Spacing.gap) {
+        HStack(spacing: Spacing.sm_) {
           Text(session.displayName)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(.primary)
             .lineLimit(1)
 
@@ -38,18 +38,18 @@ struct SessionRowView: View {
           }
         }
 
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           Text(shortenedPath(session.projectPath))
-            .font(.system(size: 10))
+            .font(.system(size: TypeScale.micro))
             .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
 
           if let branch = session.branch, !branch.isEmpty {
-            HStack(spacing: 2) {
+            HStack(spacing: Spacing.xxs) {
               Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: 8, weight: .semibold))
               Text(branch)
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
             }
             .foregroundStyle(.secondary.opacity(0.7))
             .lineLimit(1)
@@ -60,14 +60,14 @@ struct SessionRowView: View {
       Spacer()
 
       // Right side - compact stats
-      VStack(alignment: .trailing, spacing: 2) {
+      VStack(alignment: .trailing, spacing: Spacing.xxs) {
         Text(session.formattedDuration)
-          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
           .foregroundStyle(.secondary)
 
         if session.toolCount > 0 {
           Text("\(session.toolCount) tools")
-            .font(.system(size: 9))
+            .font(.system(size: TypeScale.mini))
             .foregroundStyle(Color.textQuaternary)
         }
       }
@@ -75,13 +75,13 @@ struct SessionRowView: View {
       // Provider + Model badge
       UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 8)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
     .background(
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
         .fill(isSelected ? Color.surfaceSelected : Color.clear)
     )
-    .padding(.horizontal, 6)
+    .padding(.horizontal, Spacing.sm_)
   }
 
   private func shortenedPath(_ path: String) -> String {
@@ -143,36 +143,36 @@ struct WorkStatusBadge: View {
 
 struct ForkBadge: View {
   var body: some View {
-    HStack(spacing: 3) {
+    HStack(spacing: Spacing.gap) {
       Image(systemName: "arrow.triangle.branch")
         .font(.system(size: 8, weight: .bold))
       Text("Fork")
-        .font(.system(size: 9, weight: .medium))
+        .font(.system(size: TypeScale.mini, weight: .medium))
     }
     .foregroundStyle(Color.accent)
     .padding(.horizontal, 5)
-    .padding(.vertical, 2)
-    .background(Color.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    .padding(.vertical, Spacing.xxs)
+    .background(Color.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
   }
 }
 
 struct PlanModeBadge: View {
   var body: some View {
-    HStack(spacing: 3) {
+    HStack(spacing: Spacing.gap) {
       Image(systemName: "map.fill")
         .font(.system(size: 8, weight: .bold))
       Text("Planning")
-        .font(.system(size: 9, weight: .medium))
+        .font(.system(size: TypeScale.mini, weight: .medium))
     }
     .foregroundStyle(Color.statusQuestion)
     .padding(.horizontal, 5)
-    .padding(.vertical, 2)
-    .background(Color.statusQuestion.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    .padding(.vertical, Spacing.xxs)
+    .background(Color.statusQuestion.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
   }
 }
 
 #Preview {
-  VStack(spacing: 2) {
+  VStack(spacing: Spacing.xxs) {
     SessionRowView(session: Session(
       id: "test-123",
       projectPath: "/Users/developer/Developer/vizzly-cli",

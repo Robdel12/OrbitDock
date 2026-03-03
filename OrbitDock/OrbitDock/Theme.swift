@@ -14,13 +14,21 @@ import SwiftUI
 /// 4pt-base spacing scale — replaces ad-hoc pixel values across the app.
 enum Spacing {
   static let xxs: CGFloat = 2
+  /// Tight element gaps: icon-to-text in mini badges, compact HStacks
+  static let gap: CGFloat = 3
   static let xs: CGFloat = 4
+  /// Relaxed intra-element gap: badge padding, tight label spacing
+  static let sm_: CGFloat = 6
   static let sm: CGFloat = 8
+  /// Comfortable inner margin: section gaps, between grouped items
+  static let md_: CGFloat = 10
   static let md: CGFloat = 12
+  /// Breathing room: panel inner padding, large card margin
+  static let lg_: CGFloat = 14
   static let lg: CGFloat = 16
+  static let section: CGFloat = 20
   static let xl: CGFloat = 24
   static let xxl: CGFloat = 32
-  static let section: CGFloat = 20
 }
 
 /// Canonical font sizes — clear visual hierarchy with distinct steps.
@@ -52,12 +60,22 @@ enum TypeScale {
   static let headline: CGFloat = 22
   /// Project names, emphasized subheads
   static let large: CGFloat = 16
+  /// Utility meta text: stats badges, compact tool card names, icon labels
+  static let meta: CGFloat = 11
+  /// Tiny labels in mini badges
+  static let mini: CGFloat = 9
 }
 
 /// Corner radius tiers — replaces ad-hoc 4/5/6/8/10/12 mix.
 enum Radius {
+  /// Tiny: progress bars, thin decorative elements
+  static let xs: CGFloat = 2
   static let sm: CGFloat = 4
+  /// Badges, inline chips, small interactive elements
+  static let sm_: CGFloat = 5
   static let md: CGFloat = 6
+  /// Medium-large: button backgrounds, input fields (fills the 6-10 gap)
+  static let ml: CGFloat = 8
   static let lg: CGFloat = 10
   static let xl: CGFloat = 14
 }
@@ -216,17 +234,28 @@ extension Color {
   /// Ended/Idle — warm gray, less purple
   static let statusEnded = Color(red: 0.42, green: 0.40, blue: 0.45)
 
-  /// Legacy aliases for backward compatibility
-  /// @deprecated Use statusPermission or statusQuestion instead
-  static let statusAttention = statusPermission
-  /// @deprecated Use statusReply instead
-  static let statusReady = statusReply
-  /// @deprecated Use statusReply instead
-  static let statusWaiting = statusReply
-  /// @deprecated Use statusReply instead
-  static let statusSuccess = statusReply
-  /// @deprecated Use statusEnded instead
-  static let statusIdle = statusEnded
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARK: Feedback Colors — Non-Session UI States
+  //
+  // Use these for general UI feedback (connection status, save confirmations,
+  // warnings, errors). NOT for session status — use status* colors for that.
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /// Positive confirmation: saved, connected, success (green)
+  static let feedbackPositive = Color(red: 0.35, green: 0.82, blue: 0.55)
+  /// Caution: approaching limits, warning states (amber)
+  static let feedbackCaution = Color(red: 0.95, green: 0.75, blue: 0.30)
+  /// Risky states: bash errors, elevated warnings (orange)
+  static let feedbackWarning = Color(red: 1.0, green: 0.6, blue: 0.3)
+  /// Error/danger: failed, disconnected (red)
+  static let feedbackNegative = statusError
+
+  // Legacy aliases removed — all usages migrated:
+  //   statusAttention → statusPermission
+  //   statusReady     → feedbackPositive
+  //   statusWaiting   → feedbackCaution
+  //   statusSuccess   → feedbackPositive
+  //   statusIdle      → statusEnded
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Model Colors
@@ -331,14 +360,8 @@ extension Color {
   /// Attention pulse color
   static let beaconPulse = statusPermission
 
-  /// Legacy — consolidated to backgroundPrimary variants
-  static let nebulaStart = Color(red: 0.20, green: 0.13, blue: 0.30)
-  static let nebulaEnd = Color(red: 0.08, green: 0.12, blue: 0.28)
-  static let starlight = Color.white.opacity(0.85)
-  static let voidBlack = Color(red: 0.02, green: 0.02, blue: 0.04)
-
-  /// Ready state
-  static let statusDocked = accent
+  // Legacy colors removed: nebulaStart, nebulaEnd, starlight, voidBlack, statusDocked
+  // Use backgroundPrimary/Secondary/Tertiary and accent instead.
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Composer Border — Input Mode Colors
@@ -470,9 +493,6 @@ enum SessionDisplayStatus {
     }
   }
 
-  // Legacy support
-  static let attention = permission
-  static let ready = reply
 }
 
 // MARK: - Session Status Badge (Design System Component)
@@ -492,9 +512,9 @@ struct SessionStatusBadge: View {
     var fontSize: CGFloat {
       switch self {
         case .mini: 0
-        case .compact: 9
-        case .regular: 10
-        case .large: 11
+        case .compact: TypeScale.mini
+        case .regular: TypeScale.micro
+        case .large: TypeScale.meta
       }
     }
 
@@ -502,26 +522,26 @@ struct SessionStatusBadge: View {
       switch self {
         case .mini: 0
         case .compact: 7
-        case .regular: 8
-        case .large: 10
+        case .regular: IconScale.xs
+        case .large: IconScale.md
       }
     }
 
     var paddingH: CGFloat {
       switch self {
         case .mini: 0
-        case .compact: 6
-        case .regular: 8
-        case .large: 10
+        case .compact: Spacing.sm_
+        case .regular: Spacing.sm
+        case .large: Spacing.md_
       }
     }
 
     var paddingV: CGFloat {
       switch self {
         case .mini: 0
-        case .compact: 2
-        case .regular: 3
-        case .large: 4
+        case .compact: Spacing.xxs
+        case .regular: Spacing.gap
+        case .large: Spacing.xs
       }
     }
   }
@@ -543,9 +563,9 @@ struct SessionStatusBadge: View {
       // Just a colored dot
       Circle()
         .fill(status.color)
-        .frame(width: 6, height: 6)
+        .frame(width: Spacing.sm_, height: Spacing.sm_)
     } else {
-      HStack(spacing: size == .compact ? 3 : 4) {
+      HStack(spacing: size == .compact ? Spacing.gap : Spacing.xs) {
         if showIcon {
           Image(systemName: status.icon)
             .font(.system(size: size.iconSize, weight: .bold))
@@ -556,7 +576,7 @@ struct SessionStatusBadge: View {
       .foregroundStyle(status.color)
       .padding(.horizontal, size.paddingH)
       .padding(.vertical, size.paddingV)
-      .background(status.color.opacity(0.12), in: Capsule())
+      .background(status.color.opacity(OpacityTier.light), in: Capsule())
     }
   }
 }
@@ -566,28 +586,29 @@ struct SessionStatusBadge: View {
 /// Status dot indicator with optional glow for active states
 struct SessionStatusDot: View {
   let status: SessionDisplayStatus
-  var size: CGFloat = 8
+  var size: CGFloat = IconScale.xs
   var showGlow: Bool = true
 
-  init(session: Session, size: CGFloat = 8, showGlow: Bool = true) {
+  init(session: Session, size: CGFloat = IconScale.xs, showGlow: Bool = true) {
     self.status = SessionDisplayStatus.from(session)
     self.size = size
     self.showGlow = showGlow
   }
 
-  init(status: SessionDisplayStatus, size: CGFloat = 8, showGlow: Bool = true) {
+  init(status: SessionDisplayStatus, size: CGFloat = IconScale.xs, showGlow: Bool = true) {
     self.status = status
     self.size = size
     self.showGlow = showGlow
   }
 
   var body: some View {
+    let glow = Shadow.glow(color: status.color)
     Circle()
       .fill(status.color)
       .frame(width: size, height: size)
       .shadow(
-        color: showGlow && status != .ended ? status.color.opacity(0.4) : .clear,
-        radius: 4
+        color: showGlow && status != .ended ? glow.color : .clear,
+        radius: glow.radius
       )
       .frame(width: size * 2.5, height: size * 2.5)
   }
@@ -684,32 +705,32 @@ struct PermissionBanner: View {
   var body: some View {
     let info = displayInfo
 
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       // Warning icon
       Image(systemName: "exclamationmark.triangle.fill")
-        .font(.system(size: 16, weight: .semibold))
-        .foregroundStyle(Color.statusAttention)
+        .font(.system(size: TypeScale.large, weight: .semibold))
+        .foregroundStyle(Color.statusPermission)
 
-      VStack(alignment: .leading, spacing: 4) {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
         // Tool name header
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           Text("Permission:")
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(Color.statusAttention)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.statusPermission)
 
           Text(toolName)
-            .font(.system(size: 12, weight: .bold))
+            .font(.system(size: TypeScale.caption, weight: .bold))
             .foregroundStyle(.primary)
         }
 
         // Rich detail line
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           Image(systemName: info.icon)
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(.secondary)
 
           Text(info.detail)
-            .font(.system(size: 12, weight: .medium, design: .monospaced))
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
             .foregroundStyle(.secondary)
             .lineLimit(1)
         }
@@ -719,20 +740,20 @@ struct PermissionBanner: View {
 
       // Subtle hint
       Text("Accept in terminal")
-        .font(.system(size: 10, weight: .medium))
+        .font(.system(size: TypeScale.micro, weight: .medium))
         .foregroundStyle(Color.textTertiary)
     }
-    .padding(14)
-    .background(Color.statusAttention.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .padding(Spacing.lg_)
+    .background(Color.statusPermission.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     .overlay(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .stroke(Color.statusAttention.opacity(0.25), lineWidth: 1)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.statusPermission.opacity(0.25), lineWidth: 1)
     )
   }
 }
 
 #Preview("Permission Banners") {
-  VStack(spacing: 16) {
+  VStack(spacing: Spacing.lg) {
     PermissionBanner(
       toolName: "Bash",
       toolInput: "{\"command\": \"npm run build && npm test\"}"
@@ -767,7 +788,7 @@ struct PermissionBanner: View {
     Text("5-State Status System")
       .font(.headline)
 
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       SessionStatusBadge(status: .working)
       SessionStatusBadge(status: .permission)
       SessionStatusBadge(status: .question)
@@ -778,7 +799,7 @@ struct PermissionBanner: View {
     Text("Compact Badges")
       .font(.headline)
 
-    HStack(spacing: 12) {
+    HStack(spacing: Spacing.md) {
       SessionStatusBadge(status: .working, size: .compact)
       SessionStatusBadge(status: .permission, size: .compact)
       SessionStatusBadge(status: .question, size: .compact)
@@ -789,7 +810,7 @@ struct PermissionBanner: View {
     Text("Status Dots")
       .font(.headline)
 
-    HStack(spacing: 20) {
+    HStack(spacing: Spacing.section) {
       SessionStatusDot(status: .working)
       SessionStatusDot(status: .permission)
       SessionStatusDot(status: .question)

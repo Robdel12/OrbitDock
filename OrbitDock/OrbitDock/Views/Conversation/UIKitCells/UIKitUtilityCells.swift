@@ -46,7 +46,7 @@
       contentView.addSubview(dividerLine)
 
       // Turn label
-      turnLabel.font = Self.roundedFont(size: 10, weight: .bold)
+      turnLabel.font = Self.roundedFont(size: TypeScale.micro, weight: .bold)
       turnLabel.textColor = UIColor(Color.textSecondary)
       turnLabel.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(turnLabel)
@@ -58,12 +58,12 @@
       contentView.addSubview(statusCapsule)
 
       // Status label
-      statusLabel.font = Self.roundedFont(size: 9, weight: .bold)
+      statusLabel.font = Self.roundedFont(size: TypeScale.mini, weight: .bold)
       statusLabel.translatesAutoresizingMaskIntoConstraints = false
       statusCapsule.addSubview(statusLabel)
 
       // Tools label
-      toolsLabel.font = UIFont.systemFont(ofSize: 10, weight: .medium)
+      toolsLabel.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       toolsLabel.textColor = UIColor(Color.textTertiary)
       toolsLabel.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(toolsLabel)
@@ -190,7 +190,7 @@
       backgroundBox.addSubview(chevronImage)
 
       // Count label
-      countLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .bold)
+      countLabel.font = UIFont.monospacedDigitSystemFont(ofSize: TypeScale.body, weight: .bold)
       countLabel.textColor = UIColor(Color.textPrimary)
       countLabel.translatesAutoresizingMaskIntoConstraints = false
       backgroundBox.addSubview(countLabel)
@@ -407,7 +407,7 @@
       backgroundColor = .clear
       contentView.backgroundColor = .clear
 
-      button.titleLabel?.font = UIFont.systemFont(ofSize: 11, weight: .medium)
+      button.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
       button.setTitleColor(UIColor(Color.accent), for: .normal)
       button.addTarget(self, action: #selector(handleTap), for: .touchUpInside)
       button.translatesAutoresizingMaskIntoConstraints = false
@@ -454,7 +454,7 @@
       backgroundColor = .clear
       contentView.backgroundColor = .clear
 
-      label.font = UIFont.systemFont(ofSize: 10, weight: .medium)
+      label.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       label.textColor = UIColor(Color.textTertiary)
       label.textAlignment = .center
       label.translatesAutoresizingMaskIntoConstraints = false

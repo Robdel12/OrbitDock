@@ -3,18 +3,14 @@ import Foundation
 import Testing
 
 struct ServerEndpointStoreTests {
-  @Test func seedsLocalEndpointWhenNoConfigExists() {
+  @Test func startsEmptyWhenNoConfigExists() {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
     let endpoints = context.store.endpoints()
 
-    #expect(endpoints.count == 1)
-    #expect(endpoints[0].isLocalManaged)
-    #expect(endpoints[0].isEnabled)
-    #expect(endpoints[0].isDefault)
-    #expect(endpoints[0].wsURL == URL(string: "ws://127.0.0.1:4000/ws"))
-    #expect(context.store.effectiveURL() == URL(string: "ws://127.0.0.1:4000/ws"))
+    #expect(endpoints.isEmpty)
+    #expect(context.store.hasRemoteEndpoint() == false)
   }
 
   @Test func replaceRemoteEndpointSetsRemoteAsDefault() {
@@ -26,14 +22,14 @@ struct ServerEndpointStoreTests {
     let endpoints = context.store.endpoints()
     let remote = endpoints.first(where: \.isRemote)
 
-    #expect(endpoints.count == 2)
+    #expect(endpoints.count == 1)
     #expect(remote != nil)
     #expect(remote?.isDefault == true)
     #expect(remote?.wsURL == URL(string: "ws://10.0.0.5:4100/ws"))
     #expect(context.store.hasRemoteEndpoint())
   }
 
-  @Test func clearRemoteEndpointsLeavesLocalDefault() {
+  @Test func clearRemoteEndpointsRemovesAllEndpoints() {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
@@ -43,9 +39,7 @@ struct ServerEndpointStoreTests {
     let cleared = context.store.endpoints()
 
     #expect(context.store.remoteEndpoint() == nil)
-    #expect(cleared.count == 1)
-    #expect(cleared[0].isLocalManaged)
-    #expect(cleared[0].isDefault)
+    #expect(cleared.isEmpty)
   }
 
   @Test func crudSupportsUpsertDefaultEnableDisableAndRemove() throws {

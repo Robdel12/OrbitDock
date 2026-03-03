@@ -30,32 +30,32 @@ struct ShellCard: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       // ━━━ Command header ━━━
-      HStack(spacing: 10) {
+      HStack(spacing: Spacing.md_) {
         Image(systemName: "terminal.fill")
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(accentColor)
           .frame(width: 16)
 
         Text("$")
-          .font(.system(size: 11, weight: .bold, design: .monospaced))
+          .font(.system(size: TypeScale.meta, weight: .bold, design: .monospaced))
           .foregroundStyle(accentColor.opacity(0.8))
 
         Text(message.content)
-          .font(.system(size: 12, design: .monospaced))
+          .font(.system(size: TypeScale.caption, design: .monospaced))
           .foregroundStyle(Color.textPrimary)
           .lineLimit(isExpanded ? nil : 1)
 
         Spacer()
 
         // Status cluster
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           if message.isInProgress {
             ProgressView()
               .controlSize(.mini)
           } else {
             if let duration = message.formattedDuration {
               Text(duration)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color.textTertiary)
             }
 
@@ -64,7 +64,7 @@ struct ShellCard: View {
                 onSendToAI?(buildContextString())
               } label: {
                 Image(systemName: "arrow.up.message")
-                  .font(.system(size: 10))
+                  .font(.system(size: TypeScale.micro))
                   .foregroundStyle(accentColor)
               }
               .buttonStyle(.plain)
@@ -73,27 +73,27 @@ struct ShellCard: View {
 
             if hasOutput {
               Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: TypeScale.mini, weight: .semibold))
                 .foregroundStyle(Color.textTertiary)
                 .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
           }
         }
       }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 10)
+      .padding(.horizontal, Spacing.lg_)
+      .padding(.vertical, Spacing.md_)
       .background(
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
           .fill(accentColor.opacity(isHovering ? 0.12 : 0.08))
       )
       .overlay(
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
           .strokeBorder(accentColor.opacity(0.15), lineWidth: 1)
       )
       .contentShape(Rectangle())
       .onTapGesture {
         if hasOutput {
-          withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+          withAnimation(Motion.snappy) {
             isExpanded.toggle()
           }
         }
@@ -108,19 +108,19 @@ struct ShellCard: View {
 
         VStack(alignment: .leading, spacing: 0) {
           if hasError {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 8))
               Text("stderr")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: TypeScale.mini, weight: .semibold))
             }
-            .foregroundStyle(Color.orange.opacity(0.8))
-            .padding(.bottom, 6)
+            .foregroundStyle(Color.feedbackWarning.opacity(0.8))
+            .padding(.bottom, Spacing.sm_)
           }
 
           ScrollView {
             Text(displayOutput)
-              .font(.system(size: 11, design: .monospaced))
+              .font(.system(size: TypeScale.meta, design: .monospaced))
               .foregroundStyle(
                 hasError
                   ? Color.feedbackWarning.opacity(0.85)
@@ -131,12 +131,12 @@ struct ShellCard: View {
           }
           .frame(maxHeight: 200)
         }
-        .padding(12)
+        .padding(Spacing.md)
         .background(
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
             .fill(Color.backgroundTertiary)
         )
-        .padding(.top, 8)
+        .padding(.top, Spacing.sm)
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
@@ -155,7 +155,7 @@ struct ShellCard: View {
 }
 
 #Preview("Shell Cards") {
-  VStack(alignment: .trailing, spacing: 20) {
+  VStack(alignment: .trailing, spacing: Spacing.section) {
     // Success with output
     ShellCard(
       message: TranscriptMessage(
@@ -192,7 +192,7 @@ struct ShellCard: View {
       isHovering: .constant(false)
     )
   }
-  .padding(32)
+  .padding(Spacing.xxl)
   .frame(width: 500)
   .background(Color.backgroundPrimary)
 }

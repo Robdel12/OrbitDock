@@ -251,18 +251,18 @@ struct ActiveSessionsSection: View {
 
       if counts.attention > 0 || counts.running > 0 || counts.ready > 0 {
         quickJumpStrip
-          .padding(.top, 12)
+          .padding(.top, Spacing.md)
       }
 
       if laneSections.isEmpty {
         emptyState
       } else {
-        VStack(spacing: 12) {
+        VStack(spacing: Spacing.md) {
           ForEach(laneSections) { section in
             laneSectionCard(section)
           }
         }
-        .padding(.top, 12)
+        .padding(.top, Spacing.md)
       }
     }
   }
@@ -287,27 +287,27 @@ struct ActiveSessionsSection: View {
   // MARK: - Header
 
   private var sectionHeader: some View {
-    HStack(spacing: 12) {
-      HStack(spacing: 8) {
+    HStack(spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm) {
         Image(systemName: "cpu")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.accent)
 
         Text("Active Workbench")
-          .font(.system(size: 14, weight: .semibold))
+          .font(.system(size: TypeScale.subhead, weight: .semibold))
           .foregroundStyle(.primary)
 
         Text("\(orderedSessions.count)")
-          .font(.system(size: 12, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
           .foregroundStyle(.secondary)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
+          .padding(.horizontal, Spacing.sm_)
+          .padding(.vertical, Spacing.xxs)
           .background(Color.surfaceHover, in: Capsule())
       }
 
       Spacer()
 
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         modeToggle
 
         if directCodexCount > 0 || filter == .direct {
@@ -351,32 +351,32 @@ struct ActiveSessionsSection: View {
         }
       }
     }
-    .padding(.vertical, 10)
-    .padding(.horizontal, 14)
-    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .padding(.vertical, Spacing.md_)
+    .padding(.horizontal, Spacing.lg_)
+    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
   }
 
   private var modeToggle: some View {
-    HStack(spacing: 2) {
+    HStack(spacing: Spacing.xxs) {
       ForEach(ActiveSessionWorkbenchMode.allCases) { candidate in
         Button {
           mode = candidate
         } label: {
           Text(candidate.title)
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: TypeScale.meta, weight: .semibold))
             .foregroundStyle(mode == candidate ? Color.accent : Color.white.opacity(0.55))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.horizontal, Spacing.md_)
+            .padding(.vertical, Spacing.xs)
             .background(
               mode == candidate ? Color.accent.opacity(OpacityTier.light) : Color.clear,
-              in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+              in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
             )
         }
         .buttonStyle(.plain)
       }
     }
-    .padding(2)
-    .background(Color.backgroundSecondary.opacity(0.7), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    .padding(Spacing.xxs)
+    .background(Color.backgroundSecondary.opacity(0.7), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
   }
 
   private func headerFilterChip(
@@ -393,11 +393,11 @@ struct ActiveSessionsSection: View {
     } label: {
       HStack(spacing: 5) {
         Image(systemName: icon)
-          .font(.system(size: 9, weight: .bold))
+          .font(.system(size: TypeScale.mini, weight: .bold))
         Text("\(count)")
-          .font(.system(size: 10, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
         Text(title)
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.micro, weight: .semibold))
       }
       .foregroundStyle(isSelected ? color : color.opacity(0.92))
       .padding(.horizontal, 9)
@@ -415,32 +415,32 @@ struct ActiveSessionsSection: View {
   }
 
   private func compactStat(icon: String, text: String, color: Color) -> some View {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       Image(systemName: icon)
-        .font(.system(size: 9, weight: .bold))
+        .font(.system(size: TypeScale.mini, weight: .bold))
       Text(text)
-        .font(.system(size: 10, weight: .semibold))
+        .font(.system(size: TypeScale.micro, weight: .semibold))
     }
     .foregroundStyle(color)
     .padding(.horizontal, 7)
-    .padding(.vertical, 4)
+    .padding(.vertical, Spacing.xs)
     .background(color.opacity(0.12), in: Capsule())
   }
 
   private var quickJumpStrip: some View {
-    HStack(spacing: 10) {
-      HStack(spacing: 6) {
+    HStack(spacing: Spacing.md_) {
+      HStack(spacing: Spacing.sm_) {
         Image(systemName: "scope")
-          .font(.system(size: 9, weight: .bold))
+          .font(.system(size: TypeScale.mini, weight: .bold))
         Text("TRIAGE")
-          .font(.system(size: 9, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
           .tracking(0.6)
       }
       .foregroundStyle(Color.textTertiary)
 
       RoundedRectangle(cornerRadius: 1, style: .continuous)
         .fill(Color.surfaceBorder.opacity(0.55))
-        .frame(width: 1, height: 16)
+        .frame(width: 1, height: Spacing.lg)
 
       if counts.attention > 0 {
         quickJumpButton(lane: .attention, count: counts.attention)
@@ -456,13 +456,13 @@ struct ActiveSessionsSection: View {
 
       Spacer()
     }
-    .padding(.horizontal, 10)
+    .padding(.horizontal, Spacing.md_)
     .padding(.vertical, 9)
     .background(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .fill(Color.backgroundTertiary.opacity(0.52))
         .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .stroke(Color.surfaceBorder.opacity(0.45), lineWidth: 1)
         )
     )
@@ -475,16 +475,16 @@ struct ActiveSessionsSection: View {
     return Button {
       toggleFilter(target)
     } label: {
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Image(systemName: lane.icon)
-          .font(.system(size: 10, weight: .bold))
+          .font(.system(size: TypeScale.micro, weight: .bold))
         Text("\(count)")
-          .font(.system(size: 11, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.meta, weight: .bold, design: .rounded))
         Text(lane.shortTitle)
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
       }
       .foregroundStyle(isSelected ? lane.color : lane.color.opacity(0.92))
-      .padding(.horizontal, 10)
+      .padding(.horizontal, Spacing.md_)
       .padding(.vertical, 5)
       .background(
         Capsule()
@@ -514,24 +514,24 @@ struct ActiveSessionsSection: View {
 
   private func laneSectionCard(_ section: LaneSectionModel) -> some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: 10) {
+      HStack(spacing: Spacing.md_) {
         Image(systemName: section.lane.icon)
-          .font(.system(size: 11, weight: .bold))
+          .font(.system(size: TypeScale.meta, weight: .bold))
           .foregroundStyle(section.lane.color)
 
         Text(section.lane.title)
-          .font(.system(size: 13, weight: .bold))
+          .font(.system(size: TypeScale.body, weight: .bold))
           .foregroundStyle(.primary)
 
         Text("\(section.totalSessions)")
-          .font(.system(size: 11, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.meta, weight: .bold, design: .rounded))
           .foregroundStyle(section.lane.color)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
+          .padding(.horizontal, Spacing.sm_)
+          .padding(.vertical, Spacing.xxs)
           .background(section.lane.color.opacity(0.14), in: Capsule())
 
         Text("\(section.workstreams.count) \(pluralizedLabel("workstream", count: section.workstreams.count))")
-          .font(.system(size: 10, weight: .medium, design: .rounded))
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .rounded))
           .foregroundStyle(Color.textTertiary)
 
         if section.totalDirect > 0 {
@@ -540,7 +540,7 @@ struct ActiveSessionsSection: View {
 
         Spacer()
       }
-      .padding(.horizontal, 12)
+      .padding(.horizontal, Spacing.md)
       .padding(.vertical, 9)
       .background(Color.backgroundSecondary.opacity(0.60))
 
@@ -548,12 +548,12 @@ struct ActiveSessionsSection: View {
         .fill(Color.surfaceBorder.opacity(0.18))
         .frame(height: 1)
 
-      VStack(spacing: 10) {
+      VStack(spacing: Spacing.md_) {
         ForEach(section.workstreams) { workstream in
           workstreamCard(workstream, lane: section.lane)
         }
       }
-      .padding(10)
+      .padding(Spacing.md_)
     }
     .background(
       RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -567,13 +567,13 @@ struct ActiveSessionsSection: View {
 
   private func workstreamCard(_ workstream: WorkstreamCluster, lane: TriageLane) -> some View {
     VStack(alignment: .leading, spacing: 9) {
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Image(systemName: "folder.fill")
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.micro, weight: .semibold))
           .foregroundStyle(Color.accent)
 
         Text(workstream.projectName)
-          .font(.system(size: 12, weight: .bold))
+          .font(.system(size: TypeScale.caption, weight: .bold))
           .foregroundStyle(.primary)
           .lineLimit(1)
 
@@ -584,10 +584,10 @@ struct ActiveSessionsSection: View {
         branchBadge(workstream.branchName)
 
         Text("\(workstream.sessions.count) \(pluralizedLabel("session", count: workstream.sessions.count))")
-          .font(.system(size: 9, weight: .semibold, design: .rounded))
+          .font(.system(size: TypeScale.mini, weight: .semibold, design: .rounded))
           .foregroundStyle(.secondary)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
+          .padding(.horizontal, Spacing.sm_)
+          .padding(.vertical, Spacing.xxs)
           .background(Color.surfaceHover.opacity(0.6), in: Capsule())
 
         if workstream.directCount > 0 {
@@ -599,23 +599,23 @@ struct ActiveSessionsSection: View {
         workstreamActivityBadge(workstream, lane: lane)
       }
 
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.sm) {
         Text(shortProjectPath(workstream.projectPath))
-          .font(.system(size: 9, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
 
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm_) {
           ForEach(workstream.providerMix) { mix in
-            HStack(spacing: 3) {
+            HStack(spacing: Spacing.gap) {
               Image(systemName: mix.provider.icon)
                 .font(.system(size: 7, weight: .bold))
               Text("\(mix.provider.displayName) \(mix.count)")
                 .font(.system(size: 8, weight: .semibold, design: .rounded))
             }
             .foregroundStyle(mix.provider.accentColor)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.xxs)
             .background(mix.provider.accentColor.opacity(0.12), in: Capsule())
           }
         }
@@ -629,18 +629,18 @@ struct ActiveSessionsSection: View {
       Divider()
         .foregroundStyle(Color.surfaceBorder.opacity(0.28))
 
-      VStack(spacing: 6) {
+      VStack(spacing: Spacing.sm_) {
         ForEach(workstream.sessions, id: \.scopedID) { session in
           laneSessionRow(session)
         }
       }
     }
-    .padding(10)
+    .padding(Spacing.md_)
     .background(
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .fill(Color.backgroundSecondary.opacity(0.62))
         .overlay(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
             .stroke(Color.surfaceBorder.opacity(0.20), lineWidth: 1)
         )
     )
@@ -662,16 +662,16 @@ struct ActiveSessionsSection: View {
   }
 
   private func branchBadge(_ branch: String) -> some View {
-    HStack(spacing: 3) {
+    HStack(spacing: Spacing.gap) {
       Image(systemName: "arrow.triangle.branch")
         .font(.system(size: 8, weight: .semibold))
       Text(branch)
-        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+        .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
         .lineLimit(1)
     }
     .foregroundStyle(Color.gitBranch.opacity(0.92))
     .padding(.horizontal, 7)
-    .padding(.vertical, 3)
+    .padding(.vertical, Spacing.gap)
     .background(
       Capsule()
         .fill(Color.gitBranch.opacity(0.10))
@@ -685,17 +685,17 @@ struct ActiveSessionsSection: View {
   @ViewBuilder
   private func workstreamActivityBadge(_ workstream: WorkstreamCluster, lane: TriageLane) -> some View {
     if lane == .attention, let oldestBlockedAt = workstream.oldestBlockedAt {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: "hourglass.bottomhalf.filled")
           .font(.system(size: 8, weight: .semibold))
         Text("Blocked")
-          .font(.system(size: 9, weight: .semibold))
+          .font(.system(size: TypeScale.mini, weight: .semibold))
         Text(oldestBlockedAt, style: .relative)
-          .font(.system(size: 9, weight: .semibold, design: .monospaced))
+          .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
       }
       .foregroundStyle(Color.statusPermission)
       .padding(.horizontal, 7)
-      .padding(.vertical, 3)
+      .padding(.vertical, Spacing.gap)
       .background(
         Capsule()
           .fill(Color.statusPermission.opacity(0.12))
@@ -705,29 +705,29 @@ struct ActiveSessionsSection: View {
           )
       )
     } else {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: "clock")
           .font(.system(size: 8, weight: .semibold))
         Text(workstream.latestActivityAt, style: .relative)
-          .font(.system(size: 9, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
       }
       .foregroundStyle(Color.textTertiary)
       .padding(.horizontal, 7)
-      .padding(.vertical, 3)
+      .padding(.vertical, Spacing.gap)
       .background(Color.backgroundSecondary.opacity(0.75), in: Capsule())
     }
   }
 
   private func compactMetric(icon: String, text: String) -> some View {
-    HStack(spacing: 4) {
+    HStack(spacing: Spacing.xs) {
       Image(systemName: icon)
         .font(.system(size: 8, weight: .bold))
       Text(text)
-        .font(.system(size: 9, weight: .semibold, design: .rounded))
+        .font(.system(size: TypeScale.mini, weight: .semibold, design: .rounded))
     }
     .foregroundStyle(.secondary)
     .padding(.horizontal, 7)
-    .padding(.vertical, 3)
+    .padding(.vertical, Spacing.gap)
     .background(
       Capsule()
         .fill(Color.backgroundSecondary.opacity(0.55))
@@ -745,7 +745,7 @@ struct ActiveSessionsSection: View {
   // MARK: - Empty State
 
   private var emptyState: some View {
-    VStack(spacing: 12) {
+    VStack(spacing: Spacing.md) {
       ZStack {
         Circle()
           .fill(Color.backgroundTertiary)
@@ -756,28 +756,28 @@ struct ActiveSessionsSection: View {
           .foregroundStyle(Color.textTertiary)
       }
 
-      VStack(spacing: 4) {
+      VStack(spacing: Spacing.xs) {
         if filter != .all {
           Text("No \(filter.title) Sessions")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(.secondary)
           Text("Try a different filter or clear the current one.")
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(Color.textTertiary)
         } else {
           Text(mode == .now ? "No Sessions Need Action Right Now" : "No Active Sessions")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(.secondary)
 
           Text(mode == .now ? "Switch to All to browse every active project." :
             "Start an AI coding session to see it here.")
-            .font(.system(size: 11))
+            .font(.system(size: TypeScale.meta))
             .foregroundStyle(Color.textTertiary)
         }
       }
     }
     .frame(maxWidth: .infinity)
-    .padding(.vertical, 32)
+    .padding(.vertical, Spacing.xxl)
   }
 
   // MARK: - Data Builders
@@ -1007,7 +1007,7 @@ private extension View {
   @Previewable @State var filter: ActiveSessionWorkbenchFilter = .all
 
   ScrollView {
-    VStack(spacing: 24) {
+    VStack(spacing: Spacing.xl) {
       ActiveSessionsSection(
         sessions: [
           Session(
@@ -1078,7 +1078,7 @@ private extension View {
         filter: $filter
       )
     }
-    .padding(24)
+    .padding(Spacing.xl)
   }
   .background(Color.backgroundPrimary)
   .environment(AppRouter())

@@ -95,7 +95,7 @@ struct SettingsView: View {
 
   private var endpointHealthColor: Color {
     if enabledEndpointCount > 0, connectedEndpointCount == enabledEndpointCount {
-      return Color.statusSuccess
+      return Color.feedbackPositive
     }
     if connectedEndpointCount > 0 {
       return Color.statusQuestion
@@ -145,7 +145,7 @@ struct SettingsView: View {
         )
       }
     )
-    .animation(.spring(response: 0.24, dampingFraction: 0.86), value: selectedPane)
+    .animation(Motion.standard, value: selectedPane)
   }
 
   private var splitLayout: some View {
@@ -158,13 +158,13 @@ struct SettingsView: View {
   }
 
   private var sidebar: some View {
-    VStack(alignment: .leading, spacing: 16) {
+    VStack(alignment: .leading, spacing: Spacing.lg) {
       VStack(alignment: .leading, spacing: Spacing.xs) {
         Text("OrbitDock")
-          .font(.system(size: 12, weight: .semibold, design: .rounded))
+          .font(.system(size: TypeScale.caption, weight: .semibold, design: .rounded))
           .foregroundStyle(Color.accent)
         Text("Preferences")
-          .font(.system(size: 22, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.headline, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textPrimary)
       }
 
@@ -183,28 +183,28 @@ struct SettingsView: View {
 
       Spacer()
 
-      VStack(alignment: .leading, spacing: 8) {
-        HStack(spacing: 8) {
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        HStack(spacing: Spacing.sm) {
           Circle()
             .fill(endpointHealthColor)
             .frame(width: 7, height: 7)
           Text("Endpoint Health")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: TypeScale.meta, weight: .semibold))
             .foregroundStyle(Color.textSecondary)
         }
 
         Text(endpointHealthText)
-          .font(.system(size: 10, weight: .semibold, design: .monospaced))
+          .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
       }
-      .padding(12)
+      .padding(Spacing.md)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(
         Color.backgroundTertiary.opacity(OpacityTier.vivid),
-        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
       )
       .overlay(
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
           .strokeBorder(Color.panelBorder, lineWidth: 1)
       )
     }
@@ -216,9 +216,9 @@ struct SettingsView: View {
 
   private var compactLayout: some View {
     VStack(spacing: 0) {
-      HStack(alignment: .firstTextBaseline, spacing: 10) {
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.md_) {
         Text("Preferences")
-          .font(.system(size: 20, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.chatHeading2, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textPrimary)
         Spacer()
         #if os(iOS)
@@ -226,26 +226,26 @@ struct SettingsView: View {
             Button("Done") {
               dismiss()
             }
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.accent)
           }
         #endif
       }
       .padding(.horizontal, Spacing.section)
-      .padding(.top, 16)
-      .padding(.bottom, 12)
+      .padding(.top, Spacing.lg)
+      .padding(.bottom, Spacing.md)
 
       ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           ForEach(SettingsPane.allCases) { pane in
             Button {
               selectedPane = pane
             } label: {
-              HStack(spacing: 6) {
+              HStack(spacing: Spacing.sm_) {
                 Image(systemName: pane.icon)
-                  .font(.system(size: 10, weight: .semibold))
+                  .font(.system(size: TypeScale.micro, weight: .semibold))
                 Text(pane.title)
-                  .font(.system(size: 11, weight: .semibold))
+                  .font(.system(size: TypeScale.meta, weight: .semibold))
               }
               .foregroundStyle(selectedPane == pane ? Color.accent : Color.textSecondary)
               .padding(.horizontal, Spacing.md)
@@ -264,7 +264,7 @@ struct SettingsView: View {
         }
         .padding(.horizontal, Spacing.section)
       }
-      .padding(.bottom, 12)
+      .padding(.bottom, Spacing.md)
 
       Divider()
         .foregroundStyle(Color.panelBorder)
@@ -289,12 +289,12 @@ struct SettingsView: View {
 
   private var detailPane: some View {
     VStack(spacing: 0) {
-      HStack(alignment: .firstTextBaseline, spacing: 10) {
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.md_) {
         Text(selectedPane.title)
-          .font(.system(size: 20, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.chatHeading2, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textPrimary)
         Text(selectedPane.subtitle)
-          .font(.system(size: 12))
+          .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
         Spacer()
@@ -303,7 +303,7 @@ struct SettingsView: View {
             Button("Done") {
               dismiss()
             }
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.accent)
           }
         #endif
@@ -345,25 +345,25 @@ struct SettingsSidebarButton: View {
 
   var body: some View {
     Button(action: action) {
-      HStack(spacing: 10) {
+      HStack(spacing: Spacing.md_) {
         Image(systemName: icon)
-          .font(.system(size: 12, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(isSelected ? Color.accent : Color.textTertiary)
           .frame(width: 18)
 
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
           Text(title)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
           Text(subtitle)
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(Color.textQuaternary)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
       }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 10)
+      .padding(.horizontal, Spacing.lg_)
+      .padding(.vertical, Spacing.md_)
       .background(
         RoundedRectangle(cornerRadius: 9, style: .continuous)
           .fill(isSelected ? Color.surfaceSelected : Color.clear)
@@ -387,12 +387,12 @@ struct SettingsSection<Content: View>: View {
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       // Header
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm_) {
         Image(systemName: icon)
-          .font(.system(size: 11, weight: .semibold))
+          .font(.system(size: TypeScale.meta, weight: .semibold))
           .foregroundStyle(Color.accent)
         Text(title)
-          .font(.system(size: 12, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.textSecondary)
       }
 
@@ -402,9 +402,9 @@ struct SettingsSection<Content: View>: View {
       }
       .padding(Spacing.lg + 4)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+      .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
       .overlay(
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
           .strokeBorder(Color.panelBorder, lineWidth: 1)
       )
     }
@@ -448,10 +448,10 @@ struct GeneralSettingsView: View {
     ScrollView {
       VStack(spacing: Spacing.xl) {
         SettingsSection(title: "EDITOR", icon: "chevron.left.forwardslash.chevron.right") {
-          VStack(alignment: .leading, spacing: 10) {
+          VStack(alignment: .leading, spacing: Spacing.md_) {
             HStack {
               Text("Default Editor")
-                .font(.system(size: 13))
+                .font(.system(size: TypeScale.body))
 
               Spacer()
 
@@ -466,13 +466,13 @@ struct GeneralSettingsView: View {
             }
 
             Text("Used when clicking project paths to open in your editor.")
-              .font(.system(size: 11))
+              .font(.system(size: TypeScale.meta))
               .foregroundStyle(Color.textTertiary)
           }
         }
 
         SettingsSection(title: "AI NAMING", icon: "sparkles") {
-          VStack(alignment: .leading, spacing: 12) {
+          VStack(alignment: .leading, spacing: Spacing.md) {
             // Status row
             HStack {
               switch openAiKeyStatus {
@@ -480,25 +480,25 @@ struct GeneralSettingsView: View {
                   ProgressView()
                     .controlSize(.small)
                   Text("Checking...")
-                    .font(.system(size: 13))
+                    .font(.system(size: TypeScale.body))
                     .foregroundStyle(Color.textSecondary)
                 case .configured:
                   Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Color.statusSuccess)
+                    .foregroundStyle(Color.feedbackPositive)
                   Text("API key configured")
-                    .font(.system(size: 13))
+                    .font(.system(size: TypeScale.body))
                   Spacer()
                   Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 11))
+                    .font(.system(size: TypeScale.meta))
                     .foregroundStyle(Color.textTertiary)
                   Text("Encrypted")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: TypeScale.meta, weight: .medium))
                     .foregroundStyle(Color.textTertiary)
                 case .notConfigured:
                   Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(Color.statusPermission)
                   Text("No API key set")
-                    .font(.system(size: 13))
+                    .font(.system(size: TypeScale.body))
               }
               Spacer()
             }
@@ -506,28 +506,28 @@ struct GeneralSettingsView: View {
             Divider()
               .foregroundStyle(Color.panelBorder)
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
               if openAiKeyStatus == .configured, !isReplacingKey {
                 // Key exists — show confirmation with option to replace
                 Text("OpenAI API key for auto-naming sessions from first prompts.")
-                  .font(.system(size: 12))
+                  .font(.system(size: TypeScale.caption))
                   .foregroundStyle(Color.textSecondary)
 
-                HStack(spacing: 8) {
-                  HStack(spacing: 6) {
+                HStack(spacing: Spacing.sm) {
+                  HStack(spacing: Spacing.sm_) {
                     Image(systemName: "key.fill")
-                      .font(.system(size: 10))
+                      .font(.system(size: TypeScale.micro))
                       .foregroundStyle(Color.textTertiary)
                     Text("sk-\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}")
-                      .font(.system(size: 12).monospaced())
+                      .font(.system(size: TypeScale.caption).monospaced())
                       .foregroundStyle(Color.textSecondary)
                   }
-                  .padding(.horizontal, 10)
+                  .padding(.horizontal, Spacing.md_)
                   .padding(.vertical, 7)
                   .frame(maxWidth: .infinity, alignment: .leading)
-                  .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                  .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
                   .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                       .strokeBorder(Color.panelBorder, lineWidth: 1)
                   )
 
@@ -535,11 +535,11 @@ struct GeneralSettingsView: View {
                     isReplacingKey = true
                   } label: {
                     Text("Replace")
-                      .font(.system(size: 12, weight: .medium))
+                      .font(.system(size: TypeScale.caption, weight: .medium))
                       .foregroundStyle(Color.accent)
-                      .padding(.horizontal, 12)
+                      .padding(.horizontal, Spacing.md)
                       .padding(.vertical, 7)
-                      .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6))
+                      .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md))
                   }
                   .buttonStyle(.plain)
                 }
@@ -548,29 +548,29 @@ struct GeneralSettingsView: View {
                 Text(isReplacingKey
                   ? "Enter a new key to replace the existing one."
                   : "OpenAI API key for auto-naming sessions from first prompts.")
-                  .font(.system(size: 12))
+                  .font(.system(size: TypeScale.caption))
                   .foregroundStyle(Color.textSecondary)
 
-                HStack(spacing: 8) {
+                HStack(spacing: Spacing.sm) {
                   SecureField("sk-...", text: $openAiKey)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12).monospaced())
+                    .font(.system(size: TypeScale.caption).monospaced())
 
                   Button {
                     saveOpenAiKey()
                   } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: Spacing.xs) {
                       Image(systemName: openAiKeySaved ? "checkmark" : "arrow.up.circle")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: TypeScale.meta, weight: .medium))
                       Text(openAiKeySaved ? "Saved" : "Save")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: TypeScale.caption, weight: .medium))
                     }
-                    .foregroundStyle(openAiKeySaved ? Color.statusSuccess : Color.backgroundPrimary)
-                    .padding(.horizontal, 12)
+                    .foregroundStyle(openAiKeySaved ? Color.feedbackPositive : Color.backgroundPrimary)
+                    .padding(.horizontal, Spacing.md)
                     .padding(.vertical, 7)
                     .background(
-                      openAiKeySaved ? Color.statusSuccess.opacity(0.2) : Color.accent,
-                      in: RoundedRectangle(cornerRadius: 6)
+                      openAiKeySaved ? Color.feedbackPositive.opacity(0.2) : Color.accent,
+                      in: RoundedRectangle(cornerRadius: Radius.md)
                     )
                   }
                   .buttonStyle(.plain)
@@ -582,9 +582,9 @@ struct GeneralSettingsView: View {
                       openAiKey = ""
                     } label: {
                       Text("Cancel")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: TypeScale.caption, weight: .medium))
                         .foregroundStyle(Color.textSecondary)
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, Spacing.md_)
                         .padding(.vertical, 7)
                     }
                     .buttonStyle(.plain)
@@ -593,7 +593,7 @@ struct GeneralSettingsView: View {
 
                 if openAiKeySaved {
                   Text("Key encrypted and saved — new sessions will be auto-named.")
-                    .font(.system(size: 11))
+                    .font(.system(size: TypeScale.meta))
                     .foregroundStyle(Color.textTertiary)
                 }
               }
@@ -602,40 +602,40 @@ struct GeneralSettingsView: View {
         }
 
         SettingsSection(title: "WHISPER DICTATION", icon: "waveform.badge.mic") {
-          VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
+          VStack(alignment: .leading, spacing: Spacing.lg_) {
+            VStack(alignment: .leading, spacing: Spacing.sm_) {
               Toggle(isOn: $whisperDictationEnabled) {
                 Text("Enable Local Dictation")
-                  .font(.system(size: 13))
+                  .font(.system(size: TypeScale.body))
               }
               .toggleStyle(.switch)
               .tint(Color.accent)
 
               Text("Transcribe microphone audio on-device using whisper.cpp.")
-                .font(.system(size: 11))
+                .font(.system(size: TypeScale.meta))
                 .foregroundStyle(Color.textTertiary)
             }
 
             Divider()
               .foregroundStyle(Color.panelBorder)
 
-            HStack(spacing: 8) {
+            HStack(spacing: Spacing.sm) {
               switch whisperModelStatus {
                 case .ready:
                   Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Color.statusSuccess)
+                    .foregroundStyle(Color.feedbackPositive)
                   Text("Model ready")
-                    .font(.system(size: 13))
+                    .font(.system(size: TypeScale.body))
                 case .missing:
                   Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(Color.statusPermission)
                   Text("Model not found")
-                    .font(.system(size: 13))
+                    .font(.system(size: TypeScale.body))
                 case .unavailable:
                   Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(Color.statusError)
                   Text("Whisper unavailable in this build")
-                    .font(.system(size: 13))
+                    .font(.system(size: TypeScale.body))
               }
               Spacer()
             }
@@ -648,15 +648,15 @@ struct GeneralSettingsView: View {
                   then falls back to Application Support.
                   """
                 )
-                .font(.system(size: 11))
+                .font(.system(size: TypeScale.meta))
                 .foregroundStyle(Color.textTertiary)
               case let .unavailable(message):
                 Text(message)
-                  .font(.system(size: 11))
+                  .font(.system(size: TypeScale.meta))
                   .foregroundStyle(Color.textTertiary)
               case .ready:
                 Text("Local Whisper model is available and ready for dictation.")
-                  .font(.system(size: 11))
+                  .font(.system(size: TypeScale.meta))
                   .foregroundStyle(Color.textTertiary)
             }
           }
@@ -748,34 +748,34 @@ struct NotificationSettingsView: View {
     ScrollView {
       VStack(spacing: Spacing.xl) {
         SettingsSection(title: "ALERTS", icon: "bell.badge") {
-          VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
+          VStack(alignment: .leading, spacing: Spacing.lg_) {
+            VStack(alignment: .leading, spacing: Spacing.sm_) {
               Toggle(isOn: $notificationsEnabled) {
                 Text("Enable Notifications")
-                  .font(.system(size: 13))
+                  .font(.system(size: TypeScale.body))
               }
               .toggleStyle(.switch)
               .tint(Color.accent)
 
               Text("Master switch for all OrbitDock notifications.")
-                .font(.system(size: 11))
+                .font(.system(size: TypeScale.meta))
                 .foregroundStyle(Color.textTertiary)
             }
 
             Divider()
               .foregroundStyle(Color.panelBorder)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Spacing.sm_) {
               Toggle(isOn: $notifyOnWorkComplete) {
                 Text("Notify When Agent Finishes")
-                  .font(.system(size: 13))
+                  .font(.system(size: TypeScale.body))
               }
               .toggleStyle(.switch)
               .tint(Color.accent)
               .disabled(!notificationsEnabled)
 
               Text("Alert when a session stops working and is ready for input.")
-                .font(.system(size: 11))
+                .font(.system(size: TypeScale.meta))
                 .foregroundStyle(Color.textTertiary)
             }
             .opacity(notificationsEnabled ? 1 : 0.5)
@@ -783,10 +783,10 @@ struct NotificationSettingsView: View {
         }
 
         SettingsSection(title: "SOUND", icon: "speaker.wave.2") {
-          VStack(alignment: .leading, spacing: 10) {
+          VStack(alignment: .leading, spacing: Spacing.md_) {
             HStack {
               Text("Notification Sound")
-                .font(.system(size: 13))
+                .font(.system(size: TypeScale.body))
 
               Spacer()
 
@@ -803,12 +803,12 @@ struct NotificationSettingsView: View {
                 previewSound()
               } label: {
                 Image(systemName: "play.fill")
-                  .font(.system(size: 10, weight: .semibold))
+                  .font(.system(size: TypeScale.micro, weight: .semibold))
                   .foregroundStyle(notificationSound == "none" ? Color.textTertiary : Color.accent)
                   .frame(width: 28, height: 28)
-                  .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                  .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
                   .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                       .strokeBorder(Color.panelBorder, lineWidth: 1)
                   )
               }
@@ -818,7 +818,7 @@ struct NotificationSettingsView: View {
             }
 
             Text("Plays when a session needs your attention.")
-              .font(.system(size: 11))
+              .font(.system(size: TypeScale.meta))
               .foregroundStyle(Color.textTertiary)
           }
         }
@@ -829,18 +829,18 @@ struct NotificationSettingsView: View {
         Button {
           sendTestNotification()
         } label: {
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: "bell.badge")
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.meta, weight: .medium))
             Text("Send Test Notification")
-              .font(.system(size: 12, weight: .medium))
+              .font(.system(size: TypeScale.caption, weight: .medium))
           }
           .foregroundStyle(notificationsEnabled ? Color.accent : Color.textTertiary)
-          .padding(.horizontal, 14)
-          .padding(.vertical, 8)
-          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+          .padding(.horizontal, Spacing.lg_)
+          .padding(.vertical, Spacing.sm)
+          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
           .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
               .strokeBorder(Color.panelBorder, lineWidth: 1)
           )
         }
@@ -908,26 +908,26 @@ struct SetupSettingsView: View {
       VStack(spacing: Spacing.xl) {
         // Claude Code section
         SettingsSection(title: "CLAUDE CODE", icon: "terminal") {
-          VStack(alignment: .leading, spacing: 14) {
+          VStack(alignment: .leading, spacing: Spacing.lg_) {
             // Status row
             HStack {
               if let configured = hooksConfigured {
                 if configured {
                   Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Color.statusSuccess)
+                    .foregroundStyle(Color.feedbackPositive)
                   Text("Hooks configured")
-                    .font(.system(size: 13))
+                    .font(.system(size: TypeScale.body))
                 } else {
                   Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(Color.statusPermission)
                   Text("Hooks not configured")
-                    .font(.system(size: 13))
+                    .font(.system(size: TypeScale.body))
                 }
               } else {
                 ProgressView()
                   .controlSize(.small)
                 Text("Checking...")
-                  .font(.system(size: 13))
+                  .font(.system(size: TypeScale.body))
                   .foregroundStyle(Color.textSecondary)
               }
               Spacer()
@@ -937,42 +937,42 @@ struct SetupSettingsView: View {
               .foregroundStyle(Color.panelBorder)
 
             // Instructions
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
               Text("Add hooks to ~/.claude/settings.json:")
-                .font(.system(size: 12))
+                .font(.system(size: TypeScale.caption))
                 .foregroundStyle(Color.textSecondary)
 
-              HStack(spacing: 10) {
+              HStack(spacing: Spacing.md_) {
                 Button {
                   copyToClipboard()
                 } label: {
-                  HStack(spacing: 6) {
+                  HStack(spacing: Spacing.sm_) {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                      .font(.system(size: 12, weight: .medium))
+                      .font(.system(size: TypeScale.caption, weight: .medium))
                     Text(copied ? "Copied!" : "Copy Hook Config")
-                      .font(.system(size: 12, weight: .medium))
+                      .font(.system(size: TypeScale.caption, weight: .medium))
                   }
-                  .foregroundStyle(copied ? Color.statusSuccess : .primary)
-                  .padding(.horizontal, 14)
-                  .padding(.vertical, 8)
-                  .background(Color.accent.opacity(copied ? 0.2 : 1), in: RoundedRectangle(cornerRadius: 6))
-                  .foregroundStyle(copied ? Color.statusSuccess : Color.backgroundPrimary)
+                  .foregroundStyle(copied ? Color.feedbackPositive : .primary)
+                  .padding(.horizontal, Spacing.lg_)
+                  .padding(.vertical, Spacing.sm)
+                  .background(Color.accent.opacity(copied ? 0.2 : 1), in: RoundedRectangle(cornerRadius: Radius.md))
+                  .foregroundStyle(copied ? Color.feedbackPositive : Color.backgroundPrimary)
                 }
                 .buttonStyle(.plain)
 
                 Button {
                   openSettingsFile()
                 } label: {
-                  HStack(spacing: 6) {
+                  HStack(spacing: Spacing.sm_) {
                     Image(systemName: "arrow.up.forward.square")
-                      .font(.system(size: 11, weight: .medium))
+                      .font(.system(size: TypeScale.meta, weight: .medium))
                     Text("Open File")
-                      .font(.system(size: 12, weight: .medium))
+                      .font(.system(size: TypeScale.caption, weight: .medium))
                   }
                   .foregroundStyle(Color.accent)
-                  .padding(.horizontal, 12)
-                  .padding(.vertical, 8)
-                  .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6))
+                  .padding(.horizontal, Spacing.md)
+                  .padding(.vertical, Spacing.sm)
+                  .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md))
                 }
                 .buttonStyle(.plain)
 
@@ -982,7 +982,7 @@ struct SetupSettingsView: View {
                   checkHooksConfiguration()
                 } label: {
                   Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: TypeScale.meta, weight: .medium))
                     .foregroundStyle(Color.textSecondary)
                 }
                 .buttonStyle(.plain)
@@ -994,15 +994,15 @@ struct SetupSettingsView: View {
 
         // Codex section
         SettingsSection(title: "CODEX CLI", icon: "sparkles") {
-          VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+          VStack(alignment: .leading, spacing: Spacing.md) {
+            HStack(spacing: Spacing.sm) {
               Image(systemName: serverState
                 .codexAccount == nil ? "person.crop.circle.badge.exclamationmark" :
                 "person.crop.circle.badge.checkmark")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(serverState.codexAccount == nil ? Color.statusPermission : Color.statusSuccess)
+                .font(.system(size: TypeScale.body, weight: .semibold))
+                .foregroundStyle(serverState.codexAccount == nil ? Color.statusPermission : Color.feedbackPositive)
               Text("Account")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: TypeScale.body, weight: .semibold))
               Spacer()
               codexAuthBadge
             }
@@ -1010,38 +1010,38 @@ struct SetupSettingsView: View {
             switch serverState.codexAccount {
               case .apiKey?:
                 Text("Connected with API key. Switch to ChatGPT sign-in for subscription-backed limits.")
-                  .font(.system(size: 12))
+                  .font(.system(size: TypeScale.caption))
                   .foregroundStyle(Color.textSecondary)
               case let .chatgpt(email, planType)?:
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
                   if let email {
                     Text(email)
-                      .font(.system(size: 13, weight: .medium))
+                      .font(.system(size: TypeScale.body, weight: .medium))
                       .foregroundStyle(.primary)
                   } else {
                     Text("Signed in with ChatGPT")
-                      .font(.system(size: 13, weight: .medium))
+                      .font(.system(size: TypeScale.body, weight: .medium))
                       .foregroundStyle(.primary)
                   }
                   if let planType {
                     Text(planType.uppercased())
-                      .font(.system(size: 11, weight: .semibold, design: .rounded))
+                      .font(.system(size: TypeScale.meta, weight: .semibold, design: .rounded))
                       .foregroundStyle(Color.accent)
                   }
                 }
               case .none:
                 Text("Sign in with ChatGPT to manage Codex sessions directly in OrbitDock.")
-                  .font(.system(size: 12))
+                  .font(.system(size: TypeScale.caption))
                   .foregroundStyle(Color.textSecondary)
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: Spacing.md_) {
               if serverState.codexLoginInProgress {
                 Button {
                   serverState.cancelCodexChatgptLogin()
                 } label: {
                   Label("Cancel Sign-In", systemImage: "xmark.circle")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: TypeScale.caption, weight: .semibold))
                 }
                 .buttonStyle(.bordered)
               } else if serverState.codexAccount == nil {
@@ -1049,7 +1049,7 @@ struct SetupSettingsView: View {
                   serverState.startCodexChatgptLogin()
                 } label: {
                   Label("Sign in with ChatGPT", systemImage: "sparkles")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: TypeScale.caption, weight: .semibold))
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Color.accent)
@@ -1059,13 +1059,13 @@ struct SetupSettingsView: View {
                 Button("Usage") {
                   openCodexUsagePage()
                 }
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: TypeScale.caption, weight: .semibold))
                 .buttonStyle(.bordered)
 
                 Button("Sign Out") {
                   serverState.logoutCodexAccount()
                 }
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: TypeScale.caption, weight: .semibold))
                 .buttonStyle(.bordered)
               }
 
@@ -1073,12 +1073,12 @@ struct SetupSettingsView: View {
             }
 
             if let error = serverState.codexAuthError, !error.isEmpty {
-              HStack(spacing: 8) {
+              HStack(spacing: Spacing.sm) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                  .font(.system(size: 11))
+                  .font(.system(size: TypeScale.meta))
                   .foregroundStyle(Color.statusPermission)
                 Text(error)
-                  .font(.system(size: 11))
+                  .font(.system(size: TypeScale.meta))
                   .foregroundStyle(Color.textSecondary)
               }
             }
@@ -1098,25 +1098,25 @@ struct SetupSettingsView: View {
   private var codexAuthBadge: some View {
     if serverState.codexLoginInProgress {
       Label("Signing In", systemImage: "clock")
-        .font(.system(size: 10, weight: .bold, design: .rounded))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
         .background(Color.statusWorking.opacity(0.18), in: Capsule())
         .foregroundStyle(Color.statusWorking)
     } else if serverState.codexAccount == nil {
       Label("Not Connected", systemImage: "xmark")
-        .font(.system(size: 10, weight: .bold, design: .rounded))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
         .background(Color.statusPermission.opacity(0.16), in: Capsule())
         .foregroundStyle(Color.statusPermission)
     } else {
       Label("Connected", systemImage: "checkmark")
-        .font(.system(size: 10, weight: .bold, design: .rounded))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.statusSuccess.opacity(0.2), in: Capsule())
-        .foregroundStyle(Color.statusSuccess)
+        .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
+        .background(Color.feedbackPositive.opacity(0.2), in: Capsule())
+        .foregroundStyle(Color.feedbackPositive)
     }
   }
 
@@ -1248,7 +1248,7 @@ struct DebugSettingsView: View {
 
   private var endpointStatusColor: Color {
     if enabledEndpointCount > 0, connectedEndpointCount == enabledEndpointCount {
-      return Color.statusSuccess
+      return Color.feedbackPositive
     }
     if connectedEndpointCount > 0 {
       return Color.statusQuestion
@@ -1267,17 +1267,17 @@ struct DebugSettingsView: View {
     ScrollView {
       VStack(spacing: Spacing.xl) {
         SettingsSection(title: "ENDPOINTS", icon: "network") {
-          HStack(spacing: 10) {
+          HStack(spacing: Spacing.md_) {
             Image(systemName: "antenna.radiowaves.left.and.right")
-              .font(.system(size: 12, weight: .semibold))
+              .font(.system(size: TypeScale.caption, weight: .semibold))
               .foregroundStyle(endpointStatusColor)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: Spacing.gap) {
               Text(endpointStatusText)
-                .font(.system(size: 13))
+                .font(.system(size: TypeScale.body))
                 .foregroundStyle(.primary)
               Text("\(endpointCount) total endpoints configured")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color.textTertiary)
             }
 
@@ -1293,7 +1293,7 @@ struct DebugSettingsView: View {
           Text(
             "Choose one control-plane endpoint for this Mac while keeping additional endpoints connected in parallel."
           )
-          .font(.system(size: 11))
+          .font(.system(size: TypeScale.meta))
           .foregroundStyle(Color.textTertiary)
         }
 
@@ -1305,7 +1305,7 @@ struct DebugSettingsView: View {
               .frame(width: 8, height: 8)
 
             Text(installStateLabel)
-              .font(.system(size: 13))
+              .font(.system(size: TypeScale.body))
 
             Spacer()
 
@@ -1314,7 +1314,7 @@ struct DebugSettingsView: View {
 
           if let error = serverManager.installError {
             Text(error)
-              .font(.system(size: 11))
+              .font(.system(size: TypeScale.meta))
               .foregroundStyle(Color.statusError)
           }
         }
@@ -1327,7 +1327,7 @@ struct DebugSettingsView: View {
               .frame(width: 8, height: 8)
 
             Text("WebSocket: \(connectionText)")
-              .font(.system(size: 13))
+              .font(.system(size: TypeScale.body))
 
             Spacer()
 
@@ -1338,11 +1338,11 @@ struct DebugSettingsView: View {
           }
 
           HStack {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
               Text("Binary")
-                .font(.system(size: 13))
+                .font(.system(size: TypeScale.body))
               Text(serverManager.findServerBinary() ?? "Not found")
-                .font(.system(size: 11).monospaced())
+                .font(.system(size: TypeScale.meta).monospaced())
                 .foregroundStyle(Color.textTertiary)
             }
 
@@ -1370,7 +1370,7 @@ struct DebugSettingsView: View {
 
   private var installStateColor: Color {
     switch serverManager.installState {
-      case .running: .statusSuccess
+      case .running: .feedbackPositive
       case .installed: .statusReply
       case .remote: .statusQuestion
       case .notConfigured: .statusEnded
@@ -1393,7 +1393,7 @@ struct DebugSettingsView: View {
     #if os(macOS)
       switch serverManager.installState {
         case .running:
-        HStack(spacing: 8) {
+        HStack(spacing: Spacing.sm) {
           Button("Stop") {
             Task { try? await serverManager.stopService() }
           }
@@ -1439,7 +1439,7 @@ struct DebugSettingsView: View {
   private var connectionColor: Color {
     switch activeConnectionStatus {
       case .connected:
-        .statusSuccess
+        .feedbackPositive
       case .connecting:
         .statusQuestion
       case .disconnected:
@@ -1470,7 +1470,7 @@ struct DiagnosticsSettingsView: View {
     ScrollView {
       VStack(spacing: Spacing.xl) {
         SettingsSection(title: "LOGS", icon: "doc.text") {
-          VStack(alignment: .leading, spacing: 12) {
+          VStack(alignment: .leading, spacing: Spacing.md) {
             diagnosticsPathRow(
               label: "Codex Log",
               path: "~/.orbitdock/logs/codex.log"
@@ -1509,11 +1509,11 @@ struct DiagnosticsSettingsView: View {
 
   private func diagnosticsPathRow(label: String, path: String, action: @escaping () -> Void) -> some View {
     HStack {
-      VStack(alignment: .leading, spacing: 4) {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
         Text(label)
-          .font(.system(size: 13))
+          .font(.system(size: TypeScale.body))
         Text(path)
-          .font(.system(size: 11).monospaced())
+          .font(.system(size: TypeScale.meta).monospaced())
           .foregroundStyle(Color.textTertiary)
       }
 
