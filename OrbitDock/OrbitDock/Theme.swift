@@ -42,6 +42,10 @@ enum TypeScale {
   static let chatHeading1: CGFloat = 24
   static let chatHeading2: CGFloat = 20
   static let chatHeading3: CGFloat = 16
+  /// Thinking-mode heading 1 — scaled down from chatHeading1 but still dominant
+  static let thinkingHeading1: CGFloat = 18
+  /// Thinking-mode heading 2 — clear step below thinkingHeading1
+  static let thinkingHeading2: CGFloat = 16
   /// Inline and block code inside assistant responses
   static let chatCode: CGFloat = 14
   /// Section headers ("Active Agents") — dominant dashboard tier

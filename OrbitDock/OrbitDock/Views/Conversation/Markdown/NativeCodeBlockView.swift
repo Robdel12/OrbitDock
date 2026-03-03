@@ -110,18 +110,18 @@ final class NativeCodeBlockView: PlatformView {
       headerContainer.addSubview(languageDot)
 
       languageLabel.font = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .medium)
-      languageLabel.textColor = NSColor.secondaryLabelColor
+      languageLabel.textColor = PlatformColor(Color.textSecondary)
       languageLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(languageLabel)
 
       lineCountLabel.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
-      lineCountLabel.textColor = NSColor.tertiaryLabelColor
+      lineCountLabel.textColor = PlatformColor(Color.textTertiary)
       lineCountLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(lineCountLabel)
 
       copyButton.isBordered = false
       copyButton.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
-      copyButton.contentTintColor = NSColor.secondaryLabelColor
+      copyButton.contentTintColor = PlatformColor(Color.textSecondary)
       copyButton.target = self
       copyButton.action = #selector(handleCopy)
       copyButton.translatesAutoresizingMaskIntoConstraints = false
@@ -135,18 +135,18 @@ final class NativeCodeBlockView: PlatformView {
       headerContainer.addSubview(languageDot)
 
       languageLabel.font = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .medium)
-      languageLabel.textColor = .secondaryLabel
+      languageLabel.textColor = PlatformColor(Color.textSecondary)
       languageLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(languageLabel)
 
       lineCountLabel.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
-      lineCountLabel.textColor = .tertiaryLabel
+      lineCountLabel.textColor = PlatformColor(Color.textTertiary)
       lineCountLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(lineCountLabel)
 
       copyButton.setTitle("Copy", for: .normal)
       copyButton.titleLabel?.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
-      copyButton.setTitleColor(.secondaryLabel, for: .normal)
+      copyButton.setTitleColor(PlatformColor(Color.textSecondary), for: .normal)
       copyButton.addTarget(self, action: #selector(handleCopy), for: .touchUpInside)
       copyButton.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(copyButton)
@@ -189,7 +189,7 @@ final class NativeCodeBlockView: PlatformView {
     #if os(macOS)
       expandButton.isBordered = false
       expandButton.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
-      expandButton.contentTintColor = NSColor.tertiaryLabelColor
+      expandButton.contentTintColor = PlatformColor(Color.textTertiary)
       expandButton.target = self
       expandButton.action = #selector(handleExpandToggle)
       expandButton.translatesAutoresizingMaskIntoConstraints = false
@@ -197,7 +197,7 @@ final class NativeCodeBlockView: PlatformView {
       addSubview(expandButton)
     #else
       expandButton.titleLabel?.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
-      expandButton.setTitleColor(.tertiaryLabel, for: .normal)
+      expandButton.setTitleColor(PlatformColor(Color.textTertiary), for: .normal)
       expandButton.addTarget(self, action: #selector(handleExpandToggle), for: .touchUpInside)
       expandButton.translatesAutoresizingMaskIntoConstraints = false
       expandButton.isHidden = true

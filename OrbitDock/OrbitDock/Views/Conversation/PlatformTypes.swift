@@ -67,7 +67,7 @@ extension PlatformFont {
   func withBoldItalic() -> PlatformFont {
     #if os(macOS)
       let boldDesc = PlatformFont.systemFont(ofSize: pointSize, weight: .bold).fontDescriptor
-      let descriptor = boldDesc.withSymbolicTraits(.italic)
+      let descriptor = boldDesc.withSymbolicTraits([.bold, .italic])
       return NSFont(descriptor: descriptor, size: pointSize)
         ?? PlatformFont.systemFont(ofSize: pointSize, weight: .bold)
     #else

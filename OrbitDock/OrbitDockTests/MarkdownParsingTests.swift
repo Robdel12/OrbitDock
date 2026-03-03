@@ -166,8 +166,8 @@ struct MarkdownParsingTests {
 
     let paragraphStyle = firstText?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
     #expect(paragraphStyle != nil)
-    #expect((paragraphStyle?.lineSpacing ?? 0) >= 6)
-    #expect((paragraphStyle?.paragraphSpacing ?? 0) >= 14)
+    #expect((paragraphStyle?.lineSpacing ?? 0) == 6)
+    #expect((paragraphStyle?.paragraphSpacing ?? 0) == 16)
   }
 
   @Test func listContinuationLinesRemainStructured() {
@@ -406,6 +406,69 @@ struct MarkdownParsingTests {
     #expect(h4 > 0)
   }
 
+  @Test func boldTextAppliesBoldFontWeight() {
+    let blocks = MarkdownSystemParser.parse("This has **bold** text.")
+    let text = firstText(in: blocks)
+    #expect(text != nil)
+    guard let text else { return }
+
+    let font = fontAt(substring: "bold", in: text)
+    #expect(font != nil)
+    #if os(macOS)
+      #expect(font?.fontDescriptor.symbolicTraits.contains(.bold) == true)
+    #else
+      #expect(font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
+    #endif
+  }
+
+  @Test func italicTextAppliesItalicFontTrait() {
+    let blocks = MarkdownSystemParser.parse("This has *italic* text.")
+    let text = firstText(in: blocks)
+    #expect(text != nil)
+    guard let text else { return }
+
+    let font = fontAt(substring: "italic", in: text)
+    #expect(font != nil)
+    #if os(macOS)
+      #expect(font?.fontDescriptor.symbolicTraits.contains(.italic) == true)
+    #else
+      #expect(font?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true)
+    #endif
+  }
+
+  @Test func strikethroughTextAppliesStrikethroughAttribute() {
+    let blocks = MarkdownSystemParser.parse("This has ~~struck~~ text.")
+    let text = firstText(in: blocks)
+    #expect(text != nil)
+    guard let text else { return }
+
+    let range = (text.string as NSString).range(of: "struck")
+    #expect(range.location != NSNotFound)
+    guard range.location != NSNotFound else { return }
+
+    let strikethrough = text.attribute(.strikethroughStyle, at: range.location, effectiveRange: nil) as? Int
+    #expect(strikethrough == NSUnderlineStyle.single.rawValue)
+  }
+
+  @Test func boldItalicCombinationAppliesBothTraits() {
+    let blocks = MarkdownSystemParser.parse("This has ***bolditalic*** text.")
+    let text = firstText(in: blocks)
+    #expect(text != nil)
+    guard let text else { return }
+
+    let font = fontAt(substring: "bolditalic", in: text)
+    #expect(font != nil)
+    #if os(macOS)
+      let traits = font?.fontDescriptor.symbolicTraits ?? []
+      #expect(traits.contains(.bold))
+      #expect(traits.contains(.italic))
+    #else
+      let traits = font?.fontDescriptor.symbolicTraits ?? []
+      #expect(traits.contains(.traitBold))
+      #expect(traits.contains(.traitItalic))
+    #endif
+  }
+
   @Test func thinkingStyleUsesSmallerHeadingAndBodyTypography() {
     let markdown = """
     ## Heading
@@ -425,6 +488,51 @@ struct MarkdownParsingTests {
     let standardSize = fontPointSize(in: standardHeading) ?? 0
     let thinkingSize = fontPointSize(in: thinkingHeading) ?? 0
     #expect(thinkingSize < standardSize)
+    #expect(standardSize == 20, "Standard H2 should be 20pt")
+    #expect(thinkingSize == 16, "Thinking H2 should be 16pt")
+  }
+
+  @Test func thinkingModeHeadingsFormDistinctHierarchy() {
+    let markdown = """
+    # H1
+
+    ## H2
+
+    ### H3
+
+    Body text.
+    """
+    let blocks = MarkdownSystemParser.parse(markdown, style: .thinking)
+    let textBlocks = blocks.compactMap { block -> NSAttributedString? in
+      if case let .text(text) = block { return text }
+      return nil
+    }
+
+    #expect(textBlocks.count >= 4)
+    guard textBlocks.count >= 4 else { return }
+
+    let h1Size = fontPointSize(in: textBlocks[0]) ?? 0
+    let h2Size = fontPointSize(in: textBlocks[1]) ?? 0
+    let h3Size = fontPointSize(in: textBlocks[2]) ?? 0
+    let bodySize = fontPointSize(in: textBlocks[3]) ?? 0
+
+    #expect(h1Size > h2Size, "H1 (\(h1Size)) should be larger than H2 (\(h2Size))")
+    #expect(h2Size > h3Size, "H2 (\(h2Size)) should be larger than H3 (\(h3Size))")
+    #expect(h3Size > bodySize, "H3 (\(h3Size)) should be larger than body (\(bodySize))")
+
+    #expect(h1Size == 18, "H1 thinking should be 18pt, got \(h1Size)")
+    #expect(h2Size == 16, "H2 thinking should be 16pt, got \(h2Size)")
+    #expect(h3Size == 14, "H3 thinking should be 14pt, got \(h3Size)")
+    #expect(bodySize == 13, "Body thinking should be 13pt, got \(bodySize)")
+  }
+
+  @Test func interBlockSpacingUsesGridAlignedValues() {
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .codeBlock, style: .standard) == 12)
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .table, style: .standard) == 12)
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .blockquote, style: .standard) == 12)
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .codeBlock, style: .thinking) == 8)
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .thematicBreak, style: .standard) == 16)
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .thematicBreak, style: .thinking) == 8)
   }
 
   private func firstTable(in blocks: [MarkdownBlock]) -> (headers: [String], rows: [[String]])? {
@@ -451,6 +559,12 @@ struct MarkdownParsingTests {
       case .table: "table"
       case .thematicBreak: "thematicBreak"
     }
+  }
+
+  private func fontAt(substring: String, in text: NSAttributedString) -> PlatformFont? {
+    let range = (text.string as NSString).range(of: substring)
+    guard range.location != NSNotFound else { return nil }
+    return text.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont
   }
 
   private func fontPointSize(in text: NSAttributedString) -> CGFloat? {

@@ -21,7 +21,12 @@ import SwiftUI
 final class NativeMarkdownContentView: PlatformView {
   // MARK: - Constants
 
-  private static let blockquoteBarColor = PlatformColor(Color.accentMuted).withAlphaComponent(0.9)
+  private static func blockquoteBarColor(style: ContentStyle) -> PlatformColor {
+    switch style {
+      case .standard: PlatformColor(Color.accentMuted).withAlphaComponent(0.9)
+      case .thinking: PlatformColor(Color.textTertiary).withAlphaComponent(0.5)
+    }
+  }
 
   #if os(macOS)
     override var isFlipped: Bool {
@@ -118,10 +123,10 @@ final class NativeMarkdownContentView: PlatformView {
           let bar = PlatformView(frame: CGRect(x: 0, y: yOffset, width: barWidth, height: quoteHeight))
           #if os(macOS)
             bar.wantsLayer = true
-            bar.layer?.backgroundColor = Self.blockquoteBarColor.cgColor
+            bar.layer?.backgroundColor = Self.blockquoteBarColor(style: style).cgColor
             bar.layer?.cornerRadius = 1.5
           #else
-            bar.backgroundColor = Self.blockquoteBarColor
+            bar.backgroundColor = Self.blockquoteBarColor(style: style)
             bar.layer.cornerRadius = 1.5
           #endif
           addSubview(bar)
@@ -351,11 +356,7 @@ private final class ThematicBreakView: PlatformView {
       guard let context = UIGraphicsGetCurrentContext() else { return }
     #endif
 
-    #if os(macOS)
-      let dotColor = PlatformColor.secondaryLabelColor.withAlphaComponent(0.4)
-    #else
-      let dotColor = PlatformColor.secondaryLabel.withAlphaComponent(0.4)
-    #endif
+    let dotColor = PlatformColor(Color.textQuaternary).withAlphaComponent(0.6)
     context.setFillColor(dotColor.cgColor)
 
     let dotSize: CGFloat = 4
