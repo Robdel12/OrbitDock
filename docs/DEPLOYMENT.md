@@ -132,7 +132,8 @@ orbitdock-server tunnel --name orbitdock
 The server auto-detects Tailscale during `init` and prints your Tailscale IP.
 
 ```bash
-orbitdock-server start --bind 0.0.0.0:4000 --auth-token $(cat ~/.orbitdock/auth-token)
+orbitdock-server generate-token
+orbitdock-server start --bind 0.0.0.0:4000
 # Access via your Tailscale IP: http://100.x.y.z:4000
 ```
 
@@ -187,16 +188,15 @@ Always use an auth token for remote deployments:
 
 ```bash
 orbitdock-server generate-token
-# Token saved to ~/.orbitdock/auth-token
-
-orbitdock-server start --auth-token $(cat ~/.orbitdock/auth-token)
+# Copy the token now (only shown once), then start normally:
+orbitdock-server start --bind 0.0.0.0:4000
 ```
 
 The token is required in:
 - `Authorization: Bearer <token>` header for HTTP requests
 - `Authorization: Bearer <token>` header for WebSocket handshake requests
 
-Unauthenticated endpoints: `/health`, `/metrics`
+Unauthenticated endpoints: `/health`
 
 CORS is disabled by default. If you need browser access, explicitly set
 `ORBITDOCK_CORS_ALLOWED_ORIGINS` (comma-separated origins).
@@ -246,6 +246,8 @@ orbitdock-server install-hooks \
 The `/metrics` endpoint exposes Prometheus-compatible metrics:
 
 ```bash
+# If auth is enabled (recommended), include Authorization header:
+# curl -H "Authorization: Bearer <token>" http://localhost:4000/metrics
 curl http://localhost:4000/metrics
 ```
 
@@ -306,13 +308,13 @@ Checks: data directory, database, encryption key, Claude CLI, auth token, hook t
 ### Common Issues
 
 **"Hook transport config not found"**
-Run `orbitdock-server install-hooks` to generate `~/.orbitdock/hook-forward.json`.
+Run `orbitdock-server install-hooks` to generate `~/.orbitdock/hook-forward.json` (includes encrypted token when provided).
 
 **"Connection refused"**
 Server not running. Check `orbitdock-server status` and start with `orbitdock-server start`.
 
 **"Unauthorized"**
-Auth token mismatch. Check the token in `~/.orbitdock/auth-token` matches what the server was started with.
+Auth token mismatch. Issue a new token with `orbitdock-server generate-token` and reinstall hooks with `--auth-token <token>`.
 
 **"Events not arriving"**
 1. Check hook transport config exists: `ls -la ~/.orbitdock/hook-forward.json`

@@ -29,11 +29,9 @@ Affected WS requests include all read/utility requests (`check_openai_key`, `fet
 
 ## Auth
 
-When server starts with `--auth-token`, all routes except `/health` require:
+When auth is configured (either `--auth-token`/`ORBITDOCK_AUTH_TOKEN` or at least one active database token), all routes except `/health` require:
 
 - `Authorization: Bearer <token>`
-
-For WebSocket only, `?token=<token>` is also accepted.
 
 ## HTTP Endpoints
 

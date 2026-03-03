@@ -57,7 +57,7 @@ orbitdock-server setup --remote
 
 # Or manually:
 orbitdock-server generate-token
-orbitdock-server start --bind 0.0.0.0:4000 --auth-token $(cat ~/.orbitdock/auth-token)
+orbitdock-server start --bind 0.0.0.0:4000
 ```
 
 Connect a remote developer machine (hooks only — no local server needed):
@@ -71,7 +71,7 @@ orbitdock-server install-hooks \
 Or run it as a system service so it survives reboots:
 
 ```bash
-orbitdock-server install-service --enable --bind 0.0.0.0:4000 --auth-token $(cat ~/.orbitdock/auth-token)
+orbitdock-server install-service --enable --bind 0.0.0.0:4000
 ```
 
 ### Cloudflare Tunnel
@@ -145,7 +145,7 @@ orbitdock-server [--data-dir PATH] <command>
 | `install-hooks` | Merge OrbitDock hooks into `~/.claude/settings.json` |
 | `install-service` | Generate a launchd plist (macOS) or systemd unit (Linux) |
 | `status` | Check if the server is running |
-| `generate-token` | Create a random auth token |
+| `generate-token` | Create a secure auth token (stored hashed in DB) |
 | `doctor` | Run diagnostics and check system health |
 | `tunnel` | Expose the server via Cloudflare Tunnel |
 | `pair` | Generate a connection URL and QR code for clients |
@@ -432,8 +432,7 @@ Everything lives under one directory. Default is `~/.orbitdock/`, override with 
 ~/.orbitdock/
 ├── orbitdock.db              # SQLite database (WAL mode)
 ├── orbitdock.pid             # PID file (created after bind, removed on shutdown)
-├── auth-token                # Auth token if generated (0600 permissions)
-├── hook-forward.json         # Hook transport target config (server_url, auth_token)
+├── hook-forward.json         # Hook transport target config (server_url, encrypted auth token)
 ├── codex-rollout-state.json  # Codex file watcher offsets
 ├── logs/
 │   └── server.log            # Structured JSON logs
@@ -478,8 +477,8 @@ tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
 make rust-build               # dev build
 make rust-run                 # run locally (127.0.0.1:4000)
 make rust-run-lan             # run on LAN without auth (trusted network/dev only)
-make rust-run-remote          # run on 0.0.0.0:4000 (uses ORBITDOCK_AUTH_TOKEN or ~/.orbitdock/auth-token)
-make rust-generate-token      # create ~/.orbitdock/auth-token
+make rust-run-remote          # run on 0.0.0.0:4000 (requires DB token or ORBITDOCK_AUTH_TOKEN)
+make rust-generate-token      # issue and print a secure token
 make rust-check               # fast compile check
 make rust-ci                  # fmt + clippy + tests
 ```
