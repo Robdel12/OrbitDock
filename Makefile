@@ -246,18 +246,7 @@ rust-run-lan:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- start --bind $(RUST_RUN_LAN_BIND) --allow-insecure-no-auth
 
 rust-run-remote:
-	@set -euo pipefail; \
-	token="$${ORBITDOCK_AUTH_TOKEN:-}"; \
-	if [[ -z "$$token" && -f "$$HOME/.orbitdock/auth-token" ]]; then \
-		token="$$(tr -d '\r\n' < "$$HOME/.orbitdock/auth-token")"; \
-	fi; \
-	if [[ -z "$$token" ]]; then \
-		echo "Missing auth token for remote bind ($(RUST_RUN_REMOTE_BIND))."; \
-		echo "Set ORBITDOCK_AUTH_TOKEN or generate one with:"; \
-		echo "  make rust-generate-token"; \
-		exit 1; \
-	fi; \
-	cd $(RUST_WORKSPACE_DIR) && ORBITDOCK_AUTH_TOKEN="$$token" $(RUST_ENV) cargo run -p orbitdock-server -- start --bind $(RUST_RUN_REMOTE_BIND)
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- start --bind $(RUST_RUN_REMOTE_BIND)
 
 rust-run-debug:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p orbitdock-server -- start
