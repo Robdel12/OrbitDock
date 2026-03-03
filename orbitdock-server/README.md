@@ -71,7 +71,7 @@ orbitdock-server install-hooks \
 Or run it as a system service so it survives reboots:
 
 ```bash
-orbitdock-server install-service --enable --bind 0.0.0.0:4000
+orbitdock-server install-service --enable --bind 0.0.0.0:4000 --auth-token $(cat ~/.orbitdock/auth-token)
 ```
 
 ### Cloudflare Tunnel
@@ -339,10 +339,10 @@ The server sends a `hello` immediately on connect:
 { "type": "hello", "version": "0.1.0", "protocol_version": 1 }
 ```
 
-If auth is enabled, pass the token as a query param:
+If auth is enabled, send it via `Authorization` header during the WebSocket handshake:
 
 ```
-ws://127.0.0.1:4000/ws?token=<your-token>
+Authorization: Bearer <your-token>
 ```
 
 ### Client → Server
@@ -476,7 +476,10 @@ tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
 
 ```bash
 make rust-build               # dev build
-make rust-run                 # run locally
+make rust-run                 # run locally (127.0.0.1:4000)
+make rust-run-lan             # run on LAN without auth (trusted network/dev only)
+make rust-run-remote          # run on 0.0.0.0:4000 (uses ORBITDOCK_AUTH_TOKEN or ~/.orbitdock/auth-token)
+make rust-generate-token      # create ~/.orbitdock/auth-token
 make rust-check               # fast compile check
 make rust-ci                  # fmt + clippy + tests
 ```

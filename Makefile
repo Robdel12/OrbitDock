@@ -30,6 +30,9 @@ CLAUDE_SDK_VERSION_FILE ?= $(CLAUDE_SDK_DOCS_DIR)/claude-agent-sdk-version.json
 SCCACHE_BIN := $(shell command -v sccache 2>/dev/null)
 RUST_PATH_PREFIX ?= $(HOME)/.cargo/bin:/opt/homebrew/bin:/usr/local/bin
 RUST_PATH ?= $(RUST_PATH_PREFIX):$(PATH)
+RUST_RUN_BIND ?= 127.0.0.1:4000
+RUST_RUN_LAN_BIND ?= 0.0.0.0:4000
+RUST_RUN_REMOTE_BIND ?= 0.0.0.0:4000
 RUST_ENV_BASE = PATH="$(RUST_PATH)" SCCACHE_DIR="$(SCCACHE_DIR)" SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE) CARGO_TARGET_DIR="$(RUST_TARGET_DIR)" CARGO_INCREMENTAL=0
 ifeq ($(RUST_SCCACHE),on)
 RUST_ENV = env $(RUST_ENV_BASE) RUSTC_WRAPPER=sccache CARGO_BUILD_RUSTC_WRAPPER=sccache
@@ -44,7 +47,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 cli-build cli-run whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
 
 help:
 	@echo "make build      Build the macOS app"
@@ -68,8 +71,11 @@ help:
 	@echo "make rust-fmt   Format Rust with cargo fmt"
 	@echo "make rust-fmt-check Check Rust formatting with cargo fmt --check"
 	@echo "make rust-lint  Lint Rust workspace"
-	@echo "make rust-run   Run orbitdock-server in dev mode"
+	@echo "make rust-run   Run orbitdock-server locally (127.0.0.1:4000 by default)"
+	@echo "make rust-run-lan Run on LAN without auth (trusted network/dev only)"
+	@echo "make rust-run-remote Run orbitdock-server on 0.0.0.0 with auth token"
 	@echo "make rust-run-debug Run orbitdock-server with debug logs"
+	@echo "make rust-generate-token Generate auth token at ~/.orbitdock/auth-token"
 	@echo "make rust-release-darwin Build + package orbitdock-server-darwin-arm64.zip"
 	@echo "make rust-release-linux  Build + package host Linux arch zip (x86_64/aarch64); auto-uses Docker when needed"
 	@echo "make rust-release-linux-all Build + package both Linux release zips"
@@ -234,10 +240,36 @@ rust-lint:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clippy --workspace --all-targets -- -D warnings
 
 rust-run:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- --bind 0.0.0.0:4000
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- start --bind $(RUST_RUN_BIND)
+
+rust-run-lan:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- start --bind $(RUST_RUN_LAN_BIND) --allow-insecure-no-auth
+
+rust-run-remote:
+	@set -euo pipefail; \
+	token="$${ORBITDOCK_AUTH_TOKEN:-}"; \
+	if [[ -z "$$token" && -f "$$HOME/.orbitdock/auth-token" ]]; then \
+		token="$$(tr -d '\r\n' < "$$HOME/.orbitdock/auth-token")"; \
+	fi; \
+	if [[ -z "$$token" ]]; then \
+		echo "Missing auth token for remote bind ($(RUST_RUN_REMOTE_BIND))."; \
+		echo "Set ORBITDOCK_AUTH_TOKEN or generate one with:"; \
+		echo "  make rust-generate-token"; \
+		exit 1; \
+	fi; \
+	cd $(RUST_WORKSPACE_DIR) && ORBITDOCK_AUTH_TOKEN="$$token" $(RUST_ENV) cargo run -p orbitdock-server -- start --bind $(RUST_RUN_REMOTE_BIND)
 
 rust-run-debug:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p orbitdock-server
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p orbitdock-server -- start
+
+rust-generate-token:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- generate-token
+
+cli-build:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-cli
+
+cli-run:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-cli -- $(ARGS)
 
 rust-release-darwin:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ./package-release-assets.sh darwin

@@ -1,7 +1,7 @@
 //! Optional auth token middleware.
 //!
 //! When `--auth-token` is configured, all requests except `/health`
-//! must include `Authorization: Bearer <token>` (or `?token=<token>` for WebSocket).
+//! must include `Authorization: Bearer <token>`.
 //! The `/health` endpoint remains unauthenticated.
 
 use axum::{
@@ -30,17 +30,6 @@ pub async fn auth_middleware(
     if let Some(auth_header) = req.headers().get("authorization") {
         if let Ok(value) = auth_header.to_str() {
             if let Some(token) = value.strip_prefix("Bearer ") {
-                if token == expected_token {
-                    return Ok(next.run(req).await);
-                }
-            }
-        }
-    }
-
-    // Check ?token= query param (for WebSocket connections)
-    if let Some(query) = req.uri().query() {
-        for pair in query.split('&') {
-            if let Some(token) = pair.strip_prefix("token=") {
                 if token == expected_token {
                     return Ok(next.run(req).await);
                 }

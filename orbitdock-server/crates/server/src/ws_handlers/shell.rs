@@ -31,7 +31,6 @@ pub(crate) async fn handle(
                 event = "shell.execute.requested",
                 connection_id = conn_id,
                 session_id = %session_id,
-                command = %command,
                 "Shell execution requested"
             );
 

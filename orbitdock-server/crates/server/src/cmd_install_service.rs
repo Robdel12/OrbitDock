@@ -57,6 +57,7 @@ After=network.target
 
 [Service]
 Type=simple
+{{AUTH_TOKEN_ENV}}
 ExecStart={{BINARY_PATH}} start --bind {{BIND_ADDR}} --data-dir {{DATA_DIR}}
 Restart=on-failure
 RestartSec=5
@@ -70,9 +71,15 @@ pub struct ServiceOptions {
     pub enable: bool,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
+    pub auth_token: Option<String>,
 }
 
-pub fn run(data_dir: &Path, bind: SocketAddr, enable: bool) -> anyhow::Result<()> {
+pub fn run(
+    data_dir: &Path,
+    bind: SocketAddr,
+    enable: bool,
+    auth_token: Option<String>,
+) -> anyhow::Result<()> {
     run_with_opts(
         data_dir,
         ServiceOptions {
@@ -80,6 +87,7 @@ pub fn run(data_dir: &Path, bind: SocketAddr, enable: bool) -> anyhow::Result<()
             enable,
             tls_cert: None,
             tls_key: None,
+            auth_token,
         },
     )
 }
@@ -98,11 +106,31 @@ pub fn run_with_opts(data_dir: &Path, opts: ServiceOptions) -> anyhow::Result<()
         extra_args.push(format!("--tls-key {}", key.display()));
     }
     let extra = extra_args.join(" ");
+    let auth_token = opts
+        .auth_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .map(ToString::to_string);
 
     if cfg!(target_os = "macos") {
-        install_launchd(&binary_path, &bind_str, &data_dir_str, &extra, opts.enable)
+        install_launchd(
+            &binary_path,
+            &bind_str,
+            &data_dir_str,
+            &extra,
+            auth_token.as_deref(),
+            opts.enable,
+        )
     } else {
-        install_systemd(&binary_path, &bind_str, &data_dir_str, &extra, opts.enable)
+        install_systemd(
+            &binary_path,
+            &bind_str,
+            &data_dir_str,
+            &extra,
+            auth_token.as_deref(),
+            opts.enable,
+        )
     }
 }
 
@@ -111,6 +139,7 @@ fn install_launchd(
     bind: &str,
     data_dir: &str,
     extra_args: &str,
+    auth_token: Option<&str>,
     enable: bool,
 ) -> anyhow::Result<()> {
     let service_environment = resolve_service_environment();
@@ -120,6 +149,9 @@ fn install_launchd(
     }
     if let Some(claude_bin) = service_environment.claude_bin {
         environment_variables.push(("CLAUDE_BIN".to_string(), claude_bin));
+    }
+    if let Some(token) = auth_token {
+        environment_variables.push(("ORBITDOCK_AUTH_TOKEN".to_string(), token.to_string()));
     }
     let environment_xml = render_launchd_environment_variables(&environment_variables);
 
@@ -412,12 +444,23 @@ fn install_systemd(
     bind: &str,
     data_dir: &str,
     extra_args: &str,
+    auth_token: Option<&str>,
     enable: bool,
 ) -> anyhow::Result<()> {
+    let auth_env = auth_token
+        .map(|token| {
+            format!(
+                "Environment=\"ORBITDOCK_AUTH_TOKEN={}\"",
+                escape_systemd_env(token)
+            )
+        })
+        .unwrap_or_default();
+
     let mut unit = SYSTEMD_TEMPLATE
         .replace("{{BINARY_PATH}}", binary_path)
         .replace("{{BIND_ADDR}}", bind)
-        .replace("{{DATA_DIR}}", data_dir);
+        .replace("{{DATA_DIR}}", data_dir)
+        .replace("{{AUTH_TOKEN_ENV}}", &auth_env);
 
     // Append TLS flags to ExecStart line if present
     if !extra_args.is_empty() {
@@ -460,6 +503,10 @@ fn install_systemd(
 
     println!();
     Ok(())
+}
+
+fn escape_systemd_env(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 #[cfg(test)]

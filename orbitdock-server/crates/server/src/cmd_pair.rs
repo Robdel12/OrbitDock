@@ -46,19 +46,11 @@ pub fn run(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
         .trim_start_matches("http://")
         .trim_end_matches('/');
 
-    let mut pair_url = format!("orbitdock://{}", host);
-    let mut params = Vec::new();
-
-    if let Some(ref token) = auth_token {
-        params.push(format!("token={}", token));
-    }
-    if use_tls {
-        params.push("tls=1".to_string());
-    }
-    if !params.is_empty() {
-        pair_url.push('?');
-        pair_url.push_str(&params.join("&"));
-    }
+    let pair_url = if use_tls {
+        format!("orbitdock://{}?tls=1", host)
+    } else {
+        format!("orbitdock://{}", host)
+    };
 
     println!();
     println!("  OrbitDock Pairing");
@@ -74,6 +66,10 @@ pub fn run(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
     println!();
     println!("  Connection URL:");
     println!("  {}", pair_url);
+    if auth_token.is_some() {
+        println!("  Note: token is intentionally not embedded in the URL.");
+        println!("        Enter the auth token separately in client settings.");
+    }
 
     if show_qr {
         println!();

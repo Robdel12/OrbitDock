@@ -550,6 +550,7 @@ pub(crate) async fn handle(
                     .send(CodexAction::UpdateConfig {
                         approval_policy,
                         sandbox_mode,
+                        permission_mode,
                     })
                     .await;
             }

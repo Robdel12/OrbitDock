@@ -132,7 +132,7 @@ orbitdock-server tunnel --name orbitdock
 The server auto-detects Tailscale during `init` and prints your Tailscale IP.
 
 ```bash
-orbitdock-server start --bind 0.0.0.0:4000
+orbitdock-server start --bind 0.0.0.0:4000 --auth-token $(cat ~/.orbitdock/auth-token)
 # Access via your Tailscale IP: http://100.x.y.z:4000
 ```
 
@@ -194,9 +194,12 @@ orbitdock-server start --auth-token $(cat ~/.orbitdock/auth-token)
 
 The token is required in:
 - `Authorization: Bearer <token>` header for HTTP requests
-- `?token=<token>` query parameter for WebSocket connections
+- `Authorization: Bearer <token>` header for WebSocket handshake requests
 
 Unauthenticated endpoints: `/health`, `/metrics`
+
+CORS is disabled by default. If you need browser access, explicitly set
+`ORBITDOCK_CORS_ALLOWED_ORIGINS` (comma-separated origins).
 
 ### Encryption at Rest
 

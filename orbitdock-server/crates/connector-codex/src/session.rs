@@ -52,6 +52,7 @@ pub enum CodexAction {
     UpdateConfig {
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
+        permission_mode: Option<String>,
     },
     SetThreadName {
         name: String,
@@ -141,10 +142,12 @@ impl std::fmt::Debug for CodexAction {
             Self::UpdateConfig {
                 approval_policy,
                 sandbox_mode,
+                permission_mode,
             } => f
                 .debug_struct("UpdateConfig")
                 .field("approval_policy", approval_policy)
                 .field("sandbox_mode", sandbox_mode)
+                .field("permission_mode", permission_mode)
                 .finish(),
             Self::SetThreadName { name } => {
                 f.debug_struct("SetThreadName").field("name", name).finish()
@@ -283,9 +286,14 @@ impl CodexSession {
             CodexAction::UpdateConfig {
                 approval_policy,
                 sandbox_mode,
+                permission_mode,
             } => {
                 connector
-                    .update_config(approval_policy.as_deref(), sandbox_mode.as_deref())
+                    .update_config(
+                        approval_policy.as_deref(),
+                        sandbox_mode.as_deref(),
+                        permission_mode.as_deref(),
+                    )
                     .await?;
             }
             CodexAction::SetThreadName { name } => {

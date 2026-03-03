@@ -6,6 +6,7 @@ members = [
     "crates/connector-core",
     "crates/connector-claude",
     "crates/connector-codex",
+    "crates/cli",
 ]
 
 [workspace.package]

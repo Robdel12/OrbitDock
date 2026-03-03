@@ -211,6 +211,20 @@ fn check_claude_cli() -> Check {
 }
 
 fn check_auth_token() -> Check {
+    if let Ok(env_token) = std::env::var("ORBITDOCK_AUTH_TOKEN") {
+        let trimmed = env_token.trim();
+        if !trimmed.is_empty() {
+            return Check {
+                name: "Auth token",
+                status: Status::Pass,
+                detail: format!(
+                    "configured via ORBITDOCK_AUTH_TOKEN ({}...)",
+                    &trimmed[..8.min(trimmed.len())]
+                ),
+            };
+        }
+    }
+
     let token_path = paths::token_file_path();
     if !token_path.exists() {
         return Check {

@@ -22,6 +22,8 @@ use codex_core::config::{find_codex_home, Config, ConfigOverrides};
 use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_core::models_manager::manager::RefreshStrategy;
 use codex_core::{AuthManager, CodexThread, SteerInputError, ThreadManager};
+use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
+use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
     AskForApproval, Event, EventMsg, FileChange, McpServerRefreshConfig, Op, ReviewDecision,
     SandboxPolicy, SessionSource,
@@ -150,6 +152,8 @@ pub struct CodexConnector {
     codex_home: PathBuf,
     event_rx: Option<mpsc::Receiver<ConnectorEvent>>,
     thread_id: String,
+    current_model: Arc<tokio::sync::Mutex<Option<String>>>,
+    current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
 }
 
 impl CodexConnector {
@@ -336,6 +340,9 @@ impl CodexConnector {
             sha: None,
         }));
         let reasoning_tracker = Arc::new(tokio::sync::Mutex::new(ReasoningEventTracker::default()));
+        let current_model = Arc::new(tokio::sync::Mutex::new(Option::<String>::None));
+        let current_reasoning_effort =
+            Arc::new(tokio::sync::Mutex::new(Option::<ReasoningEffort>::None));
 
         // Spawn async event loop
         let tx = event_tx.clone();
@@ -346,9 +353,11 @@ impl CodexConnector {
         let counter = msg_counter.clone();
         let tracker = env_tracker.clone();
         let reasoning = reasoning_tracker.clone();
+        let model = current_model.clone();
+        let effort = current_reasoning_effort.clone();
         tokio::spawn(async move {
             Self::event_loop(
-                t, tx, buffers, deltas, streaming, counter, tracker, reasoning,
+                t, tx, buffers, deltas, streaming, counter, tracker, reasoning, model, effort,
             )
             .await;
         });
@@ -359,6 +368,8 @@ impl CodexConnector {
             codex_home,
             event_rx: Some(event_rx),
             thread_id: thread_id.to_string(),
+            current_model,
+            current_reasoning_effort,
         })
     }
 
@@ -419,6 +430,8 @@ impl CodexConnector {
         msg_counter: Arc<AtomicU64>,
         env_tracker: Arc<tokio::sync::Mutex<EnvironmentTracker>>,
         reasoning_tracker: Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
+        current_model: Arc<tokio::sync::Mutex<Option<String>>>,
+        current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
     ) {
         loop {
             match thread.next_event().await {
@@ -434,6 +447,8 @@ impl CodexConnector {
                         &msg_counter,
                         &env_tracker,
                         &reasoning_tracker,
+                        &current_model,
+                        &current_reasoning_effort,
                     ))
                     .await;
                     for ev in events {
@@ -463,6 +478,8 @@ impl CodexConnector {
         msg_counter: &AtomicU64,
         env_tracker: &Arc<tokio::sync::Mutex<EnvironmentTracker>>,
         reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
+        current_model: &Arc<tokio::sync::Mutex<Option<String>>>,
+        current_reasoning_effort: &Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
     ) -> Vec<ConnectorEvent> {
         #[allow(unreachable_patterns)]
         match event.msg {
@@ -569,6 +586,14 @@ impl CodexConnector {
 
             EventMsg::SessionConfigured(e) => {
                 let cwd_str = e.cwd.to_string_lossy().to_string();
+                {
+                    let mut model = current_model.lock().await;
+                    *model = Some(e.model.clone());
+                }
+                {
+                    let mut effort = current_reasoning_effort.lock().await;
+                    *effort = e.reasoning_effort;
+                }
 
                 // Look up git info from the cwd
                 let git_info = codex_core::git_info::collect_git_info(&e.cwd).await;
@@ -1405,16 +1430,16 @@ impl CodexConnector {
                 vec![
                     ConnectorEvent::MessageCreated(message),
                     ConnectorEvent::ApprovalRequested {
-                    request_id: e.call_id,
-                    approval_type: ApprovalType::Question,
-                    tool_name: None,
-                    tool_input,
-                    command: None,
-                    file_path: None,
-                    diff: None,
-                    question: question_text,
-                    proposed_amendment: None,
-                },
+                        request_id: event.id.clone(),
+                        approval_type: ApprovalType::Question,
+                        tool_name: None,
+                        tool_input,
+                        command: None,
+                        file_path: None,
+                        diff: None,
+                        question: question_text,
+                        proposed_amendment: None,
+                    },
                 ]
             }
 
@@ -2967,6 +2992,7 @@ impl CodexConnector {
         &self,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
+        permission_mode: Option<&str>,
     ) -> Result<(), ConnectorError> {
         let policy = approval_policy.map(|p| match p {
             "untrusted" => AskForApproval::UnlessTrusted,
@@ -3175,6 +3201,71 @@ fn parse_reasoning_summary_env(name: &str) -> Option<String> {
             );
             None
         }
+    }
+}
+
+fn collaboration_mode_from_permission_mode(
+    permission_mode: Option<&str>,
+    model: String,
+    effort: Option<ReasoningEffort>,
+) -> Option<CollaborationMode> {
+    let mode = permission_mode
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+        .and_then(|m| match m {
+            "plan" => Some(ModeKind::Plan),
+            "default" => Some(ModeKind::Default),
+            _ => None,
+        })?;
+
+    Some(CollaborationMode {
+        mode,
+        settings: Settings {
+            model,
+            reasoning_effort: effort,
+            developer_instructions: None,
+        },
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collaboration_mode_from_permission_mode;
+    use codex_protocol::config_types::ModeKind;
+    use codex_protocol::openai_models::ReasoningEffort;
+
+    #[test]
+    fn collaboration_mode_maps_plan() {
+        let result = collaboration_mode_from_permission_mode(
+            Some("plan"),
+            "openai/gpt-5.3-codex".to_string(),
+            Some(ReasoningEffort::High),
+        )
+        .expect("expected mode");
+        assert_eq!(result.mode, ModeKind::Plan);
+        assert_eq!(result.settings.model, "openai/gpt-5.3-codex");
+        assert_eq!(
+            result.settings.reasoning_effort,
+            Some(ReasoningEffort::High)
+        );
+    }
+
+    #[test]
+    fn collaboration_mode_maps_default_case_insensitive() {
+        let result = collaboration_mode_from_permission_mode(
+            Some("Default"),
+            "openai/gpt-5.3-codex".to_string(),
+            None,
+        )
+        .expect("expected mode");
+        assert_eq!(result.mode, ModeKind::Default);
+    }
+
+    #[test]
+    fn collaboration_mode_ignores_unknown_modes() {
+        let result =
+            collaboration_mode_from_permission_mode(Some("acceptEdits"), "model".to_string(), None);
+        assert!(result.is_none());
     }
 }
 

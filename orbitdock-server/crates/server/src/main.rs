@@ -52,6 +52,10 @@ use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 use axum::{
+    http::{
+        header::{AUTHORIZATION, CONTENT_TYPE},
+        HeaderValue, Method,
+    },
     response::IntoResponse,
     routing::{delete, get, patch, post, put},
     Router,
@@ -60,7 +64,7 @@ use clap::{Parser, Subcommand};
 use orbitdock_protocol::{
     CodexIntegrationMode, Provider, SessionStatus, TokenUsage, TurnDiff, WorkStatus,
 };
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
@@ -99,6 +103,14 @@ enum Command {
         /// Auth token (requests must include `Authorization: Bearer <token>`)
         #[arg(long, env = "ORBITDOCK_AUTH_TOKEN")]
         auth_token: Option<String>,
+
+        /// Allow unauthenticated non-loopback bind (trusted LAN/dev only)
+        #[arg(
+            long,
+            env = "ORBITDOCK_ALLOW_INSECURE_NO_AUTH",
+            default_value_t = false
+        )]
+        allow_insecure_no_auth: bool,
 
         /// Bootstrap initial role as secondary when no persisted role exists yet
         #[arg(long, env = "ORBITDOCK_SERVER_SECONDARY", default_value_t = false)]
@@ -159,6 +171,10 @@ enum Command {
         /// Enable the service immediately after installing
         #[arg(long)]
         enable: bool,
+
+        /// Auth token for the service process (recommended for non-loopback binds)
+        #[arg(long, env = "ORBITDOCK_AUTH_TOKEN")]
+        auth_token: Option<String>,
     },
 
     /// Ensure the server binary directory is persisted on your shell PATH
@@ -266,8 +282,12 @@ fn main() -> anyhow::Result<()> {
         }) => {
             return cmd_hook_forward::run(*hook_type, server_url.as_deref(), auth_token.as_deref());
         }
-        Some(Command::InstallService { bind, enable }) => {
-            return cmd_install_service::run(&data_dir, *bind, *enable);
+        Some(Command::InstallService {
+            bind,
+            enable,
+            auth_token,
+        }) => {
+            return cmd_install_service::run(&data_dir, *bind, *enable, auth_token.clone());
         }
         Some(Command::EnsurePath) => {
             return cmd_ensure_path::run();
@@ -317,18 +337,34 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Resolve bind address: subcommand --bind > top-level --bind > default
-    let (bind_addr, auth_token, startup_is_primary, tls_cert, tls_key) = match cli.command {
+    let (
+        bind_addr,
+        auth_token,
+        allow_insecure_no_auth,
+        startup_is_primary,
+        tls_cert,
+        tls_key,
+    ) = match cli.command {
         Some(Command::Start {
             bind,
             auth_token,
+            allow_insecure_no_auth,
             secondary,
             tls_cert,
             tls_key,
-        }) => (bind, auth_token, !secondary, tls_cert, tls_key),
+        }) => (
+            bind,
+            auth_token,
+            allow_insecure_no_auth,
+            !secondary,
+            tls_cert,
+            tls_key,
+        ),
         _ => (
             cli.bind
                 .unwrap_or_else(|| "127.0.0.1:4000".parse().unwrap()),
             None,
+            false,
             true,
             None,
             None,
@@ -339,6 +375,7 @@ fn main() -> anyhow::Result<()> {
     runtime.block_on(async_main(
         bind_addr,
         auth_token,
+        allow_insecure_no_auth,
         startup_is_primary,
         &data_dir,
         tls_cert,
@@ -357,11 +394,28 @@ fn parse_server_role_value(value: &str) -> Option<bool> {
 async fn async_main(
     bind_addr: SocketAddr,
     auth_token: Option<String>,
+    allow_insecure_no_auth: bool,
     startup_is_primary: bool,
     data_dir: &std::path::Path,
     tls_cert: Option<PathBuf>,
     tls_key: Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    let auth_token = normalize_auth_token(auth_token);
+
+    if !bind_addr.ip().is_loopback() && auth_token.is_none() && !allow_insecure_no_auth {
+        anyhow::bail!(
+            "Refusing to bind {bind_addr} without authentication. Pass --auth-token (or set ORBITDOCK_AUTH_TOKEN) for non-loopback binds, or pass --allow-insecure-no-auth for trusted LAN/dev use."
+        );
+    }
+    if !bind_addr.ip().is_loopback() && auth_token.is_none() && allow_insecure_no_auth {
+        warn!(
+            component = "server",
+            event = "server.auth.disabled_non_loopback",
+            bind_addr = %bind_addr,
+            "Starting without auth on non-loopback bind (trusted LAN/dev only)."
+        );
+    }
+
     // Ensure directories exist
     paths::ensure_dirs()?;
 
@@ -396,15 +450,10 @@ async fn async_main(
     // Run database migrations before anything else
     let db_path = paths::db_path();
     {
-        let mut conn = rusqlite::Connection::open(&db_path).expect("open db for migrations");
-        if let Err(e) = migration_runner::run_migrations(&mut conn) {
-            warn!(
-                component = "migrations",
-                event = "migrations.error",
-                error = %e,
-                "Migration runner failed — continuing with existing schema"
-            );
-        }
+        let mut conn = rusqlite::Connection::open(&db_path)
+            .map_err(|e| anyhow::anyhow!("open db for migrations: {e}"))?;
+        migration_runner::run_migrations(&mut conn)
+            .map_err(|e| anyhow::anyhow!("database migration failed: {e}"))?;
     }
 
     let persisted_is_primary = persistence::load_config_value("server_role")
@@ -946,15 +995,11 @@ async fn async_main(
         ));
     }
 
-    let app = app
-        .layer(TraceLayer::new_for_http())
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
-        .with_state(state);
+    let mut app = app.layer(TraceLayer::new_for_http());
+    if let Some(cors_layer) = configured_cors_layer()? {
+        app = app.layer(cors_layer);
+    }
+    let app = app.with_state(state);
 
     // Write PID file after successful bind
     let use_tls = tls_cert.is_some() && tls_key.is_some();
@@ -1008,6 +1053,56 @@ async fn async_main(
     }
 
     Ok(())
+}
+
+fn normalize_auth_token(auth_token: Option<String>) -> Option<String> {
+    auth_token
+        .map(|token| token.trim().to_string())
+        .filter(|token| !token.is_empty())
+}
+
+fn configured_cors_layer() -> anyhow::Result<Option<CorsLayer>> {
+    let raw = match std::env::var("ORBITDOCK_CORS_ALLOWED_ORIGINS") {
+        Ok(value) => value,
+        Err(_) => return Ok(None),
+    };
+
+    let mut origins = Vec::new();
+    for origin in raw.split(',') {
+        let trimmed = origin.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        origins.push(
+            HeaderValue::from_str(trimmed)
+                .map_err(|e| anyhow::anyhow!("invalid CORS origin '{trimmed}': {e}"))?,
+        );
+    }
+
+    if origins.is_empty() {
+        return Ok(None);
+    }
+
+    info!(
+        component = "server",
+        event = "cors.enabled",
+        allowed_origins = origins.len(),
+        "Enabled CORS for configured origins"
+    );
+
+    Ok(Some(
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers([AUTHORIZATION, CONTENT_TYPE]),
+    ))
 }
 
 /// Write PID file to data_dir/orbitdock.pid
