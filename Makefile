@@ -73,9 +73,12 @@ help:
 	@echo "make rust-lint  Lint Rust workspace"
 	@echo "make rust-run   Run orbitdock-server locally (127.0.0.1:4000 by default)"
 	@echo "make rust-run-lan Run on LAN without auth (trusted network/dev only)"
-	@echo "make rust-run-remote Run orbitdock-server on 0.0.0.0 with auth token"
+	@echo "make rust-run-remote Run orbitdock-server on 0.0.0.0 (requires DB token or ORBITDOCK_AUTH_TOKEN)"
 	@echo "make rust-run-debug Run orbitdock-server with debug logs"
-	@echo "make rust-generate-token Generate auth token at ~/.orbitdock/auth-token"
+	@echo "make rust-generate-token Issue a secure auth token (stored hashed in DB)"
+	@echo "make cli-build  Build orbitdock CLI"
+	@echo "make cli-run    Run orbitdock CLI (pass ARGS='session list' etc.)"
+	@echo "make cli-install Install orbitdock CLI to ~/.orbitdock/bin/"
 	@echo "make rust-release-darwin Build + package orbitdock-server-darwin-arm64.zip"
 	@echo "make rust-release-linux  Build + package host Linux arch zip (x86_64/aarch64); auto-uses Docker when needed"
 	@echo "make rust-release-linux-all Build + package both Linux release zips"
@@ -259,6 +262,12 @@ cli-build:
 
 cli-run:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-cli -- $(ARGS)
+
+cli-install:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build --release -p orbitdock-cli
+	mkdir -p $(HOME)/.orbitdock/bin
+	cp "$(RUST_TARGET_DIR)/release/orbitdock" "$(HOME)/.orbitdock/bin/orbitdock"
+	@echo "Installed orbitdock to ~/.orbitdock/bin/orbitdock"
 
 rust-release-darwin:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ./package-release-assets.sh darwin

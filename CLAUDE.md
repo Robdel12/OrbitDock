@@ -39,6 +39,9 @@ make rust-clean-sccache # Clear local sccache files
 make rust-clean-release # Clean Rust release artifacts only
 make release          # Build + package macOS server release zip
 make rust-release-linux # Build + package Linux server release zip
+make cli-build        # Build orbitdock CLI
+make cli-run          # Run orbitdock CLI (pass ARGS='session list' etc.)
+make cli-install      # Install orbitdock CLI to ~/.orbitdock/bin/
 make fmt              # Format Swift + Rust
 make lint             # Lint Swift + Rust
 ```
@@ -412,6 +415,60 @@ orbitdock-server generate-token          # Create auth token
 ```
 
 Global `--data-dir` overrides all paths. All data paths resolved via `paths.rs` module.
+
+### OrbitDock CLI (`orbitdock`)
+
+A separate binary (`crates/cli`) for interacting with sessions, approvals, and server state from the terminal. Used by both humans and LLMs.
+
+```bash
+# Server
+orbitdock health                              # Check server connection
+orbitdock server status                       # Server status + role
+
+# Sessions
+orbitdock session list [-p codex|claude] [--status active|ended]
+orbitdock session get <ID> [-m]               # -m includes messages
+orbitdock session create -p claude [--model MODEL] [--cwd PATH]
+orbitdock session send <ID> "message"         # Streams turn events
+orbitdock session send <ID> - < prompt.txt    # Read from stdin
+orbitdock session approve <ID> [-d approved|denied|abort]
+orbitdock session answer <ID> "response"
+orbitdock session watch <ID> [-f event_type]  # Real-time event stream
+orbitdock session interrupt <ID>
+orbitdock session end <ID>
+orbitdock session fork <ID> [--nth-user-message N]
+orbitdock session steer <ID> "guidance"
+orbitdock session compact <ID>
+orbitdock session undo <ID>
+orbitdock session rollback <ID> --turns N
+orbitdock session rename <ID> --name "name"
+orbitdock session resume <ID>
+
+# Supporting
+orbitdock approval list [--session ID]
+orbitdock review list <SESSION_ID>
+orbitdock review create <SESSION_ID> --file PATH --line N --body TEXT
+orbitdock model list [-p codex|claude]
+orbitdock usage show [-p codex|claude]
+orbitdock worktree list [--repo PATH]
+orbitdock shell exec <SESSION_ID> "command"
+orbitdock completions zsh|bash|fish           # Shell completions
+```
+
+**Output modes:** Human-readable tables in TTY, JSON when piped or `--json`/`-j` flag. LLM tool use auto-detects non-TTY.
+
+**Config resolution:** `--server` flag > `ORBITDOCK_URL` env > `~/.orbitdock/cli.toml` > default (`http://127.0.0.1:4000`).
+**Token resolution:** `--token` flag > `ORBITDOCK_TOKEN` env > `cli.toml` > `~/.orbitdock/auth-token` file.
+
+**Key files:**
+- `crates/cli/src/cli.rs` — Clap command tree, ValueEnums, stdin helper
+- `crates/cli/src/client/rest.rs` — REST client (GET/POST/PUT/PATCH/DELETE)
+- `crates/cli/src/client/ws.rs` — WebSocket client (session subscribe, send, recv with timeout)
+- `crates/cli/src/client/config.rs` — Config/token resolution from flags, env, file
+- `crates/cli/src/commands/session.rs` — Session commands (REST reads + WS mutations)
+- `crates/cli/src/output/human.rs` — Colored tables via comfy-table
+- `crates/cli/src/output/mod.rs` — Output mode detection, JSON writer, UTF-8 safe truncation
+- `crates/cli/src/error.rs` — Exit codes (0 success, 1 client, 2 server, 3 connection)
 
 ## Database Migrations
 
