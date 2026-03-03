@@ -5,6 +5,7 @@
 
 mod ai_naming;
 mod auth;
+mod auth_tokens;
 mod claude_session;
 mod cmd_doctor;
 mod cmd_ensure_path;
@@ -52,6 +53,7 @@ use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 use axum::{
+    extract::DefaultBodyLimit,
     http::{
         header::{AUTHORIZATION, CONTENT_TYPE},
         HeaderValue, Method,
@@ -72,6 +74,7 @@ use tokio::sync::mpsc;
 
 /// Server version, baked in at compile time.
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
+const MAX_HTTP_BODY_BYTES: usize = 1024 * 1024;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -183,8 +186,17 @@ enum Command {
     /// Check if the server is running
     Status,
 
-    /// Generate a random auth token and write it to data_dir/auth-token
+    /// Generate a secure auth token and store its hash in the database
     GenerateToken,
+
+    /// List issued auth tokens
+    ListTokens,
+
+    /// Revoke an auth token by token id
+    RevokeToken {
+        /// Token id (the middle segment in odtk_<id>_<secret>)
+        token_id: String,
+    },
 
     /// Run diagnostics and check system health
     Doctor,
@@ -298,6 +310,12 @@ fn main() -> anyhow::Result<()> {
         Some(Command::GenerateToken) => {
             return cmd_status::generate_token(&data_dir);
         }
+        Some(Command::ListTokens) => {
+            return cmd_status::list_tokens();
+        }
+        Some(Command::RevokeToken { token_id }) => {
+            return cmd_status::revoke_token(token_id);
+        }
         Some(Command::Doctor) => {
             return cmd_doctor::run(&data_dir);
         }
@@ -337,39 +355,33 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Resolve bind address: subcommand --bind > top-level --bind > default
-    let (
-        bind_addr,
-        auth_token,
-        allow_insecure_no_auth,
-        startup_is_primary,
-        tls_cert,
-        tls_key,
-    ) = match cli.command {
-        Some(Command::Start {
-            bind,
-            auth_token,
-            allow_insecure_no_auth,
-            secondary,
-            tls_cert,
-            tls_key,
-        }) => (
-            bind,
-            auth_token,
-            allow_insecure_no_auth,
-            !secondary,
-            tls_cert,
-            tls_key,
-        ),
-        _ => (
-            cli.bind
-                .unwrap_or_else(|| "127.0.0.1:4000".parse().unwrap()),
-            None,
-            false,
-            true,
-            None,
-            None,
-        ),
-    };
+    let (bind_addr, auth_token, allow_insecure_no_auth, startup_is_primary, tls_cert, tls_key) =
+        match cli.command {
+            Some(Command::Start {
+                bind,
+                auth_token,
+                allow_insecure_no_auth,
+                secondary,
+                tls_cert,
+                tls_key,
+            }) => (
+                bind,
+                auth_token,
+                allow_insecure_no_auth,
+                !secondary,
+                tls_cert,
+                tls_key,
+            ),
+            _ => (
+                cli.bind
+                    .unwrap_or_else(|| "127.0.0.1:4000".parse().unwrap()),
+                None,
+                false,
+                true,
+                None,
+                None,
+            ),
+        };
 
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async_main(
@@ -401,20 +413,6 @@ async fn async_main(
     tls_key: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let auth_token = normalize_auth_token(auth_token);
-
-    if !bind_addr.ip().is_loopback() && auth_token.is_none() && !allow_insecure_no_auth {
-        anyhow::bail!(
-            "Refusing to bind {bind_addr} without authentication. Pass --auth-token (or set ORBITDOCK_AUTH_TOKEN) for non-loopback binds, or pass --allow-insecure-no-auth for trusted LAN/dev use."
-        );
-    }
-    if !bind_addr.ip().is_loopback() && auth_token.is_none() && allow_insecure_no_auth {
-        warn!(
-            component = "server",
-            event = "server.auth.disabled_non_loopback",
-            bind_addr = %bind_addr,
-            "Starting without auth on non-loopback bind (trusted LAN/dev only)."
-        );
-    }
 
     // Ensure directories exist
     paths::ensure_dirs()?;
@@ -454,6 +452,40 @@ async fn async_main(
             .map_err(|e| anyhow::anyhow!("open db for migrations: {e}"))?;
         migration_runner::run_migrations(&mut conn)
             .map_err(|e| anyhow::anyhow!("database migration failed: {e}"))?;
+    }
+
+    let active_db_tokens = auth_tokens::active_token_count().unwrap_or(0);
+    let has_db_tokens = active_db_tokens > 0;
+
+    if !bind_addr.ip().is_loopback()
+        && auth_token.is_none()
+        && !has_db_tokens
+        && !allow_insecure_no_auth
+    {
+        anyhow::bail!(
+            "Refusing to bind {bind_addr} without authentication. Create a secure token with `orbitdock-server generate-token`, pass --auth-token (or ORBITDOCK_AUTH_TOKEN), or explicitly pass --allow-insecure-no-auth for trusted LAN/dev use."
+        );
+    }
+    if !bind_addr.ip().is_loopback()
+        && auth_token.is_none()
+        && !has_db_tokens
+        && allow_insecure_no_auth
+    {
+        warn!(
+            component = "server",
+            event = "server.auth.disabled_non_loopback",
+            bind_addr = %bind_addr,
+            "Starting without auth on non-loopback bind (trusted LAN/dev only)."
+        );
+    }
+
+    if !bind_addr.ip().is_loopback() && (tls_cert.is_none() || tls_key.is_none()) {
+        warn!(
+            component = "server",
+            event = "server.tls.not_configured_non_loopback",
+            bind_addr = %bind_addr,
+            "Non-loopback bind is running without native TLS. Use TLS termination (Cloudflare/Tailscale/reverse proxy) or pass --tls-cert/--tls-key."
+        );
     }
 
     let persisted_is_primary = persistence::load_config_value("server_role")
@@ -888,6 +920,7 @@ async fn async_main(
 
     // Build router
     let mut app = Router::new()
+        .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
         .route("/ws", get(ws_handler))
         .route("/api/hook", post(hook_handler::hook_handler))
         .route("/api/sessions", get(http_api::list_sessions))
@@ -987,10 +1020,14 @@ async fn async_main(
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics::metrics_handler));
 
-    // Apply auth middleware if token configured
-    if let Some(ref token) = auth_token {
+    // Apply auth middleware when static token or database tokens are available.
+    let auth_state = auth::AuthState {
+        static_token: auth_token.clone(),
+        allow_database_tokens: has_db_tokens,
+    };
+    if auth_state.is_enabled() {
         app = app.layer(axum::middleware::from_fn_with_state(
-            token.clone(),
+            auth_state,
             auth::auth_middleware,
         ));
     }

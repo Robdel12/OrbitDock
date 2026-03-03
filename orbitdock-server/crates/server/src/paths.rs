@@ -7,6 +7,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 static DATA_DIR: RwLock<Option<PathBuf>> = RwLock::new(None);
 
 /// Initialize the global data directory. Returns the resolved path.
@@ -62,10 +65,6 @@ pub fn pid_file_path() -> PathBuf {
     data_dir().join("orbitdock.pid")
 }
 
-pub fn token_file_path() -> PathBuf {
-    data_dir().join("auth-token")
-}
-
 pub fn images_dir() -> PathBuf {
     data_dir().join("images")
 }
@@ -82,9 +81,28 @@ pub fn cloudflared_binary_path() -> PathBuf {
 pub fn ensure_dirs() -> io::Result<()> {
     let base = data_dir();
     std::fs::create_dir_all(&base)?;
-    std::fs::create_dir_all(base.join("logs"))?;
-    std::fs::create_dir_all(base.join("spool"))?;
-    std::fs::create_dir_all(base.join("images"))?;
+    let logs = base.join("logs");
+    let spool = base.join("spool");
+    let images = base.join("images");
+    std::fs::create_dir_all(&logs)?;
+    std::fs::create_dir_all(&spool)?;
+    std::fs::create_dir_all(&images)?;
+
+    secure_dir_permissions(&base)?;
+    secure_dir_permissions(&logs)?;
+    secure_dir_permissions(&spool)?;
+    secure_dir_permissions(&images)?;
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn secure_dir_permissions(path: &Path) -> io::Result<()> {
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(not(unix))]
+fn secure_dir_permissions(_path: &Path) -> io::Result<()> {
     Ok(())
 }
 

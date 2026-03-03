@@ -3,9 +3,13 @@
 //! macOS: ~/Library/LaunchAgents/com.orbitdock.server.plist
 //! Linux: ~/.config/systemd/user/orbitdock-server.service
 
+use std::io::Write as IoWrite;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 const PATH_PROBE_SENTINEL: &str = "__ORBITDOCK_PATH__";
 const COMMON_PATH_DIRS: [&str; 6] = [
@@ -183,7 +187,7 @@ fn install_launchd(
     std::fs::create_dir_all(&agents_dir)?;
 
     let plist_path = agents_dir.join("com.orbitdock.server.plist");
-    std::fs::write(&plist_path, &plist)?;
+    write_service_file(&plist_path, &plist)?;
     println!("  Wrote {}", plist_path.display());
 
     if enable {
@@ -476,7 +480,7 @@ fn install_systemd(
     std::fs::create_dir_all(&systemd_dir)?;
 
     let unit_path = systemd_dir.join("orbitdock-server.service");
-    std::fs::write(&unit_path, &unit)?;
+    write_service_file(&unit_path, &unit)?;
     println!("  Wrote {}", unit_path.display());
 
     // Reload systemd to pick up new/changed unit file
@@ -507,6 +511,27 @@ fn install_systemd(
 
 fn escape_systemd_env(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn write_service_file(path: &Path, content: &str) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(content.as_bytes())?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, content)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

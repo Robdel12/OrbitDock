@@ -4,7 +4,7 @@
 //! client message (`type` field), POSTs it to `/api/hook`, and spools on
 //! transient failures. This replaces shell-script transport.
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -13,7 +13,10 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::paths;
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+use crate::{crypto, paths};
 
 const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:4000";
 
@@ -48,7 +51,33 @@ impl HookForwardType {
 struct HookTransportConfig {
     server_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    auth_token_enc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     auth_token: Option<String>,
+}
+
+impl HookTransportConfig {
+    fn auth_token(&self) -> Option<String> {
+        normalized_non_empty(
+            self.auth_token_enc
+                .as_ref()
+                .and_then(|value| crypto::decrypt(value)),
+        )
+        .or_else(|| {
+            normalized_non_empty(
+                self.auth_token
+                    .as_ref()
+                    .and_then(|value| crypto::decrypt(value)),
+            )
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedHookTransportConfig {
+    server_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth_token_enc: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,14 +122,18 @@ pub fn write_transport_config(
     auth_token: Option<&str>,
 ) -> anyhow::Result<PathBuf> {
     paths::ensure_dirs().context("ensure data directories for hook transport config")?;
+    crypto::ensure_key();
     let config_path = paths::hook_transport_config_path();
     let normalized_url = normalize_server_url(server_url);
-    let config = HookTransportConfig {
+    let encrypted_auth_token = normalized_non_empty(auth_token.map(ToString::to_string))
+        .map(|token| encrypt_token_for_storage(&token))
+        .transpose()?;
+    let config = PersistedHookTransportConfig {
         server_url: normalized_url,
-        auth_token: normalized_non_empty(auth_token.map(ToString::to_string)),
+        auth_token_enc: encrypted_auth_token,
     };
     let body = serde_json::to_string_pretty(&config)?;
-    std::fs::write(&config_path, body)?;
+    write_secure_config(&config_path, &body)?;
     Ok(config_path)
 }
 
@@ -119,12 +152,8 @@ fn resolve_target(
         })
         .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string());
 
-    let mut resolved_token = normalized_non_empty(auth_token.map(ToString::to_string))
-        .or_else(|| persisted.and_then(|cfg| normalized_non_empty(cfg.auth_token)));
-
-    if resolved_token.is_none() && resolved_url == DEFAULT_SERVER_URL {
-        resolved_token = read_local_auth_token();
-    }
+    let resolved_token = normalized_non_empty(auth_token.map(ToString::to_string))
+        .or_else(|| persisted.and_then(|cfg| cfg.auth_token()));
 
     Ok(HookTarget {
         server_url: resolved_url,
@@ -144,10 +173,37 @@ fn read_transport_config() -> anyhow::Result<Option<HookTransportConfig>> {
     Ok(Some(parsed))
 }
 
-fn read_local_auth_token() -> Option<String> {
-    let path = paths::token_file_path();
-    let content = std::fs::read_to_string(path).ok()?;
-    normalized_non_empty(Some(content))
+fn encrypt_token_for_storage(token: &str) -> anyhow::Result<String> {
+    let encrypted = crypto::encrypt(token);
+    if encrypted.starts_with(crypto::ENC_PREFIX) {
+        Ok(encrypted)
+    } else {
+        anyhow::bail!("failed to encrypt auth token for hook transport config")
+    }
+}
+
+fn write_secure_config(path: &Path, body: &str) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .with_context(|| format!("open {} for write", path.display()))?;
+        file.write_all(body.as_bytes())
+            .with_context(|| format!("write {}", path.display()))?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("chmod 600 {}", path.display()))?;
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, body).with_context(|| format!("write {}", path.display()))?;
+        Ok(())
+    }
 }
 
 fn normalize_server_url(url: &str) -> String {
@@ -258,7 +314,26 @@ fn spool_event(spool_dir: &Path, body: &str) -> anyhow::Result<()> {
         .as_millis();
     let pid = std::process::id();
     let filename = format!("{ts}-{pid}.json");
-    std::fs::write(spool_dir.join(filename), body)?;
+
+    let path = spool_dir.join(filename);
+    #[cfg(unix)]
+    {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .with_context(|| format!("open {} for write", path.display()))?;
+        file.write_all(body.as_bytes())
+            .with_context(|| format!("write {}", path.display()))?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("chmod 600 {}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
+    }
+
     Ok(())
 }
 

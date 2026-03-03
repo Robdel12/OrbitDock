@@ -45,6 +45,7 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
         println!("  Generating auth token...");
         let token = cmd_status::create_token(data_dir)?;
         println!("  Auth token: {}", token);
+        println!("  (Stored hashed in the database; this is the only time you can copy it.)");
         println!();
         Some(token)
     } else {
@@ -88,7 +89,7 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
     // 6. Install service
     if !opts.skip_service {
         println!("  Installing system service...");
-        cmd_install_service::run(data_dir, bind, true, auth_token.clone())?;
+        cmd_install_service::run(data_dir, bind, true, None)?;
     } else {
         println!("  Skipping service installation.");
     }
@@ -114,14 +115,7 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
             }
             println!();
             println!("  Start the server:");
-            if let Some(ref token) = auth_token {
-                println!(
-                    "    orbitdock-server start --bind {} --auth-token {}",
-                    bind, token
-                );
-            } else {
-                println!("    orbitdock-server start --bind {}", bind);
-            }
+            println!("    orbitdock-server start --bind {}", bind);
             println!();
             println!("  Connect a remote developer machine (hooks only):");
             let remote_url = resolved_server_url

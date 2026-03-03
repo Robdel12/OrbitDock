@@ -34,7 +34,9 @@ pub fn run(data_dir: &Path, _server_url: &str) -> anyhow::Result<()> {
     println!();
     if let Some(ip) = &ts_ip {
         println!("  Tailscale detected! Your IP: {}", ip);
-        println!("  For remote access: orbitdock-server start --bind 0.0.0.0:4000");
+        println!("  For remote access (secure by default):");
+        println!("    orbitdock-server generate-token");
+        println!("    orbitdock-server start --bind 0.0.0.0:4000");
         println!();
     }
 

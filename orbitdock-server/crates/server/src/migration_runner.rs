@@ -61,6 +61,11 @@ const EMBEDDED_MIGRATIONS: &[(i64, &str, &str)] = &[
         "010_worktree_support",
         include_str!("../../../../migrations/010_worktree_support.sql"),
     ),
+    (
+        11,
+        "011_auth_tokens",
+        include_str!("../../../../migrations/011_auth_tokens.sql"),
+    ),
 ];
 
 /// Run all pending migrations against the given connection.

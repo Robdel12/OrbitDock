@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use crate::paths;
+use crate::{auth_tokens, crypto, paths};
 
 enum Status {
     Pass,
@@ -211,42 +211,54 @@ fn check_claude_cli() -> Check {
 }
 
 fn check_auth_token() -> Check {
-    if let Ok(env_token) = std::env::var("ORBITDOCK_AUTH_TOKEN") {
-        let trimmed = env_token.trim();
-        if !trimmed.is_empty() {
-            return Check {
-                name: "Auth token",
-                status: Status::Pass,
-                detail: format!(
-                    "configured via ORBITDOCK_AUTH_TOKEN ({}...)",
-                    &trimmed[..8.min(trimmed.len())]
-                ),
-            };
-        }
-    }
+    let env_token = std::env::var("ORBITDOCK_AUTH_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
-    let token_path = paths::token_file_path();
-    if !token_path.exists() {
-        return Check {
-            name: "Auth token",
-            status: Status::Warn,
-            detail: "not configured (server accepts unauthenticated requests)".to_string(),
-        };
-    }
+    let active_db_tokens = auth_tokens::active_token_count();
 
-    match std::fs::read_to_string(&token_path) {
-        Ok(token) if !token.trim().is_empty() => Check {
+    match (env_token, active_db_tokens) {
+        (Some(token), Ok(count)) if count > 0 => Check {
             name: "Auth token",
             status: Status::Pass,
             detail: format!(
-                "configured ({}...)",
-                &token.trim()[..8.min(token.trim().len())]
+                "configured via ORBITDOCK_AUTH_TOKEN ({}...) and {} active database token(s)",
+                &token[..8.min(token.len())],
+                count
             ),
         },
-        _ => Check {
+        (Some(token), Ok(_)) => Check {
+            name: "Auth token",
+            status: Status::Pass,
+            detail: format!(
+                "configured via ORBITDOCK_AUTH_TOKEN ({}...)",
+                &token[..8.min(token.len())]
+            ),
+        },
+        (Some(token), Err(e)) => Check {
+            name: "Auth token",
+            status: Status::Pass,
+            detail: format!(
+                "configured via ORBITDOCK_AUTH_TOKEN ({}...), database token check failed: {}",
+                &token[..8.min(token.len())],
+                e
+            ),
+        },
+        (None, Ok(count)) if count > 0 => Check {
+            name: "Auth token",
+            status: Status::Pass,
+            detail: format!("{} active database token(s)", count),
+        },
+        (None, Ok(_)) => Check {
             name: "Auth token",
             status: Status::Warn,
-            detail: "file exists but is empty".to_string(),
+            detail: "not configured (server accepts unauthenticated requests)".to_string(),
+        },
+        (None, Err(e)) => Check {
+            name: "Auth token",
+            status: Status::Warn,
+            detail: format!("not configured, and database token check failed: {}", e),
         },
     }
 }
@@ -295,10 +307,45 @@ fn check_hook_transport_config() -> Check {
     };
 
     let token_present = parsed
+        .get("auth_token_enc")
+        .and_then(|v| v.as_str())
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
+    let legacy_plaintext_token = parsed
         .get("auth_token")
         .and_then(|v| v.as_str())
         .map(|v| !v.trim().is_empty())
         .unwrap_or(false);
+
+    if legacy_plaintext_token && !token_present {
+        return Check {
+            name: "Hook transport",
+            status: Status::Warn,
+            detail: format!(
+                "{} uses legacy plaintext auth_token; rerun `orbitdock-server install-hooks`",
+                config_path.display()
+            ),
+        };
+    }
+
+    if token_present {
+        let decryptable = parsed
+            .get("auth_token_enc")
+            .and_then(|v| v.as_str())
+            .and_then(crypto::decrypt)
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+        if !decryptable {
+            return Check {
+                name: "Hook transport",
+                status: Status::Warn,
+                detail: format!(
+                    "{} has encrypted auth token but decryption failed (check encryption key)",
+                    config_path.display()
+                ),
+            };
+        }
+    }
 
     Check {
         name: "Hook transport",

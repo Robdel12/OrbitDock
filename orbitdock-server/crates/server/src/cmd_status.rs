@@ -1,11 +1,10 @@
 //! `orbitdock-server status` — check if the server is running.
-//! `orbitdock-server generate-token` — create a random auth token.
+//! `orbitdock-server generate-token` — create a secure auth token.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use crate::paths;
 use crate::VERSION;
+use crate::{auth_tokens, paths};
 
 pub fn run(data_dir: &Path) -> anyhow::Result<()> {
     println!();
@@ -48,6 +47,18 @@ pub fn run(data_dir: &Path) -> anyhow::Result<()> {
         println!("  Database: not found");
     }
 
+    match auth_tokens::active_token_count() {
+        Ok(count) if count > 0 => {
+            println!("  Auth tokens: {} active", count);
+        }
+        Ok(_) => {
+            println!("  Auth tokens: none");
+        }
+        Err(_) => {
+            println!("  Auth tokens: unavailable");
+        }
+    }
+
     println!();
 
     if !pid_alive && !health_ok {
@@ -59,41 +70,82 @@ pub fn run(data_dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Create a new auth token and write it to disk. Returns the token string.
+/// Create a new auth token and store its hash in the database. Returns the token string.
 pub fn create_token(data_dir: &Path) -> anyhow::Result<String> {
-    let token = uuid::Uuid::new_v4().to_string();
-    let token_path = paths::token_file_path();
-
-    // Ensure data dir exists
-    std::fs::create_dir_all(data_dir)?;
-
-    std::fs::write(&token_path, &token)?;
-    std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600))?;
-
-    Ok(token)
+    let _ = data_dir;
+    let issued = auth_tokens::issue_token(None)?;
+    Ok(issued.token)
 }
 
 pub fn generate_token(data_dir: &Path) -> anyhow::Result<()> {
-    let token = create_token(data_dir)?;
-    let token_path = paths::token_file_path();
+    let _ = data_dir;
+    let issued = auth_tokens::issue_token(None)?;
 
     println!();
-    println!(
-        "  Auth token generated and saved to {}",
-        token_path.display()
-    );
+    println!("  Secure auth token generated and stored (hashed) in the database.");
     println!();
-    println!("  Token: {}", token);
+    println!("  Token ID: {}", issued.id);
+    println!("  Token: {}", issued.token);
     println!();
     println!("  Usage:");
-    println!("    orbitdock-server start --auth-token {}", token);
-    println!("  Or:");
-    println!(
-        "    orbitdock-server start --auth-token $(cat {})",
-        token_path.display()
-    );
+    println!("    # Start server (token store mode)");
+    println!("    orbitdock-server start --bind 0.0.0.0:4000");
+    println!("    # Configure hooks/client with the token shown above");
     println!();
 
+    Ok(())
+}
+
+pub fn list_tokens() -> anyhow::Result<()> {
+    let tokens = auth_tokens::list_tokens()?;
+
+    println!();
+    println!("  Auth Tokens");
+    println!("  ───────────");
+    println!();
+
+    if tokens.is_empty() {
+        println!("  No tokens found.");
+        println!();
+        return Ok(());
+    }
+
+    for token in tokens {
+        let status = if token.revoked_at.is_some() {
+            "revoked"
+        } else {
+            "active"
+        };
+        let label = token.label.as_deref().unwrap_or("(no label)");
+        println!("  {}  [{}]  {}", token.id, status, label);
+        println!("    created: {}", token.created_at);
+        if let Some(ref used) = token.last_used_at {
+            println!("    last used: {}", used);
+        }
+        if let Some(ref expires) = token.expires_at {
+            println!("    expires: {}", expires);
+        }
+        if let Some(ref revoked) = token.revoked_at {
+            println!("    revoked: {}", revoked);
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+pub fn revoke_token(token_id: &str) -> anyhow::Result<()> {
+    let revoked = auth_tokens::revoke_token(token_id)?;
+    println!();
+    if revoked {
+        println!("  Revoked token {}", token_id.trim());
+    } else {
+        println!(
+            "  Token {} was not found or already revoked",
+            token_id.trim()
+        );
+    }
+    println!();
     Ok(())
 }
 

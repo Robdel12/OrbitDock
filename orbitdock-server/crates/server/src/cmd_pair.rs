@@ -1,14 +1,13 @@
 //! `orbitdock-server pair` — generate a connection URL + QR code for clients.
 
-use crate::paths;
+use crate::auth_tokens;
 
 pub fn run(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
-    // Read auth token
-    let token_path = paths::token_file_path();
-    let auth_token = std::fs::read_to_string(&token_path)
+    let env_token = std::env::var("ORBITDOCK_AUTH_TOKEN")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+    let active_db_tokens = auth_tokens::active_token_count().unwrap_or(0);
 
     // Determine server URL
     let base_url = if let Some(url) = tunnel_url {
@@ -57,8 +56,13 @@ pub fn run(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
     println!("  ─────────────────");
     println!();
     println!("  Server:  {}", base_url);
-    if let Some(ref token) = auth_token {
+    if let Some(ref token) = env_token {
         println!("  Token:   {}...", &token[..8.min(token.len())]);
+    } else if active_db_tokens > 0 {
+        println!(
+            "  Token:   required ({} active database token(s))",
+            active_db_tokens
+        );
     } else {
         println!("  Token:   (none — server accepts unauthenticated requests)");
     }
@@ -66,7 +70,7 @@ pub fn run(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
     println!();
     println!("  Connection URL:");
     println!("  {}", pair_url);
-    if auth_token.is_some() {
+    if env_token.is_some() || active_db_tokens > 0 {
         println!("  Note: token is intentionally not embedded in the URL.");
         println!("        Enter the auth token separately in client settings.");
     }
@@ -85,11 +89,15 @@ pub fn run(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
 
     println!();
     println!("  To connect from another machine (hooks only):");
-    if let Some(ref token) = auth_token {
+    if env_token.is_some() || active_db_tokens > 0 {
         println!(
-            "    orbitdock-server install-hooks --server-url {} --auth-token {}",
-            base_url, token
+            "    orbitdock-server install-hooks --server-url {} --auth-token <token>",
+            base_url
         );
+        if active_db_tokens > 0 && env_token.is_none() {
+            println!("    # Create a new token if you don't already have one:");
+            println!("    orbitdock-server generate-token");
+        }
     } else {
         println!(
             "    orbitdock-server install-hooks --server-url {}",
