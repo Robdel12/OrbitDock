@@ -281,8 +281,9 @@ echo ""
 # ── PATH setup ────────────────────────────────────────────────────────
 BIN_DIR="$INSTALL_ROOT/bin"
 NEEDS_PATH_RELOAD=0
+USED_LEGACY_PATH_SETUP=0
 
-ensure_in_path() {
+ensure_in_path_legacy() {
   # Already on PATH — nothing to do
   if echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
     return
@@ -323,7 +324,17 @@ ensure_in_path() {
   NEEDS_PATH_RELOAD=1
 }
 
-ensure_in_path
+if "$SERVER_BIN" --help 2>/dev/null | grep -q "ensure-path"; then
+  if ! "$SERVER_BIN" ensure-path; then
+    warn "orbitdock-server ensure-path failed; falling back to legacy PATH setup."
+    ensure_in_path_legacy
+    USED_LEGACY_PATH_SETUP=1
+  fi
+else
+  warn "Installed server doesn't support ensure-path yet; using legacy PATH setup."
+  ensure_in_path_legacy
+  USED_LEGACY_PATH_SETUP=1
+fi
 
 # ── Setup ─────────────────────────────────────────────────────────────────
 info "Running initial setup..."
@@ -371,7 +382,7 @@ else
   echo "  Verify with: orbitdock-server status"
 fi
 
-if [[ "$NEEDS_PATH_RELOAD" == "1" ]]; then
+if [[ "$USED_LEGACY_PATH_SETUP" == "1" && "$NEEDS_PATH_RELOAD" == "1" ]]; then
   echo ""
   warn "Restart your terminal, or run:"
   echo ""

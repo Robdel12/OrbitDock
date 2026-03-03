@@ -7,6 +7,7 @@ mod ai_naming;
 mod auth;
 mod claude_session;
 mod cmd_doctor;
+mod cmd_ensure_path;
 mod cmd_hook_forward;
 mod cmd_init;
 mod cmd_install_hooks;
@@ -160,6 +161,9 @@ enum Command {
         enable: bool,
     },
 
+    /// Ensure the server binary directory is persisted on your shell PATH
+    EnsurePath,
+
     /// Check if the server is running
     Status,
 
@@ -264,6 +268,9 @@ fn main() -> anyhow::Result<()> {
         }
         Some(Command::InstallService { bind, enable }) => {
             return cmd_install_service::run(&data_dir, *bind, *enable);
+        }
+        Some(Command::EnsurePath) => {
+            return cmd_ensure_path::run();
         }
         Some(Command::Status) => {
             return cmd_status::run(&data_dir);

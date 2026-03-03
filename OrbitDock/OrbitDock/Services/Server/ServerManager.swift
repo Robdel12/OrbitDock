@@ -152,11 +152,12 @@ enum ServerInstallState: Equatable {
     /// Full setup sequence:
     /// 1. Find binary
     /// 2. Copy to ~/.orbitdock/bin/ (if from bundle)
-    /// 3. Run `orbitdock-server init`
-    /// 4. Run `orbitdock-server install-hooks`
-    /// 5. Run `orbitdock-server install-service --enable`
-    /// 6. Wait for health check
-    /// 7. Refresh state
+    /// 3. Run `orbitdock-server ensure-path`
+    /// 4. Run `orbitdock-server init`
+    /// 5. Run `orbitdock-server install-hooks`
+    /// 6. Run `orbitdock-server install-service --enable`
+    /// 7. Wait for health check
+    /// 8. Refresh state
     func install() async throws {
       isInstalling = true
       installError = nil
@@ -201,6 +202,14 @@ enum ServerInstallState: Equatable {
         }
       } else {
         binaryPath = sourcePath
+      }
+
+      // Ensure CLI binary directory is persisted on PATH (non-fatal for older binaries)
+      do {
+        try await runCLI(binaryPath, arguments: ["ensure-path"])
+        logger.info("orbitdock-server ensure-path completed")
+      } catch {
+        logger.warning("orbitdock-server ensure-path failed: \(error.localizedDescription)")
       }
 
       // Run init
