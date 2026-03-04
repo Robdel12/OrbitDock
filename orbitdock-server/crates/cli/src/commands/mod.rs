@@ -11,17 +11,17 @@ mod shell;
 mod usage;
 mod worktree;
 
-use crate::cli::{Cli, Command};
+use crate::cli::Command;
 use crate::client::config::ClientConfig;
 use crate::client::rest::RestClient;
 use crate::output::Output;
 
-/// Dispatch the CLI command and return an exit code.
-pub async fn dispatch(cli: &Cli, config: &ClientConfig) -> i32 {
+/// Dispatch a CLI command and return an exit code.
+pub async fn dispatch(command: &Command, config: &ClientConfig) -> i32 {
     let rest = RestClient::new(config);
     let output = Output::new(config);
 
-    match &cli.command {
+    match command {
         Command::Health => health::run(&rest, &output).await,
 
         Command::Session { action } => session::run(action, &rest, &output, config).await,

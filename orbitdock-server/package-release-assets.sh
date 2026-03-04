@@ -16,10 +16,10 @@ LINUX_DOCKER_CARGO_BUILD_JOBS="${ORBITDOCK_LINUX_DOCKER_CARGO_BUILD_JOBS:-}"
 
 usage() {
   echo "Usage: $0 <darwin|linux|linux-x86_64|linux-aarch64> [output_dir]"
-  echo "  darwin: build macOS arm64 binary and package orbitdock-server-darwin-arm64.zip"
+  echo "  darwin: build macOS arm64 binary and package orbitdock-darwin-arm64.zip"
   echo "  linux:  build linux binary for current Linux host arch (x86_64 or aarch64)"
-  echo "  linux-x86_64: build x86_64-unknown-linux-gnu binary and package orbitdock-server-linux-x86_64.zip"
-  echo "  linux-aarch64: build aarch64-unknown-linux-gnu binary and package orbitdock-server-linux-aarch64.zip"
+  echo "  linux-x86_64: build x86_64-unknown-linux-gnu binary and package orbitdock-linux-x86_64.zip"
+  echo "  linux-aarch64: build aarch64-unknown-linux-gnu binary and package orbitdock-linux-aarch64.zip"
   echo ""
   echo "Linux build mode (ORBITDOCK_LINUX_BUILD_MODE):"
   echo "  auto   (default) use native Linux build on matching host arch, otherwise Docker"
@@ -94,13 +94,13 @@ package_binary() {
   local binary_path="$1"
   local archive_name="$2"
 
-  cp "$binary_path" "$OUTPUT_DIR/orbitdock-server"
-  chmod +x "$OUTPUT_DIR/orbitdock-server"
+  cp "$binary_path" "$OUTPUT_DIR/orbitdock"
+  chmod +x "$OUTPUT_DIR/orbitdock"
   (
     cd "$OUTPUT_DIR"
-    zip -q "$archive_name" orbitdock-server
+    zip -q "$archive_name" orbitdock
     sha256_file "$archive_name"
-    rm -f orbitdock-server
+    rm -f orbitdock
   )
   echo "Created $OUTPUT_DIR/$archive_name"
 }
@@ -111,11 +111,11 @@ build_linux_target() {
 
   rustup target add "$rust_target"
   if [[ ${#LINUX_CARGO_ENV[@]} -gt 0 ]]; then
-    env "${LINUX_CARGO_ENV[@]}" cargo build -p orbitdock-server --release --target "$rust_target"
+    env "${LINUX_CARGO_ENV[@]}" cargo build -p orbitdock --release --target "$rust_target"
   else
-    cargo build -p orbitdock-server --release --target "$rust_target"
+    cargo build -p orbitdock --release --target "$rust_target"
   fi
-  package_binary "$TARGET_DIR/$rust_target/release/orbitdock-server" "$archive_name"
+  package_binary "$TARGET_DIR/$rust_target/release/orbitdock" "$archive_name"
 }
 
 docker_platform_for_rust_target() {
@@ -212,7 +212,7 @@ build_linux_target_docker() {
     mv "$cache_next" "$cache_dir"
   fi
 
-  package_binary "$tmp_dir/orbitdock-server" "$archive_name"
+  package_binary "$tmp_dir/orbitdock" "$archive_name"
   rm -rf "$tmp_dir"
 }
 
@@ -268,14 +268,14 @@ fi
 case "$TARGET" in
   darwin)
     rustup target add aarch64-apple-darwin
-    cargo build -p orbitdock-server --release --target aarch64-apple-darwin
-    package_binary "$TARGET_DIR/aarch64-apple-darwin/release/orbitdock-server" "orbitdock-server-darwin-arm64.zip"
+    cargo build -p orbitdock --release --target aarch64-apple-darwin
+    package_binary "$TARGET_DIR/aarch64-apple-darwin/release/orbitdock" "orbitdock-darwin-arm64.zip"
     ;;
   linux-x86_64)
-    build_linux_release x86_64-unknown-linux-gnu orbitdock-server-linux-x86_64.zip
+    build_linux_release x86_64-unknown-linux-gnu orbitdock-linux-x86_64.zip
     ;;
   linux-aarch64)
-    build_linux_release aarch64-unknown-linux-gnu orbitdock-server-linux-aarch64.zip
+    build_linux_release aarch64-unknown-linux-gnu orbitdock-linux-aarch64.zip
     ;;
   *)
     usage

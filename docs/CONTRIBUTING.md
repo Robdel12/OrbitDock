@@ -22,7 +22,7 @@ cd OrbitDock
 open OrbitDock/OrbitDock.xcodeproj
 ```
 
-Select your team in **Signing & Capabilities** (or "Sign to Run Locally" for a personal team), then run either the `OrbitDock` macOS scheme or `OrbitDock iOS`. The clients can connect to one or many `orbitdock-server` endpoints.
+Select your team in **Signing & Capabilities** (or "Sign to Run Locally" for a personal team), then run either the `OrbitDock` macOS scheme or `OrbitDock iOS`. The clients can connect to one or many `orbitdock` server endpoints.
 
 ### Rust Server
 
@@ -39,7 +39,7 @@ By default the server listens on `ws://127.0.0.1:4000/ws`. For development, run 
 ```bash
 cd OrbitDock/OrbitDockCore
 swift build
-echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock-server hook-forward claude_status_event
+echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock hook-forward claude_status_event
 ```
 
 ## Project Layout

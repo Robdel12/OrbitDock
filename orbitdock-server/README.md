@@ -16,11 +16,11 @@ curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-s
 
 The installer downloads a prebuilt binary for macOS, Linux x86_64, and Linux aarch64 (Raspberry Pi 64-bit). Falls back to building from source if no prebuilt is available (requires the [Rust toolchain](https://rustup.rs)).
 
-- Installs `orbitdock-server` to `~/.orbitdock/bin/`
+- Installs `orbitdock` to `~/.orbitdock/bin/`
 - Ensures `~/.orbitdock/bin` is on shell `PATH`
-- Runs `orbitdock-server init`
-- Runs `orbitdock-server install-hooks`
-- Runs `orbitdock-server install-service --enable`
+- Runs `orbitdock init`
+- Runs `orbitdock install-hooks`
+- Runs `orbitdock install-service --enable`
 
 Optional flags:
 
@@ -36,13 +36,13 @@ The binary is fully self-contained — database migrations are baked in at compi
 
 ```bash
 # Bootstrap everything: data dir + database
-orbitdock-server init
+orbitdock init
 
 # Wire up Claude Code hooks (you'll need Claude Code installed already)
-orbitdock-server install-hooks
+orbitdock install-hooks
 
 # Start the server
-orbitdock-server start
+orbitdock start
 ```
 
 That's it. Codex direct sessions work immediately — the server embeds codex-core, so you can create and control Codex sessions without a separate CLI install.
@@ -53,17 +53,17 @@ For a dev server or headless machine:
 
 ```bash
 # Interactive setup (generates token, binds 0.0.0.0)
-orbitdock-server setup --remote
+orbitdock setup --remote
 
 # Or manually:
-orbitdock-server generate-token
-orbitdock-server start --bind 0.0.0.0:4000
+orbitdock generate-token
+orbitdock start --bind 0.0.0.0:4000
 ```
 
 Connect a remote developer machine (hooks only — no local server needed):
 
 ```bash
-orbitdock-server install-hooks \
+orbitdock install-hooks \
   --server-url https://your-server:4000 \
   --auth-token <token>
 ```
@@ -71,7 +71,7 @@ orbitdock-server install-hooks \
 Or run it as a system service so it survives reboots:
 
 ```bash
-orbitdock-server install-service --enable --bind 0.0.0.0:4000
+orbitdock install-service --enable --bind 0.0.0.0:4000
 ```
 
 ### Cloudflare Tunnel
@@ -80,16 +80,16 @@ Zero-config HTTPS exposure with no firewall changes:
 
 ```bash
 # Quick tunnel (temporary URL, no account)
-orbitdock-server tunnel
+orbitdock tunnel
 
 # Named tunnel (persistent URL, requires cloudflared login)
-orbitdock-server tunnel --name my-tunnel
+orbitdock tunnel --name my-tunnel
 ```
 
 ### Native TLS
 
 ```bash
-orbitdock-server start \
+orbitdock start \
   --bind 0.0.0.0:4000 \
   --tls-cert /path/to/cert.pem \
   --tls-key /path/to/key.pem
@@ -100,7 +100,7 @@ orbitdock-server start \
 Generate a connection URL and QR code:
 
 ```bash
-orbitdock-server pair --tunnel-url https://your-tunnel.trycloudflare.com
+orbitdock pair --tunnel-url https://your-tunnel.trycloudflare.com
 ```
 
 For the full deployment guide covering all topologies, security, and operations, see [DEPLOYMENT.md](../docs/DEPLOYMENT.md).
@@ -133,7 +133,7 @@ When creating a worktree via OrbitDock (`POST /api/worktrees` or fork-to-worktre
 ## CLI Reference
 
 ```
-orbitdock-server [--data-dir PATH] <command>
+orbitdock [--data-dir PATH] <command>
 ```
 
 | Command | What it does |
@@ -157,14 +157,14 @@ orbitdock-server [--data-dir PATH] <command>
 The old form still works:
 
 ```bash
-orbitdock-server --bind 127.0.0.1:4000   # same as: orbitdock-server start --bind ...
+orbitdock --bind 127.0.0.1:4000   # same as: orbitdock start --bind ...
 ```
 
 ## Architecture
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│                    orbitdock-server                             │
+│                       orbitdock                                 │
 │                                                                │
 │  ┌─────────────────────────────────────────────────────────┐  │
 │  │                 Axum HTTP + WebSocket                     │  │
@@ -396,7 +396,7 @@ GET    /api/sessions/{session_id}/review-comments
 
 Server broadcasts `review_comment_created` / `review_comment_updated` / `review_comment_deleted` via WS after mutations.
 
-**Claude hook transport** (how `orbitdock-server hook-forward` delivers events):
+**Claude hook transport** (how `orbitdock hook-forward` delivers events):
 
 ```json
 { "type": "claude_session_start", "session_id": "...", "cwd": "...", "model": "opus" }
@@ -507,7 +507,7 @@ You usually do not need `cargo clean`. Use the partial-clean targets above first
 make rust-build-darwin
 ```
 
-Produces `${CARGO_TARGET_DIR:-target}/darwin-arm64/orbitdock-server` for Apple Silicon.
+Produces `${CARGO_TARGET_DIR:-target}/darwin-arm64/orbitdock` for Apple Silicon.
 
 ## Dependencies
 

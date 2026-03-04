@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Bundle orbitdock-server in app Resources.
+# Bundle orbitdock in app Resources.
 # - Dev/local builds: best-effort copy if a binary already exists.
 # - Archive builds (ACTION=install): validate an existing prebuilt macOS binary
 #   and ensure it matches the current commit.
@@ -13,11 +13,11 @@ if [[ "${PLATFORM_NAME:-}" != "macosx" ]]; then
 fi
 
 REPO_ROOT="${SRCROOT}/.."
-RUST_DARWIN_BINARY="${REPO_ROOT}/.cache/rust/target/darwin-arm64/orbitdock-server"
-RUST_UNIVERSAL_BINARY="${REPO_ROOT}/.cache/rust/target/universal/orbitdock-server"
+RUST_DARWIN_BINARY="${REPO_ROOT}/.cache/rust/target/darwin-arm64/orbitdock"
+RUST_UNIVERSAL_BINARY="${REPO_ROOT}/.cache/rust/target/universal/orbitdock"
 RUST_DARWIN_GITSHA="${RUST_DARWIN_BINARY}.gitsha"
-LEGACY_UNIVERSAL_BINARY="${REPO_ROOT}/orbitdock-server/target/universal/orbitdock-server"
-LEGACY_RELEASE_BINARY="${REPO_ROOT}/orbitdock-server/target/release/orbitdock-server"
+LEGACY_UNIVERSAL_BINARY="${REPO_ROOT}/orbitdock-server/target/universal/orbitdock"
+LEGACY_RELEASE_BINARY="${REPO_ROOT}/orbitdock-server/target/release/orbitdock"
 
 resolve_server_binary() {
   if [[ -f "$RUST_DARWIN_BINARY" ]]; then
@@ -60,7 +60,7 @@ validate_archive_binary() {
 
   archive_binary="$(resolve_archive_binary)"
   if [[ -z "$archive_binary" ]]; then
-    echo "error: missing prebuilt macOS orbitdock-server binary"
+    echo "error: missing prebuilt macOS orbitdock binary"
     echo "Run: make rust-build-darwin"
     exit 1
   fi
@@ -149,19 +149,19 @@ sign_bundled_server_binary() {
   fi
 
   if [[ "$has_runtime" != "1" ]]; then
-    echo "error: hardened runtime flag missing on bundled orbitdock-server binary"
+    echo "error: hardened runtime flag missing on bundled orbitdock binary"
     echo "$signature_details"
     exit 1
   fi
 }
 
 if [[ "${ACTION:-}" == "install" ]]; then
-  echo "Validating prebuilt orbitdock-server macOS binary for archive..."
+  echo "Validating prebuilt orbitdock macOS binary for archive..."
   validate_archive_binary
 else
   SERVER_BINARY="$(resolve_server_binary)"
   if [[ -z "$SERVER_BINARY" ]]; then
-    echo "note: orbitdock-server binary not found — skipping bundle (dev mode)"
+    echo "note: orbitdock binary not found — skipping bundle (dev mode)"
     echo "Done!"
     exit 0
   fi
@@ -169,9 +169,9 @@ fi
 
 RESOURCES_DIR="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources"
 mkdir -p "$RESOURCES_DIR"
-cp "$SERVER_BINARY" "$RESOURCES_DIR/orbitdock-server"
-chmod +x "$RESOURCES_DIR/orbitdock-server"
-sign_bundled_server_binary "$RESOURCES_DIR/orbitdock-server"
+cp "$SERVER_BINARY" "$RESOURCES_DIR/orbitdock"
+chmod +x "$RESOURCES_DIR/orbitdock"
+sign_bundled_server_binary "$RESOURCES_DIR/orbitdock"
 
-echo "Bundled orbitdock-server in Resources (${SERVER_BINARY})"
+echo "Bundled orbitdock in Resources (${SERVER_BINARY})"
 echo "Done!"

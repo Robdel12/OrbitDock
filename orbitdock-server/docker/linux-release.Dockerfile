@@ -31,10 +31,10 @@ RUN --mount=type=cache,id=orbitdock-cargo-registry,target=/usr/local/cargo/regis
   if [ -n "${CARGO_BUILD_JOBS:-}" ]; then \
     export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS}"; \
   fi; \
-  cargo build -p orbitdock-server --release --target "${RUST_TARGET}"; \
+  cargo build -p orbitdock --release --target "${RUST_TARGET}"; \
   mkdir -p /workspace/export; \
-  cp "/workspace/.cache/rust/target/${RUST_TARGET}/release/orbitdock-server" /workspace/export/orbitdock-server
+  cp "/workspace/.cache/rust/target/${RUST_TARGET}/release/orbitdock" /workspace/export/orbitdock
 
 FROM scratch AS export
 ARG RUST_TARGET
-COPY --from=builder /workspace/export/orbitdock-server /orbitdock-server
+COPY --from=builder /workspace/export/orbitdock /orbitdock

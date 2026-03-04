@@ -22,7 +22,7 @@ use codex_core::config::{find_codex_home, Config, ConfigOverrides};
 use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_core::models_manager::manager::RefreshStrategy;
 use codex_core::{AuthManager, CodexThread, SteerInputError, ThreadManager};
-use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
+use codex_protocol::config_types::{CollaborationMode, ModeKind, ReasoningSummary, Settings};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
     AskForApproval, Event, EventMsg, FileChange, McpServerRefreshConfig, Op, ReviewDecision,
@@ -141,6 +141,7 @@ const STREAM_THROTTLE_MS: u128 = 50;
 const DEFAULT_CODEX_SHOW_RAW_REASONING: bool = true;
 const DEFAULT_CODEX_HIDE_REASONING: bool = false;
 const DEFAULT_CODEX_REASONING_SUMMARY: &str = "detailed";
+const REASONING_SUMMARY_NONE: &str = "none";
 const ENV_CODEX_SHOW_RAW_REASONING: &str = "ORBITDOCK_CODEX_SHOW_RAW_REASONING";
 const ENV_CODEX_HIDE_REASONING: &str = "ORBITDOCK_CODEX_HIDE_REASONING";
 const ENV_CODEX_REASONING_SUMMARY: &str = "ORBITDOCK_CODEX_REASONING_SUMMARY";
@@ -187,7 +188,14 @@ impl CodexConnector {
             CollaborationModesConfig::default(),
         ));
 
-        let config = Self::build_config(cwd, model, approval_policy, sandbox_mode).await?;
+        let config = Self::build_config(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            thread_manager.as_ref(),
+        )
+        .await?;
 
         // Start a thread
         let new_thread = thread_manager
@@ -244,7 +252,14 @@ impl CodexConnector {
             CollaborationModesConfig::default(),
         ));
 
-        let config = Self::build_config(cwd, model, approval_policy, sandbox_mode).await?;
+        let config = Self::build_config(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            thread_manager.as_ref(),
+        )
+        .await?;
 
         let new_thread = thread_manager
             .resume_thread_from_rollout(config, rollout_path, auth_manager)
@@ -262,6 +277,7 @@ impl CodexConnector {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
+        thread_manager: &ThreadManager,
     ) -> Result<Config, ConnectorError> {
         let mut cli_overrides = Vec::new();
 
@@ -291,8 +307,11 @@ impl CodexConnector {
             .unwrap_or(DEFAULT_CODEX_SHOW_RAW_REASONING);
         let hide_reasoning =
             parse_bool_env(ENV_CODEX_HIDE_REASONING).unwrap_or(DEFAULT_CODEX_HIDE_REASONING);
-        let reasoning_summary = parse_reasoning_summary_env(ENV_CODEX_REASONING_SUMMARY)
+        let mut reasoning_summary = parse_reasoning_summary_env(ENV_CODEX_REASONING_SUMMARY)
             .unwrap_or_else(|| DEFAULT_CODEX_REASONING_SUMMARY.to_string());
+        if model_rejects_reasoning_summary(model) {
+            reasoning_summary = REASONING_SUMMARY_NONE.to_string();
+        }
 
         cli_overrides.push((
             "show_raw_agent_reasoning".to_string(),
@@ -314,9 +333,20 @@ impl CodexConnector {
             ..Default::default()
         };
 
-        Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
-            .await
-            .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))
+        let mut config =
+            Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
+                .await
+                .map_err(|e| {
+                    ConnectorError::ProviderError(format!("Failed to load config: {}", e))
+                })?;
+
+        let supports_reasoning_summaries =
+            model_supports_reasoning_summaries(thread_manager, &config).await;
+        if should_disable_reasoning_summary(config.model.as_deref(), supports_reasoning_summaries) {
+            config.model_reasoning_summary = Some(ReasoningSummary::None);
+        }
+
+        Ok(config)
     }
 
     /// Create a connector from an existing NewThread (shared by new() and fork_thread())
@@ -398,8 +428,14 @@ impl CodexConnector {
 
         // Build config with overrides — use source session's cwd as fallback
         let effective_cwd = cwd.unwrap_or(".");
-        let config =
-            Self::build_config(effective_cwd, model, approval_policy, sandbox_mode).await?;
+        let config = Self::build_config(
+            effective_cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            self.thread_manager.as_ref(),
+        )
+        .await?;
 
         // Convert nth_user_message: None means full history (usize::MAX)
         let nth = nth_user_message.map(|n| n as usize).unwrap_or(usize::MAX);
@@ -3124,26 +3160,51 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
         CollaborationModesConfig::default(),
     ));
 
-    let models = thread_manager
+    let base_config = Config::load_with_cli_overrides(Vec::new())
+        .await
+        .or_else(|err| {
+            warn!(
+                "Failed to load config for model discovery: {}. Falling back to defaults.",
+                err
+            );
+            Config::load_default_with_cli_overrides(Vec::new())
+        })
+        .map_err(|e| {
+            ConnectorError::ProviderError(format!(
+                "Failed to load config for model discovery: {}",
+                e
+            ))
+        })?;
+
+    let mut models: Vec<orbitdock_protocol::CodexModelOption> = Vec::new();
+    for preset in thread_manager
         .list_models(RefreshStrategy::OnlineIfUncached)
         .await
         .into_iter()
         // codex-core already applies auth-aware filtering in list_models:
         // ChatGPT mode can include models that are not API-key compatible.
         .filter(|preset| preset.show_in_picker)
-        .map(|preset| orbitdock_protocol::CodexModelOption {
+    {
+        let mut model_config = base_config.clone();
+        model_config.model = Some(preset.model.clone());
+        let supports_reasoning_summaries =
+            model_supports_reasoning_summaries(thread_manager.as_ref(), &model_config).await;
+        let supported_reasoning_efforts = preset
+            .supported_reasoning_efforts
+            .into_iter()
+            .map(|e| e.effort.to_string())
+            .collect();
+
+        models.push(orbitdock_protocol::CodexModelOption {
             id: preset.id,
             model: preset.model,
             display_name: preset.display_name,
             description: preset.description,
             is_default: preset.is_default,
-            supported_reasoning_efforts: preset
-                .supported_reasoning_efforts
-                .into_iter()
-                .map(|e| e.effort.to_string())
-                .collect(),
-        })
-        .collect();
+            supported_reasoning_efforts,
+            supports_reasoning_summaries,
+        });
+    }
 
     Ok(models)
 }
@@ -3195,7 +3256,7 @@ fn parse_reasoning_summary_env(name: &str) -> Option<String> {
     let raw = std::env::var(name).ok()?;
     let value = raw.trim().to_ascii_lowercase();
     match value.as_str() {
-        "auto" | "concise" | "detailed" | "none" => Some(value),
+        "auto" | "concise" | "detailed" | REASONING_SUMMARY_NONE => Some(value),
         other => {
             warn!(
                 "Ignoring invalid reasoning summary env {}={} (expected auto|concise|detailed|none)",
@@ -3204,6 +3265,34 @@ fn parse_reasoning_summary_env(name: &str) -> Option<String> {
             None
         }
     }
+}
+
+fn model_rejects_reasoning_summary(model: Option<&str>) -> bool {
+    model
+        .map(|value| value.trim().to_ascii_lowercase().contains("codex-spark"))
+        .unwrap_or(false)
+}
+
+async fn model_supports_reasoning_summaries(
+    thread_manager: &ThreadManager,
+    config: &Config,
+) -> bool {
+    let Some(model) = config.model.as_deref() else {
+        return true;
+    };
+
+    thread_manager
+        .get_models_manager()
+        .get_model_info(model, config)
+        .await
+        .supports_reasoning_summaries
+}
+
+fn should_disable_reasoning_summary(
+    model: Option<&str>,
+    supports_reasoning_summaries: bool,
+) -> bool {
+    !supports_reasoning_summaries || model_rejects_reasoning_summary(model)
 }
 
 fn collaboration_mode_from_permission_mode(
@@ -3454,7 +3543,10 @@ fn iso_now() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::collaboration_mode_from_permission_mode;
+    use super::{
+        collaboration_mode_from_permission_mode, model_rejects_reasoning_summary,
+        should_disable_reasoning_summary,
+    };
     use codex_protocol::config_types::ModeKind;
     use codex_protocol::openai_models::ReasoningEffort;
 
@@ -3490,5 +3582,47 @@ mod tests {
         let result =
             collaboration_mode_from_permission_mode(Some("acceptEdits"), "model".to_string(), None);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn model_rejects_reasoning_summary_for_spark() {
+        assert!(model_rejects_reasoning_summary(Some("gpt-5.3-codex-spark")));
+    }
+
+    #[test]
+    fn model_rejects_reasoning_summary_for_prefixed_spark() {
+        assert!(model_rejects_reasoning_summary(Some(
+            "openai/gpt-5.3-codex-spark"
+        )));
+    }
+
+    #[test]
+    fn model_allows_reasoning_summary_for_non_spark() {
+        assert!(!model_rejects_reasoning_summary(Some("gpt-5.3-codex")));
+        assert!(!model_rejects_reasoning_summary(None));
+    }
+
+    #[test]
+    fn should_disable_reasoning_summary_when_model_does_not_support_it() {
+        assert!(should_disable_reasoning_summary(
+            Some("gpt-5.3-codex"),
+            false
+        ));
+    }
+
+    #[test]
+    fn should_disable_reasoning_summary_for_known_spark_mismatch() {
+        assert!(should_disable_reasoning_summary(
+            Some("gpt-5.3-codex-spark"),
+            true
+        ));
+    }
+
+    #[test]
+    fn should_keep_reasoning_summary_for_supported_non_spark_models() {
+        assert!(!should_disable_reasoning_summary(
+            Some("gpt-5.3-codex"),
+            true
+        ));
     }
 }

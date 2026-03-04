@@ -1,13 +1,13 @@
 [package]
-name = "orbitdock-server"
+name = "orbitdock"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "OrbitDock server - mission control for AI coding agents"
+description = "OrbitDock — mission control for AI coding agents"
 
 [[bin]]
-name = "orbitdock-server"
+name = "orbitdock"
 path = "src/main.rs"
 
 [dependencies]
@@ -15,6 +15,7 @@ orbitdock-protocol = { workspace = true }
 orbitdock-connector-core = { workspace = true }
 orbitdock-connector-claude = { workspace = true }
 orbitdock-connector-codex = { workspace = true }
+orbitdock-cli = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 axum-server = { workspace = true }
@@ -40,6 +41,8 @@ base64 = { workspace = true }
 ring = { workspace = true }
 libc = { workspace = true }
 qrcode = { workspace = true }
+console = "0.15"
+clap_complete = "4"
 
 [dev-dependencies]
 tempfile = "3"

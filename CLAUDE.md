@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-OrbitDock is a native SwiftUI app for macOS and iOS — mission control for AI coding agents. A Rust server (`orbitdock-server`) is the central hub: it owns the SQLite database, receives events from Claude Code hooks via HTTP POST (`/api/hook`), manages Codex sessions via codex-core, and pushes real-time events to clients over WebSocket. Client-initiated mutations and queries use REST endpoints; WebSocket is reserved for server-pushed events and real-time session interaction (subscribe, send message, approve, interrupt).
+OrbitDock is a native SwiftUI app for macOS and iOS — mission control for AI coding agents. A Rust server (`orbitdock`) is the central hub: it owns the SQLite database, receives events from Claude Code hooks via HTTP POST (`/api/hook`), manages Codex sessions via codex-core, and pushes real-time events to clients over WebSocket. Client-initiated mutations and queries use REST endpoints; WebSocket is reserved for server-pushed events and real-time session interaction (subscribe, send message, approve, interrupt).
 
 ## Tech Stack
 
 - **SwiftUI** - macOS 14+ with NavigationSplitView
-- **Rust / Axum** - orbitdock-server (session management, persistence, REST API + WebSocket)
+- **Rust / Axum** - orbitdock server (session management, persistence, REST API + WebSocket)
 - **rusqlite + SQLite WAL** - Database access, concurrent reads/writes
-- **Rust hook transport** - `orbitdock-server hook-forward <type>` forwards Claude Code hooks via HTTP POST
+- **Rust hook transport** - `orbitdock hook-forward <type>` forwards Claude Code hooks via HTTP POST
 - **codex-core** - Embedded Codex runtime for direct sessions
 
 ## Build, Test, and Lint Commands
@@ -22,15 +22,15 @@ make build-all        # Build both macOS and iOS
 make test-unit        # Run unit tests only (OrbitDockTests)
 make test-ui          # Run UI tests only (OrbitDockUITests)
 make test-all         # Run both unit + UI tests
-make rust-build       # Build orbitdock-server
+make rust-build       # Build orbitdock
 make rust-check       # Check Rust workspace
 make rust-test        # Run Rust workspace tests
 make rust-ci          # fmt + clippy + tests
 make rust-fmt         # Format Rust workspace
 make rust-fmt-check   # Validate Rust formatting
 make rust-lint        # Clippy with warnings denied
-make rust-run         # Run orbitdock-server in dev mode
-make rust-run-debug   # Run orbitdock-server with debug logs
+make rust-run         # Run orbitdock in dev mode
+make rust-run-debug   # Run orbitdock with debug logs
 make rust-env         # Print active Rust cache/build env
 make rust-size        # Inspect Rust cache disk usage
 make rust-clean-incremental # Remove incremental caches only
@@ -179,10 +179,10 @@ On launch, `ServerManager` still checks local install state for onboarding, whil
 ### Install Flow (triggered from ServerSetupView or Settings)
 1. Find binary (Bundle Resources → env var → `~/.orbitdock/bin/` → PATH)
 2. Copy to `~/.orbitdock/bin/` if from bundle
-3. `orbitdock-server ensure-path`
-4. `orbitdock-server init`
-5. `orbitdock-server install-hooks`
-6. `orbitdock-server install-service --enable`
+3. `orbitdock ensure-path`
+4. `orbitdock init`
+5. `orbitdock install-hooks`
+6. `orbitdock install-service --enable`
 7. Wait for health check → connect WebSocket
 
 ### Development
@@ -192,14 +192,14 @@ In dev, run `make rust-run` — the app detects it via health check and skips se
 
 All server paths are resolved via `paths.rs` from a single data directory (`--data-dir` / `ORBITDOCK_DATA_DIR` / `~/.orbitdock`).
 
-- **Server Binary**: `~/.orbitdock/bin/orbitdock-server` (installed by app) or on PATH
+- **Server Binary**: `~/.orbitdock/bin/orbitdock` (installed by app) or on PATH
 - **Database**: `<data_dir>/orbitdock.db` (separate from CLIs to survive reinstalls)
 - **PID File**: `<data_dir>/orbitdock.pid` (written after bind, removed on shutdown)
 - **Auth Token**: `<data_dir>/auth-token` (optional, 0600 permissions)
 - **Encryption Key**: `<data_dir>/encryption.key` (auto-generated, 0600 permissions — see "Config Encryption" below)
 - **Launchd Plist**: `~/Library/LaunchAgents/com.orbitdock.server.plist` (created by `install-service`)
 - **Codex App Logs**: `<data_dir>/logs/codex.log` (structured JSON logs for Codex debugging)
-- **Rust Server Logs**: `<data_dir>/logs/server.log` (structured JSON logs from orbitdock-server)
+- **Rust Server Logs**: `<data_dir>/logs/server.log` (structured JSON logs from orbitdock)
 - **Migrations**: `migrations/` (SQL files embedded in binary via `include_str!`)
 - **Hook Transport Config**: `<data_dir>/hook-forward.json` (server_url/auth_token for hook-forward)
 - **Shared Models**: `OrbitDock/OrbitDockCore/` (Swift Package with shared code)
@@ -289,7 +289,7 @@ This shows the exact payload that failed to parse, making it easy to fix struct 
 
 ## Debugging Rust Server
 
-The Rust server (`orbitdock-server`) logs to a file only — no stderr output. All logs are structured JSON.
+The Rust server (`orbitdock`) logs to a file only — no stderr output. All logs are structured JSON.
 
 ### Log Location
 `~/.orbitdock/logs/server.log`
@@ -389,9 +389,9 @@ OrbitDock/OrbitDockCore/
 
 ### Hook Transport
 
-Claude Code hooks invoke `orbitdock-server hook-forward <type>`, which injects the `type` field and POSTs to `<server_url>/api/hook`. Transport target configuration lives in `<data_dir>/hook-forward.json` and is managed by `install-hooks`.
+Claude Code hooks invoke `orbitdock hook-forward <type>`, which injects the `type` field and POSTs to `<server_url>/api/hook`. Transport target configuration lives in `<data_dir>/hook-forward.json` and is managed by `install-hooks`.
 
-Install hooks automatically: `orbitdock-server install-hooks`
+Install hooks automatically: `orbitdock install-hooks`
 
 | Claude Hook | Type Argument |
 |---|---|
@@ -401,24 +401,27 @@ Install hooks automatically: `orbitdock-server install-hooks`
 | `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest` | `claude_tool_event` |
 | `SubagentStart`, `SubagentStop` | `claude_subagent_event` |
 
-### Server CLI
+### CLI
 
-The server binary is self-contained with subcommands for standalone deployment:
+Single `orbitdock` binary with all server admin and client commands:
 
 ```bash
-orbitdock-server init                    # Bootstrap dirs + DB
-orbitdock-server install-hooks           # Merge hooks into ~/.claude/settings.json
-orbitdock-server start [--bind ADDR]     # Start server (default: 127.0.0.1:4000)
-orbitdock-server install-service --enable # Generate launchd/systemd service
-orbitdock-server status                  # Check if running
-orbitdock-server generate-token          # Create auth token
+# Server admin
+orbitdock init                    # Bootstrap dirs + DB
+orbitdock install-hooks           # Merge hooks into ~/.claude/settings.json
+orbitdock start [--bind ADDR]     # Start server (default: 127.0.0.1:4000)
+orbitdock install-service --enable # Generate launchd/systemd service
+orbitdock status                  # Check if running
+orbitdock generate-token          # Create auth token
+
+# Client commands
+orbitdock health                  # Check server health
+orbitdock session list            # List sessions
+orbitdock approval list           # List pending approvals
+orbitdock completions <shell>     # Generate shell completions
 ```
 
 Global `--data-dir` overrides all paths. All data paths resolved via `paths.rs` module.
-
-### OrbitDock CLI (`orbitdock`)
-
-A separate binary (`crates/cli`) for interacting with sessions, approvals, and server state from the terminal. Used by both humans and LLMs.
 
 ```bash
 # Server
@@ -495,7 +498,7 @@ Migrations run when: Rust server starts (`migration_runner::run_migrations` in `
 ## Database Conventions
 
 ### Single writer: the Rust server
-Only `orbitdock-server` reads from and writes to SQLite. The Swift app and CLI
+Only `orbitdock` reads from and writes to SQLite. The Swift app and CLI
 never touch the database directly. All data flows through REST + WebSocket.
 
 ### Data flow
@@ -543,7 +546,7 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 - `migrations/001_baseline.sql` — Complete schema definition
 - `migrations/008_approval_version.sql` — Adds `approval_version` column to `sessions`
 - `migrations/010_worktree_support.sql` — Adds `worktrees` table, `repository_root`/`is_worktree`/`worktree_id` to `sessions`
-- `orbitdock-server hook-forward` — Rust hook transport subcommand
+- `orbitdock hook-forward` — Rust hook transport subcommand
 
 ### Config Encryption
 
@@ -567,7 +570,7 @@ Sensitive values in the `config` table (like the OpenAI API key) are encrypted a
 
 ### Multi-Provider Usage APIs
 
-Usage is fetched through orbitdock-server over REST endpoints and is scoped to the current control-plane endpoint selected on each client device.
+Usage is fetched through the orbitdock server over REST endpoints and is scoped to the current control-plane endpoint selected on each client device.
 
 **Claude** (`SubscriptionUsageService.swift`):
 - Calls `fetch_claude_usage` on the selected control-plane endpoint
@@ -656,7 +659,7 @@ tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "bridge")'
 ```bash
 # Test session start (server must be running on port 4000)
 echo '{"session_id":"test","cwd":"/tmp","model":"claude-opus-4-6","source":"startup"}' \
-  | orbitdock-server hook-forward claude_session_start
+  | orbitdock hook-forward claude_session_start
 
 # Test with curl directly
 curl -s -X POST -H "Content-Type: application/json" \

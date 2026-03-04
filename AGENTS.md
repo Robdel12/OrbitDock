@@ -28,7 +28,7 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - Lint all code: `make lint` (or `make swift-lint` / `make rust-lint`).
 - SwiftUI app in Xcode: open `OrbitDock/OrbitDock.xcodeproj` and build/run (Cmd+R).
 - CLI standalone: `cd OrbitDock/OrbitDockCore && swift build`
-- Test hook transport: `echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock-server hook-forward claude_status_event`
+- Test hook transport: `echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock hook-forward claude_status_event`
 
 ## Coding Style & Naming Conventions
 - Swift is formatted with SwiftFormat; see `.swiftformat` (2-space indentation, max width 120).
@@ -44,10 +44,10 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - Link related issues or include a short rationale if no issue exists.
 
 ## Architecture & App-Specific Notes
-- **Server-authoritative**: The Rust server (`orbitdock-server`) is the single source of truth for all session and approval state. Clients receive state over WebSocket and render it — they must never derive, infer, or reconcile business-logic state locally. If the client lacks data it needs, fix the server to emit it.
+- **Server-authoritative**: The Rust server (`orbitdock`) is the single source of truth for all session and approval state. Clients receive state over WebSocket and render it — they must never derive, infer, or reconcile business-logic state locally. If the client lacks data it needs, fix the server to emit it.
 - The app reads AI agent session data from a local SQLite DB and JSONL transcripts.
 - Claude Code sessions: populated via Swift CLI hooks configured in `~/.claude/settings.json`.
-- Codex sessions: unified through `orbitdock-server` (direct sessions + rollout-watched CLI sessions).
+- Codex sessions: unified through `orbitdock` (direct sessions + rollout-watched CLI sessions).
 - Review `README.md` and `CLAUDE.md` for schema, paths, and update flow.
 - `CLAUDE.md` documents UI theme constraints and data consistency rules (e.g., WAL mode, status colors).
 

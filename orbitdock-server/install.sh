@@ -103,11 +103,11 @@ asset_names_for_platform() {
 
   case "$os/$arch" in
     Darwin/*)
-      echo "orbitdock-server-darwin-arm64.zip"
-      echo "orbitdock-server-darwin-universal.zip"
+      echo "orbitdock-darwin-arm64.zip"
+      echo "orbitdock-darwin-universal.zip"
       ;;
-    Linux/x86_64)      echo "orbitdock-server-linux-x86_64.zip" ;;
-    Linux/aarch64|Linux/arm64) echo "orbitdock-server-linux-aarch64.zip" ;;
+    Linux/x86_64)      echo "orbitdock-linux-x86_64.zip" ;;
+    Linux/aarch64|Linux/arm64) echo "orbitdock-linux-aarch64.zip" ;;
     *)                 return 1 ;;
   esac
 }
@@ -179,14 +179,14 @@ install_from_release() {
   fi
 
   unzip -qo "$zip_path" -d "$tmp_dir"
-  if [[ ! -f "$tmp_dir/orbitdock-server" ]]; then
+  if [[ ! -f "$tmp_dir/orbitdock" ]]; then
     err "Binary not found in archive."
     rm -rf "$tmp_dir"
     return 1
   fi
 
-  cp "$tmp_dir/orbitdock-server" "$INSTALL_ROOT/bin/orbitdock-server"
-  chmod 755 "$INSTALL_ROOT/bin/orbitdock-server"
+  cp "$tmp_dir/orbitdock" "$INSTALL_ROOT/bin/orbitdock"
+  chmod 755 "$INSTALL_ROOT/bin/orbitdock"
   rm -rf "$tmp_dir"
   return 0
 }
@@ -240,7 +240,7 @@ install_from_source() {
   check_source_prerequisites
 
   local args
-  args=(install --locked --git "$REPO_URL" --root "$INSTALL_ROOT" --force orbitdock-server)
+  args=(install --locked --git "$REPO_URL" --root "$INSTALL_ROOT" --force orbitdock)
 
   if [[ "$VERSION" == "latest" ]]; then
     args+=(--branch "$SOURCE_REF")
@@ -269,7 +269,7 @@ else
   install_from_source
 fi
 
-SERVER_BIN="$INSTALL_ROOT/bin/orbitdock-server"
+SERVER_BIN="$INSTALL_ROOT/bin/orbitdock"
 if [[ ! -x "$SERVER_BIN" ]]; then
   err "Install completed but binary not found at $SERVER_BIN"
   exit 1
@@ -379,7 +379,7 @@ if [[ -n "$SERVER_URL" ]]; then
 else
   ok "Health endpoint: http://127.0.0.1:4000/health"
   echo ""
-  echo "  Verify with: orbitdock-server status"
+  echo "  Verify with: orbitdock status"
 fi
 
 if [[ "$USED_LEGACY_PATH_SETUP" == "1" && "$NEEDS_PATH_RELOAD" == "1" ]]; then

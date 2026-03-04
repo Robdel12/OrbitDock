@@ -84,19 +84,19 @@ jobs:
           git tag -a "v$VERSION" -m "Release v$VERSION"
           git push origin main --follow-tags
 
-      - name: Build orbitdock-server (darwin universal)
+      - name: Build orbitdock (darwin universal)
         run: |
           cd orbitdock-server
           ./build-universal.sh
 
-      - name: Package orbitdock-server (darwin universal)
+      - name: Package orbitdock (darwin universal)
         run: |
           mkdir -p dist
-          cp orbitdock-server/target/universal/orbitdock-server dist/orbitdock-server
-          chmod +x dist/orbitdock-server
+          cp orbitdock-server/target/universal/orbitdock dist/orbitdock
+          chmod +x dist/orbitdock
           cd dist
-          zip -q orbitdock-server-darwin-universal.zip orbitdock-server
-          shasum -a 256 orbitdock-server-darwin-universal.zip > orbitdock-server-darwin-universal.zip.sha256
+          zip -q orbitdock-darwin-universal.zip orbitdock
+          shasum -a 256 orbitdock-darwin-universal.zip > orbitdock-darwin-universal.zip.sha256
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -105,8 +105,8 @@ jobs:
           name: ${{ env.APP_NAME }} v${{ steps.version.outputs.version }}
           draft: true
           files: |
-            dist/orbitdock-server-darwin-universal.zip
-            dist/orbitdock-server-darwin-universal.zip.sha256
+            dist/orbitdock-darwin-universal.zip
+            dist/orbitdock-darwin-universal.zip.sha256
           body: |
             ## ${{ env.APP_NAME }} v${{ steps.version.outputs.version }}
 
@@ -130,27 +130,27 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build orbitdock-server (linux x86_64)
+      - name: Build orbitdock (linux x86_64)
         run: |
           cd orbitdock-server
-          cargo build -p orbitdock-server --release
+          cargo build -p orbitdock --release
 
       - name: Package and upload
         run: |
           mkdir -p dist
-          cp orbitdock-server/target/release/orbitdock-server dist/orbitdock-server
-          chmod +x dist/orbitdock-server
+          cp orbitdock-server/target/release/orbitdock dist/orbitdock
+          chmod +x dist/orbitdock
           cd dist
-          zip -q orbitdock-server-linux-x86_64.zip orbitdock-server
-          sha256sum orbitdock-server-linux-x86_64.zip > orbitdock-server-linux-x86_64.zip.sha256
+          zip -q orbitdock-linux-x86_64.zip orbitdock
+          sha256sum orbitdock-linux-x86_64.zip > orbitdock-linux-x86_64.zip.sha256
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.release.outputs.version }}
           files: |
-            dist/orbitdock-server-linux-x86_64.zip
-            dist/orbitdock-server-linux-x86_64.zip.sha256
+            dist/orbitdock-linux-x86_64.zip
+            dist/orbitdock-linux-x86_64.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

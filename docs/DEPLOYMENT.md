@@ -1,6 +1,6 @@
 # Deploying OrbitDock Server
 
-OrbitDock Server is a self-contained Rust binary with embedded database migrations. Drop it on any machine — macOS, Linux, or a Raspberry Pi — and it just works.
+The OrbitDock server is a self-contained Rust binary with embedded database migrations. Drop it on any machine — macOS, Linux, or a Raspberry Pi — and it just works.
 
 ## Quick Start
 
@@ -13,8 +13,8 @@ curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-s
 ### Setup wizard
 
 ```bash
-orbitdock-server setup --local    # localhost only
-orbitdock-server setup --remote   # generates auth token, binds 0.0.0.0
+orbitdock setup --local    # localhost only
+orbitdock setup --remote   # generates auth token, binds 0.0.0.0
 ```
 
 ## Deployment Topologies
@@ -24,11 +24,11 @@ orbitdock-server setup --remote   # generates auth token, binds 0.0.0.0
 The simplest setup. Server and Claude Code run on the same machine.
 
 ```bash
-orbitdock-server setup --local
+orbitdock setup --local
 # or manually:
-orbitdock-server init
-orbitdock-server install-hooks
-orbitdock-server install-service --enable
+orbitdock init
+orbitdock install-hooks
+orbitdock install-service --enable
 ```
 
 Health check: `curl http://127.0.0.1:4000/health`
@@ -40,14 +40,14 @@ Run the server on a VPS, connect from your dev machine.
 **On the server:**
 
 ```bash
-orbitdock-server setup --remote --server-url https://your-server.example.com:4000
+orbitdock setup --remote --server-url https://your-server.example.com:4000
 # Note the auth token printed at the end
 ```
 
 **On your dev machine** (hooks only — no local server):
 
 ```bash
-orbitdock-server install-hooks \
+orbitdock install-hooks \
   --server-url https://your-server.example.com:4000 \
   --auth-token <token>
 ```
@@ -115,7 +115,7 @@ Zero-config HTTPS with no firewall changes or certificates.
 **Quick tunnel** (temporary URL, no account needed):
 
 ```bash
-orbitdock-server tunnel
+orbitdock tunnel
 # Prints: https://random-name.trycloudflare.com
 ```
 
@@ -124,7 +124,7 @@ orbitdock-server tunnel
 ```bash
 cloudflared tunnel login
 cloudflared tunnel create orbitdock
-orbitdock-server tunnel --name orbitdock
+orbitdock tunnel --name orbitdock
 ```
 
 ### Tailscale
@@ -132,8 +132,8 @@ orbitdock-server tunnel --name orbitdock
 The server auto-detects Tailscale during `init` and prints your Tailscale IP.
 
 ```bash
-orbitdock-server generate-token
-orbitdock-server start --bind 0.0.0.0:4000
+orbitdock generate-token
+orbitdock start --bind 0.0.0.0:4000
 # Access via your Tailscale IP: http://100.x.y.z:4000
 ```
 
@@ -174,7 +174,7 @@ server {
 If you have certificates and don't want a reverse proxy:
 
 ```bash
-orbitdock-server start \
+orbitdock start \
   --bind 0.0.0.0:4000 \
   --tls-cert /path/to/cert.pem \
   --tls-key /path/to/key.pem
@@ -187,9 +187,9 @@ orbitdock-server start \
 Always use an auth token for remote deployments:
 
 ```bash
-orbitdock-server generate-token
+orbitdock generate-token
 # Copy the token now (only shown once), then start normally:
-orbitdock-server start --bind 0.0.0.0:4000
+orbitdock start --bind 0.0.0.0:4000
 ```
 
 The token is required in:
@@ -224,7 +224,7 @@ Settings → Servers → Add Endpoint → Enter your server URL and auth token.
 Use the `pair` command to generate a QR code:
 
 ```bash
-orbitdock-server pair --tunnel-url https://your-tunnel.trycloudflare.com
+orbitdock pair --tunnel-url https://your-tunnel.trycloudflare.com
 ```
 
 Scan the QR code from the iOS app's server settings.
@@ -234,7 +234,7 @@ Scan the QR code from the iOS app's server settings.
 Point Claude Code hooks at the remote server without running a local server:
 
 ```bash
-orbitdock-server install-hooks \
+orbitdock install-hooks \
   --server-url https://your-server.example.com:4000 \
   --auth-token <token>
 ```
@@ -300,7 +300,7 @@ curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-s
 Run diagnostics:
 
 ```bash
-orbitdock-server doctor
+orbitdock doctor
 ```
 
 Checks: data directory, database, encryption key, Claude CLI, auth token, hook transport config, hooks in settings.json, spool queue, WAL size, port availability, health endpoint, disk space.
@@ -308,19 +308,19 @@ Checks: data directory, database, encryption key, Claude CLI, auth token, hook t
 ### Common Issues
 
 **"Hook transport config not found"**
-Run `orbitdock-server install-hooks` to generate `~/.orbitdock/hook-forward.json` (includes encrypted token when provided).
+Run `orbitdock install-hooks` to generate `~/.orbitdock/hook-forward.json` (includes encrypted token when provided).
 
 **"Connection refused"**
-Server not running. Check `orbitdock-server status` and start with `orbitdock-server start`.
+Server not running. Check `orbitdock status` and start with `orbitdock start`.
 
 **"Unauthorized"**
-Auth token mismatch. Issue a new token with `orbitdock-server generate-token` and reinstall hooks with `--auth-token <token>`.
+Auth token mismatch. Issue a new token with `orbitdock generate-token` and reinstall hooks with `--auth-token <token>`.
 
 **"Events not arriving"**
 1. Check hook transport config exists: `ls -la ~/.orbitdock/hook-forward.json`
 2. Check hooks in settings: `cat ~/.claude/settings.json | jq '.hooks'`
 3. Check spool: `ls ~/.orbitdock/spool/` (queued = server temporarily unreachable)
-4. Test manually: `echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock-server hook-forward claude_status_event`
+4. Test manually: `echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock hook-forward claude_status_event`
 
 **Large WAL file**
-SQLite WAL should checkpoint automatically. If it grows beyond 50MB, restart the server. Check with `orbitdock-server doctor`.
+SQLite WAL should checkpoint automatically. If it grows beyond 50MB, restart the server. Check with `orbitdock doctor`.

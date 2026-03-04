@@ -5002,6 +5002,45 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
+name = "orbitdock"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "axum",
+ "axum-server",
+ "base64 0.22.1",
+ "bytes",
+ "clap",
+ "clap_complete",
+ "console",
+ "dashmap",
+ "dirs",
+ "futures",
+ "libc",
+ "notify 7.0.0",
+ "orbitdock-cli",
+ "orbitdock-connector-claude",
+ "orbitdock-connector-codex",
+ "orbitdock-connector-core",
+ "orbitdock-protocol",
+ "qrcode",
+ "reqwest",
+ "ring",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "orbitdock-cli"
 version = "0.1.0"
 dependencies = [
@@ -5074,42 +5113,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "orbitdock-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arc-swap",
- "axum",
- "axum-server",
- "base64 0.22.1",
- "bytes",
- "clap",
- "dashmap",
- "dirs",
- "futures",
- "libc",
- "notify 7.0.0",
- "orbitdock-connector-claude",
- "orbitdock-connector-codex",
- "orbitdock-connector-core",
- "orbitdock-protocol",
- "qrcode",
- "reqwest",
- "ring",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tower-http",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
  "uuid",
 ]
 

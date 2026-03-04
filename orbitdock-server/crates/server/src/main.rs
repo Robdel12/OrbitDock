@@ -79,8 +79,8 @@ const MAX_HTTP_BODY_BYTES: usize = 1024 * 1024;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "orbitdock-server",
-    about = "OrbitDock server — mission control for AI coding agents",
+    name = "orbitdock",
+    about = "OrbitDock — mission control for AI coding agents",
     version = VERSION,
 )]
 struct Cli {
@@ -92,12 +92,29 @@ struct Cli {
     #[arg(long, env = "ORBITDOCK_BIND_ADDR")]
     bind: Option<SocketAddr>,
 
+    /// Server URL for client commands (default: http://127.0.0.1:4000)
+    #[arg(long, short = 's', global = true, env = "ORBITDOCK_URL")]
+    server: Option<String>,
+
+    /// Bearer auth token for client commands
+    #[arg(long, short = 't', global = true, env = "ORBITDOCK_TOKEN")]
+    token: Option<String>,
+
+    /// Output as JSON (auto-enabled when stdout is not a TTY)
+    #[arg(long, short = 'j', global = true)]
+    json: bool,
+
+    /// Path to CLI config file
+    #[arg(long, global = true, env = "ORBITDOCK_CONFIG")]
+    config: Option<String>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    // ── Server admin commands ────────────────────────────────────
     /// Start the server (default when no subcommand given)
     Start {
         /// Bind address (e.g. 0.0.0.0:4000 for remote access)
@@ -184,7 +201,7 @@ enum Command {
     /// Ensure the server binary directory is persisted on your shell PATH
     EnsurePath,
 
-    /// Check if the server is running
+    /// Check server status (PID + health check)
     Status,
 
     /// Generate a secure auth token and store its hash in the database
@@ -249,6 +266,77 @@ enum Command {
         /// Suppress QR code output
         #[arg(long)]
         no_qr: bool,
+    },
+
+    // ── Client commands (from orbitdock-cli) ─────────────────────
+    /// Check server health via HTTP
+    Health,
+
+    /// Manage sessions
+    Session {
+        #[command(subcommand)]
+        action: orbitdock_cli::cli::SessionAction,
+    },
+
+    /// Manage approval history
+    Approval {
+        #[command(subcommand)]
+        action: orbitdock_cli::cli::ApprovalAction,
+    },
+
+    /// Manage review comments
+    Review {
+        #[command(subcommand)]
+        action: orbitdock_cli::cli::ReviewAction,
+    },
+
+    /// List available models
+    Model {
+        #[command(subcommand)]
+        action: orbitdock_cli::cli::ModelAction,
+    },
+
+    /// Show usage and rate limits
+    Usage {
+        #[command(subcommand)]
+        action: orbitdock_cli::cli::UsageAction,
+    },
+
+    /// Codex account management
+    #[command(name = "codex")]
+    CodexAccount {
+        #[command(subcommand)]
+        action: orbitdock_cli::cli::CodexAction,
+    },
+
+    /// Git worktree management
+    Worktree {
+        #[command(subcommand)]
+        action: orbitdock_cli::cli::WorktreeAction,
+    },
+
+    /// MCP tools and resources
+    Mcp {
+        #[command(subcommand)]
+        action: orbitdock_cli::cli::McpAction,
+    },
+
+    /// Browse filesystem via server
+    Fs {
+        #[command(subcommand)]
+        action: orbitdock_cli::cli::FsAction,
+    },
+
+    /// Execute a shell command via a session
+    Shell {
+        #[command(subcommand)]
+        action: orbitdock_cli::cli::ShellAction,
+    },
+
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
     },
 }
 
@@ -355,6 +443,22 @@ fn main() -> anyhow::Result<()> {
         _ => {}
     }
 
+    // Dispatch CLI client commands — these need a tokio runtime and make HTTP requests
+    if let Some(cli_command) = translate_to_cli_command(&cli) {
+        let cli_config = resolve_cli_config(&cli);
+        let runtime = tokio::runtime::Runtime::new()?;
+        let exit_code = runtime.block_on(orbitdock_cli::dispatch(&cli_command, &cli_config));
+        std::process::exit(exit_code);
+    }
+
+    // Handle completions (sync, no runtime needed)
+    if let Some(Command::Completions { shell }) = &cli.command {
+        use clap::CommandFactory;
+        let mut cmd = Cli::command();
+        clap_complete::generate(*shell, &mut cmd, "orbitdock", &mut std::io::stdout());
+        return Ok(());
+    }
+
     // Resolve bind address: subcommand --bind > top-level --bind > default
     let (bind_addr, auth_token, allow_insecure_no_auth, startup_is_primary, tls_cert, tls_key) =
         match cli.command {
@@ -425,7 +529,7 @@ async fn async_main(
     let run_id = logging.run_id.clone();
     let _log_guard = logging.guard;
     let root_span =
-        tracing::info_span!("orbitdock_server", service = "orbitdock-server", run_id = %run_id);
+        tracing::info_span!("orbitdock_server", service = "orbitdock", run_id = %run_id);
     let _root_span_guard = root_span.enter();
 
     let binary_path =
@@ -464,7 +568,7 @@ async fn async_main(
         && !allow_insecure_no_auth
     {
         anyhow::bail!(
-            "Refusing to bind {bind_addr} without authentication. Create a secure token with `orbitdock-server generate-token`, pass --auth-token (or ORBITDOCK_AUTH_TOKEN), or explicitly pass --allow-insecure-no-auth for trusted LAN/dev use."
+            "Refusing to bind {bind_addr} without authentication. Create a secure token with `orbitdock generate-token`, pass --auth-token (or ORBITDOCK_AUTH_TOKEN), or explicitly pass --allow-insecure-no-auth for trusted LAN/dev use."
         );
     }
     if !bind_addr.ip().is_loopback()
@@ -1219,6 +1323,77 @@ async fn health_handler() -> impl IntoResponse {
         "version": VERSION,
     })
     .to_string()
+}
+
+/// Map merged Command variants to CLI crate's Command type.
+/// Returns None for server-admin commands (handled separately).
+fn translate_to_cli_command(cli: &Cli) -> Option<orbitdock_cli::cli::Command> {
+    use orbitdock_cli::cli::Command as CliCmd;
+    match cli.command.as_ref()? {
+        Command::Health => Some(CliCmd::Health),
+        Command::Session { action } => Some(CliCmd::Session {
+            action: action.clone(),
+        }),
+        Command::Approval { action } => Some(CliCmd::Approval {
+            action: action.clone(),
+        }),
+        Command::Review { action } => Some(CliCmd::Review {
+            action: action.clone(),
+        }),
+        Command::Model { action } => Some(CliCmd::Model {
+            action: action.clone(),
+        }),
+        Command::Usage { action } => Some(CliCmd::Usage {
+            action: action.clone(),
+        }),
+        Command::CodexAccount { action } => Some(CliCmd::Codex {
+            action: action.clone(),
+        }),
+        Command::Worktree { action } => Some(CliCmd::Worktree {
+            action: action.clone(),
+        }),
+        Command::Mcp { action } => Some(CliCmd::Mcp {
+            action: action.clone(),
+        }),
+        Command::Fs { action } => Some(CliCmd::Fs {
+            action: action.clone(),
+        }),
+        Command::Shell { action } => Some(CliCmd::Shell {
+            action: action.clone(),
+        }),
+        // Server-admin commands and Completions are handled elsewhere
+        _ => None,
+    }
+}
+
+/// Build a CLI ClientConfig from the merged Cli flags.
+fn resolve_cli_config(cli: &Cli) -> orbitdock_cli::client::config::ClientConfig {
+    let default_server = "http://127.0.0.1:4000".to_string();
+
+    // Try to load from config file if no explicit flags given
+    let server_url = cli.server.clone().unwrap_or_else(|| default_server.clone());
+
+    let token = cli.token.clone().or_else(load_auth_token_file);
+
+    let json = cli.json || !console::Term::stdout().is_term();
+
+    orbitdock_cli::client::config::ClientConfig {
+        server_url,
+        token,
+        json,
+    }
+}
+
+/// Read token from ~/.orbitdock/auth-token for CLI client commands.
+fn load_auth_token_file() -> Option<String> {
+    let path = dirs::home_dir()?.join(".orbitdock").join("auth-token");
+    let contents = std::fs::read_to_string(path).ok()?;
+    let trimmed = contents.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn current_binary_path() -> String {

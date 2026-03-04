@@ -1,7 +1,7 @@
-//! `orbitdock-server install-hooks` — configure Claude Code hooks.
+//! `orbitdock install-hooks` — configure Claude Code hooks.
 //!
 //! Safely merges OrbitDock hook entries into `~/.claude/settings.json`.
-//! Hooks invoke `orbitdock-server hook-forward ...` directly; no shell script
+//! Hooks invoke `orbitdock hook-forward ...` directly; no shell script
 //! install is required.
 
 use std::path::{Path, PathBuf};
@@ -183,7 +183,7 @@ fn resolve_hook_binary_path() -> String {
     std::env::current_exe()
         .ok()
         .and_then(|path| path.into_os_string().into_string().ok())
-        .unwrap_or_else(|| "orbitdock-server".to_string())
+        .unwrap_or_else(|| "orbitdock".to_string())
 }
 
 fn quote_for_shell(path: &str) -> String {

@@ -1,4 +1,4 @@
-//! `orbitdock-server doctor` — diagnostics checklist.
+//! `orbitdock doctor` — diagnostics checklist.
 //!
 //! Runs a battery of health checks and prints a summary.
 
@@ -110,7 +110,7 @@ fn check_database() -> Check {
         return Check {
             name: "Database",
             status: Status::Fail,
-            detail: "not found — run `orbitdock-server init`".to_string(),
+            detail: "not found — run `orbitdock init`".to_string(),
         };
     }
 
@@ -322,7 +322,7 @@ fn check_hook_transport_config() -> Check {
             name: "Hook transport",
             status: Status::Warn,
             detail: format!(
-                "{} uses legacy plaintext auth_token; rerun `orbitdock-server install-hooks`",
+                "{} uses legacy plaintext auth_token; rerun `orbitdock install-hooks`",
                 config_path.display()
             ),
         };

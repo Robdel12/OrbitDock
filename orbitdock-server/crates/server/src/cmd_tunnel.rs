@@ -1,4 +1,4 @@
-//! `orbitdock-server tunnel` — expose the server via Cloudflare Tunnel.
+//! `orbitdock tunnel` — expose the server via Cloudflare Tunnel.
 //!
 //! Quick tunnel (no account): spins up a temporary `trycloudflare.com` URL.
 //! Named tunnel (account required): uses an existing tunnel name.
@@ -43,7 +43,7 @@ pub fn run(port: u16, name: Option<&str>) -> anyhow::Result<()> {
                     println!("  ══════════════════════════════════════════");
                     println!();
                     println!("  Connect a remote machine:");
-                    println!("    orbitdock-server install-hooks --server-url {}", url);
+                    println!("    orbitdock install-hooks --server-url {}", url);
                     println!();
                     println!("  Press Ctrl+C to stop the tunnel.");
                     println!();

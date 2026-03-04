@@ -130,6 +130,12 @@ pub enum PersistCommand {
         permission_mode: Option<String>,
     },
 
+    /// Mark messages as read up to a given sequence number
+    MarkSessionRead {
+        session_id: String,
+        up_to_sequence: i64,
+    },
+
     /// Reactivate an ended session (for resume)
     ReactivateSession { id: String },
 

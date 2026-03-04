@@ -157,7 +157,8 @@ Response:
       "display_name": "GPT-5",
       "description": "General-purpose coding model",
       "is_default": true,
-      "supported_reasoning_efforts": ["low", "medium", "high"]
+      "supported_reasoning_efforts": ["low", "medium", "high"],
+      "supports_reasoning_summaries": true
     }
   ]
 }

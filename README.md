@@ -52,8 +52,8 @@ The installer sets up the binary, shell `PATH`, data directory, database, Claude
 ### 2. Verify it started
 
 ```bash
-orbitdock-server status
-orbitdock-server doctor
+orbitdock status
+orbitdock doctor
 ```
 
 `doctor` runs a full diagnostic — database, hooks, encryption key, disk space, port availability,
@@ -79,7 +79,7 @@ The app auto-connects to the local server.
 
 **Codex** — Open Settings → CODEX CLI → Sign in with ChatGPT (or use API key auth mode).
 
-**Claude Code** — Install the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) and log in. The installer already set up hooks, but if you skipped that step: `orbitdock-server install-hooks`.
+**Claude Code** — Install the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) and log in. The installer already set up hooks, but if you skipped that step: `orbitdock install-hooks`.
 
 ### 5. Create a session
 
@@ -88,14 +88,14 @@ directory, choose your model, and go.
 
 Existing Claude Code terminal sessions show up automatically through hooks.
 
-If something doesn't appear, run `orbitdock-server doctor` and check `~/.orbitdock/logs/server.log`.
+If something doesn't appear, run `orbitdock doctor` and check `~/.orbitdock/logs/server.log`.
 
 ### Remote server
 
 Running on a VPS, Raspberry Pi, or another machine:
 
 ```bash
-orbitdock-server setup --remote
+orbitdock setup --remote
 ```
 
 See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, Docker, and more.

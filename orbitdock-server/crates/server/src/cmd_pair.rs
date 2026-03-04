@@ -1,4 +1,4 @@
-//! `orbitdock-server pair` — generate a connection URL + QR code for clients.
+//! `orbitdock pair` — generate a connection URL + QR code for clients.
 
 use crate::auth_tokens;
 
@@ -32,8 +32,8 @@ pub fn run(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
         } else {
             anyhow::bail!(
                 "Cannot detect server URL. Either:\n\
-                 - Start the server: orbitdock-server start\n\
-                 - Provide a tunnel URL: orbitdock-server pair --tunnel-url https://..."
+                 - Start the server: orbitdock start\n\
+                 - Provide a tunnel URL: orbitdock pair --tunnel-url https://..."
             );
         }
     };
@@ -91,18 +91,15 @@ pub fn run(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
     println!("  To connect from another machine (hooks only):");
     if env_token.is_some() || active_db_tokens > 0 {
         println!(
-            "    orbitdock-server install-hooks --server-url {} --auth-token <token>",
+            "    orbitdock install-hooks --server-url {} --auth-token <token>",
             base_url
         );
         if active_db_tokens > 0 && env_token.is_none() {
             println!("    # Create a new token if you don't already have one:");
-            println!("    orbitdock-server generate-token");
+            println!("    orbitdock generate-token");
         }
     } else {
-        println!(
-            "    orbitdock-server install-hooks --server-url {}",
-            base_url
-        );
+        println!("    orbitdock install-hooks --server-url {}", base_url);
     }
     println!();
 

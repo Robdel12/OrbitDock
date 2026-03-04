@@ -27,7 +27,7 @@ pub struct Cli {
     pub command: Command,
 }
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum Command {
     /// Check server health
     Health,
@@ -107,7 +107,7 @@ pub enum Command {
 
 // ── Session ──────────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum SessionAction {
     /// List all sessions
     List {
@@ -304,19 +304,19 @@ pub enum SessionAction {
     },
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, Debug, ValueEnum)]
 pub enum ProviderFilter {
     Claude,
     Codex,
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, Debug, ValueEnum)]
 pub enum StatusFilter {
     Active,
     Ended,
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, Debug, ValueEnum)]
 pub enum ApprovalDecision {
     Approved,
     ApprovedForSession,
@@ -337,7 +337,7 @@ impl ApprovalDecision {
     }
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, Debug, ValueEnum)]
 pub enum PermissionMode {
     Default,
     AcceptEdits,
@@ -356,7 +356,7 @@ impl PermissionMode {
     }
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, Debug, ValueEnum)]
 pub enum Effort {
     Low,
     Medium,
@@ -378,7 +378,7 @@ impl Effort {
 
 // ── Approvals ────────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum ApprovalAction {
     /// List approval history
     List {
@@ -400,7 +400,7 @@ pub enum ApprovalAction {
 
 // ── Review ───────────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum ReviewAction {
     /// List review comments for a session
     List {
@@ -467,7 +467,7 @@ pub enum ReviewAction {
     },
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, Debug, ValueEnum)]
 pub enum ReviewTagFilter {
     Clarity,
     Scope,
@@ -486,7 +486,7 @@ impl ReviewTagFilter {
     }
 }
 
-#[derive(Clone, ValueEnum)]
+#[derive(Clone, Debug, ValueEnum)]
 pub enum ReviewStatusFilter {
     Open,
     Resolved,
@@ -503,7 +503,7 @@ impl ReviewStatusFilter {
 
 // ── Models ───────────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum ModelAction {
     /// List available models
     List {
@@ -515,7 +515,7 @@ pub enum ModelAction {
 
 // ── Usage ────────────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum UsageAction {
     /// Show usage and rate limits
     Show {
@@ -527,7 +527,7 @@ pub enum UsageAction {
 
 // ── Server ───────────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum ServerAction {
     /// Check server status
     Status,
@@ -546,7 +546,7 @@ pub enum ServerAction {
 
 // ── Codex ────────────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum CodexAction {
     /// Show Codex account status
     Account,
@@ -560,7 +560,7 @@ pub enum CodexAction {
 
 // ── Worktree ─────────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum WorktreeAction {
     /// List worktrees
     List {
@@ -612,7 +612,7 @@ pub enum WorktreeAction {
 
 // ── MCP ──────────────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum McpAction {
     /// List MCP tools and resources
     Tools {
@@ -629,7 +629,7 @@ pub enum McpAction {
 
 // ── Filesystem ───────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum FsAction {
     /// Browse a directory
     Browse {
@@ -643,7 +643,7 @@ pub enum FsAction {
 
 // ── Shell ────────────────────────────────────────────────────
 
-#[derive(Subcommand)]
+#[derive(Clone, Debug, Subcommand)]
 pub enum ShellAction {
     /// Execute a shell command via a session
     Exec {

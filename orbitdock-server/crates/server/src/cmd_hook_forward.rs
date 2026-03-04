@@ -1,4 +1,4 @@
-//! `orbitdock-server hook-forward` — internal Claude hook transport.
+//! `orbitdock hook-forward` — internal Claude hook transport.
 //!
 //! Reads a Claude hook JSON payload from stdin, wraps it into an OrbitDock
 //! client message (`type` field), POSTs it to `/api/hook`, and spools on

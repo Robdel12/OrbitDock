@@ -10,11 +10,11 @@ Shared Swift package used by the OrbitDock app.
 Claude hook transport is handled by the Rust binary:
 
 ```bash
-orbitdock-server install-hooks
+orbitdock install-hooks
 ```
 
 That command installs Claude hooks that call:
 
 ```bash
-orbitdock-server hook-forward <event-type>
+orbitdock hook-forward <event-type>
 ```

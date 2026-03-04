@@ -6,9 +6,8 @@ license.workspace = true
 authors.workspace = true
 description = "OrbitDock CLI - interact with AI coding sessions from the terminal"
 
-[[bin]]
-name = "orbitdock"
-path = "src/main.rs"
+[lib]
+name = "orbitdock_cli"
 
 [dependencies]
 orbitdock-protocol = { workspace = true }

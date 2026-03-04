@@ -1,4 +1,4 @@
-//! `orbitdock-server install-service` — generate and optionally enable a system service.
+//! `orbitdock install-service` — generate and optionally enable a system service.
 //!
 //! macOS: ~/Library/LaunchAgents/com.orbitdock.server.plist
 //! Linux: ~/.config/systemd/user/orbitdock-server.service

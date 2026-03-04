@@ -47,7 +47,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 cli-build cli-run whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
 
 help:
 	@echo "make build      Build the macOS app"
@@ -62,8 +62,8 @@ help:
 	@echo "make lint       Lint Swift + Rust code"
 	@echo "make swift-fmt  Format Swift with SwiftFormat"
 	@echo "make swift-lint Lint Swift formatting with SwiftFormat --lint"
-	@echo "make rust-build Build Rust server crate"
-	@echo "make rust-build-darwin Build fresh macOS arm64 orbitdock-server binary"
+	@echo "make rust-build Build Rust orbitdock binary"
+	@echo "make rust-build-darwin Build fresh macOS arm64 orbitdock binary"
 	@echo "make rust-build-universal Alias for rust-build-darwin (legacy target name)"
 	@echo "make rust-check Run cargo check for Rust workspace"
 	@echo "make rust-test  Run Rust workspace tests"
@@ -71,19 +71,16 @@ help:
 	@echo "make rust-fmt   Format Rust with cargo fmt"
 	@echo "make rust-fmt-check Check Rust formatting with cargo fmt --check"
 	@echo "make rust-lint  Lint Rust workspace"
-	@echo "make rust-run   Run orbitdock-server locally (127.0.0.1:4000 by default)"
+	@echo "make rust-run   Run orbitdock locally (127.0.0.1:4000 by default)"
 	@echo "make rust-run-lan Run on LAN without auth (trusted network/dev only)"
-	@echo "make rust-run-remote Run orbitdock-server on 0.0.0.0 (requires DB token or ORBITDOCK_AUTH_TOKEN)"
-	@echo "make rust-run-debug Run orbitdock-server with debug logs"
+	@echo "make rust-run-remote Run orbitdock on 0.0.0.0 (requires DB token or ORBITDOCK_AUTH_TOKEN)"
+	@echo "make rust-run-debug Run orbitdock with debug logs"
 	@echo "make rust-generate-token Issue a secure auth token (stored hashed in DB)"
-	@echo "make cli-build  Build orbitdock CLI"
-	@echo "make cli-run    Run orbitdock CLI (pass ARGS='session list' etc.)"
-	@echo "make cli-install Install orbitdock CLI to ~/.orbitdock/bin/"
-	@echo "make rust-release-darwin Build + package orbitdock-server-darwin-arm64.zip"
+	@echo "make rust-release-darwin Build + package orbitdock-darwin-arm64.zip"
 	@echo "make rust-release-linux  Build + package host Linux arch zip (x86_64/aarch64); auto-uses Docker when needed"
 	@echo "make rust-release-linux-all Build + package both Linux release zips"
-	@echo "make rust-release-linux-x86_64 Build + package orbitdock-server-linux-x86_64.zip (auto Docker on macOS)"
-	@echo "make rust-release-linux-aarch64 Build + package orbitdock-server-linux-aarch64.zip (auto Docker on macOS)"
+	@echo "make rust-release-linux-x86_64 Build + package orbitdock-linux-x86_64.zip (auto Docker on macOS)"
+	@echo "make rust-release-linux-aarch64 Build + package orbitdock-linux-aarch64.zip (auto Docker on macOS)"
 	@echo "  aarch64 defaults: LINUX_AARCH64_PROFILE_PRESET=release-lowmem, LINUX_AARCH64_DOCKER_JOBS=1"
 	@echo "  Override for full profile: make rust-release-linux-aarch64 LINUX_AARCH64_PROFILE_PRESET=release"
 	@echo "make rust-release-linux-smoke-x86_64 Build fast local-validation Linux x86_64 zip"
@@ -215,15 +212,15 @@ rust-sccache-stats:
 rust-ci: rust-fmt-check rust-lint rust-test
 
 rust-build:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-server
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock
 
 rust-build-darwin:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) rustup target add aarch64-apple-darwin
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-server --release --target aarch64-apple-darwin
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock --release --target aarch64-apple-darwin
 	@mkdir -p "$(RUST_TARGET_DIR)/darwin-arm64"
-	cp "$(RUST_TARGET_DIR)/aarch64-apple-darwin/release/orbitdock-server" "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock-server"
-	@chmod +x "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock-server"
-	@git rev-parse HEAD > "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock-server.gitsha"
+	cp "$(RUST_TARGET_DIR)/aarch64-apple-darwin/release/orbitdock" "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock"
+	@chmod +x "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock"
+	@git rev-parse HEAD > "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock.gitsha"
 
 rust-build-universal: rust-build-darwin
 
@@ -243,31 +240,20 @@ rust-lint:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clippy --workspace --all-targets -- -D warnings
 
 rust-run:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- start --bind $(RUST_RUN_BIND)
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock -- start --bind $(RUST_RUN_BIND)
 
 rust-run-lan:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- start --bind $(RUST_RUN_LAN_BIND) --allow-insecure-no-auth
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock -- start --bind $(RUST_RUN_LAN_BIND) --allow-insecure-no-auth
 
 rust-run-remote:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- start --bind $(RUST_RUN_REMOTE_BIND)
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock -- start --bind $(RUST_RUN_REMOTE_BIND)
 
 rust-run-debug:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p orbitdock-server -- start
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p orbitdock -- start
 
 rust-generate-token:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- generate-token
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock -- generate-token
 
-cli-build:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-cli
-
-cli-run:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-cli -- $(ARGS)
-
-cli-install:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build --release -p orbitdock-cli
-	mkdir -p $(HOME)/.orbitdock/bin
-	cp "$(RUST_TARGET_DIR)/release/orbitdock" "$(HOME)/.orbitdock/bin/orbitdock"
-	@echo "Installed orbitdock to ~/.orbitdock/bin/orbitdock"
 
 rust-release-darwin:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ./package-release-assets.sh darwin
@@ -296,15 +282,15 @@ rust-smoke-linux: rust-smoke-linux-x86_64 rust-smoke-linux-aarch64
 rust-smoke-linux-x86_64:
 	@set -euo pipefail; \
 	tmpdir=$$(mktemp -d); \
-	unzip -q dist/orbitdock-server-linux-x86_64.zip -d "$$tmpdir"; \
-	docker run --rm --platform linux/amd64 -v "$$tmpdir:/work" --entrypoint /work/orbitdock-server rust:1-bookworm --version; \
+	unzip -q dist/orbitdock-linux-x86_64.zip -d "$$tmpdir"; \
+	docker run --rm --platform linux/amd64 -v "$$tmpdir:/work" --entrypoint /work/orbitdock rust:1-bookworm --version; \
 	rm -rf "$$tmpdir"
 
 rust-smoke-linux-aarch64:
 	@set -euo pipefail; \
 	tmpdir=$$(mktemp -d); \
-	unzip -q dist/orbitdock-server-linux-aarch64.zip -d "$$tmpdir"; \
-	docker run --rm --platform linux/arm64 -v "$$tmpdir:/work" --entrypoint /work/orbitdock-server rust:1-bookworm --version; \
+	unzip -q dist/orbitdock-linux-aarch64.zip -d "$$tmpdir"; \
+	docker run --rm --platform linux/arm64 -v "$$tmpdir:/work" --entrypoint /work/orbitdock rust:1-bookworm --version; \
 	rm -rf "$$tmpdir"
 
 rust-release-linux-test: rust-smoke-linux

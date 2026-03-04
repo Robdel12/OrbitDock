@@ -1,4 +1,4 @@
-//! `orbitdock-server setup` — interactive setup wizard.
+//! `orbitdock setup` — interactive setup wizard.
 //!
 //! Combines `init` + `install-hooks` + `generate-token` + `install-service`
 //! into a single guided flow for both local and remote deployments.
@@ -58,7 +58,9 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
         println!("  \x1b[33m[WARN]\x1b[0m No --server-url provided for remote mode.");
         println!("         Hooks on this machine will keep pointing to localhost.");
         println!("         For remote machines, use a public HTTPS URL when running:");
-        println!("         orbitdock-server install-hooks --server-url https://your-server.example.com:4000");
+        println!(
+            "         orbitdock install-hooks --server-url https://your-server.example.com:4000"
+        );
         println!();
     }
 
@@ -115,7 +117,7 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
             }
             println!();
             println!("  Start the server:");
-            println!("    orbitdock-server start --bind {}", bind);
+            println!("    orbitdock start --bind {}", bind);
             println!();
             println!("  Connect a remote developer machine (hooks only):");
             let remote_url = resolved_server_url
@@ -123,14 +125,11 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
                 .unwrap_or_else(|| "https://your-server.example.com:4000".to_string());
             if let Some(ref token) = auth_token {
                 println!(
-                    "    orbitdock-server install-hooks --server-url {} --auth-token {}",
+                    "    orbitdock install-hooks --server-url {} --auth-token {}",
                     remote_url, token
                 );
             } else {
-                println!(
-                    "    orbitdock-server install-hooks --server-url {}",
-                    remote_url
-                );
+                println!("    orbitdock install-hooks --server-url {}", remote_url);
             }
         }
     }

@@ -77,7 +77,7 @@ fn load_config_file(explicit_path: Option<&str>) -> FileConfig {
     toml::from_str(&contents).unwrap_or_default()
 }
 
-/// Read token from ~/.orbitdock/auth-token (created by `orbitdock-server generate-token`).
+/// Read token from ~/.orbitdock/auth-token (created by `orbitdock generate-token`).
 fn load_auth_token_file() -> Option<String> {
     let path = dirs::home_dir()?.join(".orbitdock").join("auth-token");
     let contents = std::fs::read_to_string(path).ok()?;

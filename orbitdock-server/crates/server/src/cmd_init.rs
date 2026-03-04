@@ -1,4 +1,4 @@
-//! `orbitdock-server init` — bootstrap a fresh machine.
+//! `orbitdock init` — bootstrap a fresh machine.
 //!
 //! Creates data dir structure, runs migrations, and prints helpful next-steps
 //! guidance.
@@ -35,15 +35,15 @@ pub fn run(data_dir: &Path, _server_url: &str) -> anyhow::Result<()> {
     if let Some(ip) = &ts_ip {
         println!("  Tailscale detected! Your IP: {}", ip);
         println!("  For remote access (secure by default):");
-        println!("    orbitdock-server generate-token");
-        println!("    orbitdock-server start --bind 0.0.0.0:4000");
+        println!("    orbitdock generate-token");
+        println!("    orbitdock start --bind 0.0.0.0:4000");
         println!();
     }
 
     println!("  Next steps:");
-    println!("    1. Install Claude Code hooks:  orbitdock-server install-hooks");
-    println!("    2. Start the server:           orbitdock-server start");
-    println!("    3. Install as a service:       orbitdock-server install-service --enable");
+    println!("    1. Install Claude Code hooks:  orbitdock install-hooks");
+    println!("    2. Start the server:           orbitdock start");
+    println!("    3. Install as a service:       orbitdock install-service --enable");
     println!();
 
     Ok(())

@@ -573,6 +573,8 @@ pub struct CodexModelOption {
     pub description: String,
     pub is_default: bool,
     pub supported_reasoning_efforts: Vec<String>,
+    #[serde(default)]
+    pub supports_reasoning_summaries: bool,
 }
 
 /// Claude model option exposed to clients.

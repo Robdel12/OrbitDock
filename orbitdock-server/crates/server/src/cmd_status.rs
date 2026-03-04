@@ -1,5 +1,5 @@
-//! `orbitdock-server status` — check if the server is running.
-//! `orbitdock-server generate-token` — create a secure auth token.
+//! `orbitdock status` — check if the server is running.
+//! `orbitdock generate-token` — create a secure auth token.
 
 use std::path::Path;
 
@@ -63,7 +63,7 @@ pub fn run(data_dir: &Path) -> anyhow::Result<()> {
 
     if !pid_alive && !health_ok {
         println!("  Server is not running.");
-        println!("  Start with: orbitdock-server start");
+        println!("  Start with: orbitdock start");
     }
 
     println!();
@@ -89,7 +89,7 @@ pub fn generate_token(data_dir: &Path) -> anyhow::Result<()> {
     println!();
     println!("  Usage:");
     println!("    # Start server (token store mode)");
-    println!("    orbitdock-server start --bind 0.0.0.0:4000");
+    println!("    orbitdock start --bind 0.0.0.0:4000");
     println!("    # Configure hooks/client with the token shown above");
     println!();
 

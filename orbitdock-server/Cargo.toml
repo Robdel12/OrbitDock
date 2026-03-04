@@ -68,6 +68,7 @@ orbitdock-protocol = { path = "crates/protocol" }
 orbitdock-connector-core = { path = "crates/connector-core" }
 orbitdock-connector-claude = { path = "crates/connector-claude" }
 orbitdock-connector-codex = { path = "crates/connector-codex" }
+orbitdock-cli = { path = "crates/cli" }
 
 # Patches required by codex-core transitive dependencies
 [patch.crates-io]
