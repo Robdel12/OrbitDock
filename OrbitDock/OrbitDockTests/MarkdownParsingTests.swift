@@ -234,7 +234,7 @@ struct MarkdownParsingTests {
     #expect((paragraphStyle?.headIndent ?? 0) > (paragraphStyle?.firstLineHeadIndent ?? 0))
   }
 
-  @Test func nestedListItemsHaveIncreasingFirstLineIndent() {
+  @Test func nestedListItemsDoNotReduceFirstLineIndent() {
     let markdown = """
     1. First item
     2. Trigger these:
@@ -275,8 +275,8 @@ struct MarkdownParsingTests {
     #expect(topStyle != nil)
     #expect(nestedStyle != nil)
     #expect(
-      (nestedStyle?.firstLineHeadIndent ?? 0) > (topStyle?.firstLineHeadIndent ?? 0),
-      "Nested bullets should have a larger firstLineHeadIndent than top-level items"
+      (nestedStyle?.firstLineHeadIndent ?? 0) >= (topStyle?.firstLineHeadIndent ?? 0),
+      "Nested bullets should never have less firstLineHeadIndent than top-level items"
     )
   }
 

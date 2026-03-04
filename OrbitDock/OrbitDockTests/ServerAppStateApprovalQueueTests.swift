@@ -465,7 +465,8 @@ struct ServerAppStateApprovalQueueTests {
       approvalVersion: nil,
       repositoryRoot: nil,
       isWorktree: nil,
-      worktreeId: nil
+      worktreeId: nil,
+      unreadCount: nil
     )
   }
 }

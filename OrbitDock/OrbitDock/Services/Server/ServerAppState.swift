@@ -1678,13 +1678,12 @@ final class ServerAppState {
 
   private func hasActivePendingApproval(sessionId: String, requestId: String) -> Bool {
     guard let normalizedRequestId = normalizedApprovalRequestId(requestId) else { return false }
-    if nextPendingApprovalRequestId(sessionId: sessionId) == normalizedRequestId {
-      return true
+    if let summary = sessions.first(where: { $0.id == sessionId }) {
+      // Session summary is authoritative when present, even when the pending ID is nil.
+      return normalizedApprovalRequestId(summary.pendingApprovalId) == normalizedRequestId
     }
-    if normalizedApprovalRequestId(session(sessionId).pendingApproval?.id) == normalizedRequestId {
-      return true
-    }
-    return false
+    // Fallback for bootstrapping edge cases before summaries are loaded.
+    return normalizedApprovalRequestId(session(sessionId).pendingApproval?.id) == normalizedRequestId
   }
 
   private func mergeMessage(_ existing: TranscriptMessage, with incoming: TranscriptMessage) -> TranscriptMessage {

@@ -495,7 +495,7 @@ struct ServerRuntimeRegistryTests {
     #expect(sessionB.messagesRevision == 1)
   }
 
-  @Test func activeAccessorsFallbackWhenNoEndpointsConfigured() {
+  @Test func activeAccessorsRemainAvailableWhenNoEndpointsConfigured() {
     var runtimeFactoryCallCount = 0
     let registry = ServerRuntimeRegistry(
       endpointsProvider: { [] },
@@ -508,9 +508,18 @@ struct ServerRuntimeRegistryTests {
     let appState = registry.activeAppState
     let connection = registry.activeConnection
 
-    #expect(runtimeFactoryCallCount == 0)
-    #expect(registry.runtimesByEndpointId.isEmpty)
-    #expect(registry.activeEndpointId == nil)
+    #if os(iOS)
+      // iOS does not synthesize a localhost runtime fallback when no endpoints exist.
+      #expect(runtimeFactoryCallCount == 0)
+      #expect(registry.runtimesByEndpointId.isEmpty)
+      #expect(registry.activeEndpointId == nil)
+    #else
+      // macOS synthesizes a local default runtime to keep accessors available.
+      #expect(runtimeFactoryCallCount == 1)
+      #expect(registry.runtimesByEndpointId.count == 1)
+      #expect(registry.activeEndpointId != nil)
+    #endif
+
     #expect(appState.endpointId == connection.endpointId)
   }
 
