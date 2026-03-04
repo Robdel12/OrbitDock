@@ -105,10 +105,12 @@ struct AskUserQuestionCard: View {
         }
 
         if let preview = firstQuestionPreview {
-          Text(preview.count > 88 ? String(preview.prefix(88)) + "..." : preview)
+          Text(preview)
             .font(.system(size: TypeScale.meta))
             .foregroundStyle(.secondary)
-            .lineLimit(1)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
         }
       }
 

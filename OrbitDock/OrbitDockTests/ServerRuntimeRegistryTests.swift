@@ -495,6 +495,25 @@ struct ServerRuntimeRegistryTests {
     #expect(sessionB.messagesRevision == 1)
   }
 
+  @Test func activeAccessorsFallbackWhenNoEndpointsConfigured() {
+    var runtimeFactoryCallCount = 0
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [] },
+      runtimeFactory: { endpoint in
+        runtimeFactoryCallCount += 1
+        return ServerRuntime(endpoint: endpoint)
+      }
+    )
+
+    let appState = registry.activeAppState
+    let connection = registry.activeConnection
+
+    #expect(runtimeFactoryCallCount == 0)
+    #expect(registry.runtimesByEndpointId.isEmpty)
+    #expect(registry.activeEndpointId == nil)
+    #expect(appState.endpointId == connection.endpointId)
+  }
+
   private func makeMessage(id: String, content: String) -> TranscriptMessage {
     TranscriptMessage(
       id: id,

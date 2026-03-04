@@ -116,6 +116,7 @@ final class SessionObservable {
   var repositoryRoot: String?
   var isWorktree: Bool = false
   var worktreeId: String?
+  var unreadCount: UInt64 = 0
 
   init(id: String) {
     self.id = id

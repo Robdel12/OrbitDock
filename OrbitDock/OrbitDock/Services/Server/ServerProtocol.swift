@@ -526,6 +526,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let repositoryRoot: String?
   let isWorktree: Bool?
   let worktreeId: String?
+  let unreadCount: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -562,6 +563,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case repositoryRoot = "repository_root"
     case isWorktree = "is_worktree"
     case worktreeId = "worktree_id"
+    case unreadCount = "unread_count"
   }
 }
 
@@ -781,6 +783,7 @@ struct ServerSessionState: Codable, Identifiable {
   let repositoryRoot: String?
   let isWorktree: Bool?
   let worktreeId: String?
+  let unreadCount: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -828,6 +831,7 @@ struct ServerSessionState: Codable, Identifiable {
     case repositoryRoot = "repository_root"
     case isWorktree = "is_worktree"
     case worktreeId = "worktree_id"
+    case unreadCount = "unread_count"
   }
 
   init(from decoder: Decoder) throws {
@@ -881,6 +885,7 @@ struct ServerSessionState: Codable, Identifiable {
     repositoryRoot = try container.decodeIfPresent(String.self, forKey: .repositoryRoot)
     isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree)
     worktreeId = try container.decodeIfPresent(String.self, forKey: .worktreeId)
+    unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount)
   }
 }
 
@@ -914,6 +919,7 @@ struct ServerStateChanges: Codable {
   let approvalVersion: UInt64?
   let repositoryRoot: String??
   let isWorktree: Bool?
+  let unreadCount: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -943,6 +949,7 @@ struct ServerStateChanges: Codable {
     case approvalVersion = "approval_version"
     case repositoryRoot = "repository_root"
     case isWorktree = "is_worktree"
+    case unreadCount = "unread_count"
   }
 }
 
@@ -971,6 +978,7 @@ struct ServerCodexModelOption: Codable, Identifiable {
   let description: String
   let isDefault: Bool
   let supportedReasoningEfforts: [String]
+  var supportsReasoningSummaries: Bool? = nil
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -979,6 +987,7 @@ struct ServerCodexModelOption: Codable, Identifiable {
     case description
     case isDefault = "is_default"
     case supportedReasoningEfforts = "supported_reasoning_efforts"
+    case supportsReasoningSummaries = "supports_reasoning_summaries"
   }
 }
 

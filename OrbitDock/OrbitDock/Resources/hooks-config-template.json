@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_session_start",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_session_start",
             "async": true
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_session_end",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_session_end",
             "async": true
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_status_event",
             "async": true
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_status_event",
             "async": true
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_status_event",
             "async": true
           }
         ]
@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_status_event",
             "async": true
           }
         ]
@@ -72,7 +72,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_status_event",
             "async": true
           }
         ]
@@ -83,7 +83,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_status_event",
             "async": true
           }
         ]
@@ -94,7 +94,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_status_event",
             "async": true
           }
         ]
@@ -105,7 +105,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_tool_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_tool_event",
             "async": true
           }
         ]
@@ -116,7 +116,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_tool_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_tool_event",
             "async": true
           }
         ]
@@ -127,7 +127,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_tool_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_tool_event",
             "async": true
           }
         ]
@@ -138,7 +138,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_tool_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_tool_event",
             "async": true
           }
         ]
@@ -149,7 +149,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_subagent_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_subagent_event",
             "async": true
           }
         ]
@@ -160,7 +160,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_subagent_event",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock\" hook-forward claude_subagent_event",
             "async": true
           }
         ]

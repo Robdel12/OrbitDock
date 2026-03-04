@@ -79,32 +79,45 @@ struct ApprovalPermissionPreviewTests {
     #expect(ApprovalPermissionPreviewHelpers.previewValue(for: model) == "echo hello")
   }
 
-  @Test func compactDetailUsesServerDetailWhenProvided() {
-    let detail = ApprovalPermissionPreviewBuilder.compactPermissionDetail(
-      serverDetail: "sqlite3 ~/.orbitdock/orbitdock.db +1 segment",
-      maxLength: 120
+  @Test func shellSegmentDisplayLinesShowsOperatorsInOrder() {
+    let model = makeModel(
+      previewType: .shellCommand,
+      command: nil,
+      shellSegments: [
+        ApprovalShellSegment(command: "npm test", leadingOperator: nil),
+        ApprovalShellSegment(command: "npm run lint", leadingOperator: "&&"),
+      ]
     )
 
-    #expect(detail == "sqlite3 ~/.orbitdock/orbitdock.db +1 segment")
+    let lines = ApprovalPermissionPreviewHelpers.shellSegmentDisplayLines(for: model)
+
+    #expect(lines == [
+      "1. npm test",
+      "2. [&&] npm run lint",
+    ])
   }
 
-  @Test func compactDetailIsNilWithoutServerDetail() {
-    let detail = ApprovalPermissionPreviewBuilder.compactPermissionDetail(
-      serverDetail: nil,
-      maxLength: 120
+  @Test func shellSegmentDisplayLinesFallsBackToCommandWhenNoSegments() {
+    let model = makeModel(
+      previewType: .shellCommand,
+      command: "git status"
     )
 
-    #expect(detail == nil)
+    let lines = ApprovalPermissionPreviewHelpers.shellSegmentDisplayLines(for: model)
+
+    #expect(lines == ["1. git status"])
   }
 
-  @Test func compactDetailTruncatesLongText() {
-    let detail = ApprovalPermissionPreviewBuilder.compactPermissionDetail(
-      serverDetail: "This is a very long detail that should be truncated at some point because it exceeds the limit",
-      maxLength: 30
+  @Test func shellSegmentDisplayLinesEmptyForNonShellPreviewType() {
+    let model = makeModel(
+      previewType: .filePath,
+      command: nil,
+      filePath: "/tmp/OrbitDock/README.md"
     )
 
-    #expect(detail?.count == 30)
-    #expect(detail?.hasSuffix("...") == true)
+    let lines = ApprovalPermissionPreviewHelpers.shellSegmentDisplayLines(for: model)
+
+    #expect(lines.isEmpty)
   }
 
   private func makeModel(

@@ -82,6 +82,10 @@ struct Session: Identifiable, Hashable, Sendable {
   var isWorktree: Bool = false // True if session runs in a linked worktree
   var worktreeId: String? // Links to worktrees table record
 
+  // MARK: - Unread Tracking
+
+  var unreadCount: UInt64 = 0 // Server-backed unread message count
+
   var currentDiff: String? // Aggregated diff for current turn
   var currentPlan: [PlanStep]? // Agent's plan for current turn
 

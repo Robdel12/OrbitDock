@@ -15,14 +15,6 @@ struct ApprovalShellSegment: Hashable, Sendable {
 // MARK: - Shared Helpers
 
 enum ApprovalPermissionPreviewHelpers {
-  static func compactPermissionDetail(
-    serverDetail: String?,
-    maxLength: Int = 50
-  ) -> String? {
-    guard let serverDetail = trimmed(serverDetail) else { return nil }
-    return compactTruncate(serverDetail, maxLength: maxLength)
-  }
-
   /// Resolve the preview value to display (command text or file path).
   static func previewValue(for model: ApprovalCardModel) -> String? {
     switch model.previewType {
@@ -74,6 +66,29 @@ enum ApprovalPermissionPreviewHelpers {
     model.previewType == .shellCommand && hasPreviewContent(model)
   }
 
+  /// Expanded shell-command chain lines for display in approval cards.
+  /// Example: "2. [&&] npm test"
+  static func shellSegmentDisplayLines(for model: ApprovalCardModel) -> [String] {
+    guard model.previewType == .shellCommand else { return [] }
+    let baseSegments: [ApprovalShellSegment] = {
+      if !model.shellSegments.isEmpty {
+        return model.shellSegments
+      }
+      if let command = trimmed(model.command) {
+        return [ApprovalShellSegment(command: command, leadingOperator: nil)]
+      }
+      return []
+    }()
+
+    return baseSegments.enumerated().map { index, segment in
+      let leadingOperator = trimmed(segment.leadingOperator)
+      if let leadingOperator, index > 0 {
+        return "\(index + 1). [\(leadingOperator)] \(segment.command)"
+      }
+      return "\(index + 1). \(segment.command)"
+    }
+  }
+
   // MARK: - Private
 
   private static func filePreviewIconName(for toolName: String?) -> String {
@@ -93,23 +108,4 @@ enum ApprovalPermissionPreviewHelpers {
     return trimmed.isEmpty ? nil : trimmed
   }
 
-  static func compactTruncate(_ text: String, maxLength: Int) -> String {
-    guard maxLength > 3 else { return String(text.prefix(max(0, maxLength))) }
-    guard text.count > maxLength else { return text }
-    return String(text.prefix(maxLength - 3)) + "..."
-  }
-}
-
-// MARK: - Legacy Compatibility
-
-enum ApprovalPermissionPreviewBuilder {
-  static func compactPermissionDetail(
-    serverDetail: String?,
-    maxLength: Int = 50
-  ) -> String? {
-    ApprovalPermissionPreviewHelpers.compactPermissionDetail(
-      serverDetail: serverDetail,
-      maxLength: maxLength
-    )
-  }
 }

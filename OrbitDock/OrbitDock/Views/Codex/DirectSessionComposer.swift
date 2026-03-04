@@ -66,9 +66,34 @@ struct DirectSessionComposer: View {
   @State private var dictationDraftBaseMessage: String?
   @State private var showForkToWorktreeSheet = false
   @State private var showForkToExistingWorktreeSheet = false
+  @State private var pendingPanelExpanded = true
+  @State private var pendingPanelPromptIndex = 0
+  @State private var pendingPanelAnswers: [String: [String]] = [:]
+  @State private var pendingPanelDrafts: [String: String] = [:]
+  @State private var pendingPanelShowDenyReason = false
+  @State private var pendingPanelDenyReason = ""
 
   private var obs: SessionObservable {
     serverState.session(sessionId)
+  }
+
+  private var sessionSummary: Session? {
+    serverState.sessions.first(where: { $0.id == sessionId })
+  }
+
+  private var pendingApprovalModel: ApprovalCardModel? {
+    guard let summary = sessionSummary else { return nil }
+    let normalizedPendingId = normalizedApprovalRequestId(summary.pendingApprovalId)
+    let pendingApproval: ServerApprovalRequest? = {
+      guard let normalizedPendingId else { return nil }
+      guard let candidate = serverState.session(sessionId).pendingApproval else { return nil }
+      return normalizedApprovalRequestId(candidate.id) == normalizedPendingId ? candidate : nil
+    }()
+    return ApprovalCardModelBuilder.build(session: summary, pendingApproval: pendingApproval)
+  }
+
+  private var pendingApprovalIdentity: String {
+    pendingApprovalModel?.approvalId ?? ""
   }
 
   private var inputMode: InputMode {
@@ -576,6 +601,15 @@ struct DirectSessionComposer: View {
           .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
+      // ━━━ Pending Action Panel ━━━
+      if let model = pendingApprovalModel {
+        pendingActionPanel(model)
+          .padding(.horizontal, Spacing.lg)
+          .padding(.top, Spacing.xs)
+          .padding(.bottom, Spacing.xs)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+
       // ━━━ Composer area ━━━
       if isSessionActive {
         composerRow
@@ -633,9 +667,23 @@ struct DirectSessionComposer: View {
       if message.isEmpty, let restoredDraft = ComposerDraftStore.load(for: draftStorageKey) {
         message = restoredDraft
       }
+      resetPendingPanelStateForRequest()
     }
     .onChange(of: message) { _, newValue in
       ComposerDraftStore.save(newValue, for: draftStorageKey)
+    }
+    .onChange(of: pendingApprovalIdentity) { _, _ in
+      resetPendingPanelStateForRequest()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .openPendingActionPanel)) { notification in
+      guard let requestedSessionId = notification.userInfo?["sessionId"] as? String else { return }
+      guard requestedSessionId == sessionId else { return }
+      withAnimation(Motion.standard) {
+        pendingPanelExpanded = true
+      }
+      isPinned = true
+      unreadCount = 0
+      scrollToBottomTrigger += 1
     }
     .onChange(of: codexModelOptionsSignature) { _, _ in
       guard obs.isDirectCodex else { return }
@@ -675,6 +723,785 @@ struct DirectSessionComposer: View {
       photoPickerLoadTask = nil
     }
     #endif
+  }
+
+  // MARK: - Pending Action Panel
+
+  @ViewBuilder
+  private func pendingActionPanel(_ model: ApprovalCardModel) -> some View {
+    let header = ApprovalCardConfiguration.headerConfig(for: model, mode: model.mode)
+
+    VStack(spacing: 0) {
+      Button {
+        withAnimation(Motion.standard) {
+          pendingPanelExpanded.toggle()
+        }
+      } label: {
+        HStack(alignment: .center, spacing: Spacing.sm) {
+          Image(systemName: header.iconName)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(header.iconTint)
+
+          Text(header.label)
+            .font(.system(size: TypeScale.body, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+
+          if model.mode == .question, !model.questions.isEmpty {
+            Text("\(model.questions.count)")
+              .font(.system(size: TypeScale.micro, weight: .bold))
+              .foregroundStyle(Color.textSecondary)
+              .padding(.horizontal, Spacing.xs)
+              .padding(.vertical, 2)
+              .background(
+                Capsule()
+                  .fill(Color.backgroundPrimary.opacity(0.7))
+              )
+          }
+
+          Spacer(minLength: 0)
+
+          Image(systemName: pendingPanelExpanded ? "chevron.down" : "chevron.right")
+            .font(.system(size: TypeScale.micro, weight: .bold))
+            .foregroundStyle(Color.textTertiary)
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+
+      if pendingPanelExpanded {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+          switch model.mode {
+            case .permission:
+              pendingPermissionContent(model)
+            case .question:
+              pendingQuestionContent(model)
+            case .takeover:
+              pendingTakeOverContent(model)
+            case .none:
+              EmptyView()
+          }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.bottom, Spacing.md)
+      }
+    }
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundSecondary.opacity(0.96))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(model.risk.tintColor.opacity(0.35), lineWidth: 1)
+    )
+  }
+
+  @ViewBuilder
+  private func pendingPermissionContent(_ model: ApprovalCardModel) -> some View {
+    let previewText = model.command ?? model.filePath ?? "Review required before the session can continue."
+    let commandChainSegments: [ApprovalShellSegment] = {
+      guard model.previewType == .shellCommand else { return [] }
+      if !model.shellSegments.isEmpty { return model.shellSegments }
+      if let command = model.command?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty {
+        return [ApprovalShellSegment(command: command, leadingOperator: nil)]
+      }
+      return []
+    }()
+    let shouldClampChainHeight =
+      commandChainSegments.count > 2 ||
+      commandChainSegments.contains(where: { $0.command.contains("\n") || $0.command.count > 240 })
+    let approveActions = ApprovalCardConfiguration.approveMenuActions(for: model)
+    let denyActions = ApprovalCardConfiguration.denyMenuActions(for: model)
+    let denyPrimary = denyActions.first
+    let approvePrimary = approveActions.first
+
+    if !commandChainSegments.isEmpty {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+          Text("Command Chain")
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+
+          Text("\(commandChainSegments.count) step\(commandChainSegments.count == 1 ? "" : "s")")
+            .font(.system(size: TypeScale.mini, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+        }
+
+        if shouldClampChainHeight {
+          Text("Scroll to inspect every line before approving.")
+            .font(.system(size: TypeScale.mini, weight: .regular))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+        }
+
+        ScrollView(.vertical, showsIndicators: true) {
+          LazyVStack(spacing: Spacing.xs) {
+            ForEach(Array(commandChainSegments.enumerated()), id: \.offset) { index, segment in
+              pendingCommandChainRow(index: index + 1, segment: segment)
+            }
+          }
+          .padding(.trailing, 2)
+        }
+        .frame(maxHeight: shouldClampChainHeight ? (isCompactLayout ? 240 : 320) : nil)
+      }
+    } else {
+      Text(previewText)
+        .font(.system(size: TypeScale.caption, weight: .regular))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(nil)
+        .fixedSize(horizontal: false, vertical: true)
+        .multilineTextAlignment(.leading)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .fill(Color.backgroundPrimary.opacity(0.58))
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .stroke(Color.statusPermission.opacity(0.28), lineWidth: 1)
+        )
+    }
+
+    if !model.riskFindings.isEmpty {
+      VStack(alignment: .leading, spacing: 4) {
+        ForEach(Array(model.riskFindings.enumerated()), id: \.offset) { _, finding in
+          HStack(alignment: .top, spacing: Spacing.xs) {
+            Image(systemName: "exclamationmark.triangle.fill")
+              .font(.system(size: TypeScale.micro))
+              .foregroundStyle(model.risk.tintColor)
+            Text(finding)
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.textSecondary)
+              .lineLimit(nil)
+              .fixedSize(horizontal: false, vertical: true)
+              .multilineTextAlignment(.leading)
+          }
+        }
+      }
+    }
+
+    if pendingPanelShowDenyReason {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        TextField("Deny reason", text: $pendingPanelDenyReason)
+          .textFieldStyle(.roundedBorder)
+
+        HStack(spacing: Spacing.sm) {
+          Button("Cancel") {
+            pendingPanelShowDenyReason = false
+            pendingPanelDenyReason = ""
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(Color.textSecondary)
+
+          Spacer()
+
+          Button("Send Denial") {
+            let reason = pendingPanelDenyReason.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !reason.isEmpty else { return }
+            sendPendingDecision(model: model, decision: "denied", message: reason, interrupt: nil)
+            pendingPanelShowDenyReason = false
+            pendingPanelDenyReason = ""
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(Color.statusError)
+          .disabled(pendingPanelDenyReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+      }
+    }
+
+    HStack(spacing: Spacing.xs) {
+      Button(denyPrimary?.title ?? "Deny") {
+        if let denyPrimary {
+          if denyPrimary.decision == "deny_reason" {
+            pendingPanelShowDenyReason = true
+          } else {
+            sendPendingDecision(model: model, decision: denyPrimary.decision, message: nil, interrupt: nil)
+          }
+        } else {
+          sendPendingDecision(model: model, decision: "denied", message: nil, interrupt: nil)
+        }
+      }
+      .buttonStyle(.bordered)
+      .tint(Color.statusError)
+      .frame(minWidth: isCompactLayout ? 80 : 88)
+      .controlSize(isCompactLayout ? .large : .regular)
+
+      Button {
+        if let approvePrimary {
+          sendPendingDecision(model: model, decision: approvePrimary.decision, message: nil, interrupt: nil)
+        } else {
+          sendPendingDecision(model: model, decision: "approved", message: nil, interrupt: nil)
+        }
+      } label: {
+        Label(approvePrimary?.title ?? "Approve", systemImage: "checkmark.shield.fill")
+      }
+      .buttonStyle(.borderedProminent)
+      .tint(Color.feedbackPositive)
+      .frame(maxWidth: .infinity)
+      .controlSize(isCompactLayout ? .large : .regular)
+
+      Menu {
+        if denyActions.count > 1 {
+          Section("Deny") {
+            ForEach(Array(denyActions.dropFirst().enumerated()), id: \.offset) { _, action in
+              Button(role: action.isDestructive ? .destructive : nil) {
+                if action.decision == "deny_reason" {
+                  pendingPanelShowDenyReason = true
+                } else {
+                  sendPendingDecision(model: model, decision: action.decision, message: nil, interrupt: nil)
+                }
+              } label: {
+                Label(action.title, systemImage: action.iconName ?? "xmark")
+              }
+            }
+          }
+        }
+        if approveActions.count > 1 {
+          Section("Approve") {
+            ForEach(Array(approveActions.dropFirst().enumerated()), id: \.offset) { _, action in
+              Button {
+                sendPendingDecision(model: model, decision: action.decision, message: nil, interrupt: nil)
+              } label: {
+                Label(action.title, systemImage: action.iconName ?? "checkmark")
+              }
+            }
+          }
+        }
+      } label: {
+        Label("More", systemImage: "ellipsis.circle")
+      }
+      .frame(minWidth: isCompactLayout ? 84 : 90)
+      .fixedSize()
+      .controlSize(isCompactLayout ? .large : .regular)
+    }
+  }
+
+  private func pendingCommandChainRow(index: Int, segment: ApprovalShellSegment) -> some View {
+    let operatorText = segment.leadingOperator?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    return VStack(alignment: .leading, spacing: Spacing.xs) {
+      HStack(spacing: Spacing.xs) {
+        Text("\(index)")
+          .font(.system(size: TypeScale.micro, weight: .bold))
+          .foregroundStyle(Color.statusPermission)
+          .frame(width: 18, height: 18)
+          .background(
+            Circle()
+              .fill(Color.statusPermission.opacity(0.16))
+          )
+          .overlay(
+            Circle()
+              .stroke(Color.statusPermission.opacity(0.44), lineWidth: 1)
+          )
+
+        if let operatorText, !operatorText.isEmpty, index > 1 {
+          let operatorHint = ApprovalPermissionPreviewHelpers.operatorLabel(operatorText) ?? "then"
+          Text("[\(operatorText)] \(operatorHint)")
+            .font(.system(size: TypeScale.mini, weight: .medium))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+        } else {
+          Text("Run first")
+            .font(.system(size: TypeScale.mini, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+        }
+
+        Spacer(minLength: 0)
+      }
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        Text(verbatim: segment.command)
+          .font(.system(size: TypeScale.caption, weight: .regular, design: .monospaced))
+          .foregroundStyle(Color.textSecondary)
+          .lineSpacing(2)
+          .lineLimit(nil)
+          .fixedSize(horizontal: true, vertical: true)
+          .multilineTextAlignment(.leading)
+          .textSelection(.enabled)
+          .padding(.horizontal, Spacing.xs)
+          .padding(.vertical, Spacing.xs)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(Color.backgroundPrimary.opacity(0.5))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .stroke(Color.statusPermission.opacity(0.25), lineWidth: 1)
+      )
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .fill(Color.backgroundPrimary.opacity(0.34))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(Color.statusPermission.opacity(0.2), lineWidth: 1)
+    )
+  }
+
+  @ViewBuilder
+  private func pendingQuestionContent(_ model: ApprovalCardModel) -> some View {
+    let prompts = model.questions
+    if prompts.isEmpty {
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        Text("Provide your response below, then submit.")
+          .font(.system(size: TypeScale.caption, weight: .medium))
+          .foregroundStyle(Color.textSecondary)
+
+        TextField(
+          "Your response",
+          text: Binding(
+            get: { pendingPanelDrafts["default"] ?? "" },
+            set: { pendingPanelDrafts["default"] = $0 }
+          )
+        )
+        .textFieldStyle(.roundedBorder)
+
+        Button("Submit Response") {
+          let answer = (pendingPanelDrafts["default"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+          guard let requestId = model.approvalId, !answer.isEmpty else { return }
+          serverState.answerQuestion(
+            sessionId: model.sessionId,
+            requestId: requestId,
+            answer: answer,
+            questionId: nil,
+            answers: nil
+          )
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color.statusQuestion)
+        .disabled((pendingPanelDrafts["default"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+    } else {
+      let boundedIndex = min(max(pendingPanelPromptIndex, 0), max(0, prompts.count - 1))
+      let prompt = prompts[boundedIndex]
+      let answeredCount = prompts.filter { pendingPromptIsAnswered($0) }.count
+
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        HStack(alignment: .center, spacing: Spacing.sm) {
+          Text("Question \(boundedIndex + 1) of \(prompts.count)")
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+
+          Spacer(minLength: 0)
+
+          Text("\(answeredCount) answered")
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.trailing)
+        }
+
+        if prompts.count > 1 {
+          pendingQuestionMap(prompts: prompts, activeIndex: boundedIndex)
+        }
+
+        pendingPromptCard(prompt: prompt, index: boundedIndex, totalCount: prompts.count)
+
+        HStack(spacing: Spacing.sm) {
+          if prompts.count > 1 {
+            Button("Back") {
+              withAnimation(Motion.gentle) {
+                pendingPanelPromptIndex = max(0, boundedIndex - 1)
+              }
+            }
+            .buttonStyle(.bordered)
+            .disabled(boundedIndex == 0)
+          }
+
+          Spacer(minLength: 0)
+
+          Button(boundedIndex < prompts.count - 1 ? "Next Question" : "Submit Answers") {
+            if boundedIndex < prompts.count - 1 {
+              withAnimation(Motion.gentle) {
+                pendingPanelPromptIndex = boundedIndex + 1
+              }
+            } else {
+              sendPendingQuestionAnswers(model: model, prompts: prompts)
+            }
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(Color.statusQuestion)
+          .disabled(
+            boundedIndex < prompts.count - 1
+              ? !pendingPromptIsAnswered(prompt)
+              : !pendingAllPromptsAnswered(prompts)
+          )
+        }
+      }
+    }
+  }
+
+  private func pendingQuestionMap(prompts: [ApprovalQuestionPrompt], activeIndex: Int) -> some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: Spacing.xs) {
+        ForEach(Array(prompts.enumerated()), id: \.offset) { index, prompt in
+          let answered = pendingPromptIsAnswered(prompt)
+          let header = prompt.header?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Question \(index + 1)"
+          let prefix = answered ? "✓" : "\(index + 1)."
+
+          Button {
+            withAnimation(Motion.gentle) {
+              pendingPanelPromptIndex = index
+            }
+          } label: {
+            Text("\(prefix) \(header)")
+              .font(.system(size: TypeScale.micro, weight: .semibold))
+              .foregroundStyle(index == activeIndex ? Color.textPrimary : Color.textSecondary)
+              .lineLimit(nil)
+              .fixedSize(horizontal: false, vertical: true)
+              .multilineTextAlignment(.leading)
+              .frame(minWidth: 92, maxWidth: 180, alignment: .leading)
+              .padding(.horizontal, Spacing.xs)
+              .padding(.vertical, 4)
+              .background(
+                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                  .fill(index == activeIndex ? Color.statusQuestion.opacity(0.24) : Color.backgroundPrimary
+                    .opacity(0.68))
+              )
+              .overlay(
+                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                  .stroke(Color.statusQuestion.opacity(index == activeIndex ? 0.55 : 0.25), lineWidth: 1)
+              )
+          }
+          .buttonStyle(.plain)
+        }
+      }
+    }
+  }
+
+  private func pendingPromptCard(prompt: ApprovalQuestionPrompt, index: Int, totalCount: Int) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(alignment: .top, spacing: Spacing.xs) {
+        if let header = prompt.header?.trimmingCharacters(in: .whitespacesAndNewlines), !header.isEmpty {
+          Text(header.uppercased())
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+        }
+
+        Spacer(minLength: 0)
+
+        Text(pendingPromptModeText(prompt))
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(Color.statusQuestion)
+          .lineLimit(nil)
+          .fixedSize(horizontal: true, vertical: true)
+          .padding(.horizontal, Spacing.xs)
+          .padding(.vertical, 3)
+          .background(
+            Capsule(style: .continuous)
+              .fill(Color.statusQuestion.opacity(0.15))
+          )
+          .overlay(
+            Capsule(style: .continuous)
+              .stroke(Color.statusQuestion.opacity(0.45), lineWidth: 1)
+          )
+      }
+
+      Text(prompt.question)
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
+        .lineSpacing(2)
+        .lineLimit(nil)
+        .fixedSize(horizontal: false, vertical: true)
+        .multilineTextAlignment(.leading)
+
+      if !prompt.options.isEmpty {
+        Text(prompt.allowsMultipleSelection ? "Select all that apply." : "Select one option.")
+          .font(.system(size: TypeScale.micro, weight: .medium))
+          .foregroundStyle(Color.textTertiary)
+          .lineLimit(nil)
+          .fixedSize(horizontal: false, vertical: true)
+          .multilineTextAlignment(.leading)
+
+        VStack(spacing: Spacing.xs) {
+          ForEach(Array(prompt.options.enumerated()), id: \.offset) { _, option in
+            let isSelected = (pendingPanelAnswers[prompt.id] ?? []).contains(option.label)
+            Button {
+              pendingToggleAnswer(
+                questionId: prompt.id,
+                optionLabel: option.label,
+                allowsMultipleSelection: prompt.allowsMultipleSelection
+              )
+              if !prompt.allowsMultipleSelection, !prompt.allowsOther, index < totalCount - 1 {
+                withAnimation(Motion.gentle) {
+                  pendingPanelPromptIndex = index + 1
+                }
+              }
+            } label: {
+              HStack(alignment: .top, spacing: Spacing.xs) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                  .font(.system(size: TypeScale.caption, weight: .semibold))
+                  .foregroundStyle(isSelected ? Color.statusQuestion : Color.textQuaternary)
+                  .padding(.top, 1)
+
+                VStack(alignment: .leading, spacing: 3) {
+                  Text(option.label)
+                    .font(.system(size: TypeScale.caption, weight: .semibold))
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                  if let description = option.description, !description.isEmpty {
+                    Text(description)
+                      .font(.system(size: TypeScale.micro, weight: .regular))
+                      .foregroundStyle(Color.textSecondary)
+                      .lineSpacing(2)
+                      .lineLimit(nil)
+                      .fixedSize(horizontal: false, vertical: true)
+                      .multilineTextAlignment(.leading)
+                      .frame(maxWidth: .infinity, alignment: .leading)
+                  }
+                }
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.horizontal, Spacing.sm)
+              .padding(.vertical, Spacing.xs)
+              .background(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                  .fill(isSelected ? Color.statusQuestion.opacity(0.24) : Color.backgroundPrimary.opacity(0.65))
+              )
+              .overlay(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                  .stroke(Color.statusQuestion.opacity(isSelected ? 0.85 : 0.28), lineWidth: isSelected ? 1.5 : 1)
+              )
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+
+      if prompt.options.isEmpty || prompt.allowsOther {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          if prompt.allowsOther, !prompt.options.isEmpty {
+            Text("Or type your own response.")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+              .lineLimit(nil)
+              .fixedSize(horizontal: false, vertical: true)
+              .multilineTextAlignment(.leading)
+          }
+
+          pendingPromptDraftInput(prompt)
+        }
+      }
+    }
+    .padding(isCompactLayout ? Spacing.sm : Spacing.md)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundPrimary.opacity(0.7))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.statusQuestion.opacity(0.3), lineWidth: 1)
+    )
+  }
+
+  @ViewBuilder
+  private func pendingPromptDraftInput(_ prompt: ApprovalQuestionPrompt) -> some View {
+    let draftBinding = Binding(
+      get: { pendingPanelDrafts[prompt.id] ?? "" },
+      set: { pendingPanelDrafts[prompt.id] = $0 }
+    )
+
+    if prompt.isSecret {
+      SecureField("Secure response", text: draftBinding)
+        .textFieldStyle(.roundedBorder)
+    } else {
+      ZStack(alignment: .topLeading) {
+        if (pendingPanelDrafts[prompt.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          Text("Your response")
+            .font(.system(size: TypeScale.caption, weight: .regular))
+            .foregroundStyle(Color.textQuaternary)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.sm)
+            .allowsHitTesting(false)
+        }
+
+        TextEditor(text: draftBinding)
+          .font(.system(size: TypeScale.caption, weight: .regular))
+          .foregroundStyle(Color.textPrimary)
+          .scrollContentBackground(.hidden)
+          .padding(.horizontal, Spacing.xxs)
+          .padding(.vertical, Spacing.xxs)
+      }
+      .frame(minHeight: isCompactLayout ? 68 : 80)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .fill(Color.backgroundPrimary.opacity(0.85))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .stroke(Color.statusQuestion.opacity(0.28), lineWidth: 1)
+      )
+    }
+  }
+
+  @ViewBuilder
+  private func pendingTakeOverContent(_ model: ApprovalCardModel) -> some View {
+    Text("This session requires manual takeover before continuing.")
+      .font(.system(size: TypeScale.caption, weight: .medium))
+      .foregroundStyle(Color.textSecondary)
+      .fixedSize(horizontal: false, vertical: true)
+
+    Button(ApprovalCardConfiguration.takeoverButtonTitle(for: model)) {
+      serverState.takeoverSession(model.sessionId)
+    }
+    .buttonStyle(.borderedProminent)
+    .tint(Color.accent)
+  }
+
+  private func pendingPromptModeText(_ prompt: ApprovalQuestionPrompt) -> String {
+    if prompt.options.isEmpty {
+      return "WRITE"
+    }
+    if prompt.allowsMultipleSelection {
+      return "MULTI"
+    }
+    if prompt.allowsOther {
+      return "SELECT OR WRITE"
+    }
+    return "SINGLE"
+  }
+
+  private func resetPendingPanelStateForRequest() {
+    pendingPanelExpanded = true
+    pendingPanelPromptIndex = 0
+    pendingPanelAnswers = [:]
+    pendingPanelDrafts = [:]
+    pendingPanelShowDenyReason = false
+    pendingPanelDenyReason = ""
+  }
+
+  private func normalizedApprovalRequestId(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? nil : normalized
+  }
+
+  private func pendingToggleAnswer(
+    questionId: String,
+    optionLabel: String,
+    allowsMultipleSelection: Bool
+  ) {
+    var values = pendingPanelAnswers[questionId] ?? []
+    if allowsMultipleSelection {
+      if let index = values.firstIndex(of: optionLabel) {
+        values.remove(at: index)
+      } else {
+        values.append(optionLabel)
+      }
+    } else {
+      values = [optionLabel]
+    }
+
+    if values.isEmpty {
+      pendingPanelAnswers.removeValue(forKey: questionId)
+    } else {
+      pendingPanelAnswers[questionId] = values
+    }
+  }
+
+  private func pendingPromptIsAnswered(_ prompt: ApprovalQuestionPrompt) -> Bool {
+    let hasSelectedOption = !(pendingPanelAnswers[prompt.id] ?? []).isEmpty
+    let hasDraft = !(pendingPanelDrafts[prompt.id] ?? "")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .isEmpty
+    return hasSelectedOption || hasDraft
+  }
+
+  private func pendingAllPromptsAnswered(_ prompts: [ApprovalQuestionPrompt]) -> Bool {
+    prompts.allSatisfy { pendingPromptIsAnswered($0) }
+  }
+
+  private func pendingCollectedAnswers(prompts: [ApprovalQuestionPrompt]) -> [String: [String]] {
+    var answers: [String: [String]] = [:]
+    for prompt in prompts {
+      var values = pendingPanelAnswers[prompt.id] ?? []
+      let draft = (pendingPanelDrafts[prompt.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+      if !draft.isEmpty, !values.contains(draft) {
+        values.append(draft)
+      }
+      if !values.isEmpty {
+        answers[prompt.id] = values
+      }
+    }
+    return answers
+  }
+
+  private func sendPendingQuestionAnswers(model: ApprovalCardModel, prompts: [ApprovalQuestionPrompt]) {
+    guard let requestId = model.approvalId else { return }
+    let answers = pendingCollectedAnswers(prompts: prompts)
+    guard !answers.isEmpty else { return }
+
+    let primaryQuestionId = prompts.first?.id
+    let primaryAnswer: String? = {
+      if let primaryQuestionId, let value = answers[primaryQuestionId]?.first {
+        return value
+      }
+      for prompt in prompts {
+        if let value = answers[prompt.id]?.first {
+          return value
+        }
+      }
+      return answers.values.first?.first
+    }()
+    guard let primaryAnswer, !primaryAnswer.isEmpty else { return }
+
+    serverState.answerQuestion(
+      sessionId: model.sessionId,
+      requestId: requestId,
+      answer: primaryAnswer,
+      questionId: primaryQuestionId,
+      answers: answers
+    )
+  }
+
+  private func sendPendingDecision(
+    model: ApprovalCardModel,
+    decision: String,
+    message: String?,
+    interrupt: Bool?
+  ) {
+    guard let requestId = model.approvalId else { return }
+    serverState.approveTool(
+      sessionId: model.sessionId,
+      requestId: requestId,
+      decision: decision,
+      message: message,
+      interrupt: interrupt
+    )
   }
 
   // MARK: - Fork To Worktree

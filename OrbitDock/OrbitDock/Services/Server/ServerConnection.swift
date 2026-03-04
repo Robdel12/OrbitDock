@@ -308,6 +308,16 @@ private struct WorktreeRemovedHTTPResponse: Decodable {
   }
 }
 
+private struct MarkReadHTTPResponse: Decodable {
+  let sessionId: String
+  let unreadCount: UInt64
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case unreadCount = "unread_count"
+  }
+}
+
 private struct ReviewCommentMutationHTTPResponse: Decodable {
   let commentId: String
   let ok: Bool
@@ -360,7 +370,7 @@ private struct QueuedConversationMessage: Codable {
 /// WebSocket connection to OrbitDock server
 @MainActor
 class ServerConnection: ObservableObject {
-  /// Keep aligned with orbitdock-server WS_MAX_TEXT_MESSAGE_BYTES.
+  /// Keep aligned with orbitdock crate's WS_MAX_TEXT_MESSAGE_BYTES.
   private static let maxInboundWebSocketMessageBytes = 1 * 1_024 * 1_024
   private static let maxQueuedConversationMessages = 40
 
@@ -1323,9 +1333,12 @@ class ServerConnection: ObservableObject {
       } catch {
         // Use a distinct code for connection failures so the error handler
         // doesn't re-trigger readCodexAccount → infinite retry loop.
-        let isConnectionError = (error as? URLError)?.code == .cannotConnectToHost
-          || (error as? URLError)?.code == .notConnectedToInternet
-          || (error as? URLError)?.code == .timedOut
+        let urlErrorCode = (error as? URLError)?.code
+        let isConnectionError = urlErrorCode == .cannotConnectToHost
+          || urlErrorCode == .notConnectedToInternet
+          || urlErrorCode == .timedOut
+          || urlErrorCode == .appTransportSecurityRequiresSecureConnection
+          || urlErrorCode == .secureConnectionFailed
         let code = isConnectionError ? "codex_auth_connection" : "codex_auth_error"
         onError?(code, error.localizedDescription, nil)
       }
@@ -1774,6 +1787,24 @@ class ServerConnection: ObservableObject {
   }
 
   // MARK: - Worktree Management
+
+  // MARK: - Unread Tracking
+
+  func markSessionRead(sessionId: String) {
+    Task { @MainActor in
+      do {
+        let encodedId = encodePathComponent(sessionId)
+        let _: MarkReadHTTPResponse = try await requestAPIJSON(
+          path: "/api/sessions/\(encodedId)/mark-read",
+          method: "POST"
+        )
+      } catch {
+        // Silent failure — mark-read is best-effort
+      }
+    }
+  }
+
+  // MARK: - Worktrees
 
   func listWorktrees(repoRoot: String? = nil) {
     Task { @MainActor in

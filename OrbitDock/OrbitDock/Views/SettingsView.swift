@@ -905,7 +905,7 @@ struct SetupSettingsView: View {
   @State private var copied = false
   @State private var hooksConfigured: Bool? = nil
 
-  private let hookForwardPath = "/Applications/OrbitDock.app/Contents/Resources/orbitdock-server"
+  private let hookForwardPath = "/Applications/OrbitDock.app/Contents/Resources/orbitdock"
   private let settingsPath = PlatformPaths.homeDirectory
     .appendingPathComponent(".claude/settings.json").path
 
@@ -1143,7 +1143,7 @@ struct SetupSettingsView: View {
     else {
       return false
     }
-    return content.contains("orbitdock-server") || content.contains("hook-forward")
+    return content.contains("orbitdock") || content.contains("hook-forward")
   }
 
   private func copyToClipboard() {

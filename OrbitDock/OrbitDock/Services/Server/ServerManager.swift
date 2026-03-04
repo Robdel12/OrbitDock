@@ -2,7 +2,7 @@
 //  ServerManager.swift
 //  OrbitDock
 //
-//  Thin CLI wrapper around `orbitdock-server` subcommands.
+//  Thin CLI wrapper around `orbitdock` subcommands.
 //  Detects install state, shells out for init/install/start/stop.
 //  NO embedded process management — the server runs via launchd or manually.
 //
@@ -105,14 +105,14 @@ enum ServerInstallState: Equatable {
 
     // MARK: - Binary Discovery
 
-    /// Find the orbitdock-server binary. Checks:
+    /// Find the orbitdock binary. Checks:
     /// 1. Bundle Resources (bundled with app)
     /// 2. ORBITDOCK_SERVER_PATH env var
     /// 3. ~/.orbitdock/bin/ (installed by us)
     /// 4. PATH (brew, cargo install, etc.)
     func findServerBinary() -> String? {
       // 1. Bundle Resources
-      if let bundlePath = Bundle.main.url(forResource: "orbitdock-server", withExtension: nil) {
+      if let bundlePath = Bundle.main.url(forResource: "orbitdock", withExtension: nil) {
         if FileManager.default.fileExists(atPath: bundlePath.path) {
           return bundlePath.path
         }
@@ -127,7 +127,7 @@ enum ServerInstallState: Equatable {
 
       // 3. Installed location
       let installedPath = PlatformPaths.orbitDockBinDirectory
-        .appendingPathComponent("orbitdock-server").path
+        .appendingPathComponent("orbitdock").path
       if FileManager.default.fileExists(atPath: installedPath) {
         return installedPath
       }
@@ -138,7 +138,7 @@ enum ServerInstallState: Equatable {
         ?? ""
       let pathDirs = shellPath.split(separator: ":")
       for dir in pathDirs {
-        let path = "\(dir)/orbitdock-server"
+        let path = "\(dir)/orbitdock"
         if FileManager.default.fileExists(atPath: path) {
           return path
         }
@@ -152,10 +152,16 @@ enum ServerInstallState: Equatable {
     /// Full setup sequence:
     /// 1. Find binary
     /// 2. Copy to ~/.orbitdock/bin/ (if from bundle)
-    /// 3. Run `orbitdock-server ensure-path`
-    /// 4. Run `orbitdock-server init`
-    /// 5. Run `orbitdock-server install-hooks`
-    /// 6. Run `orbitdock-server install-service --enable`
+<<<<<<< HEAD
+    /// 3. Run `orbitdock init`
+    /// 4. Run `orbitdock install-hooks`
+    /// 5. Run `orbitdock install-service --enable`
+    /// 6. Wait for health check
+    /// 7. Refresh state
+    /// 3. Run `orbitdock ensure-path`
+    /// 4. Run `orbitdock init`
+    /// 5. Run `orbitdock install-hooks`
+    /// 6. Run `orbitdock install-service --enable`
     /// 7. Wait for health check
     /// 8. Refresh state
     func install() async throws {
@@ -165,7 +171,7 @@ enum ServerInstallState: Equatable {
       defer { isInstalling = false }
 
       guard let sourcePath = findServerBinary() else {
-        let msg = "Could not find orbitdock-server binary"
+        let msg = "Could not find orbitdock binary"
         installError = msg
         throw ServerInstallError.binaryNotFound
       }
@@ -175,7 +181,7 @@ enum ServerInstallState: Equatable {
       if sourcePath.contains(".app/Contents/Resources") {
         let binDir = PlatformPaths.orbitDockBinDirectory
         PlatformPaths.ensureDirectory(binDir)
-        let destPath = binDir.appendingPathComponent("orbitdock-server").path
+        let destPath = binDir.appendingPathComponent("orbitdock").path
 
         do {
           // Remove existing if present
@@ -215,7 +221,7 @@ enum ServerInstallState: Equatable {
       // Run init
       do {
         try await runCLI(binaryPath, arguments: ["init"])
-        logger.info("orbitdock-server init completed")
+        logger.info("orbitdock init completed")
       } catch {
         let msg = "init failed: \(error.localizedDescription)"
         installError = msg
@@ -225,7 +231,7 @@ enum ServerInstallState: Equatable {
       // Install hooks
       do {
         try await runCLI(binaryPath, arguments: ["install-hooks"])
-        logger.info("orbitdock-server install-hooks completed")
+        logger.info("orbitdock install-hooks completed")
       } catch {
         let msg = "install-hooks failed: \(error.localizedDescription)"
         installError = msg
@@ -235,7 +241,7 @@ enum ServerInstallState: Equatable {
       // Install + enable launchd service
       do {
         try await runCLI(binaryPath, arguments: ["install-service", "--enable"])
-        logger.info("orbitdock-server install-service --enable completed")
+        logger.info("orbitdock install-service --enable completed")
       } catch {
         let msg = "install-service failed: \(error.localizedDescription)"
         installError = msg
@@ -341,7 +347,7 @@ enum ServerInstallState: Equatable {
       FileManager.default.fileExists(atPath: launchdPlistPath())
     }
 
-    /// Run the orbitdock-server CLI binary with arguments.
+    /// Run the orbitdock CLI binary with arguments.
     private func runCLI(_ binaryPath: String, arguments: [String]) async throws {
       try await runShell(binaryPath, arguments: arguments)
     }
@@ -428,7 +434,7 @@ enum ServerInstallState: Equatable {
     var errorDescription: String? {
       switch self {
         case .binaryNotFound:
-          "Could not find orbitdock-server binary"
+          "Could not find orbitdock binary"
         case let .copyFailed(err):
           "Failed to copy binary: \(err.localizedDescription)"
         case let .commandFailed(msg):

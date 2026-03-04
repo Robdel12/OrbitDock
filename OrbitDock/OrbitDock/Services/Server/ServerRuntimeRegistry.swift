@@ -64,6 +64,8 @@ final class ServerRuntimeRegistry {
   private(set) var activeEndpointId: UUID?
   private(set) var primaryEndpointId: UUID?
   private(set) var hasPrimaryEndpointConflict = false
+  @ObservationIgnored
+  private lazy var fallbackAppState = ServerAppState()
 
   init() {
     endpointsProvider = { ServerEndpointSettings.endpoints }
@@ -114,18 +116,18 @@ final class ServerRuntimeRegistry {
 
   var activeConnection: ServerConnection {
     ensureInitialized()
-    guard let activeEndpointId, let runtime = runtimesByEndpointId[activeEndpointId] else {
-      fatalError("ServerRuntimeRegistry has no active runtime")
+    if let runtime = resolvedActiveRuntime() {
+      return runtime.connection
     }
-    return runtime.connection
+    return fallbackAppState.connection
   }
 
   var activeAppState: ServerAppState {
     ensureInitialized()
-    guard let activeEndpointId, let runtime = runtimesByEndpointId[activeEndpointId] else {
-      fatalError("ServerRuntimeRegistry has no active runtime")
+    if let runtime = resolvedActiveRuntime() {
+      return runtime.appState
     }
-    return runtime.appState
+    return fallbackAppState
   }
 
   var primaryConnection: ServerConnection? {
@@ -315,6 +317,20 @@ final class ServerRuntimeRegistry {
       activeEndpointId = runtimesByEndpointId.keys.first
     }
     recomputePrimaryEndpoint()
+  }
+
+  private func resolvedActiveRuntime() -> ServerRuntime? {
+    if let activeEndpointId, let runtime = runtimesByEndpointId[activeEndpointId] {
+      return runtime
+    }
+
+    if let firstRuntime = runtimes.first {
+      activeEndpointId = firstRuntime.endpoint.id
+      recomputePrimaryEndpoint()
+      return firstRuntime
+    }
+
+    return nil
   }
 
   private func observeConnectionState(for runtime: ServerRuntime) {

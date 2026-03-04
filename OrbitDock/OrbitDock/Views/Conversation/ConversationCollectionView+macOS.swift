@@ -908,57 +908,6 @@ import SwiftUI
               ?? NativeApprovalCardCellView(frame: .zero)
             cell.identifier = id
             cell.configure(model: model)
-            cell.onDecision = { [weak self] decision, message, interrupt in
-              guard let self else { return }
-              guard let requestId = model.approvalId else { return }
-              self.serverState?.approveTool(
-                sessionId: model.sessionId,
-                requestId: requestId,
-                decision: decision,
-                message: message,
-                interrupt: interrupt
-              )
-            }
-            cell.onAnswer = { [weak self] answers in
-              guard let self else { return }
-              guard let requestId = model.approvalId else { return }
-              let normalizedAnswers = answers.reduce(into: [String: [String]]()) { partialResult, entry in
-                let key = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !key.isEmpty else { return }
-                let values = entry.value
-                  .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                  .filter { !$0.isEmpty }
-                guard !values.isEmpty else { return }
-                partialResult[key] = values
-              }
-              guard !normalizedAnswers.isEmpty else { return }
-              let preferredQuestionId = model.questions.first?.id
-              let primaryAnswer: String? = {
-                if let preferredQuestionId,
-                   let answer = normalizedAnswers[preferredQuestionId]?.first
-                {
-                  return answer
-                }
-                for prompt in model.questions {
-                  if let answer = normalizedAnswers[prompt.id]?.first {
-                    return answer
-                  }
-                }
-                return normalizedAnswers.values.first?.first
-              }()
-              guard let primaryAnswer, !primaryAnswer.isEmpty else { return }
-              self.serverState?.answerQuestion(
-                sessionId: model.sessionId,
-                requestId: requestId,
-                answer: primaryAnswer,
-                questionId: preferredQuestionId,
-                answers: normalizedAnswers
-              )
-            }
-            cell.onTakeOver = { [weak self] in
-              guard let self else { return }
-              self.serverState?.takeoverSession(model.sessionId)
-            }
             return cell
           }
           return NativeSpacerCellView(frame: .zero)
@@ -1016,7 +965,6 @@ import SwiftUI
             workStatus: meta.workStatus,
             currentTool: meta.currentTool,
             pendingToolName: meta.pendingToolName,
-            pendingPermissionDetail: meta.pendingPermissionDetail,
             provider: provider
           )
           return cell

@@ -338,14 +338,18 @@ final class MCPBridge {
     }
 
     let models = state.codexModels.map { model in
-      [
+      var payload: [String: Any] = [
         "id": model.id,
         "model": model.model,
         "display_name": model.displayName,
         "description": model.description,
         "is_default": model.isDefault,
         "supported_reasoning_efforts": model.supportedReasoningEfforts,
-      ] as [String: Any]
+      ]
+      if let supportsReasoningSummaries = model.supportsReasoningSummaries {
+        payload["supports_reasoning_summaries"] = supportsReasoningSummaries
+      }
+      return payload
     }
     return HTTPResponse(status: 200, body: ["models": models])
   }

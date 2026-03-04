@@ -139,6 +139,7 @@ final class ServerAppState {
     obs.repositoryRoot = sess.repositoryRoot
     obs.isWorktree = sess.isWorktree
     obs.worktreeId = sess.worktreeId
+    obs.unreadCount = sess.unreadCount
   }
 
   /// Worktrees for a given repo root
@@ -1137,10 +1138,22 @@ final class ServerAppState {
         includeSnapshot: includeSnapshot
       )
       connection.listApprovals(sessionId: sessionId, limit: 200)
+      markSessionAsRead(sessionId)
       logger.debug(
         "Subscribed to session \(sessionId) (sinceRevision: \(sinceRev.map(String.init) ?? "nil"), includeSnapshot: \(includeSnapshot))"
       )
     }
+  }
+
+  /// Mark a session as read (resets unread count to 0).
+  /// Called when the user views a session or while actively viewing during streaming.
+  func markSessionAsRead(_ sessionId: String) {
+    guard let idx = sessions.firstIndex(where: { $0.id == sessionId }),
+          sessions[idx].unreadCount > 0
+    else { return }
+    sessions[idx].unreadCount = 0
+    session(sessionId).unreadCount = 0
+    connection.markSessionRead(sessionId: sessionId)
   }
 
   /// Unsubscribe from a session (called when navigating away)
@@ -1616,6 +1629,10 @@ final class ServerAppState {
       sess.isWorktree = isWt
       obs.isWorktree = isWt
     }
+    if let count = changes.unreadCount {
+      sess.unreadCount = count
+      obs.unreadCount = count
+    }
 
     // Stale approval scrub:
     // External approval decisions (from CLI/hooks) can clear pending IDs through
@@ -1831,6 +1848,11 @@ final class ServerAppState {
     logger.debug(
       "Message \(mergeAction, privacy: .public) for \(sessionId): id=\(transcriptMsg.id, privacy: .public) before=\(beforeCount, privacy: .public) after=\(obs.messages.count, privacy: .public)"
     )
+
+    // Auto mark-read when actively viewing this session
+    if subscribedSessions.contains(sessionId) {
+      markSessionAsRead(sessionId)
+    }
   }
 
   private func handleMessageUpdated(_ sessionId: String, _ messageId: String, _ changes: ServerMessageChanges) {

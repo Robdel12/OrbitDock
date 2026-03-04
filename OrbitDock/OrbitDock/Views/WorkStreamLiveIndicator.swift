@@ -13,7 +13,6 @@ struct WorkStreamLiveIndicator: View {
   let currentTool: String?
   let currentPrompt: String?
   var pendingToolName: String?
-  var pendingPermissionDetail: String?
   var provider: Provider = .claude
 
   var body: some View {
@@ -96,23 +95,15 @@ struct WorkStreamLiveIndicator: View {
               .font(.system(size: TypeScale.body, weight: .bold))
               .foregroundStyle(.primary)
           }
-          if let detail = permissionDetailText {
-            Text(detail)
-              .font(.system(size: TypeScale.body, design: .monospaced))
-              .foregroundStyle(.secondary)
-              .lineLimit(1)
-          }
+          Text("\u{00B7}")
+            .foregroundStyle(Color.textQuaternary)
+          Text("Review in composer")
+            .font(.system(size: TypeScale.body))
+            .foregroundStyle(Color.textTertiary)
         }
 
       case .unknown:
         EmptyView()
     }
-  }
-
-  private var permissionDetailText: String? {
-    ApprovalPermissionPreviewBuilder.compactPermissionDetail(
-      serverDetail: pendingPermissionDetail,
-      maxLength: 50
-    )
   }
 }

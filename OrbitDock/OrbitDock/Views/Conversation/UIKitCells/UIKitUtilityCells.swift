@@ -545,7 +545,6 @@
       let currentTool: String?
       let currentPrompt: String?
       let pendingToolName: String?
-      let pendingPermissionDetail: String?
       let provider: Provider
     }
 
@@ -661,22 +660,23 @@
             nextX = toolLabel.frame.maxX
           }
 
-          if let detail = permissionDetail(
-            serverDetail: model.pendingPermissionDetail
-          ) {
-            detailLabel.isHidden = false
-            detailLabel.text = detail
-            detailLabel.font = .monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-            detailLabel.textColor = UIColor(Color.textSecondary)
-            let detailX = nextX + sp
-            let detailW = max(0, maxTextW - (detailX - textX))
-            detailLabel.frame = CGRect(
-              x: detailX,
-              y: (h - primaryLabel.frame.height) / 2,
-              width: detailW,
-              height: primaryLabel.frame.height
-            )
-          }
+          separatorLabel.isHidden = false
+          separatorLabel.sizeToFit()
+          separatorLabel.frame.origin = CGPoint(
+            x: nextX + sp, y: (h - separatorLabel.frame.height) / 2
+          )
+          detailLabel.isHidden = false
+          detailLabel.text = "Review in composer"
+          detailLabel.font = .systemFont(ofSize: TypeScale.body)
+          detailLabel.textColor = UIColor(Color.textTertiary)
+          let detailX = separatorLabel.frame.maxX + sp
+          let detailW = max(0, maxTextW - (detailX - textX))
+          detailLabel.frame = CGRect(
+            x: detailX,
+            y: (h - primaryLabel.frame.height) / 2,
+            width: detailW,
+            height: primaryLabel.frame.height
+          )
 
         case .unknown:
           primaryLabel.text = ""
@@ -694,12 +694,6 @@
       }
     }
 
-    private func permissionDetail(serverDetail: String?) -> String? {
-      ApprovalPermissionPreviewBuilder.compactPermissionDetail(
-        serverDetail: serverDetail,
-        maxLength: 50
-      )
-    }
   }
 
 #endif

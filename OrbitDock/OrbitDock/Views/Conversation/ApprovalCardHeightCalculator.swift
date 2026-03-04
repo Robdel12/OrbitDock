@@ -32,10 +32,12 @@ enum ApprovalCardHeightCalculator {
       static let answerFieldHeight: CGFloat = 26
       static let submitButtonHeight: CGFloat = 28
       static let takeoverButtonHeight: CGFloat = 30
-      static let questionOptionMinHeight: CGFloat = 30
-      static let questionOptionTextInset: CGFloat = 20
+      static let questionOptionMinHeight: CGFloat = 44
+      static let questionOptionTextInset: CGFloat = 24
+      static let questionOptionVerticalPadding: CGFloat = 14
       static let questionPromptSectionInset: CGFloat = 10
-      static let questionPromptSectionSpacing: CGFloat = 6
+      static let questionPromptSectionSpacing: CGFloat = 8
+      static let questionMaxContentWidth: CGFloat = 980
     #else
       static let cardPadding: CGFloat = 14
       static let headerIconSize: CGFloat = 15
@@ -43,10 +45,12 @@ enum ApprovalCardHeightCalculator {
       static let answerFieldHeight: CGFloat = 34
       static let submitButtonHeight: CGFloat = 42
       static let takeoverButtonHeight: CGFloat = 42
-      static let questionOptionMinHeight: CGFloat = 44
+      static let questionOptionMinHeight: CGFloat = 52
       static let questionOptionTextInset: CGFloat = 24
+      static let questionOptionVerticalPadding: CGFloat = 16
       static let questionPromptSectionInset: CGFloat = 10
-      static let questionPromptSectionSpacing: CGFloat = 6
+      static let questionPromptSectionSpacing: CGFloat = 8
+      static let questionMaxContentWidth: CGFloat = 860
     #endif
   }
 
@@ -110,54 +114,57 @@ enum ApprovalCardHeightCalculator {
   private static func questionHeight(_ model: ApprovalCardModel, contentWidth: CGFloat) -> CGFloat {
     let pad = Layout.cardPadding
     let outerInset = Layout.outerVerticalInset
+    let questionContentWidth = min(contentWidth, Layout.questionMaxContentWidth)
 
     var h: CGFloat = outerInset + 2 + pad // cell pad + risk strip + card pad
     h += Layout.headerIconSize // header
-    h += CGFloat(Spacing.md)
 
     let prompts = model.questions
     if prompts.count > 1 {
-      h += measureTextHeight(
-        "Answer all questions to continue.",
-        font: PlatformFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
-        width: contentWidth
-      )
-      h += 4
-      h += measureTextHeight(
-        "Choose options or type answers for each prompt.",
-        font: PlatformFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
-        width: contentWidth
-      )
-      h += CGFloat(Spacing.md)
+      h += CGFloat(Spacing.sm)
       for (index, prompt) in prompts.enumerated() {
-        h += questionPromptSectionHeight(prompt, width: contentWidth)
+        h += questionPromptSectionHeight(prompt, width: questionContentWidth)
         if index < prompts.count - 1 {
-          h += CGFloat(Spacing.sm * 2 + Spacing.xs)
+          h += CGFloat(Spacing.xs)
         }
       }
       h += CGFloat(Spacing.md) + Layout.submitButtonHeight
     } else if let prompt = prompts.first {
-      let qFont = PlatformFont.systemFont(ofSize: TypeScale.reading, weight: .regular)
-      h += measureTextHeight(prompt.question, font: qFont, width: contentWidth)
-      h += 4
-      h += measureTextHeight(
-        prompt.options.isEmpty ? "Type a quick response and submit." : "Tap one option to answer.",
-        font: PlatformFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
-        width: contentWidth
+      h += CGFloat(Spacing.md)
+      let hasOptions = !prompt.options.isEmpty
+      let requiresSubmit = prompt.allowsOther || prompt.allowsMultipleSelection
+      let headingText = hasOptions ? "Choose Your Response" : prompt.question
+      let headingFont = PlatformFont.systemFont(
+        ofSize: hasOptions ? TypeScale.reading : TypeScale.reading,
+        weight: hasOptions ? .semibold : .regular
       )
-      if prompt.options.isEmpty {
+      h += measureTextHeight(headingText, font: headingFont, width: questionContentWidth)
+      h += 4
+      let captionText: String = if !hasOptions {
+        "Type a quick response and submit."
+      } else if requiresSubmit {
+        prompt.allowsMultipleSelection
+          ? "Pick the options that apply, then submit."
+          : "Pick an option or type your own response, then submit."
+      } else {
+        "Choose one option to continue."
+      }
+      h += measureTextHeight(
+        captionText,
+        font: PlatformFont.systemFont(ofSize: TypeScale.body, weight: .regular),
+        width: questionContentWidth
+      )
+      if !hasOptions {
         h += CGFloat(Spacing.md) + Layout.answerFieldHeight
         h += CGFloat(Spacing.md) + Layout.submitButtonHeight
       } else {
-        h += CGFloat(Spacing.md)
-        for (index, option) in prompt.options.enumerated() {
-          h += questionOptionHeight(option, width: contentWidth)
-          if index < prompt.options.count - 1 {
-            h += CGFloat(Spacing.xs)
-          }
+        h += CGFloat(Spacing.md) + questionPromptSectionHeight(prompt, width: questionContentWidth)
+        if requiresSubmit {
+          h += CGFloat(Spacing.md) + Layout.submitButtonHeight
         }
       }
     } else {
+      h += CGFloat(Spacing.md)
       h += 20
       h += CGFloat(Spacing.md) + Layout.answerFieldHeight
       h += CGFloat(Spacing.md) + Layout.submitButtonHeight
@@ -228,41 +235,35 @@ enum ApprovalCardHeightCalculator {
 
   // MARK: - Question Helpers
 
-  static func questionOptionDisplayText(_ option: ApprovalQuestionOption) -> String {
-    if let description = option.description, !description.isEmpty {
-      return "\(option.label)\n\(description)"
-    }
-    return option.label
-  }
-
   private static func questionPromptSectionHeight(_ prompt: ApprovalQuestionPrompt, width: CGFloat) -> CGFloat {
-    let sectionContentWidth = max(1, width - Layout.questionPromptSectionInset * 2)
+    let sectionContentWidth = max(1, width - 34)
     var components: [CGFloat] = []
 
-    if let header = prompt.header, !header.isEmpty {
+    components.append(16)
+    let trimmedHeader = prompt.header?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if !trimmedHeader.isEmpty {
       components.append(
         measureTextHeight(
-          header.uppercased(),
-          font: PlatformFont.systemFont(ofSize: TypeScale.micro, weight: .semibold),
+          trimmedHeader.uppercased(),
+          font: PlatformFont.systemFont(ofSize: TypeScale.caption, weight: .semibold),
           width: sectionContentWidth
         )
       )
     }
-
-    components.append(
-      measureTextHeight(
-        prompt.question,
-        font: PlatformFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
-        width: sectionContentWidth
-      )
+    let questionHeight = measureTextHeight(
+      prompt.question,
+      font: PlatformFont.systemFont(ofSize: TypeScale.reading, weight: .semibold),
+      width: sectionContentWidth
     )
+    components.append(questionHeight)
 
     if !prompt.options.isEmpty {
       var optionsHeight: CGFloat = 0
+      let optionGap = CGFloat(Spacing.sm_)
       for (index, option) in prompt.options.enumerated() {
         optionsHeight += questionOptionHeight(option, width: sectionContentWidth)
         if index < prompt.options.count - 1 {
-          optionsHeight += CGFloat(Spacing.xs)
+          optionsHeight += optionGap
         }
       }
       components.append(optionsHeight)
@@ -275,17 +276,27 @@ enum ApprovalCardHeightCalculator {
     let componentSpacing =
       max(0, CGFloat(components.count - 1)) * Layout.questionPromptSectionSpacing
     let contentHeight = components.reduce(0, +) + componentSpacing
-    return contentHeight + (Layout.questionPromptSectionInset * 2)
+    return contentHeight + 16
   }
 
   private static func questionOptionHeight(_ option: ApprovalQuestionOption, width: CGFloat) -> CGFloat {
-    let text = questionOptionDisplayText(option)
-    let textHeight = measureTextHeight(
-      text,
+    let textWidth = max(1, width - Layout.questionOptionTextInset)
+    let titleHeight = measureTextHeight(
+      option.label,
       font: PlatformFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
-      width: max(1, width - Layout.questionOptionTextInset)
+      width: textWidth
     )
-    return max(Layout.questionOptionMinHeight, textHeight + 16)
+    var contentHeight = titleHeight
+    if let description = option.description?.trimmingCharacters(in: .whitespacesAndNewlines), !description.isEmpty {
+      contentHeight += CGFloat(Spacing.xxs)
+      contentHeight += measureTextHeight(
+        description,
+        font: PlatformFont.systemFont(ofSize: TypeScale.caption, weight: .regular),
+        width: textWidth
+      )
+    }
+    contentHeight += Layout.questionOptionVerticalPadding
+    return max(Layout.questionOptionMinHeight, contentHeight)
   }
 
   // MARK: - Text Measurement

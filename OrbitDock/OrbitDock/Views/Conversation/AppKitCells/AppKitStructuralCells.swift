@@ -387,7 +387,6 @@
       workStatus: Session.WorkStatus,
       currentTool: String?,
       pendingToolName: String?,
-      pendingPermissionDetail: String?,
       provider: Provider
     ) {
       shimmerBar.isHidden = true

@@ -59,6 +59,16 @@ struct SessionRowView: View {
 
       Spacer()
 
+      // Unread badge
+      if session.unreadCount > 0 {
+        Text(session.unreadCount > 99 ? "99+" : "\(session.unreadCount)")
+          .font(.system(size: TypeScale.mini, weight: .bold))
+          .foregroundStyle(.white)
+          .padding(.horizontal, Spacing.xs)
+          .padding(.vertical, Spacing.xxs)
+          .background(Color.accent, in: Capsule())
+      }
+
       // Right side - compact stats
       VStack(alignment: .trailing, spacing: Spacing.xxs) {
         Text(session.formattedDuration)

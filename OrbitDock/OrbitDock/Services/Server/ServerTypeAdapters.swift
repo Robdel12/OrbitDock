@@ -63,6 +63,7 @@ extension ServerSessionSummary {
     session.repositoryRoot = repositoryRoot
     session.isWorktree = isWorktree ?? false
     session.worktreeId = worktreeId
+    session.unreadCount = unreadCount ?? 0
     return session
   }
 }
@@ -125,6 +126,7 @@ extension ServerSessionState {
     session.repositoryRoot = repositoryRoot
     session.isWorktree = isWorktree ?? false
     session.worktreeId = worktreeId
+    session.unreadCount = unreadCount ?? 0
     return session
   }
 }
