@@ -189,6 +189,11 @@ pub enum SessionCommand {
     TakeHandle {
         reply: oneshot::Sender<crate::session::SessionHandle>,
     },
+
+    /// Mark the session as read and broadcast the updated unread count.
+    MarkRead {
+        reply: oneshot::Sender<u64>,
+    },
 }
 
 pub struct PendingApprovalResolution {

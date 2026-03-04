@@ -357,6 +357,19 @@ pub async fn handle_session_command(
                 "TakeHandle received on active session actor — ignoring"
             );
         }
+        SessionCommand::MarkRead { reply } => {
+            let prev = handle.mark_read();
+            if prev > 0 {
+                handle.broadcast(ServerMessage::SessionDelta {
+                    session_id: handle.id().to_string(),
+                    changes: StateChanges {
+                        unread_count: Some(0),
+                        ..Default::default()
+                    },
+                });
+            }
+            let _ = reply.send(handle.unread_count());
+        }
         SessionCommand::LoadTranscriptAndSync {
             path,
             session_id,

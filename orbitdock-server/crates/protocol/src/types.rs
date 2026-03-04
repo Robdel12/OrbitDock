@@ -361,6 +361,9 @@ pub struct SessionSummary {
     /// ID of the tracked worktree record (if any).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_id: Option<String>,
+    /// Number of unread messages in this session.
+    #[serde(default)]
+    pub unread_count: u64,
 }
 
 /// A diff snapshot from a completed turn
@@ -478,6 +481,9 @@ pub struct SessionState {
     /// ID of the tracked worktree record (if any).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_id: Option<String>,
+    /// Number of unread messages in this session.
+    #[serde(default)]
+    pub unread_count: u64,
 }
 
 /// Changes to apply to a session state (delta updates)
@@ -538,6 +544,9 @@ pub struct StateChanges {
     pub repository_root: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_worktree: Option<bool>,
+    /// Updated unread message count.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unread_count: Option<u64>,
 }
 
 /// Changes to apply to a message (delta updates)

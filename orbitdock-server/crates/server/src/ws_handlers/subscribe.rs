@@ -681,6 +681,7 @@ pub(crate) async fn handle(
                             repository_root: None,
                             is_worktree: false,
                             worktree_id: None,
+                            unread_count: restored.unread_count,
                         };
 
                         send_snapshot_if_requested(

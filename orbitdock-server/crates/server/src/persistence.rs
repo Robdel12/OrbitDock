@@ -676,6 +676,14 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     params![truncated, session_id],
                 );
             }
+
+            // Increment cached unread count for non-user, non-steer messages
+            if !matches!(message.message_type, MessageType::User | MessageType::Steer) {
+                let _ = conn.execute(
+                    "UPDATE sessions SET unread_count = unread_count + 1 WHERE id = ?1",
+                    params![session_id],
+                );
+            }
         }
 
         PersistCommand::MessageUpdate {
@@ -926,6 +934,21 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             conn.execute(
                 "UPDATE sessions SET approval_policy = COALESCE(?, approval_policy), sandbox_mode = COALESCE(?, sandbox_mode), permission_mode = COALESCE(?, permission_mode), last_activity_at = ? WHERE id = ?",
                 params![approval_policy, sandbox_mode, permission_mode, chrono_now(), session_id],
+            )?;
+        }
+
+        PersistCommand::MarkSessionRead {
+            session_id,
+            up_to_sequence,
+        } => {
+            conn.execute(
+                "UPDATE sessions SET last_read_sequence = MAX(last_read_sequence, ?1), unread_count = (
+                    SELECT COUNT(*) FROM messages
+                    WHERE session_id = ?2
+                      AND sequence > ?1
+                      AND type NOT IN ('user', 'steer')
+                ) WHERE id = ?2",
+                params![up_to_sequence, session_id],
             )?;
         }
 
@@ -2220,6 +2243,7 @@ pub struct RestoredSession {
     pub terminal_session_id: Option<String>,
     pub terminal_app: Option<String>,
     pub approval_version: u64,
+    pub unread_count: u64,
 }
 
 /// No longer backfills custom_name from first_prompt — the UI uses first_prompt
@@ -3320,6 +3344,15 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 )
                 .unwrap_or(0);
 
+            // Recompute unread count from messages (migration 012)
+            let unread_count: u64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM messages WHERE session_id = ?1 AND sequence > (SELECT COALESCE(last_read_sequence, 0) FROM sessions WHERE id = ?1) AND type NOT IN ('user', 'steer')",
+                    params![id],
+                    |row| row.get::<_, i64>(0).map(|v| v as u64),
+                )
+                .unwrap_or(0);
+
             // end_reason already queried above for message-skip logic
             let end_reason = end_reason_val;
 
@@ -3390,6 +3423,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 terminal_session_id,
                 terminal_app,
                 approval_version,
+                unread_count,
             });
         }
 
@@ -3599,6 +3633,15 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             )
             .unwrap_or(0);
 
+        // Recompute unread count from messages (migration 012)
+        let unread_count: u64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE session_id = ?1 AND sequence > (SELECT COALESCE(last_read_sequence, 0) FROM sessions WHERE id = ?1) AND type NOT IN ('user', 'steer')",
+                params![&id],
+                |row| row.get::<_, i64>(0).map(|v| v as u64),
+            )
+            .unwrap_or(0);
+
         Ok(Some(RestoredSession {
             id,
             provider,
@@ -3643,6 +3686,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             terminal_session_id,
             terminal_app,
             approval_version,
+            unread_count,
         }))
     }).await??;
 

@@ -266,9 +266,15 @@ impl SessionRegistry {
                     repository_root: snap.repository_root.clone(),
                     is_worktree: snap.is_worktree,
                     worktree_id: snap.worktree_id.clone(),
+                    unread_count: snap.unread_count,
                 }
             })
             .collect()
+    }
+
+    /// Iterate over all sessions (lock-free DashMap iteration).
+    pub fn iter_sessions(&self) -> dashmap::iter::Iter<'_, String, SessionActorHandle> {
+        self.sessions.iter()
     }
 
     /// Get a session actor handle (cheap Clone)

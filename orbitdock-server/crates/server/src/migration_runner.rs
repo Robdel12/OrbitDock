@@ -66,6 +66,11 @@ const EMBEDDED_MIGRATIONS: &[(i64, &str, &str)] = &[
         "011_auth_tokens",
         include_str!("../../../../migrations/011_auth_tokens.sql"),
     ),
+    (
+        12,
+        "012_unread_tracking",
+        include_str!("../../../../migrations/012_unread_tracking.sql"),
+    ),
 ];
 
 /// Run all pending migrations against the given connection.

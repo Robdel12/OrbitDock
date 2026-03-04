@@ -277,6 +277,10 @@ pub struct SessionSnapshot {
     pub repository_root: Option<String>,
     pub is_worktree: bool,
     pub worktree_id: Option<String>,
+    /// Number of active WebSocket subscribers (for subscriber-gated background tasks).
+    pub subscriber_count: usize,
+    /// Cached count of unread messages.
+    pub unread_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -344,6 +348,8 @@ pub struct SessionHandle {
     is_worktree: bool,
     /// ID of the tracked worktree record (if any).
     worktree_id: Option<String>,
+    /// Cached count of unread messages (non-user, non-steer with sequence > last_read).
+    unread_count: u64,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
     list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
@@ -399,6 +405,8 @@ impl SessionHandle {
             repository_root: None,
             is_worktree: false,
             worktree_id: None,
+            subscriber_count: 0,
+            unread_count: 0,
         };
         Self {
             id,
@@ -447,6 +455,7 @@ impl SessionHandle {
             repository_root: None,
             is_worktree: false,
             worktree_id: None,
+            unread_count: 0,
             broadcast_tx,
             list_tx: None,
             revision: 0,
@@ -492,6 +501,7 @@ impl SessionHandle {
         terminal_session_id: Option<String>,
         terminal_app: Option<String>,
         approval_version: u64,
+        unread_count: u64,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let snapshot = SessionSnapshot {
@@ -535,6 +545,8 @@ impl SessionHandle {
             repository_root: None,
             is_worktree: false,
             worktree_id: None,
+            subscriber_count: 0,
+            unread_count,
         };
         let mut handle = Self {
             id,
@@ -583,6 +595,7 @@ impl SessionHandle {
             repository_root: None,
             is_worktree: false,
             worktree_id: None,
+            unread_count,
             broadcast_tx,
             list_tx: None,
             revision: 0,
@@ -657,6 +670,7 @@ impl SessionHandle {
             repository_root: self.repository_root.clone(),
             is_worktree: self.is_worktree,
             worktree_id: self.worktree_id.clone(),
+            unread_count: self.unread_count,
         }
     }
 
@@ -711,6 +725,7 @@ impl SessionHandle {
             repository_root: self.repository_root.clone(),
             is_worktree: self.is_worktree,
             worktree_id: self.worktree_id.clone(),
+            unread_count: self.unread_count,
         }
     }
 
@@ -918,8 +933,26 @@ impl SessionHandle {
 
     /// Add a message
     pub fn add_message(&mut self, message: Message) {
+        if !matches!(
+            message.message_type,
+            orbitdock_protocol::MessageType::User | orbitdock_protocol::MessageType::Steer
+        ) {
+            self.unread_count += 1;
+        }
         self.messages.push(message);
         self.last_activity_at = Some(chrono_now());
+    }
+
+    /// Mark the session as fully read. Returns the previous unread count.
+    pub fn mark_read(&mut self) -> u64 {
+        let prev = self.unread_count;
+        self.unread_count = 0;
+        prev
+    }
+
+    /// Get current unread count
+    pub fn unread_count(&self) -> u64 {
+        self.unread_count
     }
 
     /// Replace all messages (used for snapshot hydration from transcript fallback)
@@ -1329,6 +1362,8 @@ impl SessionHandle {
             repository_root: self.repository_root.clone(),
             is_worktree: self.is_worktree,
             worktree_id: self.worktree_id.clone(),
+            subscriber_count: self.broadcast_tx.receiver_count(),
+            unread_count: self.unread_count,
         }
     }
 

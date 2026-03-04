@@ -1480,6 +1480,7 @@ fn restored_session_to_state(restored: RestoredSession) -> SessionState {
         repository_root: None,
         is_worktree: false,
         worktree_id: None,
+        unread_count: restored.unread_count,
     }
 }
 
@@ -1835,6 +1836,55 @@ fn parse_claude_integration_mode(value: Option<String>) -> Option<ClaudeIntegrat
         Some("passive") => Some(ClaudeIntegrationMode::Passive),
         _ => None,
     }
+}
+
+// -- Mark read --
+
+#[derive(Debug, Serialize)]
+pub struct MarkReadResponse {
+    pub session_id: String,
+    pub unread_count: u64,
+}
+
+pub async fn mark_session_read(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<MarkReadResponse> {
+    let actor = match state.get_session(&session_id) {
+        Some(a) => a,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ApiErrorResponse {
+                    code: "session_not_found",
+                    error: format!("Session {} not found", session_id),
+                }),
+            ))
+        }
+    };
+
+    let (tx, rx) = oneshot::channel();
+    actor.send(SessionCommand::MarkRead { reply: tx }).await;
+
+    let unread_count = rx.await.unwrap_or(0);
+
+    // Persist the read watermark
+    let max_seq: i64 = match load_messages_for_session(&session_id).await {
+        Ok(msgs) => msgs.len() as i64,
+        Err(_) => 0,
+    };
+    let _ = state
+        .persist()
+        .send(PersistCommand::MarkSessionRead {
+            session_id: session_id.clone(),
+            up_to_sequence: max_seq,
+        })
+        .await;
+
+    Ok(Json(MarkReadResponse {
+        session_id,
+        unread_count,
+    }))
 }
 
 #[cfg(test)]

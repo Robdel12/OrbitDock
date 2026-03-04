@@ -195,6 +195,7 @@ pub(crate) async fn handle(
                 restored.terminal_session_id,
                 restored.terminal_app,
                 restored.approval_version,
+                restored.unread_count,
             );
 
             // Set integration mode to direct BEFORE snapshot so the client sees it immediately

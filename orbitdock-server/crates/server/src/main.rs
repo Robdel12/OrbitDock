@@ -20,6 +20,7 @@ mod cmd_tunnel;
 mod codex_session;
 pub(crate) mod crypto;
 mod git;
+mod git_refresh;
 mod hook_handler;
 mod http_api;
 pub(crate) mod images;
@@ -627,6 +628,7 @@ async fn async_main(
                     terminal_session_id,
                     terminal_app,
                     approval_version,
+                    unread_count,
                 } = rs;
                 let msg_count = messages.len();
 
@@ -723,6 +725,7 @@ async fn async_main(
                     terminal_session_id,
                     terminal_app,
                     approval_version,
+                    unread_count,
                 );
                 let is_codex = matches!(provider, Provider::Codex);
                 let is_claude = matches!(provider, Provider::Claude);
@@ -914,6 +917,10 @@ async fn async_main(
         }
     });
 
+    // Periodic git info refresh for subscribed sessions
+    let git_state = state.clone();
+    tokio::spawn(git_refresh::start_git_refresh_loop(git_state));
+
     // Keep a reference for the shutdown handler
     let shutdown_state = state.clone();
     let shutdown_persist = persist_tx.clone();
@@ -946,6 +953,10 @@ async fn async_main(
             post(http_api::codex_login_cancel),
         )
         .route("/api/codex/logout", post(http_api::codex_logout))
+        .route(
+            "/api/sessions/{session_id}/mark-read",
+            post(http_api::mark_session_read),
+        )
         .route(
             "/api/sessions/{session_id}/review-comments",
             get(http_api::list_review_comments_endpoint)
