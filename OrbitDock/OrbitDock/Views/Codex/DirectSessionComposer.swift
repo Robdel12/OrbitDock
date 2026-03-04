@@ -42,6 +42,7 @@ struct DirectSessionComposer: View {
   @State private var completionQuery = ""
   @State private var completionIndex = 0
   @State private var isFocused = false
+  @State private var moveCursorToEndSignal = 0
   @State private var composerInputHeight: CGFloat = 30
 
   /// Attachments
@@ -913,6 +914,7 @@ struct DirectSessionComposer: View {
       text: $message,
       placeholder: composerPlaceholder,
       isFocused: $isFocused,
+      moveCursorToEndSignal: $moveCursorToEndSignal,
       measuredHeight: $composerInputHeight,
       isEnabled: !isSending,
       minLines: 2,
@@ -1911,6 +1913,19 @@ struct DirectSessionComposer: View {
 
   // MARK: - Helpers
 
+  private func moveComposerCursorToEnd() {
+    moveCursorToEndSignal &+= 1
+  }
+
+  private func setComposerMessage(_ newValue: String, moveCursorToEnd: Bool = false) {
+    if message != newValue {
+      message = newValue
+    }
+    if moveCursorToEnd {
+      moveComposerCursorToEnd()
+    }
+  }
+
   private func extractMcpServerName(from toolKey: String) -> String? {
     let parts = toolKey.split(separator: "__")
     if parts.count >= 2, parts[0] == "mcp" {
@@ -2199,9 +2214,8 @@ struct DirectSessionComposer: View {
   }
 
   private func acceptSkillCompletion(_ skill: ServerSkillMetadata) {
-    if let dollarIdx = message.lastIndex(of: "$") {
-      let prefix = String(message[..<dollarIdx])
-      message = prefix + "$" + skill.name + " "
+    if let updated = ComposerTextEditing.applySkillCompletion(in: message, skillName: skill.name) {
+      setComposerMessage(updated, moveCursorToEnd: true)
     }
     completionActive = false
     completionQuery = ""
@@ -2263,9 +2277,8 @@ struct DirectSessionComposer: View {
   }
 
   private func acceptMentionCompletion(_ file: ProjectFileIndex.ProjectFile) {
-    if let atIdx = message.lastIndex(of: "@") {
-      let prefix = String(message[..<atIdx])
-      message = prefix + "@" + file.name + " "
+    if let updated = ComposerTextEditing.applyMentionCompletion(in: message, fileName: file.name) {
+      setComposerMessage(updated, moveCursorToEnd: true)
     }
     mentionActive = false
     mentionQuery = ""
@@ -2308,10 +2321,7 @@ struct DirectSessionComposer: View {
   // MARK: - Command Deck
 
   private func isCommandDeckTokenStart(_ index: String.Index, in text: String) -> Bool {
-    if index == text.startIndex {
-      return true
-    }
-    return text[text.index(before: index)].isWhitespace
+    ComposerTextEditing.isCommandDeckTokenStart(index, in: text)
   }
 
   private func updateCommandDeckCompletion(_ text: String) {
@@ -2363,22 +2373,8 @@ struct DirectSessionComposer: View {
   }
 
   private func activateCommandDeck(prefill: String? = nil) {
-    let token = "/" + (prefill ?? "")
-    if let slashIdx = message.lastIndex(of: "/") {
-      let afterSlash = message[message.index(after: slashIdx)...]
-      if isCommandDeckTokenStart(slashIdx, in: message), !afterSlash.contains(where: \.isWhitespace) {
-        let prefix = String(message[..<slashIdx])
-        message = prefix + token
-      } else if message.isEmpty || message.hasSuffix(" ") || message.hasSuffix("\n") {
-        message += token
-      } else {
-        message += " " + token
-      }
-    } else if message.isEmpty || message.hasSuffix(" ") || message.hasSuffix("\n") {
-      message += token
-    } else {
-      message += " " + token
-    }
+    let updated = ComposerTextEditing.activateCommandDeckToken(in: message, prefill: prefill)
+    setComposerMessage(updated, moveCursorToEnd: true)
     updateCommandDeckCompletion(message)
     isFocused = true
   }
@@ -2390,35 +2386,17 @@ struct DirectSessionComposer: View {
   }
 
   private func removeTrailingCommandDeckToken() {
-    guard let slashIdx = message.lastIndex(of: "/") else { return }
-    guard isCommandDeckTokenStart(slashIdx, in: message) else { return }
-    let afterSlash = message[message.index(after: slashIdx)...]
-    guard !afterSlash.contains(where: \.isWhitespace) else { return }
-    message = String(message[..<slashIdx]).trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let updated = ComposerTextEditing.removingTrailingCommandDeckToken(in: message) else { return }
+    setComposerMessage(updated, moveCursorToEnd: true)
   }
 
   private func replaceTrailingCommandDeckToken(with replacement: String, appendSpace: Bool = true) {
-    guard let slashIdx = message.lastIndex(of: "/"),
-          isCommandDeckTokenStart(slashIdx, in: message)
-    else {
-      if message.isEmpty {
-        message = replacement + (appendSpace ? " " : "")
-      } else {
-        let spacer = message.hasSuffix(" ") || message.hasSuffix("\n") ? "" : " "
-        message += spacer + replacement + (appendSpace ? " " : "")
-      }
-      return
-    }
-    let afterSlash = message[message.index(after: slashIdx)...]
-    guard !afterSlash.contains(where: \.isWhitespace) else {
-      let spacer = message.hasSuffix(" ") || message.hasSuffix("\n") ? "" : " "
-      message += spacer + replacement + (appendSpace ? " " : "")
-      return
-    }
-
-    let prefix = String(message[..<slashIdx])
-    let suffix = appendSpace ? " " : ""
-    message = prefix + replacement + suffix
+    let updated = ComposerTextEditing.replacingTrailingCommandDeckToken(
+      in: message,
+      replacement: replacement,
+      appendSpace: appendSpace
+    )
+    setComposerMessage(updated, moveCursorToEnd: true)
   }
 
   private func acceptCommandDeckItem(_ item: ComposerCommandDeckItem) {
@@ -2496,8 +2474,8 @@ struct DirectSessionComposer: View {
         return true
 
       case .shiftReturn:
-        message += "\n"
-        return true
+        // Let the native text view insert the newline so caret/selection stays correct.
+        return false
 
       case .escape:
         return handleCompletionCommand(.escape)
@@ -3051,6 +3029,73 @@ private enum ComposerDraftStore {
 
   private static func storageKey(for key: String) -> String {
     "\(keyPrefix).\(key)"
+  }
+}
+
+enum ComposerTextEditing {
+  static func applySkillCompletion(in message: String, skillName: String) -> String? {
+    guard let dollarIdx = message.lastIndex(of: "$") else { return nil }
+    let prefix = String(message[..<dollarIdx])
+    return prefix + "$" + skillName + " "
+  }
+
+  static func applyMentionCompletion(in message: String, fileName: String) -> String? {
+    guard let atIdx = message.lastIndex(of: "@") else { return nil }
+    let prefix = String(message[..<atIdx])
+    return prefix + "@" + fileName + " "
+  }
+
+  static func isCommandDeckTokenStart(_ index: String.Index, in text: String) -> Bool {
+    if index == text.startIndex {
+      return true
+    }
+    return text[text.index(before: index)].isWhitespace
+  }
+
+  static func activateCommandDeckToken(in message: String, prefill: String?) -> String {
+    let token = "/" + (prefill ?? "")
+
+    if let slashIdx = message.lastIndex(of: "/") {
+      let afterSlash = message[message.index(after: slashIdx)...]
+      if isCommandDeckTokenStart(slashIdx, in: message), !afterSlash.contains(where: \.isWhitespace) {
+        let prefix = String(message[..<slashIdx])
+        return prefix + token
+      }
+    }
+
+    if message.isEmpty || message.hasSuffix(" ") || message.hasSuffix("\n") {
+      return message + token
+    }
+
+    return message + " " + token
+  }
+
+  static func removingTrailingCommandDeckToken(in message: String) -> String? {
+    guard let slashIdx = message.lastIndex(of: "/") else { return nil }
+    guard isCommandDeckTokenStart(slashIdx, in: message) else { return nil }
+    let afterSlash = message[message.index(after: slashIdx)...]
+    guard !afterSlash.contains(where: \.isWhitespace) else { return nil }
+    return String(message[..<slashIdx]).trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  static func replacingTrailingCommandDeckToken(in message: String, replacement: String, appendSpace: Bool) -> String {
+    let suffix = appendSpace ? " " : ""
+
+    guard let slashIdx = message.lastIndex(of: "/"),
+          isCommandDeckTokenStart(slashIdx, in: message)
+    else {
+      let spacer = (message.isEmpty || message.hasSuffix(" ") || message.hasSuffix("\n")) ? "" : " "
+      return message + spacer + replacement + suffix
+    }
+
+    let afterSlash = message[message.index(after: slashIdx)...]
+    guard !afterSlash.contains(where: \.isWhitespace) else {
+      let spacer = message.hasSuffix(" ") || message.hasSuffix("\n") ? "" : " "
+      return message + spacer + replacement + suffix
+    }
+
+    let prefix = String(message[..<slashIdx])
+    return prefix + replacement + suffix
   }
 }
 

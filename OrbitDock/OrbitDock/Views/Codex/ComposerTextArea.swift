@@ -23,6 +23,7 @@ struct ComposerTextArea: View {
   @Binding var text: String
   let placeholder: String
   @Binding var isFocused: Bool
+  @Binding var moveCursorToEndSignal: Int
   @Binding var measuredHeight: CGFloat
   let isEnabled: Bool
   let minLines: Int
@@ -35,6 +36,7 @@ struct ComposerTextArea: View {
     text: Binding<String>,
     placeholder: String,
     isFocused: Binding<Bool>,
+    moveCursorToEndSignal: Binding<Int>,
     measuredHeight: Binding<CGFloat>,
     isEnabled: Bool,
     minLines: Int = 1,
@@ -46,6 +48,7 @@ struct ComposerTextArea: View {
     _text = text
     self.placeholder = placeholder
     _isFocused = isFocused
+    _moveCursorToEndSignal = moveCursorToEndSignal
     _measuredHeight = measuredHeight
     self.isEnabled = isEnabled
     self.minLines = minLines
@@ -69,6 +72,7 @@ struct ComposerTextArea: View {
       PlatformComposerTextArea(
         text: $text,
         isFocused: $isFocused,
+        moveCursorToEndSignal: $moveCursorToEndSignal,
         measuredHeight: $measuredHeight,
         isEnabled: isEnabled,
         minLines: minLines,
@@ -81,6 +85,13 @@ struct ComposerTextArea: View {
   }
 }
 
+private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
+  let safeLocation = max(0, min(selection.location, maxLength))
+  let remaining = max(0, maxLength - safeLocation)
+  let safeLength = max(0, min(selection.length, remaining))
+  return NSRange(location: safeLocation, length: safeLength)
+}
+
 #if os(iOS)
   import UIKit
 
@@ -89,6 +100,7 @@ struct ComposerTextArea: View {
   private struct ComposerTextAreaIOS: UIViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
+    @Binding var moveCursorToEndSignal: Int
     @Binding var measuredHeight: CGFloat
     let isEnabled: Bool
     let minLines: Int
@@ -103,13 +115,15 @@ struct ComposerTextArea: View {
 
     func makeUIView(context: Context) -> ComposerUITextView {
       let textView = ComposerUITextView(frame: .zero)
+      let coordinator = context.coordinator
+
       textView.backgroundColor = .clear
       textView.font = .systemFont(ofSize: TypeScale.body)
       textView.textColor = .label
-      textView.autocorrectionType = .yes
-      textView.spellCheckingType = .yes
-      textView.smartQuotesType = .yes
-      textView.smartDashesType = .yes
+      textView.autocorrectionType = .no
+      textView.spellCheckingType = .no
+      textView.smartQuotesType = .no
+      textView.smartDashesType = .no
       textView.keyboardDismissMode = .interactive
       textView.textContainer.widthTracksTextView = true
       textView.textContainer.lineBreakMode = .byWordWrapping
@@ -118,16 +132,20 @@ struct ComposerTextArea: View {
       textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
       textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
       textView.isScrollEnabled = false
-      textView.delegate = context.coordinator
+      textView.delegate = coordinator
+      textView.text = text
+      textView.onBoundsWidthChange = { [weak coordinator, weak textView] in
+        guard let coordinator, let textView else { return }
+        coordinator.recalculateHeight(for: textView)
+      }
+      coordinator.textView = textView
       return textView
     }
 
     func updateUIView(_ uiView: ComposerUITextView, context: Context) {
-      context.coordinator.parent = self
-
-      if uiView.text != text {
-        uiView.text = text
-      }
+      let coordinator = context.coordinator
+      coordinator.parent = self
+      coordinator.textView = uiView
 
       uiView.isEditable = isEnabled
       uiView.isSelectable = isEnabled
@@ -135,39 +153,85 @@ struct ComposerTextArea: View {
       uiView.canPasteImage = canPasteImage
       uiView.onKeyCommand = onKeyCommand
 
-      context.coordinator.recalculateHeight(for: uiView)
-
-      if isFocused {
-        if uiView.window != nil, !uiView.isFirstResponder {
-          uiView.becomeFirstResponder()
-        }
-      } else if uiView.isFirstResponder {
-        uiView.resignFirstResponder()
+      if coordinator.syncTextFromSwiftUI(in: uiView) {
+        coordinator.recalculateHeight(for: uiView)
       }
+
+      coordinator.syncFocus(in: uiView)
+      coordinator.applyCursorRequestIfNeeded(in: uiView)
+    }
+
+    static func dismantleUIView(_ uiView: ComposerUITextView, coordinator: Coordinator) {
+      uiView.delegate = nil
+      uiView.onPasteImage = nil
+      uiView.canPasteImage = nil
+      uiView.onKeyCommand = nil
+      uiView.onBoundsWidthChange = nil
+      coordinator.textView = nil
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
       var parent: ComposerTextAreaIOS
+      weak var textView: ComposerUITextView?
+
+      private var isApplyingExternalText = false
+      private var lastAppliedCursorSignal: Int
 
       init(parent: ComposerTextAreaIOS) {
         self.parent = parent
+        lastAppliedCursorSignal = parent.moveCursorToEndSignal
+      }
+
+      func syncTextFromSwiftUI(in textView: ComposerUITextView) -> Bool {
+        let incoming = parent.text
+        guard textView.text != incoming else { return false }
+        guard textView.markedTextRange == nil else { return false }
+
+        let previousSelection = textView.selectedRange
+        let shouldRestoreSelection = textView.isFirstResponder
+
+        isApplyingExternalText = true
+        textView.text = incoming
+        isApplyingExternalText = false
+
+        if shouldRestoreSelection {
+          textView.selectedRange = clampedSelection(previousSelection, maxLength: incoming.utf16.count)
+        }
+
+        return true
+      }
+
+      func syncFocus(in textView: ComposerUITextView) {
+        if parent.isFocused {
+          if textView.window != nil, !textView.isFirstResponder {
+            textView.becomeFirstResponder()
+          }
+        } else if textView.isFirstResponder {
+          textView.resignFirstResponder()
+        }
+      }
+
+      func applyCursorRequestIfNeeded(in textView: ComposerUITextView) {
+        guard parent.moveCursorToEndSignal != lastAppliedCursorSignal else { return }
+        guard textView.markedTextRange == nil else { return }
+
+        let end = (textView.text ?? "").utf16.count
+        textView.selectedRange = NSRange(location: end, length: 0)
+        lastAppliedCursorSignal = parent.moveCursorToEndSignal
       }
 
       func textViewDidBeginEditing(_ textView: UITextView) {
         guard !parent.isFocused else { return }
-        Task { @MainActor [weak self] in
-          self?.parent.isFocused = true
-        }
+        parent.isFocused = true
       }
 
       func textViewDidEndEditing(_ textView: UITextView) {
         guard parent.isFocused else { return }
-        Task { @MainActor [weak self] in
-          self?.parent.isFocused = false
-        }
+        parent.isFocused = false
       }
 
       func textViewDidChange(_ textView: UITextView) {
+        guard !isApplyingExternalText else { return }
         let updated = textView.text ?? ""
         if parent.text != updated {
           parent.text = updated
@@ -177,6 +241,8 @@ struct ComposerTextArea: View {
 
       func recalculateHeight(for textView: UITextView) {
         let width = max(textView.bounds.width, 1)
+        guard width > 1 else { return }
+
         let fittingSize = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         let lineHeight = textView.font?.lineHeight ?? UIFont.systemFont(ofSize: TypeScale.body).lineHeight
         let verticalInsets = textView.textContainerInset.top + textView.textContainerInset.bottom
@@ -186,12 +252,9 @@ struct ComposerTextArea: View {
         let shouldScroll = fittingSize.height > maxHeight + 0.5
 
         if abs(parent.measuredHeight - clamped) > 0.5 {
-          Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard abs(self.parent.measuredHeight - clamped) > 0.5 else { return }
-            self.parent.measuredHeight = clamped
-          }
+          parent.measuredHeight = clamped
         }
+
         if textView.isScrollEnabled != shouldScroll {
           textView.isScrollEnabled = shouldScroll
         }
@@ -203,6 +266,18 @@ struct ComposerTextArea: View {
     var onPasteImage: (() -> Bool)?
     var canPasteImage: (() -> Bool)?
     var onKeyCommand: ((ComposerTextAreaKeyCommand) -> Bool)?
+    var onBoundsWidthChange: (() -> Void)?
+
+    private var previousBoundsWidth: CGFloat = 0
+
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      let width = bounds.width
+      if abs(previousBoundsWidth - width) > 0.5 {
+        previousBoundsWidth = width
+        onBoundsWidthChange?()
+      }
+    }
 
     override func paste(_ sender: Any?) {
       if onPasteImage?() == true {
@@ -238,6 +313,7 @@ struct ComposerTextArea: View {
   private struct ComposerTextAreaMacOS: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
+    @Binding var moveCursorToEndSignal: Int
     @Binding var measuredHeight: CGFloat
     let isEnabled: Bool
     let minLines: Int
@@ -260,16 +336,20 @@ struct ComposerTextArea: View {
       scrollView.verticalScrollElasticity = .none
 
       let textView = ComposerNSTextView(frame: .zero)
-      textView.delegate = context.coordinator
+      let coordinator = context.coordinator
+
+      textView.delegate = coordinator
       textView.isRichText = false
       textView.importsGraphics = false
       textView.drawsBackground = false
       textView.font = .systemFont(ofSize: TypeScale.body)
       textView.textColor = .labelColor
       textView.insertionPointColor = .labelColor
-      textView.isContinuousSpellCheckingEnabled = true
-      textView.isAutomaticQuoteSubstitutionEnabled = true
-      textView.isAutomaticDashSubstitutionEnabled = true
+      textView.isContinuousSpellCheckingEnabled = false
+      textView.isAutomaticSpellingCorrectionEnabled = false
+      textView.isAutomaticTextReplacementEnabled = false
+      textView.isAutomaticQuoteSubstitutionEnabled = false
+      textView.isAutomaticDashSubstitutionEnabled = false
       textView.isVerticallyResizable = true
       textView.isHorizontallyResizable = false
       textView.minSize = NSSize(width: 0, height: 0)
@@ -281,88 +361,139 @@ struct ComposerTextArea: View {
       textView.textContainer?.widthTracksTextView = true
       textView.textContainer?.lineFragmentPadding = 0
       textView.textContainerInset = NSSize(width: 0, height: 2)
+      textView.string = text
       textView.onPasteImage = onPasteImage
       textView.canPasteImage = canPasteImage
       textView.onKeyCommand = onKeyCommand
+      textView.onBoundsWidthChange = { [weak coordinator, weak textView] in
+        guard let coordinator, let textView else { return }
+        coordinator.recalculateHeight(for: textView)
+      }
 
       scrollView.documentView = textView
-      context.coordinator.textView = textView
-      context.coordinator.needsInitialMeasurement = true
+      coordinator.textView = textView
       return scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-      context.coordinator.parent = self
-      guard let textView = context.coordinator.textView else { return }
+      let coordinator = context.coordinator
+      coordinator.parent = self
 
-      let didUpdateText = textView.string != text
-      if didUpdateText {
-        textView.string = text
-      }
+      guard let textView = coordinator.textView ?? (nsView.documentView as? ComposerNSTextView) else { return }
+      coordinator.textView = textView
 
       if textView.isEditable != isEnabled {
         textView.isEditable = isEnabled
       }
-      if !textView.isSelectable {
-        textView.isSelectable = true
+      if textView.isSelectable != isEnabled {
+        textView.isSelectable = isEnabled
       }
       textView.onPasteImage = onPasteImage
       textView.canPasteImage = canPasteImage
       textView.onKeyCommand = onKeyCommand
 
-      let widthChanged = context.coordinator.captureMeasuredWidth(max(textView.bounds.width, 1))
-      if didUpdateText || widthChanged || context.coordinator.needsInitialMeasurement {
-        context.coordinator.scheduleHeightMeasurement(for: textView)
+      if coordinator.syncTextFromSwiftUI(in: textView) {
+        coordinator.recalculateHeight(for: textView)
       }
+
+      coordinator.syncFocus(in: textView)
+      coordinator.applyCursorRequestIfNeeded(in: textView)
+    }
+
+    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
+      if let textView = nsView.documentView as? ComposerNSTextView {
+        textView.delegate = nil
+        textView.onPasteImage = nil
+        textView.canPasteImage = nil
+        textView.onKeyCommand = nil
+        textView.onBoundsWidthChange = nil
+      }
+      coordinator.textView = nil
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
       var parent: ComposerTextAreaMacOS
       weak var textView: ComposerNSTextView?
-      private var heightMeasurementTask: Task<Void, Never>?
-      private var lastMeasuredWidth: CGFloat = 0
-      var needsInitialMeasurement = false
+
+      private var isApplyingExternalText = false
+      private var lastAppliedCursorSignal: Int
 
       init(parent: ComposerTextAreaMacOS) {
         self.parent = parent
+        lastAppliedCursorSignal = parent.moveCursorToEndSignal
       }
 
-      deinit {
-        heightMeasurementTask?.cancel()
-      }
+      func syncTextFromSwiftUI(in textView: ComposerNSTextView) -> Bool {
+        let incoming = parent.text
+        guard textView.string != incoming else { return false }
+        guard !textView.hasMarkedText() else { return false }
 
-      func captureMeasuredWidth(_ width: CGFloat) -> Bool {
-        guard width > 1 else { return false }
-        if abs(lastMeasuredWidth - width) > 0.5 {
-          lastMeasuredWidth = width
-          return true
+        let previousSelection = currentSelection(in: textView)
+        let shouldRestoreSelection = isTextViewFirstResponder(textView)
+
+        isApplyingExternalText = true
+        textView.string = incoming
+        isApplyingExternalText = false
+
+        if shouldRestoreSelection {
+          let clamped = clampedSelection(previousSelection, maxLength: incoming.utf16.count)
+          textView.setSelectedRange(clamped)
         }
-        return false
+
+        return true
       }
 
-      func scheduleHeightMeasurement(for textView: NSTextView) {
-        heightMeasurementTask?.cancel()
-        heightMeasurementTask = Task { @MainActor [weak self, weak textView] in
-          guard let self, let textView else { return }
-          defer { self.heightMeasurementTask = nil }
-          await Task.yield()
-          guard !Task.isCancelled else { return }
-          self.recalculateHeight(for: textView)
-          self.needsInitialMeasurement = false
+      func syncFocus(in textView: ComposerNSTextView) {
+        guard let window = textView.window else { return }
+        let focused = isTextViewFirstResponder(textView)
+
+        if parent.isFocused {
+          if !focused {
+            window.makeFirstResponder(textView)
+          }
+        } else if focused {
+          window.makeFirstResponder(nil)
         }
       }
 
-      func textDidBeginEditing(_ notification: Notification) {}
+      func applyCursorRequestIfNeeded(in textView: ComposerNSTextView) {
+        guard parent.moveCursorToEndSignal != lastAppliedCursorSignal else { return }
+        guard !textView.hasMarkedText() else { return }
 
-      func textDidEndEditing(_ notification: Notification) {}
+        let end = textView.string.utf16.count
+        textView.setSelectedRange(NSRange(location: end, length: 0))
+        lastAppliedCursorSignal = parent.moveCursorToEndSignal
+      }
+
+      func textDidBeginEditing(_ notification: Notification) {
+        guard !parent.isFocused else { return }
+        parent.isFocused = true
+      }
+
+      func textDidEndEditing(_ notification: Notification) {
+        guard parent.isFocused else { return }
+        parent.isFocused = false
+      }
 
       func textDidChange(_ notification: Notification) {
+        guard !isApplyingExternalText else { return }
         guard let textView = notification.object as? NSTextView else { return }
+
         let updated = textView.string
         if parent.text != updated {
           parent.text = updated
         }
-        scheduleHeightMeasurement(for: textView)
+        recalculateHeight(for: textView)
+      }
+
+      func textViewDidChangeSelection(_ notification: Notification) {
+        guard let textView = notification.object as? NSTextView else { return }
+        guard isTextViewFirstResponder(textView) else { return }
+        let selection = currentSelection(in: textView)
+        let clamped = clampedSelection(selection, maxLength: textView.string.utf16.count)
+        if clamped != selection {
+          textView.setSelectedRange(clamped)
+        }
       }
 
       func recalculateHeight(for textView: NSTextView) {
@@ -372,9 +503,11 @@ struct ComposerTextArea: View {
 
         let width = max(textView.bounds.width, 1)
         guard width > 1 else { return }
+
         if abs(textContainer.containerSize.width - width) > 0.5 {
           textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         }
+
         layoutManager.ensureLayout(for: textContainer)
 
         let usedHeight = layoutManager.usedRect(for: textContainer).height
@@ -390,6 +523,19 @@ struct ComposerTextArea: View {
           parent.measuredHeight = clamped
         }
       }
+
+      private func isTextViewFirstResponder(_ textView: NSTextView) -> Bool {
+        guard let window = textView.window else { return false }
+        return window.firstResponder === textView
+      }
+
+      private func currentSelection(in textView: NSTextView) -> NSRange {
+        if let selected = textView.selectedRanges.first as? NSRange {
+          return selected
+        }
+        let end = textView.string.utf16.count
+        return NSRange(location: end, length: 0)
+      }
     }
   }
 
@@ -397,6 +543,18 @@ struct ComposerTextArea: View {
     var onPasteImage: (() -> Bool)?
     var canPasteImage: (() -> Bool)?
     var onKeyCommand: ((ComposerTextAreaKeyCommand) -> Bool)?
+    var onBoundsWidthChange: (() -> Void)?
+
+    private var previousBoundsWidth: CGFloat = 0
+
+    override func layout() {
+      super.layout()
+      let width = bounds.width
+      if abs(previousBoundsWidth - width) > 0.5 {
+        previousBoundsWidth = width
+        onBoundsWidthChange?()
+      }
+    }
 
     override func paste(_ sender: Any?) {
       if onPasteImage?() == true {
