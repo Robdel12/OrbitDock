@@ -2698,6 +2698,16 @@ impl CodexConnector {
                 "xhigh" => codex_protocol::openai_models::ReasoningEffort::XHigh,
                 _ => codex_protocol::openai_models::ReasoningEffort::Medium,
             });
+            let effective_model = if let Some(model) = model {
+                Some(model.to_string())
+            } else {
+                let current = self.current_model.lock().await;
+                current.clone()
+            };
+            let summary = Some(reasoning_summary_for_model(
+                effective_model.as_deref(),
+                preferred_reasoning_summary(),
+            ));
             let override_op = Op::OverrideTurnContext {
                 cwd: None,
                 approval_policy: None,
@@ -2705,7 +2715,7 @@ impl CodexConnector {
                 windows_sandbox_level: None,
                 model: model.map(|m| m.to_string()),
                 effort: effort_value.map(Some),
-                summary: None,
+                summary,
                 collaboration_mode: None,
                 personality: None,
             };
@@ -2713,8 +2723,8 @@ impl CodexConnector {
                 ConnectorError::ProviderError(format!("Failed to override turn context: {}", e))
             })?;
             info!(
-                "Submitted per-turn overrides: model={:?}, effort={:?}",
-                model, effort
+                "Submitted per-turn overrides: model={:?}, effort={:?}, summary={:?}",
+                model, effort, summary
             );
         }
 
@@ -3267,10 +3277,38 @@ fn parse_reasoning_summary_env(name: &str) -> Option<String> {
     }
 }
 
+fn parse_reasoning_summary(value: &str) -> Option<ReasoningSummary> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "auto" => Some(ReasoningSummary::Auto),
+        "concise" => Some(ReasoningSummary::Concise),
+        "detailed" => Some(ReasoningSummary::Detailed),
+        REASONING_SUMMARY_NONE => Some(ReasoningSummary::None),
+        _ => None,
+    }
+}
+
+fn preferred_reasoning_summary() -> ReasoningSummary {
+    parse_reasoning_summary_env(ENV_CODEX_REASONING_SUMMARY)
+        .as_deref()
+        .and_then(parse_reasoning_summary)
+        .unwrap_or(ReasoningSummary::Detailed)
+}
+
 fn model_rejects_reasoning_summary(model: Option<&str>) -> bool {
     model
         .map(|value| value.trim().to_ascii_lowercase().contains("codex-spark"))
         .unwrap_or(false)
+}
+
+fn reasoning_summary_for_model(
+    model: Option<&str>,
+    preferred: ReasoningSummary,
+) -> ReasoningSummary {
+    if model_rejects_reasoning_summary(model) {
+        ReasoningSummary::None
+    } else {
+        preferred
+    }
 }
 
 async fn model_supports_reasoning_summaries(
@@ -3545,9 +3583,9 @@ fn iso_now() -> String {
 mod tests {
     use super::{
         collaboration_mode_from_permission_mode, model_rejects_reasoning_summary,
-        should_disable_reasoning_summary,
+        parse_reasoning_summary, reasoning_summary_for_model, should_disable_reasoning_summary,
     };
-    use codex_protocol::config_types::ModeKind;
+    use codex_protocol::config_types::{ModeKind, ReasoningSummary};
     use codex_protocol::openai_models::ReasoningEffort;
 
     #[test]
@@ -3624,5 +3662,42 @@ mod tests {
             Some("gpt-5.3-codex"),
             true
         ));
+    }
+
+    #[test]
+    fn parse_reasoning_summary_maps_expected_values() {
+        assert_eq!(
+            parse_reasoning_summary("auto"),
+            Some(ReasoningSummary::Auto)
+        );
+        assert_eq!(
+            parse_reasoning_summary("concise"),
+            Some(ReasoningSummary::Concise)
+        );
+        assert_eq!(
+            parse_reasoning_summary("detailed"),
+            Some(ReasoningSummary::Detailed)
+        );
+        assert_eq!(
+            parse_reasoning_summary("none"),
+            Some(ReasoningSummary::None)
+        );
+        assert_eq!(parse_reasoning_summary("invalid"), None);
+    }
+
+    #[test]
+    fn reasoning_summary_for_model_forces_none_for_spark() {
+        assert_eq!(
+            reasoning_summary_for_model(Some("gpt-5.3-codex-spark"), ReasoningSummary::Detailed),
+            ReasoningSummary::None
+        );
+    }
+
+    #[test]
+    fn reasoning_summary_for_model_keeps_preferred_for_non_spark() {
+        assert_eq!(
+            reasoning_summary_for_model(Some("gpt-5.3-codex"), ReasoningSummary::Concise),
+            ReasoningSummary::Concise
+        );
     }
 }
