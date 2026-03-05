@@ -145,6 +145,7 @@ struct ApprovalPermissionPreviewTests {
       diff: nil,
       questions: [],
       hasAmendment: false,
+      amendmentDetail: nil,
       approvalType: .exec,
       projectPath: "/tmp/OrbitDock",
       approvalId: "req-preview",

@@ -26,14 +26,20 @@ extension DirectSessionComposer {
       }
 
       if obs.isDirectCodex {
-        AutonomyPill(sessionId: sessionId, size: .statusBar)
+        AutonomyPill(
+          sessionId: sessionId,
+          size: .statusBar,
+          isActive: permissionPanelExpanded,
+          onTapOverride: { withAnimation(Motion.standard) { permissionPanelExpanded.toggle() } }
+        )
         CodexModePill(sessionId: sessionId, size: .statusBar)
       } else if obs.isDirectClaude {
-        ClaudePermissionPill(sessionId: sessionId, size: .statusBar)
-      }
-
-      if isSessionWorking {
-        workingSteerLabel
+        ClaudePermissionPill(
+          sessionId: sessionId,
+          size: .statusBar,
+          isActive: permissionPanelExpanded,
+          onTapOverride: { withAnimation(Motion.standard) { permissionPanelExpanded.toggle() } }
+        )
       }
 
       if obs.hasTokenUsage {
@@ -64,14 +70,20 @@ extension DirectSessionComposer {
         }
 
         if obs.isDirectCodex {
-          AutonomyPill(sessionId: sessionId, size: .statusBar)
+          AutonomyPill(
+            sessionId: sessionId,
+            size: .statusBar,
+            isActive: permissionPanelExpanded,
+            onTapOverride: { withAnimation(Motion.standard) { permissionPanelExpanded.toggle() } }
+          )
           CodexModePill(sessionId: sessionId, size: .statusBar)
         } else if obs.isDirectClaude {
-          ClaudePermissionPill(sessionId: sessionId, size: .statusBar)
-        }
-
-        if isSessionWorking {
-          workingSteerLabel
+          ClaudePermissionPill(
+            sessionId: sessionId,
+            size: .statusBar,
+            isActive: permissionPanelExpanded,
+            onTapOverride: { withAnimation(Motion.standard) { permissionPanelExpanded.toggle() } }
+          )
         }
 
         if obs.hasTokenUsage {
@@ -140,24 +152,5 @@ extension DirectSessionComposer {
     }
     .foregroundStyle(Color.textQuaternary)
     .help(cwd)
-  }
-
-  var workingSteerLabel: some View {
-    HStack(spacing: Spacing.xs) {
-      Circle()
-        .fill(Color.composerSteer)
-        .frame(width: 6, height: 6)
-      Text("Working - Steering enabled")
-        .font(.system(size: TypeScale.micro, weight: .semibold))
-        .foregroundStyle(Color.composerSteer)
-        .lineLimit(1)
-    }
-    .padding(.horizontal, Spacing.sm_)
-    .padding(.vertical, Spacing.gap)
-    .background(
-      Color.composerSteer.opacity(OpacityTier.light),
-      in: Capsule()
-    )
-    .help("Model is currently working. You can keep steering with full composer tools.")
   }
 }

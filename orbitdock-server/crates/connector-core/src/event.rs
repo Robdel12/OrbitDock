@@ -42,6 +42,8 @@ pub enum ConnectorEvent {
         diff: Option<String>,
         question: Option<String>,
         proposed_amendment: Option<Vec<String>>,
+        /// Raw permission suggestions from Claude SDK (PermissionUpdate[])
+        permission_suggestions: Option<serde_json::Value>,
     },
 
     /// Approval cancelled by the CLI (e.g. user interrupted, agent moved on)

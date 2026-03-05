@@ -838,6 +838,11 @@ final class ServerAppState {
     return normalizedApprovalRequestId(summary.pendingApprovalId)
   }
 
+  /// Number of additional approval requests queued behind the active one.
+  func queuedApprovalCount(sessionId: String) -> Int {
+    queuedApprovalRequests[sessionId]?.count ?? 0
+  }
+
   /// Resolve approval type for a specific pending request.
   func pendingApprovalType(sessionId: String, requestId: String? = nil) -> ServerApprovalType? {
     let targetRequestId = requestId ?? nextPendingApprovalRequestId(sessionId: sessionId)
@@ -859,22 +864,31 @@ final class ServerAppState {
     interrupt: Bool? = nil
   ) -> ApprovalDispatchResult {
     guard let normalizedRequestId = normalizedApprovalRequestId(requestId) else {
-      logger.warning("Ignoring empty tool approval request in \(sessionId)")
+      logger.warning("[approval] empty request id in approveTool for \(sessionId)")
       return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
     }
 
+    let obs = session(sessionId)
+    let summaryPendingId = sessions.first(where: { $0.id == sessionId })?.pendingApprovalId
+    let obsPendingId = obs.pendingApprovalId
+    logger.info(
+      "[approval] approveTool: session=\(sessionId) request=\(normalizedRequestId) decision=\(decision) summaryPending=\(summaryPendingId ?? "nil") obsPending=\(obsPendingId ?? "nil")"
+    )
+
     guard hasActivePendingApproval(sessionId: sessionId, requestId: normalizedRequestId) else {
-      logger.warning("Ignoring stale tool approval for \(requestId) in \(sessionId)")
+      logger.warning(
+        "[approval] stale: request=\(normalizedRequestId) summaryPending=\(summaryPendingId ?? "nil") obsPending=\(obsPendingId ?? "nil")"
+      )
       return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
     }
 
     guard !isApprovalDispatchInFlight(sessionId: sessionId, requestId: normalizedRequestId) else {
-      logger.info("Ignoring duplicate tool approval for \(normalizedRequestId) in \(sessionId)")
+      logger.info("[approval] duplicate dispatch for \(normalizedRequestId) in \(sessionId)")
       return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
     }
 
     markApprovalDispatchInFlight(sessionId: sessionId, requestId: normalizedRequestId)
-    logger.info("Approving tool \(normalizedRequestId) in \(sessionId): \(decision)")
+    logger.info("[approval] dispatching \(normalizedRequestId) in \(sessionId): \(decision)")
 
     connection.approveTool(
       sessionId: sessionId,
@@ -1679,11 +1693,36 @@ final class ServerAppState {
   private func hasActivePendingApproval(sessionId: String, requestId: String) -> Bool {
     guard let normalizedRequestId = normalizedApprovalRequestId(requestId) else { return false }
     if let summary = sessions.first(where: { $0.id == sessionId }) {
-      // Session summary is authoritative when present, even when the pending ID is nil.
-      return normalizedApprovalRequestId(summary.pendingApprovalId) == normalizedRequestId
+      // Session summary is authoritative when present.
+      if normalizedApprovalRequestId(summary.pendingApprovalId) == normalizedRequestId {
+        return true
+      }
+      // Summary exists but has no pending ID — fall through to observable
+      // in case the ApprovalRequested arrived but no SessionDelta followed yet.
+      if summary.pendingApprovalId == nil {
+        let obs = session(sessionId)
+        if normalizedApprovalRequestId(obs.pendingApprovalId) == normalizedRequestId {
+          return true
+        }
+        if let pending = obs.pendingApproval,
+           normalizedApprovalRequestId(pending.id) == normalizedRequestId
+        {
+          return true
+        }
+      }
+      return false
     }
-    // Fallback for bootstrapping edge cases before summaries are loaded.
-    return normalizedApprovalRequestId(session(sessionId).pendingApproval?.id) == normalizedRequestId
+    // No summary found — fall back to observable entirely.
+    let obs = session(sessionId)
+    if normalizedApprovalRequestId(obs.pendingApprovalId) == normalizedRequestId {
+      return true
+    }
+    if let pending = obs.pendingApproval,
+       normalizedApprovalRequestId(pending.id) == normalizedRequestId
+    {
+      return true
+    }
+    return false
   }
 
   private func mergeMessage(_ existing: TranscriptMessage, with incoming: TranscriptMessage) -> TranscriptMessage {

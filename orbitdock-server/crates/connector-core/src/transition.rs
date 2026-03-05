@@ -109,6 +109,7 @@ pub enum Input {
         diff: Option<String>,
         question: Option<String>,
         proposed_amendment: Option<Vec<String>>,
+        permission_suggestions: Option<serde_json::Value>,
     },
     TokensUpdated {
         usage: TokenUsage,
@@ -223,6 +224,7 @@ impl From<ConnectorEvent> for Input {
                 diff,
                 question,
                 proposed_amendment,
+                permission_suggestions,
             } => Input::ApprovalRequested {
                 request_id,
                 approval_type,
@@ -233,6 +235,7 @@ impl From<ConnectorEvent> for Input {
                 diff,
                 question,
                 proposed_amendment,
+                permission_suggestions,
             },
             ConnectorEvent::TokensUpdated {
                 usage,
@@ -740,6 +743,7 @@ pub fn transition(
             diff,
             question,
             proposed_amendment,
+            permission_suggestions,
         } => {
             state.phase = WorkPhase::AwaitingApproval {
                 request_id: request_id.clone(),
@@ -786,6 +790,7 @@ pub fn transition(
                 question_prompts,
                 preview,
                 proposed_amendment: proposed_amendment.clone(),
+                permission_suggestions,
             };
 
             state.pending_approval = Some(request.clone());
@@ -2388,6 +2393,7 @@ mod tests {
                 diff: None,
                 question: None,
                 proposed_amendment: None,
+                permission_suggestions: None,
             },
             NOW,
         );
@@ -2445,6 +2451,7 @@ mod tests {
                 diff: None,
                 question: None,
                 proposed_amendment: None,
+                permission_suggestions: None,
             },
             NOW,
         );
@@ -2499,6 +2506,7 @@ mod tests {
                 diff: None,
                 question: None,
                 proposed_amendment: None,
+                permission_suggestions: None,
             },
             NOW,
         );
@@ -2542,6 +2550,7 @@ mod tests {
                 diff: None,
                 question: None,
                 proposed_amendment: None,
+                permission_suggestions: None,
             },
             NOW,
         );
@@ -2721,6 +2730,7 @@ mod tests {
                 diff: None,
                 question: None,
                 proposed_amendment: None,
+                permission_suggestions: None,
             },
             NOW,
         );

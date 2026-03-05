@@ -2,8 +2,8 @@
 //  NativeApprovalCardCellView.swift
 //  OrbitDock
 //
-//  Compact macOS approval/question summary card for the conversation timeline.
-//  Detailed interaction now lives in the composer pending-action panel.
+//  Slim macOS approval indicator for the conversation timeline.
+//  Detailed interaction lives in the composer's inline pending zone.
 //
 
 #if os(macOS)
@@ -14,16 +14,33 @@
   final class NativeApprovalCardCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeApprovalCardCell")
 
-    private let cardContainer = NSView()
+    /// Fixed height for the slim indicator strip.
+    static let stripHeight: CGFloat = 36
+
+    private let stripContainer = NSView()
     private let accentBar = NSView()
     private let iconView = NSImageView()
     private let titleLabel = NSTextField(labelWithString: "")
-    private let subtitleLabel = NSTextField(wrappingLabelWithString: "")
-    private let detailStack = NSStackView()
-    private let actionButton = NSButton()
-    private lazy var cardClickGesture = NSClickGestureRecognizer(target: self, action: #selector(cardClicked(_:)))
-
+    private let dotLabel = NSTextField(labelWithString: "\u{00B7}")
+    private let subtitleLabel = NSTextField(labelWithString: "")
+    private let chevronView = NSImageView()
+    private var trackingArea: NSTrackingArea?
     private var currentModel: ApprovalCardModel?
+    private var isHovering = false {
+      didSet {
+        guard isHovering != oldValue else { return }
+        NSAnimationContext.runAnimationGroup { ctx in
+          ctx.duration = 0.15
+          stripContainer.animator().alphaValue = isHovering ? 1.0 : 0.92
+          chevronView.animator().alphaValue = isHovering ? 0.7 : 0.3
+        }
+        if isHovering {
+          NSCursor.pointingHand.push()
+        } else {
+          NSCursor.pop()
+        }
+      }
+    }
 
     override init(frame frameRect: NSRect) {
       super.init(frame: frameRect)
@@ -39,216 +56,159 @@
       wantsLayer = true
       layer?.backgroundColor = NSColor.clear.cgColor
 
-      cardContainer.translatesAutoresizingMaskIntoConstraints = false
-      cardContainer.wantsLayer = true
-      cardContainer.layer?.cornerRadius = CGFloat(Radius.ml)
-      cardContainer.layer?.borderWidth = 1
-      cardContainer.addGestureRecognizer(cardClickGesture)
-      addSubview(cardContainer)
+      // Strip container — full-width rounded rect
+      stripContainer.translatesAutoresizingMaskIntoConstraints = false
+      stripContainer.wantsLayer = true
+      stripContainer.layer?.cornerRadius = CGFloat(Radius.md)
+      stripContainer.alphaValue = 0.92
+      addSubview(stripContainer)
 
+      // Clickable gesture on the whole strip
+      let click = NSClickGestureRecognizer(target: self, action: #selector(stripClicked))
+      stripContainer.addGestureRecognizer(click)
+
+      // Left accent edge bar (3pt)
       accentBar.translatesAutoresizingMaskIntoConstraints = false
       accentBar.wantsLayer = true
-      cardContainer.addSubview(accentBar)
+      accentBar.layer?.cornerRadius = 1.5
+      stripContainer.addSubview(accentBar)
 
+      // Icon
       iconView.translatesAutoresizingMaskIntoConstraints = false
       iconView.imageScaling = .scaleProportionallyDown
-      cardContainer.addSubview(iconView)
+      stripContainer.addSubview(iconView)
 
+      // Title (tool name / mode)
       titleLabel.translatesAutoresizingMaskIntoConstraints = false
-      titleLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+      titleLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
       titleLabel.textColor = NSColor(Color.textPrimary)
-      titleLabel.lineBreakMode = .byWordWrapping
-      titleLabel.maximumNumberOfLines = 0
-      cardContainer.addSubview(titleLabel)
+      titleLabel.lineBreakMode = .byTruncatingTail
+      titleLabel.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+      stripContainer.addSubview(titleLabel)
 
+      // Dot separator
+      dotLabel.translatesAutoresizingMaskIntoConstraints = false
+      dotLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+      dotLabel.textColor = NSColor(Color.textQuaternary)
+      dotLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+      stripContainer.addSubview(dotLabel)
+
+      // Subtitle (brief summary)
       subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-      subtitleLabel.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-      subtitleLabel.textColor = NSColor(Color.textSecondary)
-      subtitleLabel.lineBreakMode = .byWordWrapping
-      subtitleLabel.maximumNumberOfLines = 0
-      cardContainer.addSubview(subtitleLabel)
+      subtitleLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+      subtitleLabel.textColor = NSColor(Color.textTertiary)
+      subtitleLabel.lineBreakMode = .byTruncatingTail
+      subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      stripContainer.addSubview(subtitleLabel)
 
-      detailStack.translatesAutoresizingMaskIntoConstraints = false
-      detailStack.orientation = .vertical
-      detailStack.spacing = 3
-      detailStack.alignment = .width
-      detailStack.distribution = .fill
-      detailStack.detachesHiddenViews = true
-      cardContainer.addSubview(detailStack)
-
-      actionButton.translatesAutoresizingMaskIntoConstraints = false
-      actionButton.bezelStyle = .rounded
-      actionButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
-      actionButton.wantsLayer = true
-      actionButton.layer?.cornerRadius = CGFloat(Radius.md)
-      actionButton.layer?.masksToBounds = true
-      actionButton.layer?.backgroundColor = NSColor(Color.statusQuestion).withAlphaComponent(0.8).cgColor
-      actionButton.contentTintColor = .white
-      actionButton.target = self
-      actionButton.action = #selector(actionButtonClicked)
-      cardContainer.addSubview(actionButton)
+      // Chevron
+      chevronView.translatesAutoresizingMaskIntoConstraints = false
+      chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
+      chevronView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.mini, weight: .bold)
+      chevronView.contentTintColor = NSColor(Color.textQuaternary)
+      chevronView.alphaValue = 0.3
+      stripContainer.addSubview(chevronView)
 
       let inset = ConversationLayout.laneHorizontalInset
-      let pad: CGFloat = 10
+      let hPad = CGFloat(Spacing.sm)
       NSLayoutConstraint.activate([
-        cardContainer.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-        cardContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
-        cardContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
-        cardContainer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+        stripContainer.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+        stripContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
+        stripContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
+        stripContainer.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
 
-        accentBar.topAnchor.constraint(equalTo: cardContainer.topAnchor),
-        accentBar.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor),
-        accentBar.bottomAnchor.constraint(equalTo: cardContainer.bottomAnchor),
-        accentBar.widthAnchor.constraint(equalToConstant: 2),
+        accentBar.topAnchor.constraint(equalTo: stripContainer.topAnchor, constant: 6),
+        accentBar.leadingAnchor.constraint(equalTo: stripContainer.leadingAnchor, constant: 6),
+        accentBar.bottomAnchor.constraint(equalTo: stripContainer.bottomAnchor, constant: -6),
+        accentBar.widthAnchor.constraint(equalToConstant: EdgeBar.width),
 
-        iconView.topAnchor.constraint(equalTo: cardContainer.topAnchor, constant: pad),
-        iconView.leadingAnchor.constraint(equalTo: accentBar.trailingAnchor, constant: pad),
-        iconView.widthAnchor.constraint(equalToConstant: 14),
-        iconView.heightAnchor.constraint(equalToConstant: 14),
+        iconView.centerYAnchor.constraint(equalTo: stripContainer.centerYAnchor),
+        iconView.leadingAnchor.constraint(equalTo: accentBar.trailingAnchor, constant: hPad),
+        iconView.widthAnchor.constraint(equalToConstant: 13),
+        iconView.heightAnchor.constraint(equalToConstant: 13),
 
-        titleLabel.topAnchor.constraint(equalTo: iconView.topAnchor),
-        titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
-        titleLabel.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
+        titleLabel.centerYAnchor.constraint(equalTo: stripContainer.centerYAnchor),
+        titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 6),
 
-        subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
-        subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-        subtitleLabel.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
+        dotLabel.centerYAnchor.constraint(equalTo: stripContainer.centerYAnchor),
+        dotLabel.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 5),
 
-        detailStack.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 8),
-        detailStack.leadingAnchor.constraint(equalTo: subtitleLabel.leadingAnchor),
-        detailStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
+        subtitleLabel.centerYAnchor.constraint(equalTo: stripContainer.centerYAnchor),
+        subtitleLabel.leadingAnchor.constraint(equalTo: dotLabel.trailingAnchor, constant: 5),
+        subtitleLabel.trailingAnchor.constraint(
+          lessThanOrEqualTo: chevronView.leadingAnchor, constant: -hPad
+        ),
 
-        actionButton.topAnchor.constraint(equalTo: detailStack.bottomAnchor, constant: 8),
-        actionButton.leadingAnchor.constraint(equalTo: subtitleLabel.leadingAnchor),
-        actionButton.trailingAnchor.constraint(lessThanOrEqualTo: cardContainer.trailingAnchor, constant: -pad),
-        actionButton.heightAnchor.constraint(equalToConstant: 24),
-        actionButton.bottomAnchor.constraint(equalTo: cardContainer.bottomAnchor, constant: -pad),
+        chevronView.centerYAnchor.constraint(equalTo: stripContainer.centerYAnchor),
+        chevronView.trailingAnchor.constraint(equalTo: stripContainer.trailingAnchor, constant: -hPad),
+        chevronView.widthAnchor.constraint(equalToConstant: 8),
+        chevronView.heightAnchor.constraint(equalToConstant: 10),
       ])
+    }
+
+    override func updateTrackingAreas() {
+      super.updateTrackingAreas()
+      if let existing = trackingArea {
+        removeTrackingArea(existing)
+      }
+      let area = NSTrackingArea(
+        rect: bounds,
+        options: [.mouseEnteredAndExited, .activeInActiveApp],
+        owner: self,
+        userInfo: nil
+      )
+      addTrackingArea(area)
+      trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+      isHovering = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+      isHovering = false
     }
 
     func configure(model: ApprovalCardModel) {
       currentModel = model
-      clearDetailRows()
 
       let header = ApprovalCardConfiguration.headerConfig(for: model, mode: model.mode)
       let tint = NSColor(model.risk.tintColor)
-      cardContainer.layer?.borderColor = tint.withAlphaComponent(0.28).cgColor
-      cardContainer.layer?.backgroundColor = NSColor(Color.backgroundSecondary).withAlphaComponent(0.84).cgColor
+
+      // Background + accent
+      stripContainer.layer?.backgroundColor = NSColor(Color.backgroundSecondary).withAlphaComponent(0.5).cgColor
       accentBar.layer?.backgroundColor = tint.withAlphaComponent(0.72).cgColor
 
+      // Icon
       iconView.image = NSImage(systemSymbolName: header.iconName, accessibilityDescription: nil)
-      iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.caption, weight: .semibold)
+      iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.micro, weight: .semibold)
       iconView.contentTintColor = tint
-      titleLabel.stringValue = header.label
 
-      switch model.mode {
+      // Title: tool name or mode label
+      titleLabel.stringValue = switch model.mode {
+        case .permission: model.toolName ?? "Tool"
+        case .question: "Question"
+        case .takeover: model.toolName ?? "Takeover"
+        case .none: ""
+      }
+
+      // Subtitle: brief context
+      subtitleLabel.stringValue = switch model.mode {
         case .permission:
-          configurePermissionSummary(model)
+          ApprovalPermissionPreviewHelpers.shellSegmentDisplayLines(for: model).count > 1
+            ? "\(ApprovalPermissionPreviewHelpers.shellSegmentDisplayLines(for: model).count)-step chain awaiting approval"
+            : "Awaiting approval"
         case .question:
-          configureQuestionSummary(model)
-        case .takeover:
-          configureTakeOverSummary(model)
-        case .none:
-          subtitleLabel.stringValue = ""
-          actionButton.isHidden = true
+          model.questions.count > 1
+            ? "\(model.questions.count) questions waiting"
+            : "Awaiting your response"
+        case .takeover: "Manual takeover required"
+        case .none: ""
       }
     }
 
-    private func configurePermissionSummary(_ model: ApprovalCardModel) {
-      let segmentLines = ApprovalPermissionPreviewHelpers.shellSegmentDisplayLines(for: model)
-      subtitleLabel.stringValue = segmentLines.count > 1
-        ? "\(segmentLines.count)-step command chain awaiting approval."
-        : "Command awaiting approval."
-      if !segmentLines.isEmpty {
-        for line in segmentLines {
-          addDetailRow(line, monospaced: true)
-        }
-      } else if let command = model.command, !command.isEmpty {
-        addDetailRow(command, monospaced: true)
-      } else if let path = model.filePath, !path.isEmpty {
-        addDetailRow(path, monospaced: true)
-      }
-      if !model.riskFindings.isEmpty {
-        addDetailRow("Risk: \(model.riskFindings[0])")
-        if model.riskFindings.count > 1 {
-          addDetailRow("+\(model.riskFindings.count - 1) more risk check\(model.riskFindings.count == 2 ? "" : "s")")
-        }
-      }
-
-      actionButton.title = "Open Composer"
-      actionButton.isHidden = false
-      actionButton.layer?.backgroundColor = NSColor(Color.statusPermission).withAlphaComponent(0.68).cgColor
-    }
-
-    private func configureQuestionSummary(_ model: ApprovalCardModel) {
-      let promptCount = model.questions.count
-      subtitleLabel.stringValue = promptCount > 0
-        ? "\(promptCount) question\(promptCount == 1 ? "" : "s") waiting in composer."
-        : "A response is required before the session can continue."
-
-      if !model.questions.isEmpty {
-        for (index, prompt) in model.questions.prefix(2).enumerated() {
-          let header = prompt.header?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-          if header.isEmpty {
-            addDetailRow("\(index + 1). Question \(index + 1)")
-          } else {
-            addDetailRow("\(index + 1). \(header.uppercased())")
-          }
-        }
-        if model.questions.count > 2 {
-          addDetailRow("+\(model.questions.count - 2) more")
-        }
-      }
-
-      actionButton.title = "Open Composer"
-      actionButton.isHidden = false
-      actionButton.layer?.backgroundColor = NSColor(Color.statusQuestion).withAlphaComponent(0.7).cgColor
-    }
-
-    private func configureTakeOverSummary(_ model: ApprovalCardModel) {
-      subtitleLabel.stringValue = "Manual takeover required in composer."
-      if let toolName = model.toolName, !toolName.isEmpty {
-        addDetailRow("Pending tool: \(toolName)")
-      }
-
-      actionButton.title = "Open Composer"
-      actionButton.isHidden = false
-      actionButton.layer?.backgroundColor = NSColor(Color.accent).withAlphaComponent(0.7).cgColor
-    }
-
-    private func clearDetailRows() {
-      for view in detailStack.arrangedSubviews {
-        detailStack.removeArrangedSubview(view)
-        view.removeFromSuperview()
-      }
-    }
-
-    private func addDetailRow(_ text: String, monospaced: Bool = false) {
-      let label = NSTextField(wrappingLabelWithString: text)
-      label.translatesAutoresizingMaskIntoConstraints = false
-      label.font = monospaced
-        ? NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular)
-        : NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-      label.textColor = NSColor(Color.textTertiary)
-      label.lineBreakMode = monospaced ? .byCharWrapping : .byWordWrapping
-      label.maximumNumberOfLines = 0
-      detailStack.addArrangedSubview(label)
-      label.widthAnchor.constraint(equalTo: detailStack.widthAnchor).isActive = true
-    }
-
-    @objc private func actionButtonClicked() {
-      openComposerPanel()
-    }
-
-    @objc private func cardClicked(_ gesture: NSClickGestureRecognizer) {
-      let point = gesture.location(in: cardContainer)
-      guard !actionButton.frame.contains(point) else { return }
-      openComposerPanel()
-    }
-
-    private func openComposerPanel() {
+    @objc private func stripClicked() {
       guard let model = currentModel else { return }
-
       NotificationCenter.default.post(
         name: .openPendingActionPanel,
         object: nil,
@@ -257,96 +217,7 @@
     }
 
     static func requiredHeight(for model: ApprovalCardModel?, availableWidth: CGFloat) -> CGFloat {
-      guard let model else { return 104 }
-
-      let laneInset = ConversationLayout.laneHorizontalInset
-      let contentWidth = max(220, availableWidth - laneInset * 2 - 20 - 20)
-
-      var textBlocks: [String] = []
-      switch model.mode {
-        case .permission:
-          let segmentLines = ApprovalPermissionPreviewHelpers.shellSegmentDisplayLines(for: model)
-          textBlocks.append(
-            segmentLines.count > 1
-              ? "\(segmentLines.count)-step command chain awaiting approval."
-              : "Command awaiting approval."
-          )
-          if !segmentLines.isEmpty {
-            textBlocks.append(contentsOf: segmentLines)
-          } else if let command = model.command, !command.isEmpty {
-            textBlocks.append(command)
-          } else if let path = model.filePath, !path.isEmpty {
-            textBlocks.append(path)
-          }
-          if let firstFinding = model.riskFindings.first {
-            textBlocks.append("Risk: \(firstFinding)")
-          }
-          if model.riskFindings.count > 1 {
-            textBlocks
-              .append("+\(model.riskFindings.count - 1) more risk check\(model.riskFindings.count == 2 ? "" : "s")")
-          }
-        case .question:
-          if model.questions.isEmpty {
-            textBlocks.append("Response required")
-          } else {
-            textBlocks.append(contentsOf: model.questions.prefix(2).map {
-              let header = $0.header?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-              return header.isEmpty ? $0.question : header
-            })
-          }
-        case .takeover:
-          textBlocks.append("Manual takeover required in composer.")
-        case .none:
-          break
-      }
-
-      var h: CGFloat = 10
-      h += 10 + 14 + 4
-      h += measuredHeight(
-        textBlocks.first ?? "",
-        font: NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium),
-        width: contentWidth
-      )
-      if textBlocks.count > 1 {
-        let detailFont: NSFont = model.mode == .permission
-          ? NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular)
-          : NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-        let detailCharWrap = model.mode == .permission
-        for row in textBlocks.dropFirst() {
-          h += 6
-          h += measuredHeight(
-            row,
-            font: detailFont,
-            width: contentWidth,
-            charWrap: detailCharWrap
-          )
-        }
-      }
-      h += 8 + 24 + 10
-      h += 10
-
-      let maxHeight: CGFloat = model.mode == .permission ? .greatestFiniteMagnitude : 178
-      return max(104, min(h, maxHeight))
-    }
-
-    private static func measuredHeight(
-      _ text: String,
-      font: NSFont,
-      width: CGFloat,
-      charWrap: Bool = false
-    ) -> CGFloat {
-      guard !text.isEmpty else { return 0 }
-      let paragraphStyle = NSMutableParagraphStyle()
-      paragraphStyle.lineBreakMode = charWrap ? .byCharWrapping : .byWordWrapping
-      let attributes: [NSAttributedString.Key: Any] = [
-        .font: font,
-        .paragraphStyle: paragraphStyle,
-      ]
-      let rect = NSAttributedString(string: text, attributes: attributes).boundingRect(
-        with: NSSize(width: width, height: .greatestFiniteMagnitude),
-        options: [.usesLineFragmentOrigin, .usesFontLeading]
-      )
-      return ceil(rect.height)
+      stripHeight + 8 // 4pt top + 4pt bottom inset
     }
   }
 

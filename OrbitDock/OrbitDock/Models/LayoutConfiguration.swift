@@ -82,9 +82,6 @@ enum RailPreset: String, CaseIterable {
     self == .reviewFocused
   }
 
-  var expandApprovals: Bool {
-    self == .triage
-  }
 }
 
 // MARK: - Review Navigation (Environment)

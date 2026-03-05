@@ -60,11 +60,8 @@ extension DirectSessionComposer {
 
       Spacer()
 
-      // Follow + Send
-      HStack(spacing: Spacing.sm_) {
-        footerFollowControls
-        composerSendButton
-      }
+      // Action cluster (varies by state)
+      composerFooterActions
     }
     .padding(.horizontal, Spacing.md_)
     .padding(.bottom, Spacing.sm_)
@@ -94,12 +91,26 @@ extension DirectSessionComposer {
       }
       .scrollIndicators(.hidden)
 
-      // Pinned right: follow + send
-      footerFollowControls
-      composerSendButton
+      // Action cluster (varies by state)
+      composerFooterActions
     }
     .padding(.horizontal, Spacing.sm)
     .padding(.bottom, Spacing.sm)
+  }
+
+  /// Footer action cluster — swaps between normal send and pending approval actions.
+  @ViewBuilder
+  var composerFooterActions: some View {
+    if let model = pendingApprovalModel, pendingPanelExpanded {
+      pendingFooterActions(model)
+        .transition(.opacity.combined(with: .scale(scale: 0.95)))
+    } else {
+      HStack(spacing: Spacing.sm_) {
+        footerFollowControls
+        composerSendButton
+      }
+      .transition(.opacity.combined(with: .scale(scale: 0.95)))
+    }
   }
 
   // MARK: - Footer Helpers
@@ -206,17 +217,8 @@ extension DirectSessionComposer {
       }
       .frame(width: isCompactLayout ? 34 : 28, height: isCompactLayout ? 34 : 28)
       .background(
-        Circle().fill(
-          canSend
-            ? LinearGradient(
-              colors: [composerBorderColor, composerBorderColor.opacity(0.8)],
-              startPoint: .top,
-              endPoint: .bottom
-            )
-            : LinearGradient(colors: [Color.surfaceHover], startPoint: .top, endPoint: .bottom)
-        )
+        Circle().fill(canSend ? composerBorderColor.opacity(0.85) : Color.surfaceHover)
       )
-      .themeShadow(Shadow.glow(color: canSend ? composerBorderColor : .clear, intensity: 0.4))
     }
     .buttonStyle(.plain)
     .disabled(!canSend)

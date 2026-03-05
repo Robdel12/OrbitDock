@@ -1381,6 +1381,7 @@ impl CodexConnector {
                     diff: None,
                     question: None,
                     proposed_amendment: amendment,
+                    permission_suggestions: None,
                 }]
             }
 
@@ -1439,6 +1440,7 @@ impl CodexConnector {
                     diff: Some(diff),
                     question: None,
                     proposed_amendment: None,
+                    permission_suggestions: None,
                 }]
             }
 
@@ -1477,6 +1479,7 @@ impl CodexConnector {
                         diff: None,
                         question: question_text,
                         proposed_amendment: None,
+                        permission_suggestions: None,
                     },
                 ]
             }
@@ -1521,6 +1524,7 @@ impl CodexConnector {
                         diff: None,
                         question: question_text,
                         proposed_amendment: None,
+                        permission_suggestions: None,
                     },
                 ]
             }

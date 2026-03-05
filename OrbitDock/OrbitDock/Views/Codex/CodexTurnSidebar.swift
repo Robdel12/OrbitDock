@@ -30,7 +30,7 @@ struct CodexTurnSidebar: View {
   @State private var expandServers = false
   @State private var expandSkills = false
   @State private var expandComments = false
-  @State private var expandApprovals = false
+
   @State private var expandTokens = false
 
   private var plan: [Session.PlanStep]? {
@@ -75,17 +75,6 @@ struct CodexTurnSidebar: View {
     reviewComments.filter { $0.status == .open }.count
   }
 
-  private var hasApprovals: Bool {
-    !serverState.session(sessionId).approvalHistory.isEmpty
-  }
-
-  private var hasApprovalSection: Bool {
-    true
-  }
-
-  private var approvalCount: Int {
-    serverState.session(sessionId).approvalHistory.count
-  }
 
   private var hasTokens: Bool {
     serverState.session(sessionId).turnDiffs.contains { $0.tokenUsage != nil }
@@ -93,7 +82,7 @@ struct CodexTurnSidebar: View {
   }
 
   private var hasAnyContent: Bool {
-    hasPlan || hasDiff || hasMcp || hasSkills || hasComments || hasApprovalSection || hasTokens
+    hasPlan || hasDiff || hasMcp || hasSkills || hasComments || hasTokens
   }
 
   var body: some View {
@@ -163,19 +152,6 @@ struct CodexTurnSidebar: View {
                   },
                   onSendReview: onSendReview
                 )
-              }
-            }
-
-            // Approvals section
-            if hasApprovalSection {
-              CollapsibleSection(
-                title: "Approvals",
-                icon: "checkmark.shield.fill",
-                isExpanded: $expandApprovals,
-                badge: hasApprovals ? "\(approvalCount)" : nil,
-                badgeColor: .statusPermission
-              ) {
-                CodexApprovalHistoryView(sessionId: sessionId)
               }
             }
 
@@ -299,7 +275,6 @@ struct CodexTurnSidebar: View {
       expandServers = preset.expandServers
       expandSkills = preset.expandSkills
       expandComments = preset.expandComments
-      expandApprovals = preset.expandApprovals
     }
   }
 

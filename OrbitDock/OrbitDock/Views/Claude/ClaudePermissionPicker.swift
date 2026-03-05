@@ -11,9 +11,10 @@ import SwiftUI
 // MARK: - Claude Permission Mode
 
 enum ClaudePermissionMode: String, CaseIterable, Identifiable {
+  case plan
+  case dontAsk
   case `default`
   case acceptEdits
-  case plan
   case bypassPermissions
 
   var id: String {
@@ -22,36 +23,40 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
 
   var displayName: String {
     switch self {
+      case .plan: "Plan Mode"
+      case .dontAsk: "Don't Ask"
       case .default: "Default"
       case .acceptEdits: "Accept Edits"
-      case .plan: "Plan Mode"
       case .bypassPermissions: "Bypass Permissions"
     }
   }
 
   var icon: String {
     switch self {
+      case .plan: "map.fill"
+      case .dontAsk: "hand.raised.fill"
       case .default: "shield.lefthalf.filled"
       case .acceptEdits: "pencil.and.outline"
-      case .plan: "map.fill"
       case .bypassPermissions: "bolt.fill"
     }
   }
 
   var description: String {
     switch self {
+      case .plan: "Read-only — plan but don't execute"
+      case .dontAsk: "Deny tools not pre-approved — no prompts"
       case .default: "Ask permission for file writes and commands"
       case .acceptEdits: "Auto-approve file edits, ask for commands"
-      case .plan: "Read-only — plan but don't execute"
       case .bypassPermissions: "Auto-approve everything"
     }
   }
 
   var color: Color {
     switch self {
+      case .plan: .statusQuestion
+      case .dontAsk: .feedbackCaution
       case .default: .autonomyGuarded
       case .acceptEdits: .autonomyAutonomous
-      case .plan: .statusQuestion
       case .bypassPermissions: .autonomyUnrestricted
     }
   }
@@ -118,6 +123,8 @@ struct ClaudePermissionPill: View {
 
   let sessionId: String
   var size: PillSize = .regular
+  var isActive: Bool = false
+  var onTapOverride: (() -> Void)?
   @Environment(ServerAppState.self) private var serverState
   @State private var showPopover = false
 
@@ -127,7 +134,11 @@ struct ClaudePermissionPill: View {
 
   var body: some View {
     Button {
-      showPopover.toggle()
+      if let onTapOverride {
+        onTapOverride()
+      } else {
+        showPopover.toggle()
+      }
     } label: {
       HStack(spacing: size.spacing) {
         Image(systemName: currentMode.icon)
@@ -135,37 +146,27 @@ struct ClaudePermissionPill: View {
         Text(currentMode.displayName)
           .font(.system(size: size.textFontSize, weight: .semibold))
       }
-      .foregroundStyle(currentMode.color)
+      .foregroundStyle(isActive ? Color.backgroundSecondary : currentMode.color)
       .padding(.horizontal, size.horizontalPadding)
       .padding(.vertical, size.verticalPadding)
       .frame(height: size.height)
-      .background(currentMode.color.opacity(OpacityTier.light), in: Capsule())
+      .background(
+        isActive
+          ? AnyShapeStyle(currentMode.color)
+          : AnyShapeStyle(currentMode.color.opacity(OpacityTier.light)),
+        in: Capsule()
+      )
     }
     .buttonStyle(.plain)
     .fixedSize()
+    .animation(Motion.snappy, value: isActive)
     .platformPopover(isPresented: $showPopover) {
-      #if os(iOS)
-        NavigationStack {
-          ClaudePermissionPopover(selection: Binding(
-            get: { currentMode },
-            set: { newMode in
-              serverState.updateClaudePermissionMode(sessionId: sessionId, mode: newMode)
-            }
-          ))
-          .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-              Button("Done") { showPopover = false }
-            }
-          }
+      ClaudePermissionPopover(selection: Binding(
+        get: { currentMode },
+        set: { newMode in
+          serverState.updateClaudePermissionMode(sessionId: sessionId, mode: newMode)
         }
-      #else
-        ClaudePermissionPopover(selection: Binding(
-          get: { currentMode },
-          set: { newMode in
-            serverState.updateClaudePermissionMode(sessionId: sessionId, mode: newMode)
-          }
-        ))
-      #endif
+      ))
     }
   }
 }

@@ -786,10 +786,9 @@ struct SessionDetailView: View {
     let hasMcp = obs.hasMcpData
     let hasSkills = !obs.skills.isEmpty || !obs.claudeSkillNames.isEmpty
     let hasComments = !obs.reviewComments.isEmpty
-    let hasApprovals = !obs.approvalHistory.isEmpty
     let hasTokens = obs.turnDiffs.contains { $0.tokenUsage != nil }
       || obs.tokenUsage?.inputTokens ?? 0 > 0
-    return hasPlan || hasDiff || hasMcp || hasSkills || hasComments || hasApprovals || hasTokens
+    return hasPlan || hasDiff || hasMcp || hasSkills || hasComments || hasTokens
   }
 
   private var currentTool: String? {

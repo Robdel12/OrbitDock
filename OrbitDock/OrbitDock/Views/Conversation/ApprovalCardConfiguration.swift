@@ -57,12 +57,14 @@ enum ApprovalCardConfiguration {
       )
     }
     let toolName = model.toolName ?? "Tool"
-    let iconName = ToolCardStyle.icon(for: toolName)
+    let isPatch = model.approvalType == .patch
+    let iconName = isPatch ? "doc.text.fill" : ToolCardStyle.icon(for: toolName)
+    let suffix = isPatch ? "File Edit" : "Approval Required"
     return ApprovalHeaderConfig(
       iconName: iconName,
       iconTint: model.risk.tintColor,
-      label: "\(toolName) \u{00B7} Approval Required",
-      approveTitle: "Approve",
+      label: "\(toolName) \u{00B7} \(suffix)",
+      approveTitle: isPatch ? "Apply" : "Approve",
       denyTitle: "Deny"
     )
   }

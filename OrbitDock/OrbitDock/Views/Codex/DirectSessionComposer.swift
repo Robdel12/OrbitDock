@@ -71,6 +71,7 @@ struct DirectSessionComposer: View {
   @State var pendingPanelShowDenyReason = false
   @State var pendingPanelDenyReason = ""
   @State var pendingPanelHovering = false
+  @State var permissionPanelExpanded = false
   @State var hoveringSuggestion: String?
 
   var obs: SessionObservable {
@@ -104,11 +105,14 @@ struct DirectSessionComposer: View {
   }
 
   var composerBorderColor: Color {
+    if let model = pendingApprovalModel {
+      return pendingPanelModeColor(model)
+    }
     switch inputMode {
-      case .steer: .composerSteer
-      case .reviewNotes: .composerReview
-      case .shell: .composerShell
-      default: .composerPrompt
+      case .steer: return .composerSteer
+      case .reviewNotes: return .composerReview
+      case .shell: return .composerShell
+      default: return .composerPrompt
     }
   }
 
@@ -601,14 +605,6 @@ struct DirectSessionComposer: View {
           .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
-      // ━━━ Pending Action Panel ━━━
-      if let model = pendingApprovalModel {
-        pendingActionPanel(model)
-          .padding(.horizontal, Spacing.lg)
-          .padding(.top, Spacing.xs)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-
       // ━━━ Composer area ━━━
       if isSessionActive {
         composerSurface
@@ -818,10 +814,25 @@ struct DirectSessionComposer: View {
 
   var composerSurface: some View {
     VStack(spacing: 0) {
+      // Permission summary panel (toggled from status bar pill)
+      if permissionPanelExpanded, obs.isDirect {
+        PermissionInlinePanel(
+          sessionId: sessionId,
+          isExpanded: $permissionPanelExpanded
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
+      }
+
+      // Inline approval zone (when pending)
+      if let model = pendingApprovalModel {
+        pendingInlineZone(model)
+          .transition(.move(edge: .top).combined(with: .opacity))
+      }
+
       // Text input
       composerTextInput
         .padding(.horizontal, Spacing.md_)
-        .padding(.top, Spacing.sm)
+        .padding(.top, pendingApprovalModel != nil ? Spacing.xs : Spacing.sm)
         .padding(.bottom, Spacing.xs)
 
       // Unified footer: actions + metadata + send
@@ -845,6 +856,9 @@ struct DirectSessionComposer: View {
     .background(composerSurfaceBackground)
     .overlay(composerSurfaceBorder)
     .animation(Motion.gentle, value: inputMode)
+    .animation(Motion.standard, value: pendingApprovalIdentity)
+    .animation(Motion.standard, value: pendingPanelExpanded)
+    .animation(Motion.standard, value: permissionPanelExpanded)
     .animation(Motion.hover, value: isFocused)
     .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
     .padding(.vertical, Spacing.sm)

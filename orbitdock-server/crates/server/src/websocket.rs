@@ -606,6 +606,7 @@ mod tests {
                     diff: None,
                     question: None,
                     proposed_amendment: None,
+                    permission_suggestions: None,
                 },
             })
             .await;

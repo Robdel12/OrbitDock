@@ -1126,6 +1126,7 @@ impl SessionHandle {
                     ),
                     preview: None,
                     proposed_amendment: None,
+                    permission_suggestions: None,
                 };
                 self.queue_pending_approval(approval, approval_type, None);
                 self.promote_queue_front();
@@ -1163,6 +1164,7 @@ impl SessionHandle {
             question_prompts,
             preview: None,
             proposed_amendment: proposed_amendment.clone(),
+            permission_suggestions: None,
         };
         self.queue_pending_approval(request, approval_type, proposed_amendment);
         self.promote_queue_front();
@@ -1558,6 +1560,7 @@ mod tests {
             question_prompts: vec![],
             preview: None,
             proposed_amendment: None,
+            permission_suggestions: None,
         }
     }
 

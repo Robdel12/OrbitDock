@@ -97,6 +97,7 @@ struct ApprovalCardModel: Hashable, Sendable {
   let diff: String?
   let questions: [ApprovalQuestionPrompt]
   let hasAmendment: Bool
+  let amendmentDetail: String? // Human-readable description of what "Always Allow" would permit
   let approvalType: ServerApprovalType?
   let projectPath: String
   let approvalId: String?
@@ -306,6 +307,9 @@ enum ApprovalCardModelBuilder {
       diff: activePendingApproval?.diff,
       questions: prompts,
       hasAmendment: activePendingApproval?.proposedAmendment != nil,
+      amendmentDetail: activePendingApproval?.proposedAmendment.map { parts in
+        parts.joined(separator: " ")
+      },
       approvalType: approvalType,
       projectPath: session.projectPath,
       approvalId: approvalId,

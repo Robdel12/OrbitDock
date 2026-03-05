@@ -191,6 +191,8 @@ struct AutonomyPill: View {
 
   let sessionId: String
   var size: PillSize = .regular
+  var isActive: Bool = false
+  var onTapOverride: (() -> Void)?
   @Environment(ServerAppState.self) private var serverState
   @State private var showPopover = false
 
@@ -204,7 +206,11 @@ struct AutonomyPill: View {
 
   var body: some View {
     Button {
-      showPopover.toggle()
+      if let onTapOverride {
+        onTapOverride()
+      } else {
+        showPopover.toggle()
+      }
     } label: {
       HStack(spacing: size.spacing) {
         Image(systemName: currentLevel.icon)
@@ -216,41 +222,29 @@ struct AutonomyPill: View {
             .font(.system(size: TypeScale.caption, weight: .semibold))
         }
       }
-      .foregroundStyle(currentLevel.color)
+      .foregroundStyle(isActive ? Color.backgroundSecondary : currentLevel.color)
       .padding(.horizontal, size.horizontalPadding)
       .padding(.vertical, size.verticalPadding)
       .frame(height: size.height)
-      .background(currentLevel.color.opacity(OpacityTier.light), in: Capsule())
+      .background(
+        isActive
+          ? AnyShapeStyle(currentLevel.color)
+          : AnyShapeStyle(currentLevel.color.opacity(OpacityTier.light)),
+        in: Capsule()
+      )
     }
     .buttonStyle(.plain)
     .fixedSize()
+    .animation(Motion.snappy, value: isActive)
     .platformPopover(isPresented: $showPopover) {
-      #if os(iOS)
-        NavigationStack {
-          AutonomyPopover(selection: Binding(
-            get: { currentLevel },
-            set: { newLevel in
-              serverState.updateSessionConfig(sessionId: sessionId, autonomy: newLevel)
-            }
-          ), isConfiguredOnServer: isConfiguredOnServer) {
-            serverState.updateSessionConfig(sessionId: sessionId, autonomy: currentLevel)
-          }
-          .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-              Button("Done") { showPopover = false }
-            }
-          }
+      AutonomyPopover(selection: Binding(
+        get: { currentLevel },
+        set: { newLevel in
+          serverState.updateSessionConfig(sessionId: sessionId, autonomy: newLevel)
         }
-      #else
-        AutonomyPopover(selection: Binding(
-          get: { currentLevel },
-          set: { newLevel in
-            serverState.updateSessionConfig(sessionId: sessionId, autonomy: newLevel)
-          }
-        ), isConfiguredOnServer: isConfiguredOnServer) {
-          serverState.updateSessionConfig(sessionId: sessionId, autonomy: currentLevel)
-        }
-      #endif
+      ), isConfiguredOnServer: isConfiguredOnServer) {
+        serverState.updateSessionConfig(sessionId: sessionId, autonomy: currentLevel)
+      }
     }
   }
 }

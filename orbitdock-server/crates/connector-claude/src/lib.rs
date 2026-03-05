@@ -2278,6 +2278,9 @@ impl ClaudeConnector {
             return vec![];
         }
 
+        // Clone suggestions for the event before moving into PendingApproval
+        let suggestions_for_event = permission_suggestions.clone();
+
         // Store for echoing back in approve_tool response
         pending_approvals.lock().await.insert(
             request_id.clone(),
@@ -2348,6 +2351,7 @@ impl ClaudeConnector {
             diff,
             question,
             proposed_amendment: None,
+            permission_suggestions: suggestions_for_event,
         }]
     }
 

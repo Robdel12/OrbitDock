@@ -184,6 +184,10 @@ pub struct ApprovalRequest {
     pub preview: Option<ApprovalPreview>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proposed_amendment: Option<Vec<String>>,
+    /// Raw permission suggestions from Claude SDK (PermissionUpdate[]).
+    /// Opaque JSON passed through for client display.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_suggestions: Option<serde_json::Value>,
 }
 
 /// Structured question option metadata for question approvals.
