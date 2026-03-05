@@ -697,3 +697,4 @@ For `.foregroundStyle(.primary)` and `.foregroundStyle(.secondary)`, SwiftUI's b
 - Don't use raw `.shadow()` — use `.themeShadow(Shadow.*)` tokens
 - Don't use raw `.spring()` or `.easeOut()` — use `Motion.*` tokens
 - Don't use deprecated color aliases (statusSuccess, statusWaiting, statusReady, statusAttention, statusIdle)
+- Don't use `.lineLimit(1)` or any truncation — text should always be fully visible. Use `.fixedSize(horizontal: false, vertical: true)` for multi-line content instead
