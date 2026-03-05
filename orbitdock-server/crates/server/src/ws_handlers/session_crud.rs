@@ -103,6 +103,10 @@ pub(crate) async fn handle(
                 handle.set_model(Some(m.clone()));
             }
 
+            if let Some(ref effort_level) = effort {
+                handle.set_effort(Some(effort_level.clone()));
+            }
+
             if provider == Provider::Codex {
                 handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
                 handle.set_config(approval_policy.clone(), sandbox_mode.clone());
@@ -133,6 +137,14 @@ pub(crate) async fn handle(
                     forked_from_session_id: None,
                 })
                 .await;
+            if let Some(ref effort_name) = effort {
+                let _ = persist_tx
+                    .send(PersistCommand::EffortUpdate {
+                        session_id: id.clone(),
+                        effort: Some(effort_name.clone()),
+                    })
+                    .await;
+            }
 
             // Notify creator
             send_json(
@@ -266,8 +278,8 @@ pub(crate) async fn handle(
                         );
 
                         // Emit permission_mode delta so the Swift UI picks it up.
-                        // The DB row already has it from SessionCreate, but the
-                        // initial SessionSnapshot doesn't include it.
+                        // Initial SessionSnapshot uses a direct connector state where
+                        // permission_mode has not yet propagated.
                         if let Some(ref mode) = permission_mode {
                             let _ = actor_handle
                                 .send(SessionCommand::ApplyDelta {

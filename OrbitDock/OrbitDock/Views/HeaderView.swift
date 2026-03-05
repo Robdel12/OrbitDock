@@ -69,6 +69,15 @@ struct HeaderView: View {
       // Model badge
       UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
 
+      if let effort = effortLabel(for: obs.effort) {
+        Text(effort)
+          .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
+          .foregroundStyle(effortColor(for: obs.effort))
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xxs)
+          .background(effortColor(for: obs.effort).opacity(0.12), in: Capsule())
+      }
+
       Spacer()
 
       // Conversation mode toggle
@@ -385,8 +394,32 @@ struct HeaderView: View {
     } else {
       obs.provider.rawValue
     }
-    guard label.count > 18 else { return label }
-    return String(label.prefix(17)) + "..."
+    let effortSuffix = effortLabel(for: obs.effort).map { " • \($0)" } ?? ""
+    let combined = "\(label)\(effortSuffix)"
+    guard combined.count > 18 else { return combined }
+    return String(combined.prefix(17)) + "..."
+  }
+
+  private func effortLabel(for effort: String?) -> String? {
+    guard let trimmed = effort?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+          !trimmed.isEmpty
+    else { return nil }
+    if trimmed == "default" { return nil }
+    return trimmed.capitalized
+  }
+
+  private func effortColor(for effort: String?) -> Color {
+    guard let trimmed = effort?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+          !trimmed.isEmpty
+    else { return .textSecondary }
+
+    switch trimmed {
+      case "low": return .effortLow
+      case "medium": return .effortMedium
+      case "high": return .effortHigh
+      case "max": return .effortXHigh
+      default: return .textSecondary
+    }
   }
 
   private var compactOverflowMenu: some View {

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{mpsc, oneshot};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use orbitdock_protocol::{ClientMessage, ServerMessage, WorkStatus};
 
@@ -53,6 +53,10 @@ pub(crate) async fn handle(
             let claude_tx = state.get_claude_action_tx(&session_id);
 
             if codex_tx.is_some() || claude_tx.is_some() {
+                let session_is_claude = state.get_session(&session_id).is_some_and(|actor| {
+                    actor.snapshot().provider == orbitdock_protocol::Provider::Claude
+                });
+
                 let first_prompt = name_from_first_prompt(&content);
 
                 let _ = state
@@ -92,6 +96,11 @@ pub(crate) async fn handle(
 
                 let action_model = normalize_model_override(model.clone());
                 let action_effort = normalize_non_empty(effort.clone());
+                let action_effort_for_connector = if session_is_claude {
+                    None
+                } else {
+                    action_effort.clone()
+                };
 
                 // Persist model override and broadcast delta only when explicitly provided.
                 if let Some(actor) = state.get_session(&session_id) {
@@ -116,26 +125,38 @@ pub(crate) async fn handle(
                     }
                 }
 
-                // Persist effort override and broadcast delta only when explicitly provided.
+                // Persist effort override and broadcast delta only when explicitly provided,
+                // and only for providers that support mid-session effort changes.
                 if let Some(actor) = state.get_session(&session_id) {
                     if let Some(ref effort_name) = action_effort {
-                        let _ = state
-                            .persist()
-                            .send(PersistCommand::EffortUpdate {
-                                session_id: session_id.clone(),
-                                effort: Some(effort_name.clone()),
-                            })
-                            .await;
-                        let changes = orbitdock_protocol::StateChanges {
-                            effort: Some(Some(effort_name.clone())),
-                            ..Default::default()
-                        };
-                        let _ = actor
-                            .send(SessionCommand::ApplyDelta {
-                                changes,
-                                persist_op: None,
-                            })
-                            .await;
+                        if session_is_claude {
+                            debug!(
+                                component = "session",
+                                event = "session.message.effort_ignored_for_claude",
+                                connection_id = conn_id,
+                                session_id = %session_id,
+                                effort = %effort_name,
+                                "Claude sessions do not support effort updates after create"
+                            );
+                        } else {
+                            let _ = state
+                                .persist()
+                                .send(PersistCommand::EffortUpdate {
+                                    session_id: session_id.clone(),
+                                    effort: Some(effort_name.clone()),
+                                })
+                                .await;
+                            let changes = orbitdock_protocol::StateChanges {
+                                effort: Some(Some(effort_name.clone())),
+                                ..Default::default()
+                            };
+                            let _ = actor
+                                .send(SessionCommand::ApplyDelta {
+                                    changes,
+                                    persist_op: None,
+                                })
+                                .await;
+                        }
                     }
                 }
 
@@ -181,7 +202,7 @@ pub(crate) async fn handle(
                         .send(CodexAction::SendMessage {
                             content,
                             model: action_model,
-                            effort: action_effort,
+                            effort: action_effort_for_connector,
                             skills,
                             images: connector_images.clone(),
                             mentions,
@@ -205,7 +226,7 @@ pub(crate) async fn handle(
                         .send(ClaudeAction::SendMessage {
                             content,
                             model: action_model,
-                            effort: action_effort,
+                            effort: action_effort_for_connector,
                             images: connector_images,
                         })
                         .await

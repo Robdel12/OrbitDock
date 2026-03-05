@@ -75,6 +75,18 @@ struct SessionRowView: View {
           .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
           .foregroundStyle(.secondary)
 
+        if let effort = effortLabel(for: session.effort) {
+          Text(effort)
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+            .foregroundStyle(effortColor(for: session.effort))
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, Spacing.xxs)
+            .background(
+              effortColor(for: session.effort).opacity(0.14),
+              in: Capsule()
+            )
+        }
+
         if session.toolCount > 0 {
           Text("\(session.toolCount) tools")
             .font(.system(size: TypeScale.mini))
@@ -100,6 +112,28 @@ struct SessionRowView: View {
       return "~/" + components.suffix(2).joined(separator: "/")
     }
     return path
+  }
+
+  private func effortLabel(for effort: String?) -> String? {
+    guard let trimmed = effort?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+          !trimmed.isEmpty
+    else { return nil }
+    if trimmed == "default" { return nil }
+    return trimmed.capitalized
+  }
+
+  private func effortColor(for effort: String?) -> Color {
+    guard let trimmed = effort?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+          !trimmed.isEmpty
+    else { return .textSecondary }
+
+    switch trimmed {
+      case "low": return .effortLow
+      case "medium": return .effortMedium
+      case "high": return .effortHigh
+      case "max": return .effortXHigh
+      default: return .textSecondary
+    }
   }
 }
 

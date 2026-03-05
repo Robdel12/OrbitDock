@@ -2216,4 +2216,110 @@ mod tests {
         let snapshot = actor.snapshot();
         assert_eq!(snapshot.model.as_deref(), Some("gpt-5.3-codex"));
     }
+
+    #[tokio::test]
+    async fn send_message_with_effort_override_updates_codex_session_effort() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-effort-override-codex".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        {
+            let mut handle = SessionHandle::new(
+                session_id.clone(),
+                Provider::Codex,
+                "/Users/tester/repo".to_string(),
+            );
+            handle.apply_changes(&orbitdock_protocol::StateChanges {
+                effort: Some(Some("xhigh".to_string())),
+                ..Default::default()
+            });
+            state.add_session(handle);
+            state.set_codex_action_tx(&session_id, action_tx);
+        }
+
+        handle_client_message(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "<environment_context>...</environment_context>".to_string(),
+                model: None,
+                effort: Some("high".to_string()),
+                skills: vec![],
+                images: vec![],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let action = action_rx.recv().await.expect("expected codex action");
+        match action {
+            CodexAction::SendMessage { effort, .. } => {
+                assert_eq!(effort.as_deref(), Some("high"));
+            }
+            other => panic!("expected Codex send action, got {:?}", other),
+        }
+
+        tokio::task::yield_now().await;
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist after send");
+        let snapshot = actor.snapshot();
+        assert_eq!(snapshot.effort.as_deref(), Some("high"));
+    }
+
+    #[tokio::test]
+    async fn send_message_with_effort_override_ignored_for_claude() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-effort-override-claude".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        {
+            let mut handle = SessionHandle::new(
+                session_id.clone(),
+                Provider::Claude,
+                "/Users/tester/repo".to_string(),
+            );
+            handle.apply_changes(&orbitdock_protocol::StateChanges {
+                effort: Some(Some("xhigh".to_string())),
+                ..Default::default()
+            });
+            state.add_session(handle);
+            state.set_claude_action_tx(&session_id, action_tx);
+        }
+
+        handle_client_message(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "<environment_context>...</environment_context>".to_string(),
+                model: None,
+                effort: Some("high".to_string()),
+                skills: vec![],
+                images: vec![],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let action = action_rx.recv().await.expect("expected claude action");
+        match action {
+            ClaudeAction::SendMessage { effort, .. } => {
+                assert_eq!(effort, None);
+            }
+            other => panic!("expected Claude send action, got {:?}", other),
+        }
+
+        tokio::task::yield_now().await;
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist after send");
+        let snapshot = actor.snapshot();
+        assert_eq!(snapshot.effort.as_deref(), Some("xhigh"));
+    }
 }

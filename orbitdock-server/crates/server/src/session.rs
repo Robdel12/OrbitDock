@@ -831,6 +831,12 @@ impl SessionHandle {
         self.refresh_snapshot();
     }
 
+    /// Set reasoning effort
+    pub fn set_effort(&mut self, effort: Option<String>) {
+        self.effort = effort;
+        self.refresh_snapshot();
+    }
+
     /// Set autonomy configuration
     pub fn set_config(&mut self, approval_policy: Option<String>, sandbox_mode: Option<String>) {
         self.approval_policy = approval_policy;
