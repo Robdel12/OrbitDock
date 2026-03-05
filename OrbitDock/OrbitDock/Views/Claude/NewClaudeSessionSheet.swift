@@ -8,6 +8,62 @@
 
 import SwiftUI
 
+private enum ClaudeEffortLevel: String, CaseIterable, Identifiable {
+  case `default` = ""
+  case low
+  case medium
+  case high
+  case max
+
+  var id: String {
+    rawValue
+  }
+
+  var displayName: String {
+    switch self {
+      case .default: "Default"
+      case .low: "Low"
+      case .medium: "Medium"
+      case .high: "High"
+      case .max: "Max"
+    }
+  }
+
+  var description: String {
+    switch self {
+      case .default: "Use provider default effort"
+      case .low: "Balanced speed with focused reasoning"
+      case .medium: "Standard depth for general tasks"
+      case .high: "In-depth analysis for complex work"
+      case .max: "Maximum depth for hardest problems"
+    }
+  }
+
+  var icon: String {
+    switch self {
+      case .default: "sparkles"
+      case .low: "hare.fill"
+      case .medium: "gauge.medium"
+      case .high: "gauge.high"
+      case .max: "flame.fill"
+    }
+  }
+
+  var color: Color {
+    switch self {
+      case .default: .textSecondary
+      case .low: .effortLow
+      case .medium: .effortMedium
+      case .high: .effortHigh
+      case .max: .effortXHigh
+    }
+  }
+
+  var serialized: String? {
+    self == .default ? nil : rawValue
+  }
+}
+
 struct NewClaudeSessionSheet: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(ServerAppState.self) private var serverState
@@ -24,7 +80,7 @@ struct NewClaudeSessionSheet: View {
   @State private var allowedToolsText: String = ""
   @State private var disallowedToolsText: String = ""
   @State private var showToolConfig = false
-  @State private var selectedEffort: String? = nil
+  @State private var selectedEffort: ClaudeEffortLevel = .default
   @State private var useWorktree = false
   @State private var worktreeBranch = ""
   @State private var worktreeBaseBranch = ""
@@ -496,6 +552,57 @@ struct NewClaudeSessionSheet: View {
       }
       .padding(.horizontal, Spacing.lg)
       .padding(.vertical, Spacing.md)
+
+      Divider()
+        .padding(.horizontal, Spacing.lg)
+
+      // Effort row
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        HStack {
+          HStack(spacing: Spacing.sm) {
+            Image(systemName: selectedEffort.icon)
+              .font(.system(size: 11, weight: .semibold))
+              .foregroundStyle(selectedEffort.color)
+            Text("Effort")
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(Color.textSecondary)
+          }
+
+          Spacer()
+
+          Picker("Effort", selection: $selectedEffort) {
+            ForEach(ClaudeEffortLevel.allCases) { level in
+              Text(level.displayName).tag(level)
+            }
+          }
+          .pickerStyle(.menu)
+          .labelsHidden()
+          .fixedSize()
+        }
+
+        HStack(alignment: .top, spacing: Spacing.sm) {
+          Capsule()
+            .fill(selectedEffort.color.opacity(0.4))
+            .frame(width: 2, height: 20)
+            .padding(.top, Spacing.xxs)
+
+          VStack(alignment: .leading, spacing: Spacing.xxs) {
+            Text(selectedEffort.displayName)
+              .font(.system(size: TypeScale.body, weight: .semibold))
+              .foregroundStyle(selectedEffort.color)
+
+            Text(selectedEffort.description)
+              .font(.system(size: TypeScale.caption))
+              .foregroundStyle(Color.textTertiary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, Spacing.lg)
+        .animation(Motion.bouncy, value: selectedEffort)
+      }
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
     }
     .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     .overlay(
@@ -697,7 +804,7 @@ struct NewClaudeSessionSheet: View {
             permissionMode: selectedPermissionMode == .default ? nil : selectedPermissionMode.rawValue,
             allowedTools: parseToolList(allowedToolsText),
             disallowedTools: parseToolList(disallowedToolsText),
-            effort: selectedEffort
+            effort: selectedEffort.serialized
           )
           dismiss()
         } catch {
@@ -712,7 +819,7 @@ struct NewClaudeSessionSheet: View {
         permissionMode: selectedPermissionMode == .default ? nil : selectedPermissionMode.rawValue,
         allowedTools: parseToolList(allowedToolsText),
         disallowedTools: parseToolList(disallowedToolsText),
-        effort: selectedEffort
+        effort: selectedEffort.serialized
       )
       dismiss()
     }
