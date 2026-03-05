@@ -20,68 +20,68 @@ struct DirectSessionComposer: View {
   @Binding var scrollToBottomTrigger: Int
   var onOpenSkills: (() -> Void)?
 
-  @Environment(ServerAppState.self) private var serverState
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @AppStorage("whisperDictationEnabled") private var whisperDictationEnabled = true
+  @Environment(ServerAppState.self) var serverState
+  @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
+  @Environment(\.horizontalSizeClass) var horizontalSizeClass
+  @AppStorage("whisperDictationEnabled") var whisperDictationEnabled = true
 
-  @State private var message = ""
-  @State private var isSending = false
-  @State private var errorMessage: String?
-  @State private var selectedModel: String = ""
-  @State private var selectedClaudeModel: String = ""
-  @State private var selectedEffort: EffortLevel = .default
-  @State private var showModelEffortPopover = false
-  @State private var showClaudeModelPopover = false
-  @State private var showFilePickerPopover = false
-  @State private var filePickerQuery = ""
-  @State private var commandDeckActive = false
-  @State private var commandDeckQuery = ""
-  @State private var commandDeckIndex = 0
-  @State private var completionActive = false
-  @State private var completionQuery = ""
-  @State private var completionIndex = 0
-  @State private var isFocused = false
-  @State private var moveCursorToEndSignal = 0
-  @State private var composerInputHeight: CGFloat = 30
+  @State var message = ""
+  @State var isSending = false
+  @State var errorMessage: String?
+  @State var selectedModel: String = ""
+  @State var selectedClaudeModel: String = ""
+  @State var selectedEffort: EffortLevel = .default
+  @State var showModelEffortPopover = false
+  @State var showClaudeModelPopover = false
+  @State var showFilePickerPopover = false
+  @State var filePickerQuery = ""
+  @State var commandDeckActive = false
+  @State var commandDeckQuery = ""
+  @State var commandDeckIndex = 0
+  @State var completionActive = false
+  @State var completionQuery = ""
+  @State var completionIndex = 0
+  @State var isFocused = false
+  @State var moveCursorToEndSignal = 0
+  @State var composerInputHeight: CGFloat = 30
 
   /// Attachments
-  // Internal visibility keeps image input logic split into platform extension files.
   @State var attachedImages: [AttachedImage] = []
-  @State private var attachedMentions: [AttachedMention] = []
-  @State private var mentionActive = false
-  @State private var mentionQuery = ""
-  @State private var mentionIndex = 0
+  @State var attachedMentions: [AttachedMention] = []
+  @State var mentionActive = false
+  @State var mentionQuery = ""
+  @State var mentionIndex = 0
   #if os(iOS)
-    // Internal visibility keeps iOS picker handling in DirectSessionComposer+ImageIOS.swift.
     @State var photoPickerItems: [PhotosPickerItem] = []
     @State var isPhotoPickerPresented = false
     @State var photoPickerLoadTask: Task<Void, Never>?
   #endif
 
   /// Input mode
-  @State private var manualReviewMode = false
-  @State private var manualShellMode = false
-  @State private var dictationController = WhisperDictationController()
-  @State private var dictationDraftBaseMessage: String?
-  @State private var showForkToWorktreeSheet = false
-  @State private var showForkToExistingWorktreeSheet = false
-  @State private var pendingPanelExpanded = true
-  @State private var pendingPanelPromptIndex = 0
-  @State private var pendingPanelAnswers: [String: [String]] = [:]
-  @State private var pendingPanelDrafts: [String: String] = [:]
-  @State private var pendingPanelShowDenyReason = false
-  @State private var pendingPanelDenyReason = ""
+  @State var manualReviewMode = false
+  @State var manualShellMode = false
+  @State var dictationController = WhisperDictationController()
+  @State var dictationDraftBaseMessage: String?
+  @State var showForkToWorktreeSheet = false
+  @State var showForkToExistingWorktreeSheet = false
+  @State var pendingPanelExpanded = true
+  @State var pendingPanelPromptIndex = 0
+  @State var pendingPanelAnswers: [String: [String]] = [:]
+  @State var pendingPanelDrafts: [String: String] = [:]
+  @State var pendingPanelShowDenyReason = false
+  @State var pendingPanelDenyReason = ""
+  @State var pendingPanelHovering = false
+  @State var hoveringSuggestion: String?
 
-  private var obs: SessionObservable {
+  var obs: SessionObservable {
     serverState.session(sessionId)
   }
 
-  private var sessionSummary: Session? {
+  var sessionSummary: Session? {
     serverState.sessions.first(where: { $0.id == sessionId })
   }
 
-  private var pendingApprovalModel: ApprovalCardModel? {
+  var pendingApprovalModel: ApprovalCardModel? {
     guard let summary = sessionSummary else { return nil }
     let normalizedPendingId = normalizedApprovalRequestId(summary.pendingApprovalId)
     let pendingApproval: ServerApprovalRequest? = {
@@ -92,18 +92,18 @@ struct DirectSessionComposer: View {
     return ApprovalCardModelBuilder.build(session: summary, pendingApproval: pendingApproval)
   }
 
-  private var pendingApprovalIdentity: String {
+  var pendingApprovalIdentity: String {
     pendingApprovalModel?.approvalId ?? ""
   }
 
-  private var inputMode: InputMode {
+  var inputMode: InputMode {
     if manualShellMode { return .shell }
     if manualReviewMode { return .reviewNotes }
     if isSessionWorking { return .steer }
     return .prompt
   }
 
-  private var composerBorderColor: Color {
+  var composerBorderColor: Color {
     switch inputMode {
       case .steer: .composerSteer
       case .reviewNotes: .composerReview
@@ -112,30 +112,30 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private var isSessionWorking: Bool {
+  var isSessionWorking: Bool {
     obs.workStatus == .working
   }
 
-  private var isSessionActive: Bool {
+  var isSessionActive: Bool {
     obs.isActive
   }
 
-  private var draftStorageKey: String {
+  var draftStorageKey: String {
     "endpoint:\(serverState.endpointId.uuidString)::session:\(sessionId)"
   }
 
-  private var connectionStatus: ConnectionStatus {
+  var connectionStatus: ConnectionStatus {
     runtimeRegistry.connectionStatusByEndpointId[serverState.endpointId] ?? serverState.connection.status
   }
 
-  private var isConnected: Bool {
+  var isConnected: Bool {
     if case .connected = connectionStatus {
       return true
     }
     return false
   }
 
-  private var connectionPillTint: Color {
+  var connectionPillTint: Color {
     switch connectionStatus {
       case .connected:
         .feedbackPositive
@@ -148,7 +148,7 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private var connectionPillIcon: String {
+  var connectionPillIcon: String {
     switch connectionStatus {
       case .connected:
         "network"
@@ -161,7 +161,7 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private var connectionPillLabel: String {
+  var connectionPillLabel: String {
     switch connectionStatus {
       case .connected:
         "Connected"
@@ -174,7 +174,7 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private var connectionNoticeMessage: String? {
+  var connectionNoticeMessage: String? {
     switch connectionStatus {
       case .connected:
         return nil
@@ -190,7 +190,7 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private var showReconnectButton: Bool {
+  var showReconnectButton: Bool {
     switch connectionStatus {
       case .disconnected, .failed:
         true
@@ -199,7 +199,7 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private var hasOverrides: Bool {
+  var hasOverrides: Bool {
     if obs.isDirectCodex {
       return selectedEffort != .default || selectedModel != defaultCodexModelSelection
     }
@@ -209,44 +209,44 @@ struct DirectSessionComposer: View {
     return false
   }
 
-  private var availableSkills: [ServerSkillMetadata] {
+  var availableSkills: [ServerSkillMetadata] {
     serverState.session(sessionId).skills.filter(\.enabled)
   }
 
-  private var filteredSkills: [ServerSkillMetadata] {
+  var filteredSkills: [ServerSkillMetadata] {
     guard !completionQuery.isEmpty else { return availableSkills }
     let q = completionQuery.lowercased()
     return availableSkills.filter { $0.name.lowercased().contains(q) }
   }
 
-  private var shouldShowCompletion: Bool {
+  var shouldShowCompletion: Bool {
     completionActive && !filteredSkills.isEmpty
   }
 
-  private var hasInlineSkills: Bool {
+  var hasInlineSkills: Bool {
     let names = Set(availableSkills.map(\.name))
     return message.components(separatedBy: .whitespacesAndNewlines).contains { word in
       word.hasPrefix("$") && names.contains(String(word.dropFirst()))
     }
   }
 
-  private var codexModelOptions: [ServerCodexModelOption] {
+  var codexModelOptions: [ServerCodexModelOption] {
     serverState.codexModels
   }
 
-  private var codexModelOptionsSignature: String {
+  var codexModelOptionsSignature: String {
     codexModelOptions.map(\.model).joined(separator: "|")
   }
 
-  private var claudeModelOptions: [ServerClaudeModelOption] {
+  var claudeModelOptions: [ServerClaudeModelOption] {
     serverState.claudeModels
   }
 
-  private var claudeModelOptionsSignature: String {
+  var claudeModelOptionsSignature: String {
     claudeModelOptions.map(\.value).joined(separator: "|")
   }
 
-  private var defaultCodexModelSelection: String {
+  var defaultCodexModelSelection: String {
     if let current = obs.model,
        codexModelOptions.contains(where: { $0.model == current })
     {
@@ -258,7 +258,7 @@ struct DirectSessionComposer: View {
     return codexModelOptions.first(where: { !$0.model.isEmpty })?.model ?? ""
   }
 
-  private var defaultClaudeModelSelection: String {
+  var defaultClaudeModelSelection: String {
     if let current = obs.model,
        claudeModelOptions.contains(where: { $0.value == current })
     {
@@ -267,7 +267,7 @@ struct DirectSessionComposer: View {
     return claudeModelOptions.first?.value ?? obs.model ?? ""
   }
 
-  private var effectiveClaudeModel: String {
+  var effectiveClaudeModel: String {
     if !selectedClaudeModel.isEmpty {
       return selectedClaudeModel
     }
@@ -277,15 +277,15 @@ struct DirectSessionComposer: View {
     return defaultClaudeModelSelection
   }
 
-  private var projectPath: String? {
+  var projectPath: String? {
     obs.projectPath
   }
 
-  private var fileIndex: ProjectFileIndex {
+  var fileIndex: ProjectFileIndex {
     serverState.projectFileIndex
   }
 
-  private var forkWorktreeDisplayRepoPath: String? {
+  var forkWorktreeDisplayRepoPath: String? {
     if let root = obs.repositoryRoot?.trimmingCharacters(in: .whitespacesAndNewlines), !root.isEmpty {
       return root
     }
@@ -295,7 +295,7 @@ struct DirectSessionComposer: View {
     return nil
   }
 
-  private var forkToExistingCandidates: [ServerWorktreeSummary] {
+  var forkToExistingCandidates: [ServerWorktreeSummary] {
     guard let repoPath = forkWorktreeDisplayRepoPath else { return [] }
     return serverState.worktrees(for: repoPath)
       .filter {
@@ -304,40 +304,40 @@ struct DirectSessionComposer: View {
       .sorted { $0.createdAt > $1.createdAt }
   }
 
-  private var canForkConversation: Bool {
+  var canForkConversation: Bool {
     !obs.forkInProgress
   }
 
-  private var canForkToWorktree: Bool {
+  var canForkToWorktree: Bool {
     forkWorktreeDisplayRepoPath != nil && canForkConversation
   }
 
-  private var canForkToExistingWorktree: Bool {
+  var canForkToExistingWorktree: Bool {
     forkWorktreeDisplayRepoPath != nil && canForkConversation
   }
 
-  private var filteredFiles: [ProjectFileIndex.ProjectFile] {
+  var filteredFiles: [ProjectFileIndex.ProjectFile] {
     guard let path = projectPath else { return [] }
     return fileIndex.search(mentionQuery, in: path)
   }
 
-  private var shouldShowMentionCompletion: Bool {
+  var shouldShowMentionCompletion: Bool {
     mentionActive && !filteredFiles.isEmpty
   }
 
-  private var shouldShowCommandDeck: Bool {
+  var shouldShowCommandDeck: Bool {
     commandDeckActive && !commandDeckItems.isEmpty
   }
 
-  private var hasSkillsPanel: Bool {
+  var hasSkillsPanel: Bool {
     obs.isDirectCodex || serverState.session(sessionId).hasClaudeSkills
   }
 
-  private var hasMcpData: Bool {
+  var hasMcpData: Bool {
     serverState.session(sessionId).hasMcpData
   }
 
-  private var mcpToolEntries: [ComposerMcpToolEntry] {
+  var mcpToolEntries: [ComposerMcpToolEntry] {
     serverState.session(sessionId).mcpTools.compactMap { key, tool in
       guard let server = extractMcpServerName(from: key) else { return nil }
       return ComposerMcpToolEntry(id: key, server: server, tool: tool)
@@ -350,7 +350,7 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private var mcpResourceEntries: [ComposerMcpResourceEntry] {
+  var mcpResourceEntries: [ComposerMcpResourceEntry] {
     serverState.session(sessionId).mcpResources.flatMap { server, resources in
       resources.map { resource in
         ComposerMcpResourceEntry(id: "\(server)|\(resource.uri)", server: server, resource: resource)
@@ -364,7 +364,7 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private var commandDeckItems: [ComposerCommandDeckItem] {
+  var commandDeckItems: [ComposerCommandDeckItem] {
     let trimmedQuery = commandDeckQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     let query = trimmedQuery.lowercased()
 
@@ -503,7 +503,7 @@ struct DirectSessionComposer: View {
     return items.prefix(18).map { $0 }
   }
 
-  private var filePickerResults: [ProjectFileIndex.ProjectFile] {
+  var filePickerResults: [ProjectFileIndex.ProjectFile] {
     guard let path = projectPath else { return [] }
     let trimmed = filePickerQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     if trimmed.isEmpty {
@@ -512,31 +512,31 @@ struct DirectSessionComposer: View {
     return Array(fileIndex.search(trimmed, in: path).prefix(300))
   }
 
-  private var hasAttachments: Bool {
+  var hasAttachments: Bool {
     !attachedImages.isEmpty || !attachedMentions.isEmpty
   }
 
-  private var isDictationActive: Bool {
+  var isDictationActive: Bool {
     dictationController.state == .recording ||
       dictationController.state == .requestingPermission ||
       dictationController.state == .transcribing
   }
 
-  private var shouldShowDictation: Bool {
+  var shouldShowDictation: Bool {
     whisperDictationEnabled && dictationController.isSupported
   }
 
-  private var composerErrorMessage: String? {
+  var composerErrorMessage: String? {
     errorMessage ?? dictationController.errorMessage
   }
 
-  private var composerPlaceholder: String {
+  var composerPlaceholder: String {
     if inputMode == .shell { return "Run a shell command..." }
     if isSessionWorking { return "Steer the current turn..." }
     return "Send a message..."
   }
 
-  private var isCompactLayout: Bool {
+  var isCompactLayout: Bool {
     horizontalSizeClass == .compact
   }
 
@@ -606,17 +606,12 @@ struct DirectSessionComposer: View {
         pendingActionPanel(model)
           .padding(.horizontal, Spacing.lg)
           .padding(.top, Spacing.xs)
-          .padding(.bottom, Spacing.xs)
           .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
       // ━━━ Composer area ━━━
       if isSessionActive {
-        composerRow
-        statusBar
-        if let notice = connectionNoticeMessage {
-          connectionNoticeRow(notice)
-        }
+        composerSurface
       } else {
         // Ended session — resume button
         resumeRow
@@ -725,1018 +720,8 @@ struct DirectSessionComposer: View {
     #endif
   }
 
-  // MARK: - Pending Action Panel
-
   @ViewBuilder
-  private func pendingActionPanel(_ model: ApprovalCardModel) -> some View {
-    let header = ApprovalCardConfiguration.headerConfig(for: model, mode: model.mode)
-
-    VStack(spacing: 0) {
-      Button {
-        withAnimation(Motion.standard) {
-          pendingPanelExpanded.toggle()
-        }
-      } label: {
-        HStack(alignment: .center, spacing: Spacing.sm) {
-          Image(systemName: header.iconName)
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(header.iconTint)
-
-          Text(header.label)
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-
-          if model.mode == .question, !model.questions.isEmpty {
-            Text("\(model.questions.count)")
-              .font(.system(size: TypeScale.micro, weight: .bold))
-              .foregroundStyle(Color.textSecondary)
-              .padding(.horizontal, Spacing.xs)
-              .padding(.vertical, 2)
-              .background(
-                Capsule()
-                  .fill(Color.backgroundPrimary.opacity(0.7))
-              )
-          }
-
-          Spacer(minLength: 0)
-
-          Image(systemName: pendingPanelExpanded ? "chevron.down" : "chevron.right")
-            .font(.system(size: TypeScale.micro, weight: .bold))
-            .foregroundStyle(Color.textTertiary)
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-
-      if pendingPanelExpanded {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-          switch model.mode {
-            case .permission:
-              pendingPermissionContent(model)
-            case .question:
-              pendingQuestionContent(model)
-            case .takeover:
-              pendingTakeOverContent(model)
-            case .none:
-              EmptyView()
-          }
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.bottom, Spacing.md)
-      }
-    }
-    .background(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .fill(Color.backgroundSecondary.opacity(0.96))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .stroke(model.risk.tintColor.opacity(0.35), lineWidth: 1)
-    )
-  }
-
-  @ViewBuilder
-  private func pendingPermissionContent(_ model: ApprovalCardModel) -> some View {
-    let previewText = model.command ?? model.filePath ?? "Review required before the session can continue."
-    let commandChainSegments: [ApprovalShellSegment] = {
-      guard model.previewType == .shellCommand else { return [] }
-      if !model.shellSegments.isEmpty { return model.shellSegments }
-      if let command = model.command?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty {
-        return [ApprovalShellSegment(command: command, leadingOperator: nil)]
-      }
-      return []
-    }()
-    let shouldClampChainHeight =
-      commandChainSegments.count > 2 ||
-      commandChainSegments.contains(where: { $0.command.contains("\n") || $0.command.count > 240 })
-    let approveActions = ApprovalCardConfiguration.approveMenuActions(for: model)
-    let denyActions = ApprovalCardConfiguration.denyMenuActions(for: model)
-    let denyPrimary = denyActions.first
-    let approvePrimary = approveActions.first
-
-    if !commandChainSegments.isEmpty {
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-          Text("Command Chain")
-            .font(.system(size: TypeScale.micro, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
-
-          Text("\(commandChainSegments.count) step\(commandChainSegments.count == 1 ? "" : "s")")
-            .font(.system(size: TypeScale.mini, weight: .medium))
-            .foregroundStyle(Color.textQuaternary)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
-        }
-
-        if shouldClampChainHeight {
-          Text("Scroll to inspect every line before approving.")
-            .font(.system(size: TypeScale.mini, weight: .regular))
-            .foregroundStyle(Color.textQuaternary)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
-        }
-
-        ScrollView(.vertical, showsIndicators: true) {
-          LazyVStack(spacing: Spacing.xs) {
-            ForEach(Array(commandChainSegments.enumerated()), id: \.offset) { index, segment in
-              pendingCommandChainRow(index: index + 1, segment: segment)
-            }
-          }
-          .padding(.trailing, 2)
-        }
-        .frame(maxHeight: shouldClampChainHeight ? (isCompactLayout ? 240 : 320) : nil)
-      }
-    } else {
-      Text(previewText)
-        .font(.system(size: TypeScale.caption, weight: .regular))
-        .foregroundStyle(Color.textSecondary)
-        .lineLimit(nil)
-        .fixedSize(horizontal: false, vertical: true)
-        .multilineTextAlignment(.leading)
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, Spacing.xs)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .fill(Color.backgroundPrimary.opacity(0.58))
-        )
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .stroke(Color.statusPermission.opacity(0.28), lineWidth: 1)
-        )
-    }
-
-    if !model.riskFindings.isEmpty {
-      VStack(alignment: .leading, spacing: 4) {
-        ForEach(Array(model.riskFindings.enumerated()), id: \.offset) { _, finding in
-          HStack(alignment: .top, spacing: Spacing.xs) {
-            Image(systemName: "exclamationmark.triangle.fill")
-              .font(.system(size: TypeScale.micro))
-              .foregroundStyle(model.risk.tintColor)
-            Text(finding)
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.textSecondary)
-              .lineLimit(nil)
-              .fixedSize(horizontal: false, vertical: true)
-              .multilineTextAlignment(.leading)
-          }
-        }
-      }
-    }
-
-    if pendingPanelShowDenyReason {
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        TextField("Deny reason", text: $pendingPanelDenyReason)
-          .textFieldStyle(.roundedBorder)
-
-        HStack(spacing: Spacing.sm) {
-          Button("Cancel") {
-            pendingPanelShowDenyReason = false
-            pendingPanelDenyReason = ""
-          }
-          .buttonStyle(.plain)
-          .foregroundStyle(Color.textSecondary)
-
-          Spacer()
-
-          Button("Send Denial") {
-            let reason = pendingPanelDenyReason.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !reason.isEmpty else { return }
-            sendPendingDecision(model: model, decision: "denied", message: reason, interrupt: nil)
-            pendingPanelShowDenyReason = false
-            pendingPanelDenyReason = ""
-          }
-          .buttonStyle(.borderedProminent)
-          .tint(Color.statusError)
-          .disabled(pendingPanelDenyReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-      }
-    }
-
-    HStack(spacing: Spacing.xs) {
-      Button(denyPrimary?.title ?? "Deny") {
-        if let denyPrimary {
-          if denyPrimary.decision == "deny_reason" {
-            pendingPanelShowDenyReason = true
-          } else {
-            sendPendingDecision(model: model, decision: denyPrimary.decision, message: nil, interrupt: nil)
-          }
-        } else {
-          sendPendingDecision(model: model, decision: "denied", message: nil, interrupt: nil)
-        }
-      }
-      .buttonStyle(.bordered)
-      .tint(Color.statusError)
-      .frame(minWidth: isCompactLayout ? 80 : 88)
-      .controlSize(isCompactLayout ? .large : .regular)
-
-      Button {
-        if let approvePrimary {
-          sendPendingDecision(model: model, decision: approvePrimary.decision, message: nil, interrupt: nil)
-        } else {
-          sendPendingDecision(model: model, decision: "approved", message: nil, interrupt: nil)
-        }
-      } label: {
-        Label(approvePrimary?.title ?? "Approve", systemImage: "checkmark.shield.fill")
-      }
-      .buttonStyle(.borderedProminent)
-      .tint(Color.feedbackPositive)
-      .frame(maxWidth: .infinity)
-      .controlSize(isCompactLayout ? .large : .regular)
-
-      Menu {
-        if denyActions.count > 1 {
-          Section("Deny") {
-            ForEach(Array(denyActions.dropFirst().enumerated()), id: \.offset) { _, action in
-              Button(role: action.isDestructive ? .destructive : nil) {
-                if action.decision == "deny_reason" {
-                  pendingPanelShowDenyReason = true
-                } else {
-                  sendPendingDecision(model: model, decision: action.decision, message: nil, interrupt: nil)
-                }
-              } label: {
-                Label(action.title, systemImage: action.iconName ?? "xmark")
-              }
-            }
-          }
-        }
-        if approveActions.count > 1 {
-          Section("Approve") {
-            ForEach(Array(approveActions.dropFirst().enumerated()), id: \.offset) { _, action in
-              Button {
-                sendPendingDecision(model: model, decision: action.decision, message: nil, interrupt: nil)
-              } label: {
-                Label(action.title, systemImage: action.iconName ?? "checkmark")
-              }
-            }
-          }
-        }
-      } label: {
-        Label("More", systemImage: "ellipsis.circle")
-      }
-      .frame(minWidth: isCompactLayout ? 84 : 90)
-      .fixedSize()
-      .controlSize(isCompactLayout ? .large : .regular)
-    }
-  }
-
-  private func pendingCommandChainRow(index: Int, segment: ApprovalShellSegment) -> some View {
-    let operatorText = segment.leadingOperator?
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-
-    return VStack(alignment: .leading, spacing: Spacing.xs) {
-      HStack(spacing: Spacing.xs) {
-        Text("\(index)")
-          .font(.system(size: TypeScale.micro, weight: .bold))
-          .foregroundStyle(Color.statusPermission)
-          .frame(width: 18, height: 18)
-          .background(
-            Circle()
-              .fill(Color.statusPermission.opacity(0.16))
-          )
-          .overlay(
-            Circle()
-              .stroke(Color.statusPermission.opacity(0.44), lineWidth: 1)
-          )
-
-        if let operatorText, !operatorText.isEmpty, index > 1 {
-          let operatorHint = ApprovalPermissionPreviewHelpers.operatorLabel(operatorText) ?? "then"
-          Text("[\(operatorText)] \(operatorHint)")
-            .font(.system(size: TypeScale.mini, weight: .medium))
-            .foregroundStyle(Color.textTertiary)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
-        } else {
-          Text("Run first")
-            .font(.system(size: TypeScale.mini, weight: .medium))
-            .foregroundStyle(Color.textQuaternary)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
-        }
-
-        Spacer(minLength: 0)
-      }
-
-      ScrollView(.horizontal, showsIndicators: false) {
-        Text(verbatim: segment.command)
-          .font(.system(size: TypeScale.caption, weight: .regular, design: .monospaced))
-          .foregroundStyle(Color.textSecondary)
-          .lineSpacing(2)
-          .lineLimit(nil)
-          .fixedSize(horizontal: true, vertical: true)
-          .multilineTextAlignment(.leading)
-          .textSelection(.enabled)
-          .padding(.horizontal, Spacing.xs)
-          .padding(.vertical, Spacing.xs)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          .fill(Color.backgroundPrimary.opacity(0.5))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          .stroke(Color.statusPermission.opacity(0.25), lineWidth: 1)
-      )
-    }
-    .padding(.horizontal, Spacing.sm)
-    .padding(.vertical, Spacing.xs)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .fill(Color.backgroundPrimary.opacity(0.34))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .stroke(Color.statusPermission.opacity(0.2), lineWidth: 1)
-    )
-  }
-
-  @ViewBuilder
-  private func pendingQuestionContent(_ model: ApprovalCardModel) -> some View {
-    let prompts = model.questions
-    if prompts.isEmpty {
-      VStack(alignment: .leading, spacing: Spacing.sm) {
-        Text("Provide your response below, then submit.")
-          .font(.system(size: TypeScale.caption, weight: .medium))
-          .foregroundStyle(Color.textSecondary)
-
-        TextField(
-          "Your response",
-          text: Binding(
-            get: { pendingPanelDrafts["default"] ?? "" },
-            set: { pendingPanelDrafts["default"] = $0 }
-          )
-        )
-        .textFieldStyle(.roundedBorder)
-
-        Button("Submit Response") {
-          let answer = (pendingPanelDrafts["default"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-          guard let requestId = model.approvalId, !answer.isEmpty else { return }
-          serverState.answerQuestion(
-            sessionId: model.sessionId,
-            requestId: requestId,
-            answer: answer,
-            questionId: nil,
-            answers: nil
-          )
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(Color.statusQuestion)
-        .disabled((pendingPanelDrafts["default"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-      }
-    } else {
-      let boundedIndex = min(max(pendingPanelPromptIndex, 0), max(0, prompts.count - 1))
-      let prompt = prompts[boundedIndex]
-      let answeredCount = prompts.filter { pendingPromptIsAnswered($0) }.count
-
-      VStack(alignment: .leading, spacing: Spacing.sm) {
-        HStack(alignment: .center, spacing: Spacing.sm) {
-          Text("Question \(boundedIndex + 1) of \(prompts.count)")
-            .font(.system(size: TypeScale.micro, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
-
-          Spacer(minLength: 0)
-
-          Text("\(answeredCount) answered")
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.trailing)
-        }
-
-        if prompts.count > 1 {
-          pendingQuestionMap(prompts: prompts, activeIndex: boundedIndex)
-        }
-
-        pendingPromptCard(prompt: prompt, index: boundedIndex, totalCount: prompts.count)
-
-        HStack(spacing: Spacing.sm) {
-          if prompts.count > 1 {
-            Button("Back") {
-              withAnimation(Motion.gentle) {
-                pendingPanelPromptIndex = max(0, boundedIndex - 1)
-              }
-            }
-            .buttonStyle(.bordered)
-            .disabled(boundedIndex == 0)
-          }
-
-          Spacer(minLength: 0)
-
-          Button(boundedIndex < prompts.count - 1 ? "Next Question" : "Submit Answers") {
-            if boundedIndex < prompts.count - 1 {
-              withAnimation(Motion.gentle) {
-                pendingPanelPromptIndex = boundedIndex + 1
-              }
-            } else {
-              sendPendingQuestionAnswers(model: model, prompts: prompts)
-            }
-          }
-          .buttonStyle(.borderedProminent)
-          .tint(Color.statusQuestion)
-          .disabled(
-            boundedIndex < prompts.count - 1
-              ? !pendingPromptIsAnswered(prompt)
-              : !pendingAllPromptsAnswered(prompts)
-          )
-        }
-      }
-    }
-  }
-
-  private func pendingQuestionMap(prompts: [ApprovalQuestionPrompt], activeIndex: Int) -> some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: Spacing.xs) {
-        ForEach(Array(prompts.enumerated()), id: \.offset) { index, prompt in
-          let answered = pendingPromptIsAnswered(prompt)
-          let header = prompt.header?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Question \(index + 1)"
-          let prefix = answered ? "✓" : "\(index + 1)."
-
-          Button {
-            withAnimation(Motion.gentle) {
-              pendingPanelPromptIndex = index
-            }
-          } label: {
-            Text("\(prefix) \(header)")
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-              .foregroundStyle(index == activeIndex ? Color.textPrimary : Color.textSecondary)
-              .lineLimit(nil)
-              .fixedSize(horizontal: false, vertical: true)
-              .multilineTextAlignment(.leading)
-              .frame(minWidth: 92, maxWidth: 180, alignment: .leading)
-              .padding(.horizontal, Spacing.xs)
-              .padding(.vertical, 4)
-              .background(
-                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                  .fill(index == activeIndex ? Color.statusQuestion.opacity(0.24) : Color.backgroundPrimary
-                    .opacity(0.68))
-              )
-              .overlay(
-                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                  .stroke(Color.statusQuestion.opacity(index == activeIndex ? 0.55 : 0.25), lineWidth: 1)
-              )
-          }
-          .buttonStyle(.plain)
-        }
-      }
-    }
-  }
-
-  private func pendingPromptCard(prompt: ApprovalQuestionPrompt, index: Int, totalCount: Int) -> some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      HStack(alignment: .top, spacing: Spacing.xs) {
-        if let header = prompt.header?.trimmingCharacters(in: .whitespacesAndNewlines), !header.isEmpty {
-          Text(header.uppercased())
-            .font(.system(size: TypeScale.micro, weight: .semibold))
-            .foregroundStyle(Color.textSecondary)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .multilineTextAlignment(.leading)
-        }
-
-        Spacer(minLength: 0)
-
-        Text(pendingPromptModeText(prompt))
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-          .foregroundStyle(Color.statusQuestion)
-          .lineLimit(nil)
-          .fixedSize(horizontal: true, vertical: true)
-          .padding(.horizontal, Spacing.xs)
-          .padding(.vertical, 3)
-          .background(
-            Capsule(style: .continuous)
-              .fill(Color.statusQuestion.opacity(0.15))
-          )
-          .overlay(
-            Capsule(style: .continuous)
-              .stroke(Color.statusQuestion.opacity(0.45), lineWidth: 1)
-          )
-      }
-
-      Text(prompt.question)
-        .font(.system(size: TypeScale.body, weight: .semibold))
-        .foregroundStyle(Color.textPrimary)
-        .lineSpacing(2)
-        .lineLimit(nil)
-        .fixedSize(horizontal: false, vertical: true)
-        .multilineTextAlignment(.leading)
-
-      if !prompt.options.isEmpty {
-        Text(prompt.allowsMultipleSelection ? "Select all that apply." : "Select one option.")
-          .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(Color.textTertiary)
-          .lineLimit(nil)
-          .fixedSize(horizontal: false, vertical: true)
-          .multilineTextAlignment(.leading)
-
-        VStack(spacing: Spacing.xs) {
-          ForEach(Array(prompt.options.enumerated()), id: \.offset) { _, option in
-            let isSelected = (pendingPanelAnswers[prompt.id] ?? []).contains(option.label)
-            Button {
-              pendingToggleAnswer(
-                questionId: prompt.id,
-                optionLabel: option.label,
-                allowsMultipleSelection: prompt.allowsMultipleSelection
-              )
-              if !prompt.allowsMultipleSelection, !prompt.allowsOther, index < totalCount - 1 {
-                withAnimation(Motion.gentle) {
-                  pendingPanelPromptIndex = index + 1
-                }
-              }
-            } label: {
-              HStack(alignment: .top, spacing: Spacing.xs) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                  .font(.system(size: TypeScale.caption, weight: .semibold))
-                  .foregroundStyle(isSelected ? Color.statusQuestion : Color.textQuaternary)
-                  .padding(.top, 1)
-
-                VStack(alignment: .leading, spacing: 3) {
-                  Text(option.label)
-                    .font(.system(size: TypeScale.caption, weight: .semibold))
-                    .foregroundStyle(Color.textPrimary)
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                  if let description = option.description, !description.isEmpty {
-                    Text(description)
-                      .font(.system(size: TypeScale.micro, weight: .regular))
-                      .foregroundStyle(Color.textSecondary)
-                      .lineSpacing(2)
-                      .lineLimit(nil)
-                      .fixedSize(horizontal: false, vertical: true)
-                      .multilineTextAlignment(.leading)
-                      .frame(maxWidth: .infinity, alignment: .leading)
-                  }
-                }
-              }
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.xs)
-              .background(
-                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                  .fill(isSelected ? Color.statusQuestion.opacity(0.24) : Color.backgroundPrimary.opacity(0.65))
-              )
-              .overlay(
-                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                  .stroke(Color.statusQuestion.opacity(isSelected ? 0.85 : 0.28), lineWidth: isSelected ? 1.5 : 1)
-              )
-            }
-            .buttonStyle(.plain)
-          }
-        }
-      }
-
-      if prompt.options.isEmpty || prompt.allowsOther {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          if prompt.allowsOther, !prompt.options.isEmpty {
-            Text("Or type your own response.")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
-              .lineLimit(nil)
-              .fixedSize(horizontal: false, vertical: true)
-              .multilineTextAlignment(.leading)
-          }
-
-          pendingPromptDraftInput(prompt)
-        }
-      }
-    }
-    .padding(isCompactLayout ? Spacing.sm : Spacing.md)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .fill(Color.backgroundPrimary.opacity(0.7))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .stroke(Color.statusQuestion.opacity(0.3), lineWidth: 1)
-    )
-  }
-
-  @ViewBuilder
-  private func pendingPromptDraftInput(_ prompt: ApprovalQuestionPrompt) -> some View {
-    let draftBinding = Binding(
-      get: { pendingPanelDrafts[prompt.id] ?? "" },
-      set: { pendingPanelDrafts[prompt.id] = $0 }
-    )
-
-    if prompt.isSecret {
-      SecureField("Secure response", text: draftBinding)
-        .textFieldStyle(.roundedBorder)
-    } else {
-      ZStack(alignment: .topLeading) {
-        if (pendingPanelDrafts[prompt.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-          Text("Your response")
-            .font(.system(size: TypeScale.caption, weight: .regular))
-            .foregroundStyle(Color.textQuaternary)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.sm)
-            .allowsHitTesting(false)
-        }
-
-        TextEditor(text: draftBinding)
-          .font(.system(size: TypeScale.caption, weight: .regular))
-          .foregroundStyle(Color.textPrimary)
-          .scrollContentBackground(.hidden)
-          .padding(.horizontal, Spacing.xxs)
-          .padding(.vertical, Spacing.xxs)
-      }
-      .frame(minHeight: isCompactLayout ? 68 : 80)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .fill(Color.backgroundPrimary.opacity(0.85))
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .stroke(Color.statusQuestion.opacity(0.28), lineWidth: 1)
-      )
-    }
-  }
-
-  @ViewBuilder
-  private func pendingTakeOverContent(_ model: ApprovalCardModel) -> some View {
-    Text("This session requires manual takeover before continuing.")
-      .font(.system(size: TypeScale.caption, weight: .medium))
-      .foregroundStyle(Color.textSecondary)
-      .fixedSize(horizontal: false, vertical: true)
-
-    Button(ApprovalCardConfiguration.takeoverButtonTitle(for: model)) {
-      serverState.takeoverSession(model.sessionId)
-    }
-    .buttonStyle(.borderedProminent)
-    .tint(Color.accent)
-  }
-
-  private func pendingPromptModeText(_ prompt: ApprovalQuestionPrompt) -> String {
-    if prompt.options.isEmpty {
-      return "WRITE"
-    }
-    if prompt.allowsMultipleSelection {
-      return "MULTI"
-    }
-    if prompt.allowsOther {
-      return "SELECT OR WRITE"
-    }
-    return "SINGLE"
-  }
-
-  private func resetPendingPanelStateForRequest() {
-    pendingPanelExpanded = true
-    pendingPanelPromptIndex = 0
-    pendingPanelAnswers = [:]
-    pendingPanelDrafts = [:]
-    pendingPanelShowDenyReason = false
-    pendingPanelDenyReason = ""
-  }
-
-  private func normalizedApprovalRequestId(_ value: String?) -> String? {
-    guard let value else { return nil }
-    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    return normalized.isEmpty ? nil : normalized
-  }
-
-  private func pendingToggleAnswer(
-    questionId: String,
-    optionLabel: String,
-    allowsMultipleSelection: Bool
-  ) {
-    var values = pendingPanelAnswers[questionId] ?? []
-    if allowsMultipleSelection {
-      if let index = values.firstIndex(of: optionLabel) {
-        values.remove(at: index)
-      } else {
-        values.append(optionLabel)
-      }
-    } else {
-      values = [optionLabel]
-    }
-
-    if values.isEmpty {
-      pendingPanelAnswers.removeValue(forKey: questionId)
-    } else {
-      pendingPanelAnswers[questionId] = values
-    }
-  }
-
-  private func pendingPromptIsAnswered(_ prompt: ApprovalQuestionPrompt) -> Bool {
-    let hasSelectedOption = !(pendingPanelAnswers[prompt.id] ?? []).isEmpty
-    let hasDraft = !(pendingPanelDrafts[prompt.id] ?? "")
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-      .isEmpty
-    return hasSelectedOption || hasDraft
-  }
-
-  private func pendingAllPromptsAnswered(_ prompts: [ApprovalQuestionPrompt]) -> Bool {
-    prompts.allSatisfy { pendingPromptIsAnswered($0) }
-  }
-
-  private func pendingCollectedAnswers(prompts: [ApprovalQuestionPrompt]) -> [String: [String]] {
-    var answers: [String: [String]] = [:]
-    for prompt in prompts {
-      var values = pendingPanelAnswers[prompt.id] ?? []
-      let draft = (pendingPanelDrafts[prompt.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-      if !draft.isEmpty, !values.contains(draft) {
-        values.append(draft)
-      }
-      if !values.isEmpty {
-        answers[prompt.id] = values
-      }
-    }
-    return answers
-  }
-
-  private func sendPendingQuestionAnswers(model: ApprovalCardModel, prompts: [ApprovalQuestionPrompt]) {
-    guard let requestId = model.approvalId else { return }
-    let answers = pendingCollectedAnswers(prompts: prompts)
-    guard !answers.isEmpty else { return }
-
-    let primaryQuestionId = prompts.first?.id
-    let primaryAnswer: String? = {
-      if let primaryQuestionId, let value = answers[primaryQuestionId]?.first {
-        return value
-      }
-      for prompt in prompts {
-        if let value = answers[prompt.id]?.first {
-          return value
-        }
-      }
-      return answers.values.first?.first
-    }()
-    guard let primaryAnswer, !primaryAnswer.isEmpty else { return }
-
-    serverState.answerQuestion(
-      sessionId: model.sessionId,
-      requestId: requestId,
-      answer: primaryAnswer,
-      questionId: primaryQuestionId,
-      answers: answers
-    )
-  }
-
-  private func sendPendingDecision(
-    model: ApprovalCardModel,
-    decision: String,
-    message: String?,
-    interrupt: Bool?
-  ) {
-    guard let requestId = model.approvalId else { return }
-    serverState.approveTool(
-      sessionId: model.sessionId,
-      requestId: requestId,
-      decision: decision,
-      message: message,
-      interrupt: interrupt
-    )
-  }
-
-  // MARK: - Fork To Worktree
-
-  @ViewBuilder
-  private var forkToWorktreeSheet: some View {
-    if let repoPath = forkWorktreeDisplayRepoPath {
-      CreateWorktreeSheet(
-        repoPath: repoPath,
-        projectName: obs.projectName ?? URL(fileURLWithPath: repoPath).lastPathComponent,
-        onCancel: {
-          showForkToWorktreeSheet = false
-        },
-        onCreate: { branchName, baseBranch in
-          serverState.forkSessionToWorktree(
-            sessionId: sessionId,
-            branchName: branchName,
-            baseBranch: baseBranch
-          )
-          showForkToWorktreeSheet = false
-        }
-      )
-    } else {
-      VStack(spacing: Spacing.md) {
-        Text("Worktree unavailable for this session.")
-          .font(.system(size: TypeScale.subhead, weight: .medium))
-          .foregroundStyle(Color.textSecondary)
-        Button("Close") {
-          showForkToWorktreeSheet = false
-        }
-      }
-      .padding(Spacing.lg)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .ifMacOS { view in
-        view.frame(width: 320)
-      }
-      .background(Color.panelBackground)
-    }
-  }
-
-  @ViewBuilder
-  private var forkToExistingWorktreeSheet: some View {
-    if forkWorktreeDisplayRepoPath != nil {
-      VStack(spacing: 0) {
-        HStack {
-          Text("Fork to Existing Worktree")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-          Spacer()
-        }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.top, Spacing.lg)
-        .padding(.bottom, Spacing.md)
-
-        Divider()
-
-        if forkToExistingCandidates.isEmpty {
-          VStack(spacing: Spacing.sm) {
-            Image(systemName: "arrow.triangle.branch")
-              .font(.system(size: TypeScale.chatHeading1))
-              .foregroundStyle(Color.textQuaternary)
-
-            Text("No existing worktrees")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
-
-            Text("Create one first or refresh to discover tracked worktrees.")
-              .font(.system(size: TypeScale.meta))
-              .foregroundStyle(Color.textQuaternary)
-          }
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, Spacing.xl)
-        } else {
-          ScrollView {
-            VStack(spacing: Spacing.xxs) {
-              ForEach(forkToExistingCandidates) { wt in
-                Button {
-                  serverState.forkSessionToExistingWorktree(sessionId: sessionId, worktreeId: wt.id)
-                  showForkToExistingWorktreeSheet = false
-                } label: {
-                  HStack(spacing: Spacing.sm) {
-                    Circle()
-                      .fill(statusColor(for: wt.status))
-                      .frame(width: 7, height: 7)
-
-                    VStack(alignment: .leading, spacing: Spacing.xxs) {
-                      Text(wt.customName ?? wt.branch)
-                        .font(.system(size: TypeScale.caption, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-
-                      Text(wt.worktreePath)
-                        .font(.system(size: TypeScale.micro, design: .monospaced))
-                        .foregroundStyle(Color.textTertiary)
-                        .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    if wt.activeSessionCount > 0 {
-                      Text("\(wt.activeSessionCount)")
-                        .font(.system(size: TypeScale.micro, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color.textQuaternary)
-                    }
-                  }
-                  .padding(.horizontal, Spacing.sm)
-                  .padding(.vertical, Spacing.sm)
-                  .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(obs.forkInProgress)
-              }
-            }
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.sm)
-          }
-          .frame(maxHeight: isCompactLayout ? .infinity : 320)
-        }
-
-        Divider()
-
-        HStack {
-          Button {
-            refreshForkExistingWorktrees()
-          } label: {
-            Label("Refresh", systemImage: "arrow.clockwise")
-              .font(.system(size: TypeScale.meta, weight: .medium))
-          }
-          .buttonStyle(.plain)
-          .foregroundStyle(Color.textSecondary)
-
-          Spacer()
-
-          Button("Cancel") {
-            showForkToExistingWorktreeSheet = false
-          }
-          .keyboardShortcut(.cancelAction)
-        }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.md)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .ifMacOS { view in
-        view.frame(width: 420)
-      }
-      .background(Color.panelBackground)
-      .onAppear {
-        refreshForkExistingWorktrees()
-      }
-      #if os(iOS)
-      .presentationDetents([.medium, .large])
-      .presentationDragIndicator(.visible)
-      #endif
-    } else {
-      VStack(spacing: Spacing.md) {
-        Text("Worktree unavailable for this session.")
-          .font(.system(size: TypeScale.subhead, weight: .medium))
-          .foregroundStyle(Color.textSecondary)
-        Button("Close") {
-          showForkToExistingWorktreeSheet = false
-        }
-      }
-      .padding(Spacing.lg)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .ifMacOS { view in
-        view.frame(width: 320)
-      }
-      .background(Color.panelBackground)
-      #if os(iOS)
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-      #endif
-    }
-  }
-
-  // MARK: - Token Progress Strip
-
-  private var tokenStrip: some View {
-    let pct = tokenContextPercentage
-    let color: Color = pct > 0.9 ? .statusError : pct > 0.7 ? .statusReply : .accent
-
-    return GeometryReader { geo in
-      ZStack(alignment: .leading) {
-        Rectangle().fill(color.opacity(OpacityTier.subtle))
-        Rectangle()
-          .fill(
-            LinearGradient(
-              colors: [color.opacity(0.7), color],
-              startPoint: .leading,
-              endPoint: .trailing
-            )
-          )
-          .frame(width: geo.size.width * pct)
-          .themeShadow(Shadow.glow(color: color, intensity: isCompactLayout ? 0.55 : 0.22))
-      }
-    }
-    .frame(height: isCompactLayout ? 3 : 2)
-    .clipShape(RoundedRectangle(cornerRadius: isCompactLayout ? 0 : 2, style: .continuous))
-    .help(tokenTooltipText)
-  }
-
-  private var tokenContextPercentage: Double {
-    obs.contextFillFraction
-  }
-
-  private var tokenTooltipText: String {
-    var parts: [String] = []
-    if let input = obs.inputTokens {
-      parts.append("Input: \(formatTokenCount(input))")
-    }
-    if let output = obs.outputTokens {
-      parts.append("Output: \(formatTokenCount(output))")
-    }
-    if let cached = obs.cachedTokens, cached > 0,
-       obs.effectiveContextInputTokens > 0
-    {
-      let percent = Int(obs.effectiveCacheHitPercent)
-      parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
-    }
-    if let window = obs.contextWindow {
-      parts.append("Context: \(formatTokenCount(window))")
-    }
-    return parts.isEmpty ? "Token usage" : parts.joined(separator: "\n")
-  }
-
-  private func formatTokenCount(_ count: Int) -> String {
-    if count >= 1_000_000 {
-      return String(format: "%.1fM", Double(count) / 1_000_000)
-    } else if count >= 1_000 {
-      return String(format: "%.1fk", Double(count) / 1_000)
-    }
-    return "\(count)"
-  }
-
-  @ViewBuilder
-  private var composerTextInput: some View {
+  var composerTextInput: some View {
     ComposerTextArea(
       text: $message,
       placeholder: composerPlaceholder,
@@ -1772,23 +757,39 @@ struct DirectSessionComposer: View {
 
   // MARK: - Composer Row
 
-  private var promptSuggestionChips: some View {
+  var promptSuggestionChips: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: Spacing.sm) {
         ForEach(obs.promptSuggestions, id: \.self) { suggestion in
+          let isHovered = hoveringSuggestion == suggestion
           Button {
             sendSuggestion(suggestion)
           } label: {
             Text(suggestion)
-              .font(.caption)
-              .foregroundStyle(Color.textSecondary)
+              .font(.system(size: TypeScale.caption, weight: .medium))
+              .foregroundStyle(isHovered ? Color.textPrimary : Color.textSecondary)
               .lineLimit(1)
               .padding(.horizontal, Spacing.md_)
               .padding(.vertical, Spacing.sm_)
-              .background(Color.backgroundSecondary)
-              .clipShape(RoundedRectangle(cornerRadius: Radius.ml))
+              .background(
+                RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+                  .fill(isHovered ? Color.surfaceHover : Color.backgroundTertiary.opacity(0.5))
+              )
+              .overlay(
+                RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+                  .strokeBorder(
+                    isHovered
+                      ? Color.accent.opacity(OpacityTier.light)
+                      : Color.surfaceBorder.opacity(OpacityTier.subtle),
+                    lineWidth: 1
+                  )
+              )
+              .animation(Motion.hover, value: isHovered)
           }
           .buttonStyle(.plain)
+          .onHover { hovering in
+            hoveringSuggestion = hovering ? suggestion : nil
+          }
         }
       }
       .padding(.horizontal, Spacing.md)
@@ -1796,12 +797,26 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private func sendSuggestion(_ suggestion: String) {
+  func sendSuggestion(_ suggestion: String) {
     guard let conn = runtimeRegistry.connection(for: serverState.endpointId) else { return }
     conn.sendMessage(sessionId: sessionId, content: suggestion)
   }
 
-  private var composerRow: some View {
+  // MARK: - Composer Surface
+
+  var hasStatusBarContent: Bool {
+    !isConnected
+      || obs.isDirectCodex
+      || obs.isDirectClaude
+      || isSessionWorking
+      || obs.hasTokenUsage
+      || !selectedModel.isEmpty
+      || !effectiveClaudeModel.isEmpty
+      || obs.branch != nil
+      || !obs.projectPath.isEmpty
+  }
+
+  var composerSurface: some View {
     VStack(spacing: 0) {
       // Text input
       composerTextInput
@@ -1811,863 +826,56 @@ struct DirectSessionComposer: View {
 
       // Unified footer: actions + metadata + send
       composerFooter
+
+      // Internal status zone
+      if hasStatusBarContent {
+        Rectangle()
+          .fill(Color.surfaceBorder.opacity(OpacityTier.subtle))
+          .frame(height: 0.5)
+          .padding(.horizontal, Spacing.sm)
+        statusBar
+      }
+
+      // Connection notice (inside card)
+      if let notice = connectionNoticeMessage {
+        connectionNoticeRow(notice)
+          .padding(.top, Spacing.xxs)
+      }
     }
-    .background(
-      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-        .fill(
-          isCompactLayout
-            ? composerBorderColor.opacity(0.04)
-            : Color.backgroundTertiary.opacity(0.17)
-        )
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-        .strokeBorder(
-          isFocused || inputMode != .prompt
-            ? composerBorderColor.opacity(0.5)
-            : Color.surfaceBorder.opacity(isCompactLayout ? 0.35 : (canSend ? 0.34 : 0.18)),
-          lineWidth: isFocused || inputMode != .prompt ? 1.5 : 1
-        )
-    )
+    .background(composerSurfaceBackground)
+    .overlay(composerSurfaceBorder)
+    .animation(Motion.gentle, value: inputMode)
+    .animation(Motion.hover, value: isFocused)
     .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
     .padding(.vertical, Spacing.sm)
   }
 
-  // MARK: - Status Bar (informational metadata below composer)
-
-  @ViewBuilder
-  private var statusBar: some View {
-    if isCompactLayout {
-      compactStatusBar
-    } else {
-      desktopStatusBar
-    }
-  }
-
-  private var desktopStatusBar: some View {
-    HStack(spacing: Spacing.sm) {
-      if !isConnected {
-        connectionStatusPill
-      }
-
-      if obs.isDirectCodex {
-        AutonomyPill(sessionId: sessionId, size: .statusBar)
-        CodexModePill(sessionId: sessionId, size: .statusBar)
-      } else if obs.isDirectClaude {
-        ClaudePermissionPill(sessionId: sessionId, size: .statusBar)
-      }
-
-      if isSessionWorking {
-        workingSteerLabel
-      }
-
-      if obs.hasTokenUsage {
-        footerTokenLabel
-      }
-
-      footerModelLabel
-
-      if let branch = obs.branch, !branch.isEmpty {
-        footerBranchLabel(branch)
-      }
-
-      if !obs.projectPath.isEmpty {
-        statusBarCwdLabel(obs.projectPath)
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, Spacing.lg + Spacing.md_)
-    .padding(.top, 1)
-    .padding(.bottom, 9)
-  }
-
-  private var compactStatusBar: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: Spacing.sm_) {
-        if !isConnected {
-          connectionStatusPill
-        }
-
-        if obs.isDirectCodex {
-          AutonomyPill(sessionId: sessionId, size: .statusBar)
-          CodexModePill(sessionId: sessionId, size: .statusBar)
-        } else if obs.isDirectClaude {
-          ClaudePermissionPill(sessionId: sessionId, size: .statusBar)
-        }
-
-        if isSessionWorking {
-          workingSteerLabel
-        }
-
-        if obs.hasTokenUsage {
-          compactFooterTokenChip
-        }
-
-        footerModelLabel
-
-        if let branch = obs.branch, !branch.isEmpty {
-          footerBranchLabel(branch)
-        }
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.horizontal, Spacing.md + Spacing.sm)
-    }
-    .scrollIndicators(.hidden)
-  }
-
-  private var connectionStatusPill: some View {
-    HStack(spacing: Spacing.xs) {
-      Image(systemName: connectionPillIcon)
-        .font(.system(size: TypeScale.mini, weight: .semibold))
-      Text(connectionPillLabel)
-        .font(.system(size: TypeScale.micro, weight: .semibold))
-        .lineLimit(1)
-    }
-    .foregroundStyle(connectionPillTint)
-    .padding(.horizontal, 7)
-    .padding(.vertical, Spacing.gap)
-    .background(connectionPillTint.opacity(OpacityTier.light), in: Capsule())
-  }
-
-  private func connectionNoticeRow(_ message: String) -> some View {
-    HStack(spacing: Spacing.sm_) {
-      Image(systemName: connectionPillIcon)
-        .font(.system(size: TypeScale.micro, weight: .semibold))
-        .foregroundStyle(connectionPillTint)
-
-      Text(message)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(2)
-
-      Spacer(minLength: 0)
-
-      if showReconnectButton {
-        Button("Reconnect") {
-          runtimeRegistry.reconnect(endpointId: serverState.endpointId)
-        }
-        .buttonStyle(.plain)
-        .font(.caption)
-        .foregroundStyle(Color.accent)
-      }
-    }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.bottom, Spacing.xs)
-  }
-
-  private func statusBarCwdLabel(_ cwd: String) -> some View {
-    let display = (cwd as NSString).lastPathComponent
-    return HStack(spacing: Spacing.xxs) {
-      Image(systemName: "folder")
-        .font(.system(size: TypeScale.mini, weight: .medium))
-      Text(display)
-        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-        .lineLimit(1)
-    }
-    .foregroundStyle(Color.textQuaternary)
-    .help(cwd)
-  }
-
-  private var workingSteerLabel: some View {
-    HStack(spacing: Spacing.xs) {
-      Circle()
-        .fill(Color.composerSteer)
-        .frame(width: 6, height: 6)
-      Text("Working - Steering enabled")
-        .font(.system(size: TypeScale.micro, weight: .semibold))
-        .foregroundStyle(Color.composerSteer)
-        .lineLimit(1)
-    }
-    .padding(.horizontal, Spacing.sm_)
-    .padding(.vertical, Spacing.gap)
-    .background(
-      Color.composerSteer.opacity(OpacityTier.light),
-      in: Capsule()
-    )
-    .help("Model is currently working. You can keep steering with full composer tools.")
-  }
-
-  // MARK: - Action Footer (actions + follow + send)
-
-  @ViewBuilder
-  private var composerFooter: some View {
-    if isCompactLayout {
-      compactComposerFooter
-    } else {
-      desktopComposerFooter
-    }
-  }
-
-  private var desktopComposerFooter: some View {
-    HStack(spacing: Spacing.xs) {
-      // Ghost action icons
-      HStack(spacing: Spacing.xxs) {
-        if obs.workStatus == .working {
-          CodexInterruptButton(sessionId: sessionId)
-        }
-
-        if obs.isDirectCodex || obs.isDirectClaude {
-          providerModelControlButton
-        }
-
-        fileMentionControlButton
-        commandDeckControlButton
-
-        if shouldShowDictation {
-          dictationControlButton
-        }
-
-        desktopWorkflowOverflowMenu
-
-        if inputMode == .shell || inputMode == .reviewNotes {
-          Button {
-            withAnimation(Motion.gentle) {
-              if inputMode == .shell { manualShellMode = false }
-              if inputMode == .reviewNotes { manualReviewMode = false }
-            }
-          } label: {
-            ghostActionLabel(icon: "xmark.circle", isActive: true, tint: Color.textSecondary)
-          }
-          .buttonStyle(.plain)
-          .help("Exit \(inputMode == .shell ? "shell" : "review") mode")
-        }
-      }
-
-      Spacer()
-
-      // Follow + Send
-      HStack(spacing: Spacing.sm_) {
-        footerFollowControls
-        composerSendButton
-      }
-    }
-    .padding(.horizontal, Spacing.md_)
-    .padding(.bottom, Spacing.sm)
-  }
-
-  private var compactComposerFooter: some View {
-    HStack(spacing: Spacing.sm_) {
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: Spacing.xs) {
-          if obs.workStatus == .working {
-            CodexInterruptButton(sessionId: sessionId, isCompact: true)
-          }
-
-          if obs.isDirectCodex || obs.isDirectClaude {
-            providerModelControlButton
-          }
-
-          commandDeckControlButton
-
-          if shouldShowDictation {
-            dictationControlButton
-          }
-
-          compactWorkflowOverflowMenu
-        }
-        .padding(.trailing, Spacing.xs)
-      }
-      .scrollIndicators(.hidden)
-
-      // Pinned right: follow + send
-      footerFollowControls
-      composerSendButton
-    }
-    .padding(.horizontal, Spacing.sm)
-    .padding(.bottom, Spacing.sm)
-  }
-
-  // MARK: - Footer Helpers
-
-  private var footerTokenLabel: some View {
-    let pct = Int(tokenContextPercentage * 100)
-    let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
-    let displayPct = if tokenContextPercentage > 0, pct == 0 { "< 1" } else { "\(pct)" }
-
-    return HStack(spacing: Spacing.gap) {
-      Text("\(displayPct)%")
-        .foregroundStyle(color)
-      if let window = obs.contextWindow {
-        let total = obs.effectiveContextInputTokens
-        Text("·")
-          .foregroundStyle(Color.textQuaternary)
-        Text("\(formatTokenCount(total))/\(formatTokenCount(window))")
-          .foregroundStyle(Color.textTertiary)
-      }
-    }
-    .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-    .help(tokenTooltipText)
-  }
-
-  @ViewBuilder
-  private var footerModelLabel: some View {
-    if obs.isDirectCodex, !selectedModel.isEmpty {
-      Text(shortModelName(selectedModel))
-        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-        .foregroundStyle(Color.textTertiary)
-        .lineLimit(1)
-        .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
-    } else if obs.isDirectClaude, !effectiveClaudeModel.isEmpty {
-      Text(shortModelName(effectiveClaudeModel))
-        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-        .foregroundStyle(Color.textTertiary)
-        .lineLimit(1)
-    }
-  }
-
-  private func footerBranchLabel(_ branch: String) -> some View {
-    HStack(spacing: Spacing.xxs) {
-      Image(systemName: "arrow.triangle.branch")
-        .font(.system(size: TypeScale.mini, weight: .medium))
-      Text(branch)
-        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-        .lineLimit(1)
-    }
-    .foregroundStyle(Color.gitBranch.opacity(0.65))
-    .help(branch)
-  }
-
-  private var footerFollowControls: some View {
-    HStack(spacing: Spacing.xs) {
-      if !isPinned, unreadCount > 0 {
-        Button {
-          isPinned = true
-          unreadCount = 0
-          scrollToBottomTrigger += 1
-        } label: {
-          Text("\(unreadCount)")
-            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 5)
-            .padding(.vertical, Spacing.xxs)
-            .background(Color.accent, in: Capsule())
-        }
-        .buttonStyle(.plain)
-      }
-
-      Button {
-        isPinned.toggle()
-        if isPinned {
-          unreadCount = 0
-          scrollToBottomTrigger += 1
-        }
-      } label: {
-        Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
-          .font(.system(size: isCompactLayout ? TypeScale.body : TypeScale.meta, weight: .semibold))
-          .foregroundStyle(isPinned ? Color.textQuaternary : Color.statusReply)
-          .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
-          .background(
-            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
-            in: RoundedRectangle(cornerRadius: isCompactLayout ? Radius.md : Radius.sm, style: .continuous)
-          )
-      }
-      .buttonStyle(.plain)
-    }
-    .animation(Motion.standard, value: isPinned)
-    .animation(Motion.standard, value: unreadCount)
-  }
-
-  private var composerSendButton: some View {
-    Button(action: sendMessage) {
-      Group {
-        if isSending {
-          ProgressView()
-            .controlSize(.small)
-        } else {
-          Image(systemName: isSessionWorking ? "arrow.uturn.right" : "arrow.up")
-            .font(.system(size: isCompactLayout ? TypeScale.subhead : TypeScale.caption, weight: .bold))
-            .foregroundStyle(.white)
-        }
-      }
-      .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
-      .background(
-        Circle().fill(canSend ? composerBorderColor : Color.surfaceHover)
-      )
-      .themeShadow(Shadow.glow(color: canSend ? composerBorderColor : .clear))
-    }
-    .buttonStyle(.plain)
-    .disabled(!canSend)
-  }
-
-  private var compactFooterTokenChip: some View {
-    let pct = Int(tokenContextPercentage * 100)
-    let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
-    let displayPct = if tokenContextPercentage > 0, pct == 0 { "< 1" } else { "\(pct)" }
-    let total = obs.effectiveContextInputTokens
-
-    let text = if total > 0, let window = obs.contextWindow {
-      "\(displayPct)%·\(formatTokenCount(total))/\(formatTokenCount(window))"
-    } else {
-      "\(displayPct)%"
-    }
-
-    return Text(text)
-      .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-      .foregroundStyle(color)
-      .padding(.horizontal, Spacing.sm_)
-      .padding(.vertical, Spacing.gap)
-      .background(Color.surfaceHover.opacity(0.5), in: Capsule())
-      .help(tokenTooltipText)
-  }
-
-  // MARK: - Composer Action Button
-
-  private var modelEffortControlButton: some View {
-    Button {
-      showModelEffortPopover.toggle()
-    } label: {
-      ghostActionLabel(icon: "slider.horizontal.3", isActive: hasOverrides)
-    }
-    .buttonStyle(.plain)
-    .help("Model and reasoning effort")
-    .platformPopover(isPresented: $showModelEffortPopover) {
-      #if os(iOS)
-        NavigationStack {
-          ModelEffortPopover(
-            selectedModel: $selectedModel,
-            selectedEffort: $selectedEffort,
-            models: codexModelOptions
-          )
-          .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-              Button("Done") { showModelEffortPopover = false }
-            }
-          }
-        }
-      #else
-        ModelEffortPopover(
-          selectedModel: $selectedModel,
-          selectedEffort: $selectedEffort,
-          models: codexModelOptions
-        )
-      #endif
-    }
-  }
-
-  private var claudeModelControlButton: some View {
-    Button {
-      showClaudeModelPopover.toggle()
-    } label: {
-      ghostActionLabel(icon: "slider.horizontal.3", isActive: hasOverrides, tint: .providerClaude)
-    }
-    .buttonStyle(.plain)
-    .help("Claude model override")
-    .platformPopover(isPresented: $showClaudeModelPopover) {
-      #if os(iOS)
-        NavigationStack {
-          ComposerClaudeModelPopover(
-            selectedModel: $selectedClaudeModel,
-            models: claudeModelOptions
-          )
-          .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-              Button("Done") { showClaudeModelPopover = false }
-            }
-          }
-        }
-      #else
-        ComposerClaudeModelPopover(
-          selectedModel: $selectedClaudeModel,
-          models: claudeModelOptions
-        )
-      #endif
-    }
-  }
-
-  @ViewBuilder
-  private var providerModelControlButton: some View {
-    if obs.isDirectCodex {
-      modelEffortControlButton
-    } else if obs.isDirectClaude {
-      claudeModelControlButton
-    }
-  }
-
-  private var fileMentionControlButton: some View {
-    Button {
-      openFilePicker()
-    } label: {
-      ghostActionLabel(icon: "doc.badge.plus", isActive: !attachedMentions.isEmpty, tint: .composerPrompt)
-    }
-    .buttonStyle(.plain)
-    .help("Attach project files (@)")
-    .platformPopover(isPresented: $showFilePickerPopover) {
-      #if os(iOS)
-        NavigationStack {
-          ComposerFilePickerPopover(
-            query: $filePickerQuery,
-            files: filePickerResults,
-            onSelect: attachMentionFromPicker
-          )
-          .navigationTitle("Project Files")
-          .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-              Button("Close") { showFilePickerPopover = false }
-            }
-          }
-        }
-        .frame(minWidth: 340, minHeight: 320)
-      #else
-        ComposerFilePickerPopover(
-          query: $filePickerQuery,
-          files: filePickerResults,
-          onSelect: attachMentionFromPicker
-        )
-        .frame(minWidth: 340, minHeight: 320)
-      #endif
-    }
-  }
-
-  private var dictationControlButton: some View {
-    Button {
-      toggleDictation()
-    } label: {
-      ghostActionLabel(
-        icon: dictationController.isRecording ? "stop.fill" : "mic.fill",
-        isActive: dictationController.isRecording,
-        tint: dictationController.isRecording ? .statusError : .accent
-      )
-    }
-    .buttonStyle(.plain)
-    .disabled(dictationController.isBusy)
-    .help("Local Whisper dictation")
-  }
-
-  private var commandDeckControlButton: some View {
-    Button {
-      toggleCommandDeck()
-    } label: {
-      ghostActionLabel(icon: "slash.circle", isActive: shouldShowCommandDeck)
-    }
-    .buttonStyle(.plain)
-    .help("Command deck (/)")
-  }
-
-  @ViewBuilder
-  private var imageAttachmentDockControl: some View {
-    #if os(macOS)
-      Button {
-        pickImages()
-      } label: {
-        actionDockLabel(
-          icon: "paperclip",
-          title: attachedImages.isEmpty ? "Images" : "Images \(attachedImages.count)",
-          tint: .accent,
-          isActive: !attachedImages.isEmpty
-        )
-      }
-      .buttonStyle(.plain)
-      .help("Attach images")
-      .contextMenu {
-        Button {
-          _ = pasteImageFromClipboard()
-        } label: {
-          Label("Paste Image", systemImage: "doc.on.clipboard")
-        }
-        .disabled(!canPasteImageFromClipboard)
-      }
-    #else
-      Menu {
-        Button {
-          pickImages()
-        } label: {
-          Label("Choose Photos", systemImage: "photo.on.rectangle")
-        }
-
-        Button {
-          _ = pasteImageFromClipboard()
-        } label: {
-          Label("Paste Image", systemImage: "doc.on.clipboard")
-        }
-        .disabled(!canPasteImageFromClipboard)
-      } label: {
-        actionDockLabel(
-          icon: "paperclip",
-          title: attachedImages.isEmpty ? "Images" : "Images \(attachedImages.count)",
-          tint: .accent,
-          isActive: !attachedImages.isEmpty
-        )
-      }
-      .buttonStyle(.plain)
-      .help("Attach images")
-    #endif
-  }
-
-  private var turnActionsDockMenu: some View {
-    Menu {
-      turnActionsMenuContent
-    } label: {
-      actionDockLabel(icon: "ellipsis.circle", title: "Turn", tint: Color.textTertiary)
-    }
-    .buttonStyle(.plain)
-    .help("Turn actions")
-  }
-
-  @ViewBuilder
-  private var turnActionsMenuContent: some View {
-    if obs.isDirectCodex || serverState.session(sessionId).hasSlashCommand("undo") {
-      Button {
-        serverState.undoLastTurn(sessionId: sessionId)
-      } label: {
-        Label("Undo Last Turn", systemImage: "arrow.uturn.backward")
-      }
-      .disabled(serverState.session(sessionId).undoInProgress)
-    }
-
-    if obs.isDirect, let lastUserMsg = obs.messages.last(where: \.isUser) {
-      let hasRecentCheckpoint = obs.lastFilesPersistedAt.map { Date().timeIntervalSince($0) < 300 } ?? false
-      Button {
-        serverState.rewindFiles(sessionId: sessionId, userMessageId: lastUserMsg.id)
-      } label: {
-        Label(
-          hasRecentCheckpoint ? "Rewind Files (checkpoint saved)" : "Rewind Files",
-          systemImage: "arrow.uturn.backward.circle"
-        )
-      }
-      .disabled(obs.workStatus == .working)
-    }
-
-    Button {
-      serverState.forkSession(sessionId: sessionId)
-    } label: {
-      Label("Fork Conversation", systemImage: "arrow.triangle.branch")
-    }
-    .disabled(!canForkConversation)
-
-    Button {
-      openForkToWorktreeSheet()
-    } label: {
-      Label("Fork to New Worktree", systemImage: "arrow.triangle.branch")
-    }
-    .disabled(!canForkToWorktree)
-
-    Button {
-      openForkToExistingWorktreeSheet()
-    } label: {
-      Label("Fork to Existing Worktree", systemImage: "arrow.triangle.branch.circlepath")
-    }
-    .disabled(!canForkToExistingWorktree)
-
-    if obs.hasTokenUsage {
-      Button {
-        serverState.compactContext(sessionId: sessionId)
-      } label: {
-        Label("Compact Context", systemImage: "arrow.triangle.2.circlepath")
-      }
-    }
-
-    if hasMcpData {
-      Divider()
-      Button {
-        serverState.refreshMcpServers(sessionId: sessionId)
-      } label: {
-        Label("Refresh MCP Servers", systemImage: "arrow.clockwise")
-      }
-    }
-  }
-
-  private var compactWorkflowOverflowMenu: some View {
-    let attachmentCount = attachedImages.count + attachedMentions.count + selectedSkills.count
-
-    return Menu {
-      Section("Compose") {
-        Button {
-          openFilePicker()
-        } label: {
-          Label("Attach Files", systemImage: "doc.badge.plus")
-        }
-
-        if shouldShowDictation {
-          Button {
-            toggleDictation()
-          } label: {
-            Label(
-              dictationController.isRecording ? "Stop Dictation" : "Start Dictation",
-              systemImage: dictationController.isRecording ? "stop.fill" : "mic.fill"
-            )
-          }
-          .disabled(dictationController.isBusy)
-        }
-
-        if hasSkillsPanel {
-          Button {
-            serverState.listSkills(sessionId: sessionId)
-            onOpenSkills?()
-          } label: {
-            Label("Attach Skills", systemImage: "bolt.fill")
-          }
-        }
-
-        Button {
-          pickImages()
-        } label: {
-          Label("Attach Images", systemImage: "photo")
-        }
-
-        Button {
-          _ = pasteImageFromClipboard()
-        } label: {
-          Label("Paste Image", systemImage: "doc.on.clipboard")
-        }
-        .disabled(!canPasteImageFromClipboard)
-
-        if hasMcpData {
-          Button {
-            activateCommandDeck(prefill: "mcp")
-          } label: {
-            Label("Browse MCP", systemImage: "square.stack.3d.up.fill")
-          }
-        }
-
-        Button {
-          withAnimation(Motion.gentle) {
-            manualShellMode.toggle()
-            if manualShellMode { manualReviewMode = false }
-          }
-        } label: {
-          Label(
-            manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode",
-            systemImage: "terminal"
-          )
-        }
-      }
-
-      Section("Turn") {
-        turnActionsMenuContent
-      }
-    } label: {
-      actionDockLabel(
-        icon: "ellipsis.circle",
-        title: "More",
-        tint: Color.textTertiary,
-        isActive: attachmentCount > 0
-      )
-      .overlay(alignment: .topTrailing) {
-        if attachmentCount > 0 {
-          Text("\(min(attachmentCount, 9))")
-            .font(.system(size: 8, weight: .bold, design: .monospaced))
-            .foregroundStyle(.white)
-            .padding(.horizontal, Spacing.xs)
-            .padding(.vertical, 1)
-            .background(Color.accent, in: Capsule())
-            .offset(x: 6, y: -5)
-        }
-      }
-    }
-    .buttonStyle(.plain)
-    .help("More actions")
-  }
-
-  private var desktopWorkflowOverflowMenu: some View {
-    let hasActiveState = !selectedSkills.isEmpty || !attachedImages.isEmpty || !attachedMentions
-      .isEmpty || manualShellMode
-
-    return Menu {
-      Section("Compose") {
-        if shouldShowDictation {
-          Button {
-            toggleDictation()
-          } label: {
-            Label(
-              dictationController.isRecording ? "Stop Dictation" : "Start Dictation",
-              systemImage: dictationController.isRecording ? "stop.fill" : "mic.fill"
-            )
-          }
-          .disabled(dictationController.isBusy)
-        }
-
-        if hasSkillsPanel {
-          Button {
-            serverState.listSkills(sessionId: sessionId)
-            onOpenSkills?()
-          } label: {
-            Label("Attach Skills", systemImage: "bolt.fill")
-          }
-        }
-
-        Button {
-          pickImages()
-        } label: {
-          Label("Attach Images", systemImage: "photo")
-        }
-
-        Button {
-          _ = pasteImageFromClipboard()
-        } label: {
-          Label("Paste Image", systemImage: "doc.on.clipboard")
-        }
-        .disabled(!canPasteImageFromClipboard)
-
-        if hasMcpData {
-          Button {
-            activateCommandDeck(prefill: "mcp")
-          } label: {
-            Label("Browse MCP", systemImage: "square.stack.3d.up.fill")
-          }
-        }
-
-        Button {
-          withAnimation(Motion.gentle) {
-            manualShellMode.toggle()
-            if manualShellMode { manualReviewMode = false }
-          }
-        } label: {
-          Label(
-            manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode",
-            systemImage: "terminal"
-          )
-        }
-      }
-
-      Section("Turn") {
-        turnActionsMenuContent
-      }
-    } label: {
-      actionDockLabel(
-        icon: "ellipsis.circle",
-        title: "More",
-        tint: Color.textTertiary,
-        isActive: hasActiveState
-      )
-    }
-    .buttonStyle(.plain)
-    .help("More actions")
-  }
-
-  private func ghostActionLabel(
-    icon: String,
-    isActive: Bool = false,
-    tint: Color = .accent
-  ) -> some View {
-    Image(systemName: icon)
-      .font(.system(
-        size: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
-        weight: isCompactLayout ? .semibold : .medium
-      ))
-      .foregroundStyle(isActive ? tint : (isCompactLayout ? Color.textTertiary : Color.textQuaternary))
-      .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
-      .background(
+  var composerSurfaceBackground: some View {
+    RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+      .fill(
         isCompactLayout
-          ? (isActive ? tint.opacity(OpacityTier.light) : Color.surfaceHover.opacity(0.5))
-          : (isActive ? tint.opacity(0.08) : Color.clear),
-        in: RoundedRectangle(cornerRadius: isCompactLayout ? Radius.md : Radius.sm, style: .continuous)
+          ? composerBorderColor.opacity(0.04)
+          : Color.backgroundTertiary.opacity(0.17)
       )
-      .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+          .fill(composerBorderColor.opacity(OpacityTier.tint))
+      )
   }
 
-  private func actionDockLabel(
-    icon: String,
-    title: String,
-    tint: Color,
-    isActive: Bool = false
-  ) -> some View {
-    ghostActionLabel(icon: icon, isActive: isActive, tint: tint)
-      .accessibilityLabel(title)
+  var composerSurfaceBorder: some View {
+    RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+      .strokeBorder(
+        isFocused || inputMode != .prompt
+          ? composerBorderColor.opacity(0.5)
+          : Color.surfaceBorder.opacity(isCompactLayout ? 0.35 : (canSend ? 0.34 : 0.18)),
+        lineWidth: isFocused || inputMode != .prompt ? 1.5 : 1
+      )
   }
 
   // MARK: - Resume Row (ended session)
 
-  private var resumeRow: some View {
+  var resumeRow: some View {
     HStack {
       Button {
         connLog(.info, category: .resume, "Resume button tapped", sessionId: sessionId)
@@ -2675,19 +883,10 @@ struct DirectSessionComposer: View {
       } label: {
         HStack(spacing: Spacing.sm) {
           Image(systemName: "arrow.counterclockwise")
-            .font(.system(size: TypeScale.code, weight: .medium))
           Text("Resume")
-            .font(.system(size: TypeScale.code, weight: .medium))
         }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(
-          Color.accent.opacity(OpacityTier.light),
-          in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        )
-        .foregroundStyle(Color.accent)
       }
-      .buttonStyle(.plain)
+      .buttonStyle(GhostButtonStyle(color: .accent))
 
       Spacer()
 
@@ -2703,21 +902,20 @@ struct DirectSessionComposer: View {
 
   // MARK: - Error Row
 
-  private func errorRow(_ error: String) -> some View {
-    HStack {
+  func errorRow(_ error: String) -> some View {
+    HStack(spacing: Spacing.sm) {
       Image(systemName: "exclamationmark.triangle.fill")
-        .foregroundStyle(.orange)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.feedbackWarning)
       Text(error)
-        .font(.caption)
-        .foregroundStyle(.secondary)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textSecondary)
       Spacer()
       if shouldShowOpenMicrophoneSettingsAction {
         Button("Open Settings") {
           _ = Platform.services.openMicrophonePrivacySettings()
         }
-        .buttonStyle(.plain)
-        .font(.caption)
-        .foregroundStyle(Color.accent)
+        .buttonStyle(GhostButtonStyle(color: .accent, size: .compact))
       }
       Button("Dismiss") {
         if errorMessage != nil {
@@ -2726,714 +924,14 @@ struct DirectSessionComposer: View {
           dictationController.clearError()
         }
       }
-      .buttonStyle(.plain)
-      .font(.caption)
-      .foregroundStyle(Color.accent)
+      .buttonStyle(GhostButtonStyle(color: .accent, size: .compact))
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.bottom, Spacing.sm)
   }
 
-  private var shouldShowOpenMicrophoneSettingsAction: Bool {
+  var shouldShowOpenMicrophoneSettingsAction: Bool {
     errorMessage == nil && dictationController.isMicrophonePermissionDenied
-  }
-
-  // MARK: - Helpers
-
-  private func moveComposerCursorToEnd() {
-    moveCursorToEndSignal &+= 1
-  }
-
-  private func setComposerMessage(_ newValue: String, moveCursorToEnd: Bool = false) {
-    if message != newValue {
-      message = newValue
-    }
-    if moveCursorToEnd {
-      moveComposerCursorToEnd()
-    }
-  }
-
-  private func extractMcpServerName(from toolKey: String) -> String? {
-    let parts = toolKey.split(separator: "__")
-    if parts.count >= 2, parts[0] == "mcp" {
-      return String(parts[1])
-    }
-    if parts.count >= 2 {
-      return String(parts[0])
-    }
-    return nil
-  }
-
-  private func shortModelName(_ model: String) -> String {
-    // Strip common prefixes to get a compact display name
-    let name = model
-      .replacingOccurrences(of: "openai/", with: "")
-      .replacingOccurrences(of: "anthropic/", with: "")
-    // If it's already short (like "o3"), return as-is
-    if name.count <= 8 { return name }
-    // Take first component before a dash if very long
-    let parts = name.split(separator: "-", maxSplits: 2)
-    if parts.count >= 2 {
-      return String(parts[0]) + "-" + String(parts[1])
-    }
-    return name
-  }
-
-  private var canSend: Bool {
-    if isDictationActive { return false }
-    let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    if inputMode == .shell { return !isSending && hasContent }
-    if isSessionWorking { return !isSending && (hasContent || hasAttachments) }
-    let hasModel: Bool = if obs.isDirectCodex {
-      !selectedModel.isEmpty
-    } else if obs.isDirectClaude {
-      !effectiveClaudeModel.isEmpty
-    } else {
-      obs.model != nil
-    }
-    return !isSending && (hasContent || hasAttachments) && hasModel
-  }
-
-  private func sendMessage() {
-    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !isSending else { return }
-    guard !trimmed.isEmpty || hasAttachments else { return }
-
-    // Shell mode: route to executeShell
-    if inputMode == .shell {
-      guard isConnected else {
-        errorMessage = "Server is offline. Shell command not sent."
-        return
-      }
-      serverState.executeShell(sessionId: sessionId, command: trimmed)
-      message = ""
-      manualShellMode = false
-      return
-    }
-
-    // ! prefix: execute as shell command
-    if trimmed.hasPrefix("!"), trimmed.count > 1 {
-      guard isConnected else {
-        errorMessage = "Server is offline. Shell command not sent."
-        return
-      }
-      let shellCmd = String(trimmed.dropFirst())
-      serverState.executeShell(sessionId: sessionId, command: shellCmd)
-      message = ""
-      return
-    }
-
-    var expandedContent = trimmed
-    for mention in attachedMentions {
-      expandedContent = expandedContent.replacingOccurrences(of: "@\(mention.name)", with: mention.path)
-    }
-    let mentionInputs = attachedMentions.map { ServerMentionInput(name: $0.name, path: $0.path) }
-    let imageInputs = attachedImages.map(\.serverInput)
-
-    if isSessionWorking {
-      guard !expandedContent.isEmpty || !imageInputs.isEmpty || !mentionInputs.isEmpty else { return }
-      let disposition = serverState.steerTurn(
-        sessionId: sessionId,
-        content: expandedContent,
-        images: imageInputs,
-        mentions: mentionInputs
-      )
-
-      switch disposition {
-        case .sent:
-          errorMessage = nil
-          message = ""
-          withAnimation(Motion.gentle) {
-            attachedImages = []
-            attachedMentions = []
-          }
-        case .queued:
-          errorMessage = "Offline: steering message queued and will send after reconnect."
-          message = ""
-          withAnimation(Motion.gentle) {
-            attachedImages = []
-            attachedMentions = []
-          }
-        case .dropped:
-          errorMessage = "Couldn't send steer message. Your draft is still here."
-      }
-      return
-    }
-
-    let effectiveModel: String
-    if obs.isDirectCodex {
-      guard !selectedModel.isEmpty else {
-        errorMessage = "No model available yet. Wait for model list to load."
-        return
-      }
-      effectiveModel = selectedModel
-    } else if obs.isDirectClaude {
-      guard !effectiveClaudeModel.isEmpty else {
-        errorMessage = "No Claude model available yet. Wait for model list to load."
-        return
-      }
-      effectiveModel = effectiveClaudeModel
-    } else {
-      effectiveModel = obs.model ?? ""
-    }
-
-    let effort = selectedEffort.serialized
-
-    let inlineSkillNames = extractInlineSkillNames(from: expandedContent)
-
-    var skillPaths = selectedSkills
-    for name in inlineSkillNames {
-      if let skill = availableSkills.first(where: { $0.name == name }) {
-        skillPaths.insert(skill.path)
-      }
-    }
-    let skillInputs = skillPaths.compactMap { path -> ServerSkillInput? in
-      guard let skill = availableSkills.first(where: { $0.path == path }) else { return nil }
-      return ServerSkillInput(name: skill.name, path: skill.path)
-    }
-
-    // Prepend any pending shell context
-    if let shellContext = obs.consumeShellContext() {
-      expandedContent = "\(shellContext)\n\n\(expandedContent)"
-    }
-
-    let disposition = serverState.sendMessage(
-      sessionId: sessionId,
-      content: expandedContent,
-      model: effectiveModel,
-      effort: effort,
-      skills: skillInputs,
-      images: imageInputs,
-      mentions: mentionInputs
-    )
-
-    switch disposition {
-      case .sent:
-        errorMessage = nil
-        message = ""
-        withAnimation(Motion.gentle) {
-          attachedImages = []
-          attachedMentions = []
-        }
-      case .queued:
-        errorMessage = "Offline: message queued and will send after reconnect."
-        message = ""
-        withAnimation(Motion.gentle) {
-          attachedImages = []
-          attachedMentions = []
-        }
-      case .dropped:
-        errorMessage = "Couldn't send message. Your draft is still here."
-    }
-  }
-
-  private func openForkToWorktreeSheet() {
-    guard canForkToWorktree else {
-      errorMessage = "This session does not have a git repository root to create a worktree from."
-      return
-    }
-    showForkToWorktreeSheet = true
-  }
-
-  private func openForkToExistingWorktreeSheet() {
-    guard canForkToExistingWorktree else {
-      errorMessage = "This session does not have a git repository root to select a worktree from."
-      return
-    }
-    showForkToExistingWorktreeSheet = true
-  }
-
-  private func refreshForkExistingWorktrees() {
-    guard let repoPath = forkWorktreeDisplayRepoPath else { return }
-    serverState.connection.listWorktrees(repoRoot: repoPath)
-  }
-
-  private func statusColor(for status: ServerWorktreeStatus) -> Color {
-    switch status {
-      case .active: .feedbackPositive
-      case .orphaned: .statusReply
-      case .stale: .feedbackCaution
-      case .removing: .textQuaternary
-      case .removed: .textQuaternary
-    }
-  }
-
-  @MainActor
-  private func beginDictationDraftState() {
-    dictationDraftBaseMessage = message
-  }
-
-  @MainActor
-  private func clearDictationDraftState() {
-    dictationDraftBaseMessage = nil
-  }
-
-  @MainActor
-  private func updateDictationLivePreview(_ transcript: String) {
-    guard let baseMessage = dictationDraftBaseMessage else { return }
-    let normalized = DictationTextFormatter.normalizeTranscription(transcript)
-    let merged = DictationTextFormatter.merge(existing: baseMessage, dictated: normalized)
-    guard merged != message else { return }
-    message = merged
-  }
-
-  @MainActor
-  private func applyDictationPreviewToComposer(_ transcript: String) {
-    guard let baseMessage = dictationDraftBaseMessage else { return }
-    let normalized = DictationTextFormatter.normalizeTranscription(transcript)
-    let merged = DictationTextFormatter.merge(existing: baseMessage, dictated: normalized)
-    guard merged != message else { return }
-    message = merged
-  }
-
-  @MainActor
-  private func toggleDictation() {
-    guard shouldShowDictation else { return }
-    Task { @MainActor in
-      if dictationController.isRecording {
-        if let dictated = await dictationController.stop() {
-          if dictationDraftBaseMessage != nil {
-            applyDictationPreviewToComposer(dictated)
-          } else {
-            message = DictationTextFormatter.merge(existing: message, dictated: dictated)
-          }
-        }
-        clearDictationDraftState()
-      } else {
-        beginDictationDraftState()
-        await dictationController.start()
-        if !dictationController.isRecording {
-          clearDictationDraftState()
-        }
-      }
-    }
-  }
-
-  // MARK: - Inline Skill Completion
-
-  private func updateSkillCompletion(_ text: String) {
-    guard let dollarIdx = text.lastIndex(of: "$") else {
-      completionActive = false
-      return
-    }
-
-    let afterDollar = text[text.index(after: dollarIdx)...]
-
-    if afterDollar.contains(where: \.isWhitespace) {
-      completionActive = false
-      return
-    }
-
-    let query = String(afterDollar)
-
-    if availableSkills.contains(where: { $0.name == query }) {
-      completionActive = false
-      return
-    }
-
-    if availableSkills.isEmpty {
-      serverState.listSkills(sessionId: sessionId)
-    }
-
-    completionQuery = query
-    completionIndex = 0
-    completionActive = true
-  }
-
-  private func acceptSkillCompletion(_ skill: ServerSkillMetadata) {
-    if let updated = ComposerTextEditing.applySkillCompletion(in: message, skillName: skill.name) {
-      setComposerMessage(updated, moveCursorToEnd: true)
-    }
-    completionActive = false
-    completionQuery = ""
-    completionIndex = 0
-    isFocused = true
-  }
-
-  private func extractInlineSkillNames(from text: String) -> [String] {
-    let skillNameSet = Set(availableSkills.map(\.name))
-    var names: [String] = []
-
-    for word in text.components(separatedBy: .whitespacesAndNewlines) {
-      guard word.hasPrefix("$") else { continue }
-      let raw = String(word.dropFirst())
-      let name = raw.trimmingCharacters(in: .punctuationCharacters)
-      if skillNameSet.contains(name) {
-        names.append(name)
-      }
-    }
-
-    return names
-  }
-
-  // MARK: - @ Mention Completion
-
-  private func updateMentionCompletion(_ text: String) {
-    guard let atIdx = text.lastIndex(of: "@") else {
-      mentionActive = false
-      return
-    }
-
-    if atIdx != text.startIndex {
-      let before = text[text.index(before: atIdx)]
-      if !before.isWhitespace {
-        mentionActive = false
-        return
-      }
-    }
-
-    let afterAt = text[text.index(after: atIdx)...]
-
-    if afterAt.contains(where: \.isWhitespace) {
-      mentionActive = false
-      return
-    }
-
-    let query = String(afterAt)
-
-    if attachedMentions.contains(where: { $0.name == query || $0.path.hasSuffix(query) }) {
-      mentionActive = false
-      return
-    }
-
-    mentionQuery = query
-    mentionIndex = 0
-    mentionActive = true
-
-    loadProjectFilesIfNeeded()
-  }
-
-  private func acceptMentionCompletion(_ file: ProjectFileIndex.ProjectFile) {
-    if let updated = ComposerTextEditing.applyMentionCompletion(in: message, fileName: file.name) {
-      setComposerMessage(updated, moveCursorToEnd: true)
-    }
-    mentionActive = false
-    mentionQuery = ""
-    mentionIndex = 0
-    isFocused = true
-
-    addMentionAttachment(file)
-  }
-
-  private func addMentionAttachment(_ file: ProjectFileIndex.ProjectFile) {
-    guard !attachedMentions.contains(where: { $0.id == file.id }) else { return }
-    let absolutePath = if let base = projectPath {
-      (base as NSString).appendingPathComponent(file.relativePath)
-    } else {
-      file.relativePath
-    }
-    withAnimation(Motion.gentle) {
-      attachedMentions.append(AttachedMention(id: file.id, name: file.name, path: absolutePath))
-    }
-  }
-
-  private func attachMentionFromPicker(_ file: ProjectFileIndex.ProjectFile) {
-    replaceTrailingCommandDeckToken(with: "@\(file.name)")
-    addMentionAttachment(file)
-    showFilePickerPopover = false
-    clearCommandDeckState()
-    isFocused = true
-  }
-
-  private func openFilePicker() {
-    guard projectPath != nil else {
-      errorMessage = "No project path available for this session."
-      return
-    }
-    filePickerQuery = ""
-    loadProjectFilesIfNeeded()
-    showFilePickerPopover = true
-  }
-
-  // MARK: - Command Deck
-
-  private func isCommandDeckTokenStart(_ index: String.Index, in text: String) -> Bool {
-    ComposerTextEditing.isCommandDeckTokenStart(index, in: text)
-  }
-
-  private func updateCommandDeckCompletion(_ text: String) {
-    guard let slashIdx = text.lastIndex(of: "/") else {
-      commandDeckActive = false
-      commandDeckQuery = ""
-      commandDeckIndex = 0
-      return
-    }
-
-    guard isCommandDeckTokenStart(slashIdx, in: text) else {
-      commandDeckActive = false
-      return
-    }
-
-    let afterSlash = text[text.index(after: slashIdx)...]
-    if afterSlash.contains(where: \.isWhitespace) {
-      commandDeckActive = false
-      return
-    }
-
-    commandDeckQuery = String(afterSlash)
-    commandDeckIndex = 0
-    commandDeckActive = true
-
-    if hasSkillsPanel, availableSkills.isEmpty {
-      serverState.listSkills(sessionId: sessionId)
-    }
-    if serverState.session(sessionId).mcpTools.isEmpty {
-      serverState.listMcpTools(sessionId: sessionId)
-    }
-    loadProjectFilesIfNeeded()
-  }
-
-  private func loadProjectFilesIfNeeded() {
-    guard let path = projectPath, !fileIndex.isReady(for: path) else { return }
-    Task { @MainActor in
-      await fileIndex.loadIfNeeded(path)
-    }
-  }
-
-  private func toggleCommandDeck() {
-    if shouldShowCommandDeck {
-      clearCommandDeckState()
-      removeTrailingCommandDeckToken()
-      return
-    }
-    activateCommandDeck()
-  }
-
-  private func activateCommandDeck(prefill: String? = nil) {
-    let updated = ComposerTextEditing.activateCommandDeckToken(in: message, prefill: prefill)
-    setComposerMessage(updated, moveCursorToEnd: true)
-    updateCommandDeckCompletion(message)
-    isFocused = true
-  }
-
-  private func clearCommandDeckState() {
-    commandDeckActive = false
-    commandDeckQuery = ""
-    commandDeckIndex = 0
-  }
-
-  private func removeTrailingCommandDeckToken() {
-    guard let updated = ComposerTextEditing.removingTrailingCommandDeckToken(in: message) else { return }
-    setComposerMessage(updated, moveCursorToEnd: true)
-  }
-
-  private func replaceTrailingCommandDeckToken(with replacement: String, appendSpace: Bool = true) {
-    let updated = ComposerTextEditing.replacingTrailingCommandDeckToken(
-      in: message,
-      replacement: replacement,
-      appendSpace: appendSpace
-    )
-    setComposerMessage(updated, moveCursorToEnd: true)
-  }
-
-  private func acceptCommandDeckItem(_ item: ComposerCommandDeckItem) {
-    switch item.kind {
-      case .openFilePicker:
-        clearCommandDeckState()
-        removeTrailingCommandDeckToken()
-        openFilePicker()
-
-      case .openSkillsPanel:
-        clearCommandDeckState()
-        removeTrailingCommandDeckToken()
-        if hasSkillsPanel {
-          serverState.listSkills(sessionId: sessionId)
-        }
-        onOpenSkills?()
-
-      case .toggleShellMode:
-        clearCommandDeckState()
-        removeTrailingCommandDeckToken()
-        withAnimation(Motion.gentle) {
-          manualShellMode.toggle()
-          if manualShellMode { manualReviewMode = false }
-        }
-
-      case let .insertText(text):
-        clearCommandDeckState()
-        replaceTrailingCommandDeckToken(with: text, appendSpace: false)
-
-      case .refreshMcp:
-        clearCommandDeckState()
-        removeTrailingCommandDeckToken()
-        serverState.refreshMcpServers(sessionId: sessionId)
-
-      case let .attachFile(file):
-        clearCommandDeckState()
-        attachMentionFromPicker(file)
-
-      case let .attachSkill(skill):
-        selectedSkills.insert(skill.path)
-        clearCommandDeckState()
-        replaceTrailingCommandDeckToken(with: "$\(skill.name)")
-
-      case let .insertMcpTool(server, tool):
-        clearCommandDeckState()
-        let snippet = "Use MCP tool \(server).\(tool.name)"
-        replaceTrailingCommandDeckToken(with: snippet)
-
-      case let .insertMcpResource(server, resource):
-        clearCommandDeckState()
-        let snippet = "Use MCP resource \(server):\(resource.uri)"
-        replaceTrailingCommandDeckToken(with: snippet)
-    }
-    isFocused = true
-  }
-
-  // MARK: - Keyboard Navigation
-
-  private enum ComposerCompletionCommand {
-    case escape
-    case upArrow
-    case downArrow
-    case accept
-    case controlN
-    case controlP
-  }
-
-  private func handleComposerTextAreaKeyCommand(_ keyCommand: ComposerTextAreaKeyCommand) -> Bool {
-    switch keyCommand {
-      case .commandShiftT:
-        withAnimation(Motion.gentle) {
-          manualShellMode.toggle()
-          if manualShellMode { manualReviewMode = false }
-        }
-        return true
-
-      case .shiftReturn:
-        // Let the native text view insert the newline so caret/selection stays correct.
-        return false
-
-      case .escape:
-        return handleCompletionCommand(.escape)
-
-      case .upArrow:
-        return handleCompletionCommand(.upArrow)
-
-      case .downArrow:
-        return handleCompletionCommand(.downArrow)
-
-      case .tab:
-        return handleCompletionCommand(.accept)
-
-      case .controlN:
-        return handleCompletionCommand(.controlN)
-
-      case .controlP:
-        return handleCompletionCommand(.controlP)
-
-      case .returnKey:
-        if handleCompletionCommand(.accept) {
-          return true
-        }
-        let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasContent || hasAttachments {
-          sendMessage()
-          return true
-        }
-        return false
-    }
-  }
-
-  private func handleCompletionCommand(_ command: ComposerCompletionCommand) -> Bool {
-    if command == .escape {
-      if shouldShowCommandDeck {
-        clearCommandDeckState()
-        removeTrailingCommandDeckToken()
-        return true
-      }
-      if mentionActive {
-        mentionActive = false
-        return true
-      }
-      guard completionActive else { return false }
-      completionActive = false
-      return true
-    }
-
-    if shouldShowCommandDeck {
-      return handleCommandDeckCommand(command)
-    }
-
-    if shouldShowMentionCompletion {
-      return handleMentionCommand(command)
-    }
-
-    guard shouldShowCompletion else { return false }
-
-    switch command {
-      case .upArrow:
-        completionIndex = max(0, completionIndex - 1)
-        return true
-      case .downArrow:
-        completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
-        return true
-      case .controlN:
-        completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
-        return true
-      case .controlP:
-        completionIndex = max(0, completionIndex - 1)
-        return true
-      case .accept:
-        acceptSkillCompletion(filteredSkills[completionIndex])
-        return true
-      case .escape:
-        return false
-    }
-  }
-
-  private func handleCommandDeckCommand(_ command: ComposerCompletionCommand) -> Bool {
-    let maxIndex = commandDeckItems.count - 1
-    guard maxIndex >= 0 else { return false }
-
-    switch command {
-      case .upArrow:
-        commandDeckIndex = max(0, commandDeckIndex - 1)
-        return true
-      case .downArrow:
-        commandDeckIndex = min(maxIndex, commandDeckIndex + 1)
-        return true
-      case .controlN:
-        commandDeckIndex = min(maxIndex, commandDeckIndex + 1)
-        return true
-      case .controlP:
-        commandDeckIndex = max(0, commandDeckIndex - 1)
-        return true
-      case .accept:
-        if commandDeckIndex < commandDeckItems.count {
-          acceptCommandDeckItem(commandDeckItems[commandDeckIndex])
-        }
-        return true
-      case .escape:
-        return false
-    }
-  }
-
-  private func handleMentionCommand(_ command: ComposerCompletionCommand) -> Bool {
-    let maxIndex = filteredFiles.count - 1
-    guard maxIndex >= 0 else { return false }
-
-    switch command {
-      case .upArrow:
-        mentionIndex = max(0, mentionIndex - 1)
-        return true
-      case .downArrow:
-        mentionIndex = min(maxIndex, mentionIndex + 1)
-        return true
-      case .controlN:
-        mentionIndex = min(maxIndex, mentionIndex + 1)
-        return true
-      case .controlP:
-        mentionIndex = max(0, mentionIndex - 1)
-        return true
-      case .accept:
-        if mentionIndex < filteredFiles.count {
-          acceptMentionCompletion(filteredFiles[mentionIndex])
-        }
-        return true
-      case .escape:
-        return false
-    }
   }
 
   // MARK: - Image Input
@@ -3441,490 +939,9 @@ struct DirectSessionComposer: View {
   // Implemented in DirectSessionComposer+ImageShared.swift and platform extensions.
 }
 
-// MARK: - Interrupt Button
+// CodexInterruptButton — see CodexInterruptButton.swift
 
-struct CodexInterruptButton: View {
-  let sessionId: String
-  var isCompact: Bool = false
-  @Environment(ServerAppState.self) private var serverState
-
-  @State private var isInterrupting = false
-  @State private var isHovering = false
-
-  private var size: CGFloat {
-    isCompact ? 34 : 26
-  }
-
-  var body: some View {
-    Button(action: interrupt) {
-      Group {
-        if isInterrupting {
-          ProgressView()
-            .controlSize(.mini)
-        } else {
-          Image(systemName: "stop.fill")
-            .font(.system(size: isCompact ? 14 : 12, weight: .semibold))
-        }
-      }
-      .foregroundStyle(Color.statusError)
-      .frame(width: size, height: size)
-      .background(
-        Color.statusError.opacity(isHovering ? OpacityTier.medium : OpacityTier.light),
-        in: RoundedRectangle(cornerRadius: isCompact ? Radius.md : Radius.sm, style: .continuous)
-      )
-    }
-    .buttonStyle(.plain)
-    .disabled(isInterrupting)
-    .platformHover($isHovering)
-    .animation(Motion.hover, value: isHovering)
-    .help("Stop")
-    .onChange(of: workStatus) { _, newValue in
-      if isInterrupting, newValue != .working {
-        isInterrupting = false
-      }
-    }
-  }
-
-  private func interrupt() {
-    isInterrupting = true
-    serverState.interruptSession(sessionId)
-  }
-
-  private var workStatus: Session.WorkStatus {
-    serverState.session(sessionId).workStatus
-  }
-}
-
-// MARK: - Skill Completion List
-
-private struct SkillCompletionList: View {
-  let skills: [ServerSkillMetadata]
-  let selectedIndex: Int
-  let query: String
-  let onSelect: (ServerSkillMetadata) -> Void
-
-  var body: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        VStack(alignment: .leading, spacing: 0) {
-          ForEach(Array(skills.prefix(8).enumerated()), id: \.element.id) { index, skill in
-            Button { onSelect(skill) } label: {
-              HStack(spacing: Spacing.sm) {
-                Image(systemName: "bolt.fill")
-                  .font(.caption2)
-                  .foregroundStyle(Color.accent)
-                  .frame(width: 14)
-                VStack(alignment: .leading, spacing: 1) {
-                  skillNameView(skill.name)
-                  if let desc = skill.shortDescription ?? Optional(skill.description), !desc.isEmpty {
-                    Text(desc)
-                      .font(.caption2)
-                      .foregroundStyle(.secondary)
-                      .lineLimit(1)
-                  }
-                }
-                Spacer()
-              }
-              .padding(.horizontal, Spacing.md_)
-              .padding(.vertical, Spacing.sm_)
-              .background(index == selectedIndex ? Color.accent.opacity(0.15) : Color.clear)
-              .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .id(index)
-          }
-        }
-      }
-      .scrollIndicators(.hidden)
-      .onChange(of: selectedIndex) { _, newIndex in
-        proxy.scrollTo(newIndex, anchor: .center)
-      }
-    }
-    .frame(maxHeight: 200)
-    .background(Color.backgroundPrimary)
-    .clipShape(RoundedRectangle(cornerRadius: Radius.ml))
-    .themeShadow(Shadow.md)
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.ml)
-        .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-    )
-  }
-
-  @ViewBuilder
-  private func skillNameView(_ name: String) -> some View {
-    if !query.isEmpty, let range = name.range(of: query, options: .caseInsensitive) {
-      let before = String(name[name.startIndex ..< range.lowerBound])
-      let match = String(name[range])
-      let after = String(name[range.upperBound...])
-      Text("\(Text(before))\(Text(match).foregroundStyle(Color.accent))\(Text(after))")
-        .font(.callout.weight(.medium))
-    } else {
-      Text(name)
-        .font(.callout.weight(.medium))
-    }
-  }
-}
-
-private struct ComposerMcpToolEntry: Identifiable {
-  let id: String
-  let server: String
-  let tool: ServerMcpTool
-}
-
-private struct ComposerMcpResourceEntry: Identifiable {
-  let id: String
-  let server: String
-  let resource: ServerMcpResource
-}
-
-private struct ComposerCommandDeckItem: Identifiable {
-  enum Kind {
-    case openFilePicker
-    case openSkillsPanel
-    case toggleShellMode
-    case insertText(String)
-    case refreshMcp
-    case attachFile(ProjectFileIndex.ProjectFile)
-    case attachSkill(ServerSkillMetadata)
-    case insertMcpTool(server: String, tool: ServerMcpTool)
-    case insertMcpResource(server: String, resource: ServerMcpResource)
-  }
-
-  let id: String
-  let section: String
-  let icon: String
-  let title: String
-  let subtitle: String?
-  let tint: Color
-  let kind: Kind
-}
-
-private struct ComposerCommandDeckList: View {
-  let items: [ComposerCommandDeckItem]
-  let selectedIndex: Int
-  let query: String
-  let onSelect: (ComposerCommandDeckItem) -> Void
-
-  var body: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        VStack(alignment: .leading, spacing: 0) {
-          ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-            if index == 0 || items[index - 1].section != item.section {
-              Text(item.section)
-                .font(.system(size: TypeScale.caption, weight: .bold))
-                .foregroundStyle(Color.textQuaternary)
-                .padding(.horizontal, Spacing.md_)
-                .padding(.top, index == 0 ? Spacing.sm : Spacing.md_)
-                .padding(.bottom, Spacing.xs)
-            }
-
-            Button {
-              onSelect(item)
-            } label: {
-              HStack(spacing: Spacing.sm) {
-                Image(systemName: item.icon)
-                  .font(.system(size: TypeScale.caption, weight: .semibold))
-                  .foregroundStyle(item.tint)
-                  .frame(width: 14)
-
-                VStack(alignment: .leading, spacing: 1) {
-                  highlighted(item.title)
-                    .font(.system(size: TypeScale.subhead, weight: .semibold))
-                    .foregroundStyle(Color.textPrimary)
-
-                  if let subtitle = item.subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                      .font(.system(size: TypeScale.caption))
-                      .foregroundStyle(Color.textTertiary)
-                      .lineLimit(1)
-                  }
-                }
-
-                Spacer()
-              }
-              .padding(.horizontal, Spacing.md_)
-              .padding(.vertical, 7)
-              .background(
-                index == selectedIndex ? item.tint.opacity(0.18) : Color.clear,
-                in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              )
-              .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .id(index)
-          }
-        }
-      }
-      .scrollIndicators(.hidden)
-      .onChange(of: selectedIndex) { _, newIndex in
-        proxy.scrollTo(newIndex, anchor: .center)
-      }
-    }
-    .frame(maxHeight: 290)
-    .background(Color.backgroundPrimary)
-    .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
-    .themeShadow(Shadow.md)
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg)
-        .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-    )
-  }
-
-  private func highlighted(_ text: String) -> Text {
-    guard !query.isEmpty, let stringRange = text.range(of: query, options: .caseInsensitive) else {
-      return Text(text)
-    }
-    var attributed = AttributedString(text)
-    if let attributedRange = Range(stringRange, in: attributed) {
-      attributed[attributedRange].foregroundColor = .accent
-    }
-    return Text(attributed)
-  }
-}
-
-private struct ComposerFilePickerPopover: View {
-  @Binding var query: String
-  let files: [ProjectFileIndex.ProjectFile]
-  let onSelect: (ProjectFileIndex.ProjectFile) -> Void
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      TextField("Search files…", text: $query)
-        .textFieldStyle(.roundedBorder)
-        .font(.system(size: TypeScale.subhead))
-
-      if files.isEmpty {
-        VStack(spacing: Spacing.sm_) {
-          Image(systemName: "doc.text.magnifyingglass")
-            .font(.system(size: TypeScale.thinkingHeading1, weight: .semibold))
-            .foregroundStyle(Color.textQuaternary)
-          Text("No files found")
-            .font(.system(size: TypeScale.subhead, weight: .semibold))
-            .foregroundStyle(Color.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else {
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(files) { file in
-              Button {
-                onSelect(file)
-              } label: {
-                HStack(spacing: Spacing.sm) {
-                  Image(systemName: fileIcon(for: file.name))
-                    .font(.system(size: TypeScale.caption, weight: .semibold))
-                    .foregroundStyle(Color.composerPrompt)
-                    .frame(width: 14)
-                  VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    Text(file.name)
-                      .font(.system(size: TypeScale.subhead, weight: .semibold))
-                      .foregroundStyle(Color.textPrimary)
-                    Text(file.relativePath)
-                      .font(.system(size: TypeScale.caption, design: .monospaced))
-                      .foregroundStyle(Color.textTertiary)
-                      .lineLimit(1)
-                  }
-                  Spacer()
-                }
-                .padding(.horizontal, Spacing.md_)
-                .padding(.vertical, 7)
-                .contentShape(Rectangle())
-              }
-              .buttonStyle(.plain)
-            }
-          }
-        }
-        .scrollIndicators(.hidden)
-      }
-    }
-    .padding(Spacing.md)
-    .background(Color.backgroundSecondary)
-  }
-
-  private func fileIcon(for name: String) -> String {
-    let ext = URL(fileURLWithPath: name).pathExtension.lowercased()
-    switch ext {
-      case "swift": return "swift"
-      case "rs": return "gearshape.2"
-      case "js", "ts", "jsx", "tsx": return "curlybraces"
-      case "py": return "chevron.left.forwardslash.chevron.right"
-      case "sh", "bash", "zsh": return "terminal"
-      case "json", "yaml", "yml", "toml": return "doc.text"
-      case "md", "txt": return "doc.plaintext"
-      case "html", "css": return "globe"
-      default: return "doc"
-    }
-  }
-}
-
-private struct ComposerClaudeModelPopover: View {
-  @Binding var selectedModel: String
-  let models: [ServerClaudeModelOption]
-
-  @State private var query = ""
-
-  private var filteredModels: [ServerClaudeModelOption] {
-    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return models }
-    let lower = trimmed.lowercased()
-    return models.filter { option in
-      option.displayName.lowercased().contains(lower) ||
-        option.value.lowercased().contains(lower) ||
-        option.description.lowercased().contains(lower)
-    }
-  }
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      TextField("Search Claude models", text: $query)
-        .textFieldStyle(.roundedBorder)
-        .font(.system(size: TypeScale.subhead))
-
-      if filteredModels.isEmpty {
-        VStack(spacing: Spacing.sm_) {
-          Image(systemName: "cpu")
-            .font(.system(size: TypeScale.thinkingHeading1, weight: .semibold))
-            .foregroundStyle(Color.textQuaternary)
-          Text("No Claude models available")
-            .font(.system(size: TypeScale.subhead, weight: .semibold))
-            .foregroundStyle(Color.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else {
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(filteredModels) { model in
-              let isSelected = model.value == selectedModel
-              Button {
-                selectedModel = model.value
-              } label: {
-                HStack(spacing: Spacing.sm) {
-                  Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: TypeScale.caption, weight: .semibold))
-                    .foregroundStyle(isSelected ? Color.providerClaude : Color.textQuaternary)
-                    .frame(width: 14)
-
-                  VStack(alignment: .leading, spacing: Spacing.xxs) {
-                    Text(model.displayName)
-                      .font(.system(size: TypeScale.subhead, weight: .semibold))
-                      .foregroundStyle(Color.textPrimary)
-                    Text(model.value)
-                      .font(.system(size: TypeScale.caption, design: .monospaced))
-                      .foregroundStyle(Color.textTertiary)
-                      .lineLimit(1)
-                  }
-                  Spacer()
-                }
-                .padding(.horizontal, Spacing.md_)
-                .padding(.vertical, 7)
-                .background(
-                  isSelected ? Color.providerClaude.opacity(0.14) : Color.clear,
-                  in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                )
-                .contentShape(Rectangle())
-              }
-              .buttonStyle(.plain)
-            }
-          }
-        }
-        .scrollIndicators(.hidden)
-      }
-    }
-    .padding(Spacing.md)
-    .background(Color.backgroundSecondary)
-  }
-}
-
-private enum ComposerDraftStore {
-  private static let keyPrefix = "orbitdock.direct-composer-draft"
-
-  static func load(for key: String, defaults: UserDefaults = .standard) -> String? {
-    let value = defaults.string(forKey: storageKey(for: key))
-    guard let value, !value.isEmpty else { return nil }
-    return value
-  }
-
-  static func save(_ value: String, for key: String, defaults: UserDefaults = .standard) {
-    let storageKey = storageKey(for: key)
-    if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      defaults.removeObject(forKey: storageKey)
-      return
-    }
-    defaults.set(value, forKey: storageKey)
-  }
-
-  private static func storageKey(for key: String) -> String {
-    "\(keyPrefix).\(key)"
-  }
-}
-
-enum ComposerTextEditing {
-  static func applySkillCompletion(in message: String, skillName: String) -> String? {
-    guard let dollarIdx = message.lastIndex(of: "$") else { return nil }
-    let prefix = String(message[..<dollarIdx])
-    return prefix + "$" + skillName + " "
-  }
-
-  static func applyMentionCompletion(in message: String, fileName: String) -> String? {
-    guard let atIdx = message.lastIndex(of: "@") else { return nil }
-    let prefix = String(message[..<atIdx])
-    return prefix + "@" + fileName + " "
-  }
-
-  static func isCommandDeckTokenStart(_ index: String.Index, in text: String) -> Bool {
-    if index == text.startIndex {
-      return true
-    }
-    return text[text.index(before: index)].isWhitespace
-  }
-
-  static func activateCommandDeckToken(in message: String, prefill: String?) -> String {
-    let token = "/" + (prefill ?? "")
-
-    if let slashIdx = message.lastIndex(of: "/") {
-      let afterSlash = message[message.index(after: slashIdx)...]
-      if isCommandDeckTokenStart(slashIdx, in: message), !afterSlash.contains(where: \.isWhitespace) {
-        let prefix = String(message[..<slashIdx])
-        return prefix + token
-      }
-    }
-
-    if message.isEmpty || message.hasSuffix(" ") || message.hasSuffix("\n") {
-      return message + token
-    }
-
-    return message + " " + token
-  }
-
-  static func removingTrailingCommandDeckToken(in message: String) -> String? {
-    guard let slashIdx = message.lastIndex(of: "/") else { return nil }
-    guard isCommandDeckTokenStart(slashIdx, in: message) else { return nil }
-    let afterSlash = message[message.index(after: slashIdx)...]
-    guard !afterSlash.contains(where: \.isWhitespace) else { return nil }
-    return String(message[..<slashIdx]).trimmingCharacters(in: .whitespacesAndNewlines)
-  }
-
-  static func replacingTrailingCommandDeckToken(in message: String, replacement: String, appendSpace: Bool) -> String {
-    let suffix = appendSpace ? " " : ""
-
-    guard let slashIdx = message.lastIndex(of: "/"),
-          isCommandDeckTokenStart(slashIdx, in: message)
-    else {
-      let spacer = (message.isEmpty || message.hasSuffix(" ") || message.hasSuffix("\n")) ? "" : " "
-      return message + spacer + replacement + suffix
-    }
-
-    let afterSlash = message[message.index(after: slashIdx)...]
-    guard !afterSlash.contains(where: \.isWhitespace) else {
-      let spacer = message.hasSuffix(" ") || message.hasSuffix("\n") ? "" : " "
-      return message + spacer + replacement + suffix
-    }
-
-    let prefix = String(message[..<slashIdx])
-    return prefix + replacement + suffix
-  }
-}
+// Standalone types: see ComposerCompletionLists.swift, CodexInterruptButton.swift
 
 #Preview {
   @Previewable @State var skills: Set<String> = []
