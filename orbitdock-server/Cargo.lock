@@ -5003,7 +5003,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "orbitdock"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -5043,7 +5043,7 @@ dependencies = [
 
 [[package]]
 name = "orbitdock-cli"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -5064,7 +5064,7 @@ dependencies = [
 
 [[package]]
 name = "orbitdock-connector-claude"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "orbitdock-connector-core",
@@ -5078,7 +5078,7 @@ dependencies = [
 
 [[package]]
 name = "orbitdock-connector-codex"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5099,7 +5099,7 @@ dependencies = [
 
 [[package]]
 name = "orbitdock-connector-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "orbitdock-protocol",
  "serde_json",
@@ -5110,7 +5110,7 @@ dependencies = [
 
 [[package]]
 name = "orbitdock-protocol"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
