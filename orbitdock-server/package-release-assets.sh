@@ -13,6 +13,7 @@ TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 LINUX_BUILD_MODE="${ORBITDOCK_LINUX_BUILD_MODE:-auto}"
 LINUX_PROFILE_PRESET="${ORBITDOCK_LINUX_PROFILE_PRESET:-release}"
 LINUX_DOCKER_CARGO_BUILD_JOBS="${ORBITDOCK_LINUX_DOCKER_CARGO_BUILD_JOBS:-}"
+REPO_ROOT="$(cd .. && pwd)"
 
 usage() {
   echo "Usage: $0 <darwin|linux|linux-x86_64|linux-aarch64> [output_dir]"
@@ -103,6 +104,16 @@ package_binary() {
     rm -f orbitdock
   )
   echo "Created $OUTPUT_DIR/$archive_name"
+}
+
+refresh_darwin_archive_binary() {
+  local binary_path="$1"
+  local darwin_output_dir="$TARGET_DIR/darwin-arm64"
+
+  mkdir -p "$darwin_output_dir"
+  cp "$binary_path" "$darwin_output_dir/orbitdock"
+  chmod +x "$darwin_output_dir/orbitdock"
+  "$REPO_ROOT/OrbitDock/Scripts/server-source-fingerprint.sh" > "$darwin_output_dir/orbitdock.gitsha"
 }
 
 build_linux_target() {
@@ -269,7 +280,8 @@ case "$TARGET" in
   darwin)
     rustup target add aarch64-apple-darwin
     cargo build -p orbitdock --release --target aarch64-apple-darwin
-    package_binary "$TARGET_DIR/aarch64-apple-darwin/release/orbitdock" "orbitdock-darwin-arm64.zip"
+    refresh_darwin_archive_binary "$TARGET_DIR/aarch64-apple-darwin/release/orbitdock"
+    package_binary "$TARGET_DIR/darwin-arm64/orbitdock" "orbitdock-darwin-arm64.zip"
     ;;
   linux-x86_64)
     build_linux_release x86_64-unknown-linux-gnu orbitdock-linux-x86_64.zip
