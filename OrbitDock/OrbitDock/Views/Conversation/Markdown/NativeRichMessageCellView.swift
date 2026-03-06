@@ -573,8 +573,7 @@ struct NativeRichMessageRowModel {
       let vTop = Self.thinkingVPadTop
       let vBottom = Self.thinkingVPadBottom
       let innerWidth = contentWidth - hPad * 2
-      let displayBlocks = MarkdownSystemParser.parse(model.displayContent, style: .thinking)
-      let mdHeight = NativeMarkdownContentView.requiredHeight(for: displayBlocks, width: innerWidth, style: .thinking)
+      let mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth, style: .thinking)
 
       let hasShowMore = model.isThinkingLong
       let isCollapsed = hasShowMore && !model.isThinkingExpanded
@@ -601,7 +600,7 @@ struct NativeRichMessageRowModel {
         width: innerWidth,
         height: mdHeight
       )
-      markdownContentView.configure(blocks: displayBlocks, style: .thinking)
+      markdownContentView.configure(blocks: currentBlocks, style: .thinking)
       bodyContainer.addSubview(markdownContentView)
 
       // Gradient mask: fade text to transparent over the last lines when collapsed

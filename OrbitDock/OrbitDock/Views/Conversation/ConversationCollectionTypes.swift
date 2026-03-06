@@ -184,7 +184,7 @@ nonisolated struct ToolBreakdownEntry: Hashable, Sendable {
 
 nonisolated enum TimelineRowPayload: Hashable, Sendable {
   case none
-  case message(id: String)
+  case message(id: String, showHeader: Bool)
   case turnHeader(turnID: String)
   case tool(id: String)
   case rollupSummary(

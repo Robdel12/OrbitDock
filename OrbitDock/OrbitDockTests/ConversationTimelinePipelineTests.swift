@@ -72,6 +72,42 @@ struct ConversationTimelinePipelineTests {
     #expect(appended.diff.deletions.isEmpty)
   }
 
+  @Test func projectorMarksMessageRowDirtyWhenHeaderVisibilityChanges() {
+    let initialSource = makeSource(messages: [makeMessage(id: "a1", type: .assistant, content: "first")])
+    let ui = ConversationUIState(widthBucket: 12)
+    let initial = ConversationTimelineProjector.project(source: initialSource, ui: ui)
+
+    let appendedSource = makeSource(messages: [
+      makeMessage(id: "a0", type: .assistant, content: "previous"),
+      makeMessage(id: "a1", type: .assistant, content: "first"),
+    ])
+    let appended = ConversationTimelineProjector.project(source: appendedSource, ui: ui, previous: initial)
+
+    #expect(appended.diff.insertions == [0])
+    #expect(appended.diff.reloads == [1])
+    #expect(appended.dirtyRowIDs.contains(.message("a0")))
+    #expect(appended.dirtyRowIDs.contains(.message("a1")))
+
+    guard appended.rows.count >= 2 else {
+      Issue.record("Expected two message rows before bottom spacer")
+      return
+    }
+
+    guard case let .message(firstID, firstShowHeader) = appended.rows[0].payload else {
+      Issue.record("Expected first projected row to be a message payload")
+      return
+    }
+    #expect(firstID == "a0")
+    #expect(firstShowHeader)
+
+    guard case let .message(secondID, secondShowHeader) = appended.rows[1].payload else {
+      Issue.record("Expected second projected row to be a message payload")
+      return
+    }
+    #expect(secondID == "a1")
+    #expect(!secondShowHeader)
+  }
+
   @Test func projectorTracksLayoutHashSeparatelyFromRenderHash() {
     let source = makeSource(
       messages: [
