@@ -152,12 +152,6 @@ enum ServerInstallState: Equatable {
     /// Full setup sequence:
     /// 1. Find binary
     /// 2. Copy to ~/.orbitdock/bin/ (if from bundle)
-<<<<<<< HEAD
-    /// 3. Run `orbitdock init`
-    /// 4. Run `orbitdock install-hooks`
-    /// 5. Run `orbitdock install-service --enable`
-    /// 6. Wait for health check
-    /// 7. Refresh state
     /// 3. Run `orbitdock ensure-path`
     /// 4. Run `orbitdock init`
     /// 5. Run `orbitdock install-hooks`
