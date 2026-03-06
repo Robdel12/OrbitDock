@@ -1,84 +1,724 @@
 # Repository Guidelines
 
-## Overview
-OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude Code (via Swift CLI hooks) and Codex CLI (via Rust server rollout watching + direct codex-core integration).
+`AGENTS.md` is the source of truth for repository instructions. `CLAUDE.md` remains in the repo as a compatibility pointer.
+
+## Project Overview
+
+OrbitDock is a native SwiftUI app for macOS and iOS — mission control for AI coding agents. A Rust server (`orbitdock`) is the central hub: it owns the SQLite database, receives events from Claude Code hooks via HTTP POST (`/api/hook`), manages Codex sessions via codex-core, and pushes real-time events to clients over WebSocket. Client-initiated mutations and queries use REST endpoints; WebSocket is reserved for server-pushed events and real-time session interaction (subscribe, send message, approve, interrupt).
 
 ## Project Structure & Module Organization
-- `OrbitDock/OrbitDock/` is the macOS SwiftUI app (views, models, services, database layer).
-- `OrbitDock/OrbitDockCore/` is a Swift Package containing the CLI hook handler and shared database code.
-- `migrations/` contains numbered SQL files for database schema changes.
-- `docs/` holds additional documentation.
-- `files/` holds repository media and local artifacts (screenshots, demo files, zips).
 
-## Build & Development Commands
-- SwiftUI app build (standard): `make build` (wraps `xcodebuild -project OrbitDock/OrbitDock.xcodeproj -scheme OrbitDock -destination 'platform=macOS' build`).
-- Unit tests (standard, no UI tests): `make test-unit`.
-- UI tests (standard): `make test-ui`.
-- All app tests: `make test-all`.
-- Rust server build: `make rust-build`.
-- Rust workspace check: `make rust-check`.
-- Rust workspace tests: `make rust-test`.
-- Rust dev server run: `make rust-run` (or `make rust-run-debug` for verbose logs).
-- Rust release packaging: `make release` (Darwin zip) and `make rust-release-linux` (Linux zip).
-- Rust cache/cleanup: `make rust-env`, `make rust-size`, `make rust-clean-incremental`, `make rust-clean-debug`, `make rust-clean-sccache`, `make rust-clean-release`.
-- Rust workflow policy (required): use `make rust-*` targets for build/check/test/run/lint/format.
-- Do not run direct `cargo` commands in normal development; they can bypass repo cache settings and create duplicate `target` trees.
-- If a needed Rust command has no Make target yet, add the Make target first, then use it.
-- Format all code: `make fmt` (or `make swift-fmt` / `make rust-fmt`).
-- Lint all code: `make lint` (or `make swift-lint` / `make rust-lint`).
-- SwiftUI app in Xcode: open `OrbitDock/OrbitDock.xcodeproj` and build/run (Cmd+R).
-- CLI standalone: `cd OrbitDock/OrbitDockCore && swift build`
-- Test hook transport: `echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock hook-forward claude_status_event`
+- `OrbitDock/OrbitDock/` is the macOS and iOS SwiftUI app
+- `OrbitDock/OrbitDockCore/` is the shared Swift package for hook transport and shared models
+- `orbitdock-server/crates/server/` is the Rust server
+- `migrations/` contains Rust-server schema migrations using the `VNNN__description.sql` convention
+- `docs/` holds project documentation
+- `files/` holds screenshots, zips, and other local artifacts
+
+## Tech Stack
+
+- **SwiftUI** - macOS 14+ with NavigationSplitView
+- **Rust / Axum** - orbitdock server (session management, persistence, REST API + WebSocket)
+- **rusqlite + SQLite WAL** - Database access, concurrent reads/writes
+- **refinery** - Embedded SQL migrations for the Rust server
+- **Rust hook transport** - `orbitdock hook-forward <type>` forwards Claude Code hooks via HTTP POST
+- **codex-core** - Embedded Codex runtime for direct sessions
+
+## Build, Test, and Lint Commands
+
+```bash
+# From repo root
+make build            # Build macOS app (xcbeautify output)
+make build-ios        # Build iOS app
+make build-all        # Build both macOS and iOS
+make test-unit        # Run unit tests only (OrbitDockTests)
+make test-ui          # Run UI tests only (OrbitDockUITests)
+make test-all         # Run both unit + UI tests
+make rust-build       # Build orbitdock
+make rust-check       # Check Rust workspace
+make rust-test        # Run Rust workspace tests
+make rust-ci          # fmt + clippy + tests
+make rust-fmt         # Format Rust workspace
+make rust-fmt-check   # Validate Rust formatting
+make rust-lint        # Clippy with warnings denied
+make rust-run         # Run orbitdock in dev mode
+make rust-run-debug   # Run orbitdock with debug logs
+make rust-env         # Print active Rust cache/build env
+make rust-size        # Inspect Rust cache disk usage
+make rust-clean-incremental # Remove incremental caches only
+make rust-clean-debug # Remove dev/test artifacts only
+make rust-clean-sccache # Clear local sccache files
+make rust-clean-release # Clean Rust release artifacts only
+make release          # Build + package macOS server release zip
+make rust-release-linux # Build + package Linux server release zip
+make cli-build        # Build orbitdock CLI
+make cli-run          # Run orbitdock CLI (pass ARGS='session list' etc.)
+make cli-install      # Install orbitdock CLI to ~/.orbitdock/bin/
+make fmt              # Format Swift + Rust
+make lint             # Lint Swift + Rust
+```
+
+`make test-unit` intentionally excludes UI tests so local unit-test runs do not trigger the UI automation flow.
+
+Rust workflow policy (required): use `make rust-*` targets for normal development.
+
+Do not run plain `cargo` commands unless you are adding or fixing a Make target; plain cargo can bypass repo cache settings and create duplicate `target` directories.
+
+If a Rust command is missing, add it to `Makefile` first and then run it via `make`.
 
 ## Coding Style & Naming Conventions
-- Swift is formatted with SwiftFormat; see `.swiftformat` (2-space indentation, max width 120).
-- Prefer descriptive, domain-based naming (e.g., `SessionRowView`, `TranscriptParser`, `StatusTrackerCommand`).
+
+- Swift is formatted with SwiftFormat; see `.swiftformat` (2-space indentation, max width 120)
+- Prefer descriptive, domain-based naming like `SessionRowView`, `TranscriptParser`, or `StatusTrackerCommand`
 
 ## Testing Guidelines
-- Swift tests are under `OrbitDock/OrbitDockTests/`; prefer `make test-unit` for non-UI tests and `make test-ui` for UI automation.
-- CLI can be tested by piping JSON to stdin and checking database state.
+
+- Swift tests live in `OrbitDock/OrbitDockTests/`
+- Prefer `make test-unit` for normal local verification and `make test-ui` when UI automation is needed
+- CLI and hook flows can be tested by piping JSON to stdin and verifying server or database state
 
 ## Commit & Pull Request Guidelines
-- Commits use gitmoji prefix plus a short, present-tense summary (e.g., `✨ Add reset times...`).
-- PRs should include a clear description, test coverage notes, and UI screenshots for SwiftUI changes.
-- Link related issues or include a short rationale if no issue exists.
 
-## Architecture & App-Specific Notes
-- **Server-authoritative**: The Rust server (`orbitdock`) is the single source of truth for all session and approval state. Clients receive state over WebSocket and render it — they must never derive, infer, or reconcile business-logic state locally. If the client lacks data it needs, fix the server to emit it.
-- The app reads AI agent session data from a local SQLite DB and JSONL transcripts.
-- Claude Code sessions: populated via Swift CLI hooks configured in `~/.claude/settings.json`.
-- Codex sessions: unified through `orbitdock` (direct sessions + rollout-watched CLI sessions).
-- Review `README.md` and `CLAUDE.md` for schema, paths, and update flow.
-- `CLAUDE.md` documents UI theme constraints and data consistency rules (e.g., WAL mode, status colors).
+- Commits use a gitmoji prefix plus a short present-tense summary
+- PRs should include a clear description, test coverage notes, and UI screenshots for SwiftUI changes
+- Link related issues when they exist, or include a short rationale if they do not
 
-## Claude Agent SDK Source of Truth (Required)
-- Canonical source: `orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/` (installed version currently `0.2.62`).
-- Always inspect local shipped source before implementation decisions involving plan mode, permission handling, tool contracts, hooks, or transport behavior.
-- Primary files to inspect: `sdk.mjs`, `sdk.d.ts`, `sdk-tools.d.ts`, `cli.js`.
-- Official docs are useful context, but local source wins when there is any mismatch.
-- Keep this SDK updated with:
+## Key Patterns
+
+### Server-Authoritative State
+- The Rust server is the **single source of truth** for all session and approval state. Clients (Swift app) should never derive, infer, or reconcile business-logic state locally — they receive state from the server via WebSocket events and display it.
+- Never add client-side logic that scans history or computes queue heads. If the server doesn't provide the data the client needs, fix the server to emit it.
+- Prefer functional, stateless transforms on the server side (its own state machine drives transitions). The client's job is rendering, not reasoning about state.
+
+### REST vs WebSocket Split
+The Swift client uses a **hybrid networking model**: REST for client-initiated operations, WebSocket for server-pushed events.
+
+**REST (HTTP)** — used for all queries, mutations, and fire-and-forget actions:
+- Config: `GET/POST /api/server/openai-key`, `PUT /api/server/role`
+- Worktrees: `GET /api/worktrees`, `POST /api/worktrees`, `POST /api/worktrees/discover`, `DELETE /api/worktrees/{id}`
+- Review comments: `POST /api/sessions/{id}/review-comments`, `PATCH/DELETE /api/review-comments/{id}`
+- Codex auth: `POST /api/codex/login/start`, `POST /api/codex/login/cancel`, `POST /api/codex/logout`
+- Skills/MCP: `POST /api/sessions/{id}/skills/download`, `POST /api/sessions/{id}/mcp/refresh`
+- Read paths: sessions, approvals, usage, models, directory browsing, skills list, MCP tools list
+
+**WebSocket** — reserved for real-time bidirectional communication:
+- Session lifecycle: subscribe, unsubscribe, create, resume, end, fork, takeover
+- Conversation: sendMessage, approveTool, answerQuestion, interruptSession, steerTurn
+- Context: compactContext, undoLastTurn, rollbackTurns
+- Server-pushed events: sessionDelta, messageAppended, approvalRequested, tokensUpdated, etc.
+- Server broadcasts after REST mutations (e.g. `ReviewCommentCreated` after `POST /api/sessions/{id}/review-comments`)
+
+**Key pattern:** REST methods in `ServerConnection.swift` use `Task { @MainActor in ... }` to call the endpoint and invoke the existing callback (e.g. `onWorktreeCreated?`). WS response handlers remain in place because the server still broadcasts events after mutations. The `requestAPIJSON(path:method:body:)` overload handles JSON-body POST/PUT/PATCH requests with `convertToSnakeCase` encoding.
+
+**When adding new client operations:** Default to REST. Only use WS for operations that need the persistent connection (subscriptions, streaming turn interaction). If the server needs to notify all clients after a mutation, add a REST endpoint that broadcasts the result via WS — do not send the mutation itself over WS.
+
+### Approval Version Gating
+- Each session has a monotonic `approval_version` counter (`sessions.approval_version` in SQLite, `SessionHandle.approval_version` in memory)
+- The counter increments on every approval state change: enqueue, decide, clear, or in-place update
+- Every approval-related message includes the version: `ApprovalRequested`, `SessionDelta` (when `pending_approval` changes), and `ApprovalDecisionResult`
+- Clients compare the incoming version against their local high-water mark (`SessionObservable.approvalVersion`) and reject stale events
+- The `approval_version` field is `Option<u64>` for backwards compatibility with older servers — `nil` bypasses the gate
+- Key files: `session.rs` (queue + version management), `codex_session.rs` (`inject_approval_version`), `transition.rs` (state machine), `ServerAppState.swift` (`handleApprovalRequested`, `handleApprovalDecisionResult`)
+
+### State Management
+- Use `@State private var cache: [String: T] = [:]` dictionaries keyed by session/path ID to prevent state bleeding between sessions
+- Always guard async callbacks with `guard currentId == targetId else { return }`
+
+### Database Concurrency
+- The Rust server (`persistence.rs`) is the sole SQLite writer
+- All connections use WAL mode (`journal_mode = WAL`), `busy_timeout = 5000`, `synchronous = NORMAL`
+- The migration runner sets these pragmas at startup
+
+### Animations
+- Use `.spring(response: 0.35, dampingFraction: 0.8)` for message animations
+- Add `.transition()` modifiers to ForEach items for smooth insertions
+- Avoid timers for animations - use SwiftUI's declarative animation system
+
+### Keyboard Navigation
+- Dashboard and QuickSwitcher support keyboard navigation
+- Use `KeyboardNavigationModifier` for arrow keys + Emacs bindings (C-n/p, C-a/e)
+- Pattern: `@State selectedIndex` + `ScrollViewReader` for auto-scroll
+- Selection highlight: cyan accent bar + `Color.accent.opacity(0.15)` background
+
+### Toast Notifications
+- `ToastManager` shows non-intrusive toasts when sessions need attention
+- Triggers on `.permission` or `.question` status transitions
+- Only shows when viewing a different session
+- Auto-dismisses after 5 seconds, max 3 visible
+- Key files: `ToastManager.swift`, `ToastView.swift`
+
+### Git Worktree Detection
+- Server resolves `repository_root` via `git rev-parse --git-common-dir` for every session
+- `classify_common_dir` (pure function) derives the canonical repo root from git's common-dir output
+- Sessions set `repository_root`, `is_worktree`, and `worktree_id` on creation and environment changes
+- `Session.groupingPath` (`repositoryRoot ?? projectPath`) is used for dashboard grouping — worktree sessions automatically group with their parent repo
+- Git info (branch, SHA, repository_root, is_worktree) is re-resolved on every `UserPromptSubmit` hook for branch freshness (~10ms)
+- `assess_worktree_health` is a pure function for lifecycle management (Active → Orphaned → Stale → Removed)
+- Key files: `git.rs` (detection + CRUD), `worktree.rs` (health assessment), `hook_handler.rs` (enrichment)
+
+### Cosmic Harbor Theme & Design System
+- Design tokens in `Theme.swift`, `DesignTokens.swift`, `ComponentStyles.swift`
+- Use custom colors from Theme.swift - deep space backgrounds with indigo undertones
+- `Color.backgroundPrimary` (charcoal), `Color.backgroundSecondary` (elevated), `Color.backgroundTertiary` (cards)
+- `Color.accent` is the cyan orbit ring - use for active states, links, working sessions
+- Text hierarchy: `Color.textPrimary` / `.textSecondary` / `.textTertiary` / `.textQuaternary` — see "Text Contrast" section below
+- Status colors (5 distinct session states):
+  - `.statusWorking` (cyan) - Claude actively processing
+  - `.statusPermission` (coral) - Needs tool approval - URGENT
+  - `.statusQuestion` (purple) - Claude asked something - URGENT
+  - `.statusReply` (soft blue) - Awaiting your next prompt
+  - `.statusEnded` (gray) - Session finished
+- Feedback colors (non-session UI states):
+  - `.feedbackPositive` (green) - Saved, connected, success, completed
+  - `.feedbackCaution` (amber) - Approaching limits, warnings
+  - `.feedbackWarning` (orange) - Bash errors, risky states
+  - `.feedbackNegative` (red) - Failed, disconnected
+- Use `Spacing.*` tokens for all padding (xxs/xs/sm/md/lg/xl/xxl)
+- Use `TypeScale.*` tokens for all font sizes (mini/micro/caption/meta/body/code/subhead/reading/title/large/headline)
+- Use `Radius.*` tokens for all corner radii (sm/md/ml/lg/xl)
+- Use `OpacityTier.*` for opacity values (tint/subtle/light/medium/strong/vivid)
+- Use `Motion.*` for animations (snappy/standard/gentle/bouncy/hover/fade)
+- Use `Shadow.*` for shadows (sm/md/lg + glow)
+- Use `IconScale.*` for icon sizes (xs/sm/md/lg/xl/xxl/hero)
+- Use `EdgeBar.width` (3pt) for ALL left accent edge bars
+- All backgrounds should use theme colors, not system defaults
+- Never use system colors (.blue, .green, .purple, .orange) - use themed equivalents
+
+## Server Setup Flow
+
+The app doesn't embed the server — it connects over WebSocket for real-time events and uses REST for queries/mutations. Endpoint configuration is multi-server and persisted in `ServerEndpointSettings`/`ServerEndpointStore`.
+
+On launch, `ServerManager` still checks local install state for onboarding, while `ServerRuntimeRegistry` manages active endpoint runtimes and connection state:
+
+1. **Health check** `localhost:4000/health` → `.running` (covers `make rust-run`, brew, launchd)
+2. **Launchd plist** at `~/Library/LaunchAgents/com.orbitdock.server.plist` → `.installed` (stopped)
+3. **Configured endpoints** in `ServerEndpointSettings` are loaded and connected by runtime registry
+4. Otherwise → `.notConfigured` (shows `ServerSetupView`)
+
+`ServerManager` shells out to the server's own CLI for install/service management — no custom plist generation in Swift.
+
+### Key Files
+- `Services/Server/ServerManager.swift` — Install state detection, CLI wrapper (refreshState, install, startService, stopService)
+- `Views/ServerSetupView.swift` — First-launch onboarding (Install Locally / Connect to Remote)
+- `Services/Server/ServerEndpointSettings.swift` — Multi-endpoint settings façade
+- `Services/Server/ServerEndpointStore.swift` — Endpoint persistence + legacy migration
+- `Services/Server/ServerRuntimeRegistry.swift` — Endpoint-scoped runtime orchestration + control-plane selection
+- `Platform/PlatformPaths.swift` — `orbitDockBinDirectory` (`~/.orbitdock/bin/`)
+
+### Install Flow (triggered from ServerSetupView or Settings)
+1. Find binary (Bundle Resources → env var → `~/.orbitdock/bin/` → PATH)
+2. Copy to `~/.orbitdock/bin/` if from bundle
+3. `orbitdock ensure-path`
+4. `orbitdock init`
+5. `orbitdock install-hooks`
+6. `orbitdock install-service --enable`
+7. Wait for health check → connect WebSocket
+
+### Development
+In dev, run `make rust-run` — the app detects it via health check and skips setup. Set `ORBITDOCK_SERVER_PATH` in Xcode scheme to test the install flow with a debug binary.
+
+## File Locations
+
+All server paths are resolved via `paths.rs` from a single data directory (`--data-dir` / `ORBITDOCK_DATA_DIR` / `~/.orbitdock`).
+
+- **Server Binary**: `~/.orbitdock/bin/orbitdock` (installed by app) or on PATH
+- **Database**: `<data_dir>/orbitdock.db` (separate from CLIs to survive reinstalls)
+- **PID File**: `<data_dir>/orbitdock.pid` (written after bind, removed on shutdown)
+- **Auth Token**: `<data_dir>/auth-token` (optional, 0600 permissions)
+- **Encryption Key**: `<data_dir>/encryption.key` (auto-generated, 0600 permissions — see "Config Encryption" below)
+- **Launchd Plist**: `~/Library/LaunchAgents/com.orbitdock.server.plist` (created by `install-service`)
+- **Codex App Logs**: `<data_dir>/logs/codex.log` (structured JSON logs for Codex debugging)
+- **Rust Server Logs**: `<data_dir>/logs/server.log` (structured JSON logs from orbitdock)
+- **Migrations**: `migrations/` (SQL files embedded at compile time by `refinery`; use `VNNN__description.sql`)
+- **Hook Transport Config**: `<data_dir>/hook-forward.json` (server_url/auth_token for hook-forward)
+- **Shared Models**: `OrbitDock/OrbitDockCore/` (Swift Package with shared code)
+- **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
+- **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
+- **Codex Watcher State**: `<data_dir>/codex-rollout-state.json` (offset tracking)
+- **Hook Event Spool**: `<data_dir>/spool/` (queued hook events when server is offline, drained on startup)
+- **Timeline Logs**: `<data_dir>/logs/timeline.log` (macOS) / `timeline-ios.log` (iOS) — conversation view height calculations and overflow detection
+- **Claude Agent SDK**: `orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/` — local installed SDK source (currently `0.2.62`) for protocol reverse-engineering
+- **Claude Protocol Docs**: `orbitdock-server/docs/claude-agent-sdk-protocol.md` — stdin/stdout JSON protocol reference
+
+### Claude Agent SDK Source of Truth (Required)
+
+- Treat `orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/` as the canonical source of truth for SDK behavior.
+- Before making assumptions about plan mode, permissions, tool schemas, control messages, or hooks, inspect the shipped source directly (`sdk.mjs`, `sdk.d.ts`, `sdk-tools.d.ts`, `cli.js`).
+- Use official docs as secondary context only; resolve conflicts in favor of the installed source.
+- Keep the local SDK current so reverse-engineering stays accurate:
   - `make claude-sdk-update CLAUDE_SDK_VERSION=<version>`
-- Current installed/versioned metadata:
+- Track current installed/versioned metadata in:
   - `orbitdock-server/docs/claude-agent-sdk-version.json`
-- Current deep-dive reference: `orbitdock-server/docs/claude-agent-sdk-0.2.62-source-audit.md`.
+- Deep-dive notes for the current version are documented in `orbitdock-server/docs/claude-agent-sdk-0.2.62-source-audit.md`.
 
-## Debugging Quick Reference
-- Database: `~/.orbitdock/orbitdock.db`
-- CLI log: `~/.orbitdock/cli.log`
-- Codex app log: `~/.orbitdock/logs/codex.log`
-- Rust server log: `~/.orbitdock/logs/server.log`
+## Debugging Codex Integration
 
-Useful commands:
-- `sqlite3 ~/.orbitdock/orbitdock.db "SELECT id, provider, codex_integration_mode, status, work_status FROM sessions ORDER BY datetime(last_activity_at) DESC LIMIT 20;"`
-- `tail -f ~/.orbitdock/logs/server.log | jq .`
-- `tail -f ~/.orbitdock/logs/server.log | jq 'select(.event == "session.resume.connector_failed")'`
-- `tail -f ~/.orbitdock/logs/server.log | jq 'select(.component == "websocket")'`
-- `tail -f ~/.orbitdock/logs/server.log | jq 'select(.session_id == "your-session-id")'`
-- `tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'`
-- `tail -f ~/.orbitdock/logs/codex.log | jq .`
-- `tail -f ~/.orbitdock/logs/codex.log | jq 'select(.level == "error" or .level == "warning")'`
+The Codex integration writes structured JSON logs for debugging. Each log entry is a single JSON line.
 
-Rust server logging env vars:
-- `ORBITDOCK_SERVER_LOG_FILTER` (preferred) or `RUST_LOG` to control verbosity/filtering.
-- `ORBITDOCK_SERVER_LOG_FORMAT=json|pretty` (default `json`).
-- `ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START=1` to clear `server.log` at startup.
+### Log Location
+`~/.orbitdock/logs/codex.log` (auto-rotates at 10MB)
+
+### Viewing Logs
+```bash
+# Watch live events
+tail -f ~/.orbitdock/logs/codex.log | jq .
+
+# Filter by level
+tail -f ~/.orbitdock/logs/codex.log | jq 'select(.level == "error")'
+
+# Filter by category
+tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "event")'
+tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "decode")'
+tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "bridge")'
+
+# Filter by session
+tail -f ~/.orbitdock/logs/codex.log | jq 'select(.sessionId == "codex-direct-abc123")'
+
+# Show only specific events
+tail -f ~/.orbitdock/logs/codex.log | jq 'select(.message | contains("item/"))'
+```
+
+### Log Categories
+- `event` - Codex app-server events (turn/started, item/created, etc.)
+- `connection` - Connection lifecycle (connecting, connected, disconnected)
+- `message` - MessageStore operations (append, update, upsert)
+- `bridge` - MCP Bridge HTTP requests/responses
+- `decode` - JSON decode failures with raw payloads
+- `session` - Session lifecycle (create, send, approve)
+
+### Log Levels
+- `debug` - Verbose details (streaming events, minor updates)
+- `info` - Normal operations (turn started, message sent)
+- `warning` - Approval requests, unknown events
+- `error` - Decode failures, connection errors
+
+### Example Log Entry
+```json
+{
+  "ts": "2024-01-15T10:30:45.123Z",
+  "level": "info",
+  "category": "event",
+  "message": "item/created",
+  "sessionId": "codex-direct-abc123",
+  "data": {
+    "itemId": "item_xyz",
+    "itemType": "commandExecution",
+    "status": "inProgress"
+  }
+}
+```
+
+### Decode Error Debugging
+When JSON decode fails, logs include the raw JSON:
+```bash
+tail -100 ~/.orbitdock/logs/codex.log | jq 'select(.category == "decode")'
+```
+
+This shows the exact payload that failed to parse, making it easy to fix struct definitions.
+
+## Debugging Rust Server
+
+The Rust server (`orbitdock`) logs to a file only — no stderr output. All logs are structured JSON.
+
+### Log Location
+`~/.orbitdock/logs/server.log`
+
+### Viewing Logs
+```bash
+# Watch all server logs live
+tail -f ~/.orbitdock/logs/server.log | jq .
+
+# Filter by structured event name
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.event == "session.resume.connector_failed")'
+
+# Filter by component
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.component == "websocket")'
+
+# Filter by session/request IDs
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.session_id == "your-session-id")'
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.request_id == "your-request-id")'
+
+# Errors only
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
+
+# Filter by source file
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.filename | strings | test("codex"))'
+```
+
+### Verbose Debug Logs
+Default log level is `info`. For verbose output, set `ORBITDOCK_SERVER_LOG_FILTER` (or `RUST_LOG`) before launching:
+```bash
+make rust-run-debug
+RUST_LOG=debug make rust-run
+```
+
+### Log Controls
+- `ORBITDOCK_SERVER_LOG_FILTER` - optional tracing filter override (for example `debug,tower_http=warn`).
+- `ORBITDOCK_SERVER_LOG_FORMAT` - `json` (default) or `pretty`.
+- `ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START=1` - truncates `server.log` on boot.
+
+### Structured Fields
+Core event fields are stable for filtering:
+- `event`, `component`, `session_id`, `request_id`, `connection_id`, `error`
+
+### Key Log Sources
+- `crates/server/src/main.rs` - Startup, session restoration
+- `crates/server/src/websocket.rs` - WebSocket messages, session creation
+- `crates/server/src/persistence.rs` - SQLite writes, batch flushes
+- `crates/server/src/codex_session.rs` - Codex event handling, approvals
+- `crates/connectors/src/codex.rs` - codex-core events, message translation
+
+## Debugging Conversation Timeline
+
+Both platforms log height calculations and overflow detection to a plain-text file via `TimelineFileLogger`. The file truncates on each app launch.
+
+### Log Location
+- macOS: `~/.orbitdock/logs/timeline.log`
+- iOS: `~/.orbitdock/logs/timeline-ios.log`
+
+### Viewing Logs
+```bash
+# Watch live
+tail -f ~/.orbitdock/logs/timeline.log
+
+# Check for height overflow (content exceeds calculated bounds — causes clipping)
+grep "OVERFLOW" ~/.orbitdock/logs/timeline.log
+
+# Filter by message ID
+grep "e84dd5b4" ~/.orbitdock/logs/timeline.log
+
+# Filter by cell type
+grep "tool-cell" ~/.orbitdock/logs/timeline.log
+grep "rich\[" ~/.orbitdock/logs/timeline.log
+```
+
+### What Gets Logged
+- **`requiredHeight`**: Height calculation breakdown (header, content, total, width) for every expanded tool card and rich message cell
+- **`tool-cell`** / **`rich`**: Configure-time frame values and max subview bottom position
+- **`⚠️ OVERFLOW`**: Content exceeds calculated height — the root cause of visual clipping. Includes the exact overflow amount, cell type, message ID, and all dimensions
+
+### Key Files
+- `TimelineFileLogger.swift` — `TimelineFileLogger` singleton (shared by both platforms)
+- `ConversationCollectionView+macOS.swift` — macOS `heightOfRow`, `viewFor` logging
+- `ConversationCollectionView+iOS.swift` — iOS `sizeForItemAt` logging
+- `ExpandedToolCellView.swift` — Expanded tool card height calc + overflow detection
+- `Markdown/NativeRichMessageCellView.swift` — Rich message height calc + overflow detection
+
+## OrbitDockCore Package
+
+Shared Swift models used by the SwiftUI app. No CLI — hooks go directly via HTTP POST.
+
+```
+OrbitDock/OrbitDockCore/
+├── Package.swift
+└── Sources/
+    └── OrbitDockCore/          # Shared library
+        └── Models/             # Input structs, enums (WorkStatus, SessionStatus, etc.)
+```
+
+### Hook Transport
+
+Claude Code hooks invoke `orbitdock hook-forward <type>`, which injects the `type` field and POSTs to `<server_url>/api/hook`. Transport target configuration lives in `<data_dir>/hook-forward.json` and is managed by `install-hooks`.
+
+Install hooks automatically: `orbitdock install-hooks`
+
+| Claude Hook | Type Argument |
+|---|---|
+| `SessionStart` | `claude_session_start` |
+| `SessionEnd` | `claude_session_end` |
+| `UserPromptSubmit`, `Stop`, `Notification`, `PreCompact` | `claude_status_event` |
+| `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest` | `claude_tool_event` |
+| `SubagentStart`, `SubagentStop` | `claude_subagent_event` |
+
+### CLI
+
+Single `orbitdock` binary with all server admin and client commands:
+
+```bash
+# Server admin
+orbitdock init                    # Bootstrap dirs + DB
+orbitdock install-hooks           # Merge hooks into ~/.claude/settings.json
+orbitdock start [--bind ADDR]     # Start server (default: 127.0.0.1:4000)
+orbitdock install-service --enable # Generate launchd/systemd service
+orbitdock status                  # Check if running
+orbitdock generate-token          # Create auth token
+
+# Client commands
+orbitdock health                  # Check server health
+orbitdock session list            # List sessions
+orbitdock approval list           # List pending approvals
+orbitdock completions <shell>     # Generate shell completions
+```
+
+Global `--data-dir` overrides all paths. All data paths resolved via `paths.rs` module.
+
+```bash
+# Server
+orbitdock health                              # Check server connection
+orbitdock server status                       # Server status + role
+
+# Sessions
+orbitdock session list [-p codex|claude] [--status active|ended]
+orbitdock session get <ID> [-m]               # -m includes messages
+orbitdock session create -p claude [--model MODEL] [--cwd PATH]
+orbitdock session send <ID> "message"         # Streams turn events
+orbitdock session send <ID> - < prompt.txt    # Read from stdin
+orbitdock session approve <ID> [-d approved|denied|abort]
+orbitdock session answer <ID> "response"
+orbitdock session watch <ID> [-f event_type]  # Real-time event stream
+orbitdock session interrupt <ID>
+orbitdock session end <ID>
+orbitdock session fork <ID> [--nth-user-message N]
+orbitdock session steer <ID> "guidance"
+orbitdock session compact <ID>
+orbitdock session undo <ID>
+orbitdock session rollback <ID> --turns N
+orbitdock session rename <ID> --name "name"
+orbitdock session resume <ID>
+
+# Supporting
+orbitdock approval list [--session ID]
+orbitdock review list <SESSION_ID>
+orbitdock review create <SESSION_ID> --file PATH --line N --body TEXT
+orbitdock model list [-p codex|claude]
+orbitdock usage show [-p codex|claude]
+orbitdock worktree list [--repo PATH]
+orbitdock shell exec <SESSION_ID> "command"
+orbitdock completions zsh|bash|fish           # Shell completions
+```
+
+**Output modes:** Human-readable tables in TTY, JSON when piped or `--json`/`-j` flag. LLM tool use auto-detects non-TTY.
+
+**Config resolution:** `--server` flag > `ORBITDOCK_URL` env > `~/.orbitdock/cli.toml` > default (`http://127.0.0.1:4000`).
+**Token resolution:** `--token` flag > `ORBITDOCK_TOKEN` env > `cli.toml` > `~/.orbitdock/auth-token` file.
+
+**Key files:**
+- `crates/cli/src/cli.rs` — Clap command tree, ValueEnums, stdin helper
+- `crates/cli/src/client/rest.rs` — REST client (GET/POST/PUT/PATCH/DELETE)
+- `crates/cli/src/client/ws.rs` — WebSocket client (session subscribe, send, recv with timeout)
+- `crates/cli/src/client/config.rs` — Config/token resolution from flags, env, file
+- `crates/cli/src/commands/session.rs` — Session commands (REST reads + WS mutations)
+- `crates/cli/src/output/human.rs` — Colored tables via comfy-table
+- `crates/cli/src/output/mod.rs` — Output mode detection, JSON writer, UTF-8 safe truncation
+- `crates/cli/src/error.rs` — Exit codes (0 success, 1 client, 2 server, 3 connection)
+
+## Database Migrations
+
+OrbitDock uses `refinery` for Rust-server migrations. The SQL files live in `migrations/`, get embedded at compile time, and run automatically on server startup.
+
+Fresh installs write migration history to `refinery_schema_history`. Upgraded installs may still have the old `schema_versions` table around as legacy history, but it is not the active migration table anymore.
+
+### Adding a new migration
+1. Create `migrations/VNNN__description.sql` using the next version number
+2. Write the SQL change
+3. Update `persistence.rs` if the new schema needs new read/write behavior
+4. Update restore/load queries if the new field affects startup hydration
+5. Update `orbitdock-protocol` types if the field needs to reach clients
+6. Run `make rust-test`
+
+Migrations run when: the Rust server starts (`migration_runner::run_migrations` in `main.rs`)
+
+### Message Storage Architecture
+
+- Rust server receives events via HTTP hooks (CLI) or codex-core (Codex)
+- `persistence.rs` batches writes through PersistCommand channel
+- Messages stored in SQLite `messages` table
+- Swift app receives messages in real-time via WebSocket push — does NOT read SQLite directly
+- Client-initiated reads (session snapshot, approvals, etc.) use REST endpoints
+
+## Database Conventions
+
+### Single writer: the Rust server
+Only `orbitdock` reads from and writes to SQLite. The Swift app and CLI
+never touch the database directly. All data flows through REST + WebSocket.
+
+### Data flow
+```
+Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
+                                           ↕ REST (queries + mutations)
+                                           ↓ WebSocket (real-time events)
+                                     Swift app (read-only client)
+```
+
+### Schema changes
+Follow the migration steps above. The extra rule here is simple: keep schema changes additive and idempotent where you reasonably can (`IF NOT EXISTS`, safe backfills, no destructive rewrites unless you really need them).
+
+### Tables
+| Table | Purpose |
+|-------|---------|
+| `sessions` | Core session tracking — one row per Claude/Codex session. Includes `pending_approval_id` (queue head), `approval_version` (monotonic counter), `repository_root`, `is_worktree`, `worktree_id` |
+| `messages` | Conversation messages per session |
+| `subagents` | Spawned Task agents (Explore, Plan, etc.) |
+| `turn_diffs` | Per-turn git diff snapshots + token usage |
+| `approval_history` | Tool approval requests and decisions |
+| `review_comments` | Code review annotations for workbench |
+| `worktrees` | Git worktree lifecycle tracking (status, health, auto-prune). Independent of sessions. |
+| `config` | Key-value settings (API keys stored encrypted) |
+| `refinery_schema_history` | Active migration tracking (`schema_versions` may remain on upgraded installs as legacy history) |
+
+### Key files
+- `orbitdock-server/crates/server/src/paths.rs` — Central path resolution (data dir, db, logs, spool, etc.)
+- `orbitdock-server/crates/server/src/persistence.rs` — All CRUD operations
+- `orbitdock-server/crates/server/src/migration_runner.rs` — `refinery` migration bootstrap + legacy history import
+- `orbitdock-server/crates/server/src/http_api.rs` — REST API endpoints (queries, mutations, fire-and-forget actions)
+- `orbitdock-server/crates/server/src/websocket.rs` — WebSocket protocol (subscriptions, real-time session interaction)
+- `orbitdock-server/crates/server/src/ws_handlers/` — Domain-scoped WS message handlers (config, rest_only rejections)
+- `orbitdock-server/crates/server/src/hook_handler.rs` — HTTP POST `/api/hook` endpoint for Claude Code hooks
+- `orbitdock-server/crates/server/src/git.rs` — Git detection (GitInfo, classify_common_dir, worktree CRUD)
+- `orbitdock-server/crates/server/src/worktree.rs` — Pure worktree health assessment + lifecycle
+- `orbitdock-server/crates/server/src/crypto.rs` — AES-256-GCM encryption for config secrets
+- `orbitdock-server/crates/server/src/auth.rs` — Optional Bearer token middleware
+- `orbitdock-server/crates/protocol/` — Shared types between server components
+- `migrations/V001__baseline.sql` — Complete schema definition
+- `migrations/V008__approval_version.sql` — Adds `approval_version` column to `sessions`
+- `migrations/V010__worktree_support.sql` — Adds `worktrees` table, `repository_root`/`is_worktree`/`worktree_id` to `sessions`
+- `orbitdock hook-forward` — Rust hook transport subcommand
+
+### Config Encryption
+
+Sensitive values in the `config` table (like the OpenAI API key) are encrypted at rest with AES-256-GCM via the `ring` crate.
+
+**How it works:** `persistence.rs` calls `crypto::encrypt()` before writing to the `config` table. `load_config_value()` calls `crypto::decrypt()` on read. Encrypted values get an `enc:` prefix — plaintext values without the prefix pass through unchanged, so no migration is needed for existing data.
+
+**Key resolution order:**
+1. `ORBITDOCK_ENCRYPTION_KEY` env var (base64-encoded 32 bytes)
+2. `<data_dir>/encryption.key` file (raw 32 bytes, 0600 permissions)
+3. Auto-generated on first `ensure_key()` call (startup + `init`)
+
+**If the key is lost**, any `enc:` prefixed values become unrecoverable. The server logs an ERROR when it can't decrypt.
+
+**Key files:** `crypto.rs` (encrypt/decrypt + key management), `paths.rs` (`encryption_key_path()`), `persistence.rs` (transparent encrypt on write, decrypt on read)
+
+### AppleScript for iTerm2
+- Requires `NSAppleEventsUsageDescription` in Info.plist
+- Use `NSAppleScript(source:)` with `executeAndReturnError`
+- iTerm2 sessions have `unique ID` and `path` properties
+
+### Multi-Provider Usage APIs
+
+Usage is fetched through the orbitdock server over REST endpoints and is scoped to the current control-plane endpoint selected on each client device.
+
+**Claude** (`SubscriptionUsageService.swift`):
+- Calls `fetch_claude_usage` on the selected control-plane endpoint
+- Auto-refreshes every 60 seconds
+- Tracks: 5h session window, 7d rolling window
+
+**Codex** (`CodexUsageService.swift`):
+- Calls `fetch_codex_usage` on the selected control-plane endpoint
+- Tracks primary and secondary rate-limit windows
+
+**Server-side usage endpoints**:
+- Implemented in `orbitdock-server/crates/server/src/http_api.rs`
+- `GET /api/usage/codex` and `GET /api/usage/claude`
+- Non-primary endpoints return `error_info` with `not_control_plane_for_client`
+
+**Unified Access** (`UsageServiceRegistry.swift`):
+- Coordinates provider services
+- Keeps provider cards visible even when usage requests fail, so auth/transport errors remain visible in UI
+- `windows(for: .claude)` / `windows(for: .codex)` expose normalized rate-limit windows
+
+Key UI files:
+- `Views/Usage/` - Provider usage gauges, bars, and badges
+
+## OrbitDock MCP
+
+An MCP for pair-debugging Codex sessions. Allows Claude to interact with the **same** Codex session visible in OrbitDock - sending messages and handling approvals.
+
+### Architecture
+
+```
+MCP (Node.js)  →  HTTP :19384  →  OrbitDock (MCPBridge)  →  Codex app-server
+```
+
+The MCP routes through OrbitDock's HTTP bridge to `CodexDirectSessionManager`. Same session, no state sync issues.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `list_sessions` | List active Codex sessions that can be controlled |
+| `send_message` | Send a user prompt to a Codex session (starts a turn) |
+| `interrupt_turn` | Stop the current turn |
+| `approve` | Approve/reject pending tool executions |
+| `check_connection` | Verify OrbitDock bridge is running |
+
+### Debugging via CLI
+
+For database queries and log inspection, use CLI tools directly:
+
+```bash
+# Query the database
+sqlite3 ~/.orbitdock/orbitdock.db "SELECT id, work_status FROM sessions WHERE provider='codex'"
+
+# Watch Codex logs live (JSON format)
+tail -f ~/.orbitdock/logs/codex.log | jq .
+
+# Filter logs by error level
+tail -f ~/.orbitdock/logs/codex.log | jq 'select(.level == "error" or .level == "warning")'
+
+# See MCP bridge requests
+tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "bridge")'
+```
+
+### Key Files
+
+- `orbitdock-debug-mcp/` - Node.js MCP server
+- `MCPBridge.swift` - OrbitDock's HTTP server on port 19384
+- `.mcp.json` - Project MCP configuration
+
+### Requirements
+
+- **OrbitDock must be running** - MCPBridge starts automatically on port 19384
+
+## Testing Changes
+
+Use the commands from **Build, Test, and Lint Commands** above. The minimum bar depends on what you touched.
+
+1. Run the relevant build or check command for the area you changed
+2. Run the smallest test set that gives real confidence
+3. Run lint or formatting checks when the change warrants it
+4. For Claude or Codex integration work, verify the behavior in a real session
+
+### Testing hook transport
+```bash
+# Test session start (server must be running on port 4000)
+echo '{"session_id":"test","cwd":"/tmp","model":"claude-opus-4-6","source":"startup"}' \
+  | orbitdock hook-forward claude_session_start
+
+# Test with curl directly
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"type":"claude_session_start","session_id":"test","cwd":"/tmp"}' \
+  http://127.0.0.1:4000/api/hook
+```
+
+## Text Contrast — Design System
+
+**NEVER use SwiftUI's hierarchical `.foregroundStyle(.tertiary)` or `.foregroundStyle(.quaternary)`** — they resolve to ~30%/~20% opacity which is invisible on our dark backgrounds.
+
+Always use the explicit themed `Color` values defined in `Theme.swift`:
+
+| Token | Opacity | Use for |
+|-------|---------|---------|
+| `Color.textPrimary` | 92% | Headings, session names, key data values |
+| `Color.textSecondary` | 65% | Labels, supporting text, active descriptions |
+| `Color.textTertiary` | 50% | Meta info, timestamps, counts, monospaced data |
+| `Color.textQuaternary` | 38% | Lowest priority but still readable (hints, separators) |
+
+For `.foregroundStyle(.primary)` and `.foregroundStyle(.secondary)`, SwiftUI's built-in values are acceptable because they have enough contrast. But `.tertiary` and `.quaternary` must always use the explicit Color values above.
+
+## Don't
+
+- Don't use `.foregroundStyle(.tertiary)` or `.foregroundStyle(.quaternary)` — use `Color.textTertiary` / `Color.textQuaternary` instead
+- Don't use `.foregroundColor()` at all — use `.foregroundStyle()` with themed Color values
+- Don't use `.scaleEffect()` on ProgressView - use `.controlSize(.small)` instead
+- Don't use timers for animations - use `Motion.*` tokens
+- Don't store single @State values for data that varies by session - use dictionaries
+- Don't use system colors (.blue, .green, .purple, .orange) - use themed equivalents
+- Don't use generic gray backgrounds - use the cosmic palette (`Color.backgroundPrimary`, etc.)
+- Don't use raw pixel values for padding — use `Spacing.*` tokens
+- Don't use raw font sizes — use `TypeScale.*` tokens
+- Don't use raw corner radius values — use `Radius.*` tokens
+- Don't use raw `.shadow()` — use `.themeShadow(Shadow.*)` tokens
+- Don't use raw `.spring()` or `.easeOut()` — use `Motion.*` tokens
+- Don't use deprecated color aliases (statusSuccess, statusWaiting, statusReady, statusAttention, statusIdle)
+- Don't use `.lineLimit(1)` or any truncation — text should always be fully visible. Use `.fixedSize(horizontal: false, vertical: true)` for multi-line content instead

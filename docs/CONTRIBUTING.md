@@ -83,7 +83,7 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock h
 
 **Per-session observation** — `SessionObservable` is a per-session `@Observable` class. Access via `serverState.session(scopedId)`. Views observe only the session they display.
 
-**Theme colors** — Always use the cosmic palette from `Theme.swift`. Never use system colors (`.blue`, `.green`, `.purple`). Never use `.foregroundStyle(.tertiary)` or `.foregroundStyle(.quaternary)` — use `Color.textTertiary` / `Color.textQuaternary` instead. See `CLAUDE.md` and `docs/UI_CROSS_PLATFORM_GUIDELINES.md` for UI system rules.
+**Theme colors** — Always use the cosmic palette from `Theme.swift`. Never use system colors (`.blue`, `.green`, `.purple`). Never use `.foregroundStyle(.tertiary)` or `.foregroundStyle(.quaternary)` — use `Color.textTertiary` / `Color.textQuaternary` instead. See `AGENTS.md` and `docs/UI_CROSS_PLATFORM_GUIDELINES.md` for UI system rules.
 
 **Animations** — Use `.spring(response: 0.35, dampingFraction: 0.8)`. No timers for animations — SwiftUI's declarative animation system only.
 
@@ -101,12 +101,12 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock h
 
 **WAL mode required** — All SQLite connections must use `PRAGMA journal_mode = WAL` and `PRAGMA busy_timeout = 5000`. This applies to both the Swift app and the CLI.
 
-**Migrations** — Numbered SQL files in `migrations/`. Both the Swift app (`MigrationManager`) and Rust server (`migration_runner.rs`) run migrations automatically at startup. When adding a migration:
+**Migrations** — The Rust server owns schema changes. OrbitDock uses `refinery`, and migration files live in `migrations/` with the `VNNN__description.sql` naming convention. When adding a migration:
 
-1. Create `migrations/NNN_description.sql`
-2. Update `Session.swift` if adding session fields
-3. Update `DatabaseManager.swift` column definitions
-4. Update `CLIDatabase.swift` if the CLI writes the field
+1. Create `migrations/VNNN__description.sql`
+2. Update the Rust persistence path if the new schema needs new reads or writes
+3. Update protocol types if the new field needs to reach the app
+4. Run `make rust-test`
 
 ## Build Commands
 

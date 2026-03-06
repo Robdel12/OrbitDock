@@ -250,7 +250,7 @@ The main binary. Provider-agnostic orchestration — it doesn't import codex-cor
 | `session.rs` | `SessionHandle` — owned state within an actor task |
 | `state.rs` | `SessionRegistry` — DashMap + list broadcast |
 | `persistence.rs` | Async SQLite writer (batched channel) |
-| `migration_runner.rs` | Embedded migrations via `include_str!` |
+| `migration_runner.rs` | `refinery` migration bootstrap + legacy history import |
 | `rollout_watcher.rs` | FSEvents driver for Codex rollout files (dispatches parsed events) |
 | `cmd_*.rs` | CLI subcommands (`init`, `install-hooks`, `setup`, `doctor`, etc.) |
 | `metrics.rs` | `/metrics` — Prometheus text format endpoint |
@@ -443,7 +443,9 @@ Everything lives under one directory. Default is `~/.orbitdock/`, override with 
 
 SQLite with WAL mode. Writes are batched through an async channel — actors send `PersistCommand` messages, and a dedicated `PersistenceWriter` task flushes them in batches.
 
-Migrations are embedded in the binary via `include_str!` and run at startup. No filesystem access needed.
+Migrations are handled by `refinery`. SQL files live in `../migrations/`, use the `VNNN__description.sql` naming convention, get embedded at compile time, and run at startup.
+
+Fresh databases track migration state in `refinery_schema_history`. If you're upgrading from the older custom runner, the server imports legacy `schema_versions` rows the first time it starts on the new build.
 
 ## Logging
 
