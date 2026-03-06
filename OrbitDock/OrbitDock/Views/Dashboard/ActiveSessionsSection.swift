@@ -47,6 +47,7 @@ enum ActiveSessionWorkbenchFilter: String, CaseIterable, Identifiable {
 }
 
 enum ActiveSessionSort: String, CaseIterable, Identifiable {
+  case name
   case status
   case recent
   case tokens
@@ -58,6 +59,7 @@ enum ActiveSessionSort: String, CaseIterable, Identifiable {
 
   var label: String {
     switch self {
+      case .name: "Name"
       case .status: "Status"
       case .recent: "Recent"
       case .tokens: "Tokens"
@@ -67,6 +69,7 @@ enum ActiveSessionSort: String, CaseIterable, Identifiable {
 
   var icon: String {
     switch self {
+      case .name: "textformat.abc"
       case .status: "arrow.up.arrow.down"
       case .recent: "clock"
       case .tokens: "number"

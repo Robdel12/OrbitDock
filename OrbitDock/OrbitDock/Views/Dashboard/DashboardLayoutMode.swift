@@ -43,22 +43,6 @@ enum DashboardLayoutMode {
     }
   }
 
-  var attentionTopPadding: CGFloat {
-    switch self {
-      case .phoneCompact: 10
-      case .pad: 12
-      case .desktop: 14
-    }
-  }
-
-  var activeTopPadding: CGFloat {
-    switch self {
-      case .phoneCompact: 14
-      case .pad: 16
-      case .desktop: 20
-    }
-  }
-
   var historyTopPadding: CGFloat {
     switch self {
       case .phoneCompact: 18

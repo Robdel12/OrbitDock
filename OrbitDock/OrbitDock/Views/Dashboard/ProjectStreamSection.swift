@@ -24,14 +24,17 @@ struct ProjectStreamSection: View {
   @Binding var projectGroupOrder: [String]
   @Binding var useCustomProjectOrder: Bool
   @Binding var hiddenProjectGroups: Set<String>
+  @Binding var sessionOrderByGroup: [String: [String]]
+
+  @Binding var isEditMode: Bool
 
   @State private var worktreeSheetGroup: WorktreeSheetIdentifier?
   @State private var draggingProjectGroupKey: String?
+  @State private var draggingSessionID: String?
   @State private var collapsedProjectGroups: Set<String> = []
-  @State private var isEditMode = false
 
   private var filteredSessions: [Session] {
-    Self.filteredSessions(
+    Self.filteredActiveSessions(
       from: sessions,
       filter: filter,
       sort: sort,
@@ -42,9 +45,11 @@ struct ProjectStreamSection: View {
   private var projectGroups: [ProjectGroup] {
     Self.makeProjectGroups(
       from: filteredSessions,
+      allSessions: sessions,
       sort: sort,
       preferredOrder: useCustomProjectOrder ? projectGroupOrder : [],
-      hiddenGroupKeys: hiddenProjectGroups
+      hiddenGroupKeys: hiddenProjectGroups,
+      sessionOrderByGroup: sessionOrderByGroup
     )
   }
 
@@ -64,46 +69,6 @@ struct ProjectStreamSection: View {
     hiddenProjectGroups.count
   }
 
-  private var counts: ProjectStreamTriageCounts {
-    ProjectStreamTriageCounts(sessions: allActiveSessions)
-  }
-
-  private var directCount: Int {
-    allActiveSessions.filter(\.isDirect).count
-  }
-
-  private var passiveCount: Int {
-    max(0, allActiveSessions.count - directCount)
-  }
-
-  private var claudeCount: Int {
-    allActiveSessions.filter { $0.provider == .claude }.count
-  }
-
-  private var codexCount: Int {
-    allActiveSessions.filter { $0.provider == .codex }.count
-  }
-
-  private var attentionSessions: [Session] {
-    allActiveSessions.filter { SessionDisplayStatus.from($0).needsAttention }
-  }
-
-  private var runningSessions: [Session] {
-    allActiveSessions.filter { SessionDisplayStatus.from($0) == .working }
-  }
-
-  private var readySessions: [Session] {
-    allActiveSessions.filter { SessionDisplayStatus.from($0) == .reply }
-  }
-
-  private var oldestAttentionSession: Session? {
-    attentionSessions.min { Self.sortDate($0) < Self.sortDate($1) }
-  }
-
-  private var oldestReadySession: Session? {
-    readySessions.min { Self.sortDate($0) < Self.sortDate($1) }
-  }
-
   private var layoutMode: DashboardLayoutMode {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
   }
@@ -114,8 +79,6 @@ struct ProjectStreamSection: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      sectionHeader
-
       if projectGroups.isEmpty {
         emptyState
       } else {
@@ -144,7 +107,6 @@ struct ProjectStreamSection: View {
             }
           }
         }
-        .padding(.top, Spacing.xs)
       }
     }
     .sheet(item: $worktreeSheetGroup) { group in
@@ -173,9 +135,10 @@ struct ProjectStreamSection: View {
     providerFilter: ActiveSessionProviderFilter = .all,
     projectGroupOrder: [String] = [],
     useCustomProjectOrder: Bool = true,
-    hiddenProjectGroups: Set<String> = []
+    hiddenProjectGroups: Set<String> = [],
+    sessionOrderByGroup: [String: [String]] = [:]
   ) -> [Session] {
-    let filtered = filteredSessions(
+    let filtered = filteredActiveSessions(
       from: sessions,
       filter: filter,
       sort: sort,
@@ -183,989 +146,13 @@ struct ProjectStreamSection: View {
     )
     let groups = makeProjectGroups(
       from: filtered,
+      allSessions: sessions,
       sort: sort,
       preferredOrder: useCustomProjectOrder ? projectGroupOrder : [],
-      hiddenGroupKeys: hiddenProjectGroups
+      hiddenGroupKeys: hiddenProjectGroups,
+      sessionOrderByGroup: sessionOrderByGroup
     )
     return groups.flatMap(\.sessions)
-  }
-
-  // MARK: - Section Header
-
-  @ViewBuilder
-  private var sectionHeader: some View {
-    if isPhoneCompact {
-      phoneCompactSectionHeader
-    } else {
-      regularSectionHeader
-    }
-  }
-
-  private var regularSectionHeader: some View {
-    VStack(alignment: .leading, spacing: Spacing.md) {
-      HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-        Text("Active Sessions")
-          .font(.system(size: TypeScale.headline, weight: .bold))
-          .foregroundStyle(.primary)
-          .tracking(-0.35)
-
-        Text("\(orderedSessions.count)")
-          .font(.system(size: TypeScale.subhead, weight: .bold, design: .rounded))
-          .foregroundStyle(Color.textSecondary)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.gap)
-          .background(Color.surfaceHover.opacity(0.7), in: Capsule())
-
-        if let pulse = operationsPulse {
-          HStack(spacing: Spacing.xs) {
-            Circle()
-              .fill(pulse.color)
-              .frame(width: 6, height: 6)
-            Text(pulse.label)
-              .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
-          }
-          .foregroundStyle(pulse.color)
-          .padding(.horizontal, 9)
-          .padding(.vertical, Spacing.xs)
-          .background(pulse.color.opacity(0.12), in: Capsule())
-        }
-      }
-
-      regularSignalRail
-
-      HStack(spacing: 0) {
-        if isEditMode {
-          // Edit mode toolbar — focused, minimal
-          HStack(spacing: Spacing.sm) {
-            Image(systemName: "arrow.up.and.down.text.horizontal")
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-              .foregroundStyle(Color.accent)
-
-            Text("Drag to reorder, tap")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
-
-            Image(systemName: "eye.slash")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
-
-            Text("to hide")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
-          }
-
-          Spacer()
-
-          Button {
-            withAnimation(Motion.standard) {
-              isEditMode = false
-              draggingProjectGroupKey = nil
-            }
-          } label: {
-            Text("Done")
-              .font(.system(size: TypeScale.meta, weight: .semibold))
-              .foregroundStyle(Color.accent)
-              .padding(.horizontal, Spacing.md)
-              .padding(.vertical, 5)
-              .background(Color.accent.opacity(0.15), in: Capsule())
-          }
-          .buttonStyle(.plain)
-        } else {
-          // Normal controls
-          sortPicker
-          thinSeparator
-
-          filterDropdown
-          thinSeparator
-          projectManagementMenu
-          thinSeparator
-          editProjectsButton
-
-          Spacer()
-
-          if useCustomProjectOrder {
-            Button {
-              useCustomProjectOrder = false
-            } label: {
-              Text("Custom Order")
-                .font(.system(size: TypeScale.mini, weight: .semibold))
-                .foregroundStyle(Color.accent)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.gap)
-                .background(Color.accent.opacity(0.12), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .help("Custom project order overrides sort. Click to use sort order.")
-            .padding(.trailing, Spacing.sm_)
-          }
-
-          if filter != .all || providerFilter != .all {
-            Button {
-              filter = .all
-              providerFilter = .all
-            } label: {
-              Text("Clear")
-                .font(.system(size: TypeScale.mini, weight: .semibold))
-                .foregroundStyle(Color.textTertiary)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.gap)
-                .background(Color.surfaceHover.opacity(0.5), in: Capsule())
-            }
-            .buttonStyle(.plain)
-          }
-
-          if hiddenProjectCount > 0 {
-            Button {
-              hiddenProjectGroups.removeAll()
-            } label: {
-              Text("Show Hidden \(hiddenProjectCount)")
-                .font(.system(size: TypeScale.mini, weight: .semibold))
-                .foregroundStyle(Color.textTertiary)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.gap)
-                .background(Color.surfaceHover.opacity(0.5), in: Capsule())
-            }
-            .buttonStyle(.plain)
-            .padding(.leading, Spacing.sm_)
-          }
-        }
-      }
-    }
-    .padding(.vertical, Spacing.lg_)
-    .padding(.horizontal, Spacing.xxs)
-  }
-
-  private var phoneCompactSectionHeader: some View {
-    VStack(alignment: .leading, spacing: Spacing.md_) {
-      HStack(spacing: Spacing.sm) {
-        Text("Active Agents")
-          .font(.system(size: TypeScale.subhead, weight: .bold))
-          .foregroundStyle(.primary)
-
-        Text("\(orderedSessions.count)")
-          .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
-          .foregroundStyle(Color.textTertiary)
-          .padding(.horizontal, 7)
-          .padding(.vertical, Spacing.xxs)
-          .background(Color.surfaceHover.opacity(0.6), in: Capsule())
-
-        Spacer()
-
-        if isEditMode {
-          Button {
-            withAnimation(Motion.standard) {
-              isEditMode = false
-              draggingProjectGroupKey = nil
-            }
-          } label: {
-            Text("Done")
-              .font(.system(size: TypeScale.meta, weight: .semibold))
-              .foregroundStyle(Color.accent)
-              .padding(.horizontal, Spacing.md)
-              .padding(.vertical, 5)
-              .background(Color.accent.opacity(0.15), in: Capsule())
-          }
-          .buttonStyle(.plain)
-        } else {
-          compactFilterMenu
-
-          // Standalone edit button for mobile
-          Button {
-            withAnimation(Motion.standard) {
-              if !useCustomProjectOrder {
-                projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
-              }
-              useCustomProjectOrder = true
-              isEditMode = true
-            }
-          } label: {
-            Image(systemName: "pencil")
-              .font(.system(size: TypeScale.meta, weight: .semibold))
-              .foregroundStyle(Color.textSecondary)
-              .frame(width: 28, height: 28)
-              .background(
-                Color.surfaceHover.opacity(0.5),
-                in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-              )
-          }
-          .buttonStyle(.plain)
-
-          if useCustomProjectOrder {
-            Button {
-              useCustomProjectOrder = false
-            } label: {
-              Text("Custom")
-                .font(.system(size: TypeScale.micro, weight: .semibold))
-                .foregroundStyle(Color.accent)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.gap)
-                .background(Color.accent.opacity(0.12), in: Capsule())
-            }
-            .buttonStyle(.plain)
-          }
-        }
-
-        if filter != .all || providerFilter != .all {
-          Button {
-            filter = .all
-            providerFilter = .all
-          } label: {
-            Text("Clear")
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-              .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.gap)
-              .background(Color.surfaceHover.opacity(0.5), in: Capsule())
-          }
-          .buttonStyle(.plain)
-        }
-
-        if hiddenProjectCount > 0 {
-          Button {
-            hiddenProjectGroups.removeAll()
-          } label: {
-            Text("Show \(hiddenProjectCount)")
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-              .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.gap)
-              .background(Color.surfaceHover.opacity(0.5), in: Capsule())
-          }
-          .buttonStyle(.plain)
-        }
-      }
-
-      if shouldShowCompactSignalRow {
-        LazyVGrid(columns: compactSignalColumns, spacing: Spacing.sm_) {
-          if counts.attention > 0 || filter == .attention {
-            compactSignalFilterChip(
-              target: .attention,
-              icon: "exclamationmark.circle.fill",
-              title: "Needs review",
-              count: counts.attention,
-              color: .statusPermission
-            )
-          }
-
-          if counts.running > 0 || filter == .running {
-            compactSignalFilterChip(
-              target: .running,
-              icon: "bolt.fill",
-              title: "Running",
-              count: counts.running,
-              color: .statusWorking
-            )
-          }
-
-          if counts.ready > 0 || filter == .ready {
-            compactSignalFilterChip(
-              target: .ready,
-              icon: "bubble.left.fill",
-              title: "Ready",
-              count: counts.ready,
-              color: .statusReply
-            )
-          }
-
-          if directCount > 0 || filter == .direct {
-            compactSignalFilterChip(
-              target: .direct,
-              icon: "chevron.left.forwardslash.chevron.right",
-              title: "Direct",
-              count: directCount,
-              color: .providerCodex
-            )
-          }
-
-          if providerFilter != .all {
-            compactProviderChip
-              .gridCellColumns(2)
-          }
-        }
-      }
-    }
-    .padding(.vertical, Spacing.md)
-    .padding(.horizontal, Spacing.xxs)
-  }
-
-  private var compactSignalColumns: [GridItem] {
-    [
-      GridItem(.flexible(minimum: 120), spacing: Spacing.sm_),
-      GridItem(.flexible(minimum: 120), spacing: Spacing.sm_),
-    ]
-  }
-
-  private var shouldShowCompactSignalRow: Bool {
-    counts.attention > 0 || counts.running > 0 || counts
-      .ready > 0 || directCount > 0 || filter != .all || providerFilter != .all
-  }
-
-  private var operationsPulse: (label: String, color: Color)? {
-    guard !orderedSessions.isEmpty else { return nil }
-    if counts.attention >= 3 {
-      return ("Intervene", .statusPermission)
-    }
-    if counts.attention > 0 {
-      return ("Watch", .statusQuestion)
-    }
-    if counts.running > 0 {
-      return ("Flowing", .statusWorking)
-    }
-    if counts.ready > 0 {
-      return ("Awaiting Input", .statusReply)
-    }
-    return ("Quiet", .textTertiary)
-  }
-
-  @ViewBuilder
-  private var regularSignalRail: some View {
-    if counts.attention > 0 || counts.running > 0 || counts
-      .ready > 0 || directCount > 0 || filter != .all || providerFilter != .all
-    {
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: Spacing.sm) {
-          regularSignalPill(
-            target: .attention,
-            icon: "exclamationmark.circle.fill",
-            title: "Needs Attention",
-            detail: attentionSignalDetail,
-            count: counts.attention,
-            color: .statusPermission
-          )
-
-          regularSignalPill(
-            target: .running,
-            icon: "bolt.fill",
-            title: "Running",
-            detail: runningSignalDetail,
-            count: counts.running,
-            color: .statusWorking
-          )
-
-          regularSignalPill(
-            target: .ready,
-            icon: "bubble.left.fill",
-            title: "Ready",
-            detail: readySignalDetail,
-            count: counts.ready,
-            color: .statusReply
-          )
-
-          regularDirectControlPill
-          regularProviderRail
-        }
-        .padding(.vertical, Spacing.xxs)
-      }
-    }
-  }
-
-  private func regularSignalPill(
-    target: ActiveSessionWorkbenchFilter,
-    icon: String,
-    title: String,
-    detail: String,
-    count: Int,
-    color: Color
-  ) -> some View {
-    let isActive = filter == target
-
-    return Button {
-      filter = isActive ? .all : target
-    } label: {
-      HStack(spacing: Spacing.sm) {
-        Image(systemName: icon)
-          .font(.system(size: TypeScale.micro, weight: .bold))
-          .foregroundStyle(color)
-
-        VStack(alignment: .leading, spacing: 1) {
-          Text(title)
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(.primary)
-          Text(detail)
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(Color.textTertiary)
-        }
-
-        Text("\(count)")
-          .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
-          .foregroundStyle(color)
-          .padding(.leading, Spacing.xxs)
-      }
-      .padding(.horizontal, Spacing.md_)
-      .padding(.vertical, Spacing.sm)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.20 : 0.45))
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-              .stroke(color.opacity(isActive ? 0.35 : 0.0), lineWidth: 1)
-          )
-      )
-    }
-    .buttonStyle(.plain)
-  }
-
-  private var regularDirectControlPill: some View {
-    let isDirectActive = filter == .direct
-
-    return Button {
-      filter = isDirectActive ? .all : .direct
-    } label: {
-      HStack(spacing: 7) {
-        Image(systemName: "chevron.left.forwardslash.chevron.right")
-          .font(.system(size: TypeScale.mini, weight: .bold))
-          .foregroundStyle(Color.providerCodex)
-
-        VStack(alignment: .leading, spacing: 1) {
-          Text("Control Mode")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(.primary)
-          Text("\(directCount) direct · \(passiveCount) passive")
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(Color.textTertiary)
-        }
-      }
-      .padding(.horizontal, Spacing.md_)
-      .padding(.vertical, Spacing.sm)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-          .fill((isDirectActive ? Color.providerCodex : Color.surfaceHover).opacity(isDirectActive ? 0.20 : 0.45))
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-              .stroke(Color.providerCodex.opacity(isDirectActive ? 0.35 : 0.0), lineWidth: 1)
-          )
-      )
-    }
-    .buttonStyle(.plain)
-  }
-
-  private var regularProviderRail: some View {
-    HStack(spacing: Spacing.sm_) {
-      regularProviderPill(
-        target: .claude,
-        label: "Claude",
-        count: claudeCount,
-        color: .accent
-      )
-      regularProviderPill(
-        target: .codex,
-        label: "Codex",
-        count: codexCount,
-        color: .providerCodex
-      )
-    }
-  }
-
-  private func regularProviderPill(
-    target: ActiveSessionProviderFilter,
-    label: String,
-    count: Int,
-    color: Color
-  ) -> some View {
-    let isActive = providerFilter == target
-
-    return Button {
-      providerFilter = isActive ? .all : target
-    } label: {
-      HStack(spacing: 5) {
-        Image(systemName: target.icon)
-          .font(.system(size: 8, weight: .bold))
-        Text(label)
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-        Text("\(count)")
-          .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
-      }
-      .foregroundStyle(isActive ? color : Color.textTertiary)
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, 7)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.20 : 0.45))
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-              .stroke(color.opacity(isActive ? 0.35 : 0.0), lineWidth: 1)
-          )
-      )
-    }
-    .buttonStyle(.plain)
-  }
-
-  private var attentionSignalDetail: String {
-    if let oldestAttentionSession {
-      return "Oldest \(relativeTimestamp(for: oldestAttentionSession))"
-    }
-    return "No blocked work"
-  }
-
-  private var runningSignalDetail: String {
-    if counts.running == 0 {
-      return "No active runs"
-    }
-    return "\(counts.running) in motion"
-  }
-
-  private var readySignalDetail: String {
-    if let oldestReadySession {
-      return "Oldest \(relativeTimestamp(for: oldestReadySession))"
-    }
-    return "No reply queue"
-  }
-
-  private func relativeTimestamp(for session: Session) -> String {
-    let activity = session.lastActivityAt ?? session.startedAt ?? .distantPast
-    let interval = Date().timeIntervalSince(activity)
-
-    if interval < 60 {
-      return "under a minute"
-    }
-    if interval < 3_600 {
-      let minutes = Int(interval / 60)
-      return "\(minutes)m"
-    }
-    if interval < 86_400 {
-      let hours = Int(interval / 3_600)
-      let minutes = Int(interval.truncatingRemainder(dividingBy: 3_600) / 60)
-      return "\(hours)h \(minutes)m"
-    }
-    let days = Int(interval / 86_400)
-    return "\(days)d"
-  }
-
-  // MARK: - Sort Picker
-
-  private var sortPicker: some View {
-    Menu {
-      ForEach(ActiveSessionSort.allCases) { option in
-        Button {
-          sort = option
-          useCustomProjectOrder = false
-        } label: {
-          HStack {
-            Text(option.label)
-            if sort == option {
-              Image(systemName: "checkmark")
-            }
-          }
-        }
-      }
-    } label: {
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: sort.icon)
-          .font(.system(size: TypeScale.mini, weight: .semibold))
-        Text(sort.label)
-          .font(.system(size: TypeScale.micro, weight: .medium))
-      }
-      .foregroundStyle(Color.textSecondary)
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.xs)
-      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
-    }
-    .menuStyle(.borderlessButton)
-    .fixedSize()
-  }
-
-  private var projectManagementMenu: some View {
-    Menu {
-      Section("Projects") {
-        Button {
-          useCustomProjectOrder = false
-        } label: {
-          Label(
-            "Use Sort Order",
-            systemImage: useCustomProjectOrder ? "line.3.horizontal.decrease.circle" : "checkmark"
-          )
-        }
-        .disabled(!useCustomProjectOrder)
-
-        Button {
-          useCustomProjectOrder = true
-        } label: {
-          Label(
-            "Use Custom Order",
-            systemImage: useCustomProjectOrder ? "checkmark" : "arrow.up.and.down.and.arrow.left.and.right"
-          )
-        }
-        .disabled(projectGroupOrder.isEmpty || useCustomProjectOrder)
-
-        Divider()
-
-        Button {
-          withAnimation(Motion.standard) {
-            if !useCustomProjectOrder {
-              projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
-            }
-            useCustomProjectOrder = true
-            isEditMode = true
-          }
-        } label: {
-          Label("Edit Projects\u{2026}", systemImage: "arrow.up.and.down.text.horizontal")
-        }
-
-        Button {
-          projectGroupOrder.removeAll()
-          useCustomProjectOrder = false
-        } label: {
-          Label("Reset Custom Order", systemImage: "arrow.uturn.backward")
-        }
-        .disabled(projectGroupOrder.isEmpty)
-
-        Button {
-          hiddenProjectGroups.removeAll()
-        } label: {
-          Label("Show Hidden Projects", systemImage: "eye")
-        }
-        .disabled(hiddenProjectCount == 0)
-      }
-    } label: {
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: "folder.badge.gearshape")
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-        Text("Projects")
-          .font(.system(size: TypeScale.micro, weight: .medium))
-      }
-      .foregroundStyle((!projectGroupOrder.isEmpty || hiddenProjectCount > 0) ? Color.accent : Color.textSecondary)
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.xs)
-      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
-    }
-    .menuStyle(.borderlessButton)
-    .fixedSize()
-  }
-
-  private var editProjectsButton: some View {
-    Button {
-      withAnimation(Motion.standard) {
-        if !useCustomProjectOrder {
-          projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
-        }
-        useCustomProjectOrder = true
-        isEditMode = true
-      }
-    } label: {
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: "pencil")
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-        Text("Edit")
-          .font(.system(size: TypeScale.micro, weight: .medium))
-      }
-      .foregroundStyle(Color.textSecondary)
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.xs)
-      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
-    }
-    .buttonStyle(.plain)
-    .help("Reorder or hide projects")
-    .fixedSize()
-  }
-
-  // MARK: - Provider Toggle
-
-  private var providerToggle: some View {
-    HStack(spacing: Spacing.xxs) {
-      ForEach(ActiveSessionProviderFilter.allCases) { option in
-        Button {
-          providerFilter = providerFilter == option ? .all : option
-        } label: {
-          HStack(spacing: Spacing.gap) {
-            if option != .all {
-              Image(systemName: option.icon)
-                .font(.system(size: 8, weight: .bold))
-            }
-            Text(option.label)
-              .font(.system(size: TypeScale.micro, weight: providerFilter == option ? .bold : .medium))
-          }
-          .foregroundStyle(providerFilter == option ? option.color : Color.textTertiary)
-          .padding(.horizontal, 7)
-          .padding(.vertical, Spacing.xs)
-          .background(
-            providerFilter == option ? option.color.opacity(OpacityTier.light) : Color.clear,
-            in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
-          )
-        }
-        .buttonStyle(.plain)
-      }
-    }
-  }
-
-  private var compactFilterMenu: some View {
-    Menu {
-      Section("Sort") {
-        ForEach(ActiveSessionSort.allCases) { option in
-          Button {
-            sort = option
-            useCustomProjectOrder = false
-          } label: {
-            HStack {
-              Text(option.label)
-              if sort == option {
-                Image(systemName: "checkmark")
-              }
-            }
-          }
-        }
-      }
-
-      Section("Provider") {
-        ForEach(ActiveSessionProviderFilter.allCases) { option in
-          Button {
-            providerFilter = option
-          } label: {
-            HStack {
-              Text(option.label)
-              if providerFilter == option {
-                Image(systemName: "checkmark")
-              }
-            }
-          }
-        }
-      }
-
-      Section("State") {
-        ForEach(ActiveSessionWorkbenchFilter.allCases) { option in
-          Button {
-            filter = option
-          } label: {
-            HStack {
-              Text(option.title)
-              if filter == option {
-                Image(systemName: "checkmark")
-              }
-            }
-          }
-        }
-      }
-
-      Section("Projects") {
-        Button {
-          useCustomProjectOrder = false
-        } label: {
-          HStack {
-            Text("Use Sort Order")
-            if !useCustomProjectOrder {
-              Image(systemName: "checkmark")
-            }
-          }
-        }
-
-        Button {
-          useCustomProjectOrder = true
-        } label: {
-          HStack {
-            Text("Use Custom Order")
-            if useCustomProjectOrder {
-              Image(systemName: "checkmark")
-            }
-          }
-        }
-        .disabled(projectGroupOrder.isEmpty && !useCustomProjectOrder)
-
-        Button {
-          withAnimation(Motion.standard) {
-            if !useCustomProjectOrder {
-              projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
-            }
-            useCustomProjectOrder = true
-            isEditMode = true
-          }
-        } label: {
-          Text("Edit Projects\u{2026}")
-        }
-
-        Button {
-          projectGroupOrder.removeAll()
-          useCustomProjectOrder = false
-        } label: {
-          HStack {
-            Text("Reset Custom Order")
-            if projectGroupOrder.isEmpty {
-              Image(systemName: "checkmark")
-            }
-          }
-        }
-
-        Button {
-          hiddenProjectGroups.removeAll()
-        } label: {
-          HStack {
-            Text("Show Hidden Projects")
-            if hiddenProjectCount == 0 {
-              Image(systemName: "checkmark")
-            }
-          }
-        }
-      }
-    } label: {
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: "line.3.horizontal.decrease.circle")
-          .font(.system(size: TypeScale.meta, weight: .semibold))
-        Text("Filter")
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-      }
-      .foregroundStyle((filter != .all || providerFilter != .all) ? Color.accent : Color.textSecondary)
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.xs)
-      .background(Color.surfaceHover.opacity(0.5), in: Capsule())
-    }
-    .menuStyle(.borderlessButton)
-  }
-
-  private var compactProviderChip: some View {
-    let color = providerFilter.color
-    let isActive = providerFilter != .all
-
-    return Button {
-      providerFilter = isActive ? .all : providerFilter
-    } label: {
-      HStack(spacing: 5) {
-        Image(systemName: providerFilter.icon)
-          .font(.system(size: TypeScale.mini, weight: .bold))
-        Text(providerFilter.label)
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-        Spacer(minLength: 0)
-        Text("filtered")
-          .font(.system(size: TypeScale.micro, weight: .semibold, design: .rounded))
-      }
-      .foregroundStyle(isActive ? color : Color.textTertiary)
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.sm_)
-      .background(
-        RoundedRectangle(cornerRadius: 7, style: .continuous)
-          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.18 : 0.5))
-          .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-              .stroke(color.opacity(isActive ? 0.25 : 0.0), lineWidth: 1)
-          )
-      )
-    }
-    .buttonStyle(.plain)
-    .help("Provider filter active")
-  }
-
-  private func compactSignalFilterChip(
-    target: ActiveSessionWorkbenchFilter,
-    icon: String,
-    title: String,
-    count: Int,
-    color: Color
-  ) -> some View {
-    let isActive = filter == target
-
-    return Button {
-      filter = isActive ? .all : target
-    } label: {
-      HStack(spacing: 5) {
-        Image(systemName: icon)
-          .font(.system(size: TypeScale.mini, weight: .bold))
-
-        VStack(alignment: .leading, spacing: 1) {
-          Text(title)
-            .font(.system(size: TypeScale.micro, weight: .semibold))
-          Text("\(count)")
-            .font(.system(size: TypeScale.meta, weight: .bold, design: .rounded))
-        }
-
-        Spacer(minLength: 0)
-      }
-      .foregroundStyle(isActive ? color : color.opacity(0.78))
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.sm_)
-      .background(
-        RoundedRectangle(cornerRadius: 7, style: .continuous)
-          .fill(isActive ? color.opacity(0.18) : color.opacity(0.10))
-          .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-              .stroke(color.opacity(isActive ? 0.30 : 0.0), lineWidth: 1)
-          )
-      )
-    }
-    .buttonStyle(.plain)
-    .help(target.title)
-  }
-
-  private var filterDropdown: some View {
-    Menu {
-      Section("State") {
-        ForEach(ActiveSessionWorkbenchFilter.allCases) { option in
-          Button {
-            filter = option
-          } label: {
-            HStack {
-              Text(option.title)
-              if filter == option {
-                Image(systemName: "checkmark")
-              }
-            }
-          }
-        }
-      }
-
-      Section("Provider") {
-        ForEach(ActiveSessionProviderFilter.allCases) { option in
-          Button {
-            providerFilter = option
-          } label: {
-            HStack {
-              Text(option.label)
-              if providerFilter == option {
-                Image(systemName: "checkmark")
-              }
-            }
-          }
-        }
-      }
-    } label: {
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: "line.3.horizontal.decrease.circle")
-          .font(.system(size: TypeScale.meta, weight: .semibold))
-        Text("Filter")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-      }
-      .foregroundStyle((filter != .all || providerFilter != .all) ? Color.accent : Color.textSecondary)
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.xs)
-      .background(Color.surfaceHover.opacity(0.5), in: Capsule())
-    }
-    .menuStyle(.borderlessButton)
-  }
-
-  private var thinSeparator: some View {
-    Rectangle()
-      .fill(Color.surfaceBorder.opacity(0.2))
-      .frame(width: 1, height: 14)
-      .padding(.horizontal, Spacing.sm)
-  }
-
-  private func filterChip(
-    target: ActiveSessionWorkbenchFilter,
-    icon: String,
-    count: Int,
-    color: Color
-  ) -> some View {
-    let isActive = filter == target
-
-    return Button {
-      filter = filter == target ? .all : target
-    } label: {
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: icon)
-          .font(.system(size: TypeScale.mini, weight: .bold))
-        Text("\(count)")
-          .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
-      }
-      .foregroundStyle(isActive ? color : color.opacity(0.75))
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.xs)
-      .background(
-        Capsule()
-          .fill(isActive ? color.opacity(0.20) : color.opacity(0.08))
-          .overlay(
-            Capsule()
-              .stroke(color.opacity(isActive ? 0.30 : 0.0), lineWidth: 1)
-          )
-      )
-    }
-    .buttonStyle(.plain)
-    .help(target.title)
   }
 
   private var reorderableGroupKeys: [String] {
@@ -1333,19 +320,21 @@ struct ProjectStreamSection: View {
 
   private func projectSection(_ group: ProjectGroup) -> some View {
     let sharedBranch = group.sharedBranch
-    let projectSignals = projectSignalCounts(for: group.sessions)
     let worktreeCount = group.sessions.filter(\.isWorktree).count
     let repoRoot = group.sessions.compactMap(\.repositoryRoot).first
     let isCollapsed = isProjectCollapsed(group)
     let isReorderCompacting = isEditMode
+    let isHistoryOnly = group.sessions.isEmpty
 
     return VStack(alignment: .leading, spacing: 0) {
-      // Project divider rule
-      Rectangle()
-        .fill(Color.surfaceBorder.opacity(0.2))
-        .frame(height: 1)
-        .padding(.horizontal, Spacing.xs)
-        .padding(.top, isReorderCompacting ? Spacing.xs : Spacing.md_)
+      // Project divider rule — skip for history-only projects
+      if !isHistoryOnly {
+        Rectangle()
+          .fill(Color.surfaceBorder.opacity(0.2))
+          .frame(height: 1)
+          .padding(.horizontal, Spacing.xs)
+          .padding(.top, isReorderCompacting ? Spacing.xs : Spacing.md_)
+      }
 
       // Project header
       Group {
@@ -1370,9 +359,11 @@ struct ProjectStreamSection: View {
               }
 
               Text(group.projectName)
-                .font(.system(size: TypeScale.subhead, weight: .bold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
+                .font(.system(
+                  size: isHistoryOnly ? TypeScale.caption : TypeScale.subhead,
+                  weight: .bold
+                ))
+                .foregroundStyle(isHistoryOnly ? Color.textSecondary : .primary)
 
               // Shared branch — shown here when all sessions are on the same branch
               if !isReorderCompacting, let branch = sharedBranch {
@@ -1400,47 +391,6 @@ struct ProjectStreamSection: View {
               }
             }
 
-            if !isReorderCompacting, projectSignals.attention > 0 || projectSignals.running > 0 || projectSignals
-              .ready > 0 || projectSignals.direct > 0
-            {
-              HStack(spacing: 5) {
-                if projectSignals.attention > 0 {
-                  projectSignalChip(
-                    icon: "exclamationmark.circle.fill",
-                    count: projectSignals.attention,
-                    color: .statusPermission
-                  )
-                }
-
-                if projectSignals.running > 0 {
-                  projectSignalChip(
-                    icon: "bolt.fill",
-                    count: projectSignals.running,
-                    color: .statusWorking
-                  )
-                }
-
-                if projectSignals.ready > 0 {
-                  projectSignalChip(
-                    icon: "bubble.left.fill",
-                    count: projectSignals.ready,
-                    color: .statusReply
-                  )
-                }
-
-                if projectSignals.direct > 0 {
-                  projectSignalChip(
-                    icon: "chevron.left.forwardslash.chevron.right",
-                    count: projectSignals.direct,
-                    color: .providerCodex
-                  )
-                }
-
-                if let repoRoot {
-                  worktreeButton(repoRoot: repoRoot, projectName: group.projectName, count: worktreeCount)
-                }
-              }
-            }
           }
         } else {
           HStack(spacing: Spacing.sm) {
@@ -1462,8 +412,11 @@ struct ProjectStreamSection: View {
             }
 
             Text(group.projectName)
-              .font(.system(size: TypeScale.large, weight: .bold))
-              .foregroundStyle(.primary)
+              .font(.system(
+                size: isHistoryOnly ? TypeScale.caption : TypeScale.subhead,
+                weight: .bold
+              ))
+              .foregroundStyle(isHistoryOnly ? Color.textSecondary : .primary)
 
             // Shared branch — shown here when all sessions are on the same branch
             if !isReorderCompacting, let branch = sharedBranch {
@@ -1475,38 +428,6 @@ struct ProjectStreamSection: View {
             Text("\(group.sessions.count) \(group.sessions.count == 1 ? "agent" : "agents")")
               .font(.system(size: TypeScale.micro, weight: .medium, design: .rounded))
               .foregroundStyle(Color.textQuaternary)
-
-            if !isReorderCompacting, projectSignals.attention > 0 {
-              projectSignalChip(
-                icon: "exclamationmark.circle.fill",
-                count: projectSignals.attention,
-                color: .statusPermission
-              )
-            }
-
-            if !isReorderCompacting, projectSignals.running > 0 {
-              projectSignalChip(
-                icon: "bolt.fill",
-                count: projectSignals.running,
-                color: .statusWorking
-              )
-            }
-
-            if !isReorderCompacting, projectSignals.ready > 0 {
-              projectSignalChip(
-                icon: "bubble.left.fill",
-                count: projectSignals.ready,
-                color: .statusReply
-              )
-            }
-
-            if !isReorderCompacting, projectSignals.direct > 0 {
-              projectSignalChip(
-                icon: "chevron.left.forwardslash.chevron.right",
-                count: projectSignals.direct,
-                color: .providerCodex
-              )
-            }
 
             if !isReorderCompacting, let repoRoot {
               worktreeButton(repoRoot: repoRoot, projectName: group.projectName, count: worktreeCount)
@@ -1529,6 +450,7 @@ struct ProjectStreamSection: View {
             if !isReorderCompacting, group.totalTokens > 0 {
               Text(formatTokens(group.totalTokens))
                 .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+                .monospacedDigit()
                 .foregroundStyle(Color.textQuaternary)
             }
           }
@@ -1539,22 +461,22 @@ struct ProjectStreamSection: View {
       .padding(.bottom, isReorderCompacting ? Spacing.xxs : Spacing.xs)
 
       if !isCollapsed {
-        // Worktree strip (between header and session rows)
-        // Use group.projectPath as the key — matches sidebar's worktree loading
-        // pattern and works even when sessions don't have repositoryRoot set.
-        InlineWorktreeStrip(
-          repoRoot: group.projectPath,
-          projectName: group.projectName,
-          allSessions: sessions,
-          onCreateClaudeSession: { cwd in serverState.createClaudeSession(cwd: cwd) },
-          onCreateCodexSession: { cwd in serverState.createSession(cwd: cwd) },
-          onOpenManageSheet: {
-            worktreeSheetGroup = WorktreeSheetIdentifier(
-              repoRoot: group.projectPath,
-              projectName: group.projectName
-            )
-          }
-        )
+        // Worktree strip — only show when worktrees exist and project has active sessions
+        if !isHistoryOnly, hasWorktrees(for: group.projectPath) {
+          InlineWorktreeStrip(
+            repoRoot: group.projectPath,
+            projectName: group.projectName,
+            allSessions: sessions,
+            onCreateClaudeSession: { cwd in serverState.createClaudeSession(cwd: cwd) },
+            onCreateCodexSession: { cwd in serverState.createSession(cwd: cwd) },
+            onOpenManageSheet: {
+              worktreeSheetGroup = WorktreeSheetIdentifier(
+                repoRoot: group.projectPath,
+                projectName: group.projectName
+              )
+            }
+          )
+        }
 
         // Session rows
         VStack(spacing: Spacing.xxs) {
@@ -1571,47 +493,39 @@ struct ProjectStreamSection: View {
                 }
               },
               isSelected: isSelected,
-              hideBranch: sharedBranch != nil
+              hideBranch: sharedBranch != nil,
+              isAttentionPromoted: SessionDisplayStatus.from(session).needsAttention
             )
             .flatSessionScrollID(rowIndex, scopedID: session.scopedID)
+            .onDrag {
+              withAnimation(Motion.standard) {
+                draggingSessionID = session.scopedID
+              }
+              return NSItemProvider(object: session.scopedID as NSString)
+            }
+            .onDrop(
+              of: [UTType.text],
+              delegate: SessionDropDelegate(
+                destinationScopedID: session.scopedID,
+                groupKey: group.groupKey,
+                groupSessionIDs: group.sessions.map(\.scopedID),
+                sessionOrderByGroup: $sessionOrderByGroup,
+                draggingSessionID: $draggingSessionID
+              )
+            )
           }
+        }
+
+        // Inline history sub-section for ended sessions
+        if !group.endedSessions.isEmpty {
+          InlineProjectHistory(
+            endedSessions: group.endedSessions,
+            groupKey: group.groupKey
+          )
+          .padding(.top, Spacing.xs)
         }
       }
     }
-  }
-
-  private func projectSignalCounts(for sessions: [Session]) -> ProjectStatusCounts {
-    var counts = ProjectStatusCounts()
-    for session in sessions {
-      let status = SessionDisplayStatus.from(session)
-      switch status {
-        case .permission, .question:
-          counts.attention += 1
-        case .working:
-          counts.running += 1
-        case .reply:
-          counts.ready += 1
-        case .ended:
-          break
-      }
-      if session.isDirect {
-        counts.direct += 1
-      }
-    }
-    return counts
-  }
-
-  private func projectSignalChip(icon: String, count: Int, color: Color) -> some View {
-    HStack(spacing: Spacing.gap) {
-      Image(systemName: icon)
-        .font(.system(size: 8, weight: .bold))
-      Text("\(count)")
-        .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
-    }
-    .foregroundStyle(color)
-    .padding(.horizontal, Spacing.sm_)
-    .padding(.vertical, Spacing.gap)
-    .background(color.opacity(0.10), in: Capsule())
   }
 
   private func worktreeButton(repoRoot: String, projectName: String, count: Int) -> some View {
@@ -1636,6 +550,13 @@ struct ProjectStreamSection: View {
       .background(color.opacity(0.10), in: Capsule())
     }
     .buttonStyle(.plain)
+  }
+
+  /// Whether a project has real worktrees (excludes removed entries and the root itself).
+  private func hasWorktrees(for repoRoot: String) -> Bool {
+    !serverState.worktrees(for: repoRoot).filter {
+      $0.status != .removed && $0.worktreePath != repoRoot
+    }.isEmpty
   }
 
   // MARK: - Empty State
@@ -1677,7 +598,8 @@ struct ProjectStreamSection: View {
 
   // MARK: - Data Builders
 
-  private static func filteredSessions(
+  /// Public access for DashboardView to compute project groups with the same filter pipeline.
+  static func filteredActiveSessions(
     from sessions: [Session],
     filter: ActiveSessionWorkbenchFilter,
     sort: ActiveSessionSort = .status,
@@ -1714,9 +636,11 @@ struct ProjectStreamSection: View {
 
   static func makeProjectGroups(
     from sessions: [Session],
+    allSessions: [Session]? = nil,
     sort: ActiveSessionSort = .status,
     preferredOrder: [String] = [],
-    hiddenGroupKeys: Set<String> = []
+    hiddenGroupKeys: Set<String> = [],
+    sessionOrderByGroup: [String: [String]] = [:]
   ) -> [ProjectGroup] {
     struct GroupBucketKey: Hashable {
       let endpointScope: String
@@ -1727,12 +651,12 @@ struct ProjectStreamSection: View {
       }
     }
 
-    // Merge subdirectory paths into their parent project.
-    // e.g., sessions in /foo/bar and /foo/bar/sub both group under /foo/bar.
-    // But don't merge into overly generic parent paths like ~/Developer.
-    // Use groupingPath (repositoryRoot ?? projectPath) so worktree sessions
-    // group with their parent repo instead of appearing as separate projects.
-    let pathsByEndpointScope = Dictionary(grouping: sessions) { $0.endpointId?.uuidString ?? "single-endpoint" }
+    // Build canonical path resolver from all sessions (active + ended) so ended
+    // sessions merge into the same project buckets as active ones.
+    let allSessionsForPaths = allSessions ?? sessions
+    let pathsByEndpointScope = Dictionary(
+      grouping: allSessionsForPaths
+    ) { $0.endpointId?.uuidString ?? "single-endpoint" }
       .mapValues { Set($0.map(\.groupingPath)) }
     let canonicalPath: (Session) -> String = { session in
       let path = session.groupingPath
@@ -1748,8 +672,6 @@ struct ProjectStreamSection: View {
           return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
         }
 
-      // Only merge into candidates that look like actual project dirs (4+ components)
-      // e.g., /Users/name/Developer/project — not /Users/name/Developer
       for candidate in parentCandidates {
         let candidateComponents = candidate.components(separatedBy: "/").filter { !$0.isEmpty }
         if candidateComponents.count >= 4 {
@@ -1759,31 +681,65 @@ struct ProjectStreamSection: View {
       return path
     }
 
+    // Group active sessions by project
     let grouped = Dictionary(grouping: sessions) { session -> GroupBucketKey in
       let path = canonicalPath(session)
       let endpointScope = session.endpointId?.uuidString ?? "single-endpoint"
       return GroupBucketKey(endpointScope: endpointScope, path: path)
     }
 
-    let projectGroups: [ProjectGroup] = grouped.compactMap {
-      (bucketKey: GroupBucketKey, projectSessions: [Session]) -> ProjectGroup? in
-      guard let first = projectSessions.first else { return nil }
+    // Group ended sessions by project (using same canonical path resolver)
+    let endedSessions = (allSessions ?? []).filter { !$0.isActive }
+    let endedGrouped = Dictionary(grouping: endedSessions) { session -> GroupBucketKey in
+      let path = canonicalPath(session)
+      let endpointScope = session.endpointId?.uuidString ?? "single-endpoint"
+      return GroupBucketKey(endpointScope: endpointScope, path: path)
+    }
 
-      let sortedSessions = projectSessions.sorted { lhs, rhs in
+    // Collect all bucket keys (active + ended-only projects)
+    let allBucketKeys = Set(grouped.keys).union(endedGrouped.keys)
+
+    let projectGroups: [ProjectGroup] = allBucketKeys.compactMap { bucketKey -> ProjectGroup? in
+      let activeSessions = grouped[bucketKey] ?? []
+      let endedForGroup = endedGrouped[bucketKey] ?? []
+
+      // Skip groups with no sessions at all
+      guard !activeSessions.isEmpty || !endedForGroup.isEmpty else { return nil }
+
+      var sortedActive = activeSessions.sorted { lhs, rhs in
         compareSessions(lhs: lhs, rhs: rhs, sort: sort)
       }
-      let path = bucketKey.path
-      let projectName = first.projectName ?? path.components(separatedBy: "/").last ?? "Unknown"
 
+      // Apply saved session order within this group
+      if let savedOrder = sessionOrderByGroup[bucketKey.groupKey], !savedOrder.isEmpty {
+        sortedActive.sort { a, b in
+          let idxA = savedOrder.firstIndex(of: a.scopedID) ?? Int.max
+          let idxB = savedOrder.firstIndex(of: b.scopedID) ?? Int.max
+          return idxA < idxB
+        }
+      }
+
+      let sortedEnded = endedForGroup.sorted { a, b in
+        let aTime = a.endedAt ?? a.lastActivityAt ?? .distantPast
+        let bTime = b.endedAt ?? b.lastActivityAt ?? .distantPast
+        return aTime > bTime
+      }
+
+      let first = activeSessions.first ?? endedForGroup.first
+      let path = bucketKey.path
+      let projectName = first?.projectName ?? path.components(separatedBy: "/").last ?? "Unknown"
+
+      let allForGroup = activeSessions + endedForGroup
       return ProjectGroup(
         groupKey: bucketKey.groupKey,
         projectPath: path,
         projectName: projectName,
-        endpointName: first.endpointName,
-        sessions: sortedSessions,
-        totalCost: sortedSessions.reduce(0) { $0 + $1.totalCostUSD },
-        totalTokens: sortedSessions.reduce(0) { $0 + $1.totalTokens },
-        latestActivityAt: sortedSessions.map { $0.lastActivityAt ?? $0.startedAt ?? .distantPast }.max() ?? .distantPast
+        endpointName: first?.endpointName,
+        sessions: sortedActive,
+        endedSessions: sortedEnded,
+        totalCost: allForGroup.reduce(0) { $0 + $1.totalCostUSD },
+        totalTokens: allForGroup.reduce(0) { $0 + $1.totalTokens },
+        latestActivityAt: allForGroup.map { $0.lastActivityAt ?? $0.startedAt ?? .distantPast }.max() ?? .distantPast
       )
     }
     .filter { !hiddenGroupKeys.contains($0.groupKey) }
@@ -1821,6 +777,13 @@ struct ProjectStreamSection: View {
 
   private static func compareSessions(lhs: Session, rhs: Session, sort: ActiveSessionSort) -> Bool {
     switch sort {
+      case .name:
+        // Within a project group, sort by status priority so attention items float to top
+        let lhsPriority = statusPriority(SessionDisplayStatus.from(lhs))
+        let rhsPriority = statusPriority(SessionDisplayStatus.from(rhs))
+        if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+        return sortDate(lhs) > sortDate(rhs)
+
       case .status:
         let lhsPriority = statusPriority(SessionDisplayStatus.from(lhs))
         let rhsPriority = statusPriority(SessionDisplayStatus.from(rhs))
@@ -1842,9 +805,12 @@ struct ProjectStreamSection: View {
 
   private static func compareProjectGroups(lhs: ProjectGroup, rhs: ProjectGroup, sort: ActiveSessionSort) -> Bool {
     switch sort {
+      case .name:
+        return compareProjectGroupTiebreakers(lhs: lhs, rhs: rhs)
+
       case .status:
-        let lhsPriority = lhs.sessions.map { statusPriority(SessionDisplayStatus.from($0)) }.min() ?? Int.max
-        let rhsPriority = rhs.sessions.map { statusPriority(SessionDisplayStatus.from($0)) }.min() ?? Int.max
+        let lhsPriority = lhs.activeSessions.map { statusPriority(SessionDisplayStatus.from($0)) }.min() ?? Int.max
+        let rhsPriority = rhs.activeSessions.map { statusPriority(SessionDisplayStatus.from($0)) }.min() ?? Int.max
         if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
         if lhs.latestActivityAt != rhs.latestActivityAt { return lhs.latestActivityAt > rhs.latestActivityAt }
         return compareProjectGroupTiebreakers(lhs: lhs, rhs: rhs)
@@ -1919,6 +885,7 @@ struct ProjectGroup: Identifiable {
   let projectName: String
   let endpointName: String?
   let sessions: [Session]
+  let endedSessions: [Session]
   let totalCost: Double
   let totalTokens: Int
   let latestActivityAt: Date
@@ -1927,39 +894,17 @@ struct ProjectGroup: Identifiable {
     groupKey
   }
 
-  /// When all sessions share the same branch, return it for the header.
+  /// Active (non-ended) sessions only
+  var activeSessions: [Session] {
+    sessions
+  }
+
+  /// When all active sessions share the same branch, return it for the header.
   /// Returns nil if branches differ or are missing.
   var sharedBranch: String? {
     let branches = Set(sessions.compactMap(\.branch).filter { !$0.isEmpty })
     guard branches.count == 1, let branch = branches.first else { return nil }
     return branch
-  }
-}
-
-// MARK: - Triage Counts (reusable)
-
-private struct ProjectStatusCounts {
-  var attention = 0
-  var running = 0
-  var ready = 0
-  var direct = 0
-}
-
-private struct ProjectStreamTriageCounts {
-  var attention = 0
-  var running = 0
-  var ready = 0
-
-  init(sessions: [Session]) {
-    for session in sessions {
-      let status = SessionDisplayStatus.from(session)
-      switch status {
-        case .permission, .question: attention += 1
-        case .working: running += 1
-        case .reply: ready += 1
-        case .ended: break
-      }
-    }
   }
 }
 
@@ -2042,6 +987,142 @@ private struct ProjectGroupDropDelegate: DropDelegate {
   }
 }
 
+private struct SessionDropDelegate: DropDelegate {
+  let destinationScopedID: String
+  let groupKey: String
+  let groupSessionIDs: [String]
+  @Binding var sessionOrderByGroup: [String: [String]]
+  @Binding var draggingSessionID: String?
+
+  func dropEntered(info _: DropInfo) {
+    guard let draggingID = draggingSessionID,
+          draggingID != destinationScopedID,
+          groupSessionIDs.contains(draggingID)
+    else { return }
+
+    var currentOrder = sessionOrderByGroup[groupKey] ?? groupSessionIDs
+    // Ensure all current session IDs are in the order array
+    for id in groupSessionIDs where !currentOrder.contains(id) {
+      currentOrder.append(id)
+    }
+    // Remove stale IDs
+    currentOrder = currentOrder.filter { groupSessionIDs.contains($0) }
+
+    guard let fromIndex = currentOrder.firstIndex(of: draggingID),
+          let toIndex = currentOrder.firstIndex(of: destinationScopedID),
+          fromIndex != toIndex
+    else { return }
+
+    let movedID = currentOrder.remove(at: fromIndex)
+    currentOrder.insert(movedID, at: toIndex)
+    sessionOrderByGroup[groupKey] = currentOrder
+  }
+
+  func dropUpdated(info _: DropInfo) -> DropProposal? {
+    DropProposal(operation: .move)
+  }
+
+  func performDrop(info _: DropInfo) -> Bool {
+    withAnimation(Motion.standard) {
+      draggingSessionID = nil
+    }
+    return true
+  }
+}
+
+// MARK: - Inline Project History
+
+/// Collapsible history sub-section within a project group, showing ended sessions.
+struct InlineProjectHistory: View {
+  @Environment(AppRouter.self) private var router
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+
+  let endedSessions: [Session]
+  let groupKey: String
+
+  @State private var isExpanded = false
+  @State private var showAll = false
+
+  private let maxCollapsed = 3
+
+  private var visibleSessions: [Session] {
+    if showAll || endedSessions.count <= maxCollapsed {
+      return endedSessions
+    }
+    return Array(endedSessions.prefix(maxCollapsed))
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      // History toggle header
+      Button {
+        withAnimation(Motion.standard) {
+          isExpanded.toggle()
+        }
+      } label: {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "chevron.right")
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(Color.textQuaternary)
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+
+          Image(systemName: "clock.arrow.circlepath")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Color.textTertiary)
+
+          Text("History")
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+
+          Text("\(endedSessions.count)")
+            .font(.system(size: TypeScale.mini, weight: .medium, design: .rounded))
+            .foregroundStyle(Color.textQuaternary)
+
+          Spacer()
+        }
+        .padding(.vertical, Spacing.sm)
+        .padding(.horizontal, Spacing.md_)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+
+      // Ended session rows
+      if isExpanded {
+        let referenceDate = Date()
+
+        VStack(spacing: Spacing.xxs) {
+          ForEach(visibleSessions, id: \.scopedID) { session in
+            CompactHistoryRow(session: session, referenceDate: referenceDate) {
+              withAnimation(Motion.standard) {
+                router.dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
+                router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+              }
+            }
+          }
+
+          // Show more
+          if endedSessions.count > maxCollapsed, !showAll {
+            Button {
+              withAnimation(Motion.standard) {
+                showAll = true
+              }
+            } label: {
+              Text("Show \(endedSessions.count - maxCollapsed) more")
+                .font(.system(size: TypeScale.micro, weight: .medium))
+                .foregroundStyle(Color.textTertiary)
+                .padding(.vertical, Spacing.sm_)
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+        .padding(.leading, Spacing.section)
+        .padding(.top, Spacing.xs)
+      }
+    }
+  }
+}
+
 // MARK: - Preview
 
 #Preview {
@@ -2051,6 +1132,8 @@ private struct ProjectGroupDropDelegate: DropDelegate {
   @Previewable @State var projectGroupOrder: [String] = []
   @Previewable @State var useCustomProjectOrder = false
   @Previewable @State var hiddenProjectGroups: Set<String> = []
+  @Previewable @State var sessionOrderByGroup: [String: [String]] = [:]
+  @Previewable @State var isEditMode = false
 
   ScrollView {
     ProjectStreamSection(
@@ -2117,7 +1200,9 @@ private struct ProjectGroupDropDelegate: DropDelegate {
       providerFilter: $providerFilter,
       projectGroupOrder: $projectGroupOrder,
       useCustomProjectOrder: $useCustomProjectOrder,
-      hiddenProjectGroups: $hiddenProjectGroups
+      hiddenProjectGroups: $hiddenProjectGroups,
+      sessionOrderByGroup: $sessionOrderByGroup,
+      isEditMode: $isEditMode
     )
     .padding(Spacing.xl)
   }

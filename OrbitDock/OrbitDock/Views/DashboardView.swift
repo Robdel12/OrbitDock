@@ -2,7 +2,7 @@
 //  DashboardView.swift
 //  OrbitDock
 //
-//  Home view — project-first flat layout with attention interrupts.
+//  Home view — session scan first layout with pinned status bar and toolbar.
 //
 
 import SwiftUI
@@ -20,11 +20,13 @@ struct DashboardView: View {
   @State private var selectedIndex = 0
   @State private var dashboardScrollAnchorID: String?
   @State private var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all
-  @State private var activeSort: ActiveSessionSort = .status
+  @State private var activeSort: ActiveSessionSort = .name
   @State private var activeProviderFilter: ActiveSessionProviderFilter = .all
   @State private var projectGroupOrder: [String] = DashboardProjectPreferences.loadProjectGroupOrder()
   @State private var useCustomProjectOrder: Bool = DashboardProjectPreferences.loadUseCustomProjectOrder()
   @State private var hiddenProjectGroups: Set<String> = DashboardProjectPreferences.loadHiddenProjectGroups()
+  @State private var sessionOrderByGroup: [String: [String]] = DashboardProjectPreferences.loadSessionOrderByGroup()
+  @State private var isEditMode = false
   @FocusState private var isDashboardFocused: Bool
 
   private var activeSessions: [Session] {
@@ -35,7 +37,24 @@ struct DashboardView: View {
       providerFilter: activeProviderFilter,
       projectGroupOrder: projectGroupOrder,
       useCustomProjectOrder: useCustomProjectOrder,
-      hiddenProjectGroups: hiddenProjectGroups
+      hiddenProjectGroups: hiddenProjectGroups,
+      sessionOrderByGroup: sessionOrderByGroup
+    )
+  }
+
+  private var projectGroups: [ProjectGroup] {
+    ProjectStreamSection.makeProjectGroups(
+      from: ProjectStreamSection.filteredActiveSessions(
+        from: sessions,
+        filter: activeWorkbenchFilter,
+        sort: activeSort,
+        providerFilter: activeProviderFilter
+      ),
+      allSessions: sessions,
+      sort: activeSort,
+      preferredOrder: useCustomProjectOrder ? projectGroupOrder : [],
+      hiddenGroupKeys: hiddenProjectGroups,
+      sessionOrderByGroup: sessionOrderByGroup
     )
   }
 
@@ -62,19 +81,35 @@ struct DashboardView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      CommandStrip(
+      // Pinned line 1: usage gauges + stats + action buttons
+      DashboardStatusBar(
         sessions: sessions,
         isInitialLoading: isInitialLoading,
         isRefreshingCachedSessions: isRefreshingCachedSessions
       )
 
       Divider()
-        .foregroundStyle(Color.panelBorder)
+        .foregroundStyle(Color.panelBorder.opacity(0.4))
 
       if !layoutMode.isPhoneCompact {
         connectionBanner
       }
 
+      // Pinned line 2: signal pills + sort/filter controls
+      DashboardToolbar(
+        sessions: sessions,
+        filter: $activeWorkbenchFilter,
+        sort: $activeSort,
+        providerFilter: $activeProviderFilter,
+        projectGroupOrder: $projectGroupOrder,
+        useCustomProjectOrder: $useCustomProjectOrder,
+        hiddenProjectGroups: $hiddenProjectGroups,
+        sessionOrderByGroup: $sessionOrderByGroup,
+        isEditMode: $isEditMode,
+        projectGroups: projectGroups
+      )
+
+      // Sessions start immediately
       sessionsContent
     }
     .background(Color.backgroundPrimary)
@@ -86,18 +121,6 @@ struct DashboardView: View {
         if showingLoadingSkeleton {
           loadingSkeletonContent
         } else {
-          // Zone 1: Ambient stats — recessed metadata strip
-          if !layoutMode.isPhoneCompact {
-            CommandBar(sessions: sessions)
-          }
-
-          // Zone 2: Attention interrupts — the real priority
-          AttentionBanner(
-            sessions: sessions
-          )
-          .padding(.top, layoutMode.attentionTopPadding)
-
-          // Zone 3: Active agents — primary content
           ProjectStreamSection(
             sessions: sessions,
             selectedIndex: selectedIndex,
@@ -106,15 +129,10 @@ struct DashboardView: View {
             providerFilter: $activeProviderFilter,
             projectGroupOrder: $projectGroupOrder,
             useCustomProjectOrder: $useCustomProjectOrder,
-            hiddenProjectGroups: $hiddenProjectGroups
+            hiddenProjectGroups: $hiddenProjectGroups,
+            sessionOrderByGroup: $sessionOrderByGroup,
+            isEditMode: $isEditMode
           )
-          .padding(.top, layoutMode.activeTopPadding)
-
-          // Zone 4: History
-          SessionHistorySection(
-            sessions: sessions
-          )
-          .padding(.top, layoutMode.historyTopPadding)
         }
       }
       .padding(layoutMode.contentPadding)
@@ -151,6 +169,9 @@ struct DashboardView: View {
     }
     .onChange(of: hiddenProjectGroups) { _, updatedHiddenGroups in
       DashboardProjectPreferences.saveHiddenProjectGroups(updatedHiddenGroups)
+    }
+    .onChange(of: sessionOrderByGroup) { _, updatedSessionOrder in
+      DashboardProjectPreferences.saveSessionOrderByGroup(updatedSessionOrder)
     }
     .modifier(KeyboardNavigationModifier(
       onMoveUp: { moveSelection(by: -1) },

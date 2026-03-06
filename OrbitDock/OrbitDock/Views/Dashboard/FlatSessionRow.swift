@@ -14,9 +14,11 @@ struct FlatSessionRow: View {
   let onSelect: () -> Void
   var isSelected: Bool = false
   var hideBranch: Bool = false
+  var isAttentionPromoted: Bool = false
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerAppState.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var isHovering = false
 
   private var displayStatus: SessionDisplayStatus {
@@ -29,6 +31,10 @@ struct FlatSessionRow: View {
 
   private var isPhoneCompact: Bool {
     layoutMode.isPhoneCompact
+  }
+
+  private var hasMultipleEndpoints: Bool {
+    runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count > 1
   }
 
   /// Whether the label is a real name vs a first-prompt fallback.
@@ -146,7 +152,7 @@ struct FlatSessionRow: View {
           regularRowContent
         }
       }
-      .padding(.vertical, Spacing.md_)
+      .padding(.vertical, isAttentionPromoted ? Spacing.md : Spacing.md_)
       .padding(.horizontal, Spacing.md_)
       .background(rowBackground)
     }
@@ -195,7 +201,7 @@ struct FlatSessionRow: View {
             .foregroundStyle(hasRealName ? .primary : Color.textSecondary)
             .lineLimit(1)
 
-          if session.endpointName != nil {
+          if hasMultipleEndpoints, session.endpointName != nil {
             EndpointBadge(endpointName: session.endpointName)
           }
 
@@ -315,13 +321,14 @@ struct FlatSessionRow: View {
   }
 
   private var hasCompactSecondaryMeta: Bool {
-    session.endpointName != nil || serverState.session(session.id).forkedFrom != nil || inlineBranch != nil || session
+    (hasMultipleEndpoints && session.endpointName != nil)
+      || serverState.session(session.id).forkedFrom != nil || inlineBranch != nil || session
       .isWorktree
   }
 
   private var compactSecondaryMetaRow: some View {
     HStack(spacing: Spacing.xs) {
-      if session.endpointName != nil {
+      if hasMultipleEndpoints, session.endpointName != nil {
         EndpointBadge(endpointName: session.endpointName)
       }
 
@@ -378,22 +385,20 @@ struct FlatSessionRow: View {
   // MARK: - Background
 
   private var rowBackground: some View {
-    ZStack(alignment: .leading) {
+    let attentionColor = displayStatus.color
+
+    return ZStack(alignment: .leading) {
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .fill(isSelected ? Color.surfaceSelected : (isHovering ? Color.surfaceHover : Color.clear))
+        .fill(rowFillColor)
         .overlay(
           RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .stroke(
-              Color.surfaceBorder
-                .opacity(isSelected ? OpacityTier.strong : (isHovering ? OpacityTier.medium : OpacityTier.subtle)),
-              lineWidth: 1
-            )
+            .stroke(rowStrokeColor, lineWidth: isAttentionPromoted ? 1.5 : 1)
         )
 
-      // Cyan edge bar when selected
-      if isSelected {
+      // Edge bar — attention color when promoted, cyan when selected
+      if isAttentionPromoted || isSelected {
         RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-          .fill(Color.accent)
+          .fill(isSelected ? Color.accent : attentionColor)
           .frame(width: EdgeBar.width)
           .padding(.leading, Spacing.xxs)
           .padding(.vertical, Spacing.xs)
@@ -401,6 +406,26 @@ struct FlatSessionRow: View {
     }
     .animation(Motion.snappy, value: isSelected)
     .animation(Motion.hover, value: isHovering)
+  }
+
+  private var rowFillColor: Color {
+    if isSelected { return Color.surfaceSelected }
+    if isAttentionPromoted { return displayStatus.color.opacity(OpacityTier.tint) }
+    if isHovering { return Color.surfaceHover }
+    return Color.clear
+  }
+
+  private var rowStrokeColor: Color {
+    if isSelected {
+      return Color.surfaceBorder.opacity(OpacityTier.strong)
+    }
+    if isAttentionPromoted {
+      return displayStatus.color.opacity(0.25)
+    }
+    if isHovering {
+      return Color.surfaceBorder.opacity(OpacityTier.medium)
+    }
+    return Color.surfaceBorder.opacity(OpacityTier.subtle)
   }
 
   // MARK: - Formatting

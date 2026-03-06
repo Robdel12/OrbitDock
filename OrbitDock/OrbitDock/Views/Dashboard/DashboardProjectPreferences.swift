@@ -4,6 +4,7 @@ enum DashboardProjectPreferences {
   private static let projectGroupOrderKey = "dashboard.projectGroupOrder.v1"
   private static let hiddenProjectGroupsKey = "dashboard.hiddenProjectGroups.v1"
   private static let useCustomProjectOrderKey = "dashboard.useCustomProjectOrder.v1"
+  private static let sessionOrderByGroupKey = "dashboard.sessionOrderByGroup.v1"
 
   static func loadProjectGroupOrder(defaults: UserDefaults = .standard) -> [String] {
     defaults.stringArray(forKey: projectGroupOrderKey) ?? []
@@ -39,5 +40,17 @@ enum DashboardProjectPreferences {
 
   static func saveUseCustomProjectOrder(_ useCustomProjectOrder: Bool, defaults: UserDefaults = .standard) {
     defaults.set(useCustomProjectOrder, forKey: useCustomProjectOrderKey)
+  }
+
+  static func loadSessionOrderByGroup(defaults: UserDefaults = .standard) -> [String: [String]] {
+    defaults.dictionary(forKey: sessionOrderByGroupKey) as? [String: [String]] ?? [:]
+  }
+
+  static func saveSessionOrderByGroup(_ orderByGroup: [String: [String]], defaults: UserDefaults = .standard) {
+    if orderByGroup.isEmpty {
+      defaults.removeObject(forKey: sessionOrderByGroupKey)
+      return
+    }
+    defaults.set(orderByGroup, forKey: sessionOrderByGroupKey)
   }
 }
