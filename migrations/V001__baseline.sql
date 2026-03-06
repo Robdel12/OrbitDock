@@ -1,13 +1,6 @@
 -- OrbitDock baseline schema
--- 7 tables: schema_versions, sessions, messages, subagents,
+-- 6 tables: sessions, messages, subagents,
 --           turn_diffs, approval_history, review_comments
-
--- Migration tracking
-CREATE TABLE IF NOT EXISTS schema_versions (
-    version INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-);
 
 -- Core session tracking (Claude, Codex, etc.)
 CREATE TABLE IF NOT EXISTS sessions (
