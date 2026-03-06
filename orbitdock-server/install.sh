@@ -19,6 +19,7 @@ warn()  { echo -e "${YELLOW}!${RESET} $*"; }
 err()   { echo -e "${RED}✗${RESET} $*" >&2; }
 
 # ── Configuration ─────────────────────────────────────────────────────────
+CHECKSUM_MISMATCH_EXIT=2
 REPO_SLUG="${ORBITDOCK_SERVER_REPO:-Robdel12/OrbitDock}"
 REPO_URL="${ORBITDOCK_SERVER_REPO_URL:-https://github.com/${REPO_SLUG}.git}"
 SOURCE_REF="${ORBITDOCK_SERVER_REF:-main}"
@@ -183,7 +184,7 @@ install_from_release() {
     if ! verify_checksum "$tmp_dir" "$checksum_file"; then
       err "Checksum verification failed!"
       rm -rf "$tmp_dir"
-      return 1
+      return "$CHECKSUM_MISMATCH_EXIT"
     fi
     ok "Checksum verified."
   fi
@@ -274,6 +275,12 @@ if [[ "$FORCE_SOURCE" == "1" ]]; then
 elif install_from_release; then
   ok "Installed prebuilt binary."
 else
+  release_status=$?
+  if [[ "$release_status" -eq "$CHECKSUM_MISMATCH_EXIT" ]]; then
+    err "Aborting install because checksum verification failed."
+    exit 1
+  fi
+
   warn "Prebuilt binary not available for this platform. Falling back to source build..."
   echo ""
   install_from_source
