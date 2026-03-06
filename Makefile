@@ -18,6 +18,7 @@ XCODEBUILD = $(XCODEBUILD_ENV) $(XCODEBUILD_BASE) $(XCODEBUILD_ARGS)
 XCODEBUILD_IOS = $(XCODEBUILD_ENV) $(XCODEBUILD_IOS_BASE) $(XCODEBUILD_ARGS)
 RUST_WORKSPACE_DIR ?= orbitdock-server
 RUST_TARGET_DIR ?= $(abspath .cache/rust/target)
+RUST_LEGACY_TARGET_DIR ?= $(abspath $(RUST_WORKSPACE_DIR)/target)
 SCCACHE_DIR ?= $(abspath .cache/rust/sccache)
 SCCACHE_CACHE_SIZE ?= 10G
 RUST_SCCACHE ?= off
@@ -47,7 +48,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-lock-status rust-unlock rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
 
 help:
 	@echo "make build      Build the macOS app"
@@ -94,6 +95,8 @@ help:
 	@echo "make rust-sccache-stats  Show sccache stats"
 	@echo "make rust-sccache-zero   Reset sccache stats"
 	@echo "make rust-env            Show Rust/sccache env state"
+	@echo "make rust-lock-status    Show active Cargo artifact lock holders"
+	@echo "make rust-unlock         Stop active Cargo lock holders for this repo"
 	@echo "make rust-clean-debug    Clean only dev/test Rust artifacts"
 	@echo "make rust-clean-incremental Remove incremental caches only"
 	@echo "make rust-clean-sccache  Remove local sccache files"
@@ -153,12 +156,99 @@ rust-env:
 	@echo "RUSTC_WRAPPER=$$RUSTC_WRAPPER"
 	@echo "CARGO_BUILD_RUSTC_WRAPPER=$$CARGO_BUILD_RUSTC_WRAPPER"
 	@echo "SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE)"
-	@if [[ -d "$(abspath $(RUST_WORKSPACE_DIR)/target)" ]]; then \
-		echo "LEGACY_TARGET_DIR=$(abspath $(RUST_WORKSPACE_DIR)/target) (present)"; \
+	@if [[ -d "$(RUST_LEGACY_TARGET_DIR)" ]]; then \
+		echo "LEGACY_TARGET_DIR=$(RUST_LEGACY_TARGET_DIR) (present)"; \
 	else \
 		echo "LEGACY_TARGET_DIR=<none>"; \
 	fi
 	@echo "Using Rust env: $(RUST_ENV)"
+
+rust-lock-status:
+	@set -euo pipefail; \
+	if ! command -v lsof >/dev/null 2>&1; then \
+		echo "lsof is required for rust-lock-status"; \
+		exit 1; \
+	fi; \
+	lock_dirs=(); \
+	for dir in "$(RUST_TARGET_DIR)" "$(RUST_LEGACY_TARGET_DIR)"; do \
+		if [[ -d "$$dir" ]]; then \
+			lock_dirs+=("$$dir"); \
+		fi; \
+	done; \
+	if [[ $${#lock_dirs[@]} -eq 0 ]]; then \
+		echo "No Rust target directories found."; \
+		exit 0; \
+	fi; \
+	lock_files=(); \
+	while IFS= read -r lock_file; do \
+		lock_files+=("$$lock_file"); \
+	done < <(find "$${lock_dirs[@]}" -name .cargo-lock -type f 2>/dev/null | sort); \
+	if [[ $${#lock_files[@]} -eq 0 ]]; then \
+		echo "No Cargo lock files found in target directories."; \
+		exit 0; \
+	fi; \
+	echo "Cargo lock files:"; \
+	printf '  %s\n' "$${lock_files[@]}"; \
+	lock_pids=(); \
+	while IFS= read -r lock_pid; do \
+		lock_pids+=("$$lock_pid"); \
+	done < <(lsof -t "$${lock_files[@]}" 2>/dev/null | sort -u); \
+	if [[ $${#lock_pids[@]} -eq 0 ]]; then \
+		echo ""; \
+		echo "No active processes hold these lock files."; \
+		exit 0; \
+	fi; \
+	echo ""; \
+	echo "Active lock holders:"; \
+	ps -o pid,ppid,etime,state,command -p "$$(IFS=,; echo "$${lock_pids[*]}")"
+
+rust-unlock:
+	@set -euo pipefail; \
+	if ! command -v lsof >/dev/null 2>&1; then \
+		echo "lsof is required for rust-unlock"; \
+		exit 1; \
+	fi; \
+	lock_dirs=(); \
+	for dir in "$(RUST_TARGET_DIR)" "$(RUST_LEGACY_TARGET_DIR)"; do \
+		if [[ -d "$$dir" ]]; then \
+			lock_dirs+=("$$dir"); \
+		fi; \
+	done; \
+	if [[ $${#lock_dirs[@]} -eq 0 ]]; then \
+		echo "No Rust target directories found."; \
+		exit 0; \
+	fi; \
+	lock_files=(); \
+	while IFS= read -r lock_file; do \
+		lock_files+=("$$lock_file"); \
+	done < <(find "$${lock_dirs[@]}" -name .cargo-lock -type f 2>/dev/null | sort); \
+	if [[ $${#lock_files[@]} -eq 0 ]]; then \
+		echo "No Cargo lock files found in target directories."; \
+		exit 0; \
+	fi; \
+	lock_pids=(); \
+	while IFS= read -r lock_pid; do \
+		lock_pids+=("$$lock_pid"); \
+	done < <(lsof -t "$${lock_files[@]}" 2>/dev/null | sort -u); \
+	if [[ $${#lock_pids[@]} -eq 0 ]]; then \
+		echo "No active lock holders found."; \
+		exit 0; \
+	fi; \
+	echo "Stopping Cargo lock holders: $${lock_pids[*]}"; \
+	for pid in "$${lock_pids[@]}"; do \
+		kill "$$pid" 2>/dev/null || true; \
+	done; \
+	remaining_pids=(); \
+	while IFS= read -r remaining_pid; do \
+		remaining_pids+=("$$remaining_pid"); \
+	done < <(lsof -t "$${lock_files[@]}" 2>/dev/null | sort -u); \
+	if [[ $${#remaining_pids[@]} -gt 0 ]]; then \
+		echo "Force-killing remaining lock holders: $${remaining_pids[*]}"; \
+		for pid in "$${remaining_pids[@]}"; do \
+			kill -9 "$$pid" 2>/dev/null || true; \
+		done; \
+	fi; \
+	echo "Cargo lock holders cleared."
 
 rust-size:
 	@if [[ -d "$(RUST_TARGET_DIR)" ]]; then \
@@ -175,10 +265,10 @@ rust-size:
 		echo "sccache dir size:"; \
 		du -sh "$(SCCACHE_DIR)"; \
 	fi
-	@if [[ -d "$(abspath $(RUST_WORKSPACE_DIR)/target)" ]]; then \
+	@if [[ -d "$(RUST_LEGACY_TARGET_DIR)" ]]; then \
 		echo ""; \
 		echo "legacy target dir size:"; \
-		du -sh "$(abspath $(RUST_WORKSPACE_DIR)/target)"; \
+		du -sh "$(RUST_LEGACY_TARGET_DIR)"; \
 	fi
 
 rust-sccache-start:
