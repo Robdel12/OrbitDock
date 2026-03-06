@@ -177,28 +177,11 @@ fn find_codex_protocol_rs() -> Option<PathBuf> {
         }
     }
 
-    if let Some(path) = local_openai_codex_protocol_path() {
+    if let Some(path) = find_pinned_protocol_in_cargo_home() {
         return Some(path);
     }
 
     find_protocol_in_cargo_home()
-}
-
-fn local_openai_codex_protocol_path() -> Option<PathBuf> {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let orbitdock_root = manifest_dir.parent()?.parent()?.parent()?;
-    let candidate = orbitdock_root
-        .parent()?
-        .join("openai-codex")
-        .join("codex-rs")
-        .join("protocol")
-        .join("src")
-        .join("protocol.rs");
-    if candidate.is_file() {
-        Some(candidate)
-    } else {
-        None
-    }
 }
 
 fn find_protocol_in_cargo_home() -> Option<PathBuf> {
@@ -237,6 +220,67 @@ fn find_protocol_in_cargo_home() -> Option<PathBuf> {
     }
 
     None
+}
+
+fn find_pinned_protocol_in_cargo_home() -> Option<PathBuf> {
+    let rev = codex_git_revision_from_workspace_lockfile()?;
+    let short_rev: String = rev.chars().take(7).collect();
+
+    let cargo_home = cargo_home_dir()?;
+    let checkouts = cargo_home.join("git").join("checkouts");
+    if !checkouts.is_dir() {
+        return None;
+    }
+
+    let repos = fs::read_dir(checkouts).ok()?;
+    for repo_entry in repos.flatten() {
+        let repo_path = repo_entry.path();
+        if !repo_path.is_dir() {
+            continue;
+        }
+
+        let candidate = repo_path
+            .join(&short_rev)
+            .join("codex-rs")
+            .join("protocol")
+            .join("src")
+            .join("protocol.rs");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn codex_git_revision_from_workspace_lockfile() -> Option<String> {
+    let lockfile = workspace_lockfile_path()?;
+    let source = fs::read_to_string(lockfile).ok()?;
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("source = \"git+https://github.com/openai/codex?") {
+            continue;
+        }
+
+        let hash_start = trimmed.rfind('#')?;
+        let quoted = trimmed[hash_start + 1..].trim_end_matches('"');
+        let rev: String = quoted
+            .chars()
+            .take_while(|ch| ch.is_ascii_hexdigit())
+            .collect();
+        if rev.len() >= 7 {
+            return Some(rev);
+        }
+    }
+
+    None
+}
+
+fn workspace_lockfile_path() -> Option<PathBuf> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir.parent()?.parent()?;
+    Some(workspace_root.join("Cargo.lock"))
 }
 
 fn cargo_home_dir() -> Option<PathBuf> {

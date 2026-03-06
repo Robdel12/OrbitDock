@@ -2305,16 +2305,15 @@ fn shell_segments_for_preview(command: &str) -> Vec<ApprovalPreviewSegment> {
             }
 
             // Extract delimiter (may be quoted with ' or ")
-            let quote_char = if hd_index < chars.len()
-                && (chars[hd_index] == '\'' || chars[hd_index] == '"')
-            {
-                let q = Some(chars[hd_index]);
-                buffer.push(chars[hd_index]);
-                hd_index += 1;
-                q
-            } else {
-                None
-            };
+            let quote_char =
+                if hd_index < chars.len() && (chars[hd_index] == '\'' || chars[hd_index] == '"') {
+                    let q = Some(chars[hd_index]);
+                    buffer.push(chars[hd_index]);
+                    hd_index += 1;
+                    q
+                } else {
+                    None
+                };
 
             let delim_start = hd_index;
             while hd_index < chars.len() {
@@ -3367,7 +3366,11 @@ mod tests {
     fn shell_segments_heredoc_single_quote_kept_as_one_segment() {
         let cmd = "cat <<'EOF' > /tmp/plan.md\n# Plan\n\nStep 1\nStep 2\nEOF";
         let segments = shell_segments_for_preview(cmd);
-        assert_eq!(segments.len(), 1, "heredoc should be a single segment, got: {segments:?}");
+        assert_eq!(
+            segments.len(),
+            1,
+            "heredoc should be a single segment, got: {segments:?}"
+        );
         assert!(segments[0].command.contains("# Plan"));
         assert!(segments[0].command.contains("EOF"));
     }
@@ -3376,28 +3379,44 @@ mod tests {
     fn shell_segments_heredoc_double_quote_kept_as_one_segment() {
         let cmd = "cat <<\"END\" > /tmp/out.txt\nline 1\nline 2\nEND";
         let segments = shell_segments_for_preview(cmd);
-        assert_eq!(segments.len(), 1, "heredoc should be a single segment, got: {segments:?}");
+        assert_eq!(
+            segments.len(),
+            1,
+            "heredoc should be a single segment, got: {segments:?}"
+        );
     }
 
     #[test]
     fn shell_segments_heredoc_unquoted_kept_as_one_segment() {
         let cmd = "cat <<MARKER\nfoo\nbar\nMARKER";
         let segments = shell_segments_for_preview(cmd);
-        assert_eq!(segments.len(), 1, "heredoc should be a single segment, got: {segments:?}");
+        assert_eq!(
+            segments.len(),
+            1,
+            "heredoc should be a single segment, got: {segments:?}"
+        );
     }
 
     #[test]
     fn shell_segments_heredoc_with_dash_strip_tabs() {
         let cmd = "cat <<-EOF\n\tfoo\n\tbar\nEOF";
         let segments = shell_segments_for_preview(cmd);
-        assert_eq!(segments.len(), 1, "<<- heredoc should be a single segment, got: {segments:?}");
+        assert_eq!(
+            segments.len(),
+            1,
+            "<<- heredoc should be a single segment, got: {segments:?}"
+        );
     }
 
     #[test]
     fn shell_segments_heredoc_then_next_command() {
         let cmd = "cat <<'EOF' > /tmp/file.md\ncontent\nEOF\ncd /tmp && gh issue create --body-file file.md";
         let segments = shell_segments_for_preview(cmd);
-        assert_eq!(segments.len(), 3, "expected heredoc + cd + gh, got: {segments:?}");
+        assert_eq!(
+            segments.len(),
+            3,
+            "expected heredoc + cd + gh, got: {segments:?}"
+        );
         assert!(segments[0].command.starts_with("cat <<"));
         assert_eq!(segments[1].command, "cd /tmp");
         assert_eq!(segments[2].leading_operator.as_deref(), Some("&&"));

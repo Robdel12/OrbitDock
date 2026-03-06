@@ -17,7 +17,9 @@ private struct ParsedRule: Identifiable {
   let behavior: String
   let rawPattern: String
 
-  var id: String { "\(behavior):\(rawPattern)" }
+  var id: String {
+    "\(behavior):\(rawPattern)"
+  }
 
   /// A short display label — trims long paths/commands to the meaningful part.
   var displayLabel: String {
@@ -49,8 +51,8 @@ private struct ParsedRule: Identifiable {
        let parenEnd = pattern.lastIndex(of: ")"),
        parenStart < parenEnd
     {
-      let tool = String(pattern[pattern.startIndex..<parenStart])
-      let detail = String(pattern[pattern.index(after: parenStart)..<parenEnd])
+      let tool = String(pattern[pattern.startIndex ..< parenStart])
+      let detail = String(pattern[pattern.index(after: parenStart) ..< parenEnd])
       return ParsedRule(tool: tool, detail: detail, behavior: behavior, rawPattern: pattern)
     }
 
@@ -77,8 +79,13 @@ private struct ToolGroup: Identifiable {
   let rules: [ParsedRule]
   let behavior: String
 
-  var id: String { "\(behavior):\(tool)" }
-  var count: Int { rules.count }
+  var id: String {
+    "\(behavior):\(tool)"
+  }
+
+  var count: Int {
+    rules.count
+  }
 
   var color: Color {
     switch behavior {
@@ -125,8 +132,13 @@ struct PermissionInlinePanel: View {
   @State private var headerHovering = false
   @State private var expandedGroups: Set<String> = []
 
-  private var obs: SessionObservable { serverState.session(sessionId) }
-  private var currentSession: Session? { serverState.sessions.first { $0.id == sessionId } }
+  private var obs: SessionObservable {
+    serverState.session(sessionId)
+  }
+
+  private var currentSession: Session? {
+    serverState.sessions.first { $0.id == sessionId }
+  }
 
   // MARK: - Provider helpers
 
@@ -165,9 +177,17 @@ struct PermissionInlinePanel: View {
     return rules.map { ParsedRule.parse($0.pattern, behavior: $0.behavior) }
   }
 
-  private var allowRules: [ParsedRule] { parsedRules.filter { $0.behavior == "allow" } }
-  private var denyRules: [ParsedRule] { parsedRules.filter { $0.behavior == "deny" } }
-  private var askRules: [ParsedRule] { parsedRules.filter { $0.behavior == "ask" } }
+  private var allowRules: [ParsedRule] {
+    parsedRules.filter { $0.behavior == "allow" }
+  }
+
+  private var denyRules: [ParsedRule] {
+    parsedRules.filter { $0.behavior == "deny" }
+  }
+
+  private var askRules: [ParsedRule] {
+    parsedRules.filter { $0.behavior == "ask" }
+  }
 
   private var additionalDirectories: [String]? {
     guard case let .claude(_, _, dirs) = obs.permissionRules else { return nil }
@@ -289,9 +309,9 @@ struct PermissionInlinePanel: View {
     }
   }
 
-  private func modePills<T: Identifiable & CaseIterable & Equatable>(
+  private func modePills<T: Identifiable & CaseIterable & Equatable & PermissionModeRepresentable>(
     _ items: [T], current: T
-  ) -> some View where T: PermissionModeRepresentable {
+  ) -> some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: Spacing.xs) {
         ForEach(items) { item in
@@ -453,7 +473,10 @@ struct PermissionInlinePanel: View {
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
-    .background(Color.backgroundTertiary.opacity(isOpen ? OpacityTier.medium : OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.md))
+    .background(
+      Color.backgroundTertiary.opacity(isOpen ? OpacityTier.medium : OpacityTier.tint),
+      in: RoundedRectangle(cornerRadius: Radius.md)
+    )
   }
 
   // MARK: - Individual rule row
