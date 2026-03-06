@@ -96,16 +96,6 @@ struct DashboardToolbar: View {
           projectManagementMenu
         }
 
-        // State pills
-        if useCustomProjectOrder {
-          toolbarStatePill(
-            label: "Custom Order",
-            color: Color.accent,
-            action: { useCustomProjectOrder = false }
-          )
-          .help("Custom project order overrides sort. Click to use sort order.")
-        }
-
         if filter != .all || providerFilter != .all {
           toolbarStatePill(
             label: "Clear",
@@ -179,20 +169,6 @@ struct DashboardToolbar: View {
               )
           }
           .buttonStyle(.plain)
-
-          if useCustomProjectOrder {
-            Button {
-              useCustomProjectOrder = false
-            } label: {
-              Text("Custom")
-                .font(.system(size: TypeScale.micro, weight: .semibold))
-                .foregroundStyle(Color.accent)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.gap)
-                .background(Color.accent.opacity(0.12), in: Capsule())
-            }
-            .buttonStyle(.plain)
-          }
         }
 
         if filter != .all || providerFilter != .all {
@@ -592,7 +568,6 @@ struct DashboardToolbar: View {
       ForEach(ActiveSessionSort.allCases) { option in
         Button {
           sort = option
-          useCustomProjectOrder = false
         } label: {
           HStack {
             Text(option.label)
@@ -648,61 +623,37 @@ struct DashboardToolbar: View {
     .menuStyle(.borderlessButton)
   }
 
+  private var hasCustomOrder: Bool {
+    !projectGroupOrder.isEmpty || !sessionOrderByGroup.isEmpty
+  }
+
   private var projectManagementMenu: some View {
-    let isActive = !projectGroupOrder.isEmpty || hiddenProjectCount > 0
+    let isActive = hasCustomOrder || hiddenProjectCount > 0
 
     return Menu {
-      Section("Projects") {
-        Button {
-          useCustomProjectOrder = false
-        } label: {
-          Label(
-            "Use Sort Order",
-            systemImage: useCustomProjectOrder ? "line.3.horizontal.decrease.circle" : "checkmark"
-          )
-        }
-        .disabled(!useCustomProjectOrder)
-
-        Button {
-          useCustomProjectOrder = true
-        } label: {
-          Label(
-            "Use Custom Order",
-            systemImage: useCustomProjectOrder ? "checkmark" : "arrow.up.and.down.and.arrow.left.and.right"
-          )
-        }
-        .disabled(projectGroupOrder.isEmpty || useCustomProjectOrder)
-
-        Divider()
-
-        Button {
-          enterEditMode()
-        } label: {
-          Label("Edit Projects\u{2026}", systemImage: "arrow.up.and.down.text.horizontal")
-        }
-
-        Button {
-          projectGroupOrder.removeAll()
-          useCustomProjectOrder = false
-        } label: {
-          Label("Reset Custom Order", systemImage: "arrow.uturn.backward")
-        }
-        .disabled(projectGroupOrder.isEmpty)
-
-        Button {
-          sessionOrderByGroup.removeAll()
-        } label: {
-          Label("Reset Session Order", systemImage: "arrow.uturn.backward.circle")
-        }
-        .disabled(sessionOrderByGroup.isEmpty)
-
-        Button {
-          hiddenProjectGroups.removeAll()
-        } label: {
-          Label("Show Hidden Projects", systemImage: "eye")
-        }
-        .disabled(hiddenProjectCount == 0)
+      Button {
+        enterEditMode()
+      } label: {
+        Label("Edit Projects\u{2026}", systemImage: "arrow.up.and.down.text.horizontal")
       }
+
+      Divider()
+
+      Button {
+        projectGroupOrder.removeAll()
+        sessionOrderByGroup.removeAll()
+        useCustomProjectOrder = false
+      } label: {
+        Label("Reset Order", systemImage: "arrow.uturn.backward")
+      }
+      .disabled(!hasCustomOrder)
+
+      Button {
+        hiddenProjectGroups.removeAll()
+      } label: {
+        Label("Show Hidden Projects", systemImage: "eye")
+      }
+      .disabled(hiddenProjectCount == 0)
     } label: {
       toolbarControl(icon: "folder", label: "Projects", isActive: isActive)
     }
@@ -730,7 +681,6 @@ struct DashboardToolbar: View {
         ForEach(ActiveSessionSort.allCases) { option in
           Button {
             sort = option
-            useCustomProjectOrder = false
           } label: {
             HStack {
               Text(option.label)
@@ -774,29 +724,6 @@ struct DashboardToolbar: View {
 
       Section("Projects") {
         Button {
-          useCustomProjectOrder = false
-        } label: {
-          HStack {
-            Text("Use Sort Order")
-            if !useCustomProjectOrder {
-              Image(systemName: "checkmark")
-            }
-          }
-        }
-
-        Button {
-          useCustomProjectOrder = true
-        } label: {
-          HStack {
-            Text("Use Custom Order")
-            if useCustomProjectOrder {
-              Image(systemName: "checkmark")
-            }
-          }
-        }
-        .disabled(projectGroupOrder.isEmpty && !useCustomProjectOrder)
-
-        Button {
           enterEditMode()
         } label: {
           Text("Edit Projects\u{2026}")
@@ -804,33 +731,19 @@ struct DashboardToolbar: View {
 
         Button {
           projectGroupOrder.removeAll()
+          sessionOrderByGroup.removeAll()
           useCustomProjectOrder = false
         } label: {
-          HStack {
-            Text("Reset Custom Order")
-            if projectGroupOrder.isEmpty {
-              Image(systemName: "checkmark")
-            }
-          }
+          Text("Reset Order")
         }
-
-        Button {
-          sessionOrderByGroup.removeAll()
-        } label: {
-          Text("Reset Session Order")
-        }
-        .disabled(sessionOrderByGroup.isEmpty)
+        .disabled(!hasCustomOrder)
 
         Button {
           hiddenProjectGroups.removeAll()
         } label: {
-          HStack {
-            Text("Show Hidden Projects")
-            if hiddenProjectCount == 0 {
-              Image(systemName: "checkmark")
-            }
-          }
+          Text("Show Hidden Projects")
         }
+        .disabled(hiddenProjectCount == 0)
       }
     } label: {
       HStack(spacing: Spacing.xs) {
