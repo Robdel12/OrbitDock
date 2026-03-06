@@ -7,12 +7,13 @@ use orbitdock_protocol::{
     ClaudeUsageSnapshot, ClaudeUsageWindow, CodexRateLimitWindow, CodexUsageSnapshot,
     UsageErrorInfo,
 };
+#[cfg(target_os = "macos")]
+use ring::digest::{digest, SHA256};
 use serde_json::Value;
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdout, Command};
 
-const CLAUDE_KEYCHAIN_SERVICE: &str = "Claude Code-credentials";
 const SENTINEL_PATH: &str = "__ORBITDOCK_PATH__";
 
 #[derive(Debug, Error)]
@@ -221,7 +222,8 @@ pub async fn fetch_claude_usage() -> Result<ClaudeUsageSnapshot, UsageProbeError
         .await
         .map_err(|err| UsageProbeError::Network(err.to_string()))?;
 
-    match response.status().as_u16() {
+    let status = response.status();
+    match status.as_u16() {
         200 => {
             let json: Value = response
                 .json()
@@ -243,7 +245,19 @@ pub async fn fetch_claude_usage() -> Result<ClaudeUsageSnapshot, UsageProbeError
             })
         }
         401 => Err(UsageProbeError::Unauthorized),
-        _ => Err(UsageProbeError::InvalidResponse),
+        _ => {
+            let detail = response.text().await.unwrap_or_default();
+            let message = if detail.trim().is_empty() {
+                format!("Claude usage API returned HTTP {}", status.as_u16())
+            } else {
+                format!(
+                    "Claude usage API returned HTTP {}: {}",
+                    status.as_u16(),
+                    truncate_for_error(&detail, 240)
+                )
+            };
+            Err(UsageProbeError::RequestFailed(message))
+        }
     }
 }
 
@@ -520,18 +534,31 @@ fn load_claude_credentials() -> Result<ClaudeCredentials, UsageProbeError> {
 
 #[cfg(target_os = "macos")]
 fn load_claude_credentials_from_keychain() -> Result<ClaudeCredentials, UsageProbeError> {
-    let output = std::process::Command::new("/usr/bin/security")
-        .args(["find-generic-password", "-s", CLAUDE_KEYCHAIN_SERVICE, "-w"])
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|_| UsageProbeError::NoCredentials)?;
+    let account = std::env::var("USER")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
-    if !output.status.success() {
-        return Err(UsageProbeError::NoCredentials);
+    for service in claude_keychain_service_candidates() {
+        let value = read_keychain_json_for_service(&service, account.as_deref())
+            .or_else(|| read_keychain_json_for_service(&service, None));
+        let Some(value) = value else {
+            continue;
+        };
+        match parse_claude_credentials_from_value(&value) {
+            Ok(credentials) => return Ok(credentials),
+            Err(UsageProbeError::NoCredentials) => continue,
+            Err(err) => return Err(err),
+        }
     }
 
-    let value: Value =
-        serde_json::from_slice(&output.stdout).map_err(|_| UsageProbeError::NoCredentials)?;
+    Err(UsageProbeError::NoCredentials)
+}
+
+#[cfg(target_os = "macos")]
+fn parse_claude_credentials_from_value(
+    value: &Value,
+) -> Result<ClaudeCredentials, UsageProbeError> {
     let oauth = value
         .get("claudeAiOauth")
         .and_then(Value::as_object)
@@ -578,6 +605,95 @@ fn load_claude_credentials_from_keychain() -> Result<ClaudeCredentials, UsagePro
         token,
         rate_limit_tier,
     })
+}
+
+#[cfg(target_os = "macos")]
+fn read_keychain_json_for_service(service: &str, account: Option<&str>) -> Option<Value> {
+    let mut args = vec!["find-generic-password", "-s", service];
+    if let Some(account) = account {
+        args.push("-a");
+        args.push(account);
+    }
+    args.push("-w");
+
+    let output = std::process::Command::new("/usr/bin/security")
+        .args(args)
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    serde_json::from_slice::<Value>(&output.stdout).ok()
+}
+
+#[cfg(target_os = "macos")]
+fn claude_keychain_service_candidates() -> Vec<String> {
+    let mut candidates = Vec::new();
+    let oauth_suffixes = ["", "-custom-oauth", "-staging-oauth", "-local-oauth"];
+    let hashed_suffix = claude_keychain_hash_suffix();
+
+    for oauth_suffix in oauth_suffixes {
+        let base = format!("Claude Code{oauth_suffix}-credentials");
+        if let Some(ref hash) = hashed_suffix {
+            candidates.push(format!("{base}{hash}"));
+        }
+        candidates.push(base);
+    }
+
+    let mut deduped = Vec::new();
+    let mut seen = HashSet::new();
+    for candidate in candidates {
+        if seen.insert(candidate.clone()) {
+            deduped.push(candidate);
+        }
+    }
+    deduped
+}
+
+#[cfg(target_os = "macos")]
+fn claude_keychain_hash_suffix() -> Option<String> {
+    if std::env::var_os("CLAUDE_CONFIG_DIR").is_some() {
+        return None;
+    }
+    let config_dir = claude_config_dir()?;
+    let hash = sha256_hex(config_dir.to_string_lossy().as_ref());
+    let prefix = &hash[..8.min(hash.len())];
+    Some(format!("-{prefix}"))
+}
+
+#[cfg(target_os = "macos")]
+fn claude_config_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
+        return Some(PathBuf::from(dir));
+    }
+    dirs::home_dir().map(|home| home.join(".claude"))
+}
+
+#[cfg(target_os = "macos")]
+fn sha256_hex(input: &str) -> String {
+    let bytes = digest(&SHA256, input.as_bytes());
+    let mut result = String::with_capacity(bytes.as_ref().len() * 2);
+    for byte in bytes.as_ref() {
+        use std::fmt::Write as _;
+        let _ = write!(&mut result, "{byte:02x}");
+    }
+    result
+}
+
+fn truncate_for_error(value: &str, max_chars: usize) -> String {
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let mut result = String::new();
+    for ch in trimmed.chars().take(max_chars) {
+        result.push(ch);
+    }
+    result.push('…');
+    result
 }
 
 #[cfg(not(target_os = "macos"))]
