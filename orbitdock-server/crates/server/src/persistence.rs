@@ -3075,6 +3075,34 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
             params![chrono_now()],
         )?;
 
+        // Reset stale work_status for active direct sessions whose CLI process
+        // died with the server. They'll reconnect via lazy connector on subscribe,
+        // but until then the UI should show "reply" (awaiting prompt), not "working".
+        conn.execute(
+            "UPDATE sessions
+             SET work_status = 'reply'
+             WHERE status = 'active'
+               AND work_status = 'working'
+               AND ((provider = 'claude' AND claude_integration_mode = 'direct')
+                 OR (provider = 'codex' AND codex_integration_mode = 'direct'))",
+            [],
+        )?;
+
+        // Also reactivate Claude direct sessions that were previously ended by
+        // server_shutdown (from older server versions). These should resume too.
+        conn.execute(
+            "UPDATE sessions
+             SET status = 'active',
+                 work_status = 'reply',
+                 ended_at = NULL,
+                 end_reason = NULL
+             WHERE provider = 'claude'
+               AND claude_integration_mode = 'direct'
+               AND status = 'ended'
+               AND end_reason = 'server_shutdown'",
+            [],
+        )?;
+
         // Restore recent sessions into runtime for active + history UI continuity.
         // Only load: active sessions, server-shutdown sessions (need resume), and recent 7-day history.
         let mut stmt = conn.prepare(

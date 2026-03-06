@@ -1285,41 +1285,15 @@ fn remove_pid_file() {
     let _ = std::fs::remove_file(&pid_path);
 }
 
-/// Wait for shutdown signal and mark active direct sessions for resumption.
-async fn shutdown_signal(state: Arc<SessionRegistry>, persist_tx: mpsc::Sender<PersistCommand>) {
+/// Wait for shutdown signal. Active direct sessions stay active in DB so they
+/// auto-resume via lazy connector when a client subscribes after restart.
+async fn shutdown_signal(_state: Arc<SessionRegistry>, _persist_tx: mpsc::Sender<PersistCommand>) {
     let _ = tokio::signal::ctrl_c().await;
     info!(
         component = "server",
         event = "server.shutdown",
-        "Shutdown signal received, preserving direct session state"
+        "Shutdown signal received — active direct sessions preserved for lazy resume"
     );
-
-    // Mark active Claude direct sessions so they resume on next startup
-    for summary in state.get_session_summaries() {
-        if summary.provider == Provider::Claude
-            && matches!(
-                summary.claude_integration_mode,
-                Some(orbitdock_protocol::ClaudeIntegrationMode::Direct)
-            )
-            && summary.status == orbitdock_protocol::SessionStatus::Active
-        {
-            let _ = persist_tx
-                .send(PersistCommand::SessionEnd {
-                    id: summary.id.clone(),
-                    reason: "server_shutdown".to_string(),
-                })
-                .await;
-            info!(
-                component = "server",
-                event = "server.shutdown.session_preserved",
-                session_id = %summary.id,
-                "Marked direct session for resume on restart"
-            );
-        }
-    }
-
-    // Give persistence writer a moment to flush
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     // Clean up PID file
     remove_pid_file();

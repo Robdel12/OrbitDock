@@ -1,6 +1,8 @@
 import Foundation
 
 struct ServerEndpoint: Codable, Equatable, Hashable, Identifiable {
+  static let localManagedEndpointID = UUID(uuidString: "0F0D0C0B-4000-4A00-8D00-000000000001")!
+
   var id: UUID
   var name: String
   var wsURL: URL
@@ -34,6 +36,7 @@ struct ServerEndpoint: Codable, Equatable, Hashable, Identifiable {
 
   static func localDefault(defaultPort: Int = ServerEndpointSettings.defaultPort) -> ServerEndpoint {
     ServerEndpoint(
+      id: localManagedEndpointID,
       name: "Local Server",
       wsURL: URL(string: "ws://127.0.0.1:\(defaultPort)/ws")!,
       isLocalManaged: true,

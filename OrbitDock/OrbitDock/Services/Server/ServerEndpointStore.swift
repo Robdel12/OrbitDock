@@ -13,7 +13,11 @@ struct ServerEndpointStore {
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
 
-  private static let includesLocalManagedEndpoint = false
+  #if os(macOS)
+    private static let includesLocalManagedEndpoint = true
+  #else
+    private static let includesLocalManagedEndpoint = false
+  #endif
 
   init(
     defaults: UserDefaults = .standard,
@@ -183,8 +187,11 @@ struct ServerEndpointStore {
 
     if Self.includesLocalManagedEndpoint, !endpoints.contains(where: \.isLocalManaged) {
       let shouldBeDefault = !endpoints.contains(where: { $0.isDefault && $0.isEnabled })
+      let hasEnabledEndpoint = endpoints.contains(where: \.isEnabled)
       var local = ServerEndpoint.localDefault(defaultPort: defaultPort)
-      local.isDefault = shouldBeDefault
+      // Keep remote-first setups stable: only auto-enable localhost when no enabled endpoint exists.
+      local.isEnabled = !hasEnabledEndpoint
+      local.isDefault = shouldBeDefault && local.isEnabled
       endpoints.append(local)
     }
 
