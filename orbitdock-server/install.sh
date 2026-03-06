@@ -28,6 +28,7 @@ SKIP_HOOKS="${ORBITDOCK_SKIP_HOOKS:-0}"
 SKIP_SERVICE="${ORBITDOCK_SKIP_SERVICE:-0}"
 FORCE_SOURCE="${ORBITDOCK_FORCE_SOURCE:-0}"
 SERVER_URL=""
+AUTH_TOKEN="${ORBITDOCK_AUTH_TOKEN:-}"
 
 # ── Parse flags ───────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -38,6 +39,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --server-url=*)
       SERVER_URL="${1#*=}"
+      shift
+      ;;
+    --auth-token)
+      AUTH_TOKEN="$2"
+      shift 2
+      ;;
+    --auth-token=*)
+      AUTH_TOKEN="${1#*=}"
       shift
       ;;
     --skip-hooks)
@@ -65,6 +74,7 @@ while [[ $# -gt 0 ]]; do
       echo ""
       echo "Options:"
       echo "  --server-url <url>   Remote server URL (hooks-only mode — skips service install)"
+      echo "  --auth-token <token> Remote server auth token (or set ORBITDOCK_AUTH_TOKEN)"
       echo "  --skip-hooks         Skip Claude hook installation"
       echo "  --skip-service       Skip system service installation"
       echo "  --version <ver>      Install specific version tag (default: latest)"
@@ -349,7 +359,11 @@ if [[ "$SKIP_HOOKS" == "1" ]]; then
   warn "Skipping Claude hook installation (--skip-hooks)."
 else
   if [[ -n "$SERVER_URL" ]]; then
-    "$SERVER_BIN" install-hooks --server-url "$SERVER_URL"
+    if [[ -n "$AUTH_TOKEN" ]]; then
+      "$SERVER_BIN" install-hooks --server-url "$SERVER_URL" --auth-token "$AUTH_TOKEN"
+    else
+      "$SERVER_BIN" install-hooks --server-url "$SERVER_URL"
+    fi
   else
     "$SERVER_BIN" install-hooks
   fi

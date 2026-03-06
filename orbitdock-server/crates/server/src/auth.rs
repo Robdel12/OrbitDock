@@ -19,12 +19,26 @@ const MAX_BEARER_TOKEN_LEN: usize = 1024;
 #[derive(Clone, Debug)]
 pub struct AuthState {
     pub static_token: Option<String>,
-    pub allow_database_tokens: bool,
 }
 
 impl AuthState {
-    pub fn is_enabled(&self) -> bool {
-        self.static_token.is_some() || self.allow_database_tokens
+    fn requires_auth(&self) -> Result<bool, StatusCode> {
+        if self.static_token.is_some() {
+            return Ok(true);
+        }
+
+        match auth_tokens::active_token_count() {
+            Ok(count) => Ok(count > 0),
+            Err(e) => {
+                warn!(
+                    component = "auth",
+                    event = "auth.token_count_error",
+                    error = %e,
+                    "Failed to determine whether database-backed auth is enabled"
+                );
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
     }
 }
 
@@ -42,6 +56,10 @@ pub async fn auth_middleware(
         return Ok(next.run(req).await);
     }
 
+    if !auth.requires_auth()? {
+        return Ok(next.run(req).await);
+    }
+
     let Some(token) = bearer_token(&req) else {
         return Err(StatusCode::UNAUTHORIZED);
     };
@@ -52,18 +70,17 @@ pub async fn auth_middleware(
         }
     }
 
-    if auth.allow_database_tokens {
-        match auth_tokens::verify_bearer_token(token) {
-            Ok(true) => return Ok(next.run(req).await),
-            Ok(false) => {}
-            Err(e) => {
-                warn!(
-                    component = "auth",
-                    event = "auth.token_verify_error",
-                    error = %e,
-                    "Token verification failed due to internal error"
-                );
-            }
+    match auth_tokens::verify_bearer_token(token) {
+        Ok(true) => return Ok(next.run(req).await),
+        Ok(false) => {}
+        Err(e) => {
+            warn!(
+                component = "auth",
+                event = "auth.token_verify_error",
+                error = %e,
+                "Token verification failed due to internal error"
+            );
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     }
 

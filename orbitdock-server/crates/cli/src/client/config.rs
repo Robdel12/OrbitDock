@@ -29,33 +29,41 @@ impl ClientConfig {
     /// 1. CLI flags (--server, --token, --json)
     /// 2. Environment variables (ORBITDOCK_URL, ORBITDOCK_TOKEN) — handled by clap env
     /// 3. Config file (~/.orbitdock/cli.toml)
-    /// 4. Auth token file (~/.orbitdock/auth-token)
-    /// 5. Defaults
+    /// 4. Defaults
     pub fn resolve(cli: &Cli) -> Result<Self> {
-        let file_config = load_config_file(cli.config.as_deref());
+        Ok(Self::from_sources(
+            cli.server.as_deref(),
+            cli.token.as_deref(),
+            cli.json,
+            cli.config.as_deref(),
+        ))
+    }
+
+    pub fn from_sources(
+        server: Option<&str>,
+        token: Option<&str>,
+        json: bool,
+        config_path: Option<&str>,
+    ) -> Self {
+        let file_config = load_config_file(config_path);
 
         // Server URL: flag/env > config file > default
-        let server_url = cli
-            .server
-            .clone()
-            .or(file_config.server)
+        let server_url = normalized_non_empty(server)
+            .or_else(|| normalized_non_empty(file_config.server.as_deref()))
             .unwrap_or_else(|| DEFAULT_SERVER.to_string());
 
-        // Token: flag/env > config file > ~/.orbitdock/auth-token file
-        let token = cli
-            .token
-            .clone()
-            .or(file_config.token)
-            .or_else(load_auth_token_file);
+        // Token: flag/env > config file
+        let token = normalized_non_empty(token)
+            .or_else(|| normalized_non_empty(file_config.token.as_deref()));
 
         // JSON: flag or non-TTY stdout
-        let json = cli.json || !atty_stdout();
+        let json = json || !atty_stdout();
 
-        Ok(Self {
+        Self {
             server_url,
             token,
             json,
-        })
+        }
     }
 }
 
@@ -76,19 +84,16 @@ fn load_config_file(explicit_path: Option<&str>) -> FileConfig {
 
     toml::from_str(&contents).unwrap_or_default()
 }
+fn atty_stdout() -> bool {
+    console::Term::stdout().is_term()
+}
 
-/// Read token from ~/.orbitdock/auth-token (created by `orbitdock generate-token`).
-fn load_auth_token_file() -> Option<String> {
-    let path = dirs::home_dir()?.join(".orbitdock").join("auth-token");
-    let contents = std::fs::read_to_string(path).ok()?;
-    let trimmed = contents.trim();
+fn normalized_non_empty(value: Option<&str>) -> Option<String> {
+    let value = value?;
+    let trimmed = value.trim();
     if trimmed.is_empty() {
         None
     } else {
         Some(trimmed.to_string())
     }
-}
-
-fn atty_stdout() -> bool {
-    console::Term::stdout().is_term()
 }

@@ -45,7 +45,8 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
         println!("  Generating auth token...");
         let token = cmd_status::create_token(data_dir)?;
         println!("  Auth token: {}", token);
-        println!("  (Stored hashed in the database; this is the only time you can copy it.)");
+        println!("  Copy it now and store it somewhere secure.");
+        println!("  (Stored hashed in the database; OrbitDock will not print it again.)");
         println!();
         Some(token)
     } else {
@@ -112,9 +113,6 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
         Mode::Remote => {
             println!("  Mode:    Remote");
             println!("  Bind:    {}", bind);
-            if let Some(ref token) = auth_token {
-                println!("  Token:   {}", token);
-            }
             println!();
             println!("  Start the server:");
             println!("    orbitdock start --bind {}", bind);
@@ -123,13 +121,10 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
             let remote_url = resolved_server_url
                 .clone()
                 .unwrap_or_else(|| "https://your-server.example.com:4000".to_string());
-            if let Some(ref token) = auth_token {
-                println!(
-                    "    orbitdock install-hooks --server-url {} --auth-token {}",
-                    remote_url, token
-                );
-            } else {
-                println!("    orbitdock install-hooks --server-url {}", remote_url);
+            println!("    orbitdock install-hooks --server-url {}", remote_url);
+            if auth_token.is_some() {
+                println!("  The installer will prompt for the auth token.");
+                println!("  You can also set ORBITDOCK_AUTH_TOKEN before running it.");
             }
         }
     }

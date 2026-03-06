@@ -83,6 +83,7 @@ pub fn generate_token(data_dir: &Path) -> anyhow::Result<()> {
 
     println!();
     println!("  Secure auth token generated and stored (hashed) in the database.");
+    println!("  Copy it now and store it somewhere secure.");
     println!();
     println!("  Token ID: {}", issued.id);
     println!("  Token: {}", issued.token);
@@ -90,7 +91,9 @@ pub fn generate_token(data_dir: &Path) -> anyhow::Result<()> {
     println!("  Usage:");
     println!("    # Start server (token store mode)");
     println!("    orbitdock start --bind 0.0.0.0:4000");
-    println!("    # Configure hooks/client with the token shown above");
+    println!("    # Configure hooks or clients with the token shown above");
+    println!("    # `orbitdock install-hooks --server-url ...` will prompt for it");
+    println!("    # Or set ORBITDOCK_AUTH_TOKEN before running client commands");
     println!();
 
     Ok(())

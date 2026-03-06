@@ -2,7 +2,6 @@
 //!
 //! Key resolution: `ORBITDOCK_ENCRYPTION_KEY` env (base64) → `<data_dir>/encryption.key` file → auto-generate.
 //! Encrypted values are stored with an `enc:` prefix so `load_config_value` can detect and decrypt transparently.
-
 use std::fs::{self, OpenOptions};
 use std::io::Write as IoWrite;
 use std::os::unix::fs::OpenOptionsExt;
@@ -91,19 +90,29 @@ fn load_key() -> Option<[u8; KEY_LEN]> {
     if let Ok(env_val) = std::env::var("ORBITDOCK_ENCRYPTION_KEY") {
         let trimmed = env_val.trim();
         if !trimmed.is_empty() {
-            if let Ok(decoded) = BASE64.decode(trimmed) {
-                if decoded.len() == KEY_LEN {
+            match BASE64.decode(trimmed) {
+                Ok(decoded) if decoded.len() == KEY_LEN => {
                     let mut key = [0u8; KEY_LEN];
                     key.copy_from_slice(&decoded);
                     return Some(key);
                 }
-                warn!(
-                    component = "crypto",
-                    event = "crypto.env_key_invalid_length",
-                    length = decoded.len(),
-                    expected = KEY_LEN,
-                    "ORBITDOCK_ENCRYPTION_KEY has wrong length"
-                );
+                Ok(decoded) => {
+                    warn!(
+                        component = "crypto",
+                        event = "crypto.env_key_invalid_length",
+                        length = decoded.len(),
+                        expected = KEY_LEN,
+                        "ORBITDOCK_ENCRYPTION_KEY has wrong length"
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        component = "crypto",
+                        event = "crypto.env_key_invalid_base64",
+                        error = %e,
+                        "ORBITDOCK_ENCRYPTION_KEY is not valid base64"
+                    );
+                }
             }
             // Env var was set but invalid — don't fall through to file
             return None;
@@ -188,31 +197,25 @@ fn decrypt_with_key(key_bytes: &[u8; KEY_LEN], value: &str) -> Option<String> {
 /// Encrypt a plaintext string with AES-256-GCM.
 ///
 /// Resolves the key from env/file, then encrypts.
-/// Returns the plaintext unchanged only if no encryption key is available (first run before init).
-/// Logs an error and returns plaintext if encryption itself fails — never silently loses data.
-pub fn encrypt(plaintext: &str) -> String {
+/// Returns an error when the encryption key is unavailable or encryption fails.
+pub fn encrypt(plaintext: &str) -> Result<String, EncryptError> {
     let Some(key_bytes) = load_key() else {
-        warn!(
+        error!(
             component = "crypto",
             event = "crypto.encrypt.no_key",
-            "No encryption key available — storing value as plaintext"
+            "No encryption key available — refusing to store plaintext"
         );
-        return plaintext.to_string();
+        return Err(EncryptError::NoKey);
     };
-    match encrypt_with_key(&key_bytes, plaintext) {
-        Ok(encrypted) => encrypted,
-        Err(e) => {
-            error!(
-                component = "crypto",
-                event = "crypto.encrypt.failed",
-                error = %e,
-                "Encryption failed — refusing to store plaintext. Fix the encryption key and retry."
-            );
-            // Return plaintext with a marker so we don't silently lose the value,
-            // but log at ERROR level so this is visible in monitoring.
-            plaintext.to_string()
-        }
-    }
+    encrypt_with_key(&key_bytes, plaintext).map_err(|e| {
+        error!(
+            component = "crypto",
+            event = "crypto.encrypt.failed",
+            error = %e,
+            "Encryption failed — refusing to store plaintext. Fix the encryption key and retry."
+        );
+        e
+    })
 }
 
 /// Decrypt a value that was encrypted with [`encrypt`].
@@ -248,7 +251,8 @@ pub fn decrypt(value: &str) -> Option<String> {
 }
 
 #[derive(Debug)]
-enum EncryptError {
+pub(crate) enum EncryptError {
+    NoKey,
     KeyInit,
     NonceGeneration,
     Seal,
@@ -257,12 +261,15 @@ enum EncryptError {
 impl std::fmt::Display for EncryptError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NoKey => write!(f, "encryption key unavailable"),
             Self::KeyInit => write!(f, "failed to initialize AES-256-GCM key"),
             Self::NonceGeneration => write!(f, "failed to generate random nonce"),
             Self::Seal => write!(f, "AES-256-GCM seal operation failed"),
         }
     }
 }
+
+impl std::error::Error for EncryptError {}
 
 #[cfg(test)]
 mod tests {

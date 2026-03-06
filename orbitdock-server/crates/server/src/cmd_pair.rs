@@ -90,10 +90,9 @@ pub fn run(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
     println!();
     println!("  To connect from another machine (hooks only):");
     if env_token.is_some() || active_db_tokens > 0 {
-        println!(
-            "    orbitdock install-hooks --server-url {} --auth-token <token>",
-            base_url
-        );
+        println!("    orbitdock install-hooks --server-url {}", base_url);
+        println!("    # You will be prompted for the auth token.");
+        println!("    # Or set ORBITDOCK_AUTH_TOKEN first.");
         if active_db_tokens > 0 && env_token.is_none() {
             println!("    # Create a new token if you don't already have one:");
             println!("    orbitdock generate-token");

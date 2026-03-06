@@ -36,7 +36,7 @@ pub struct TokenRecord {
 }
 
 pub fn issue_token(label: Option<&str>) -> anyhow::Result<IssuedToken> {
-    let conn = open_connection()?;
+    let conn = open_admin_connection()?;
     let rng = SystemRandom::new();
     let label = label
         .map(str::trim)
@@ -69,7 +69,7 @@ pub fn issue_token(label: Option<&str>) -> anyhow::Result<IssuedToken> {
 }
 
 pub fn active_token_count() -> anyhow::Result<i64> {
-    let conn = open_connection()?;
+    let conn = open_runtime_connection()?;
     let count = conn.query_row(
         "SELECT COUNT(*) FROM auth_tokens
          WHERE revoked_at IS NULL
@@ -81,7 +81,7 @@ pub fn active_token_count() -> anyhow::Result<i64> {
 }
 
 pub fn list_tokens() -> anyhow::Result<Vec<TokenRecord>> {
-    let conn = open_connection()?;
+    let conn = open_admin_connection()?;
     let mut stmt = conn.prepare(
         "SELECT id, label, created_at, last_used_at, expires_at, revoked_at
          FROM auth_tokens
@@ -106,7 +106,7 @@ pub fn list_tokens() -> anyhow::Result<Vec<TokenRecord>> {
 }
 
 pub fn revoke_token(id: &str) -> anyhow::Result<bool> {
-    let conn = open_connection()?;
+    let conn = open_admin_connection()?;
     let updated = conn.execute(
         "UPDATE auth_tokens
          SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -122,7 +122,7 @@ pub fn verify_bearer_token(token: &str) -> anyhow::Result<bool> {
         return Ok(false);
     }
 
-    let conn = open_connection()?;
+    let conn = open_runtime_connection()?;
     let mut stmt = conn.prepare(
         "SELECT token_hash, token_salt
          FROM auth_tokens
@@ -166,13 +166,20 @@ pub fn verify_bearer_token(token: &str) -> anyhow::Result<bool> {
     Ok(false)
 }
 
-fn open_connection() -> anyhow::Result<Connection> {
+fn open_admin_connection() -> anyhow::Result<Connection> {
     paths::ensure_dirs().context("ensure data dirs for auth token db")?;
     let db_path = paths::db_path();
     let mut conn = Connection::open(&db_path)
         .with_context(|| format!("open auth token db at {}", db_path.display()))?;
     migration_runner::run_migrations(&mut conn).context("run auth token migrations")?;
     Ok(conn)
+}
+
+fn open_runtime_connection() -> anyhow::Result<Connection> {
+    paths::ensure_dirs().context("ensure data dirs for auth token db")?;
+    let db_path = paths::db_path();
+    Connection::open(&db_path)
+        .with_context(|| format!("open auth token db at {}", db_path.display()))
 }
 
 fn parse_token_candidates(token: &str) -> Vec<(&str, &str)> {

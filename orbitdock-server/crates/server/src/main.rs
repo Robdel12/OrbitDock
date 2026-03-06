@@ -164,7 +164,7 @@ enum Command {
         server_url: Option<String>,
 
         /// Auth token for the remote server
-        #[arg(long)]
+        #[arg(long, env = "ORBITDOCK_AUTH_TOKEN")]
         auth_token: Option<String>,
     },
 
@@ -1143,17 +1143,13 @@ async fn async_main(
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics::metrics_handler));
 
-    // Apply auth middleware when static token or database tokens are available.
     let auth_state = auth::AuthState {
         static_token: auth_token.clone(),
-        allow_database_tokens: has_db_tokens,
     };
-    if auth_state.is_enabled() {
-        app = app.layer(axum::middleware::from_fn_with_state(
-            auth_state,
-            auth::auth_middleware,
-        ));
-    }
+    app = app.layer(axum::middleware::from_fn_with_state(
+        auth_state,
+        auth::auth_middleware,
+    ));
 
     let mut app = app.layer(TraceLayer::new_for_http());
     if let Some(cors_layer) = configured_cors_layer()? {
@@ -1350,32 +1346,12 @@ fn translate_to_cli_command(cli: &Cli) -> Option<orbitdock_cli::cli::Command> {
 
 /// Build a CLI ClientConfig from the merged Cli flags.
 fn resolve_cli_config(cli: &Cli) -> orbitdock_cli::client::config::ClientConfig {
-    let default_server = "http://127.0.0.1:4000".to_string();
-
-    // Try to load from config file if no explicit flags given
-    let server_url = cli.server.clone().unwrap_or_else(|| default_server.clone());
-
-    let token = cli.token.clone().or_else(load_auth_token_file);
-
-    let json = cli.json || !console::Term::stdout().is_term();
-
-    orbitdock_cli::client::config::ClientConfig {
-        server_url,
-        token,
-        json,
-    }
-}
-
-/// Read token from ~/.orbitdock/auth-token for CLI client commands.
-fn load_auth_token_file() -> Option<String> {
-    let path = dirs::home_dir()?.join(".orbitdock").join("auth-token");
-    let contents = std::fs::read_to_string(path).ok()?;
-    let trimmed = contents.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
+    orbitdock_cli::client::config::ClientConfig::from_sources(
+        cli.server.as_deref(),
+        cli.token.as_deref(),
+        cli.json,
+        cli.config.as_deref(),
+    )
 }
 
 fn current_binary_path() -> String {

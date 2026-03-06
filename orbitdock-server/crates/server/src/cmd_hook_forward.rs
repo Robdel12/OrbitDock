@@ -174,12 +174,11 @@ fn read_transport_config() -> anyhow::Result<Option<HookTransportConfig>> {
 }
 
 fn encrypt_token_for_storage(token: &str) -> anyhow::Result<String> {
-    let encrypted = crypto::encrypt(token);
-    if encrypted.starts_with(crypto::ENC_PREFIX) {
-        Ok(encrypted)
-    } else {
-        anyhow::bail!("failed to encrypt auth token for hook transport config")
+    let encrypted = crypto::encrypt(token)?;
+    if !encrypted.starts_with(crypto::ENC_PREFIX) {
+        anyhow::bail!("failed to encrypt auth token for hook transport config");
     }
+    Ok(encrypted)
 }
 
 fn write_secure_config(path: &Path, body: &str) -> anyhow::Result<()> {

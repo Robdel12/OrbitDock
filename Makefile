@@ -55,7 +55,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-lock-status rust-unlock rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-release rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-lock-status rust-unlock rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
 
 help:
 	@echo "make build      Build the macOS app"
@@ -71,6 +71,7 @@ help:
 	@echo "make swift-fmt  Format Swift with SwiftFormat"
 	@echo "make swift-lint Lint Swift formatting with SwiftFormat --lint"
 	@echo "make rust-build Build Rust orbitdock binary"
+	@echo "make rust-build-release Build Rust orbitdock binary in release mode for the host platform"
 	@echo "make rust-build-darwin Build fresh macOS arm64 orbitdock binary"
 	@echo "make rust-build-universal Alias for rust-build-darwin (legacy target name)"
 	@echo "make rust-check Run cargo check for Rust workspace"
@@ -310,6 +311,9 @@ rust-ci: rust-fmt-check rust-lint rust-test
 
 rust-build:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock
+
+rust-build-release:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock --release
 
 rust-build-darwin:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) rustup target add aarch64-apple-darwin

@@ -4,7 +4,12 @@
 //! Hooks invoke `orbitdock hook-forward ...` directly; no shell script
 //! install is required.
 
+use std::io::{Read, Write};
+#[cfg(unix)]
+use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::{fs::OpenOptions, os::fd::AsRawFd};
 
 use crate::{cmd_hook_forward, paths};
 
@@ -42,7 +47,9 @@ pub fn run(
     });
 
     let target_url = server_url.unwrap_or("http://127.0.0.1:4000");
-    let transport_config_path = cmd_hook_forward::write_transport_config(target_url, auth_token)?;
+    let resolved_auth_token = resolve_auth_token(target_url, auth_token)?;
+    let transport_config_path =
+        cmd_hook_forward::write_transport_config(target_url, resolved_auth_token.as_deref())?;
     let hook_binary = quote_for_shell(&resolve_hook_binary_path());
 
     // Read existing settings or start with empty object
@@ -172,11 +179,147 @@ pub fn run(
         "  Hook transport config: {}",
         transport_config_path.display()
     );
+    match resolved_auth_token {
+        Some(_) => println!("  Hook auth token: configured"),
+        None if should_prompt_for_auth_token(target_url) => {
+            println!("  Hook auth token: not configured");
+            println!(
+                "  Remote requests may be rejected until you rerun `orbitdock install-hooks` with a token."
+            );
+        }
+        None => println!("  Hook auth token: not configured"),
+    }
     println!("  Hook forward binary: {}", resolve_hook_binary_path());
     println!("  Spool directory: {}", paths::spool_dir().display());
     println!();
 
     Ok(())
+}
+
+fn resolve_auth_token(
+    server_url: &str,
+    auth_token: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    let explicit_token = normalized_non_empty(auth_token);
+    if explicit_token.is_some() || !should_prompt_for_auth_token(server_url) {
+        return Ok(explicit_token);
+    }
+
+    let prompted_token = prompt_auth_token(server_url)?;
+    Ok(prompted_token)
+}
+
+fn should_prompt_for_auth_token(server_url: &str) -> bool {
+    !is_local_server_url(server_url)
+}
+
+fn is_local_server_url(server_url: &str) -> bool {
+    let trimmed = server_url.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    if let Ok(url) = reqwest::Url::parse(trimmed) {
+        return url.host_str().map(is_local_host).unwrap_or(false);
+    }
+
+    trimmed.contains("127.0.0.1")
+        || trimmed.contains("localhost")
+        || trimmed.contains("[::1]")
+        || trimmed.contains("://0.0.0.0")
+}
+
+fn is_local_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "::1" | "0.0.0.0")
+}
+
+fn normalized_non_empty(value: Option<&str>) -> Option<String> {
+    let value = value?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+#[cfg(unix)]
+fn prompt_auth_token(server_url: &str) -> anyhow::Result<Option<String>> {
+    let mut tty = match OpenOptions::new().read(true).write(true).open("/dev/tty") {
+        Ok(file) => file,
+        Err(_) => return Ok(None),
+    };
+
+    writeln!(tty)?;
+    writeln!(tty, "  Remote server detected: {server_url}")?;
+    writeln!(
+        tty,
+        "  Enter the auth token to store in the local hook transport config."
+    )?;
+    writeln!(
+        tty,
+        "  Press Enter only if this remote server is intentionally running without auth."
+    )?;
+    write!(tty, "  Auth token: ")?;
+    tty.flush()?;
+
+    let token = read_hidden_line(&mut tty)?;
+    writeln!(tty)?;
+    Ok(normalized_non_empty(Some(token.as_str())))
+}
+
+#[cfg(not(unix))]
+fn prompt_auth_token(_server_url: &str) -> anyhow::Result<Option<String>> {
+    Ok(None)
+}
+
+#[cfg(unix)]
+fn read_hidden_line(file: &mut std::fs::File) -> anyhow::Result<String> {
+    let fd = file.as_raw_fd();
+    let original = current_termios(fd)?;
+    let mut hidden = original;
+    hidden.c_lflag &= !libc::ECHO;
+
+    if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &hidden) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+
+    let _restore = TermiosRestoreGuard { fd, original };
+    let mut bytes = Vec::new();
+
+    loop {
+        let mut buf = [0u8; 1];
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(_) if matches!(buf[0], b'\n' | b'\r') => break,
+            Ok(_) => bytes.push(buf[0]),
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    Ok(String::from_utf8(bytes)?)
+}
+
+#[cfg(unix)]
+fn current_termios(fd: i32) -> anyhow::Result<libc::termios> {
+    let mut termios = MaybeUninit::<libc::termios>::uninit();
+    if unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(unsafe { termios.assume_init() })
+}
+
+#[cfg(unix)]
+struct TermiosRestoreGuard {
+    fd: i32,
+    original: libc::termios,
+}
+
+#[cfg(unix)]
+impl Drop for TermiosRestoreGuard {
+    fn drop(&mut self) {
+        let _ = unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.original) };
+    }
 }
 
 fn resolve_hook_binary_path() -> String {
