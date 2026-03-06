@@ -1,9 +1,15 @@
 XCODE_PROJECT ?= OrbitDock/OrbitDock.xcodeproj
 XCODE_SCHEME ?= OrbitDock
 XCODE_DESTINATION ?= platform=macOS
+XCODE_UNIT_TEST_SCHEME ?= OrbitDock Unit Tests
 XCODE_IOS_SCHEME ?= OrbitDock iOS
 XCODE_IOS_DESTINATION ?= generic/platform=iOS
-XCODEBUILD_BASE = xcodebuild -project $(XCODE_PROJECT) -scheme "$(XCODE_SCHEME)" -destination "$(XCODE_DESTINATION)"
+XCODE_MACOS_CODE_SIGN_FLAGS ?=
+ifeq ($(CI),true)
+XCODE_MACOS_CODE_SIGN_FLAGS = CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=""
+endif
+XCODEBUILD_BASE = xcodebuild -project $(XCODE_PROJECT) -scheme "$(XCODE_SCHEME)" -destination "$(XCODE_DESTINATION)" $(XCODE_MACOS_CODE_SIGN_FLAGS)
+XCODEBUILD_UNIT_TEST_BASE = xcodebuild -project $(XCODE_PROJECT) -scheme "$(XCODE_UNIT_TEST_SCHEME)" -destination "$(XCODE_DESTINATION)" $(XCODE_MACOS_CODE_SIGN_FLAGS)
 XCODEBUILD_IOS_BASE = xcodebuild -project $(XCODE_PROJECT) -scheme "$(XCODE_IOS_SCHEME)" -destination "$(XCODE_IOS_DESTINATION)" CODE_SIGNING_ALLOWED=NO
 XCODEBUILD_LOG_DIR ?= .logs
 XCODE_DERIVED_DATA_DIR ?= .build/DerivedData
@@ -15,6 +21,7 @@ XCODE_SWIFTPM_MODULECACHE_DIR ?= $(XCODE_CACHE_DIR)/swiftpm-module-cache
 XCODEBUILD_ARGS = -derivedDataPath "$(abspath $(XCODE_DERIVED_DATA_DIR))" -packageCachePath "$(abspath $(XCODE_PACKAGE_CACHE_DIR))" -clonedSourcePackagesDirPath "$(abspath $(XCODE_SOURCE_PACKAGES_DIR))"
 XCODEBUILD_ENV = CLANG_MODULE_CACHE_PATH="$(abspath $(XCODE_CLANG_MODULE_CACHE_DIR))" SWIFTPM_MODULECACHE_OVERRIDE="$(abspath $(XCODE_SWIFTPM_MODULECACHE_DIR))"
 XCODEBUILD = $(XCODEBUILD_ENV) $(XCODEBUILD_BASE) $(XCODEBUILD_ARGS)
+XCODEBUILD_UNIT_TEST = $(XCODEBUILD_ENV) $(XCODEBUILD_UNIT_TEST_BASE) $(XCODEBUILD_ARGS)
 XCODEBUILD_IOS = $(XCODEBUILD_ENV) $(XCODEBUILD_IOS_BASE) $(XCODEBUILD_ARGS)
 RUST_WORKSPACE_DIR ?= orbitdock-server
 RUST_TARGET_DIR ?= $(abspath .cache/rust/target)
@@ -123,7 +130,7 @@ test: test-unit
 
 test-unit:
 	@$(MAKE) xcode-cache-dirs
-	@set -o pipefail; $(XCODEBUILD) -parallel-testing-enabled NO -only-testing:OrbitDockTests -skip-testing:OrbitDockUITests test 2>&1 | xcbeautify
+	@set -o pipefail; $(XCODEBUILD_UNIT_TEST) -parallel-testing-enabled NO test 2>&1 | xcbeautify
 
 test-ui:
 	@$(MAKE) xcode-cache-dirs
