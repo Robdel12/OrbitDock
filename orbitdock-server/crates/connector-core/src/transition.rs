@@ -387,10 +387,16 @@ pub enum PersistOp {
         request_id: String,
         approval_type: ApprovalType,
         tool_name: Option<String>,
+        tool_input: Option<String>,
         command: Option<String>,
         file_path: Option<String>,
+        diff: Option<String>,
+        question: Option<String>,
+        question_prompts: Vec<ApprovalQuestionPrompt>,
+        preview: Box<Option<ApprovalPreview>>,
         cwd: Option<String>,
         proposed_amendment: Option<Vec<String>>,
+        permission_suggestions: Option<serde_json::Value>,
     },
     EnvironmentUpdate {
         session_id: String,
@@ -800,10 +806,16 @@ pub fn transition(
                 request_id,
                 approval_type,
                 tool_name: Some(resolved_tool_name),
+                tool_input,
                 command,
                 file_path,
+                diff: request.diff.clone(),
+                question: request.question.clone(),
+                question_prompts: request.question_prompts.clone(),
+                preview: Box::new(request.preview.clone()),
                 cwd: Some(state.project_path.clone()),
                 proposed_amendment,
+                permission_suggestions: request.permission_suggestions.clone(),
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::ApprovalRequested {
                 session_id: sid,
@@ -1279,6 +1291,48 @@ struct ApprovalPreviewInput<'a> {
     file_path: Option<&'a str>,
     diff: Option<&'a str>,
     question: Option<&'a str>,
+}
+
+pub fn approval_question_prompts(
+    tool_input: Option<&str>,
+    fallback_question: Option<&str>,
+) -> Vec<ApprovalQuestionPrompt> {
+    extract_question_prompts_for_approval(tool_input, fallback_question)
+}
+
+pub fn approval_question(
+    tool_input: Option<&str>,
+    fallback_question: Option<&str>,
+) -> Option<String> {
+    let prompts = approval_question_prompts(tool_input, fallback_question);
+    prompts
+        .first()
+        .map(|prompt| prompt.question.clone())
+        .filter(|text| !text.is_empty())
+        .or_else(|| trim_non_empty(fallback_question))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn approval_preview(
+    request_id: &str,
+    approval_type: ApprovalType,
+    tool_name: Option<&str>,
+    tool_input: Option<&str>,
+    command: Option<&str>,
+    file_path: Option<&str>,
+    diff: Option<&str>,
+    question: Option<&str>,
+) -> Option<ApprovalPreview> {
+    build_approval_preview(ApprovalPreviewInput {
+        request_id,
+        approval_type,
+        tool_name,
+        tool_input,
+        command,
+        file_path,
+        diff,
+        question,
+    })
 }
 
 fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<ApprovalPreview> {

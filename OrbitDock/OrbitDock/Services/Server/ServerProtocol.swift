@@ -465,8 +465,13 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
   let requestId: String
   let approvalType: ServerApprovalType
   let toolName: String?
+  let toolInput: String?
   let command: String?
   let filePath: String?
+  let diff: String?
+  let question: String?
+  let questionPrompts: [ServerApprovalQuestionPrompt]
+  let preview: ServerApprovalPreview?
   let cwd: String?
   let decision: String?
   let proposedAmendment: [String]?
@@ -479,13 +484,101 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     case requestId = "request_id"
     case approvalType = "approval_type"
     case toolName = "tool_name"
+    case toolInput = "tool_input"
     case command
     case filePath = "file_path"
+    case diff
+    case question
+    case questionPrompts = "question_prompts"
+    case preview
     case cwd
     case decision
     case proposedAmendment = "proposed_amendment"
     case createdAt = "created_at"
     case decidedAt = "decided_at"
+  }
+
+  init(
+    id: Int64,
+    sessionId: String,
+    requestId: String,
+    approvalType: ServerApprovalType,
+    toolName: String? = nil,
+    toolInput: String? = nil,
+    command: String? = nil,
+    filePath: String? = nil,
+    diff: String? = nil,
+    question: String? = nil,
+    questionPrompts: [ServerApprovalQuestionPrompt] = [],
+    preview: ServerApprovalPreview? = nil,
+    cwd: String? = nil,
+    decision: String? = nil,
+    proposedAmendment: [String]? = nil,
+    createdAt: String,
+    decidedAt: String? = nil
+  ) {
+    self.id = id
+    self.sessionId = sessionId
+    self.requestId = requestId
+    self.approvalType = approvalType
+    self.toolName = toolName
+    self.toolInput = toolInput
+    self.command = command
+    self.filePath = filePath
+    self.diff = diff
+    self.question = question
+    self.questionPrompts = questionPrompts
+    self.preview = preview
+    self.cwd = cwd
+    self.decision = decision
+    self.proposedAmendment = proposedAmendment
+    self.createdAt = createdAt
+    self.decidedAt = decidedAt
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(Int64.self, forKey: .id)
+    sessionId = try container.decode(String.self, forKey: .sessionId)
+    requestId = try container.decode(String.self, forKey: .requestId)
+    approvalType = try container.decode(ServerApprovalType.self, forKey: .approvalType)
+    toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+    toolInput = try container.decodeIfPresent(String.self, forKey: .toolInput)
+    command = try container.decodeIfPresent(String.self, forKey: .command)
+    filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
+    diff = try container.decodeIfPresent(String.self, forKey: .diff)
+    question = try container.decodeIfPresent(String.self, forKey: .question)
+    questionPrompts =
+      try container.decodeIfPresent([ServerApprovalQuestionPrompt].self, forKey: .questionPrompts) ?? []
+    preview = try container.decodeIfPresent(ServerApprovalPreview.self, forKey: .preview)
+    cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+    decision = try container.decodeIfPresent(String.self, forKey: .decision)
+    proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
+    createdAt = try container.decode(String.self, forKey: .createdAt)
+    decidedAt = try container.decodeIfPresent(String.self, forKey: .decidedAt)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(sessionId, forKey: .sessionId)
+    try container.encode(requestId, forKey: .requestId)
+    try container.encode(approvalType, forKey: .approvalType)
+    try container.encodeIfPresent(toolName, forKey: .toolName)
+    try container.encodeIfPresent(toolInput, forKey: .toolInput)
+    try container.encodeIfPresent(command, forKey: .command)
+    try container.encodeIfPresent(filePath, forKey: .filePath)
+    try container.encodeIfPresent(diff, forKey: .diff)
+    try container.encodeIfPresent(question, forKey: .question)
+    if !questionPrompts.isEmpty {
+      try container.encode(questionPrompts, forKey: .questionPrompts)
+    }
+    try container.encodeIfPresent(preview, forKey: .preview)
+    try container.encodeIfPresent(cwd, forKey: .cwd)
+    try container.encodeIfPresent(decision, forKey: .decision)
+    try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
+    try container.encode(createdAt, forKey: .createdAt)
+    try container.encodeIfPresent(decidedAt, forKey: .decidedAt)
   }
 }
 

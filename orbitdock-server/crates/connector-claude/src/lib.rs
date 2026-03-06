@@ -2335,6 +2335,15 @@ impl ClaudeConnector {
                     .map(String::from)
             });
 
+        let plan_update = if matches!(tool_name.as_deref(), Some("ExitPlanMode")) {
+            input
+                .as_ref()
+                .and_then(Self::plan_text_from_tool_input)
+                .map(ConnectorEvent::PlanUpdated)
+        } else {
+            None
+        };
+
         debug!(
             component = "claude_connector",
             event = "claude.approval_requested",
@@ -2347,8 +2356,11 @@ impl ClaudeConnector {
         );
 
         let tool_input_json = input.as_ref().and_then(|i| serde_json::to_string(i).ok());
-
-        vec![ConnectorEvent::ApprovalRequested {
+        let mut events = Vec::new();
+        if let Some(plan_update) = plan_update {
+            events.push(plan_update);
+        }
+        events.push(ConnectorEvent::ApprovalRequested {
             request_id,
             approval_type,
             tool_name: tool_name.clone(),
@@ -2359,7 +2371,8 @@ impl ClaudeConnector {
             question,
             proposed_amendment: None,
             permission_suggestions: suggestions_for_event,
-        }]
+        });
+        events
     }
 
     fn patch_diff_for_approval(
@@ -2407,6 +2420,20 @@ impl ClaudeConnector {
             .get("new_string")
             .and_then(|value| value.as_str())
             .and_then(Self::trim_non_empty_str)
+            .map(str::to_string)
+    }
+
+    fn plan_text_from_tool_input(payload: &Value) -> Option<String> {
+        payload
+            .get("plan")
+            .and_then(|value| value.as_str())
+            .and_then(Self::trim_non_empty_str)
+            .or_else(|| {
+                payload
+                    .get("current_plan")
+                    .and_then(|value| value.as_str())
+                    .and_then(Self::trim_non_empty_str)
+            })
             .map(str::to_string)
     }
 
@@ -2787,6 +2814,49 @@ mod tests {
             stored.permission_suggestions,
             Some(raw["permissionSuggestions"].clone())
         );
+    }
+
+    #[tokio::test]
+    async fn handle_cli_control_request_emits_plan_update_for_exit_plan_mode() {
+        let pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+
+        let raw = json!({
+            "type": "control_request",
+            "request_id": "req-plan-1",
+            "request": {
+                "subtype": "can_use_tool",
+                "tool_name": "ExitPlanMode",
+                "tool_use_id": "toolu-plan-1",
+                "input": {
+                    "plan": "# Phase 5\n- Simplify toolbar ordering UX"
+                }
+            }
+        });
+
+        let (stdin_tx, _stdin_rx) = tokio::sync::mpsc::channel::<String>(16);
+        let events =
+            ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
+        assert_eq!(events.len(), 2);
+
+        match &events[0] {
+            ConnectorEvent::PlanUpdated(plan) => {
+                assert_eq!(plan, "# Phase 5\n- Simplify toolbar ordering UX");
+            }
+            other => panic!("expected PlanUpdated event, got {:?}", other),
+        }
+
+        match &events[1] {
+            ConnectorEvent::ApprovalRequested {
+                request_id,
+                tool_name,
+                ..
+            } => {
+                assert_eq!(request_id, "req-plan-1");
+                assert_eq!(tool_name.as_deref(), Some("ExitPlanMode"));
+            }
+            other => panic!("expected ApprovalRequested event, got {:?}", other),
+        }
     }
 
     #[tokio::test]

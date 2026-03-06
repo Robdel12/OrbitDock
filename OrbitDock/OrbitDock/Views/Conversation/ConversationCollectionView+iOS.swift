@@ -427,7 +427,9 @@ import SwiftUI
       }()
       return ApprovalCardModelBuilder.build(
         session: session,
-        pendingApproval: pendingApproval
+        pendingApproval: pendingApproval,
+        approvalHistory: serverState.session(sid).approvalHistory,
+        transcriptMessages: serverState.session(sid).messages
       )
     }
 

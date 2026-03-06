@@ -132,6 +132,123 @@ enum ApprovalCardModelBuilder {
     return normalized.isEmpty ? nil : normalized
   }
 
+  private static func normalizedText(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? nil : normalized
+  }
+
+  private static func historyItem(
+    requestId: String?,
+    in approvalHistory: [ServerApprovalHistoryItem]
+  ) -> ServerApprovalHistoryItem? {
+    guard let requestId else { return nil }
+    return approvalHistory.first { item in
+      normalizedRequestId(item.requestId) == requestId
+    }
+  }
+
+  private static func approvalRequest(
+    from historyItem: ServerApprovalHistoryItem,
+    sessionId: String
+  ) -> ServerApprovalRequest {
+    ServerApprovalRequest(
+      id: historyItem.requestId,
+      sessionId: sessionId,
+      type: historyItem.approvalType,
+      toolName: normalizedText(historyItem.toolName),
+      toolInput: normalizedText(historyItem.toolInput),
+      command: normalizedText(historyItem.command),
+      filePath: normalizedText(historyItem.filePath),
+      diff: normalizedText(historyItem.diff),
+      question: normalizedText(historyItem.question),
+      questionPrompts: historyItem.questionPrompts,
+      preview: historyItem.preview,
+      proposedAmendment: historyItem.proposedAmendment
+    )
+  }
+
+  private static func mergedApprovalRequest(
+    _ request: ServerApprovalRequest,
+    historyItem: ServerApprovalHistoryItem?
+  ) -> ServerApprovalRequest {
+    guard let historyItem else { return request }
+
+    let mergedToolName = normalizedText(request.toolName) ?? normalizedText(historyItem.toolName)
+    let mergedToolInput = normalizedText(request.toolInput) ?? normalizedText(historyItem.toolInput)
+    let mergedCommand = normalizedText(request.command) ?? normalizedText(historyItem.command)
+    let mergedFilePath = normalizedText(request.filePath) ?? normalizedText(historyItem.filePath)
+    let mergedDiff = normalizedText(request.diff) ?? normalizedText(historyItem.diff)
+    let mergedQuestion = normalizedText(request.question) ?? normalizedText(historyItem.question)
+    let mergedQuestionPrompts = request.questionPrompts.isEmpty
+      ? historyItem.questionPrompts
+      : request.questionPrompts
+    let mergedPreview = request.preview ?? historyItem.preview
+    let mergedProposedAmendment = request.proposedAmendment ?? historyItem.proposedAmendment
+
+    if mergedToolName == request.toolName,
+       mergedToolInput == request.toolInput,
+       mergedCommand == request.command,
+       mergedFilePath == request.filePath,
+       mergedDiff == request.diff,
+       mergedQuestion == request.question,
+       mergedQuestionPrompts == request.questionPrompts,
+       mergedPreview == request.preview,
+       mergedProposedAmendment == request.proposedAmendment
+    {
+      return request
+    }
+
+    return ServerApprovalRequest(
+      id: request.id,
+      sessionId: request.sessionId,
+      type: request.type,
+      toolName: mergedToolName,
+      toolInput: mergedToolInput,
+      command: mergedCommand,
+      filePath: mergedFilePath,
+      diff: mergedDiff,
+      question: mergedQuestion,
+      questionPrompts: mergedQuestionPrompts,
+      preview: mergedPreview,
+      proposedAmendment: mergedProposedAmendment
+    )
+  }
+
+  private static func planTextFromToolInput(_ toolInput: String?) -> String? {
+    guard let toolInput = normalizedText(toolInput),
+          let data = toolInput.data(using: .utf8),
+          let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else { return nil }
+
+    if let plan = normalizedText(payload["plan"] as? String) {
+      return plan
+    }
+    if let plan = normalizedText(payload["current_plan"] as? String) {
+      return plan
+    }
+    return nil
+  }
+
+  private static func latestToolInput(
+    for toolName: String,
+    in transcriptMessages: [TranscriptMessage]
+  ) -> String? {
+    let normalizedToolName = toolName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !normalizedToolName.isEmpty else { return nil }
+
+    for message in transcriptMessages.reversed() {
+      guard message.isTool else { continue }
+      guard let messageToolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            messageToolName == normalizedToolName
+      else { continue }
+      if let rawToolInput = normalizedText(message.rawToolInput) {
+        return rawToolInput
+      }
+    }
+    return nil
+  }
+
   private static func mapQuestionOptions(
     _ options: [ServerApprovalQuestionOption]
   ) -> [ApprovalQuestionOption] {
@@ -166,13 +283,21 @@ enum ApprovalCardModelBuilder {
 
   static func build(
     session: Session,
-    pendingApproval: ServerApprovalRequest?
+    pendingApproval: ServerApprovalRequest?,
+    approvalHistory: [ServerApprovalHistoryItem] = [],
+    transcriptMessages: [TranscriptMessage] = []
   ) -> ApprovalCardModel? {
     let approvalId = normalizedRequestId(session.pendingApprovalId)
+    let matchedHistoryItem = historyItem(requestId: approvalId, in: approvalHistory)
     let activePendingApproval: ServerApprovalRequest? = {
-      guard let pendingApproval else { return nil }
       guard let approvalId else { return nil }
-      return normalizedRequestId(pendingApproval.id) == approvalId ? pendingApproval : nil
+      if let pendingApproval, normalizedRequestId(pendingApproval.id) == approvalId {
+        return mergedApprovalRequest(pendingApproval, historyItem: matchedHistoryItem)
+      }
+      if let matchedHistoryItem {
+        return approvalRequest(from: matchedHistoryItem, sessionId: session.id)
+      }
+      return nil
     }()
     let approvalType = activePendingApproval?.type
 
@@ -241,6 +366,18 @@ enum ApprovalCardModelBuilder {
       // ExitPlanMode — show descriptive action, not a shell command
       let resolvedToolName = activePendingApproval?.toolNameForDisplay ?? session.pendingToolName ?? nil
       if resolvedToolName == "ExitPlanMode" {
+        let planText = planTextFromToolInput(activePendingApproval?.toolInput)
+          ?? planTextFromToolInput(session.pendingToolInput)
+          ?? planTextFromToolInput(
+            latestToolInput(for: "ExitPlanMode", in: transcriptMessages)
+          )
+        if let planText {
+          return (
+            command: planText,
+            filePath: nil,
+            previewType: .prompt
+          )
+        }
         return (
           command: "Exit plan mode and begin implementation",
           filePath: nil,

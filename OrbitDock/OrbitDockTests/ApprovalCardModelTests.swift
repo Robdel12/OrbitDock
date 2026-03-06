@@ -1,3 +1,4 @@
+import Foundation
 @testable import OrbitDock
 import Testing
 
@@ -87,6 +88,181 @@ struct ApprovalCardModelTests {
     #expect(model?.approvalId == "req-1")
     #expect(model?.approvalType == .exec)
     #expect(model?.mode == .permission)
+  }
+
+  @Test func builderEnrichesSparsePendingApprovalFromHistoryForPlanRequests() {
+    let sessionId = "session-plan-enrichment"
+    let session = Session(
+      id: sessionId,
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .permission,
+      attentionReason: .awaitingPermission,
+      pendingToolName: "Bash",
+      pendingToolInput: nil,
+      provider: .codex,
+      codexIntegrationMode: .direct,
+      pendingApprovalId: "req-plan"
+    )
+
+    let sparsePendingApproval = ServerApprovalRequest(
+      id: "req-plan",
+      sessionId: sessionId,
+      type: .exec,
+      toolName: nil,
+      toolInput: nil,
+      command: nil,
+      filePath: nil,
+      diff: nil,
+      question: nil,
+      preview: nil,
+      proposedAmendment: nil
+    )
+
+    let history = [
+      ServerApprovalHistoryItem(
+        id: 1,
+        sessionId: sessionId,
+        requestId: "req-plan",
+        approvalType: .exec,
+        toolName: "ExitPlanMode",
+        command: nil,
+        filePath: nil,
+        cwd: nil,
+        decision: nil,
+        proposedAmendment: nil,
+        createdAt: "2026-03-05T22:16:35Z",
+        decidedAt: nil
+      ),
+    ]
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: sparsePendingApproval,
+      approvalHistory: history
+    )
+
+    #expect(model?.toolName == "ExitPlanMode")
+    #expect(model?.previewType == .action)
+    #expect(model?.command == "Exit plan mode and begin implementation")
+    #expect(model?.approvalType == .exec)
+  }
+
+  @Test func builderUsesExitPlanContentFromTranscriptToolInput() {
+    let sessionId = "session-plan-content-from-transcript"
+    let session = Session(
+      id: sessionId,
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .permission,
+      attentionReason: .awaitingPermission,
+      pendingToolName: "Bash",
+      pendingToolInput: nil,
+      provider: .claude,
+      claudeIntegrationMode: .direct,
+      pendingApprovalId: "req-plan-content"
+    )
+
+    let pendingApproval = ServerApprovalRequest(
+      id: "req-plan-content",
+      sessionId: sessionId,
+      type: .exec,
+      toolName: "ExitPlanMode",
+      toolInput: nil,
+      command: nil,
+      filePath: nil,
+      diff: nil,
+      question: nil,
+      preview: nil,
+      proposedAmendment: nil
+    )
+
+    let planMarkdown = """
+    # Plan
+    1. Clarify requirements
+    2. Implement change
+    """
+    let transcript = [
+      TranscriptMessage(
+        id: "tool-plan",
+        type: .tool,
+        content: "Exit plan mode",
+        timestamp: Date(),
+        toolName: "ExitPlanMode",
+        toolInput: nil,
+        rawToolInput: "{\"plan\":\"# Plan\\n1. Clarify requirements\\n2. Implement change\"}",
+        toolOutput: nil,
+        toolDuration: nil,
+        inputTokens: nil,
+        outputTokens: nil,
+        isError: false,
+        isInProgress: true
+      ),
+    ]
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: pendingApproval,
+      approvalHistory: [],
+      transcriptMessages: transcript
+    )
+
+    #expect(model?.toolName == "ExitPlanMode")
+    #expect(model?.previewType == .prompt)
+    #expect(model?.command == planMarkdown)
+  }
+
+  @Test func builderUsesExitPlanContentFromHistoryToolInput() {
+    let sessionId = "session-plan-content-from-history"
+    let session = Session(
+      id: sessionId,
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .permission,
+      attentionReason: .awaitingPermission,
+      pendingToolName: nil,
+      pendingToolInput: nil,
+      provider: .claude,
+      claudeIntegrationMode: .direct,
+      pendingApprovalId: "req-plan-history"
+    )
+
+    let history = [
+      ServerApprovalHistoryItem(
+        id: 1,
+        sessionId: sessionId,
+        requestId: "req-plan-history",
+        approvalType: .exec,
+        toolName: "ExitPlanMode",
+        toolInput: "{\"plan\":\"# Plan\\n1. Ship it\\n2. Verify it\"}",
+        command: nil,
+        filePath: nil,
+        diff: nil,
+        question: nil,
+        questionPrompts: [],
+        preview: nil,
+        cwd: nil,
+        decision: nil,
+        proposedAmendment: nil,
+        createdAt: "2026-03-05T22:16:35Z",
+        decidedAt: nil
+      ),
+    ]
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: nil,
+      approvalHistory: history,
+      transcriptMessages: []
+    )
+
+    #expect(model?.toolName == "ExitPlanMode")
+    #expect(model?.previewType == .prompt)
+    #expect(model?.command == """
+    # Plan
+    1. Ship it
+    2. Verify it
+    """)
   }
 
   @Test func builderIgnoresPendingPayloadWithoutAuthoritativeRequestId() {

@@ -11,6 +11,14 @@ import SwiftUI
 
 private let approvalLog = Logger(subsystem: "com.orbitdock", category: "approval-panel")
 
+private struct PendingPanelContentHeightPreferenceKey: PreferenceKey {
+  static var defaultValue: CGFloat = 0
+
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
+  }
+}
+
 extension DirectSessionComposer {
   // MARK: - Inline Pending Zone (inside composer surface)
 
@@ -57,9 +65,22 @@ extension DirectSessionComposer {
           }
           .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
           .padding(.top, isCompactLayout ? Spacing.xs : Spacing.sm_)
-          .padding(.bottom, isCompactLayout ? Spacing.sm_ : Spacing.sm)
+          .padding(.bottom, isCompactLayout ? Spacing.sm_ : Spacing.sm_)
+          .background(
+            GeometryReader { geometry in
+              Color.clear.preference(
+                key: PendingPanelContentHeightPreferenceKey.self,
+                value: geometry.size.height
+              )
+            }
+          )
         }
-        .frame(maxHeight: isCompactLayout ? 280 : 400)
+        .frame(height: pendingPanelClampedContentHeight(for: model))
+        .onPreferenceChange(PendingPanelContentHeightPreferenceKey.self) { measuredHeight in
+          let normalizedHeight = max(0, measuredHeight)
+          guard abs(normalizedHeight - pendingPanelMeasuredContentHeight) > 0.5 else { return }
+          pendingPanelMeasuredContentHeight = normalizedHeight
+        }
         .transition(.opacity.animation(Motion.gentle.delay(0.05)))
       }
 
@@ -82,36 +103,34 @@ extension DirectSessionComposer {
       Image(systemName: header.iconName)
         .font(.system(size: TypeScale.micro, weight: .semibold))
         .foregroundStyle(header.iconTint)
+        .frame(width: 16, height: 16)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            .fill(header.iconTint.opacity(OpacityTier.light))
+        )
 
       Text(pendingPanelTitle(model))
         .font(.system(size: TypeScale.caption, weight: .semibold))
         .foregroundStyle(Color.textPrimary)
 
-      Text("·")
-        .font(.system(size: TypeScale.caption, weight: .medium))
-        .foregroundStyle(Color.textQuaternary)
-
-      Text(pendingPanelSubtitle(model))
-        .font(.system(size: TypeScale.caption, weight: .medium))
-        .foregroundStyle(Color.textTertiary)
+      pendingHeaderChip(
+        text: pendingPanelStatusBadgeText(model),
+        tint: modeColor
+      )
 
       if model.mode == .question, model.questions.count > 1 {
-        Text("\(model.questions.count)")
-          .font(.system(size: TypeScale.mini, weight: .bold))
-          .foregroundStyle(modeColor)
-          .padding(.horizontal, Spacing.xs)
-          .padding(.vertical, 1)
-          .background(Capsule().fill(modeColor.opacity(OpacityTier.light)))
+        pendingHeaderChip(
+          text: "\(model.questions.count) prompts",
+          tint: Color.statusQuestion
+        )
       }
 
       let queueCount = serverState.queuedApprovalCount(sessionId: model.sessionId)
       if queueCount > 0 {
-        Text("+\(queueCount)")
-          .font(.system(size: TypeScale.mini, weight: .bold))
-          .foregroundStyle(Color.textSecondary)
-          .padding(.horizontal, Spacing.xs)
-          .padding(.vertical, 1)
-          .background(Capsule().fill(Color.surfaceHover))
+        pendingHeaderChip(
+          text: "+\(queueCount) queued",
+          tint: Color.textTertiary
+        )
       }
 
       Spacer(minLength: 0)
@@ -119,12 +138,16 @@ extension DirectSessionComposer {
       Image(systemName: "chevron.right")
         .font(.system(size: TypeScale.mini, weight: .bold))
         .foregroundStyle(Color.textQuaternary)
+        .frame(width: 16, height: 16)
+        .background(Circle().fill(Color.surfaceHover.opacity(OpacityTier.subtle)))
         .rotationEffect(.degrees(pendingPanelExpanded ? 90 : 0))
         .animation(Motion.snappy, value: pendingPanelExpanded)
     }
     .padding(.horizontal, Spacing.md_)
-    .padding(.vertical, Spacing.sm_)
-    .background(pendingPanelHovering ? Color.surfaceHover : Color.clear)
+    .padding(.vertical, Spacing.xs)
+    .background(
+      pendingPanelHovering ? Color.surfaceHover : modeColor.opacity(OpacityTier.tint)
+    )
     .contentShape(Rectangle())
   }
 
@@ -151,19 +174,55 @@ extension DirectSessionComposer {
     }
   }
 
-  func pendingPanelSubtitle(_ model: ApprovalCardModel) -> String {
+  private func pendingPanelStatusBadgeText(_ model: ApprovalCardModel) -> String {
     switch model.mode {
       case .permission:
-        "Approval Required"
+        "APPROVAL"
       case .question:
-        model.questions.count > 1
-          ? "\(model.questions.count) questions"
-          : "Awaiting your response"
+        "QUESTION"
       case .takeover:
-        "Takeover Required"
+        "TAKEOVER"
       case .none:
         ""
     }
+  }
+
+  @ViewBuilder
+  private func pendingHeaderChip(text: String, tint: Color) -> some View {
+    if !text.isEmpty {
+      Text(text)
+        .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+        .foregroundStyle(tint)
+        .padding(.horizontal, Spacing.xs)
+        .padding(.vertical, Spacing.xxs)
+        .background(
+          Capsule().fill(tint.opacity(OpacityTier.light))
+        )
+    }
+  }
+
+  private func pendingPanelContentMaxHeight() -> CGFloat {
+    isCompactLayout ? 220 : 260
+  }
+
+  private func pendingPanelFallbackHeight(for model: ApprovalCardModel) -> CGFloat {
+    switch model.mode {
+      case .permission:
+        pendingPanelShowDenyReason ? 116 : 96
+      case .question:
+        152
+      case .takeover:
+        72
+      case .none:
+        44
+    }
+  }
+
+  private func pendingPanelClampedContentHeight(for model: ApprovalCardModel) -> CGFloat {
+    let measuredHeight = pendingPanelMeasuredContentHeight > 0
+      ? pendingPanelMeasuredContentHeight
+      : pendingPanelFallbackHeight(for: model)
+    return min(pendingPanelContentMaxHeight(), measuredHeight)
   }
 
   // MARK: - Permission Inline Content (no action buttons)
@@ -184,7 +243,7 @@ extension DirectSessionComposer {
     if !commandChainSegments.isEmpty {
       let isSingleStep = commandChainSegments.count == 1
 
-      VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.xs) {
+      VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.sm_) {
         if !isSingleStep, !isCompactLayout {
           HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
             Text("Command Chain")
@@ -217,7 +276,7 @@ extension DirectSessionComposer {
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
-        .padding(.vertical, isCompactLayout ? Spacing.sm_ : Spacing.sm)
+        .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.sm_)
         .background(
           RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
             .fill(Color.backgroundCode)
@@ -234,14 +293,14 @@ extension DirectSessionComposer {
 
     // ━━━ Risk findings ━━━
     if !model.riskFindings.isEmpty {
-      VStack(alignment: .leading, spacing: Spacing.xs) {
+      VStack(alignment: .leading, spacing: Spacing.sm_) {
         ForEach(Array(model.riskFindings.enumerated()), id: \.offset) { _, finding in
           HStack(alignment: .top, spacing: Spacing.xs) {
             Image(systemName: "exclamationmark.triangle.fill")
               .font(.system(size: TypeScale.caption))
               .foregroundStyle(model.risk.tintColor)
             Text(finding)
-              .font(.system(size: TypeScale.caption, weight: .medium))
+              .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textSecondary)
               .fixedSize(horizontal: false, vertical: true)
               .multilineTextAlignment(.leading)
@@ -249,7 +308,7 @@ extension DirectSessionComposer {
         }
       }
       .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.xs)
+      .padding(.vertical, Spacing.sm_)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(
         RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
@@ -259,10 +318,15 @@ extension DirectSessionComposer {
 
     // ━━━ Decision scope hint ━━━
     if let scope = model.decisionScope, !scope.isEmpty {
-      Text(scope)
-        .font(.system(size: TypeScale.micro, weight: .regular))
-        .foregroundStyle(Color.textTertiary)
-        .fixedSize(horizontal: false, vertical: true)
+      HStack(spacing: Spacing.xs) {
+        Image(systemName: "info.circle")
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(Color.textQuaternary)
+        Text(scope)
+          .font(.system(size: TypeScale.micro, weight: .regular))
+          .foregroundStyle(Color.textTertiary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
     }
 
     // ━━━ Amendment detail (what "Always Allow" would permit) ━━━
@@ -278,7 +342,7 @@ extension DirectSessionComposer {
           .multilineTextAlignment(.leading)
       }
       .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.xs)
+      .padding(.vertical, Spacing.sm_)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(
         RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
@@ -293,7 +357,7 @@ extension DirectSessionComposer {
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textPrimary)
         .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, Spacing.sm)
+        .padding(.vertical, Spacing.sm_)
         .background(
           RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
             .fill(Color.backgroundCode)
@@ -319,7 +383,7 @@ extension DirectSessionComposer {
         .multilineTextAlignment(.leading)
         .textSelection(.enabled)
         .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
-        .padding(.vertical, isCompactLayout ? Spacing.sm_ : Spacing.sm)
+        .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.sm_)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(
@@ -347,12 +411,12 @@ extension DirectSessionComposer {
 
     let chainCodeFont = isCompactLayout ? TypeScale.micro : TypeScale.caption
 
-    return VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.xs) {
+    return VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.sm_) {
       HStack(spacing: Spacing.xs) {
         Text("\(index)")
           .font(.system(size: TypeScale.mini, weight: .bold))
           .foregroundStyle(modeColor)
-          .frame(width: 14, height: 14)
+          .frame(width: 12, height: 12)
           .background(
             Circle()
               .fill(modeColor.opacity(OpacityTier.light))
@@ -381,7 +445,7 @@ extension DirectSessionComposer {
           .multilineTextAlignment(.leading)
           .textSelection(.enabled)
           .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
-          .padding(.vertical, isCompactLayout ? Spacing.sm_ : Spacing.sm)
+          .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.sm_)
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(
@@ -999,6 +1063,7 @@ extension DirectSessionComposer {
     pendingPanelDrafts = [:]
     pendingPanelShowDenyReason = false
     pendingPanelDenyReason = ""
+    pendingPanelMeasuredContentHeight = 0
   }
 
   func normalizedApprovalRequestId(_ value: String?) -> String? {

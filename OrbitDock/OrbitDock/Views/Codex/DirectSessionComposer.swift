@@ -70,6 +70,7 @@ struct DirectSessionComposer: View {
   @State var pendingPanelDrafts: [String: String] = [:]
   @State var pendingPanelShowDenyReason = false
   @State var pendingPanelDenyReason = ""
+  @State var pendingPanelMeasuredContentHeight: CGFloat = 0
   @State var pendingPanelHovering = false
   @State var permissionPanelExpanded = false
   @State var hoveringSuggestion: String?
@@ -84,13 +85,13 @@ struct DirectSessionComposer: View {
 
   var pendingApprovalModel: ApprovalCardModel? {
     guard let summary = sessionSummary else { return nil }
-    let normalizedPendingId = normalizedApprovalRequestId(summary.pendingApprovalId)
-    let pendingApproval: ServerApprovalRequest? = {
-      guard let normalizedPendingId else { return nil }
-      guard let candidate = serverState.session(sessionId).pendingApproval else { return nil }
-      return normalizedApprovalRequestId(candidate.id) == normalizedPendingId ? candidate : nil
-    }()
-    return ApprovalCardModelBuilder.build(session: summary, pendingApproval: pendingApproval)
+    let pendingApproval = obs.pendingApproval
+    return ApprovalCardModelBuilder.build(
+      session: summary,
+      pendingApproval: pendingApproval,
+      approvalHistory: obs.approvalHistory,
+      transcriptMessages: obs.messages
+    )
   }
 
   var pendingApprovalIdentity: String {

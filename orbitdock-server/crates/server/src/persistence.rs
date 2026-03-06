@@ -16,8 +16,8 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::{
-    ApprovalHistoryItem, ApprovalType, Message, MessageType, Provider, SessionStatus, TokenUsage,
-    TokenUsageSnapshotKind, WorkStatus,
+    ApprovalHistoryItem, ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Message,
+    MessageType, Provider, SessionStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
 };
 
 /// Commands that can be persisted
@@ -266,10 +266,16 @@ pub enum PersistCommand {
         request_id: String,
         approval_type: ApprovalType,
         tool_name: Option<String>,
+        tool_input: Option<String>,
         command: Option<String>,
         file_path: Option<String>,
+        diff: Option<String>,
+        question: Option<String>,
+        question_prompts: Vec<ApprovalQuestionPrompt>,
+        preview: Option<ApprovalPreview>,
         cwd: Option<String>,
         proposed_amendment: Option<Vec<String>>,
+        permission_suggestions: Option<Value>,
     },
 
     /// Persist the user decision for an approval request
@@ -1500,10 +1506,16 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             request_id,
             approval_type,
             tool_name,
+            tool_input,
             command,
             file_path,
+            diff,
+            question,
+            question_prompts,
+            preview,
             cwd,
             proposed_amendment,
+            permission_suggestions,
         } => {
             let approval_type_str = match approval_type {
                 ApprovalType::Exec => "exec",
@@ -1512,25 +1524,45 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             };
             let proposed_amendment_json =
                 proposed_amendment.and_then(|v| serde_json::to_string(&v).ok());
+            let question_prompts_json = if question_prompts.is_empty() {
+                None
+            } else {
+                serde_json::to_string(&question_prompts).ok()
+            };
+            let preview_json = preview.and_then(|value| serde_json::to_string(&value).ok());
+            let permission_suggestions_json =
+                permission_suggestions.and_then(|value| serde_json::to_string(&value).ok());
             let now = chrono_now();
             let updated = conn.execute(
                 "UPDATE approval_history
                  SET approval_type = ?1,
                      tool_name = ?2,
-                     command = ?3,
-                     file_path = ?4,
-                     cwd = ?5,
-                     proposed_amendment = ?6
-                 WHERE session_id = ?7
-                   AND request_id = ?8
+                     tool_input = ?3,
+                     command = ?4,
+                     file_path = ?5,
+                     diff = ?6,
+                     question = ?7,
+                     question_prompts = ?8,
+                     preview = ?9,
+                     cwd = ?10,
+                     proposed_amendment = ?11,
+                     permission_suggestions = ?12
+                 WHERE session_id = ?13
+                   AND request_id = ?14
                    AND decision IS NULL",
                 params![
                     approval_type_str,
                     tool_name.as_deref(),
+                    tool_input.as_deref(),
                     command.as_deref(),
                     file_path.as_deref(),
+                    diff.as_deref(),
+                    question.as_deref(),
+                    question_prompts_json.as_deref(),
+                    preview_json.as_deref(),
                     cwd.as_deref(),
                     proposed_amendment_json.as_deref(),
+                    permission_suggestions_json.as_deref(),
                     &session_id,
                     &request_id
                 ],
@@ -1538,18 +1570,25 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             if updated == 0 {
                 conn.execute(
                     "INSERT INTO approval_history (
-                        session_id, request_id, approval_type, tool_name, command, file_path, cwd,
-                        proposed_amendment, created_at
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                        session_id, request_id, approval_type, tool_name, tool_input, command,
+                        file_path, diff, question, question_prompts, preview, cwd,
+                        proposed_amendment, permission_suggestions, created_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                     params![
                         &session_id,
                         &request_id,
                         approval_type_str,
                         tool_name.as_deref(),
+                        tool_input.as_deref(),
                         command.as_deref(),
                         file_path.as_deref(),
+                        diff.as_deref(),
+                        question.as_deref(),
+                        question_prompts_json.as_deref(),
+                        preview_json.as_deref(),
                         cwd.as_deref(),
                         proposed_amendment_json.as_deref(),
+                        permission_suggestions_json.as_deref(),
                         now
                     ],
                 )?;
@@ -3922,107 +3961,150 @@ pub async fn list_approvals(
     let db_path = crate::paths::db_path();
     let limit = limit.unwrap_or(200).min(1000) as i64;
 
-    let items = tokio::task::spawn_blocking(move || -> Result<Vec<ApprovalHistoryItem>, anyhow::Error> {
-        if !db_path.exists() {
-            return Ok(Vec::new());
-        }
+    let items =
+        tokio::task::spawn_blocking(move || -> Result<Vec<ApprovalHistoryItem>, anyhow::Error> {
+            if !db_path.exists() {
+                return Ok(Vec::new());
+            }
 
-        let conn = Connection::open(&db_path)?;
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL;
+            let conn = Connection::open(&db_path)?;
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL;
              PRAGMA busy_timeout = 5000;",
-        )?;
+            )?;
 
-        let table_exists: i64 = conn.query_row(
+            let table_exists: i64 = conn.query_row(
             "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'approval_history'",
             [],
             |row| row.get(0),
         )?;
-        if table_exists == 0 {
-            return Ok(Vec::new());
-        }
+            if table_exists == 0 {
+                return Ok(Vec::new());
+            }
 
-        let mut items = Vec::new();
-        if let Some(session_id) = session_id {
-            let mut stmt = conn.prepare(
-                "SELECT id, session_id, request_id, approval_type, tool_name, command, file_path, cwd, decision, proposed_amendment, created_at, decided_at
+            let mut items = Vec::new();
+            if let Some(session_id) = session_id {
+                let mut stmt = conn.prepare(
+                "SELECT id, session_id, request_id, approval_type, tool_name, tool_input, command,
+                        file_path, diff, question, question_prompts, preview, cwd, decision,
+                        proposed_amendment, permission_suggestions, created_at, decided_at
                  FROM approval_history
                  WHERE session_id = ?1
                  ORDER BY id DESC
                  LIMIT ?2",
             )?;
-            let rows = stmt.query_map(params![session_id, limit], |row| {
-                let approval_type_str: String = row.get(3)?;
-                let approval_type = match approval_type_str.as_str() {
-                    "exec" => ApprovalType::Exec,
-                    "patch" => ApprovalType::Patch,
-                    "question" => ApprovalType::Question,
-                    _ => ApprovalType::Exec,
-                };
-                let proposed_json: Option<String> = row.get(9)?;
-                let proposed_amendment = proposed_json
-                    .as_deref()
-                    .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok());
-                Ok(ApprovalHistoryItem {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    request_id: row.get(2)?,
-                    approval_type,
-                    tool_name: row.get(4)?,
-                    command: row.get(5)?,
-                    file_path: row.get(6)?,
-                    cwd: row.get(7)?,
-                    decision: row.get(8)?,
-                    proposed_amendment,
-                    created_at: row.get(10)?,
-                    decided_at: row.get(11)?,
-                })
-            })?;
-            for item in rows.flatten() {
-                items.push(item);
-            }
-        } else {
-            let mut stmt = conn.prepare(
-                "SELECT id, session_id, request_id, approval_type, tool_name, command, file_path, cwd, decision, proposed_amendment, created_at, decided_at
+                let rows = stmt.query_map(params![session_id, limit], |row| {
+                    let approval_type_str: String = row.get(3)?;
+                    let approval_type = match approval_type_str.as_str() {
+                        "exec" => ApprovalType::Exec,
+                        "patch" => ApprovalType::Patch,
+                        "question" => ApprovalType::Question,
+                        _ => ApprovalType::Exec,
+                    };
+                    let question_prompts_json: Option<String> = row.get(10)?;
+                    let preview_json: Option<String> = row.get(11)?;
+                    let proposed_json: Option<String> = row.get(14)?;
+                    let permission_suggestions_json: Option<String> = row.get(15)?;
+                    let question_prompts = question_prompts_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<Vec<ApprovalQuestionPrompt>>(s).ok())
+                        .unwrap_or_default();
+                    let preview = preview_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<ApprovalPreview>(s).ok());
+                    let proposed_amendment = proposed_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok());
+                    let permission_suggestions = permission_suggestions_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<Value>(s).ok());
+                    Ok(ApprovalHistoryItem {
+                        id: row.get(0)?,
+                        session_id: row.get(1)?,
+                        request_id: row.get(2)?,
+                        approval_type,
+                        tool_name: row.get(4)?,
+                        tool_input: row.get(5)?,
+                        command: row.get(6)?,
+                        file_path: row.get(7)?,
+                        diff: row.get(8)?,
+                        question: row.get(9)?,
+                        question_prompts,
+                        preview,
+                        cwd: row.get(12)?,
+                        decision: row.get(13)?,
+                        proposed_amendment,
+                        permission_suggestions,
+                        created_at: row.get(16)?,
+                        decided_at: row.get(17)?,
+                    })
+                })?;
+                for item in rows.flatten() {
+                    items.push(item);
+                }
+            } else {
+                let mut stmt = conn.prepare(
+                "SELECT id, session_id, request_id, approval_type, tool_name, tool_input, command,
+                        file_path, diff, question, question_prompts, preview, cwd, decision,
+                        proposed_amendment, permission_suggestions, created_at, decided_at
                  FROM approval_history
                  ORDER BY id DESC
                  LIMIT ?1",
             )?;
-            let rows = stmt.query_map(params![limit], |row| {
-                let approval_type_str: String = row.get(3)?;
-                let approval_type = match approval_type_str.as_str() {
-                    "exec" => ApprovalType::Exec,
-                    "patch" => ApprovalType::Patch,
-                    "question" => ApprovalType::Question,
-                    _ => ApprovalType::Exec,
-                };
-                let proposed_json: Option<String> = row.get(9)?;
-                let proposed_amendment = proposed_json
-                    .as_deref()
-                    .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok());
-                Ok(ApprovalHistoryItem {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    request_id: row.get(2)?,
-                    approval_type,
-                    tool_name: row.get(4)?,
-                    command: row.get(5)?,
-                    file_path: row.get(6)?,
-                    cwd: row.get(7)?,
-                    decision: row.get(8)?,
-                    proposed_amendment,
-                    created_at: row.get(10)?,
-                    decided_at: row.get(11)?,
-                })
-            })?;
-            for item in rows.flatten() {
-                items.push(item);
+                let rows = stmt.query_map(params![limit], |row| {
+                    let approval_type_str: String = row.get(3)?;
+                    let approval_type = match approval_type_str.as_str() {
+                        "exec" => ApprovalType::Exec,
+                        "patch" => ApprovalType::Patch,
+                        "question" => ApprovalType::Question,
+                        _ => ApprovalType::Exec,
+                    };
+                    let question_prompts_json: Option<String> = row.get(10)?;
+                    let preview_json: Option<String> = row.get(11)?;
+                    let proposed_json: Option<String> = row.get(14)?;
+                    let permission_suggestions_json: Option<String> = row.get(15)?;
+                    let question_prompts = question_prompts_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<Vec<ApprovalQuestionPrompt>>(s).ok())
+                        .unwrap_or_default();
+                    let preview = preview_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<ApprovalPreview>(s).ok());
+                    let proposed_amendment = proposed_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok());
+                    let permission_suggestions = permission_suggestions_json
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<Value>(s).ok());
+                    Ok(ApprovalHistoryItem {
+                        id: row.get(0)?,
+                        session_id: row.get(1)?,
+                        request_id: row.get(2)?,
+                        approval_type,
+                        tool_name: row.get(4)?,
+                        tool_input: row.get(5)?,
+                        command: row.get(6)?,
+                        file_path: row.get(7)?,
+                        diff: row.get(8)?,
+                        question: row.get(9)?,
+                        question_prompts,
+                        preview,
+                        cwd: row.get(12)?,
+                        decision: row.get(13)?,
+                        proposed_amendment,
+                        permission_suggestions,
+                        created_at: row.get(16)?,
+                        decided_at: row.get(17)?,
+                    })
+                })?;
+                for item in rows.flatten() {
+                    items.push(item);
+                }
             }
-        }
 
-        Ok(items)
-    })
-    .await??;
+            Ok(items)
+        })
+        .await??;
 
     Ok(items)
 }
@@ -4767,20 +4849,32 @@ mod tests {
                     request_id: "req-1".into(),
                     approval_type: ApprovalType::Exec,
                     tool_name: Some("Bash".into()),
+                    tool_input: Some(r#"{"command":"echo first"}"#.into()),
                     command: Some("echo first".into()),
                     file_path: None,
+                    diff: None,
+                    question: None,
+                    question_prompts: vec![],
+                    preview: None,
                     cwd: Some("/tmp/approval-upsert".into()),
                     proposed_amendment: None,
+                    permission_suggestions: None,
                 },
                 PersistCommand::ApprovalRequested {
                     session_id: "approval-upsert-session".into(),
                     request_id: "req-1".into(),
                     approval_type: ApprovalType::Exec,
                     tool_name: Some("Bash".into()),
+                    tool_input: Some(r#"{"command":"echo updated"}"#.into()),
                     command: Some("echo updated".into()),
                     file_path: None,
+                    diff: None,
+                    question: None,
+                    question_prompts: vec![],
+                    preview: None,
                     cwd: Some("/tmp/approval-upsert".into()),
                     proposed_amendment: None,
+                    permission_suggestions: None,
                 },
             ],
         )
@@ -4804,6 +4898,97 @@ mod tests {
             )
             .expect("load updated command");
         assert_eq!(command.as_deref(), Some("echo updated"));
+    }
+
+    #[tokio::test]
+    async fn approval_requested_persists_rich_payload_and_list_approvals_decodes_it() {
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::SessionCreate {
+                id: "approval-rich-session".into(),
+                provider: Provider::Claude,
+                project_path: "/tmp/approval-rich".into(),
+                project_name: Some("approval-rich".into()),
+                branch: Some("main".into()),
+                model: Some("claude-opus".into()),
+                approval_policy: None,
+                sandbox_mode: None,
+                permission_mode: Some("plan".into()),
+                forked_from_session_id: None,
+            }],
+        )
+        .expect("seed approval rich session");
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::ApprovalRequested {
+                session_id: "approval-rich-session".into(),
+                request_id: "req-rich-1".into(),
+                approval_type: ApprovalType::Exec,
+                tool_name: Some("ExitPlanMode".into()),
+                tool_input: Some(
+                    r##"{"plan":"# Plan\n1. Simplify toolbar ordering UX","allowedPrompts":[{"tool":"Bash","prompt":"run tests"}]}"##
+                        .into(),
+                ),
+                command: None,
+                file_path: None,
+                diff: None,
+                question: None,
+                question_prompts: vec![],
+                preview: Some(ApprovalPreview {
+                    preview_type: orbitdock_protocol::ApprovalPreviewType::Prompt,
+                    value: "# Plan\n1. Simplify toolbar ordering UX".into(),
+                    shell_segments: vec![],
+                    compact: Some("Plan".into()),
+                    decision_scope: Some("approve/deny applies to this full tool action.".into()),
+                    risk_level: Some(orbitdock_protocol::ApprovalRiskLevel::Normal),
+                    risk_findings: vec![],
+                    manifest: Some("manifest".into()),
+                }),
+                cwd: Some("/tmp/approval-rich".into()),
+                proposed_amendment: Some(vec!["run tests".into()]),
+                permission_suggestions: Some(serde_json::json!([
+                    {
+                        "type": "addRules",
+                        "behavior": "allow",
+                        "destination": "session"
+                    }
+                ])),
+            }],
+        )
+        .expect("persist approval request");
+
+        let approvals = list_approvals(Some("approval-rich-session".into()), Some(10))
+            .await
+            .expect("list approvals");
+        assert_eq!(approvals.len(), 1);
+
+        let approval = &approvals[0];
+        assert_eq!(approval.request_id, "req-rich-1");
+        assert_eq!(approval.tool_name.as_deref(), Some("ExitPlanMode"));
+        assert_eq!(
+            approval.tool_input.as_deref(),
+            Some(
+                r##"{"plan":"# Plan\n1. Simplify toolbar ordering UX","allowedPrompts":[{"tool":"Bash","prompt":"run tests"}]}"##
+            )
+        );
+        assert_eq!(
+            approval
+                .preview
+                .as_ref()
+                .map(|preview| preview.value.as_str()),
+            Some("# Plan\n1. Simplify toolbar ordering UX")
+        );
+        assert_eq!(
+            approval.proposed_amendment.as_ref(),
+            Some(&vec!["run tests".to_string()])
+        );
+        assert!(approval.permission_suggestions.is_some());
     }
 
     #[test]

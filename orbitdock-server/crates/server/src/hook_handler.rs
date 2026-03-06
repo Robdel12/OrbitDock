@@ -28,6 +28,7 @@ use crate::session_utils::{
     project_name_from_cwd, sync_transcript_messages,
 };
 use crate::state::SessionRegistry;
+use crate::transition::{approval_preview, approval_question, approval_question_prompts};
 
 /// Cached metadata from a `ClaudeSessionStart` hook, held in memory until the
 /// first actionable hook materializes the session (or `SessionEnd` discards it).
@@ -151,6 +152,17 @@ fn extract_question_from_tool_input(tool_input: Option<&Value>) -> Option<String
         .and_then(|q| q.get("question"))
         .and_then(|v| v.as_str())
         .map(String::from)
+}
+
+fn extract_plan_from_tool_input(tool_input: Option<&Value>) -> Option<String> {
+    let input = tool_input?;
+    input
+        .get("plan")
+        .and_then(|value| value.as_str())
+        .or_else(|| input.get("current_plan").and_then(|value| value.as_str()))
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToString::to_string)
 }
 
 async fn resolve_pending_approvals_after_tool_outcome(
@@ -1038,8 +1050,9 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .and_then(|value| value.get("question"))
                         .and_then(Value::as_str)
                         .map(|s| s.to_string());
-                    let serialized_input =
-                        tool_input.and_then(|value| serde_json::to_string(&value).ok());
+                    let serialized_input = tool_input
+                        .as_ref()
+                        .and_then(|value| serde_json::to_string(value).ok());
 
                     actor
                         .send(SessionCommand::SetLastTool {
@@ -1197,9 +1210,9 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .as_ref()
                         .and_then(|value| value.as_array())
                         .map_or(0, |items| items.len());
-                    let question_text = extract_question_from_tool_input(tool_input.as_ref());
-                    let serialized_input =
-                        tool_input.and_then(|value| serde_json::to_string(&value).ok());
+                    let serialized_input = tool_input
+                        .as_ref()
+                        .and_then(|value| serde_json::to_string(value).ok());
                     let (approval_type, work_status, attention_reason) =
                         classify_permission_request(&tool_name);
                     let request_id = claude_permission_request_id(
@@ -1207,6 +1220,26 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         &tool_name,
                         tool_use_id.as_deref(),
                     );
+                    let fallback_question = extract_question_from_tool_input(tool_input.as_ref());
+                    let question_text = approval_question(
+                        serialized_input.as_deref(),
+                        fallback_question.as_deref(),
+                    );
+                    let question_prompts = approval_question_prompts(
+                        serialized_input.as_deref(),
+                        question_text.as_deref(),
+                    );
+                    let preview = approval_preview(
+                        request_id.as_str(),
+                        approval_type,
+                        Some(tool_name.as_str()),
+                        serialized_input.as_deref(),
+                        None,
+                        None,
+                        None,
+                        question_text.as_deref(),
+                    );
+                    let plan_text = extract_plan_from_tool_input(tool_input.as_ref());
 
                     actor
                         .send(SessionCommand::SetLastTool {
@@ -1227,6 +1260,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .send(SessionCommand::ApplyDelta {
                             changes: orbitdock_protocol::StateChanges {
                                 work_status: Some(work_status),
+                                current_plan: plan_text.clone().map(Some),
                                 last_activity_at: Some(chrono_now()),
                                 ..Default::default()
                             },
@@ -1247,15 +1281,31 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     let _ = persist_tx
                         .send(PersistCommand::ApprovalRequested {
                             session_id: session_id.clone(),
-                            request_id,
+                            request_id: request_id.clone(),
                             approval_type,
                             tool_name: Some(tool_name.clone()),
+                            tool_input: serialized_input.clone(),
                             command: None,
                             file_path: None,
+                            diff: None,
+                            question: question_text.clone(),
+                            question_prompts,
+                            preview,
                             cwd: None,
                             proposed_amendment: None,
+                            permission_suggestions: permission_suggestions.clone(),
                         })
                         .await;
+
+                    if let Some(plan_text) = plan_text {
+                        let _ = persist_tx
+                            .send(PersistCommand::TurnStateUpdate {
+                                session_id: session_id.clone(),
+                                diff: None,
+                                plan: Some(plan_text),
+                            })
+                            .await;
+                    }
 
                     let pending_question =
                         if approval_type == orbitdock_protocol::ApprovalType::Question {

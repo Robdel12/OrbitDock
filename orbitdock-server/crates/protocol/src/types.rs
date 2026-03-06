@@ -288,11 +288,23 @@ pub struct ApprovalHistoryItem {
     pub request_id: String,
     pub approval_type: ApprovalType,
     pub tool_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_input: Option<String>,
     pub command: Option<String>,
     pub file_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub question_prompts: Vec<ApprovalQuestionPrompt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<ApprovalPreview>,
     pub cwd: Option<String>,
     pub decision: Option<String>,
     pub proposed_amendment: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_suggestions: Option<Value>,
     pub created_at: String,
     pub decided_at: Option<String>,
 }

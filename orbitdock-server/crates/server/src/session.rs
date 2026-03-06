@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use orbitdock_protocol::{
-    ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
+    ApprovalPreview, ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
     ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, SessionState, SessionStatus,
     SessionSummary, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
     WorkStatus,
@@ -15,7 +15,7 @@ use tracing::info;
 
 use orbitdock_protocol::ServerMessage;
 
-use crate::transition::{TransitionState, WorkPhase};
+use crate::transition::{approval_preview, TransitionState, WorkPhase};
 
 /// Events that matter for the session list sidebar (status, mode, name changes).
 /// Per-message events (streaming deltas, message appends) are excluded to avoid
@@ -231,6 +231,29 @@ fn extract_question_prompts(
         }],
         None => vec![],
     }
+}
+
+fn preview_for_pending_approval(
+    request_id: Option<&str>,
+    approval_type: ApprovalType,
+    tool_name: Option<&str>,
+    tool_input: Option<&str>,
+    question: Option<&str>,
+) -> Option<ApprovalPreview> {
+    let request_id = request_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("pending-approval");
+    approval_preview(
+        request_id,
+        approval_type,
+        tool_name,
+        tool_input,
+        None,
+        None,
+        None,
+        question,
+    )
 }
 
 /// Lightweight, lock-free snapshot of session metadata.
@@ -1124,7 +1147,13 @@ impl SessionHandle {
                         self.pending_tool_input.as_deref(),
                         self.pending_question.as_deref(),
                     ),
-                    preview: None,
+                    preview: preview_for_pending_approval(
+                        self.pending_approval_id.as_deref(),
+                        approval_type,
+                        self.pending_tool_name.as_deref(),
+                        self.pending_tool_input.as_deref(),
+                        self.pending_question.as_deref(),
+                    ),
                     proposed_amendment: None,
                     permission_suggestions: None,
                 };
@@ -1144,13 +1173,20 @@ impl SessionHandle {
         tool_input: Option<String>,
         question: Option<String>,
     ) {
-        let question_prompts = parse_question_prompts(tool_input.as_deref());
+        let question_prompts = extract_question_prompts(tool_input.as_deref(), question.as_deref());
         let resolved_question = question.or_else(|| {
             question_prompts
                 .first()
                 .map(|p| p.question.clone())
                 .filter(|t| !t.is_empty())
         });
+        let preview = preview_for_pending_approval(
+            Some(request_id.as_str()),
+            approval_type,
+            tool_name.as_deref(),
+            tool_input.as_deref(),
+            resolved_question.as_deref(),
+        );
         let request = ApprovalRequest {
             id: request_id,
             session_id: self.id.clone(),
@@ -1162,7 +1198,7 @@ impl SessionHandle {
             diff: None,
             question: resolved_question,
             question_prompts,
-            preview: None,
+            preview,
             proposed_amendment: proposed_amendment.clone(),
             permission_suggestions: None,
         };
@@ -1754,64 +1790,4 @@ fn chrono_now() -> String {
 
 fn normalize_request_id(value: &str) -> &str {
     value.trim()
-}
-
-/// Parse question prompts from serialized tool_input JSON (AskUserQuestion).
-fn parse_question_prompts(tool_input: Option<&str>) -> Vec<ApprovalQuestionPrompt> {
-    let input = match tool_input.and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) {
-        Some(v) => v,
-        None => return vec![],
-    };
-
-    let questions = match input.get("questions").and_then(|v| v.as_array()) {
-        Some(arr) => arr,
-        None => return vec![],
-    };
-
-    questions
-        .iter()
-        .enumerate()
-        .map(|(i, q)| {
-            let options = q
-                .get("options")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .map(|o| ApprovalQuestionOption {
-                            label: o
-                                .get("label")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            description: o
-                                .get("description")
-                                .and_then(|v| v.as_str())
-                                .map(String::from),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            ApprovalQuestionPrompt {
-                id: q
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                header: q.get("header").and_then(|v| v.as_str()).map(String::from),
-                question: q
-                    .get("question")
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-                    .unwrap_or_else(|| format!("Question {}", i + 1)),
-                options,
-                allows_multiple_selection: q
-                    .get("multiSelect")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false),
-                allows_other: true, // SDK always adds "Other" option
-                is_secret: false,
-            }
-        })
-        .collect()
 }
