@@ -448,6 +448,12 @@ import SwiftUI
       remainingLoadCount: Int,
       hasMoreMessages: Bool
     ) {
+      let normalizedMessages = ConversationRenderMessageNormalizer.normalize(
+        messages,
+        sessionId: sessionId,
+        source: "ios-apply-full-state"
+      )
+
       // Approval metadata is server-authoritative from session summary fields.
       let session = serverState?.sessions.first(where: { $0.id == self.sessionId })
       let resolvedApprovalId = session?.pendingApprovalId
@@ -484,7 +490,7 @@ import SwiftUI
         projectPath: session?.projectPath
       )
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setSessionMetadata(metadata))
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setMessages(messages))
+      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setMessages(normalizedMessages))
 
       messagesByID = Dictionary(uniqueKeysWithValues: sourceState.messages.map { ($0.id, $0) })
 

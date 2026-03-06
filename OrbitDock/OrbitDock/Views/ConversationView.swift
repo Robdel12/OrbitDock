@@ -162,7 +162,11 @@ struct ConversationView: View {
     }
 
     let obs = serverState.session(sid)
-    let serverMessages = obs.messages
+    let serverMessages = ConversationRenderMessageNormalizer.normalize(
+      obs.messages,
+      sessionId: sid,
+      source: "load"
+    )
     messages = serverMessages
     displayedCount = min(pageSize, serverMessages.count)
 
@@ -178,9 +182,14 @@ struct ConversationView: View {
     guard let sid = sessionId else { return }
     let obs = serverState.session(sid)
     let snapshotReceived = obs.hasReceivedSnapshot
+    let serverMessages = ConversationRenderMessageNormalizer.normalize(
+      obs.messages,
+      sessionId: sid,
+      source: "refresh"
+    )
     let syncResult = ConversationMessageSync.reconcile(
       localMessages: messages,
-      serverMessages: obs.messages,
+      serverMessages: serverMessages,
       displayedCount: displayedCount,
       pageSize: pageSize,
       mutation: obs.lastMessageMutation
@@ -198,7 +207,16 @@ struct ConversationView: View {
       return
     }
 
-    messages = syncResult.messages
+    let normalizedMessages = ConversationRenderMessageNormalizer.normalize(
+      syncResult.messages,
+      sessionId: sid,
+      source: "sync-result"
+    )
+    messages = normalizedMessages
+    let normalizedDisplayedCount = min(syncResult.displayedCount, normalizedMessages.count)
+    if displayedCount != normalizedDisplayedCount {
+      displayedCount = normalizedDisplayedCount
+    }
 
     if snapshotReceived { isLoading = false }
     logDebugState("refresh_messages")

@@ -453,6 +453,37 @@ struct ConversationTimelinePipelineTests {
     #expect(result.displayedCount == 1)
   }
 
+  @Test func renderMessageNormalizerDeduplicatesIDsWithoutReorderingTimeline() {
+    let duplicate = makeMessage(id: "m1", content: "newest")
+    let original = makeMessage(id: "m1", content: "original")
+    let other = makeMessage(id: "m2", content: "second")
+
+    let result = ConversationRenderMessageNormalizer.normalize(
+      [original, other, duplicate],
+      sessionId: "session-1",
+      source: "test"
+    )
+
+    #expect(result.map(\.id) == ["m1", "m2"])
+    #expect(result[0].content == "newest")
+    #expect(result[1].content == "second")
+  }
+
+  @Test func renderMessageNormalizerSynthesizesStableIDsForEmptyMessages() {
+    let first = makeMessage(id: " ", content: "first")
+    let second = makeMessage(id: "", content: "second")
+
+    let result = ConversationRenderMessageNormalizer.normalize(
+      [first, second],
+      sessionId: "session-2",
+      source: "test"
+    )
+
+    #expect(result.count == 2)
+    #expect(result.allSatisfy { !$0.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+    #expect(Set(result.map(\.id)).count == 2)
+  }
+
   private func makeSource(
     messages: [TranscriptMessage],
     turns: [TurnSummary] = [],
