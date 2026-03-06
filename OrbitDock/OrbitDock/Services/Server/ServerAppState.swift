@@ -563,7 +563,7 @@ final class ServerAppState {
           obs.messages[idx].toolDuration = Double(durationMs) / 1_000.0
           obs.messages[idx].isError = isError
           obs.messages[idx].isInProgress = false
-          obs.bumpMessagesRevision()
+          obs.bumpMessagesRevision(.upsert(obs.messages[idx]))
         }
       }
     }
@@ -1873,6 +1873,14 @@ final class ServerAppState {
     return normalized
   }
 
+  private func normalizedTranscriptMessage(
+    _ incoming: TranscriptMessage,
+    sessionId: String,
+    source: String
+  ) -> TranscriptMessage? {
+    normalizedTranscriptMessages([incoming], sessionId: sessionId, source: source).first
+  }
+
   private func normalizedTurnDiffs(
     _ incoming: [ServerTurnDiff],
     sessionId: String,
@@ -1921,13 +1929,14 @@ final class ServerAppState {
     if let idx = messages.firstIndex(where: { $0.id == transcriptMsg.id }) {
       messages[idx] = mergeMessage(messages[idx], with: transcriptMsg)
       mergeAction = "merged"
+      obs.messages = messages
+      obs.bumpMessagesRevision(.upsert(messages[idx]))
     } else {
       messages.append(transcriptMsg)
       mergeAction = "appended"
+      obs.messages = messages
+      obs.bumpMessagesRevision(.upsert(transcriptMsg))
     }
-
-    obs.messages = normalizedTranscriptMessages(messages, sessionId: sessionId, source: "append-state")
-    obs.bumpMessagesRevision()
     logger.debug(
       "Message \(mergeAction, privacy: .public) for \(sessionId): id=\(transcriptMsg.id, privacy: .public) before=\(beforeCount, privacy: .public) after=\(obs.messages.count, privacy: .public)"
     )
@@ -1943,11 +1952,17 @@ final class ServerAppState {
 
     let obs = session(sessionId)
     var messages = obs.messages
+    let normalizedMessageId = messageId.trimmingCharacters(in: .whitespacesAndNewlines)
 
-    guard let idx = messages.firstIndex(where: { $0.id == messageId }) else {
+    guard !normalizedMessageId.isEmpty else {
+      logger.warning("Message update arrived with empty id in \(sessionId)")
+      return
+    }
+
+    guard let idx = messages.firstIndex(where: { $0.id == normalizedMessageId }) else {
       guard let content = changes.content else { return }
       let fallback = TranscriptMessage(
-        id: messageId,
+        id: normalizedMessageId,
         type: .assistant,
         content: content,
         timestamp: Date(),
@@ -1961,10 +1976,15 @@ final class ServerAppState {
         isError: changes.isError ?? false,
         isInProgress: changes.isInProgress ?? false
       )
-      messages.append(fallback)
-      obs.messages = normalizedTranscriptMessages(messages, sessionId: sessionId, source: "update-fallback")
-      obs.bumpMessagesRevision()
-      logger.warning("Message update arrived before create; upserted \(messageId) in \(sessionId)")
+      guard let normalizedFallback = normalizedTranscriptMessage(
+        fallback,
+        sessionId: sessionId,
+        source: "update-fallback"
+      ) else { return }
+      messages.append(normalizedFallback)
+      obs.messages = messages
+      obs.bumpMessagesRevision(.upsert(normalizedFallback))
+      logger.warning("Message update arrived before create; upserted \(normalizedMessageId) in \(sessionId)")
       return
     }
 
@@ -2002,8 +2022,8 @@ final class ServerAppState {
       }
     }
     messages[idx] = msg
-    obs.messages = normalizedTranscriptMessages(messages, sessionId: sessionId, source: "update")
-    obs.bumpMessagesRevision()
+    obs.messages = messages
+    obs.bumpMessagesRevision(.upsert(msg))
   }
 
   private func handleApprovalRequested(

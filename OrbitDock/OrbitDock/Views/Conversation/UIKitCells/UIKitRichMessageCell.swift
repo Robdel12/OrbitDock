@@ -179,6 +179,8 @@
     override func prepareForReuse() {
       super.prepareForReuse()
       bodyContainer.subviews.forEach { $0.removeFromSuperview() }
+      headerContainer.isHidden = false
+      speakerLabel.isHidden = false
       bubbleBackground.isHidden = true
       accentBar.isHidden = true
       thinkingBackground.isHidden = true
@@ -239,11 +241,12 @@
     private func configureHeader(model: NativeRichMessageRowModel, width: CGFloat) {
       guard model.showHeader else {
         headerContainer.isHidden = true
+        speakerLabel.isHidden = true
         headerContainer.frame = CGRect(x: 0, y: 0, width: width, height: 0)
         return
       }
-      headerContainer.isHidden = false
 
+      headerContainer.isHidden = false
       let symbolName = model.glyphSymbol
       let isThinking = model.messageType == .thinking
       let symbolConfig = UIImage.SymbolConfiguration(
@@ -266,6 +269,7 @@
         .foregroundColor: model.speakerColor,
       ]
       speakerLabel.attributedText = NSAttributedString(string: model.speaker, attributes: attrs)
+      speakerLabel.isHidden = model.messageType != .error
 
       // Layout header
       let glyphSize: CGFloat = 20

@@ -108,6 +108,69 @@ struct ConversationTimelinePipelineTests {
     #expect(!secondShowHeader)
   }
 
+  @Test func projectorEncodesHeaderVisibilityInMessagePayload() {
+    let source = makeSource(
+      messages: [
+        makeMessage(id: "a1", content: "first"),
+        makeMessage(id: "a2", content: "second"),
+      ]
+    )
+
+    let projected = ConversationTimelineProjector.project(source: source, ui: ConversationUIState(widthBucket: 12))
+
+    guard projected.rows.count >= 2 else {
+      Issue.record("Expected two message rows")
+      return
+    }
+
+    if case let .message(id, showHeader) = projected.rows[0].payload {
+      #expect(id == "a1")
+      #expect(showHeader)
+    } else {
+      Issue.record("Expected first row to be a message payload")
+    }
+
+    if case let .message(id, showHeader) = projected.rows[1].payload {
+      #expect(id == "a2")
+      #expect(!showHeader)
+    } else {
+      Issue.record("Expected second row to be a message payload")
+    }
+  }
+
+  @Test func projectorReloadsNeighborRowWhenHeaderVisibilityChanges() {
+    let initialSource = makeSource(
+      messages: [
+        makeMessage(id: "m1", content: "assistant"),
+        makeMessage(id: "m2", content: "follow-up"),
+      ]
+    )
+    let ui = ConversationUIState(widthBucket: 12)
+    let initial = ConversationTimelineProjector.project(source: initialSource, ui: ui)
+
+    let updatedSource = makeSource(
+      messages: [
+        makeMessage(id: "m1", type: .user, content: "user prompt"),
+        makeMessage(id: "m2", content: "follow-up"),
+      ]
+    )
+    let updated = ConversationTimelineProjector.project(source: updatedSource, ui: ui, previous: initial)
+
+    #expect(updated.diff.reloads == [0, 1])
+
+    guard updated.rows.count >= 2 else {
+      Issue.record("Expected two message rows")
+      return
+    }
+
+    if case let .message(id, showHeader) = updated.rows[1].payload {
+      #expect(id == "m2")
+      #expect(showHeader)
+    } else {
+      Issue.record("Expected second row to be a message payload")
+    }
+  }
+
   @Test func projectorTracksLayoutHashSeparatelyFromRenderHash() {
     let source = makeSource(
       messages: [
@@ -347,6 +410,47 @@ struct ConversationTimelinePipelineTests {
       viewportHeight: 300
     )
     #expect(clamped == 200)
+  }
+
+  @Test func messageSyncAppliesStreamingUpsertIncrementally() {
+    let localMessages = [makeMessage(id: "m1", content: "hello")]
+    let streamedMessage = makeMessage(id: "m2", content: "streaming reply")
+    let serverMessages = localMessages + [streamedMessage]
+    let mutation = ConversationMessageMutation(revision: 2, kind: .upsert(streamedMessage))
+
+    let result = ConversationMessageSync.reconcile(
+      localMessages: localMessages,
+      serverMessages: serverMessages,
+      displayedCount: 1,
+      pageSize: 50,
+      mutation: mutation
+    )
+
+    #expect(result.didChange)
+    #expect(result.messages.map(\.id) == ["m1", "m2"])
+    #expect(result.messages.last?.content == "streaming reply")
+    #expect(result.displayedCount == 2)
+  }
+
+  @Test func messageSyncFallsBackToReplaceAllWhenIncrementalHintCannotBeApplied() {
+    let localMessages = [makeMessage(id: "m1", content: "old")]
+    let serverMessages = [makeMessage(id: "m2", content: "new")]
+    let mutation = ConversationMessageMutation(
+      revision: 2,
+      kind: .upsert(makeMessage(id: "m2", content: "new"))
+    )
+
+    let result = ConversationMessageSync.reconcile(
+      localMessages: localMessages,
+      serverMessages: serverMessages,
+      displayedCount: 1,
+      pageSize: 50,
+      mutation: mutation
+    )
+
+    #expect(result.didChange)
+    #expect(result.messages.map(\.id) == ["m2"])
+    #expect(result.displayedCount == 1)
   }
 
   private func makeSource(
