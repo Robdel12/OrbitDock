@@ -157,7 +157,6 @@ import SwiftUI
     var sourceState = ConversationSourceState()
     var uiState = ConversationUIState()
     var messagesByID: [String: TranscriptMessage] = [:]
-    var messageMeta: [String: ConversationView.MessageMeta] = [:]
     var turnsByID: [String: TurnSummary] = [:]
     private var projectionResult = ProjectionResult.empty
     private var currentRows: [TimelineRow] = []
@@ -365,7 +364,7 @@ import SwiftUI
               using: self.messageCountCellReg, for: indexPath, item: ()
             )
           case .message:
-            if case let .message(id) = row.payload {
+            if case let .message(id, _) = row.payload {
               return collectionView.dequeueConfiguredReusableCell(
                 using: self.messageCellReg, for: indexPath, item: id
               )
@@ -487,7 +486,6 @@ import SwiftUI
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setMessages(messages))
 
       messagesByID = Dictionary(uniqueKeysWithValues: sourceState.messages.map { ($0.id, $0) })
-      messageMeta = ConversationView.computeMessageMetadata(sourceState.messages)
 
       rebuildTurns()
       ConversationTimelineReducer.reduce(
@@ -750,7 +748,7 @@ import SwiftUI
             height = ConversationLayout.compactToolRowHeight
           }
         case .message:
-          if case let .message(id) = row.payload, let model = buildRichMessageModel(for: id) {
+          if case let .message(id, _) = row.payload, let model = buildRichMessageModel(for: id) {
             height = UIKitRichMessageCell.requiredHeight(for: width, model: model)
             logger.debug(
               "sizeForItem[\(indexPath.item)] msg[\(id.prefix(8))] \(model.messageType) "
@@ -775,10 +773,21 @@ import SwiftUI
 
     private func buildRichMessageModel(for messageId: String) -> NativeRichMessageRowModel? {
       guard let message = messagesByID[messageId] else { return nil }
+      let showHeader: Bool = {
+        guard let rowIndex = rowIndexByTimelineRowID[.message(messageId)],
+              rowIndex >= 0,
+              rowIndex < currentRows.count,
+              case let .message(_, projectedShowHeader) = currentRows[rowIndex].payload
+        else {
+          return true
+        }
+        return projectedShowHeader
+      }()
       return SharedModelBuilders.richMessageModel(
         from: message,
         messageID: messageId,
-        isThinkingExpanded: expandedThinkingIDs.contains(messageId)
+        isThinkingExpanded: expandedThinkingIDs.contains(messageId),
+        showHeader: showHeader
       )
     }
 
@@ -795,7 +804,11 @@ import SwiftUI
       heightCache.removeValue(forKey: rowID)
       var snapshot = dataSource.snapshot()
       snapshot.reconfigureItems([rowID])
-      dataSource.apply(snapshot, animatingDifferences: true)
+      dataSource.apply(snapshot, animatingDifferences: true) { [weak self] in
+        guard let self else { return }
+        self.collectionView.collectionViewLayout.invalidateLayout()
+        self.collectionView.layoutIfNeeded()
+      }
     }
 
     // MARK: - Compact Tool Model Building

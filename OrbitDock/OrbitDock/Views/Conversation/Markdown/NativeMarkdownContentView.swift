@@ -21,6 +21,19 @@ import SwiftUI
 final class NativeMarkdownContentView: PlatformView {
   // MARK: - Constants
 
+  private struct MeasurementCacheWidthKey: Hashable {
+    let bucket: Int
+
+    init(width: CGFloat) {
+      bucket = Int((width * 2).rounded(.toNearestOrAwayFromZero))
+    }
+  }
+
+  private static let textMeasurementCache = NSMapTable<NSAttributedString, NSMutableDictionary>(
+    keyOptions: [.weakMemory, .objectPointerPersonality],
+    valueOptions: .strongMemory
+  )
+
   private static func blockquoteBarColor(style: ContentStyle) -> PlatformColor {
     switch style {
       case .standard: PlatformColor(Color.accentMuted).withAlphaComponent(0.9)
@@ -248,6 +261,13 @@ final class NativeMarkdownContentView: PlatformView {
   /// Deterministic text height measurement using NSTextStorage + NSLayoutManager (TextKit 1).
   static func measureTextHeight(_ attrStr: NSAttributedString, width: CGFloat) -> CGFloat {
     guard attrStr.length > 0, width > 1 else { return 0 }
+    let widthKey = MeasurementCacheWidthKey(width: width)
+    let widthToken = NSNumber(value: widthKey.bucket)
+    if let cachedHeights = textMeasurementCache.object(forKey: attrStr),
+       let cachedHeight = cachedHeights.object(forKey: widthToken) as? NSNumber
+    {
+      return CGFloat(cachedHeight.doubleValue)
+    }
 
     let textStorage = NSTextStorage(attributedString: attrStr)
     let layoutManager = NSLayoutManager()
@@ -260,8 +280,13 @@ final class NativeMarkdownContentView: PlatformView {
     // Force glyph generation + layout
     layoutManager.ensureLayout(for: textContainer)
     let usedRect = layoutManager.usedRect(for: textContainer)
+    let measuredHeight = ceil(usedRect.height)
 
-    return ceil(usedRect.height)
+    let cachedHeights = textMeasurementCache.object(forKey: attrStr) ?? NSMutableDictionary()
+    cachedHeights[widthToken] = NSNumber(value: Double(measuredHeight))
+    textMeasurementCache.setObject(cachedHeights, forKey: attrStr)
+
+    return measuredHeight
   }
 
   // MARK: - View Factory

@@ -237,6 +237,13 @@
     }
 
     private func configureHeader(model: NativeRichMessageRowModel, width: CGFloat) {
+      guard model.showHeader else {
+        headerContainer.isHidden = true
+        headerContainer.frame = CGRect(x: 0, y: 0, width: width, height: 0)
+        return
+      }
+      headerContainer.isHidden = false
+
       let symbolName = model.glyphSymbol
       let isThinking = model.messageType == .thinking
       let symbolConfig = UIImage.SymbolConfiguration(
@@ -306,7 +313,7 @@
       errorAccentBar.isHidden = true
       markdownContentView.layer.mask = nil
 
-      let bodyY = Self.headerHeight + Self.headerToBodySpacing
+      let bodyY = model.showHeader ? Self.headerHeight + Self.headerToBodySpacing : 0
       let contentWidth: CGFloat
 
       if model.isUserAligned {
@@ -431,8 +438,7 @@
       let vTop = Self.thinkingVPadTop
       let vBottom = Self.thinkingVPadBottom
       let innerWidth = contentWidth - hPad * 2
-      let displayBlocks = MarkdownSystemParser.parse(model.displayContent, style: .thinking)
-      let mdHeight = NativeMarkdownContentView.requiredHeight(for: displayBlocks, width: innerWidth, style: .thinking)
+      let mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth, style: .thinking)
 
       let hasShowMore = model.isThinkingLong
       let isCollapsed = hasShowMore && !model.isThinkingExpanded
@@ -452,7 +458,7 @@
       // Markdown content
       let contentX = Self.laneHorizontalInset + hPad
       markdownContentView.frame = CGRect(x: contentX, y: vTop, width: innerWidth, height: mdHeight)
-      markdownContentView.configure(blocks: displayBlocks, style: .thinking)
+      markdownContentView.configure(blocks: currentBlocks, style: .thinking)
       bodyContainer.addSubview(markdownContentView)
 
       // Gradient mask: fade text to transparent over the last lines when collapsed
@@ -797,10 +803,12 @@
         style: model.messageType == .thinking ? .thinking : .standard
       )
       let body = bodyHeight(for: width, model: model, blocks: blocks)
-      let total = max(1, ceil(headerHeight + headerToBodySpacing + body + entryBottomSpacing))
+      let actualHeaderHeight = model.showHeader ? headerHeight : 0
+      let actualSpacing = model.showHeader ? headerToBodySpacing : 0
+      let total = max(1, ceil(actualHeaderHeight + actualSpacing + body + entryBottomSpacing))
       logger.debug(
         "requiredHeight-rich[\(model.messageID.prefix(8))] \(model.messageType) "
-          + "header=\(f(headerHeight)) body=\(f(body)) total=\(f(total)) "
+          + "header=\(f(actualHeaderHeight)) body=\(f(body)) total=\(f(total)) "
           + "w=\(f(width)) blocks=\(blocks.count)"
       )
       return total

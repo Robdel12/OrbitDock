@@ -169,14 +169,49 @@ nonisolated enum ConversationTimelineProjector {
     }
 
     let isToolRow = toolRowsEnabled && isToolLikeMessage(message)
+    let showHeader = isToolRow ? true : shouldShowHeader(for: message, previousRow: rows.last, context: context)
     rows.append(
       makeRow(
         id: isToolRow ? .tool(message.id) : .message(message.id),
         kind: isToolRow ? .tool : .message,
-        payload: isToolRow ? .tool(id: message.id) : .message(id: message.id),
+        payload: isToolRow ? .tool(id: message.id) : .message(id: message.id, showHeader: showHeader),
         context: context
       )
     )
+  }
+
+  private static func shouldShowHeader(
+    for message: TranscriptMessage,
+    previousRow: TimelineRow?,
+    context: ProjectionContext
+  ) -> Bool {
+    if message.type == .user || message.type == .shell { return true }
+    if message.isError, message.type == .assistant { return true }
+    if message.type == .steer { return true }
+
+    guard let previousRow,
+          case let .message(prevID, _) = previousRow.payload,
+          let previousMessage = context.messagesByID[prevID]
+    else {
+      return true
+    }
+
+    return messageRole(message) != messageRole(previousMessage)
+  }
+
+  private static func messageRole(_ message: TranscriptMessage) -> String {
+    switch message.type {
+      case .user, .shell:
+        "user"
+      case .thinking:
+        "thinking"
+      case .steer:
+        "steer"
+      case .assistant where message.isError:
+        "error"
+      default:
+        "assistant"
+    }
   }
 
   private static func shouldHideRedundantApprovalPrompt(
@@ -440,7 +475,7 @@ nonisolated enum ConversationTimelineProjector {
         hasher.combine(context.source.metadata.messageCount)
 
       case .message:
-        if case let .message(id) = payload, let message = context.messagesByID[id] {
+        if case let .message(id, _) = payload, let message = context.messagesByID[id] {
           combineRenderable(message: message, into: &hasher)
           let meta = context.messageMetaByID[id]
           hasher.combine(meta?.turnsAfter)

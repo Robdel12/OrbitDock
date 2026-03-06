@@ -44,12 +44,6 @@ struct ConversationView: View {
     #endif
   }()
 
-  /// Pre-computed per-message metadata to avoid O(n²) in ForEach
-  struct MessageMeta {
-    let turnsAfter: Int?
-    let nthUserMessage: Int?
-  }
-
   private var effectiveDisplayedCount: Int {
     guard !messages.isEmpty else { return 0 }
     if displayedCount <= 0 { return messages.count }
@@ -270,48 +264,6 @@ struct ConversationView: View {
       lhs.isInProgress == rhs.isInProgress &&
       lhs.thinking == rhs.thinking &&
       lhs.images == rhs.images
-  }
-
-  /// Single-pass computation of per-message metadata (turnsAfter, nthUserMessage).
-  /// Replaces O(n²) inline closures that scanned the array per message in ForEach.
-  static func computeMessageMetadata(_ msgs: [TranscriptMessage]) -> [String: MessageMeta] {
-    var result: [String: MessageMeta] = [:]
-    result.reserveCapacity(msgs.count)
-
-    // First pass: assign nthUserMessage indices
-    var userCount = 0
-    var userIndices: [Int] = [] // indices of user messages in msgs
-    for (i, msg) in msgs.enumerated() {
-      if msg.isUser {
-        result[msg.id] = MessageMeta(turnsAfter: 0, nthUserMessage: userCount)
-        userCount += 1
-        userIndices.append(i)
-      } else {
-        result[msg.id] = MessageMeta(turnsAfter: nil, nthUserMessage: nil)
-      }
-    }
-
-    // Second pass: compute turnsAfter for each user message
-    // turnsAfter = number of user messages after this one, or 1 if there's at least a response
-    for (rank, msgIndex) in userIndices.enumerated() {
-      let userMsgsAfter = userIndices.count - rank - 1
-      let turnsAfter: Int
-      if userMsgsAfter > 0 {
-        turnsAfter = userMsgsAfter
-      } else {
-        // Last user message — check if there's any response after it
-        let hasResponseAfter = msgs[(msgIndex + 1)...].contains { !$0.isUser }
-        turnsAfter = hasResponseAfter ? 1 : 0
-      }
-
-      let existing = result[msgs[msgIndex].id]
-      result[msgs[msgIndex].id] = MessageMeta(
-        turnsAfter: turnsAfter > 0 ? turnsAfter : nil,
-        nthUserMessage: existing?.nthUserMessage
-      )
-    }
-
-    return result
   }
 
   private func logDebugState(_ reason: String) {

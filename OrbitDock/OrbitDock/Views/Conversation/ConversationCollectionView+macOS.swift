@@ -159,7 +159,6 @@ import SwiftUI
 
     // Derived caches for O(1) cell rendering lookups
     private var messagesByID: [String: TranscriptMessage] = [:]
-    private var messageMeta: [String: ConversationView.MessageMeta] = [:]
     private var turnsByID: [String: TurnSummary] = [:]
 
     private var programmaticScrollInProgress = false
@@ -255,6 +254,8 @@ import SwiftUI
     }
 
     private func setupTableView() {
+      UserDefaults.standard.set(false, forKey: "NSTableViewCanEstimateRowHeights")
+
       tableView = WidthClampedTableView(frame: .zero)
       tableView.delegate = self
       tableView.dataSource = self
@@ -445,9 +446,6 @@ import SwiftUI
       remainingLoadCount: Int,
       hasMoreMessages: Bool
     ) {
-      let previousMode = sourceState.metadata.chatViewMode
-      let identityChanged = messageIdentityChanged(sourceState.messages, messages)
-
       // Approval metadata is server-authoritative from session summary fields.
       let session = serverState?.sessions.first(where: { $0.id == self.sessionId })
       let resolvedApprovalId = session?.pendingApprovalId
@@ -488,9 +486,6 @@ import SwiftUI
 
       // Rebuild derived caches
       messagesByID = Dictionary(uniqueKeysWithValues: sourceState.messages.map { ($0.id, $0) })
-      if identityChanged || previousMode != chatViewMode || messageMeta.isEmpty {
-        messageMeta = ConversationView.computeMessageMetadata(sourceState.messages)
-      }
 
       if isLoadingMoreAtTop {
         if sourceState.messages.count > loadMoreBaselineMessageCount || !hasMoreMessages {
@@ -748,22 +743,11 @@ import SwiftUI
       programmaticScrollInProgress = false
     }
 
-    private func messageIdentityChanged(_ old: [TranscriptMessage], _ new: [TranscriptMessage]) -> Bool {
-      guard old.count == new.count else { return true }
-      for (lhs, rhs) in zip(old, new) where lhs.id != rhs.id {
-        return true
-      }
-      return false
-    }
-
     /// Build a NativeRichMessageRowModel for ANY .message row — no markdown filter.
     /// Returns nil only for tool rows or empty content.
-    private func nativeRichMessageRow(for row: TimelineRow, at index: Int? = nil) -> NativeRichMessageRowModel? {
-      guard case let .message(id) = row.payload else { return nil }
+    private func nativeRichMessageRow(for row: TimelineRow) -> NativeRichMessageRowModel? {
+      guard case let .message(id, showHeader) = row.payload else { return nil }
       guard let message = messagesByID[id] else { return nil }
-
-      // Determine whether to show the header by checking the previous row
-      let showHeader = shouldShowHeader(for: message, at: index)
 
       return SharedModelBuilders.richMessageModel(
         from: message,
@@ -771,37 +755,6 @@ import SwiftUI
         isThinkingExpanded: expandedThinkingIDs.contains(id),
         showHeader: showHeader
       )
-    }
-
-    /// Check if the previous row is a same-role message — if so, suppress the header.
-    private func shouldShowHeader(for message: TranscriptMessage, at index: Int?) -> Bool {
-      guard let idx = index, idx > 0, idx < currentRows.count else { return true }
-
-      // User messages always show header (bubble needs visual anchor)
-      if message.isUser || message.isShell { return true }
-      // Error messages always show header (label is informational)
-      if message.isError, message.isAssistant { return true }
-      // Steer messages always show header
-      if message.isSteer { return true }
-
-      // Look at the previous row
-      let prevRow = currentRows[idx - 1]
-      guard case let .message(prevID) = prevRow.payload,
-            let prevMessage = messagesByID[prevID]
-      else { return true }
-
-      // Same-role consecutive messages: suppress header
-      let currentRole = messageRole(message)
-      let prevRole = messageRole(prevMessage)
-      return currentRole != prevRole
-    }
-
-    private func messageRole(_ message: TranscriptMessage) -> String {
-      if message.isUser || message.isShell { return "user" }
-      if message.isThinking { return "thinking" }
-      if message.isSteer { return "steer" }
-      if message.isError, message.isAssistant { return "error" }
-      return "assistant"
     }
 
     // MARK: - Thinking Expansion
@@ -828,7 +781,7 @@ import SwiftUI
       if let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
         as? NativeRichMessageCellView,
         let timelineRow = row < currentRows.count ? currentRows[row] : nil,
-        let model = nativeRichMessageRow(for: timelineRow, at: row)
+        let model = nativeRichMessageRow(for: timelineRow)
       {
         let width = max(100, tableView.bounds.width)
         cell.configure(model: model, width: width)
@@ -992,7 +945,7 @@ import SwiftUI
 
       // ── Native rich message rows (ALL markdown, zero SwiftUI) ──
 
-      if let richModel = nativeRichMessageRow(for: timelineRow, at: row) {
+      if let richModel = nativeRichMessageRow(for: timelineRow) {
         let richID = NativeRichMessageCellView.reuseIdentifier
         let richCell = (tableView.makeView(withIdentifier: richID, owner: self) as? NativeRichMessageCellView)
           ?? NativeRichMessageCellView(frame: .zero)
@@ -1137,7 +1090,7 @@ import SwiftUI
         .info("heightOfRow[\(row)] \(timelineRow.id.rawValue) cache-miss w=\(String(format: "%.0f", measurementWidth))")
 
       // Tier 2a: Native rich message rows (ALL markdown + images, zero SwiftUI)
-      if let richModel = nativeRichMessageRow(for: timelineRow, at: row) {
+      if let richModel = nativeRichMessageRow(for: timelineRow) {
         let measuredHeight = max(
           1,
           ceil(NativeRichMessageCellView.requiredHeight(for: measurementWidth, model: richModel))
