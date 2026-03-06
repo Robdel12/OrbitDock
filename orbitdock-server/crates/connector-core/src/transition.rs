@@ -2196,10 +2196,48 @@ fn shell_segments_for_preview(command: &str) -> Vec<ApprovalPreviewSegment> {
     let mut in_backtick = false;
     let mut escaped = false;
     let mut paren_depth: usize = 0;
+    let mut heredoc_delimiter: Option<String> = None;
 
     let mut index = 0;
     while index < chars.len() {
         let ch = chars[index];
+
+        // Inside a heredoc — consume everything until delimiter line.
+        if let Some(ref delimiter) = heredoc_delimiter {
+            buffer.push(ch);
+            if ch == '\n' {
+                // Look ahead: does the next line match the delimiter?
+                let remaining: String = chars[index + 1..].iter().collect();
+                let next_line = remaining.split('\n').next().unwrap_or("");
+                if next_line.trim() == delimiter.as_str() {
+                    // Consume the delimiter line into the buffer too.
+                    for &dc in &chars[index + 1..] {
+                        buffer.push(dc);
+                        if dc == '\n' {
+                            break;
+                        }
+                    }
+                    // Advance index past the delimiter line.
+                    let delim_line_len = next_line.len();
+                    index += 1 + delim_line_len;
+                    // Skip the trailing newline after the delimiter if present.
+                    if index < chars.len() && chars[index] == '\n' {
+                        index += 1;
+                    }
+                    heredoc_delimiter = None;
+                    // Flush the heredoc as its own segment so the next
+                    // command (after the delimiter line) starts fresh.
+                    flush_shell_segment(&mut buffer, &mut segments, &mut pending_operator);
+                    pending_operator = Some(";".to_string());
+                    continue;
+                }
+            } else if index + 1 == chars.len() {
+                // End of input while in heredoc — just close it.
+                heredoc_delimiter = None;
+            }
+            index += 1;
+            continue;
+        }
 
         if escaped {
             buffer.push(ch);
@@ -2246,6 +2284,67 @@ fn shell_segments_for_preview(command: &str) -> Vec<ApprovalPreviewSegment> {
             } else if ch == ')' {
                 paren_depth = paren_depth.saturating_sub(1);
             }
+        }
+
+        // Detect heredoc operator (<<, <<-, <<'DELIM', <<"DELIM")
+        if can_split && ch == '<' && index + 1 < chars.len() && chars[index + 1] == '<' {
+            buffer.push(ch);
+            buffer.push(chars[index + 1]);
+            let mut hd_index = index + 2;
+
+            // Skip optional '-' (for <<- which strips leading tabs)
+            if hd_index < chars.len() && chars[hd_index] == '-' {
+                buffer.push(chars[hd_index]);
+                hd_index += 1;
+            }
+
+            // Skip optional whitespace before delimiter
+            while hd_index < chars.len() && chars[hd_index] == ' ' {
+                buffer.push(chars[hd_index]);
+                hd_index += 1;
+            }
+
+            // Extract delimiter (may be quoted with ' or ")
+            let quote_char = if hd_index < chars.len()
+                && (chars[hd_index] == '\'' || chars[hd_index] == '"')
+            {
+                let q = Some(chars[hd_index]);
+                buffer.push(chars[hd_index]);
+                hd_index += 1;
+                q
+            } else {
+                None
+            };
+
+            let delim_start = hd_index;
+            while hd_index < chars.len() {
+                let c = chars[hd_index];
+                if let Some(q) = quote_char {
+                    if c == q {
+                        break;
+                    }
+                } else if !c.is_alphanumeric() && c != '_' {
+                    break;
+                }
+                buffer.push(c);
+                hd_index += 1;
+            }
+
+            let delim: String = chars[delim_start..hd_index].iter().collect();
+
+            // Push closing quote if present
+            if let Some(q) = quote_char {
+                if hd_index < chars.len() && chars[hd_index] == q {
+                    buffer.push(chars[hd_index]);
+                    hd_index += 1;
+                }
+            }
+
+            if !delim.is_empty() {
+                heredoc_delimiter = Some(delim);
+            }
+            index = hd_index;
+            continue;
         }
 
         if can_split {
@@ -3262,6 +3361,46 @@ mod tests {
             msg_updates.is_empty(),
             "no MessageUpdate effects when nothing to finalize"
         );
+    }
+
+    #[test]
+    fn shell_segments_heredoc_single_quote_kept_as_one_segment() {
+        let cmd = "cat <<'EOF' > /tmp/plan.md\n# Plan\n\nStep 1\nStep 2\nEOF";
+        let segments = shell_segments_for_preview(cmd);
+        assert_eq!(segments.len(), 1, "heredoc should be a single segment, got: {segments:?}");
+        assert!(segments[0].command.contains("# Plan"));
+        assert!(segments[0].command.contains("EOF"));
+    }
+
+    #[test]
+    fn shell_segments_heredoc_double_quote_kept_as_one_segment() {
+        let cmd = "cat <<\"END\" > /tmp/out.txt\nline 1\nline 2\nEND";
+        let segments = shell_segments_for_preview(cmd);
+        assert_eq!(segments.len(), 1, "heredoc should be a single segment, got: {segments:?}");
+    }
+
+    #[test]
+    fn shell_segments_heredoc_unquoted_kept_as_one_segment() {
+        let cmd = "cat <<MARKER\nfoo\nbar\nMARKER";
+        let segments = shell_segments_for_preview(cmd);
+        assert_eq!(segments.len(), 1, "heredoc should be a single segment, got: {segments:?}");
+    }
+
+    #[test]
+    fn shell_segments_heredoc_with_dash_strip_tabs() {
+        let cmd = "cat <<-EOF\n\tfoo\n\tbar\nEOF";
+        let segments = shell_segments_for_preview(cmd);
+        assert_eq!(segments.len(), 1, "<<- heredoc should be a single segment, got: {segments:?}");
+    }
+
+    #[test]
+    fn shell_segments_heredoc_then_next_command() {
+        let cmd = "cat <<'EOF' > /tmp/file.md\ncontent\nEOF\ncd /tmp && gh issue create --body-file file.md";
+        let segments = shell_segments_for_preview(cmd);
+        assert_eq!(segments.len(), 3, "expected heredoc + cd + gh, got: {segments:?}");
+        assert!(segments[0].command.starts_with("cat <<"));
+        assert_eq!(segments[1].command, "cd /tmp");
+        assert_eq!(segments[2].leading_operator.as_deref(), Some("&&"));
     }
 
     #[test]

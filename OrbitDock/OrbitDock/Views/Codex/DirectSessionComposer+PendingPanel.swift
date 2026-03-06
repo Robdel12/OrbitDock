@@ -42,22 +42,24 @@ extension DirectSessionComposer {
 
       // Expandable content
       if pendingPanelExpanded {
-        VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
-          switch model.mode {
-            case .permission:
-              pendingPermissionInlineContent(model)
-            case .question:
-              pendingQuestionInlineContent(model)
-            case .takeover:
-              pendingTakeOverInlineContent(model)
-            case .none:
-              EmptyView()
+        ScrollView(.vertical, showsIndicators: true) {
+          VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
+            switch model.mode {
+              case .permission:
+                pendingPermissionInlineContent(model)
+              case .question:
+                pendingQuestionInlineContent(model)
+              case .takeover:
+                pendingTakeOverInlineContent(model)
+              case .none:
+                EmptyView()
+            }
           }
+          .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
+          .padding(.top, isCompactLayout ? Spacing.xs : Spacing.sm_)
+          .padding(.bottom, isCompactLayout ? Spacing.sm_ : Spacing.sm)
         }
-        .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
-        .padding(.top, isCompactLayout ? Spacing.xs : Spacing.sm_)
-        .padding(.bottom, isCompactLayout ? Spacing.sm_ : Spacing.sm)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxHeight: isCompactLayout ? 280 : 400)
         .transition(.opacity.animation(Motion.gentle.delay(0.05)))
       }
 
@@ -67,7 +69,6 @@ extension DirectSessionComposer {
         .frame(height: 0.5)
         .padding(.horizontal, Spacing.sm)
     }
-    .fixedSize(horizontal: false, vertical: true)
   }
 
   // MARK: - Inline Header
@@ -179,10 +180,6 @@ extension DirectSessionComposer {
       }
       return []
     }()
-    let shouldClampChainHeight =
-      commandChainSegments.count > 2 ||
-      commandChainSegments.contains(where: { $0.command.contains("\n") || $0.command.count > 240 })
-
     // ━━━ Command / preview display ━━━
     if !commandChainSegments.isEmpty {
       let isSingleStep = commandChainSegments.count == 1
@@ -200,59 +197,39 @@ extension DirectSessionComposer {
           }
         }
 
-        if shouldClampChainHeight, !isCompactLayout {
-          Text("Scroll to inspect every line before approving.")
-            .font(.system(size: TypeScale.mini, weight: .regular))
-            .foregroundStyle(Color.textQuaternary)
-        }
-
-        if shouldClampChainHeight {
-          ScrollView(.vertical, showsIndicators: true) {
-            LazyVStack(spacing: isCompactLayout ? Spacing.xxs : Spacing.xs) {
-              ForEach(Array(commandChainSegments.enumerated()), id: \.offset) { index, segment in
-                pendingCommandChainRow(index: index + 1, segment: segment, modeColor: modeColor)
-              }
-            }
-          }
-          .frame(maxHeight: isCompactLayout ? 200 : 320)
-        } else {
-          ForEach(Array(commandChainSegments.enumerated()), id: \.offset) { index, segment in
-            if isSingleStep {
-              pendingCommandCodeBlock(segment: segment, modeColor: modeColor)
-            } else {
-              pendingCommandChainRow(index: index + 1, segment: segment, modeColor: modeColor)
-            }
+        ForEach(Array(commandChainSegments.enumerated()), id: \.offset) { index, segment in
+          if isSingleStep {
+            pendingCommandCodeBlock(segment: segment, modeColor: modeColor)
+          } else {
+            pendingCommandChainRow(index: index + 1, segment: segment, modeColor: modeColor)
           }
         }
       }
     } else {
-      ScrollView(.vertical, showsIndicators: true) {
-        Text(previewText)
-          .font(.system(
-            size: isCompactLayout ? TypeScale.micro : TypeScale.caption,
-            weight: .regular
-          ))
-          .foregroundStyle(Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
-          .multilineTextAlignment(.leading)
-          .textSelection(.enabled)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
-          .padding(.vertical, isCompactLayout ? Spacing.sm_ : Spacing.sm)
-      }
-      .frame(maxHeight: isCompactLayout ? 200 : 320)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .fill(Color.backgroundCode)
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-              .fill(modeColor.opacity(OpacityTier.tint))
-          )
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .strokeBorder(modeColor.opacity(OpacityTier.light), lineWidth: 0.5)
-      )
+      Text(previewText)
+        .font(.system(
+          size: isCompactLayout ? TypeScale.micro : TypeScale.caption,
+          weight: .regular
+        ))
+        .foregroundStyle(Color.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+        .multilineTextAlignment(.leading)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
+        .padding(.vertical, isCompactLayout ? Spacing.sm_ : Spacing.sm)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .fill(Color.backgroundCode)
+            .overlay(
+              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .fill(modeColor.opacity(OpacityTier.tint))
+            )
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .strokeBorder(modeColor.opacity(OpacityTier.light), lineWidth: 0.5)
+        )
     }
 
     // ━━━ Risk findings ━━━

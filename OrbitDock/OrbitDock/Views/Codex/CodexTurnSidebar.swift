@@ -75,7 +75,6 @@ struct CodexTurnSidebar: View {
     reviewComments.filter { $0.status == .open }.count
   }
 
-
   private var hasTokens: Bool {
     serverState.session(sessionId).turnDiffs.contains { $0.tokenUsage != nil }
       || serverState.session(sessionId).tokenUsage?.inputTokens ?? 0 > 0
