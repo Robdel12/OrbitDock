@@ -246,9 +246,10 @@ import SwiftUI
 
     private func setupCellRegistrations() {
       messageCellReg = UICollectionView.CellRegistration<UIKitRichMessageCell, String> {
-        [weak self] cell, _, messageId in
+        [weak self] cell, indexPath, _ in
         guard let self else { return }
-        guard let model = self.buildRichMessageModel(for: messageId) else { return }
+        guard indexPath.item < self.currentRows.count else { return }
+        guard let model = self.buildRichMessageModel(for: self.currentRows[indexPath.item]) else { return }
         let width = self.collectionView.bounds.width
         cell.configure(model: model, width: width)
         cell.onThinkingExpandToggle = { [weak self] id in
@@ -748,7 +749,7 @@ import SwiftUI
             height = ConversationLayout.compactToolRowHeight
           }
         case .message:
-          if case let .message(id, _) = row.payload, let model = buildRichMessageModel(for: id) {
+          if case let .message(id, _) = row.payload, let model = buildRichMessageModel(for: row) {
             height = UIKitRichMessageCell.requiredHeight(for: width, model: model)
             logger.debug(
               "sizeForItem[\(indexPath.item)] msg[\(id.prefix(8))] \(model.messageType) "
@@ -771,18 +772,9 @@ import SwiftUI
 
     // MARK: - Model Building
 
-    private func buildRichMessageModel(for messageId: String) -> NativeRichMessageRowModel? {
+    private func buildRichMessageModel(for row: TimelineRow) -> NativeRichMessageRowModel? {
+      guard case let .message(messageId, showHeader) = row.payload else { return nil }
       guard let message = messagesByID[messageId] else { return nil }
-      let showHeader: Bool = {
-        guard let rowIndex = rowIndexByTimelineRowID[.message(messageId)],
-              rowIndex >= 0,
-              rowIndex < currentRows.count,
-              case let .message(_, projectedShowHeader) = currentRows[rowIndex].payload
-        else {
-          return true
-        }
-        return projectedShowHeader
-      }()
       return SharedModelBuilders.richMessageModel(
         from: message,
         messageID: messageId,

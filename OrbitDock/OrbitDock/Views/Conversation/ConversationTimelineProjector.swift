@@ -7,11 +7,6 @@
 
 import Foundation
 
-private struct ProjectionMessageMeta {
-  let turnsAfter: Int?
-  let nthUserMessage: Int?
-}
-
 private struct FocusedTurnSplit {
   let leading: [TranscriptMessage]
   let toolZone: [TranscriptMessage]
@@ -477,9 +472,6 @@ nonisolated enum ConversationTimelineProjector {
       case .message:
         if case let .message(id, _) = payload, let message = context.messagesByID[id] {
           combineRenderable(message: message, into: &hasher)
-          let meta = context.messageMetaByID[id]
-          hasher.combine(meta?.turnsAfter)
-          hasher.combine(meta?.nthUserMessage)
         }
 
       case .tool:
@@ -663,53 +655,12 @@ nonisolated enum ConversationTimelineProjector {
     let ui: ConversationUIState
     let messagesByID: [String: TranscriptMessage]
     let turnsByID: [String: TurnSummary]
-    let messageMetaByID: [String: ProjectionMessageMeta]
 
     init(source: ConversationSourceState, ui: ConversationUIState) {
       self.source = source
       self.ui = ui
       messagesByID = Dictionary(uniqueKeysWithValues: source.messages.map { ($0.id, $0) })
       turnsByID = Dictionary(uniqueKeysWithValues: source.turns.map { ($0.id, $0) })
-      messageMetaByID = Self.computeMessageMetadata(source.messages)
-    }
-
-    private static func computeMessageMetadata(_ messages: [TranscriptMessage]) -> [String: ProjectionMessageMeta] {
-      var result: [String: ProjectionMessageMeta] = [:]
-      result.reserveCapacity(messages.count)
-
-      var userCount = 0
-      var userIndices: [Int] = []
-      for (index, message) in messages.enumerated() {
-        if message.type == .user {
-          result[message.id] = ProjectionMessageMeta(turnsAfter: 0, nthUserMessage: userCount)
-          userCount += 1
-          userIndices.append(index)
-        } else {
-          result[message.id] = ProjectionMessageMeta(turnsAfter: nil, nthUserMessage: nil)
-        }
-      }
-
-      for (rank, messageIndex) in userIndices.enumerated() {
-        let userMessagesAfter = userIndices.count - rank - 1
-        let turnsAfter: Int
-        if userMessagesAfter > 0 {
-          turnsAfter = userMessagesAfter
-        } else if messageIndex + 1 < messages.count {
-          let hasResponseAfter = messages[(messageIndex + 1)...].contains { $0.type != .user }
-          turnsAfter = hasResponseAfter ? 1 : 0
-        } else {
-          turnsAfter = 0
-        }
-
-        let id = messages[messageIndex].id
-        let existing = result[id]
-        result[id] = ProjectionMessageMeta(
-          turnsAfter: turnsAfter > 0 ? turnsAfter : nil,
-          nthUserMessage: existing?.nthUserMessage
-        )
-      }
-
-      return result
     }
   }
 }

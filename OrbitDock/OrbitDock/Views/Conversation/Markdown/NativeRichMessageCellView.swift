@@ -345,7 +345,7 @@ struct NativeRichMessageRowModel {
       rebuildBody(model: model, width: width)
 
       // ── Diagnostic: detect body overflow ──
-      let expectedTotal = Self.requiredHeight(for: width, model: model)
+      let expectedTotal = Self.requiredHeight(for: width, model: model, blocks: currentBlocks)
       let maxBodyBottom = bodyContainer.subviews
         .map(\.frame.maxY)
         .max() ?? 0
@@ -959,6 +959,15 @@ struct NativeRichMessageRowModel {
 
       let style: ContentStyle = model.messageType == .thinking ? .thinking : .standard
       let blocks = MarkdownSystemParser.parse(model.displayContent, style: style)
+      return requiredHeight(for: width, model: model, blocks: blocks)
+    }
+
+    private static func requiredHeight(
+      for width: CGFloat,
+      model: NativeRichMessageRowModel,
+      blocks: [MarkdownBlock]
+    ) -> CGFloat {
+      let style: ContentStyle = model.messageType == .thinking ? .thinking : .standard
       let bodyHeight: CGFloat
 
       if model.isUserAligned {

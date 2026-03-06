@@ -8,6 +8,16 @@
 
 import Foundation
 
+enum ConversationMessageMutationKind {
+  case replaceAll
+  case upsert(TranscriptMessage)
+}
+
+struct ConversationMessageMutation {
+  let revision: Int
+  let kind: ConversationMessageMutationKind
+}
+
 @Observable
 @MainActor
 final class SessionObservable {
@@ -16,6 +26,7 @@ final class SessionObservable {
   // Messages
   var messages: [TranscriptMessage] = []
   private(set) var messagesRevision: Int = 0
+  private(set) var lastMessageMutation: ConversationMessageMutation?
 
   // Approval
   var pendingApproval: ServerApprovalRequest?
@@ -242,8 +253,9 @@ final class SessionObservable {
     (inputTokens ?? 0) > 0 || (outputTokens ?? 0) > 0 || (cachedTokens ?? 0) > 0
   }
 
-  func bumpMessagesRevision() {
+  func bumpMessagesRevision(_ kind: ConversationMessageMutationKind = .replaceAll) {
     messagesRevision += 1
+    lastMessageMutation = ConversationMessageMutation(revision: messagesRevision, kind: kind)
   }
 
   var hasMcpData: Bool {

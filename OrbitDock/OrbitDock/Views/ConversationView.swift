@@ -177,61 +177,28 @@ struct ConversationView: View {
   private func refreshFromServerStateIfNeeded() {
     guard let sid = sessionId else { return }
     let obs = serverState.session(sid)
-    let serverMessages = obs.messages
     let snapshotReceived = obs.hasReceivedSnapshot
-    let previousRefreshCount = messages.count
+    let syncResult = ConversationMessageSync.reconcile(
+      localMessages: messages,
+      serverMessages: obs.messages,
+      displayedCount: displayedCount,
+      pageSize: pageSize,
+      mutation: obs.lastMessageMutation
+    )
 
-    // Fast path: nothing changed at a render-relevant level.
-    if messages.count == serverMessages.count,
-       messages.indices.allSatisfy({ i in
-         messages[i].id == serverMessages[i].id &&
-           Self.messageRenderEquivalent(messages[i], serverMessages[i])
-       })
-    {
-      if displayedCount <= 0, !messages.isEmpty {
-        displayedCount = min(pageSize, messages.count)
+    if displayedCount != syncResult.displayedCount {
+      displayedCount = syncResult.displayedCount
+      if !syncResult.didChange, !messages.isEmpty {
         logDebugState("fast_path_repair_displayed_count")
       }
+    }
+
+    guard syncResult.didChange else {
       if snapshotReceived { isLoading = false }
       return
     }
 
-    // Append path: server has more messages and preserves ID ordering.
-    let sharesPrefixIds = !messages.isEmpty &&
-      serverMessages.count >= messages.count &&
-      messages.indices.allSatisfy { messages[$0].id == serverMessages[$0].id }
-
-    if serverMessages.count >= messages.count,
-       sharesPrefixIds
-    {
-      // Update changed existing messages (e.g., streaming content/tool output).
-      for i in messages.indices {
-        if i < serverMessages.count, !Self.messageRenderEquivalent(messages[i], serverMessages[i]) {
-          messages[i] = serverMessages[i]
-        }
-      }
-
-      // Append genuinely new messages
-      if serverMessages.count > messages.count {
-        messages.append(contentsOf: serverMessages[messages.count...])
-      }
-    } else {
-      // Structural change (undo/rollback/initial load) — full replace
-      messages = serverMessages
-    }
-
-    if !messages.isEmpty {
-      // Grow displayedCount by new message delta — don't jump to full count.
-      // This keeps the native table/collection view manageable while ensuring
-      // new streaming content is always visible.
-      let delta = max(0, messages.count - previousRefreshCount)
-      displayedCount = max(displayedCount + delta, effectiveDisplayedCount)
-      if displayedCount <= 0 {
-        displayedCount = min(pageSize, messages.count)
-      }
-    } else {
-      displayedCount = 0
-    }
+    messages = syncResult.messages
 
     if snapshotReceived { isLoading = false }
     logDebugState("refresh_messages")
@@ -249,21 +216,6 @@ struct ConversationView: View {
       }
       refreshTask = nil
     }
-  }
-
-  static func messageRenderEquivalent(_ lhs: TranscriptMessage, _ rhs: TranscriptMessage) -> Bool {
-    lhs.id == rhs.id &&
-      lhs.type == rhs.type &&
-      lhs.content == rhs.content &&
-      lhs.toolName == rhs.toolName &&
-      lhs.toolInputRenderSignature == rhs.toolInputRenderSignature &&
-      lhs.toolOutput == rhs.toolOutput &&
-      lhs.toolDuration == rhs.toolDuration &&
-      lhs.inputTokens == rhs.inputTokens &&
-      lhs.outputTokens == rhs.outputTokens &&
-      lhs.isInProgress == rhs.isInProgress &&
-      lhs.thinking == rhs.thinking &&
-      lhs.images == rhs.images
   }
 
   private func logDebugState(_ reason: String) {
@@ -299,6 +251,158 @@ struct ConversationView: View {
     #endif
   }
 
+}
+
+struct ConversationMessageSyncResult {
+  let messages: [TranscriptMessage]
+  let displayedCount: Int
+  let didChange: Bool
+}
+
+enum ConversationMessageSync {
+  static func reconcile(
+    localMessages: [TranscriptMessage],
+    serverMessages: [TranscriptMessage],
+    displayedCount: Int,
+    pageSize: Int,
+    mutation: ConversationMessageMutation?
+  ) -> ConversationMessageSyncResult {
+    if let mutation {
+      switch mutation.kind {
+        case .replaceAll:
+          return fullReplace(
+            localMessages: localMessages,
+            serverMessages: serverMessages,
+            displayedCount: displayedCount,
+            pageSize: pageSize
+          )
+        case let .upsert(message):
+          if let incremental = applyIncremental(
+            localMessages: localMessages,
+            serverMessages: serverMessages,
+            displayedCount: displayedCount,
+            pageSize: pageSize,
+            message: message
+          ) {
+            return incremental
+          }
+          return fullReplace(
+            localMessages: localMessages,
+            serverMessages: serverMessages,
+            displayedCount: displayedCount,
+            pageSize: pageSize
+          )
+      }
+    }
+
+    return fullReplace(
+      localMessages: localMessages,
+      serverMessages: serverMessages,
+      displayedCount: displayedCount,
+      pageSize: pageSize
+    )
+  }
+
+  static func messageRenderEquivalent(_ lhs: TranscriptMessage, _ rhs: TranscriptMessage) -> Bool {
+    lhs.id == rhs.id &&
+      lhs.type == rhs.type &&
+      lhs.content == rhs.content &&
+      lhs.toolName == rhs.toolName &&
+      lhs.toolInputRenderSignature == rhs.toolInputRenderSignature &&
+      lhs.toolOutput == rhs.toolOutput &&
+      lhs.toolDuration == rhs.toolDuration &&
+      lhs.inputTokens == rhs.inputTokens &&
+      lhs.outputTokens == rhs.outputTokens &&
+      lhs.isInProgress == rhs.isInProgress &&
+      lhs.thinking == rhs.thinking &&
+      lhs.images == rhs.images
+  }
+
+  private static func applyIncremental(
+    localMessages: [TranscriptMessage],
+    serverMessages: [TranscriptMessage],
+    displayedCount: Int,
+    pageSize: Int,
+    message: TranscriptMessage
+  ) -> ConversationMessageSyncResult? {
+    guard localMessages.count <= serverMessages.count else { return nil }
+
+    var nextMessages = localMessages
+    var didChange = false
+
+    if nextMessages.count < serverMessages.count {
+      nextMessages.append(contentsOf: serverMessages[nextMessages.count...])
+      didChange = true
+    }
+
+    guard let index = nextMessages.firstIndex(where: { $0.id == message.id }) else { return nil }
+
+    if !messageRenderEquivalent(nextMessages[index], message) {
+      nextMessages[index] = message
+      didChange = true
+    }
+
+    let resultMessages = didChange ? nextMessages : localMessages
+    return ConversationMessageSyncResult(
+      messages: resultMessages,
+      displayedCount: adjustedDisplayedCount(
+        currentDisplayedCount: displayedCount,
+        previousMessages: localMessages,
+        nextMessages: resultMessages,
+        pageSize: pageSize
+      ),
+      didChange: didChange
+    )
+  }
+
+  private static func fullReplace(
+    localMessages: [TranscriptMessage],
+    serverMessages: [TranscriptMessage],
+    displayedCount: Int,
+    pageSize: Int
+  ) -> ConversationMessageSyncResult {
+    let didChange = !messagesRenderEquivalent(localMessages, serverMessages)
+    let resultMessages = didChange ? serverMessages : localMessages
+    return ConversationMessageSyncResult(
+      messages: resultMessages,
+      displayedCount: adjustedDisplayedCount(
+        currentDisplayedCount: displayedCount,
+        previousMessages: localMessages,
+        nextMessages: resultMessages,
+        pageSize: pageSize
+      ),
+      didChange: didChange
+    )
+  }
+
+  private static func messagesRenderEquivalent(_ lhs: [TranscriptMessage], _ rhs: [TranscriptMessage]) -> Bool {
+    guard lhs.count == rhs.count else { return false }
+    return lhs.indices.allSatisfy { index in
+      lhs[index].id == rhs[index].id && messageRenderEquivalent(lhs[index], rhs[index])
+    }
+  }
+
+  private static func adjustedDisplayedCount(
+    currentDisplayedCount: Int,
+    previousMessages: [TranscriptMessage],
+    nextMessages: [TranscriptMessage],
+    pageSize: Int
+  ) -> Int {
+    guard !nextMessages.isEmpty else { return 0 }
+
+    let previousEffectiveDisplayedCount: Int = {
+      guard !previousMessages.isEmpty else { return 0 }
+      if currentDisplayedCount <= 0 { return previousMessages.count }
+      return min(currentDisplayedCount, previousMessages.count)
+    }()
+
+    let delta = max(0, nextMessages.count - previousMessages.count)
+    var nextDisplayedCount = max(currentDisplayedCount + delta, previousEffectiveDisplayedCount)
+    if nextDisplayedCount <= 0 {
+      nextDisplayedCount = min(pageSize, nextMessages.count)
+    }
+    return min(nextDisplayedCount, nextMessages.count)
+  }
 }
 
 // MARK: - Preview
