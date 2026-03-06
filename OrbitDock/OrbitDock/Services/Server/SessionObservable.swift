@@ -30,6 +30,8 @@ final class SessionObservable {
   var autonomy: AutonomyLevel = .autonomous
   var autonomyConfiguredOnServer: Bool = true
   var permissionMode: ClaudePermissionMode = .default
+  var permissionRules: ServerSessionPermissionRules?
+  var permissionRulesLoading: Bool = false
   var skills: [ServerSkillMetadata] = []
   var slashCommands: Set<String> = []
   var claudeSkillNames: [String] = []

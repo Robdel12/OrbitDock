@@ -1126,6 +1126,14 @@ async fn async_main(
             "/api/sessions/{session_id}/flags",
             post(http_api::apply_flag_settings),
         )
+        .route(
+            "/api/sessions/{session_id}/permissions",
+            get(http_api::get_permission_rules),
+        )
+        .route(
+            "/api/sessions/{session_id}/permissions/rules",
+            post(http_api::add_permission_rule).delete(http_api::remove_permission_rule),
+        )
         .route("/api/git/init", post(http_api::git_init_endpoint))
         .route("/api/fs/browse", get(http_api::browse_directory))
         .route(

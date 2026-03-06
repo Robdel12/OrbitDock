@@ -11,11 +11,11 @@ use orbitdock_connector_codex::discover_models;
 use orbitdock_protocol::{
     ApprovalHistoryItem, ClaudeIntegrationMode, ClaudeModelOption, ClaudeUsageSnapshot,
     CodexAccountStatus, CodexIntegrationMode, CodexModelOption, CodexUsageSnapshot, DirectoryEntry,
-    McpAuthStatus, McpResource, McpResourceTemplate, McpTool, Provider, RecentProject,
-    RemoteSkillSummary, ReviewComment, ReviewCommentStatus, ReviewCommentTag, ServerMessage,
-    SessionState, SessionStatus, SessionSummary, SkillErrorInfo, SkillsListEntry, SubagentTool,
-    TokenUsage, TurnDiff, UsageErrorInfo, WorkStatus, WorktreeOrigin, WorktreeStatus,
-    WorktreeSummary,
+    McpAuthStatus, McpResource, McpResourceTemplate, McpTool, PermissionRule, Provider,
+    RecentProject, RemoteSkillSummary, ReviewComment, ReviewCommentStatus, ReviewCommentTag,
+    ServerMessage, SessionPermissionRules, SessionState, SessionStatus, SessionSummary,
+    SkillErrorInfo, SkillsListEntry, SubagentTool, TokenUsage, TurnDiff, UsageErrorInfo,
+    WorkStatus, WorktreeOrigin, WorktreeStatus, WorktreeSummary,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
@@ -1298,6 +1298,422 @@ pub async fn apply_flag_settings(
         StatusCode::ACCEPTED,
         Json(AcceptedResponse { accepted: true }),
     ))
+}
+
+// ── Permission Rules ─────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct PermissionRulesResponse {
+    pub session_id: String,
+    pub rules: SessionPermissionRules,
+}
+
+pub async fn get_permission_rules(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<PermissionRulesResponse> {
+    // Try Claude first
+    if state.get_claude_action_tx(&session_id).is_some() {
+        // Try get_settings control request first (requires CLI support)
+        let rules = try_get_settings_from_cli(&session_id, &state)
+            .await
+            .unwrap_or_else(|| {
+                // Fallback: read settings files from disk
+                let project_path = state
+                    .get_session(&session_id)
+                    .map(|a| a.snapshot().project_path.clone());
+                read_claude_settings_from_disk(project_path.as_deref())
+            });
+
+        return Ok(Json(PermissionRulesResponse { session_id, rules }));
+    }
+
+    // Try Codex — read config from session state directly
+    if state.get_codex_action_tx(&session_id).is_some() {
+        if let Some(actor) = state.get_session(&session_id) {
+            let snap = actor.snapshot();
+            let rules = SessionPermissionRules::Codex {
+                approval_policy: snap.approval_policy.clone(),
+                sandbox_mode: snap.sandbox_mode.clone(),
+            };
+            return Ok(Json(PermissionRulesResponse { session_id, rules }));
+        }
+    }
+
+    Err((
+        StatusCode::NOT_FOUND,
+        Json(ApiErrorResponse {
+            code: "not_found",
+            error: format!("No active direct session found for {}", session_id),
+        }),
+    ))
+}
+
+// ── Permission Rule Mutations ────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct ModifyPermissionRuleRequest {
+    pub pattern: String,
+    pub behavior: String,
+    /// "project" (default) or "global"
+    #[serde(default = "default_scope")]
+    pub scope: String,
+}
+
+fn default_scope() -> String {
+    "project".into()
+}
+
+#[derive(Debug, Serialize)]
+pub struct ModifyPermissionRuleResponse {
+    pub ok: bool,
+}
+
+/// POST /api/sessions/{session_id}/permissions/rules — add a permission rule
+pub async fn add_permission_rule(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(req): Json<ModifyPermissionRuleRequest>,
+) -> ApiResult<ModifyPermissionRuleResponse> {
+    let project_path = resolve_project_path_for_claude(&session_id, &state)?;
+
+    let settings_path = if req.scope == "global" {
+        let home = std::env::var("HOME").unwrap_or_default();
+        format!("{}/.claude/settings.local.json", home)
+    } else {
+        format!("{}/.claude/settings.local.json", project_path)
+    };
+
+    modify_settings_file(&settings_path, |perms| {
+        let arr = perms
+            .entry(&req.behavior)
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        if let Some(list) = arr.as_array_mut() {
+            let pattern_val = serde_json::Value::String(req.pattern.clone());
+            if !list.contains(&pattern_val) {
+                list.push(pattern_val);
+            }
+        }
+    })?;
+
+    Ok(Json(ModifyPermissionRuleResponse { ok: true }))
+}
+
+/// DELETE /api/sessions/{session_id}/permissions/rules — remove a permission rule
+pub async fn remove_permission_rule(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(req): Json<ModifyPermissionRuleRequest>,
+) -> ApiResult<ModifyPermissionRuleResponse> {
+    let project_path = resolve_project_path_for_claude(&session_id, &state)?;
+
+    let settings_path = if req.scope == "global" {
+        let home = std::env::var("HOME").unwrap_or_default();
+        format!("{}/.claude/settings.local.json", home)
+    } else {
+        format!("{}/.claude/settings.local.json", project_path)
+    };
+
+    modify_settings_file(&settings_path, |perms| {
+        if let Some(arr) = perms.get_mut(&req.behavior).and_then(|v| v.as_array_mut()) {
+            let pattern_val = serde_json::Value::String(req.pattern.clone());
+            arr.retain(|v| v != &pattern_val);
+        }
+    })?;
+
+    Ok(Json(ModifyPermissionRuleResponse { ok: true }))
+}
+
+/// Resolve the project path for a Claude session.
+fn resolve_project_path_for_claude(
+    session_id: &str,
+    state: &Arc<SessionRegistry>,
+) -> Result<String, (StatusCode, Json<ApiErrorResponse>)> {
+    if state.get_claude_action_tx(session_id).is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiErrorResponse {
+                code: "not_found",
+                error: format!("No active Claude session found for {}", session_id),
+            }),
+        ));
+    }
+
+    state
+        .get_session(session_id)
+        .map(|a| a.snapshot().project_path.clone())
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ApiErrorResponse {
+                    code: "not_found",
+                    error: format!("Session not found: {}", session_id),
+                }),
+            )
+        })
+}
+
+/// Read-modify-write a `.claude/settings.local.json` file.
+fn modify_settings_file(
+    path: &str,
+    mutate: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) -> Result<(), (StatusCode, Json<ApiErrorResponse>)> {
+    // Read existing or start empty
+    let mut root: serde_json::Value = if let Ok(contents) = std::fs::read_to_string(path) {
+        serde_json::from_str(&contents).unwrap_or_else(|_| serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    // Ensure permissions object exists
+    if root.get("permissions").is_none() {
+        root.as_object_mut()
+            .unwrap()
+            .insert("permissions".into(), serde_json::json!({}));
+    }
+
+    let perms = root
+        .get_mut("permissions")
+        .and_then(|v| v.as_object_mut())
+        .unwrap();
+
+    mutate(perms);
+
+    // Ensure parent directory exists
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    // Write back
+    let json_str = serde_json::to_string_pretty(&root).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse {
+                code: "serialize_error",
+                error: format!("Failed to serialize settings: {}", e),
+            }),
+        )
+    })?;
+
+    std::fs::write(path, json_str).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse {
+                code: "write_error",
+                error: format!("Failed to write settings file: {}", e),
+            }),
+        )
+    })?;
+
+    Ok(())
+}
+
+/// Try the `get_settings` control request. Returns `None` if unsupported or error.
+async fn try_get_settings_from_cli(
+    session_id: &str,
+    state: &Arc<SessionRegistry>,
+) -> Option<SessionPermissionRules> {
+    let tx = state.get_claude_action_tx(session_id)?;
+    let (reply_tx, reply_rx) = oneshot::channel();
+
+    tx.send(ClaudeAction::GetSettings { reply: reply_tx })
+        .await
+        .ok()?;
+
+    let val = tokio::time::timeout(std::time::Duration::from_secs(10), reply_rx)
+        .await
+        .ok()?
+        .ok()?
+        .ok()?;
+
+    // Check if the CLI returned an error (unsupported subtype)
+    if val.get("subtype").and_then(|s| s.as_str()) == Some("error") {
+        info!(session_id = %session_id, "get_settings unsupported by CLI, falling back to disk");
+        return None;
+    }
+
+    Some(parse_permissions_from_value(&val))
+}
+
+/// Parse permission rules from a get_settings response or a raw settings JSON object.
+fn parse_permissions_from_value(data: &serde_json::Value) -> SessionPermissionRules {
+    // get_settings response: { subtype: "success", response: { effective: { permissions: {...} } } }
+    // Or raw settings file: { permissions: { allow: [...], deny: [...] } }
+    let permissions = data
+        .get("response")
+        .and_then(|r| r.get("effective"))
+        .and_then(|e| e.get("permissions"))
+        .or_else(|| data.get("effective").and_then(|e| e.get("permissions")))
+        .or_else(|| data.get("permissions"));
+
+    let mut rules = Vec::new();
+
+    if let Some(perms) = permissions {
+        for (behavior, key) in [("allow", "allow"), ("deny", "deny"), ("ask", "ask")] {
+            if let Some(arr) = perms.get(key).and_then(|v| v.as_array()) {
+                for rule_val in arr {
+                    if let Some(pattern) = rule_val.as_str() {
+                        rules.push(PermissionRule {
+                            pattern: pattern.to_string(),
+                            behavior: behavior.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let additional_directories = permissions
+        .and_then(|p| {
+            p.get("additionalDirectories")
+                .or_else(|| p.get("additional_directories"))
+        })
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        });
+
+    let permission_mode = permissions
+        .and_then(|p| p.get("defaultMode").or_else(|| p.get("default_mode")))
+        .and_then(|v| v.as_str())
+        .map(String::from);
+
+    SessionPermissionRules::Claude {
+        permission_mode,
+        rules,
+        additional_directories,
+    }
+}
+
+/// Read Claude settings from disk (global + project) and merge permissions.
+fn read_claude_settings_from_disk(project_path: Option<&str>) -> SessionPermissionRules {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let global_path = format!("{}/.claude/settings.local.json", home);
+
+    let mut all_allow: Vec<String> = Vec::new();
+    let mut all_deny: Vec<String> = Vec::new();
+    let mut all_ask: Vec<String> = Vec::new();
+    let mut additional_dirs: Vec<String> = Vec::new();
+    let mut permission_mode: Option<String> = None;
+
+    // Read global settings
+    if let Ok(contents) = std::fs::read_to_string(&global_path) {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&contents) {
+            collect_permissions(
+                &val,
+                &mut all_allow,
+                &mut all_deny,
+                &mut all_ask,
+                &mut additional_dirs,
+                &mut permission_mode,
+            );
+        }
+    }
+
+    // Read project-level settings (overrides/extends global)
+    if let Some(project) = project_path {
+        let project_settings = format!("{}/.claude/settings.local.json", project);
+        if let Ok(contents) = std::fs::read_to_string(&project_settings) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&contents) {
+                collect_permissions(
+                    &val,
+                    &mut all_allow,
+                    &mut all_deny,
+                    &mut all_ask,
+                    &mut additional_dirs,
+                    &mut permission_mode,
+                );
+            }
+        }
+    }
+
+    let mut rules = Vec::new();
+    // Dedup while preserving order
+    let mut seen = std::collections::HashSet::new();
+    for pattern in all_allow {
+        if seen.insert(format!("allow:{}", pattern)) {
+            rules.push(PermissionRule {
+                pattern,
+                behavior: "allow".into(),
+            });
+        }
+    }
+    for pattern in all_deny {
+        if seen.insert(format!("deny:{}", pattern)) {
+            rules.push(PermissionRule {
+                pattern,
+                behavior: "deny".into(),
+            });
+        }
+    }
+    for pattern in all_ask {
+        if seen.insert(format!("ask:{}", pattern)) {
+            rules.push(PermissionRule {
+                pattern,
+                behavior: "ask".into(),
+            });
+        }
+    }
+
+    SessionPermissionRules::Claude {
+        permission_mode,
+        rules,
+        additional_directories: if additional_dirs.is_empty() {
+            None
+        } else {
+            Some(additional_dirs)
+        },
+    }
+}
+
+/// Extract permission arrays from a settings JSON object.
+fn collect_permissions(
+    val: &serde_json::Value,
+    allow: &mut Vec<String>,
+    deny: &mut Vec<String>,
+    ask: &mut Vec<String>,
+    dirs: &mut Vec<String>,
+    mode: &mut Option<String>,
+) {
+    let perms = val
+        .get("permissions")
+        .or_else(|| val.get("allow").map(|_| val));
+    let perms = match perms {
+        Some(p) => p,
+        None => return,
+    };
+
+    for (target, key) in [(allow, "allow"), (deny, "deny"), (ask, "ask")] {
+        if let Some(arr) = perms.get(key).and_then(|v| v.as_array()) {
+            for item in arr {
+                if let Some(s) = item.as_str() {
+                    target.push(s.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(arr) = perms
+        .get("additionalDirectories")
+        .or_else(|| perms.get("additional_directories"))
+        .and_then(|v| v.as_array())
+    {
+        for item in arr {
+            if let Some(s) = item.as_str() {
+                dirs.push(s.to_string());
+            }
+        }
+    }
+
+    if let Some(m) = perms
+        .get("defaultMode")
+        .or_else(|| perms.get("default_mode"))
+        .and_then(|v| v.as_str())
+    {
+        *mode = Some(m.to_string());
+    }
 }
 
 // ── Private helpers ───────────────────────────────────────────

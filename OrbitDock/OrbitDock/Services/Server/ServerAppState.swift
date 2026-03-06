@@ -1192,6 +1192,51 @@ final class ServerAppState {
     sessions.contains { $0.id == sessionId }
   }
 
+  /// Load real permission rules for a session from the provider config
+  func loadPermissionRules(sessionId: String, forceRefresh: Bool = false) {
+    let obs = session(sessionId)
+    guard forceRefresh || !obs.permissionRulesLoading else { return }
+    obs.permissionRulesLoading = true
+
+    Task { @MainActor in
+      defer { obs.permissionRulesLoading = false }
+      do {
+        let rules = try await connection.fetchPermissionRules(sessionId)
+        obs.permissionRules = rules
+      } catch {
+        logger.warning("Failed to load permission rules for \(sessionId): \(error)")
+      }
+    }
+  }
+
+  /// Add a permission rule and refresh the rules list
+  func addPermissionRule(sessionId: String, pattern: String, behavior: String, scope: String = "project") {
+    Task { @MainActor in
+      do {
+        try await connection.addPermissionRule(
+          sessionId: sessionId, pattern: pattern, behavior: behavior, scope: scope
+        )
+        loadPermissionRules(sessionId: sessionId, forceRefresh: true)
+      } catch {
+        logger.warning("Failed to add permission rule: \(error)")
+      }
+    }
+  }
+
+  /// Remove a permission rule and refresh the rules list
+  func removePermissionRule(sessionId: String, pattern: String, behavior: String, scope: String = "project") {
+    Task { @MainActor in
+      do {
+        try await connection.removePermissionRule(
+          sessionId: sessionId, pattern: pattern, behavior: behavior, scope: scope
+        )
+        loadPermissionRules(sessionId: sessionId, forceRefresh: true)
+      } catch {
+        logger.warning("Failed to remove permission rule: \(error)")
+      }
+    }
+  }
+
   /// Load approval history for one session
   func loadApprovalHistory(sessionId: String, limit: Int = 200) {
     connection.listApprovals(sessionId: sessionId, limit: limit)

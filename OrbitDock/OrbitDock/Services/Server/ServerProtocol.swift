@@ -489,6 +489,97 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
   }
 }
 
+// MARK: - Permission Rules
+
+struct ServerPermissionRule: Codable, Identifiable {
+  let pattern: String
+  let behavior: String
+
+  var id: String {
+    "\(behavior):\(pattern)"
+  }
+}
+
+enum ServerSessionPermissionRules: Codable {
+  case claude(
+    permissionMode: String?,
+    rules: [ServerPermissionRule],
+    additionalDirectories: [String]?
+  )
+  case codex(
+    approvalPolicy: String?,
+    sandboxMode: String?
+  )
+
+  enum CodingKeys: String, CodingKey {
+    case provider
+    case permissionMode = "permission_mode"
+    case rules
+    case additionalDirectories = "additional_directories"
+    case approvalPolicy = "approval_policy"
+    case sandboxMode = "sandbox_mode"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let provider = try container.decode(String.self, forKey: .provider)
+
+    switch provider {
+      case "claude":
+        let mode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+        let rules = try container.decodeIfPresent([ServerPermissionRule].self, forKey: .rules) ?? []
+        let dirs = try container.decodeIfPresent([String].self, forKey: .additionalDirectories)
+        self = .claude(permissionMode: mode, rules: rules, additionalDirectories: dirs)
+      case "codex":
+        let policy = try container.decodeIfPresent(String.self, forKey: .approvalPolicy)
+        let sandbox = try container.decodeIfPresent(String.self, forKey: .sandboxMode)
+        self = .codex(approvalPolicy: policy, sandboxMode: sandbox)
+      default:
+        throw DecodingError.dataCorrupted(
+          DecodingError.Context(
+            codingPath: decoder.codingPath,
+            debugDescription: "Unknown provider: \(provider)"
+          )
+        )
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+      case let .claude(mode, rules, dirs):
+        try container.encode("claude", forKey: .provider)
+        try container.encodeIfPresent(mode, forKey: .permissionMode)
+        try container.encode(rules, forKey: .rules)
+        try container.encodeIfPresent(dirs, forKey: .additionalDirectories)
+      case let .codex(policy, sandbox):
+        try container.encode("codex", forKey: .provider)
+        try container.encodeIfPresent(policy, forKey: .approvalPolicy)
+        try container.encodeIfPresent(sandbox, forKey: .sandboxMode)
+    }
+  }
+}
+
+struct PermissionRuleMutationBody: Codable {
+  let pattern: String
+  let behavior: String
+  let scope: String
+}
+
+struct ModifyPermissionRuleHTTPResponse: Codable {
+  let ok: Bool
+}
+
+struct ServerPermissionRulesResponse: Codable {
+  let sessionId: String
+  let rules: ServerSessionPermissionRules
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case rules
+  }
+}
+
 // MARK: - Session Summary
 
 struct ServerSessionSummary: Codable, Identifiable {

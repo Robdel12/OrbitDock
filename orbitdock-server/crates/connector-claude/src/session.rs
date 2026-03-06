@@ -80,6 +80,9 @@ pub enum ClaudeAction {
     ApplyFlagSettings {
         settings: serde_json::Value,
     },
+    GetSettings {
+        reply: tokio::sync::oneshot::Sender<Result<serde_json::Value, ConnectorError>>,
+    },
     EndSession,
 }
 
@@ -176,6 +179,7 @@ impl std::fmt::Debug for ClaudeAction {
                 .finish(),
             Self::McpSetServers { .. } => write!(f, "McpSetServers"),
             Self::ApplyFlagSettings { .. } => write!(f, "ApplyFlagSettings"),
+            Self::GetSettings { .. } => write!(f, "GetSettings"),
             Self::EndSession => write!(f, "EndSession"),
         }
     }
@@ -332,6 +336,10 @@ impl ClaudeSession {
             }
             ClaudeAction::ApplyFlagSettings { settings } => {
                 connector.apply_flag_settings(settings).await?;
+            }
+            ClaudeAction::GetSettings { reply } => {
+                let result = connector.get_settings().await;
+                let _ = reply.send(result);
             }
             ClaudeAction::EndSession => {
                 connector.shutdown().await?;

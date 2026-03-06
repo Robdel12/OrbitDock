@@ -980,3 +980,35 @@ pub struct WorktreeSummary {
     pub custom_name: Option<String>,
     pub created_by: WorktreeOrigin,
 }
+
+// ---------------------------------------------------------------------------
+// Permission Rules (returned by GET /api/sessions/{id}/permissions)
+// ---------------------------------------------------------------------------
+
+/// A single permission rule from a provider's configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionRule {
+    /// Rule pattern, e.g. "Bash(make:*)", "WebSearch", "mcp__xcode__XcodeRead"
+    pub pattern: String,
+    /// Behavior: "allow", "deny", or "ask"
+    pub behavior: String,
+}
+
+/// Provider-specific permission configuration snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "provider", rename_all = "snake_case")]
+pub enum SessionPermissionRules {
+    Claude {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        permission_mode: Option<String>,
+        rules: Vec<PermissionRule>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        additional_directories: Option<Vec<String>>,
+    },
+    Codex {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        approval_policy: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sandbox_mode: Option<String>,
+    },
+}

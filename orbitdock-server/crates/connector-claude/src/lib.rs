@@ -136,6 +136,7 @@ enum ControlRequestBody {
     ApplyFlagSettings {
         settings: Value,
     },
+    GetSettings {},
 }
 
 #[derive(Debug, Serialize)]
@@ -798,6 +799,12 @@ impl ClaudeConnector {
             .send_control_request(ControlRequestBody::ApplyFlagSettings { settings })
             .await;
         Ok(())
+    }
+
+    /// Fetch merged settings from the running Claude session.
+    pub async fn get_settings(&self) -> Result<Value, ConnectorError> {
+        self.send_control_request(ControlRequestBody::GetSettings {})
+            .await
     }
 
     /// Shutdown the subprocess.

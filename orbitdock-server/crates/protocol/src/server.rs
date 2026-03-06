@@ -316,6 +316,12 @@ pub enum ServerMessage {
         files: Vec<String>,
     },
 
+    // Permission rules snapshot
+    PermissionRules {
+        session_id: String,
+        rules: crate::SessionPermissionRules,
+    },
+
     // Errors
     Error {
         code: String,

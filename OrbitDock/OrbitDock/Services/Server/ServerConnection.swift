@@ -1209,6 +1209,42 @@ class ServerConnection: ObservableObject {
     return response.session
   }
 
+  /// Fetch permission rules for a session (real config, not ephemeral approvals).
+  func fetchPermissionRules(_ sessionId: String) async throws -> ServerSessionPermissionRules {
+    let escapedSessionId = encodePathComponent(sessionId)
+    let response: ServerPermissionRulesResponse =
+      try await fetchAPIJSON(path: "/api/sessions/\(escapedSessionId)/permissions")
+    return response.rules
+  }
+
+  /// Add a permission rule to the Claude settings file.
+  func addPermissionRule(
+    sessionId: String, pattern: String, behavior: String, scope: String = "project"
+  ) async throws {
+    let escapedSessionId = encodePathComponent(sessionId)
+    let body = PermissionRuleMutationBody(pattern: pattern, behavior: behavior, scope: scope)
+    let _: ModifyPermissionRuleHTTPResponse =
+      try await requestAPIJSON(
+        path: "/api/sessions/\(escapedSessionId)/permissions/rules",
+        method: "POST",
+        body: body
+      )
+  }
+
+  /// Remove a permission rule from the Claude settings file.
+  func removePermissionRule(
+    sessionId: String, pattern: String, behavior: String, scope: String = "project"
+  ) async throws {
+    let escapedSessionId = encodePathComponent(sessionId)
+    let body = PermissionRuleMutationBody(pattern: pattern, behavior: behavior, scope: scope)
+    let _: ModifyPermissionRuleHTTPResponse =
+      try await requestAPIJSON(
+        path: "/api/sessions/\(escapedSessionId)/permissions/rules",
+        method: "DELETE",
+        body: body
+      )
+  }
+
   /// Fetch Codex rate-limit usage from this endpoint.
   func fetchCodexUsage() async throws -> (usage: ServerCodexUsageSnapshot?, errorInfo: ServerUsageErrorInfo?) {
     let response: CodexUsageHTTPResponse = try await fetchAPIJSON(path: "/api/usage/codex")

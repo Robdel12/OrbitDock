@@ -1279,6 +1279,7 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
         ServerMessage::OpenAiKeyStatus { .. } => "openai_key_status",
         ServerMessage::DirectoryListing { .. } => "directory_listing",
         ServerMessage::RecentProjectsList { .. } => "recent_projects_list",
+        ServerMessage::PermissionRules { .. } => "permission_rules",
     }
 }
 
