@@ -27,6 +27,7 @@ Optional flags:
 - `--skip-hooks` skip Claude hook setup
 - `--skip-service` skip launchd/systemd install
 - `--server-url <url>` hooks-only mode for a remote server (skips service install)
+- `--auth-token <token>` remote server auth token for non-interactive hooks-only install
 - `--version <tag>` install a specific release tag (for example `v1.2.3`)
 - `--force-source` skip prebuilt download and build from source with Cargo
 
@@ -53,7 +54,7 @@ For a dev server or headless machine:
 
 ```bash
 # Interactive setup (generates token, binds 0.0.0.0)
-orbitdock setup --remote
+orbitdock setup --remote --server-url https://your-server.example.com:4000
 
 # Or manually:
 orbitdock generate-token
@@ -64,9 +65,11 @@ Connect a remote developer machine (hooks only — no local server needed):
 
 ```bash
 orbitdock install-hooks \
-  --server-url https://your-server:4000 \
-  --auth-token <token>
+  --server-url https://your-server:4000
 ```
+
+`install-hooks` will prompt for the auth token and store it encrypted in `~/.orbitdock/hook-forward.json`.
+For non-interactive setup, pass `--auth-token <token>` or set `ORBITDOCK_AUTH_TOKEN`.
 
 Or run it as a system service so it survives reboots:
 
@@ -103,6 +106,8 @@ Generate a connection URL and QR code:
 orbitdock pair --tunnel-url https://your-tunnel.trycloudflare.com
 ```
 
+If auth is enabled, enter the token separately in the client. Pairing URLs and QR codes intentionally exclude it.
+
 For the full deployment guide covering all topologies, security, and operations, see [DEPLOYMENT.md](../docs/DEPLOYMENT.md).
 
 ### OrbitDock Client Connectivity
@@ -136,6 +141,8 @@ When creating a worktree via OrbitDock (`POST /api/worktrees` or fork-to-worktre
 orbitdock [--data-dir PATH] <command>
 ```
 
+### Server admin commands
+
 | Command | What it does |
 |---------|-------------|
 | `start` | Start the server (also the default when you omit the subcommand) |
@@ -146,11 +153,36 @@ orbitdock [--data-dir PATH] <command>
 | `install-service` | Generate a launchd plist (macOS) or systemd unit (Linux) |
 | `status` | Check if the server is running |
 | `generate-token` | Create a secure auth token (stored hashed in DB) |
+| `list-tokens` | Show issued auth tokens and their status |
+| `revoke-token <token-id>` | Revoke a token immediately |
 | `doctor` | Run diagnostics and check system health |
 | `tunnel` | Expose the server via Cloudflare Tunnel |
 | `pair` | Generate a connection URL and QR code for clients |
 
+### Client commands
+
+| Command | What it does |
+|---------|-------------|
+| `health` | Check server reachability over HTTP |
+| `session ...` | List, inspect, create, send, approve, interrupt, fork, and resume sessions |
+| `approval ...` | Inspect pending approvals |
+| `review ...` | Manage review comments for a session |
+| `model ...` | List available models |
+| `usage ...` | Show Claude or Codex usage |
+| `server ...` | Read or update server-side settings |
+| `codex ...` | Start login, cancel login, or log out |
+| `worktree ...` | List and manage worktrees |
+| `mcp ...` | Inspect MCP tools and resources |
+| `fs ...` | Browse files through the server |
+| `shell ...` | Execute a shell command through a session |
+| `completions <shell>` | Generate shell completions |
+
 `--data-dir` is global — it applies to every subcommand. You can also set it via `ORBITDOCK_DATA_DIR`.
+
+Client config resolution:
+
+- Server URL: `--server` → `ORBITDOCK_URL` → `~/.orbitdock/cli.toml` → `http://127.0.0.1:4000`
+- Token: `--token` → `ORBITDOCK_TOKEN` → `~/.orbitdock/cli.toml`
 
 ### Backward Compatibility
 

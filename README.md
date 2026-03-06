@@ -92,13 +92,20 @@ If something doesn't appear, run `orbitdock doctor` and check `~/.orbitdock/logs
 
 ### Remote server
 
-Running on a VPS, Raspberry Pi, or another machine:
+Running on a VPS, Raspberry Pi, NAS, or another machine:
 
 ```bash
-orbitdock setup --remote
+# On the server
+orbitdock setup --remote --server-url https://your-server.example.com:4000
+
+# On your developer machine
+orbitdock install-hooks --server-url https://your-server.example.com:4000
 ```
 
-See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, Docker, and more.
+`install-hooks` prompts for the token that `setup --remote` prints and stores it encrypted for local hook forwarding.
+For the app, add the same server URL and token in Settings → Servers.
+
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, reverse proxies, and Raspberry Pi notes.
 
 ## Requirements
 

@@ -17,6 +17,8 @@ orbitdock setup --local    # localhost only
 orbitdock setup --remote   # generates auth token, binds 0.0.0.0
 ```
 
+If you're exposing the server through a tunnel, reverse proxy, or public hostname, pass `--server-url https://...` in remote mode so the printed instructions use the URL your other machines will actually reach.
+
 ## Deployment Topologies
 
 ### Local (developer machine)
@@ -41,20 +43,30 @@ Run the server on a VPS, connect from your dev machine.
 
 ```bash
 orbitdock setup --remote --server-url https://your-server.example.com:4000
-# Note the auth token printed at the end
+# Copy the auth token when it is printed. OrbitDock only shows it once.
 ```
 
 **On your dev machine** (hooks only — no local server):
 
 ```bash
 orbitdock install-hooks \
-  --server-url https://your-server.example.com:4000 \
-  --auth-token <token>
+  --server-url https://your-server.example.com:4000
 ```
+
+`install-hooks` will prompt for the token and store it encrypted in `~/.orbitdock/hook-forward.json`.
+For non-interactive setup, pass `--auth-token <token>` or set `ORBITDOCK_AUTH_TOKEN`.
 
 Or use the install script:
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash -s -- --server-url https://your-server.example.com:4000
+```
+
+The installer forwards `--auth-token` / `ORBITDOCK_AUTH_TOKEN` when you need a non-interactive remote install.
+The simplest non-interactive flow is:
+
+```bash
+export ORBITDOCK_AUTH_TOKEN=<token>
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash -s -- --server-url https://your-server.example.com:4000
 ```
 
@@ -218,6 +230,7 @@ Only expose port 4000 (or your chosen port). The server doesn't need outbound ac
 ### macOS App
 
 Settings → Servers → Add Endpoint → Enter your server URL and auth token.
+If auth is enabled, the token is entered separately here. Pairing URLs and QR codes never embed it.
 
 ### iOS App
 
@@ -228,6 +241,7 @@ orbitdock pair --tunnel-url https://your-tunnel.trycloudflare.com
 ```
 
 Scan the QR code from the iOS app's server settings.
+If auth is enabled, enter the token separately after scanning. The QR code only contains the server URL.
 
 ### Developer Machine (hooks only)
 
@@ -235,9 +249,10 @@ Point Claude Code hooks at the remote server without running a local server:
 
 ```bash
 orbitdock install-hooks \
-  --server-url https://your-server.example.com:4000 \
-  --auth-token <token>
+  --server-url https://your-server.example.com:4000
 ```
+
+You will be prompted for the token. For automation, use `ORBITDOCK_AUTH_TOKEN` or `--auth-token`.
 
 ## Operations
 
@@ -314,7 +329,7 @@ Run `orbitdock install-hooks` to generate `~/.orbitdock/hook-forward.json` (incl
 Server not running. Check `orbitdock status` and start with `orbitdock start`.
 
 **"Unauthorized"**
-Auth token mismatch. Issue a new token with `orbitdock generate-token` and reinstall hooks with `--auth-token <token>`.
+Auth token mismatch. Issue a new token with `orbitdock generate-token`, then rerun `orbitdock install-hooks` and enter the new token.
 
 **"Events not arriving"**
 1. Check hook transport config exists: `ls -la ~/.orbitdock/hook-forward.json`
