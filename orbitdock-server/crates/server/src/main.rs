@@ -14,6 +14,7 @@ mod cmd_init;
 mod cmd_install_hooks;
 mod cmd_install_service;
 mod cmd_pair;
+mod cmd_remote_setup;
 mod cmd_setup;
 mod cmd_status;
 mod cmd_tunnel;
@@ -246,6 +247,9 @@ enum Command {
         skip_hooks: bool,
     },
 
+    /// Guide secure remote exposure for an existing install
+    RemoteSetup,
+
     /// Expose the server via Cloudflare Tunnel
     Tunnel {
         /// Local server port to tunnel
@@ -439,6 +443,9 @@ fn main() -> anyhow::Result<()> {
                     skip_hooks: *skip_hooks,
                 },
             );
+        }
+        Some(Command::RemoteSetup) => {
+            return cmd_remote_setup::run(&data_dir);
         }
         _ => {}
     }

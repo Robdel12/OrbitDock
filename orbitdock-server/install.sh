@@ -27,6 +27,8 @@ VERSION="${ORBITDOCK_SERVER_VERSION:-latest}"
 INSTALL_ROOT="${ORBITDOCK_INSTALL_ROOT:-$HOME/.orbitdock}"
 SKIP_HOOKS="${ORBITDOCK_SKIP_HOOKS:-0}"
 SKIP_SERVICE="${ORBITDOCK_SKIP_SERVICE:-0}"
+ENABLE_SERVICE="${ORBITDOCK_ENABLE_SERVICE:-0}"
+ASSUME_DEFAULTS=0
 FORCE_SOURCE="${ORBITDOCK_FORCE_SOURCE:-0}"
 SERVER_URL=""
 AUTH_TOKEN="${ORBITDOCK_AUTH_TOKEN:-}"
@@ -58,6 +60,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_SERVICE=1
       shift
       ;;
+    --enable-service)
+      ENABLE_SERVICE=1
+      shift
+      ;;
     --version)
       VERSION="$2"
       shift 2
@@ -70,6 +76,10 @@ while [[ $# -gt 0 ]]; do
       FORCE_SOURCE=1
       shift
       ;;
+    -y|--yes)
+      ASSUME_DEFAULTS=1
+      shift
+      ;;
     -h|--help)
       echo "Usage: install.sh [OPTIONS]"
       echo ""
@@ -78,8 +88,10 @@ while [[ $# -gt 0 ]]; do
       echo "  --auth-token <token> Remote server auth token (or set ORBITDOCK_AUTH_TOKEN)"
       echo "  --skip-hooks         Skip Claude hook installation"
       echo "  --skip-service       Skip system service installation"
+      echo "  --enable-service     Install and start the background service without prompting"
       echo "  --version <ver>      Install specific version tag (default: latest)"
       echo "  --force-source       Build from source instead of downloading a prebuilt binary"
+      echo "  -y, --yes            Accept installer defaults without prompting"
       echo "  -h, --help           Show this help"
       exit 0
       ;;
@@ -105,6 +117,93 @@ normalize_tag() {
   else
     echo "v$raw"
   fi
+}
+
+can_prompt() {
+  [[ "$ASSUME_DEFAULTS" != "1" ]] && [[ -r /dev/tty ]] && [[ -w /dev/tty ]]
+}
+
+prompt_yes_no() {
+  local prompt="$1"
+  local default_answer="$2"
+  local reply
+
+  if ! can_prompt; then
+    return 2
+  fi
+
+  while true; do
+    printf "  %s " "$prompt" > /dev/tty
+    if ! IFS= read -r reply < /dev/tty; then
+      return 2
+    fi
+
+    if [[ -z "$reply" ]]; then
+      reply="$default_answer"
+    fi
+
+    case "$reply" in
+      y|Y|yes|YES|Yes) return 0 ;;
+      n|N|no|NO|No) return 1 ;;
+      *)
+        printf "  Please answer y or n.\n" > /dev/tty
+        ;;
+    esac
+  done
+}
+
+select_install_options() {
+  INSTALL_HOOKS=1
+  INSTALL_SERVICE=0
+
+  if [[ "$SKIP_HOOKS" == "1" ]]; then
+    INSTALL_HOOKS=0
+  elif can_prompt; then
+    echo "" > /dev/tty
+    if [[ -n "$SERVER_URL" ]]; then
+      printf "  This install can configure Claude Code to forward events to %s.\n" "$SERVER_URL" > /dev/tty
+      printf "  You can skip this for now and run it later.\n\n" > /dev/tty
+      if prompt_yes_no "Install Claude Code hooks for this remote server now? [Y/n]" "Y"; then
+        INSTALL_HOOKS=1
+      else
+        INSTALL_HOOKS=0
+      fi
+    else
+      printf "  Local setup can also configure Claude Code hooks and a background service.\n" > /dev/tty
+      printf "  Both can be done later if you'd rather keep this install lightweight.\n\n" > /dev/tty
+      if prompt_yes_no "Install Claude Code hooks into ~/.claude/settings.json now? [Y/n]" "Y"; then
+        INSTALL_HOOKS=1
+      else
+        INSTALL_HOOKS=0
+      fi
+    fi
+  fi
+
+  if [[ -n "$SERVER_URL" || "$SKIP_SERVICE" == "1" ]]; then
+    INSTALL_SERVICE=0
+  elif [[ "$ENABLE_SERVICE" == "1" ]]; then
+    INSTALL_SERVICE=1
+  elif can_prompt; then
+    if prompt_yes_no "Install and start OrbitDock as a background service? [y/N]" "N"; then
+      INSTALL_SERVICE=1
+    else
+      INSTALL_SERVICE=0
+    fi
+  fi
+}
+
+wait_for_local_health() {
+  local attempt=1
+
+  while [[ "$attempt" -le 20 ]]; do
+    if "$SERVER_BIN" health >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+    attempt=$((attempt + 1))
+  done
+
+  return 1
 }
 
 asset_names_for_platform() {
@@ -348,7 +447,7 @@ ensure_in_path_legacy() {
 }
 
 if "$SERVER_BIN" --help 2>/dev/null | grep -q "ensure-path"; then
-  if ! "$SERVER_BIN" ensure-path; then
+  if ! ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" ensure-path; then
     warn "orbitdock-server ensure-path failed; falling back to legacy PATH setup."
     ensure_in_path_legacy
     USED_LEGACY_PATH_SETUP=1
@@ -360,53 +459,102 @@ else
 fi
 
 # ── Setup ─────────────────────────────────────────────────────────────────
-info "Running initial setup..."
+select_install_options
+
+info "Initializing OrbitDock..."
 
 if [[ -n "$SERVER_URL" ]]; then
-  "$SERVER_BIN" init --server-url "$SERVER_URL"
+  ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" init --server-url "$SERVER_URL"
 else
-  "$SERVER_BIN" init
+  ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" init
 fi
 
-if [[ "$SKIP_HOOKS" == "1" ]]; then
-  warn "Skipping Claude hook installation (--skip-hooks)."
-else
+HOOKS_INSTALLED=0
+if [[ "$INSTALL_HOOKS" == "1" ]]; then
+  info "Installing Claude Code hooks..."
   if [[ -n "$SERVER_URL" ]]; then
     if [[ -n "$AUTH_TOKEN" ]]; then
-      "$SERVER_BIN" install-hooks --server-url "$SERVER_URL" --auth-token "$AUTH_TOKEN"
+      ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" install-hooks --server-url "$SERVER_URL" --auth-token "$AUTH_TOKEN"
     else
-      "$SERVER_BIN" install-hooks --server-url "$SERVER_URL"
+      ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" install-hooks --server-url "$SERVER_URL"
     fi
   else
-    "$SERVER_BIN" install-hooks
+    ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" install-hooks
   fi
+  HOOKS_INSTALLED=1
+else
+  info "Skipping Claude Code hooks for now."
 fi
 
-if [[ "$SKIP_SERVICE" == "1" ]]; then
+SERVICE_ENABLED=0
+HEALTH_OK=0
+if [[ "$INSTALL_SERVICE" == "1" ]]; then
+  info "Installing and starting the background service..."
+  ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" install-service --enable
+  SERVICE_ENABLED=1
+  if [[ -z "$SERVER_URL" ]] && wait_for_local_health; then
+    HEALTH_OK=1
+  fi
+elif [[ "$SKIP_SERVICE" == "1" ]]; then
   if [[ -n "$SERVER_URL" ]]; then
     info "Skipping service install (hooks-only mode for remote server)."
   else
     warn "Skipping service installation (--skip-service)."
   fi
 else
-  "$SERVER_BIN" install-service --enable
+  info "Background service not installed."
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}Installation complete!${RESET}"
 echo ""
-ok "Binary: $SERVER_BIN"
+ok "Binary installed: $SERVER_BIN"
 
 if [[ -n "$SERVER_URL" ]]; then
-  ok "Hooks pointing to: $SERVER_URL"
+  if [[ "$HOOKS_INSTALLED" == "1" ]]; then
+    ok "Claude Code hooks will forward to: $SERVER_URL"
+  else
+    warn "Claude Code hooks were not installed."
+    echo "  Install them later with:"
+    echo "    orbitdock install-hooks --server-url $SERVER_URL"
+  fi
   echo ""
-  echo "  Your local Claude Code sessions will report to the remote server."
-  echo "  No local server is running — events are forwarded to $SERVER_URL."
+  echo "  No local server is running on this machine."
+  echo "  Local Claude Code events will be forwarded to $SERVER_URL once hooks are installed."
 else
-  ok "Health endpoint: http://127.0.0.1:4000/health"
+  if [[ "$HOOKS_INSTALLED" == "1" ]]; then
+    ok "Claude Code hooks installed"
+  else
+    info "Claude Code hooks not installed"
+    echo "  Install them later with:"
+    echo "    orbitdock install-hooks"
+  fi
   echo ""
-  echo "  Verify with: orbitdock status"
+  if [[ "$SERVICE_ENABLED" == "1" && "$HEALTH_OK" == "1" ]]; then
+    ok "Local server is running: http://127.0.0.1:4000/health"
+    echo ""
+    echo "  Next:"
+    echo "    orbitdock status"
+    echo "    orbitdock doctor"
+  elif [[ "$SERVICE_ENABLED" == "1" ]]; then
+    warn "Background service installed, but the server is not healthy yet."
+    echo ""
+    echo "  Check:"
+    echo "    orbitdock status"
+    echo "    orbitdock doctor"
+  else
+    info "Background service not installed"
+    echo ""
+    echo "  Start it when you're ready:"
+    echo "    orbitdock start"
+    echo ""
+    echo "  Or install it as a service later:"
+    echo "    orbitdock install-service --enable"
+  fi
+  echo ""
+  echo "  Want secure remote access later?"
+  echo "    orbitdock remote-setup"
 fi
 
 if [[ "$USED_LEGACY_PATH_SETUP" == "1" && "$NEEDS_PATH_RELOAD" == "1" ]]; then

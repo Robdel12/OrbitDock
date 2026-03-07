@@ -19,17 +19,23 @@ The installer downloads a prebuilt binary for macOS, Linux x86_64, and Linux aar
 - Installs `orbitdock` to `~/.orbitdock/bin/`
 - Ensures `~/.orbitdock/bin` is on shell `PATH`
 - Runs `orbitdock init`
-- Runs `orbitdock install-hooks`
-- Runs `orbitdock install-service --enable`
+- Prompts before installing Claude Code hooks
+- Prompts before installing the background service
 
 Optional flags:
 
 - `--skip-hooks` skip Claude hook setup
 - `--skip-service` skip launchd/systemd install
+- `--enable-service` install and start the background service without prompting
 - `--server-url <url>` hooks-only mode for a remote server (skips service install)
 - `--auth-token <token>` remote server auth token for non-interactive hooks-only install
 - `--version <tag>` install a specific release tag (for example `v1.2.3`)
 - `--force-source` skip prebuilt download and build from source with Cargo
+- `-y, --yes` accept installer defaults without prompting
+
+On interactive runs, the installer asks before editing `~/.claude/settings.json` and before
+installing a launchd/systemd service. On non-interactive runs, it keeps the install lightweight by
+default and only installs the service when you pass `--enable-service`.
 
 ### Standalone Setup
 
@@ -53,13 +59,12 @@ That's it. Codex direct sessions work immediately — the server embeds codex-co
 For a dev server or headless machine:
 
 ```bash
-# Interactive setup (generates token, binds 0.0.0.0)
-orbitdock setup --remote --server-url https://your-server.example.com:4000
-
-# Or manually:
-orbitdock generate-token
-orbitdock start --bind 0.0.0.0:4000
+# Secure remote onboarding
+orbitdock remote-setup
 ```
+
+`remote-setup` guides exposure mode, creates a fresh auth token, optionally reconfigures the background
+service, and prints the exact next commands for pairing clients and forwarding hooks.
 
 Connect a remote developer machine (hooks only — no local server needed):
 
@@ -147,6 +152,7 @@ orbitdock [--data-dir PATH] <command>
 |---------|-------------|
 | `start` | Start the server (also the default when you omit the subcommand) |
 | `setup` | Interactive wizard (init + hooks + token + service) |
+| `remote-setup` | Guide secure remote exposure for an existing install |
 | `init` | Create data directory and run migrations |
 | `ensure-path` | Persist the server binary directory on your shell `PATH` |
 | `install-hooks` | Merge OrbitDock hooks into `~/.claude/settings.json` |

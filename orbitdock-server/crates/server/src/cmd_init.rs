@@ -9,6 +9,7 @@ use crate::migration_runner;
 use crate::paths;
 
 pub fn run(data_dir: &Path, _server_url: &str) -> anyhow::Result<()> {
+    let installer_mode = installer_mode();
     println!();
 
     // 1. Create directory structure
@@ -31,22 +32,28 @@ pub fn run(data_dir: &Path, _server_url: &str) -> anyhow::Result<()> {
     // 3. Detect Tailscale
     let ts_ip = detect_tailscale_ip();
 
-    println!();
-    if let Some(ip) = &ts_ip {
-        println!("  Tailscale detected! Your IP: {}", ip);
-        println!("  For remote access (secure by default):");
-        println!("    orbitdock generate-token");
-        println!("    orbitdock start --bind 0.0.0.0:4000");
+    if !installer_mode {
+        println!();
+        if let Some(ip) = &ts_ip {
+            println!("  Tailscale detected! Your IP: {}", ip);
+            println!("  For remote access (secure by default):");
+            println!("    orbitdock generate-token");
+            println!("    orbitdock start --bind 0.0.0.0:4000");
+            println!();
+        }
+
+        println!("  Next steps:");
+        println!("    1. Install Claude Code hooks:  orbitdock install-hooks");
+        println!("    2. Start the server:           orbitdock start");
+        println!("    3. Install as a service:       orbitdock install-service --enable");
         println!();
     }
 
-    println!("  Next steps:");
-    println!("    1. Install Claude Code hooks:  orbitdock install-hooks");
-    println!("    2. Start the server:           orbitdock start");
-    println!("    3. Install as a service:       orbitdock install-service --enable");
-    println!();
-
     Ok(())
+}
+
+fn installer_mode() -> bool {
+    std::env::var_os("ORBITDOCK_INSTALLER_MODE").is_some()
 }
 
 fn detect_tailscale_ip() -> Option<String> {
