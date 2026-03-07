@@ -1,6 +1,6 @@
 XCODE_PROJECT ?= OrbitDock/OrbitDock.xcodeproj
 XCODE_SCHEME ?= OrbitDock
-XCODE_DESTINATION ?= platform=macOS
+XCODE_DESTINATION ?= platform=macOS,arch=arm64
 XCODE_UNIT_TEST_SCHEME ?= OrbitDock Unit Tests
 XCODE_IOS_SCHEME ?= OrbitDock iOS
 XCODE_IOS_DESTINATION ?= generic/platform=iOS
@@ -55,7 +55,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-release rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-lock-status rust-unlock rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-release rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-lock-status rust-unlock rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
 
 help:
 	@echo "make build      Build the macOS app"
@@ -110,7 +110,6 @@ help:
 	@echo "make rust-clean-sccache  Remove local sccache files"
 	@echo "make rust-clean          Clean all Rust build artifacts"
 	@echo "make rust-clean-release  Clean Rust release artifacts only"
-	@echo "make whisper-model Download ggml-base.en.bin into app resources"
 	@echo "make claude-sdk-version  Show installed Claude Agent SDK + Claude Code version"
 	@echo "make claude-sdk-update CLAUDE_SDK_VERSION=0.2.62  Update docs SDK install and version metadata"
 	@echo "make claude-sdk-audit-checklist  Print required source audit checklist"
@@ -432,9 +431,6 @@ rust-clean-release-linux-aarch64:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile release --target aarch64-unknown-linux-gnu
 
 rust-clean-release: rust-clean-release-darwin rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64
-
-whisper-model:
-	@./OrbitDock/Scripts/download-whisper-model.sh
 
 xcode-cache-dirs:
 	@mkdir -p $(XCODE_DERIVED_DATA_DIR) $(XCODE_PACKAGE_CACHE_DIR) $(XCODE_SOURCE_PACKAGES_DIR) $(XCODE_CLANG_MODULE_CACHE_DIR) $(XCODE_SWIFTPM_MODULECACHE_DIR)

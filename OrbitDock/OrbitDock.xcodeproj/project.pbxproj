@@ -10,8 +10,6 @@
 		800E82332F492F37007CADF5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 800E82322F492F37007CADF5 /* Markdown */; };
 		800E84212F492FC4007CADF5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 800E82342F492F38007CADF5 /* Markdown */; };
 		80BCDA942F3113B700D91F91 /* Vizzly in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCDA932F3113B700D91F91 /* Vizzly */; };
-		80C0A1012F5F100100D91F91 /* whisper in Frameworks */ = {isa = PBXBuildFile; productRef = 80C0A1042F5F100100D91F91 /* whisper */; };
-		80C0A1022F5F100100D91F91 /* whisper in Frameworks */ = {isa = PBXBuildFile; productRef = 80C0A1052F5F100100D91F91 /* whisper */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -113,7 +111,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				80C0A1022F5F100100D91F91 /* whisper in Frameworks */,
 				800E84212F492FC4007CADF5 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -136,7 +133,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				80C0A1012F5F100100D91F91 /* whisper in Frameworks */,
 				800E82332F492F37007CADF5 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -205,7 +201,6 @@
 			);
 			name = "OrbitDock iOS";
 			packageProductDependencies = (
-				80C0A1052F5F100100D91F91 /* whisper */,
 				800E82342F492F38007CADF5 /* Markdown */,
 			);
 			productName = "OrbitDock iOS";
@@ -276,7 +271,6 @@
 			);
 			name = OrbitDock;
 			packageProductDependencies = (
-				80C0A1042F5F100100D91F91 /* whisper */,
 				800E82322F492F37007CADF5 /* Markdown */,
 			);
 			productName = OrbitDock;
@@ -375,7 +369,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				80BCD8482F3058A100D91F91 /* XCLocalSwiftPackageReference "OrbitDockCore" */,
-				80C0A1032F5F100100D91F91 /* XCLocalSwiftPackageReference "OrbitDockWhisperPackage" */,
 				80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */,
 				800E82312F492F37007CADF5 /* XCRemoteSwiftPackageReference "swift-markdown" */,
 			);
@@ -542,7 +535,8 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OrbitDock uses your microphone for local Whisper dictation.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OrbitDock uses your microphone for local dictation.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OrbitDock uses speech recognition to transcribe local dictation on your device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -579,7 +573,8 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OrbitDock uses your microphone for local Whisper dictation.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OrbitDock uses your microphone for local dictation.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OrbitDock uses speech recognition to transcribe local dictation on your device.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -705,6 +700,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -771,6 +767,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				"ARCHS[sdk=macosx*]" = arm64;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -1056,10 +1053,6 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = OrbitDockCore;
 		};
-		80C0A1032F5F100100D91F91 /* XCLocalSwiftPackageReference "OrbitDockWhisperPackage" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = OrbitDockWhisperPackage;
-		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -1096,16 +1089,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */;
 			productName = Vizzly;
-		};
-		80C0A1042F5F100100D91F91 /* whisper */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 80C0A1032F5F100100D91F91 /* XCLocalSwiftPackageReference "OrbitDockWhisperPackage" */;
-			productName = whisper;
-		};
-		80C0A1052F5F100100D91F91 /* whisper */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 80C0A1032F5F100100D91F91 /* XCLocalSwiftPackageReference "OrbitDockWhisperPackage" */;
-			productName = whisper;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -43,9 +43,6 @@ orbitdock-server/docs/node_modules/
 *.trace/
 .logs/
 
-# Whisper model (fetched locally for app bundling)
-OrbitDock/OrbitDock/WhisperModels/*.bin
-
 # Release artifacts
 dist/
 files/artifacts/

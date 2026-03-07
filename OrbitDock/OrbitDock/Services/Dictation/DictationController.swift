@@ -1,5 +1,5 @@
 //
-//  WhisperDictationController.swift
+//  DictationController.swift
 //  OrbitDock
 //
 
@@ -7,7 +7,7 @@ import Foundation
 
 @MainActor
 @Observable
-final class WhisperDictationController {
+final class LocalDictationController {
   enum State: Equatable {
     case idle
     case requestingPermission
@@ -20,25 +20,18 @@ final class WhisperDictationController {
   var errorMessage: String?
   var isMicrophonePermissionDenied = false
 
-  private let transcriber: any LocalWhisperTranscribing
+  private let transcriber: any LocalDictationTranscribing
   private let audioCapture: DictationAudioCapture
 
-  private var capturedSamples: [Float] = []
-  private var partialTranscriptionInFlight = false
-  private var lastPartialSampleCount = 0
   private var activeStartToken: UUID?
   private var pendingResourceReleaseTask: Task<Void, Never>?
-
-  // Trigger partial updates every second of additional audio.
-  private let partialSampleStride = 16_000
-  private let minimumSamplesForPartial = 8_000
   private let resourceReleaseDelay: Duration = .seconds(30)
 
   init(
-    transcriber: (any LocalWhisperTranscribing)? = nil,
+    transcriber: (any LocalDictationTranscribing)? = nil,
     audioCapture: DictationAudioCapture? = nil
   ) {
-    self.transcriber = transcriber ?? WhisperTranscriberFactory.make()
+    self.transcriber = transcriber ?? LocalDictationTranscriberFactory.make()
     self.audioCapture = audioCapture ?? DictationAudioCapture()
   }
 
@@ -62,46 +55,64 @@ final class WhisperDictationController {
   func start() async {
     guard state == .idle else { return }
     guard transcriber.isSupported else {
-      errorMessage = WhisperDictationError.whisperPackageMissing.localizedDescription
+      errorMessage = DictationError.dictationUnavailable(
+        message: "Local dictation is unavailable on this device."
+      ).localizedDescription
       return
     }
+
     cancelPendingResourceRelease()
 
     let startToken = UUID()
     activeStartToken = startToken
-    resetCaptureState()
     liveTranscript = ""
     errorMessage = nil
     isMicrophonePermissionDenied = false
     state = .requestingPermission
 
     do {
+      try await transcriber.prepareForTranscription()
+      try await transcriber.startTranscriptionSession { [weak self] transcript in
+        guard let self else { return }
+        guard self.state == .recording || self.state == .transcribing else { return }
+        self.liveTranscript = DictationTextFormatter.normalizeTranscription(transcript)
+      }
+
+      let transcriber = self.transcriber
       try await audioCapture.startStreaming { [weak self] samples in
         guard !samples.isEmpty else { return }
-        Task { @MainActor [weak self] in
-          self?.handleIncomingSamples(samples)
+        Task { [weak self] in
+          do {
+            try await transcriber.appendAudioSamples(samples)
+          } catch {
+            await self?.handleStreamingError(error)
+          }
         }
       }
 
       guard activeStartToken == startToken else {
         audioCapture.stopStreaming()
+        await transcriber.cancelTranscriptionSession()
         state = .idle
         return
       }
+
       state = .recording
     } catch {
       guard activeStartToken == startToken else {
         state = .idle
         return
       }
+
       activeStartToken = nil
       state = .idle
-      if let dictationError = error as? WhisperDictationError,
+      if let dictationError = error as? DictationError,
          dictationError == .microphonePermissionDenied
       {
         isMicrophonePermissionDenied = true
       }
       errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+      await transcriber.cancelTranscriptionSession()
     }
   }
 
@@ -110,23 +121,16 @@ final class WhisperDictationController {
 
     activeStartToken = nil
     audioCapture.stopStreaming()
-    let snapshot = capturedSamples
-    resetCaptureState()
-
-    guard !snapshot.isEmpty else {
-      state = .idle
-      liveTranscript = ""
-      scheduleDelayedResourceRelease()
-      return nil
-    }
-
     state = .transcribing
+
     do {
-      let transcript = try await transcriber.transcribe(samples: snapshot)
+      let transcript = try await transcriber.finishTranscriptionSession()
       state = .idle
       liveTranscript = ""
       scheduleDelayedResourceRelease()
-      return DictationTextFormatter.normalizeTranscription(transcript)
+
+      let normalized = DictationTextFormatter.normalizeTranscription(transcript)
+      return normalized.isEmpty ? nil : normalized
     } catch {
       state = .idle
       liveTranscript = ""
@@ -140,51 +144,22 @@ final class WhisperDictationController {
   func cancel() async {
     activeStartToken = nil
     audioCapture.stopStreaming()
-    resetCaptureState()
     liveTranscript = ""
     isMicrophonePermissionDenied = false
     state = .idle
     await releaseResourcesNow()
   }
 
-  private func handleIncomingSamples(_ samples: [Float]) {
-    guard state == .recording else { return }
-    capturedSamples.append(contentsOf: samples)
-    maybeQueuePartialTranscription()
-  }
+  private func handleStreamingError(_ error: Error) async {
+    guard state == .recording || state == .requestingPermission else { return }
 
-  private func maybeQueuePartialTranscription() {
-    guard !partialTranscriptionInFlight else { return }
-
-    let sampleCount = capturedSamples.count
-    guard sampleCount >= minimumSamplesForPartial else { return }
-    guard sampleCount - lastPartialSampleCount >= partialSampleStride else { return }
-
-    let snapshot = capturedSamples
-    partialTranscriptionInFlight = true
-
-    Task { @MainActor [weak self] in
-      await self?.runPartialTranscription(snapshot: snapshot, sampleCount: sampleCount)
-    }
-  }
-
-  private func runPartialTranscription(snapshot: [Float], sampleCount: Int) async {
-    defer { partialTranscriptionInFlight = false }
-
-    do {
-      let transcript = try await transcriber.transcribe(samples: snapshot)
-      guard state == .recording else { return }
-      liveTranscript = DictationTextFormatter.normalizeTranscription(transcript)
-      lastPartialSampleCount = sampleCount
-    } catch {
-      // Keep recording even if a partial update fails.
-    }
-  }
-
-  private func resetCaptureState() {
-    capturedSamples.removeAll(keepingCapacity: false)
-    partialTranscriptionInFlight = false
-    lastPartialSampleCount = 0
+    activeStartToken = nil
+    audioCapture.stopStreaming()
+    state = .idle
+    liveTranscript = ""
+    isMicrophonePermissionDenied = false
+    errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    await releaseResourcesNow()
   }
 
   private func scheduleDelayedResourceRelease() {
@@ -210,6 +185,7 @@ final class WhisperDictationController {
 
   private func releaseResourcesNow() async {
     cancelPendingResourceRelease()
+    await transcriber.cancelTranscriptionSession()
     await transcriber.releaseResources()
   }
 }

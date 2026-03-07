@@ -21,7 +21,7 @@ Build a voice experience that feels fast, reliable, and safe:
 
 ## Recommendation Snapshot
 
-- STT engine: `whisper.cpp` (MIT license) with Metal acceleration on Apple Silicon.
+- STT engine: Apple Speech with on-device transcription on supported OS versions.
 - Audio capture: `AVAudioEngine` with 16 kHz mono PCM pipeline.
 - Dictation UX: push-to-talk, live partial transcript, final text inserted into composer.
 - Intent UX: explicit command mode, confidence threshold, visible confirmation before execution.
@@ -55,9 +55,9 @@ Gaps to fill:
 - `SpeechToTextEngine` protocol
   - `start()`, `stop()`, `appendAudio(_:)`, callback for partial/final transcript.
   - Enables swapping engine implementations without touching UI.
-- `WhisperCppEngine`
-  - Wraps local whisper inference.
-  - Supports model selection and language hints.
+- `AppleSpeechEngine`
+  - Wraps Apple Speech streaming transcription.
+  - Supports locale-aware on-device dictation.
 - `VoiceIntentParser`
   - Deterministic parser from transcript text -> `VoiceIntent`.
   - Handles synonyms and confidence heuristics.
@@ -71,7 +71,7 @@ Gaps to fill:
 
 - `OrbitDock/OrbitDock/Services/Voice/VoiceCaptureService.swift`
 - `OrbitDock/OrbitDock/Services/Voice/SpeechToTextEngine.swift`
-- `OrbitDock/OrbitDock/Services/Voice/WhisperCppEngine.swift`
+- `OrbitDock/OrbitDock/Services/Voice/AppleSpeechEngine.swift`
 - `OrbitDock/OrbitDock/Services/Voice/VoiceIntentParser.swift`
 - `OrbitDock/OrbitDock/Services/Voice/VoiceCommandRouter.swift`
 - `OrbitDock/OrbitDock/Services/Voice/VoiceSettingsStore.swift`
@@ -114,7 +114,7 @@ Make dictation in the Codex composer good enough to replace typing for normal pr
 ### In scope
 
 - Push-to-talk mic button in `CodexInputBar`.
-- Local transcription using whisper engine.
+- Local transcription using Apple Speech.
 - Partial transcript preview while speaking.
 - Final transcript inserted at cursor in message input.
 - "Tap to retry" for failed transcription.
@@ -145,7 +145,7 @@ Make dictation in the Codex composer good enough to replace typing for normal pr
 ### Ticket slices
 
 - `P1-T1` Voice service scaffolding and mic permission flow.
-- `P1-T2` Whisper engine integration and model profile switching.
+- `P1-T2` Apple Speech integration and local asset readiness.
 - `P1-T3` Composer integration (mic button, partial/final transcript UX).
 - `P1-T4` Settings tab updates and persistence.
 - `P1-T5` Unit/integration tests and performance smoke script.
@@ -243,12 +243,12 @@ Deliver a low-friction voice workflow that feels hands-free for regular use.
 
 ## Cross-Phase Technical Work
 
-## Model Management
+## Speech Asset Readiness
 
-- Store models under `~/.orbitdock/models/whisper/`.
-- First-run model bootstrap flow with progress UI.
-- Keep default model lightweight; allow upgrade to higher accuracy profile.
-- Verify license attribution in app docs and settings.
+- Let the OS manage any required speech assets.
+- Handle first-use asset installation gracefully in the UI.
+- Keep dictation available only when on-device speech support exists.
+- Explain clearly when a one-time system asset download is required.
 
 ## Reliability and Safety
 
@@ -296,7 +296,7 @@ Deliver a low-friction voice workflow that feels hands-free for regular use.
   - Mitigation: explicit command mode in phase 2, confidence gating, confirmation policy.
 - Thermal load during long sessions.
   - Mitigation: cap continuous inference window, provide quick pause, measure in QA.
-- Model download friction.
+- System speech asset install friction.
   - Mitigation: clear first-run UX and fallback to dictation-disabled state with guided setup.
 
 ## Delivery Timeline (Single Engineer)
@@ -323,5 +323,5 @@ If a gate fails, stop expansion and harden the current phase before moving forwa
    - `P1-T1` through `P1-T5`
    - `P2-T1` through `P2-T5`
    - `P3-T1` through `P3-T5`
-3. Build a 2-day spike for `whisper.cpp` integration and benchmark latency on your primary machine.
+3. Build a 2-day spike for Apple Speech integration and benchmark latency on your primary machine.
 4. Start Phase 1 implementation behind a `voiceDictationEnabled` feature flag.
