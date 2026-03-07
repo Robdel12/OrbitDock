@@ -366,7 +366,7 @@ extension DirectSessionComposer {
     }
     .buttonStyle(.plain)
     .disabled(dictationController.isBusy)
-    .help("Local Whisper dictation")
+    .help("Apple dictation")
   }
 
   var commandDeckControlButton: some View {

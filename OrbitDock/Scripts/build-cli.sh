@@ -3,7 +3,7 @@
 # Bundle orbitdock in app Resources.
 # - Dev/local builds: best-effort copy if a binary already exists.
 # - Archive builds (ACTION=install): validate an existing prebuilt macOS binary
-#   and ensure it matches the current commit.
+#   and ensure it matches the current server sources.
 
 set -euo pipefail
 
@@ -18,6 +18,7 @@ RUST_UNIVERSAL_BINARY="${REPO_ROOT}/.cache/rust/target/universal/orbitdock"
 RUST_DARWIN_GITSHA="${RUST_DARWIN_BINARY}.gitsha"
 LEGACY_UNIVERSAL_BINARY="${REPO_ROOT}/orbitdock-server/target/universal/orbitdock"
 LEGACY_RELEASE_BINARY="${REPO_ROOT}/orbitdock-server/target/release/orbitdock"
+SERVER_FINGERPRINT_SCRIPT="${SRCROOT}/Scripts/server-source-fingerprint.sh"
 
 resolve_server_binary() {
   if [[ -f "$RUST_DARWIN_BINARY" ]]; then
@@ -90,14 +91,23 @@ validate_archive_binary() {
   fi
 
   built_sha="$(tr -d '[:space:]' < "$archive_gitsha")"
-  if ! current_sha="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null)"; then
-    echo "error: could not resolve workspace HEAD commit for archive validation"
+  if [[ "$built_sha" =~ ^[0-9a-f]{40}$ ]] && git -C "$REPO_ROOT" cat-file -e "${built_sha}^{commit}" >/dev/null 2>&1; then
+    if ! built_sha="$("$SERVER_FINGERPRINT_SCRIPT" "$built_sha" 2>/dev/null)"; then
+      echo "error: could not resolve legacy prebuilt server commit stamp (${built_sha})"
+      echo "Run: make rust-build-darwin"
+      exit 1
+    fi
+    built_sha="$(echo "$built_sha" | tr -d '[:space:]')"
+  fi
+
+  if ! current_sha="$("$SERVER_FINGERPRINT_SCRIPT" 2>/dev/null)"; then
+    echo "error: could not resolve current server source fingerprint for archive validation"
     exit 1
   fi
   current_sha="$(echo "$current_sha" | tr -d '[:space:]')"
 
   if [[ -z "$built_sha" || "$built_sha" != "$current_sha" ]]; then
-    echo "error: prebuilt server commit (${built_sha}) does not match workspace HEAD (${current_sha})"
+    echo "error: prebuilt server fingerprint (${built_sha}) does not match current server sources (${current_sha})"
     echo "Run: make rust-build-darwin"
     exit 1
   fi

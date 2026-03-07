@@ -13,7 +13,7 @@ final class DictationAudioCapture {
   private var converter: AVAudioConverter?
   private var onSamples: SamplesHandler?
 
-  private let whisperInputFormat: AVAudioFormat = .init(
+  private let dictationInputFormat: AVAudioFormat = .init(
     commonFormat: .pcmFormatFloat32,
     sampleRate: 16_000,
     channels: 1,
@@ -24,7 +24,7 @@ final class DictationAudioCapture {
     if engine.isRunning { return }
 
     guard await requestMicrophonePermission() else {
-      throw WhisperDictationError.microphonePermissionDenied
+      throw DictationError.microphonePermissionDenied
     }
 
     #if os(iOS)
@@ -39,8 +39,8 @@ final class DictationAudioCapture {
 
     let inputNode = engine.inputNode
     let inputFormat = inputNode.inputFormat(forBus: 0)
-    guard let converter = AVAudioConverter(from: inputFormat, to: whisperInputFormat) else {
-      throw WhisperDictationError.audioCaptureFailure(
+    guard let converter = AVAudioConverter(from: inputFormat, to: dictationInputFormat) else {
+      throw DictationError.audioCaptureFailure(
         message: "Unable to create converter from \(inputFormat) to 16k mono."
       )
     }
@@ -49,7 +49,7 @@ final class DictationAudioCapture {
     inputNode.removeTap(onBus: 0)
     inputNode.installTap(onBus: 0, bufferSize: 2_048, format: inputFormat) { [weak self] buffer, _ in
       guard let self else { return }
-      let samples = self.convertToWhisperSamples(buffer)
+      let samples = self.convertToDictationSamples(buffer)
       guard !samples.isEmpty else { return }
       self.onSamples?(samples)
     }
@@ -59,7 +59,7 @@ final class DictationAudioCapture {
       try engine.start()
     } catch {
       stopStreaming()
-      throw WhisperDictationError.audioCaptureFailure(message: error.localizedDescription)
+      throw DictationError.audioCaptureFailure(message: error.localizedDescription)
     }
   }
 
@@ -78,17 +78,17 @@ final class DictationAudioCapture {
     #endif
   }
 
-  private func convertToWhisperSamples(_ buffer: AVAudioPCMBuffer) -> [Float] {
+  private func convertToDictationSamples(_ buffer: AVAudioPCMBuffer) -> [Float] {
     guard let converter else { return [] }
 
-    let ratio = whisperInputFormat.sampleRate / buffer.format.sampleRate
+    let ratio = dictationInputFormat.sampleRate / buffer.format.sampleRate
     let estimatedFrames = max(
       AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)),
       1
     )
 
     guard let outputBuffer = AVAudioPCMBuffer(
-      pcmFormat: whisperInputFormat,
+      pcmFormat: dictationInputFormat,
       frameCapacity: estimatedFrames
     ) else {
       return []

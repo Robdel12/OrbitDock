@@ -416,7 +416,7 @@ struct SettingsSection<Content: View>: View {
 struct GeneralSettingsView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
-  @AppStorage("whisperDictationEnabled") private var whisperDictationEnabled = true
+  @AppStorage("localDictationEnabled") private var localDictationEnabled = true
   @State private var openAiKey: String = ""
   @State private var openAiKeySaved = false
   @State private var openAiKeyStatus: OpenAiKeyStatus = .checking
@@ -425,12 +425,6 @@ struct GeneralSettingsView: View {
 
   private enum OpenAiKeyStatus {
     case checking, configured, notConfigured
-  }
-
-  private enum WhisperModelStatus {
-    case unavailable(message: String)
-    case missing
-    case ready
   }
 
   private let editors: [(id: String, name: String, icon: String)] = [
@@ -604,17 +598,18 @@ struct GeneralSettingsView: View {
           }
         }
 
-        SettingsSection(title: "WHISPER DICTATION", icon: "waveform.badge.mic") {
+        SettingsSection(title: "LOCAL DICTATION", icon: "waveform.badge.mic") {
           VStack(alignment: .leading, spacing: Spacing.lg_) {
             VStack(alignment: .leading, spacing: Spacing.sm_) {
-              Toggle(isOn: $whisperDictationEnabled) {
-                Text("Enable Local Dictation")
+              Toggle(isOn: $localDictationEnabled) {
+                Text("Enable Dictation")
                   .font(.system(size: TypeScale.body))
               }
               .toggleStyle(.switch)
               .tint(Color.accent)
+              .disabled(currentDictationAvailability == .unavailable)
 
-              Text("Transcribe microphone audio on-device using whisper.cpp.")
+              Text(localDictationIntroCopy)
                 .font(.system(size: TypeScale.meta))
                 .foregroundStyle(Color.textTertiary)
             }
@@ -623,45 +618,24 @@ struct GeneralSettingsView: View {
               .foregroundStyle(Color.panelBorder)
 
             HStack(spacing: Spacing.sm) {
-              switch whisperModelStatus {
-                case .ready:
-                  Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Color.feedbackPositive)
-                  Text("Model ready")
-                    .font(.system(size: TypeScale.body))
-                case .missing:
-                  Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundStyle(Color.statusPermission)
-                  Text("Model not found")
-                    .font(.system(size: TypeScale.body))
-                case .unavailable:
-                  Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(Color.statusError)
-                  Text("Whisper unavailable in this build")
-                    .font(.system(size: TypeScale.body))
-              }
+              Image(systemName: currentDictationEngineIcon)
+                .foregroundStyle(currentDictationEngineColor)
+              Text(currentDictationEngineTitle)
+                .font(.system(size: TypeScale.body))
               Spacer()
+              if currentDictationAvailability == .available {
+                Text("Live")
+                  .font(.system(size: TypeScale.meta, weight: .medium))
+                  .foregroundStyle(Color.textTertiary)
+                  .padding(.horizontal, Spacing.sm)
+                  .padding(.vertical, Spacing.xxs)
+                  .background(Color.surfaceHover, in: Capsule())
+              }
             }
 
-            switch whisperModelStatus {
-              case .missing:
-                Text(
-                  """
-                  OrbitDock checks for a bundled \(WhisperModelLocator.defaultModelFileName) first, \
-                  then falls back to Application Support.
-                  """
-                )
-                .font(.system(size: TypeScale.meta))
-                .foregroundStyle(Color.textTertiary)
-              case let .unavailable(message):
-                Text(message)
-                  .font(.system(size: TypeScale.meta))
-                  .foregroundStyle(Color.textTertiary)
-              case .ready:
-                Text("Local Whisper model is available and ready for dictation.")
-                  .font(.system(size: TypeScale.meta))
-                  .foregroundStyle(Color.textTertiary)
-            }
+            Text(currentDictationEngineDescription)
+              .font(.system(size: TypeScale.meta))
+              .foregroundStyle(Color.textTertiary)
           }
         }
       }
@@ -672,16 +646,48 @@ struct GeneralSettingsView: View {
     }
   }
 
-  private var whisperModelStatus: WhisperModelStatus {
-    #if canImport(whisper) || canImport(Whisper)
-      let locator = WhisperModelLocator()
-      if (try? locator.resolveModelPath()) != nil {
-        return .ready
-      }
-      return .missing
-    #else
-      return .unavailable(message: "Whisper is not linked for this build target.")
-    #endif
+  private var currentDictationAvailability: LocalDictationAvailability {
+    LocalDictationAvailabilityResolver.current
+  }
+
+  private var localDictationIntroCopy: String {
+    "OrbitDock uses Apple's on-device Speech framework for live dictation on iOS 26 and macOS 26. The system may install speech assets the first time you use it."
+  }
+
+  private var currentDictationEngineTitle: String {
+    switch currentDictationAvailability {
+      case .available:
+        "Apple Speech"
+      case .unavailable:
+        "Dictation unavailable"
+    }
+  }
+
+  private var currentDictationEngineDescription: String {
+    switch currentDictationAvailability {
+      case .available:
+        "Dictation updates the composer live as you speak and stays fully on-device."
+      case .unavailable:
+        "Dictation requires iOS 26 or macOS 26 because OrbitDock now uses Apple's new Speech framework directly."
+    }
+  }
+
+  private var currentDictationEngineIcon: String {
+    switch currentDictationAvailability {
+      case .available:
+        "apple.logo"
+      case .unavailable:
+        "xmark.circle.fill"
+    }
+  }
+
+  private var currentDictationEngineColor: Color {
+    switch currentDictationAvailability {
+      case .available:
+        .accent
+      case .unavailable:
+        .statusPermission
+    }
   }
 
   private func saveOpenAiKey() {

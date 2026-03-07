@@ -23,7 +23,7 @@ struct DirectSessionComposer: View {
   @Environment(ServerAppState.self) var serverState
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
-  @AppStorage("whisperDictationEnabled") var whisperDictationEnabled = true
+  @AppStorage("localDictationEnabled") var localDictationEnabled = true
 
   @State var message = ""
   @State var isSending = false
@@ -60,7 +60,7 @@ struct DirectSessionComposer: View {
   /// Input mode
   @State var manualReviewMode = false
   @State var manualShellMode = false
-  @State var dictationController = WhisperDictationController()
+  @State var dictationController = LocalDictationController()
   @State var dictationDraftBaseMessage: String?
   @State var showForkToWorktreeSheet = false
   @State var showForkToExistingWorktreeSheet = false
@@ -528,7 +528,7 @@ struct DirectSessionComposer: View {
   }
 
   var shouldShowDictation: Bool {
-    whisperDictationEnabled && dictationController.isSupported
+    localDictationEnabled && LocalDictationAvailabilityResolver.current == .available
   }
 
   var composerErrorMessage: String? {
@@ -689,7 +689,7 @@ struct DirectSessionComposer: View {
         selectedClaudeModel = defaultClaudeModelSelection
       }
     }
-    .onChange(of: whisperDictationEnabled) { _, enabled in
+    .onChange(of: localDictationEnabled) { _, enabled in
       guard !enabled else { return }
       Task { @MainActor in
         await dictationController.cancel()
@@ -725,7 +725,7 @@ struct DirectSessionComposer: View {
       isFocused: $isFocused,
       moveCursorToEndSignal: $moveCursorToEndSignal,
       measuredHeight: $composerInputHeight,
-      isEnabled: !isSending,
+      isEnabled: !isSending && !isDictationActive,
       minLines: 2,
       maxLines: 4,
       onPasteImage: { pasteImageFromClipboard() },

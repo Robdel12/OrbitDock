@@ -25,7 +25,9 @@
 	<key>NSAppleEventsUsageDescription</key>
 	<string>OrbitDock needs to control iTerm2 to focus your terminal sessions.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>OrbitDock uses your microphone for local Whisper dictation.</string>
+	<string>OrbitDock uses your microphone for local dictation.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>OrbitDock uses speech recognition to transcribe local dictation on your device.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>LSApplicationCategoryType</key>
