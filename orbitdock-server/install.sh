@@ -141,11 +141,17 @@ verify_checksum() {
 
 # ── Install from prebuilt binary ──────────────────────────────────────────
 install_from_release() {
-  local asset_name url tmp_dir zip_path checksum_url checksum_file
-  local -a asset_names
+  local asset_name url tmp_dir zip_path checksum_url checksum_file asset_list
+  local -a asset_names=()
   local downloaded=0
 
-  mapfile -t asset_names < <(asset_names_for_platform) || return 1
+  if ! asset_list="$(asset_names_for_platform)"; then
+    return 1
+  fi
+
+  while IFS= read -r asset_name; do
+    [[ -n "$asset_name" ]] && asset_names+=("$asset_name")
+  done <<< "$asset_list"
 
   if ! command -v curl >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
     warn "curl or unzip not found; can't download prebuilt binary."
