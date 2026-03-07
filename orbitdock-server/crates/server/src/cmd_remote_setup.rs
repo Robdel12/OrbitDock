@@ -305,7 +305,7 @@ fn parse_systemd_bind(content: &str) -> Option<SocketAddr> {
         .find(|line| line.trim_start().starts_with("ExecStart="))?;
     let bind_flag = exec_line.find("--bind")?;
     let after_flag = &exec_line[bind_flag + "--bind".len()..];
-    let bind_value = after_flag.trim_start().split_whitespace().next()?;
+    let bind_value = after_flag.split_whitespace().next()?;
     bind_value.parse().ok()
 }
 
@@ -400,7 +400,7 @@ fn print_summary(
     }
     println!();
 
-    let url = public_url.unwrap_or_else(|| match exposure {
+    let url = public_url.unwrap_or(match exposure {
         ExposureMode::Cloudflare | ExposureMode::ReverseProxy => "https://your-server.example.com",
         ExposureMode::Tailscale => "http://100.x.y.z:4000",
         ExposureMode::Direct => "http://your-server.example.com:4000",
