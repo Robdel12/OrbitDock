@@ -19,6 +19,7 @@ enum ShellKind {
 }
 
 pub fn run() -> anyhow::Result<()> {
+    let installer_mode = installer_mode();
     let binary_path = std::env::current_exe().context("failed to resolve current executable")?;
     let bin_dir = binary_path.parent().ok_or_else(|| {
         anyhow!(
@@ -53,7 +54,12 @@ pub fn run() -> anyhow::Result<()> {
         bin_dir.display(),
         profile_path.display()
     );
-    println!("  Restart your terminal, or run:");
+    if installer_mode {
+        println!("  New terminals will pick it up automatically.");
+        println!("  For this shell only, run:");
+    } else {
+        println!("  Restart your terminal, or run:");
+    }
     match shell_kind {
         ShellKind::Fish => println!("    fish_add_path {}", quote_for_shell(bin_dir)),
         _ => println!(
@@ -64,6 +70,10 @@ pub fn run() -> anyhow::Result<()> {
     println!();
 
     Ok(())
+}
+
+fn installer_mode() -> bool {
+    std::env::var_os("ORBITDOCK_INSTALLER_MODE").is_some()
 }
 
 fn detect_shell_kind(shell_env: Option<&str>) -> ShellKind {

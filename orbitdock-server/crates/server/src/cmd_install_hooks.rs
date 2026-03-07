@@ -40,6 +40,7 @@ pub fn run(
     server_url: Option<&str>,
     auth_token: Option<&str>,
 ) -> anyhow::Result<()> {
+    let installer_mode = installer_mode();
     let settings_file = settings_path.map(PathBuf::from).unwrap_or_else(|| {
         dirs::home_dir()
             .expect("HOME not found")
@@ -144,11 +145,13 @@ pub fn run(
     if settings_file.exists() {
         let backup = settings_file.with_extension("json.bak");
         std::fs::copy(&settings_file, &backup)?;
-        println!(
-            "  Backed up {} → {}",
-            settings_file.display(),
-            backup.display()
-        );
+        if !installer_mode {
+            println!(
+                "  Backed up {} → {}",
+                settings_file.display(),
+                backup.display()
+            );
+        }
     }
 
     // Ensure parent dir exists
@@ -161,25 +164,29 @@ pub fn run(
     std::fs::write(&settings_file, formatted)?;
 
     println!();
-    if !added.is_empty() {
-        println!("  Added {} hook(s):", added.len());
-        for h in &added {
-            println!("    + {}", h);
+    if installer_mode {
+        println!("  Claude Code hooks ready in {}", settings_file.display());
+    } else {
+        if !added.is_empty() {
+            println!("  Added {} hook(s):", added.len());
+            for h in &added {
+                println!("    + {}", h);
+            }
         }
-    }
-    if !updated.is_empty() {
-        println!("  Updated {} hook(s):", updated.len());
-        for h in &updated {
-            println!("    ~ {}", h);
+        if !updated.is_empty() {
+            println!("  Updated {} hook(s):", updated.len());
+            for h in &updated {
+                println!("    ~ {}", h);
+            }
         }
+        println!();
+        println!("  Settings written to {}", settings_file.display());
     }
-    println!();
-    println!("  Settings written to {}", settings_file.display());
     println!(
         "  Hook transport config: {}",
         transport_config_path.display()
     );
-    match resolved_auth_token {
+    match resolved_auth_token.as_deref() {
         Some(_) => println!("  Hook auth token: configured"),
         None if should_prompt_for_auth_token(target_url) => {
             println!("  Hook auth token: not configured");
@@ -187,13 +194,20 @@ pub fn run(
                 "  Remote requests may be rejected until you rerun `orbitdock install-hooks` with a token."
             );
         }
-        None => println!("  Hook auth token: not configured"),
+        None if !installer_mode => println!("  Hook auth token: not configured"),
+        None => {}
     }
-    println!("  Hook forward binary: {}", resolve_hook_binary_path());
-    println!("  Spool directory: {}", paths::spool_dir().display());
+    if !installer_mode {
+        println!("  Hook forward binary: {}", resolve_hook_binary_path());
+        println!("  Spool directory: {}", paths::spool_dir().display());
+    }
     println!();
 
     Ok(())
+}
+
+fn installer_mode() -> bool {
+    std::env::var_os("ORBITDOCK_INSTALLER_MODE").is_some()
 }
 
 fn resolve_auth_token(

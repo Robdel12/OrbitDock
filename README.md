@@ -47,13 +47,20 @@ Get this running locally in a few minutes.
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 ```
 
-The installer sets up the binary, shell `PATH`, data directory, database, Claude hooks, and background service.
+The installer sets up the binary, shell `PATH`, data directory, and database. It then asks whether
+you want to install Claude hooks and whether you want OrbitDock running as a background service.
 
-### 2. Verify it started
+### 2. Start or verify the server
 
 ```bash
 orbitdock status
 orbitdock doctor
+```
+
+If you skipped the background service during install, start OrbitDock manually with:
+
+```bash
+orbitdock start
 ```
 
 `doctor` runs a full diagnostic — database, hooks, encryption key, disk space, port availability,
@@ -79,7 +86,7 @@ The app auto-connects to the local server.
 
 **Codex** — Open Settings → CODEX CLI → Sign in with ChatGPT (or use API key auth mode).
 
-**Claude Code** — Install the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) and log in. The installer already set up hooks, but if you skipped that step: `orbitdock install-hooks`.
+**Claude Code** — Install the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) and log in. If you skipped hook setup during install, run `orbitdock install-hooks`.
 
 ### 5. Create a session
 
@@ -96,14 +103,14 @@ Running on a VPS, Raspberry Pi, NAS, or another machine:
 
 ```bash
 # On the server
-orbitdock setup --remote --server-url https://your-server.example.com:4000
+orbitdock remote-setup
 
 # On your developer machine
 orbitdock install-hooks --server-url https://your-server.example.com:4000
 ```
 
-`install-hooks` prompts for the token that `setup --remote` prints and stores it encrypted for local hook forwarding.
-For the app, add the same server URL and token in Settings → Servers.
+`remote-setup` guides secure exposure, creates a fresh auth token, and tells you the exact next commands
+for pairing clients and forwarding hooks. For the app, add the same server URL and token in Settings → Servers.
 
 See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, reverse proxies, and Raspberry Pi notes.
 

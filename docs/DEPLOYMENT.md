@@ -14,10 +14,11 @@ curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-s
 
 ```bash
 orbitdock setup --local    # localhost only
-orbitdock setup --remote   # generates auth token, binds 0.0.0.0
+orbitdock remote-setup     # secure remote exposure onboarding
 ```
 
-If you're exposing the server through a tunnel, reverse proxy, or public hostname, pass `--server-url https://...` in remote mode so the printed instructions use the URL your other machines will actually reach.
+`setup` is for local machine bootstrap. Use `remote-setup` when you want to expose an existing install
+securely to other machines.
 
 ## Deployment Topologies
 
@@ -42,8 +43,7 @@ Run the server on a VPS, connect from your dev machine.
 **On the server:**
 
 ```bash
-orbitdock setup --remote --server-url https://your-server.example.com:4000
-# Copy the auth token when it is printed. OrbitDock only shows it once.
+orbitdock remote-setup
 ```
 
 **On your dev machine** (hooks only — no local server):
@@ -53,6 +53,7 @@ orbitdock install-hooks \
   --server-url https://your-server.example.com:4000
 ```
 
+`remote-setup` prints the exact client URL and auth token instructions after it configures the server side.
 `install-hooks` will prompt for the token and store it encrypted in `~/.orbitdock/hook-forward.json`.
 For non-interactive setup, pass `--auth-token <token>` or set `ORBITDOCK_AUTH_TOKEN`.
 
