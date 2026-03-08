@@ -171,6 +171,9 @@ fn compact_snapshot_for_transport_with_limits(
     let max_messages = max_messages.min(SNAPSHOT_MAX_MESSAGES);
     let max_content_chars =
         max_content_chars.clamp(SNAPSHOT_MIN_CONTENT_CHARS, SNAPSHOT_MAX_CONTENT_CHARS);
+    let original_total_message_count = snapshot
+        .total_message_count
+        .unwrap_or(snapshot.messages.len() as u64);
 
     if max_messages == 0 {
         snapshot.messages.clear();
@@ -214,6 +217,17 @@ fn compact_snapshot_for_transport_with_limits(
     for turn in &mut snapshot.turn_diffs {
         truncate_string_in_place(&mut turn.diff, max_content_chars.saturating_mul(2));
     }
+
+    snapshot.total_message_count = Some(original_total_message_count);
+    snapshot.oldest_sequence = snapshot.messages.first().and_then(|message| message.sequence);
+    snapshot.newest_sequence = snapshot.messages.last().and_then(|message| message.sequence);
+    snapshot.has_more_before = Some(
+        snapshot.has_more_before.unwrap_or(false)
+            || original_total_message_count > snapshot.messages.len() as u64
+            || snapshot
+                .oldest_sequence
+                .is_some_and(|sequence| sequence > 0),
+    );
 
     snapshot
 }

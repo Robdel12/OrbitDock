@@ -15,13 +15,11 @@ use axum::{
 };
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::{ClientMessage, ServerMessage, SessionState};
 
-use crate::session_actor::SessionActorHandle;
-use crate::session_command::SessionCommand;
 use crate::snapshot_compaction::{
     compact_snapshot_for_transport, replay_has_oversize_event, sanitize_replay_event_for_transport,
     sanitize_server_message_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
@@ -238,42 +236,7 @@ pub(crate) fn server_info_message(state: &SessionRegistry) -> ServerMessage {
     }
 }
 
-pub(crate) async fn send_snapshot_from_actor(
-    actor: &SessionActorHandle,
-    tx: &mpsc::Sender<OutboundMessage>,
-    session_id: &str,
-) {
-    let (state_tx, state_rx) = oneshot::channel();
-    actor
-        .send(SessionCommand::GetState { reply: state_tx })
-        .await;
-    match state_rx.await {
-        Ok(snapshot) => {
-            send_json(tx, ServerMessage::SessionSnapshot { session: snapshot }).await;
-        }
-        Err(err) => {
-            warn!(
-                component = "websocket",
-                event = "ws.subscribe.snapshot_fallback_failed",
-                session_id = %session_id,
-                error = %err,
-                "Failed to fetch fallback snapshot after replay overflow"
-            );
-            send_json(
-                tx,
-                ServerMessage::Error {
-                    code: "snapshot_unavailable".to_string(),
-                    message: "Session snapshot unavailable".to_string(),
-                    session_id: Some(session_id.to_string()),
-                },
-            )
-            .await;
-        }
-    }
-}
-
 pub(crate) async fn send_replay_or_snapshot_fallback(
-    actor: &SessionActorHandle,
     tx: &mpsc::Sender<OutboundMessage>,
     session_id: &str,
     events: Vec<String>,
@@ -304,9 +267,19 @@ pub(crate) async fn send_replay_or_snapshot_fallback(
             replay_count = sanitized_events.len(),
             largest_event_bytes = max_bytes,
             max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
-            "Replay payload exceeded transport limit, falling back to compact snapshot"
+            "Replay payload exceeded transport limit, requesting client re-bootstrap"
         );
-        send_snapshot_from_actor(actor, tx, session_id).await;
+        send_json(
+            tx,
+            ServerMessage::Error {
+                code: "replay_oversized".to_string(),
+                message:
+                    "Replay payload exceeded transport limit; re-bootstrap the conversation"
+                        .to_string(),
+                session_id: Some(session_id.to_string()),
+            },
+        )
+        .await;
         return;
     }
 
@@ -352,7 +325,7 @@ pub(crate) async fn send_raw(tx: &mpsc::Sender<OutboundMessage>, json: String) {
 /// broadcast::Receiver is dropped — automatic cleanup, no manual unsubscribe needed.
 ///
 /// If `session_id` is provided and the subscriber lags behind the broadcast buffer,
-/// a `lagged` error is sent to the client so it can re-subscribe for a fresh snapshot.
+/// a `lagged` error is sent to the client so it can re-bootstrap the conversation.
 pub(crate) fn spawn_broadcast_forwarder(
     mut rx: tokio::sync::broadcast::Receiver<ServerMessage>,
     outbound_tx: mpsc::Sender<OutboundMessage>,
@@ -374,7 +347,7 @@ pub(crate) fn spawn_broadcast_forwarder(
                         skipped = n,
                         "Broadcast subscriber lagged, skipped {n} messages"
                     );
-                    // Notify the client so it can re-subscribe for a fresh snapshot.
+                    // Notify the client so it can re-bootstrap over the paged HTTP path.
                     let _ = outbound_tx
                         .send(OutboundMessage::Json(ServerMessage::Error {
                             code: "lagged".to_string(),
@@ -509,7 +482,7 @@ fn handle_client_message<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_client_message, OutboundMessage};
+    use super::{handle_client_message, send_replay_or_snapshot_fallback, OutboundMessage};
     use crate::claude_session::ClaudeAction;
     use crate::codex_session::CodexAction;
     use crate::normalization::work_status_for_approval_decision;
@@ -896,6 +869,7 @@ mod tests {
             .map(|index| Message {
                 id: format!("m-{index}"),
                 session_id: snapshot.id.clone(),
+                sequence: Some(index as u64),
                 message_type: MessageType::Assistant,
                 content: "A".repeat(60_000),
                 tool_name: Some("bash".to_string()),
@@ -993,6 +967,7 @@ mod tests {
         let mut message = Message {
             id: "m-image".to_string(),
             session_id: "s".to_string(),
+            sequence: None,
             message_type: MessageType::User,
             content: "send this".to_string(),
             tool_name: None,
@@ -1025,6 +1000,7 @@ mod tests {
         let mut message = Message {
             id: "m-path".to_string(),
             session_id: "s".to_string(),
+            sequence: None,
             message_type: MessageType::User,
             content: "send path".to_string(),
             tool_name: None,
@@ -1064,6 +1040,7 @@ mod tests {
         let message = Message {
             id: "m-large".to_string(),
             session_id: "s".to_string(),
+            sequence: None,
             message_type: MessageType::User,
             content: "large image".to_string(),
             tool_name: None,
@@ -1239,6 +1216,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn oversized_replay_requests_rebootstrap_error_instead_of_snapshot() {
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(4);
+
+        send_replay_or_snapshot_fallback(
+            &client_tx,
+            "session-oversized",
+            vec!["X".repeat(WS_MAX_TEXT_MESSAGE_BYTES + 1)],
+            42,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::Error {
+                code,
+                message,
+                session_id,
+            } => {
+                assert_eq!(code, "replay_oversized");
+                assert!(message.contains("re-bootstrap"));
+                assert_eq!(session_id.as_deref(), Some("session-oversized"));
+            }
+            other => panic!("expected replay_oversized error, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
     async fn subscribe_session_can_stream_without_initial_snapshot() {
         let state = new_test_state();
         let session_id = format!("od-{}", orbitdock_protocol::new_id());
@@ -1268,6 +1271,7 @@ mod tests {
         let message = Message {
             id: orbitdock_protocol::new_id(),
             session_id: session_id.clone(),
+            sequence: None,
             message_type: MessageType::Assistant,
             content: "streamed update".to_string(),
             tool_name: None,

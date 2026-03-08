@@ -148,7 +148,6 @@ pub(crate) async fn handle(
                                         Some(session_id.clone()),
                                     );
                                     send_replay_or_snapshot_fallback(
-                                        &actor,
                                         client_tx,
                                         &session_id,
                                         events,
@@ -447,7 +446,6 @@ pub(crate) async fn handle(
                                             Some(session_id.clone()),
                                         );
                                         send_replay_or_snapshot_fallback(
-                                            &new_actor,
                                             client_tx,
                                             &session_id,
                                             events,
@@ -497,7 +495,6 @@ pub(crate) async fn handle(
                                 Some(session_id.clone()),
                             );
                             send_replay_or_snapshot_fallback(
-                                &actor,
                                 client_tx,
                                 &session_id,
                                 events,
@@ -614,6 +611,11 @@ pub(crate) async fn handle(
                             });
 
                         // Build SessionState for transport
+                        let total_message_count = restored.messages.len() as u64;
+                        let oldest_sequence =
+                            restored.messages.first().and_then(|message| message.sequence);
+                        let newest_sequence =
+                            restored.messages.last().and_then(|message| message.sequence);
                         let state = SessionState {
                             id: restored.id,
                             provider,
@@ -628,6 +630,10 @@ pub(crate) async fn handle(
                             status,
                             work_status,
                             messages: restored.messages,
+                            total_message_count: Some(total_message_count),
+                            has_more_before: Some(false),
+                            oldest_sequence,
+                            newest_sequence,
                             pending_approval: None,
                             permission_mode: restored.permission_mode,
                             pending_tool_name: restored.pending_tool_name,

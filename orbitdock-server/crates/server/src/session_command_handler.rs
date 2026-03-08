@@ -111,17 +111,7 @@ pub async fn handle_session_command(
             if let Some(since_rev) = since_revision {
                 if let Some(events) = handle.replay_since(since_rev) {
                     let rx = handle.subscribe();
-                    if events.is_empty() {
-                        // Prefer full snapshot when replay would be empty so websocket
-                        // can run snapshot hydration paths (e.g. transcript backfill).
-                        let state = handle.state();
-                        let _ = reply.send(SubscribeResult::Snapshot {
-                            state: Box::new(state),
-                            rx,
-                        });
-                    } else {
-                        let _ = reply.send(SubscribeResult::Replay { events, rx });
-                    }
+                    let _ = reply.send(SubscribeResult::Replay { events, rx });
                     return;
                 }
             }
@@ -149,6 +139,16 @@ pub async fn handle_session_command(
         }
         SessionCommand::GetMessageCount { reply } => {
             let _ = reply.send(handle.message_count());
+        }
+        SessionCommand::GetConversationBootstrap { limit, reply } => {
+            let _ = reply.send(handle.conversation_bootstrap(limit));
+        }
+        SessionCommand::GetConversationPage {
+            before_sequence,
+            limit,
+            reply,
+        } => {
+            let _ = reply.send(handle.conversation_page(before_sequence, limit));
         }
         SessionCommand::ResolveUserMessageId {
             num_turns_from_end,
@@ -265,7 +265,7 @@ pub async fn handle_session_command(
 
         // -- Message operations --
         SessionCommand::AddMessage { message } => {
-            handle.add_message(message);
+            let _ = handle.add_message(message);
         }
         SessionCommand::ReplaceMessages { messages } => {
             handle.replace_messages(messages);
@@ -273,6 +273,7 @@ pub async fn handle_session_command(
         SessionCommand::AddMessageAndBroadcast { message } => {
             let session_id = handle.id().to_string();
             let mut last_message_delta: Option<String> = None;
+            let should_broadcast_unread = !matches!(message.message_type, MessageType::User | MessageType::Steer);
 
             if let Some(snippet) = completed_conversation_message_snippet(&message) {
                 let previous = handle.to_snapshot().last_message.clone();
@@ -282,17 +283,18 @@ pub async fn handle_session_command(
                 }
             }
 
-            handle.add_message(message.clone());
+            let message = handle.add_message(message);
             handle.broadcast(ServerMessage::MessageAppended {
                 session_id,
                 message,
             });
 
-            if let Some(last_message) = last_message_delta {
+            if last_message_delta.is_some() || should_broadcast_unread {
                 handle.broadcast(ServerMessage::SessionDelta {
                     session_id: handle.id().to_string(),
                     changes: StateChanges {
-                        last_message: Some(Some(last_message)),
+                        last_message: last_message_delta.map(Some),
+                        unread_count: should_broadcast_unread.then(|| handle.unread_count()),
                         ..Default::default()
                     },
                 });
@@ -444,6 +446,7 @@ pub(crate) async fn dispatch_transition_input(
     // Update last_message from the latest completed user/assistant message.
     // In-progress assistant streaming deltas are intentionally ignored.
     let mut last_message_delta: Option<String> = None;
+    let mut unread_count_delta: Option<u64> = None;
     let previous_last_message = handle.to_snapshot().last_message.clone();
     if let Some(snippet) = latest_completed_conversation_message(handle.messages()) {
         if previous_last_message.as_deref() != Some(snippet.as_str()) {
@@ -461,6 +464,11 @@ pub(crate) async fn dispatch_transition_input(
             }
             transition::Effect::Emit(msg) => {
                 let mut msg = *msg;
+                if let ServerMessage::MessageAppended { ref message, .. } = msg {
+                    if handle.note_transition_message_append(message) {
+                        unread_count_delta = Some(handle.unread_count());
+                    }
+                }
                 if let ServerMessage::MessageUpdated {
                     ref session_id,
                     ref message_id,
@@ -484,11 +492,12 @@ pub(crate) async fn dispatch_transition_input(
         }
     }
 
-    if let Some(last_message) = last_message_delta {
+    if last_message_delta.is_some() || unread_count_delta.is_some() {
         handle.broadcast(ServerMessage::SessionDelta {
             session_id: handle.id().to_string(),
             changes: StateChanges {
-                last_message: Some(Some(last_message)),
+                last_message: last_message_delta.map(Some),
+                unread_count: unread_count_delta,
                 ..Default::default()
             },
         });
@@ -529,4 +538,106 @@ pub(crate) fn spawn_interrupt_watchdog(
             })
             .await;
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use orbitdock_protocol::{Provider, SessionStatus, StateChanges};
+    use tokio::sync::oneshot;
+
+    #[tokio::test]
+    async fn transition_message_create_updates_unread_and_broadcasts_delta() {
+        let (persist_tx, mut persist_rx) = mpsc::channel(8);
+        let mut handle = SessionHandle::new(
+            "session-unread".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        let session_id = handle.id().to_string();
+        let mut rx = handle.subscribe();
+
+        dispatch_transition_input(
+            &session_id,
+            transition::Input::MessageCreated(Message {
+                id: "assistant-1".to_string(),
+                session_id: String::new(),
+                sequence: None,
+                message_type: MessageType::Assistant,
+                content: "stream started".to_string(),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                is_error: false,
+                is_in_progress: true,
+                timestamp: "2026-03-08T01:15:00Z".to_string(),
+                duration_ms: None,
+                images: vec![],
+            }),
+            &mut handle,
+            &persist_tx,
+        )
+        .await;
+
+        let state = handle.state();
+        assert_eq!(state.status, SessionStatus::Active);
+        assert_eq!(state.unread_count, 1);
+
+        let first = rx.recv().await.expect("expected message append");
+        assert!(
+            matches!(first, ServerMessage::MessageAppended { .. }),
+            "expected first broadcast to be MessageAppended, got {first:?}"
+        );
+
+        let second = rx.recv().await.expect("expected unread session delta");
+        match second {
+            ServerMessage::SessionDelta { changes, .. } => {
+                assert_eq!(changes.unread_count, Some(1));
+            }
+            other => panic!("expected SessionDelta, got {other:?}"),
+        }
+
+        let persist = persist_rx.recv().await.expect("expected persist op");
+        assert!(
+            matches!(persist, PersistCommand::MessageAppend { .. }),
+            "expected message append persistence, got {persist:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn subscribe_with_current_revision_returns_empty_replay_not_snapshot() {
+        let (persist_tx, _persist_rx) = mpsc::channel(8);
+        let mut handle = SessionHandle::new(
+            "session-replay-empty".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        handle.broadcast(ServerMessage::SessionDelta {
+            session_id: handle.id().to_string(),
+            changes: StateChanges::default(),
+        });
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+        handle_session_command(
+            SessionCommand::Subscribe {
+                since_revision: Some(1),
+                reply: reply_tx,
+            },
+            &mut handle,
+            &persist_tx,
+        )
+        .await;
+
+        match reply_rx.await.expect("subscribe reply") {
+            SubscribeResult::Replay { events, .. } => {
+                assert!(
+                    events.is_empty(),
+                    "expected empty replay when subscribing at current revision"
+                );
+            }
+            SubscribeResult::Snapshot { .. } => {
+                panic!("expected empty replay, not snapshot");
+            }
+        }
+    }
 }

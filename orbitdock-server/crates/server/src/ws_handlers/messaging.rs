@@ -172,6 +172,7 @@ pub(crate) async fn handle(
                 let user_msg = orbitdock_protocol::Message {
                     id: msg_id,
                     session_id: session_id.clone(),
+                    sequence: None,
                     message_type: orbitdock_protocol::MessageType::User,
                     content: content.clone(),
                     tool_name: None,
@@ -300,6 +301,7 @@ pub(crate) async fn handle(
                 let steer_msg = orbitdock_protocol::Message {
                     id: steer_msg_id.clone(),
                     session_id: session_id.clone(),
+                    sequence: None,
                     message_type: orbitdock_protocol::MessageType::Steer,
                     content: content.clone(),
                     tool_name: None,

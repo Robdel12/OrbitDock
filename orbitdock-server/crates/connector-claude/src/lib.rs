@@ -1202,6 +1202,7 @@ impl ClaudeConnector {
                         orbitdock_protocol::Message {
                             id,
                             session_id: session_id.clone(),
+                            sequence: None,
                             message_type: orbitdock_protocol::MessageType::Assistant,
                             content: summary.to_string(),
                             tool_name: None,
@@ -1501,6 +1502,7 @@ impl ClaudeConnector {
                     orbitdock_protocol::Message {
                         id: task_id.to_string(),
                         session_id,
+                        sequence: None,
                         message_type: orbitdock_protocol::MessageType::Tool,
                         content: String::new(),
                         tool_name: Some("task".to_string()),
@@ -1630,6 +1632,7 @@ impl ClaudeConnector {
                             orbitdock_protocol::Message {
                                 id: msg_id,
                                 session_id,
+                                sequence: None,
                                 message_type: orbitdock_protocol::MessageType::Tool,
                                 content: String::new(),
                                 tool_name: Some("CompactContext".to_string()),
@@ -1793,6 +1796,7 @@ impl ClaudeConnector {
                         orbitdock_protocol::Message {
                             id,
                             session_id: session_id.to_string(),
+                            sequence: None,
                             message_type: orbitdock_protocol::MessageType::Assistant,
                             content: text.to_string(),
                             tool_name: None,
@@ -1819,6 +1823,7 @@ impl ClaudeConnector {
                         orbitdock_protocol::Message {
                             id: message_id,
                             session_id: session_id.to_string(),
+                            sequence: None,
                             message_type: orbitdock_protocol::MessageType::Tool,
                             content: String::new(),
                             tool_name: Some(tool_name.to_string()),
@@ -1847,6 +1852,7 @@ impl ClaudeConnector {
                         orbitdock_protocol::Message {
                             id,
                             session_id: session_id.to_string(),
+                            sequence: None,
                             message_type: orbitdock_protocol::MessageType::Thinking,
                             content: thinking.to_string(),
                             tool_name: None,
@@ -2055,6 +2061,7 @@ impl ClaudeConnector {
                             orbitdock_protocol::Message {
                                 id: msg_id.clone(),
                                 session_id: session_id.to_string(),
+                                sequence: None,
                                 message_type: orbitdock_protocol::MessageType::Assistant,
                                 content: streaming_content.clone(),
                                 tool_name: None,

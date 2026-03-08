@@ -121,6 +121,7 @@ enum ServerMessageType: String, Codable {
 struct ServerMessage: Codable, Identifiable {
   let id: String
   let sessionId: String
+  let sequence: UInt64?
   let type: ServerMessageType
   let content: String
   let toolName: String?
@@ -135,6 +136,7 @@ struct ServerMessage: Codable, Identifiable {
   enum CodingKeys: String, CodingKey {
     case id
     case sessionId = "session_id"
+    case sequence
     case type = "message_type"
     case content
     case toolName = "tool_name"
@@ -151,6 +153,7 @@ struct ServerMessage: Codable, Identifiable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     id = try container.decode(String.self, forKey: .id)
     sessionId = try container.decode(String.self, forKey: .sessionId)
+    sequence = try container.decodeIfPresent(UInt64.self, forKey: .sequence)
     type = try container.decode(ServerMessageType.self, forKey: .type)
     content = try container.decode(String.self, forKey: .content)
     toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
@@ -167,6 +170,7 @@ struct ServerMessage: Codable, Identifiable {
     var container = encoder.container(keyedBy: CodingKeys.self)
     try container.encode(id, forKey: .id)
     try container.encode(sessionId, forKey: .sessionId)
+    try container.encodeIfPresent(sequence, forKey: .sequence)
     try container.encode(type, forKey: .type)
     try container.encode(content, forKey: .content)
     try container.encodeIfPresent(toolName, forKey: .toolName)
@@ -933,6 +937,10 @@ struct ServerSessionState: Codable, Identifiable {
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
   let messages: [ServerMessage]
+  let totalMessageCount: UInt64?
+  let hasMoreBefore: Bool?
+  let oldestSequence: UInt64?
+  let newestSequence: UInt64?
   let pendingApproval: ServerApprovalRequest?
   let tokenUsage: ServerTokenUsage
   let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind
@@ -981,6 +989,10 @@ struct ServerSessionState: Codable, Identifiable {
     case status
     case workStatus = "work_status"
     case messages
+    case totalMessageCount = "total_message_count"
+    case hasMoreBefore = "has_more_before"
+    case oldestSequence = "oldest_sequence"
+    case newestSequence = "newest_sequence"
     case pendingApproval = "pending_approval"
     case tokenUsage = "token_usage"
     case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
@@ -1031,6 +1043,10 @@ struct ServerSessionState: Codable, Identifiable {
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
     messages = try container.decode([ServerMessage].self, forKey: .messages)
+    totalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
+    hasMoreBefore = try container.decodeIfPresent(Bool.self, forKey: .hasMoreBefore)
+    oldestSequence = try container.decodeIfPresent(UInt64.self, forKey: .oldestSequence)
+    newestSequence = try container.decodeIfPresent(UInt64.self, forKey: .newestSequence)
     pendingApproval = try container.decodeIfPresent(ServerApprovalRequest.self, forKey: .pendingApproval)
     tokenUsage = try container.decode(ServerTokenUsage.self, forKey: .tokenUsage)
     tokenUsageSnapshotKind =
@@ -1070,6 +1086,40 @@ struct ServerSessionState: Codable, Identifiable {
     isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree)
     worktreeId = try container.decodeIfPresent(String.self, forKey: .worktreeId)
     unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount)
+  }
+}
+
+struct ServerConversationBootstrap: Codable {
+  let session: ServerSessionState
+  let totalMessageCount: UInt64
+  let hasMoreBefore: Bool
+  let oldestSequence: UInt64?
+  let newestSequence: UInt64?
+
+  enum CodingKeys: String, CodingKey {
+    case session
+    case totalMessageCount = "total_message_count"
+    case hasMoreBefore = "has_more_before"
+    case oldestSequence = "oldest_sequence"
+    case newestSequence = "newest_sequence"
+  }
+}
+
+struct ServerConversationHistoryPage: Codable {
+  let sessionId: String
+  let messages: [ServerMessage]
+  let totalMessageCount: UInt64
+  let hasMoreBefore: Bool
+  let oldestSequence: UInt64?
+  let newestSequence: UInt64?
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case messages
+    case totalMessageCount = "total_message_count"
+    case hasMoreBefore = "has_more_before"
+    case oldestSequence = "oldest_sequence"
+    case newestSequence = "newest_sequence"
   }
 }
 
@@ -1481,7 +1531,7 @@ struct ServerRateLimitInfo: Codable {
 }
 
 /// Wrapper for arbitrary JSON values (used for MCP schemas/annotations)
-struct AnyCodable: Codable {
+nonisolated struct AnyCodable: Codable {
   let value: Any
 
   init(_ value: Any) {

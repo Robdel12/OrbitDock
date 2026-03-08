@@ -6,6 +6,24 @@ use orbitdock_protocol::{
 };
 use tokio::sync::{broadcast, oneshot};
 
+#[derive(Debug, Clone)]
+pub struct ConversationPage {
+    pub messages: Vec<Message>,
+    pub total_message_count: u64,
+    pub has_more_before: bool,
+    pub oldest_sequence: Option<u64>,
+    pub newest_sequence: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConversationBootstrap {
+    pub session: SessionState,
+    pub total_message_count: u64,
+    pub has_more_before: bool,
+    pub oldest_sequence: Option<u64>,
+    pub newest_sequence: Option<u64>,
+}
+
 /// A persistence operation that the actor executes on behalf of the caller.
 /// The actor already holds `persist_tx`, so callers don't need to pass it.
 pub enum PersistOp {
@@ -176,6 +194,15 @@ pub enum SessionCommand {
     },
     GetMessageCount {
         reply: oneshot::Sender<usize>,
+    },
+    GetConversationBootstrap {
+        limit: usize,
+        reply: oneshot::Sender<ConversationBootstrap>,
+    },
+    GetConversationPage {
+        before_sequence: Option<u64>,
+        limit: usize,
+        reply: oneshot::Sender<ConversationPage>,
     },
     /// Resolve the Nth user message from the end of the conversation.
     /// Returns the message ID if found.

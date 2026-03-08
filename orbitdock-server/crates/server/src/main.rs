@@ -1043,6 +1043,14 @@ async fn async_main(
         .route("/api/hook", post(hook_handler::hook_handler))
         .route("/api/sessions", get(http_api::list_sessions))
         .route("/api/sessions/{session_id}", get(http_api::get_session))
+        .route(
+            "/api/sessions/{session_id}/conversation",
+            get(http_api::get_conversation_bootstrap),
+        )
+        .route(
+            "/api/sessions/{session_id}/messages",
+            get(http_api::get_conversation_history),
+        )
         .route("/api/approvals", get(http_api::list_approvals_endpoint))
         .route(
             "/api/approvals/{approval_id}",

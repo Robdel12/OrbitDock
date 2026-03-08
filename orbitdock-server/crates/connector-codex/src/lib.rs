@@ -25,8 +25,8 @@ use codex_core::{AuthManager, CodexThread, SteerInputError, ThreadManager};
 use codex_protocol::config_types::{CollaborationMode, ModeKind, ReasoningSummary, Settings};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
-    AskForApproval, Event, EventMsg, FileChange, McpServerRefreshConfig, Op, ReviewDecision,
-    SandboxPolicy, SessionSource,
+    AskForApproval, CodexErrorInfo, Event, EventMsg, FileChange, McpServerRefreshConfig, Op,
+    ReviewDecision, SandboxPolicy, SessionSource, StreamErrorEvent,
 };
 use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
 use codex_protocol::user_input::UserInput;
@@ -544,7 +544,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: msg_id,
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::User,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::User,
                     content: e.message,
                     tool_name: None,
                     tool_input: None,
@@ -672,7 +673,8 @@ impl CodexConnector {
                     let message = orbitdock_protocol::Message {
                         id: event.id.clone(),
                         session_id: String::new(),
-                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                         content: e.message,
                         tool_name: None,
                         tool_input: None,
@@ -699,7 +701,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("thinking-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Thinking,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Thinking,
                     content: e.text,
                     tool_name: None,
                     tool_input: reasoning_trace_metadata_json("summary", "legacy", None, None),
@@ -762,7 +765,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: e.call_id.clone(),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: command_str.clone(),
                     tool_name: Some("Bash".to_string()),
                     tool_input,
@@ -886,7 +890,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: e.call_id.clone(),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content,
                     tool_name: Some("Edit".to_string()),
                     tool_input: Some(tool_input),
@@ -947,7 +952,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: call_id,
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: e.invocation.tool.clone(),
                     tool_name: Some(tool_name),
                     tool_input: input_str,
@@ -981,7 +987,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: e.call_id,
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: "Searching the web".to_string(),
                     tool_name: Some("websearch".to_string()),
                     tool_input: None,
@@ -1015,7 +1022,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: e.call_id,
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: path.clone(),
                     tool_name: Some("view_image".to_string()),
                     tool_input: serde_json::to_string(&json!({ "path": path })).ok(),
@@ -1039,7 +1047,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: call_id.clone(),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: tool.clone(),
                     tool_name: Some(tool),
                     tool_input: tool_input_with_arguments(
@@ -1106,7 +1115,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: e.call_id,
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: "Spawn agent".to_string(),
                     tool_name: Some("task".to_string()),
                     tool_input,
@@ -1156,7 +1166,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: e.call_id,
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: "Agent interaction".to_string(),
                     tool_name: Some("task".to_string()),
                     tool_input,
@@ -1219,7 +1230,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: e.call_id,
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: "Waiting for agents".to_string(),
                     tool_name: Some("task".to_string()),
                     tool_input,
@@ -1281,7 +1293,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: e.call_id,
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: "Close agent".to_string(),
                     tool_name: Some("task".to_string()),
                     tool_input,
@@ -1329,7 +1342,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: e.call_id,
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: "Resume agent".to_string(),
                     tool_name: Some("task".to_string()),
                     tool_input,
@@ -1454,7 +1468,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("ask-user-question-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: question_text
                         .clone()
                         .unwrap_or_else(|| "Question requested".to_string()),
@@ -1495,7 +1510,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("mcp-approval-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: question_text
                         .clone()
                         .unwrap_or_else(|| "MCP approval requested".to_string()),
@@ -1564,7 +1580,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("update-plan-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content,
                     tool_name: Some("update_plan".to_string()),
                     tool_input: serde_json::to_string(&e).ok(),
@@ -1598,7 +1615,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("warning-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                     content: e.message,
                     tool_name: None,
                     tool_input: None,
@@ -1622,7 +1640,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("model-reroute-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                     content: format!(
                         "Model rerouted from {} to {} ({})",
                         e.from_model, e.to_model, reason
@@ -1650,7 +1669,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("realtime-start-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                     content,
                     tool_name: None,
                     tool_input: None,
@@ -1670,7 +1690,8 @@ impl CodexConnector {
                     let message = orbitdock_protocol::Message {
                         id: format!("realtime-session-created-{}-{}", event.id, seq),
                         session_id: String::new(),
-                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                         content: format!("Realtime session created ({session_id})"),
                         tool_name: None,
                         tool_input: None,
@@ -1697,7 +1718,8 @@ impl CodexConnector {
                     let message = orbitdock_protocol::Message {
                         id: format!("realtime-session-updated-{}-{}", event.id, seq),
                         session_id: String::new(),
-                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                         content,
                         tool_name: None,
                         tool_input: None,
@@ -1718,7 +1740,8 @@ impl CodexConnector {
                     let message = orbitdock_protocol::Message {
                         id: format!("realtime-item-added-{}-{}", event.id, seq),
                         session_id: String::new(),
-                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                         content: format!(
                             "Realtime conversation item added\n\n{}",
                             truncate_for_display(&item_text, 500)
@@ -1742,7 +1765,8 @@ impl CodexConnector {
                     let message = orbitdock_protocol::Message {
                         id: format!("realtime-error-{}-{}", event.id, seq),
                         session_id: String::new(),
-                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                         content: format!("Realtime conversation error: {}", message_text),
                         tool_name: None,
                         tool_input: None,
@@ -1768,7 +1792,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("realtime-closed-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                     content,
                     tool_name: None,
                     tool_input: None,
@@ -1793,7 +1818,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("deprecation-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                     content,
                     tool_name: None,
                     tool_input: None,
@@ -1812,7 +1838,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("background-event-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                     content: e.message,
                     tool_name: None,
                     tool_input: None,
@@ -1845,28 +1872,33 @@ impl CodexConnector {
             }
 
             EventMsg::StreamError(e) => {
-                let details = e.additional_details.unwrap_or_default();
-                let content = if details.is_empty() {
-                    e.message
+                if !stream_error_should_surface_to_timeline(&e) {
+                    vec![]
                 } else {
-                    format!("{}\n\n{}", e.message, details)
-                };
-                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-                let message = orbitdock_protocol::Message {
-                    id: format!("stream-error-{}-{}", event.id, seq),
-                    session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Assistant,
-                    content,
-                    tool_name: None,
-                    tool_input: None,
-                    tool_output: None,
-                    is_error: true,
-                    is_in_progress: false,
-                    timestamp: iso_now(),
-                    duration_ms: None,
-                    images: vec![],
-                };
-                vec![ConnectorEvent::MessageCreated(message)]
+                    let details = e.additional_details.unwrap_or_default();
+                    let content = if details.is_empty() {
+                        e.message
+                    } else {
+                        format!("{}\n\n{}", e.message, details)
+                    };
+                    let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                    let message = orbitdock_protocol::Message {
+                        id: format!("stream-error-{}-{}", event.id, seq),
+                        session_id: String::new(),
+                        sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
+                        content,
+                        tool_name: None,
+                        tool_input: None,
+                        tool_output: None,
+                        is_error: true,
+                        is_in_progress: false,
+                        timestamp: iso_now(),
+                        duration_ms: None,
+                        images: vec![],
+                    };
+                    vec![ConnectorEvent::MessageCreated(message)]
+                }
             }
 
             EventMsg::AgentMessageContentDelta(e) => {
@@ -1878,7 +1910,8 @@ impl CodexConnector {
                         let message = orbitdock_protocol::Message {
                             id: msg_id.clone(),
                             session_id: String::new(),
-                            message_type: orbitdock_protocol::MessageType::Assistant,
+                            sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                             content: e.delta.clone(),
                             tool_name: None,
                             tool_input: None,
@@ -1930,7 +1963,8 @@ impl CodexConnector {
                         let message = orbitdock_protocol::Message {
                             id: msg_id.clone(),
                             session_id: String::new(),
-                            message_type: orbitdock_protocol::MessageType::Assistant,
+                            sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                             content: e.delta.clone(),
                             tool_name: None,
                             tool_input: None,
@@ -2051,7 +2085,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("reasoning-raw-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Thinking,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Thinking,
                     content: e.text,
                     tool_name: None,
                     tool_input: reasoning_trace_metadata_json("raw", "legacy", None, None),
@@ -2098,7 +2133,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("review-entered-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: "Enter review mode".to_string(),
                     tool_name: Some("task".to_string()),
                     tool_input: serde_json::to_string(&json!({
@@ -2125,7 +2161,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("review-exited-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Tool,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                     content: "Exit review mode".to_string(),
                     tool_name: Some("task".to_string()),
                     tool_input: serde_json::to_string(&json!({
@@ -2160,7 +2197,8 @@ impl CodexConnector {
                     let message = orbitdock_protocol::Message {
                         id: item.id,
                         session_id: String::new(),
-                        message_type: orbitdock_protocol::MessageType::Tool,
+                        sequence: None,
+                message_type: orbitdock_protocol::MessageType::Tool,
                         content: "Compacting context".to_string(),
                         tool_name: Some("compactcontext".to_string()),
                         tool_input: None,
@@ -2216,7 +2254,8 @@ impl CodexConnector {
                             let message = orbitdock_protocol::Message {
                                 id: message_id,
                                 session_id: String::new(),
-                                message_type: orbitdock_protocol::MessageType::Thinking,
+                                sequence: None,
+                message_type: orbitdock_protocol::MessageType::Thinking,
                                 content: summary,
                                 tool_name: None,
                                 tool_input: reasoning_trace_metadata_json(
@@ -2255,7 +2294,8 @@ impl CodexConnector {
                             let message = orbitdock_protocol::Message {
                                 id: message_id,
                                 session_id: String::new(),
-                                message_type: orbitdock_protocol::MessageType::Thinking,
+                                sequence: None,
+                message_type: orbitdock_protocol::MessageType::Thinking,
                                 content: raw,
                                 tool_name: None,
                                 tool_input: reasoning_trace_metadata_json(
@@ -2298,7 +2338,8 @@ impl CodexConnector {
                     let message = orbitdock_protocol::Message {
                         id: format!("raw-response-item-{}-{}", event.id, seq),
                         session_id: String::new(),
-                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                         content: "Received unsupported raw response item.".to_string(),
                         tool_name: None,
                         tool_input: None,
@@ -2406,7 +2447,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("custom-prompts-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                     content: lines.join("\n"),
                     tool_name: None,
                     tool_input: None,
@@ -2436,7 +2478,8 @@ impl CodexConnector {
                 let message = orbitdock_protocol::Message {
                     id: format!("history-entry-{}-{}", event.id, seq),
                     session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    sequence: None,
+                message_type: orbitdock_protocol::MessageType::Assistant,
                     content,
                     tool_name: None,
                     tool_input: None,
@@ -2631,6 +2674,7 @@ impl CodexConnector {
                 orbitdock_protocol::Message {
                     id: message_id,
                     session_id: String::new(),
+                    sequence: None,
                     message_type,
                     content,
                     tool_name: None,
@@ -3528,6 +3572,16 @@ fn agent_status_failed(status: &codex_protocol::protocol::AgentStatus) -> bool {
     )
 }
 
+fn stream_error_should_surface_to_timeline(event: &StreamErrorEvent) -> bool {
+    // Codex uses StreamError for retryable response-stream disconnects. Those
+    // are already logged upstream and retried automatically, so rendering them
+    // as conversation errors is misleading noise.
+    !matches!(
+        event.codex_error_info,
+        Some(CodexErrorInfo::ResponseStreamDisconnected { .. })
+    )
+}
+
 /// Get current time as ISO 8601 string
 fn iso_now() -> String {
     let secs = SystemTime::now()
@@ -3588,9 +3642,11 @@ mod tests {
     use super::{
         collaboration_mode_from_permission_mode, model_rejects_reasoning_summary,
         parse_reasoning_summary, reasoning_summary_for_model, should_disable_reasoning_summary,
+        stream_error_should_surface_to_timeline,
     };
     use codex_protocol::config_types::{ModeKind, ReasoningSummary};
     use codex_protocol::openai_models::ReasoningEffort;
+    use codex_protocol::protocol::{CodexErrorInfo, StreamErrorEvent};
 
     #[test]
     fn collaboration_mode_maps_plan() {
@@ -3703,5 +3759,31 @@ mod tests {
             reasoning_summary_for_model(Some("gpt-5.3-codex"), ReasoningSummary::Concise),
             ReasoningSummary::Concise
         );
+    }
+
+    #[test]
+    fn retryable_response_stream_disconnects_do_not_surface_to_timeline() {
+        let event = StreamErrorEvent {
+            message: "Reconnecting... 2/5".to_string(),
+            codex_error_info: Some(CodexErrorInfo::ResponseStreamDisconnected {
+                http_status_code: None,
+            }),
+            additional_details: Some(
+                "stream disconnected before completion: WebSocket protocol error".to_string(),
+            ),
+        };
+
+        assert!(!stream_error_should_surface_to_timeline(&event));
+    }
+
+    #[test]
+    fn non_retryable_stream_errors_still_surface_to_timeline() {
+        let event = StreamErrorEvent {
+            message: "stream failed".to_string(),
+            codex_error_info: Some(CodexErrorInfo::Other),
+            additional_details: None,
+        };
+
+        assert!(stream_error_should_surface_to_timeline(&event));
     }
 }

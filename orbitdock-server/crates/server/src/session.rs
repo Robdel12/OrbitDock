@@ -15,6 +15,7 @@ use tracing::info;
 
 use orbitdock_protocol::ServerMessage;
 
+use crate::session_command::{ConversationBootstrap, ConversationPage};
 use crate::transition::{approval_preview, TransitionState, WorkPhase};
 
 /// Events that matter for the session list sidebar (status, mode, name changes).
@@ -385,6 +386,79 @@ pub struct SessionHandle {
 }
 
 impl SessionHandle {
+    fn next_message_sequence(&self) -> u64 {
+        self.messages
+            .last()
+            .and_then(|message| message.sequence)
+            .map(|sequence| sequence + 1)
+            .unwrap_or(0)
+    }
+
+    fn normalize_message_sequences(messages: &mut [Message]) {
+        let mut next_sequence = 0_u64;
+        for message in messages {
+            let sequence = message.sequence.unwrap_or(next_sequence);
+            message.sequence = Some(sequence);
+            next_sequence = sequence + 1;
+        }
+    }
+
+    pub fn conversation_page(
+        &self,
+        before_sequence: Option<u64>,
+        limit: usize,
+    ) -> ConversationPage {
+        if self.messages.is_empty() || limit == 0 {
+            return ConversationPage {
+                messages: vec![],
+                total_message_count: self.messages.len() as u64,
+                has_more_before: false,
+                oldest_sequence: None,
+                newest_sequence: None,
+            };
+        }
+
+        let upper_bound = before_sequence.unwrap_or(u64::MAX);
+        let mut page: Vec<Message> = self
+            .messages
+            .iter()
+            .filter(|message| message.sequence.unwrap_or(u64::MAX) < upper_bound)
+            .rev()
+            .take(limit)
+            .cloned()
+            .collect();
+        page.reverse();
+
+        let oldest_sequence = page.first().and_then(|message| message.sequence);
+        let newest_sequence = page.last().and_then(|message| message.sequence);
+        let has_more_before = oldest_sequence.is_some_and(|sequence| sequence > 0);
+
+        ConversationPage {
+            messages: page,
+            total_message_count: self.messages.len() as u64,
+            has_more_before,
+            oldest_sequence,
+            newest_sequence,
+        }
+    }
+
+    pub fn conversation_bootstrap(&self, limit: usize) -> ConversationBootstrap {
+        let page = self.conversation_page(None, limit);
+        let mut session = self.state();
+        session.messages = page.messages.clone();
+        session.total_message_count = Some(page.total_message_count);
+        session.has_more_before = Some(page.has_more_before);
+        session.oldest_sequence = page.oldest_sequence;
+        session.newest_sequence = page.newest_sequence;
+        ConversationBootstrap {
+            session,
+            total_message_count: page.total_message_count,
+            has_more_before: page.has_more_before,
+            oldest_sequence: page.oldest_sequence,
+            newest_sequence: page.newest_sequence,
+        }
+    }
+
     /// Create a new session handle
     pub fn new(id: String, provider: Provider, project_path: String) -> Self {
         let now = chrono_now();
@@ -711,6 +785,10 @@ impl SessionHandle {
             status: self.status,
             work_status: self.work_status,
             messages: self.messages.clone(),
+            total_message_count: Some(self.messages.len() as u64),
+            has_more_before: Some(false),
+            oldest_sequence: self.messages.first().and_then(|message| message.sequence),
+            newest_sequence: self.messages.last().and_then(|message| message.sequence),
             pending_approval: self.pending_approval.clone(),
             permission_mode: self.permission_mode.clone(),
             pending_tool_name: self.pending_tool_name.clone(),
@@ -961,15 +1039,36 @@ impl SessionHandle {
     }
 
     /// Add a message
-    pub fn add_message(&mut self, message: Message) {
+    pub fn add_message(&mut self, mut message: Message) -> Message {
+        if message.sequence.is_none() {
+            message.sequence = Some(self.next_message_sequence());
+        }
         if !matches!(
             message.message_type,
             orbitdock_protocol::MessageType::User | orbitdock_protocol::MessageType::Steer
         ) {
             self.unread_count += 1;
         }
-        self.messages.push(message);
+        self.messages.push(message.clone());
         self.last_activity_at = Some(chrono_now());
+        message
+    }
+
+    /// Increment unread for an already-applied message append in the transition path.
+    ///
+    /// `dispatch_transition_input` applies the connector state machine result directly,
+    /// so it cannot call `add_message` without duplicating the message in memory.
+    /// This keeps the in-memory unread count aligned with the persisted count.
+    pub fn note_transition_message_append(&mut self, message: &Message) -> bool {
+        if matches!(
+            message.message_type,
+            orbitdock_protocol::MessageType::User | orbitdock_protocol::MessageType::Steer
+        ) {
+            return false;
+        }
+
+        self.unread_count += 1;
+        true
     }
 
     /// Mark the session as fully read. Returns the previous unread count.
@@ -985,7 +1084,8 @@ impl SessionHandle {
     }
 
     /// Replace all messages (used for snapshot hydration from transcript fallback)
-    pub fn replace_messages(&mut self, messages: Vec<Message>) {
+    pub fn replace_messages(&mut self, mut messages: Vec<Message>) {
+        Self::normalize_message_sequences(&mut messages);
         self.messages = messages;
     }
 

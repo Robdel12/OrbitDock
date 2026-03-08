@@ -77,6 +77,7 @@ pub(crate) async fn handle(
             let shell_msg = orbitdock_protocol::Message {
                 id: rid.clone(),
                 session_id: sid.clone(),
+                sequence: None,
                 message_type: MessageType::Shell,
                 content: cmd_clone.clone(),
                 tool_name: None,

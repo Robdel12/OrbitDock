@@ -14,7 +14,7 @@ import os.log
 private let logger = Logger(subsystem: "com.orbitdock", category: "server-connection")
 
 /// Connection status
-enum ConnectionStatus: Equatable {
+enum ConnectionStatus: Equatable, Hashable {
   case disconnected
   case connecting
   case connected
@@ -81,6 +81,9 @@ enum ServerRequestError: LocalizedError {
 private struct SessionSnapshotHTTPResponse: Decodable {
   let session: ServerSessionState
 }
+
+private typealias ConversationBootstrapHTTPResponse = ServerConversationBootstrap
+private typealias ConversationHistoryHTTPResponse = ServerConversationHistoryPage
 
 private struct SessionsListHTTPResponse: Decodable {
   let sessions: [ServerSessionSummary]
@@ -1207,6 +1210,34 @@ class ServerConnection: ObservableObject {
     let escapedSessionId = encodePathComponent(sessionId)
     let response: SessionSnapshotHTTPResponse = try await fetchAPIJSON(path: "/api/sessions/\(escapedSessionId)")
     return response.session
+  }
+
+  /// Fetch the newest conversation page plus session metadata over HTTP.
+  func fetchConversationBootstrap(_ sessionId: String, limit: Int = 50) async throws -> ServerConversationBootstrap {
+    let escapedSessionId = encodePathComponent(sessionId)
+    let response: ConversationBootstrapHTTPResponse = try await fetchAPIJSON(
+      path: "/api/sessions/\(escapedSessionId)/conversation",
+      queryItems: [URLQueryItem(name: "limit", value: String(limit))]
+    )
+    return response
+  }
+
+  /// Fetch an older conversation page before the provided sequence.
+  func fetchConversationHistory(
+    _ sessionId: String,
+    beforeSequence: UInt64?,
+    limit: Int = 50
+  ) async throws -> ServerConversationHistoryPage {
+    let escapedSessionId = encodePathComponent(sessionId)
+    var queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+    if let beforeSequence {
+      queryItems.append(URLQueryItem(name: "before_sequence", value: String(beforeSequence)))
+    }
+    let response: ConversationHistoryHTTPResponse = try await fetchAPIJSON(
+      path: "/api/sessions/\(escapedSessionId)/messages",
+      queryItems: queryItems
+    )
+    return response
   }
 
   /// Fetch permission rules for a session (real config, not ephemeral approvals).

@@ -1049,7 +1049,6 @@ pub(crate) async fn handle(
                                     Some(session_id.clone()),
                                 );
                                 send_replay_or_snapshot_fallback(
-                                    &new_actor,
                                     client_tx,
                                     &session_id,
                                     events,

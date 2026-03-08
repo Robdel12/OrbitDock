@@ -84,6 +84,8 @@ pub enum ShellExecutionOutcome {
 pub struct Message {
     pub id: String,
     pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<u64>,
     pub message_type: MessageType,
     pub content: String,
     pub tool_name: Option<String>,
@@ -435,6 +437,14 @@ pub struct SessionState {
     pub status: SessionStatus,
     pub work_status: WorkStatus,
     pub messages: Vec<Message>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_message_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_more_before: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_sequence: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub newest_sequence: Option<u64>,
     pub pending_approval: Option<ApprovalRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,

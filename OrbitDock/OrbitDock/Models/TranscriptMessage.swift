@@ -9,7 +9,7 @@ import Foundation
 
 /// Lightweight image reference — stores only path/URI + metadata, never raw bytes.
 /// Actual Data/NSImage loading is deferred to `ImageCache`.
-struct MessageImage: Identifiable, Hashable {
+nonisolated struct MessageImage: Identifiable, Hashable {
   /// How the image is referenced
   enum Source: Hashable {
     case filePath(String)
@@ -22,8 +22,8 @@ struct MessageImage: Identifiable, Hashable {
   /// Pre-computed byte count for display (avoids loading data just to show size)
   let byteCount: Int
 
-  init(source: Source, mimeType: String, byteCount: Int) {
-    self.id = UUID().uuidString
+  init(id: String = UUID().uuidString, source: Source, mimeType: String, byteCount: Int) {
+    self.id = id
     self.source = source
     self.mimeType = mimeType
     self.byteCount = byteCount
@@ -32,8 +32,9 @@ struct MessageImage: Identifiable, Hashable {
 
 // MARK: - Transcript Message
 
-struct TranscriptMessage: Identifiable, Hashable {
+nonisolated struct TranscriptMessage: Identifiable, Hashable {
   let id: String
+  let sequence: UInt64?
   let type: MessageType
   let content: String
   let timestamp: Date
@@ -94,6 +95,7 @@ struct TranscriptMessage: Identifiable, Hashable {
 
   init(
     id: String,
+    sequence: UInt64? = nil,
     type: MessageType,
     content: String,
     timestamp: Date,
@@ -110,6 +112,7 @@ struct TranscriptMessage: Identifiable, Hashable {
     thinking: String? = nil
   ) {
     self.id = id
+    self.sequence = sequence
     self.type = type
     self.content = content
     self.timestamp = timestamp
@@ -133,6 +136,7 @@ struct TranscriptMessage: Identifiable, Hashable {
   /// Hashable conformance - exclude toolInput since [String: Any] isn't Hashable
   func hash(into hasher: inout Hasher) {
     hasher.combine(id)
+    hasher.combine(sequence)
     hasher.combine(type)
     hasher.combine(content)
     hasher.combine(timestamp)
@@ -150,6 +154,7 @@ struct TranscriptMessage: Identifiable, Hashable {
 
   static func == (lhs: TranscriptMessage, rhs: TranscriptMessage) -> Bool {
     lhs.id == rhs.id
+      && lhs.sequence == rhs.sequence
       && lhs.content == rhs.content
       && lhs.toolOutput == rhs.toolOutput
       && lhs.isError == rhs.isError

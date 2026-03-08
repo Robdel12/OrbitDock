@@ -648,6 +648,7 @@ impl WatcherRuntime {
         let message = Message {
             id: msg_id,
             session_id: session_id.to_string(),
+            sequence: Some(next_seq),
             message_type,
             content,
             tool_name: None,
@@ -688,6 +689,7 @@ impl WatcherRuntime {
         let message = Message {
             id: format!("rollout-tool-{call_id}"),
             session_id: session_id.to_string(),
+            sequence: None,
             message_type: MessageType::Tool,
             content: if command.trim().is_empty() {
                 "Shell".to_string()

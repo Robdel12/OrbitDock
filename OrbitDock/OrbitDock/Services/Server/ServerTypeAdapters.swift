@@ -216,6 +216,7 @@ extension ServerMessage {
 
     var msg = TranscriptMessage(
       id: id,
+      sequence: sequence,
       type: msgType,
       content: content,
       timestamp: parseServerTimestamp(timestamp) ?? Date(),

@@ -600,6 +600,7 @@ pub fn transition(
             let error_msg = Message {
                 id: format!("error-{}", uuid::Uuid::new_v4()),
                 session_id: sid.clone(),
+                sequence: None,
                 message_type: MessageType::Assistant,
                 content: msg,
                 tool_name: None,
@@ -1157,6 +1158,7 @@ pub fn transition(
             let compact_msg = Message {
                 id: format!("context-compacted-{}", uuid::Uuid::new_v4()),
                 session_id: sid.clone(),
+                sequence: None,
                 message_type: MessageType::Assistant,
                 content: "Context compacted to keep this session within the model context window."
                     .to_string(),
@@ -2472,6 +2474,7 @@ mod tests {
         Message {
             id: format!("msg-{}", content.len()),
             session_id: String::new(),
+            sequence: None,
             message_type: msg_type,
             content: content.to_string(),
             tool_name: None,
@@ -3281,6 +3284,7 @@ mod tests {
         Message {
             id: id.to_string(),
             session_id: String::new(),
+            sequence: None,
             message_type: MessageType::Tool,
             content: String::new(),
             tool_name: Some("Bash".to_string()),

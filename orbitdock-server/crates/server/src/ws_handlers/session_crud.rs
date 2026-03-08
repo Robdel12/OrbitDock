@@ -1238,6 +1238,7 @@ mod tests {
         Message {
             id: id.to_string(),
             session_id: "source".to_string(),
+            sequence: None,
             message_type,
             content: content.to_string(),
             tool_name: None,

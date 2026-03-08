@@ -27,6 +27,11 @@ final class SessionObservable {
   var messages: [TranscriptMessage] = []
   private(set) var messagesRevision: Int = 0
   private(set) var lastMessageMutation: ConversationMessageMutation?
+  var totalMessageCount: Int = 0
+  var oldestLoadedSequence: UInt64?
+  var newestLoadedSequence: UInt64?
+  var hasMoreHistoryBefore: Bool = false
+  var isLoadingOlderMessages: Bool = false
 
   // Approval
   var pendingApproval: ServerApprovalRequest?
@@ -65,6 +70,7 @@ final class SessionObservable {
 
   /// Lifecycle
   var hasReceivedSnapshot: Bool = false
+  var hasLoadedCachedConversation: Bool = false
 
   // Operation flags
   var undoInProgress: Bool = false
@@ -190,8 +196,19 @@ final class SessionObservable {
   }
 
   var displayName: String {
-    let raw = customName ?? summary ?? firstPrompt ?? projectName ?? projectPath.components(separatedBy: "/").last ?? "Unknown"
-    return raw.strippingXMLTags()
+    [
+      customName,
+      summary,
+      firstPrompt,
+      projectName,
+      projectPath.components(separatedBy: "/").last,
+    ]
+    .compactMap { value -> String? in
+      guard let value else { return nil }
+      let cleaned = value.strippingXMLTags().trimmingCharacters(in: .whitespacesAndNewlines)
+      return cleaned.isEmpty ? nil : cleaned
+    }
+    .first ?? "Unknown"
   }
 
   var scopedID: String {
@@ -251,6 +268,10 @@ final class SessionObservable {
 
   var hasTokenUsage: Bool {
     (inputTokens ?? 0) > 0 || (outputTokens ?? 0) > 0 || (cachedTokens ?? 0) > 0
+  }
+
+  var hasConversationSeed: Bool {
+    hasReceivedSnapshot || hasLoadedCachedConversation
   }
 
   func bumpMessagesRevision(_ kind: ConversationMessageMutationKind = .replaceAll) {
@@ -345,7 +366,13 @@ final class SessionObservable {
   /// Keep lightweight identity/config fields so list UI remains stable.
   func clearConversationPayloadsForCaching() {
     messages = []
+    totalMessageCount = 0
+    oldestLoadedSequence = nil
+    newestLoadedSequence = nil
+    hasMoreHistoryBefore = false
+    isLoadingOlderMessages = false
     hasReceivedSnapshot = false
+    hasLoadedCachedConversation = false
     bumpMessagesRevision()
     turnDiffs = []
     diff = nil
