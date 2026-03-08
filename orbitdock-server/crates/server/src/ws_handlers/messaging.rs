@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
 
-use orbitdock_protocol::{ClientMessage, ServerMessage, WorkStatus};
+use orbitdock_protocol::{ClientMessage, ImageInput, MentionInput, ServerMessage, SkillInput, WorkStatus};
 
 use crate::claude_session::ClaudeAction;
 use crate::codex_session::CodexAction;
@@ -17,6 +17,279 @@ use crate::session_naming::name_from_first_prompt;
 use crate::session_utils::{iso_timestamp, mark_session_working_after_send};
 use crate::state::SessionRegistry;
 use crate::websocket::{send_json, OutboundMessage};
+
+pub(crate) enum DispatchMessageError {
+    NotFound,
+}
+
+pub(crate) async fn dispatch_send_message(
+    state: &Arc<SessionRegistry>,
+    session_id: String,
+    content: String,
+    model: Option<String>,
+    effort: Option<String>,
+    skills: Vec<SkillInput>,
+    images: Vec<ImageInput>,
+    mentions: Vec<MentionInput>,
+    message_id: String,
+) -> Result<(), DispatchMessageError> {
+    let codex_tx = state.get_codex_action_tx(&session_id);
+    let claude_tx = state.get_claude_action_tx(&session_id);
+    let Some(actor) = state.get_session(&session_id) else {
+        return Err(DispatchMessageError::NotFound);
+    };
+
+    if codex_tx.is_none() && claude_tx.is_none() {
+        return Err(DispatchMessageError::NotFound);
+    }
+
+    let session_is_claude =
+        actor.snapshot().provider == orbitdock_protocol::Provider::Claude;
+    let first_prompt = name_from_first_prompt(&content);
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::CodexPromptIncrement {
+            id: session_id.clone(),
+            first_prompt: first_prompt.clone(),
+        })
+        .await;
+
+    if let Some(prompt) = first_prompt {
+        let changes = orbitdock_protocol::StateChanges {
+            first_prompt: Some(Some(prompt.clone())),
+            ..Default::default()
+        };
+        let _ = actor
+            .send(SessionCommand::ApplyDelta {
+                changes,
+                persist_op: None,
+            })
+            .await;
+
+        if state.naming_guard().try_claim(&session_id) {
+            crate::ai_naming::spawn_naming_task(
+                session_id.clone(),
+                prompt,
+                actor.clone(),
+                state.persist().clone(),
+                state.list_tx(),
+            );
+        }
+    }
+
+    let action_model = normalize_model_override(model.clone());
+    let action_effort = normalize_non_empty(effort.clone());
+    let action_effort_for_connector = if session_is_claude {
+        None
+    } else {
+        action_effort.clone()
+    };
+
+    if let Some(ref model_name) = action_model {
+        let _ = state
+            .persist()
+            .send(PersistCommand::ModelUpdate {
+                session_id: session_id.clone(),
+                model: model_name.clone(),
+            })
+            .await;
+        let changes = orbitdock_protocol::StateChanges {
+            model: Some(Some(model_name.clone())),
+            ..Default::default()
+        };
+        let _ = actor
+            .send(SessionCommand::ApplyDelta {
+                changes,
+                persist_op: None,
+            })
+            .await;
+    }
+
+    if let Some(ref effort_name) = action_effort {
+        if session_is_claude {
+            debug!(
+                component = "session",
+                event = "session.message.effort_ignored_for_claude",
+                session_id = %session_id,
+                effort = %effort_name,
+                "Claude sessions do not support effort updates after create"
+            );
+        } else {
+            let _ = state
+                .persist()
+                .send(PersistCommand::EffortUpdate {
+                    session_id: session_id.clone(),
+                    effort: Some(effort_name.clone()),
+                })
+                .await;
+            let changes = orbitdock_protocol::StateChanges {
+                effort: Some(Some(effort_name.clone())),
+                ..Default::default()
+            };
+            let _ = actor
+                .send(SessionCommand::ApplyDelta {
+                    changes,
+                    persist_op: None,
+                })
+                .await;
+        }
+    }
+
+    let ts_millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let persisted_images = crate::images::materialize_images_for_message(&session_id, &images);
+    let connector_images = crate::images::resolve_images_for_connector(&session_id, &persisted_images);
+    let user_msg = orbitdock_protocol::Message {
+        id: message_id,
+        session_id: session_id.clone(),
+        sequence: None,
+        message_type: orbitdock_protocol::MessageType::User,
+        content: content.clone(),
+        tool_name: None,
+        tool_input: None,
+        tool_output: None,
+        is_error: false,
+        is_in_progress: false,
+        timestamp: iso_timestamp(ts_millis),
+        duration_ms: None,
+        images: persisted_images.clone(),
+    };
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::MessageAppend {
+            session_id: session_id.clone(),
+            message: user_msg.clone(),
+        })
+        .await;
+    actor
+        .send(SessionCommand::AddMessageAndBroadcast { message: user_msg })
+        .await;
+
+    if let Some(tx) = codex_tx {
+        if tx
+            .send(CodexAction::SendMessage {
+                content,
+                model: action_model,
+                effort: action_effort_for_connector,
+                skills,
+                images: connector_images,
+                mentions,
+            })
+            .await
+            .is_ok()
+        {
+            mark_session_working_after_send(state, &session_id).await;
+        } else {
+            warn!(
+                component = "session",
+                event = "session.message.action_channel_closed",
+                session_id = %session_id,
+                provider = "codex",
+                "Codex action channel closed while sending message"
+            );
+        }
+    } else if let Some(tx) = claude_tx {
+        if tx
+            .send(ClaudeAction::SendMessage {
+                content,
+                model: action_model,
+                effort: action_effort_for_connector,
+                images: connector_images,
+            })
+            .await
+            .is_ok()
+        {
+            mark_session_working_after_send(state, &session_id).await;
+        } else {
+            warn!(
+                component = "session",
+                event = "session.message.action_channel_closed",
+                session_id = %session_id,
+                provider = "claude",
+                "Claude action channel closed while sending message"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn dispatch_steer_turn(
+    state: &Arc<SessionRegistry>,
+    session_id: String,
+    content: String,
+    images: Vec<ImageInput>,
+    mentions: Vec<MentionInput>,
+    message_id: String,
+) -> Result<(), DispatchMessageError> {
+    let codex_tx = state.get_codex_action_tx(&session_id);
+    let claude_tx = state.get_claude_action_tx(&session_id);
+    let Some(actor) = state.get_session(&session_id) else {
+        return Err(DispatchMessageError::NotFound);
+    };
+
+    if codex_tx.is_none() && claude_tx.is_none() {
+        return Err(DispatchMessageError::NotFound);
+    }
+
+    let ts_millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let persisted_images = crate::images::materialize_images_for_message(&session_id, &images);
+    let connector_images = crate::images::resolve_images_for_connector(&session_id, &persisted_images);
+    let steer_msg = orbitdock_protocol::Message {
+        id: message_id.clone(),
+        session_id: session_id.clone(),
+        sequence: None,
+        message_type: orbitdock_protocol::MessageType::Steer,
+        content: content.clone(),
+        tool_name: None,
+        tool_input: None,
+        tool_output: None,
+        is_error: false,
+        is_in_progress: false,
+        timestamp: iso_timestamp(ts_millis),
+        duration_ms: None,
+        images: persisted_images.clone(),
+    };
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::MessageAppend {
+            session_id: session_id.clone(),
+            message: steer_msg.clone(),
+        })
+        .await;
+    actor
+        .send(SessionCommand::AddMessageAndBroadcast { message: steer_msg })
+        .await;
+
+    if let Some(tx) = codex_tx {
+        let _ = tx
+            .send(CodexAction::SteerTurn {
+                content,
+                message_id,
+                images: connector_images,
+                mentions,
+            })
+            .await;
+    } else if let Some(tx) = claude_tx {
+        let _ = tx
+            .send(ClaudeAction::SteerTurn {
+                content,
+                message_id,
+                images: connector_images,
+            })
+            .await;
+    }
+
+    Ok(())
+}
 
 pub(crate) async fn handle(
     msg: ClientMessage,
@@ -47,205 +320,26 @@ pub(crate) async fn handle(
                 mentions_count = mentions.len(),
                 "Sending message to session"
             );
+            let ts_millis = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let message_id = format!("user-ws-{}-{}", ts_millis, conn_id);
 
-            // Try Codex action channel first, then Claude
-            let codex_tx = state.get_codex_action_tx(&session_id);
-            let claude_tx = state.get_claude_action_tx(&session_id);
-
-            if codex_tx.is_some() || claude_tx.is_some() {
-                let session_is_claude = state.get_session(&session_id).is_some_and(|actor| {
-                    actor.snapshot().provider == orbitdock_protocol::Provider::Claude
-                });
-
-                let first_prompt = name_from_first_prompt(&content);
-
-                let _ = state
-                    .persist()
-                    .send(PersistCommand::CodexPromptIncrement {
-                        id: session_id.clone(),
-                        first_prompt: first_prompt.clone(),
-                    })
-                    .await;
-
-                // Broadcast first_prompt delta and trigger AI naming
-                if let Some(prompt) = first_prompt {
-                    if let Some(actor) = state.get_session(&session_id) {
-                        let changes = orbitdock_protocol::StateChanges {
-                            first_prompt: Some(Some(prompt.clone())),
-                            ..Default::default()
-                        };
-                        let _ = actor
-                            .send(SessionCommand::ApplyDelta {
-                                changes,
-                                persist_op: None,
-                            })
-                            .await;
-
-                        // Trigger AI naming (fire-and-forget, deduped)
-                        if state.naming_guard().try_claim(&session_id) {
-                            crate::ai_naming::spawn_naming_task(
-                                session_id.clone(),
-                                prompt,
-                                actor,
-                                state.persist().clone(),
-                                state.list_tx(),
-                            );
-                        }
-                    }
-                }
-
-                let action_model = normalize_model_override(model.clone());
-                let action_effort = normalize_non_empty(effort.clone());
-                let action_effort_for_connector = if session_is_claude {
-                    None
-                } else {
-                    action_effort.clone()
-                };
-
-                // Persist model override and broadcast delta only when explicitly provided.
-                if let Some(actor) = state.get_session(&session_id) {
-                    if let Some(ref model_name) = action_model {
-                        let _ = state
-                            .persist()
-                            .send(PersistCommand::ModelUpdate {
-                                session_id: session_id.clone(),
-                                model: model_name.clone(),
-                            })
-                            .await;
-                        let changes = orbitdock_protocol::StateChanges {
-                            model: Some(Some(model_name.clone())),
-                            ..Default::default()
-                        };
-                        let _ = actor
-                            .send(SessionCommand::ApplyDelta {
-                                changes,
-                                persist_op: None,
-                            })
-                            .await;
-                    }
-                }
-
-                // Persist effort override and broadcast delta only when explicitly provided,
-                // and only for providers that support mid-session effort changes.
-                if let Some(actor) = state.get_session(&session_id) {
-                    if let Some(ref effort_name) = action_effort {
-                        if session_is_claude {
-                            debug!(
-                                component = "session",
-                                event = "session.message.effort_ignored_for_claude",
-                                connection_id = conn_id,
-                                session_id = %session_id,
-                                effort = %effort_name,
-                                "Claude sessions do not support effort updates after create"
-                            );
-                        } else {
-                            let _ = state
-                                .persist()
-                                .send(PersistCommand::EffortUpdate {
-                                    session_id: session_id.clone(),
-                                    effort: Some(effort_name.clone()),
-                                })
-                                .await;
-                            let changes = orbitdock_protocol::StateChanges {
-                                effort: Some(Some(effort_name.clone())),
-                                ..Default::default()
-                            };
-                            let _ = actor
-                                .send(SessionCommand::ApplyDelta {
-                                    changes,
-                                    persist_op: None,
-                                })
-                                .await;
-                        }
-                    }
-                }
-
-                // Persist user message immediately
-                let ts_millis = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis();
-                let msg_id = format!("user-ws-{}-{}", ts_millis, conn_id);
-                // Keep client message payload portable; only connector dispatch needs path images.
-                let connector_images =
-                    crate::images::extract_images_to_disk(&images, &session_id, &msg_id);
-                let user_msg = orbitdock_protocol::Message {
-                    id: msg_id,
-                    session_id: session_id.clone(),
-                    sequence: None,
-                    message_type: orbitdock_protocol::MessageType::User,
-                    content: content.clone(),
-                    tool_name: None,
-                    tool_input: None,
-                    tool_output: None,
-                    is_error: false,
-                    is_in_progress: false,
-                    timestamp: iso_timestamp(ts_millis),
-                    duration_ms: None,
-                    images: images.clone(),
-                };
-
-                if let Some(actor) = state.get_session(&session_id) {
-                    let _ = state
-                        .persist()
-                        .send(PersistCommand::MessageAppend {
-                            session_id: session_id.clone(),
-                            message: user_msg.clone(),
-                        })
-                        .await;
-                    actor
-                        .send(SessionCommand::AddMessageAndBroadcast { message: user_msg })
-                        .await;
-                }
-
-                if let Some(tx) = codex_tx {
-                    if tx
-                        .send(CodexAction::SendMessage {
-                            content,
-                            model: action_model,
-                            effort: action_effort_for_connector,
-                            skills,
-                            images: connector_images.clone(),
-                            mentions,
-                        })
-                        .await
-                        .is_ok()
-                    {
-                        mark_session_working_after_send(state, &session_id).await;
-                    } else {
-                        warn!(
-                            component = "session",
-                            event = "session.message.action_channel_closed",
-                            connection_id = conn_id,
-                            session_id = %session_id,
-                            provider = "codex",
-                            "Codex action channel closed while sending message"
-                        );
-                    }
-                } else if let Some(tx) = claude_tx {
-                    if tx
-                        .send(ClaudeAction::SendMessage {
-                            content,
-                            model: action_model,
-                            effort: action_effort_for_connector,
-                            images: connector_images,
-                        })
-                        .await
-                        .is_ok()
-                    {
-                        mark_session_working_after_send(state, &session_id).await;
-                    } else {
-                        warn!(
-                            component = "session",
-                            event = "session.message.action_channel_closed",
-                            connection_id = conn_id,
-                            session_id = %session_id,
-                            provider = "claude",
-                            "Claude action channel closed while sending message"
-                        );
-                    }
-                }
-            } else {
+            if dispatch_send_message(
+                state,
+                session_id.clone(),
+                content,
+                model,
+                effort,
+                skills,
+                images,
+                mentions,
+                message_id,
+            )
+            .await
+            .is_err()
+            {
                 warn!(
                     component = "session",
                     event = "session.message.missing_action_channel",
@@ -284,68 +378,23 @@ pub(crate) async fn handle(
                 mentions_count = mentions.len(),
                 "Steering active turn"
             );
+            let ts_millis = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let message_id = format!("steer-ws-{}-{}", ts_millis, conn_id);
 
-            // Try Codex action channel first, then Claude
-            let codex_tx = state.get_codex_action_tx(&session_id);
-            let claude_tx = state.get_claude_action_tx(&session_id);
-
-            if codex_tx.is_some() || claude_tx.is_some() {
-                // Persist steer message so it appears in conversation
-                let ts_millis = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis();
-                let steer_msg_id = format!("steer-ws-{}-{}", ts_millis, conn_id);
-                let connector_images =
-                    crate::images::extract_images_to_disk(&images, &session_id, &steer_msg_id);
-                let steer_msg = orbitdock_protocol::Message {
-                    id: steer_msg_id.clone(),
-                    session_id: session_id.clone(),
-                    sequence: None,
-                    message_type: orbitdock_protocol::MessageType::Steer,
-                    content: content.clone(),
-                    tool_name: None,
-                    tool_input: None,
-                    tool_output: None,
-                    is_error: false,
-                    is_in_progress: false,
-                    timestamp: iso_timestamp(ts_millis),
-                    duration_ms: None,
-                    images: images.clone(),
-                };
-
-                if let Some(actor) = state.get_session(&session_id) {
-                    let _ = state
-                        .persist()
-                        .send(PersistCommand::MessageAppend {
-                            session_id: session_id.clone(),
-                            message: steer_msg.clone(),
-                        })
-                        .await;
-                    actor
-                        .send(SessionCommand::AddMessageAndBroadcast { message: steer_msg })
-                        .await;
-                }
-
-                if let Some(tx) = codex_tx {
-                    let _ = tx
-                        .send(CodexAction::SteerTurn {
-                            content,
-                            message_id: steer_msg_id,
-                            images: connector_images.clone(),
-                            mentions,
-                        })
-                        .await;
-                } else if let Some(tx) = claude_tx {
-                    let _ = tx
-                        .send(ClaudeAction::SteerTurn {
-                            content,
-                            message_id: steer_msg_id,
-                            images: connector_images,
-                        })
-                        .await;
-                }
-            } else {
+            if dispatch_steer_turn(
+                state,
+                session_id.clone(),
+                content,
+                images,
+                mentions,
+                message_id,
+            )
+            .await
+            .is_err()
+            {
                 send_json(
                     client_tx,
                     ServerMessage::Error {

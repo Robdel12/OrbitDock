@@ -194,6 +194,8 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       private var lastAppliedFocusRequestSignal: Int
       private var lastAppliedBlurRequestSignal: Int
       private var lastAppliedCursorSignal: Int
+      private var pendingMeasuredHeight: CGFloat?
+      private var measuredHeightPublishTask: Task<Void, Never>?
 
       init(parent: ComposerTextAreaIOS) {
         self.parent = parent
@@ -279,11 +281,25 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         let shouldScroll = fittingSize.height > maxHeight + 0.5
 
         if abs(parent.measuredHeight - clamped) > 0.5 {
-          parent.measuredHeight = clamped
+          scheduleMeasuredHeightUpdate(clamped)
         }
 
         if textView.isScrollEnabled != shouldScroll {
           textView.isScrollEnabled = shouldScroll
+        }
+      }
+
+      private func scheduleMeasuredHeightUpdate(_ height: CGFloat) {
+        pendingMeasuredHeight = height
+        measuredHeightPublishTask?.cancel()
+        measuredHeightPublishTask = Task { @MainActor [weak self] in
+          await Task.yield()
+          guard let self, !Task.isCancelled, let nextHeight = self.pendingMeasuredHeight else { return }
+          self.pendingMeasuredHeight = nil
+          if abs(self.parent.measuredHeight - nextHeight) > 0.5 {
+            self.parent.measuredHeight = nextHeight
+          }
+          self.measuredHeightPublishTask = nil
         }
       }
     }
@@ -449,6 +465,8 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       private var lastAppliedFocusRequestSignal: Int
       private var lastAppliedBlurRequestSignal: Int
       private var lastAppliedCursorSignal: Int
+      private var pendingMeasuredHeight: CGFloat?
+      private var measuredHeightPublishTask: Task<Void, Never>?
 
       init(parent: ComposerTextAreaMacOS) {
         self.parent = parent
@@ -557,7 +575,21 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         let clamped = min(fitting, maxHeight)
 
         if abs(parent.measuredHeight - clamped) > 0.5 {
-          parent.measuredHeight = clamped
+          scheduleMeasuredHeightUpdate(clamped)
+        }
+      }
+
+      private func scheduleMeasuredHeightUpdate(_ height: CGFloat) {
+        pendingMeasuredHeight = height
+        measuredHeightPublishTask?.cancel()
+        measuredHeightPublishTask = Task { @MainActor [weak self] in
+          await Task.yield()
+          guard let self, !Task.isCancelled, let nextHeight = self.pendingMeasuredHeight else { return }
+          self.pendingMeasuredHeight = nil
+          if abs(self.parent.measuredHeight - nextHeight) > 0.5 {
+            self.parent.measuredHeight = nextHeight
+          }
+          self.measuredHeightPublishTask = nil
         }
       }
 

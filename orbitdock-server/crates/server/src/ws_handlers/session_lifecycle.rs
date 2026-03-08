@@ -20,7 +20,7 @@ use crate::session_utils::{
     claim_codex_thread_for_direct_session, direct_mode_activation_changes,
     resolve_claude_resume_cwd,
 };
-use crate::snapshot_compaction::compact_snapshot_for_transport;
+use crate::snapshot_compaction::prepare_snapshot_for_transport;
 use crate::state::SessionRegistry;
 use crate::websocket::{
     send_json, send_replay_or_snapshot_fallback, spawn_broadcast_forwarder, OutboundMessage,
@@ -1037,7 +1037,7 @@ pub(crate) async fn handle(
                                 send_json(
                                     client_tx,
                                     ServerMessage::SessionSnapshot {
-                                        session: compact_snapshot_for_transport(*snapshot),
+                                        session: prepare_snapshot_for_transport(*snapshot),
                                     },
                                 )
                                 .await;

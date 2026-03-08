@@ -234,6 +234,25 @@ private struct DiscoverWorktreesHTTPRequest: Encodable {
   let repoPath: String
 }
 
+private struct SessionMessageHTTPRequest: Encodable {
+  let content: String
+  let model: String?
+  let effort: String?
+  let skills: [ServerSkillInput]
+  let images: [ServerImageInput]
+  let mentions: [ServerMentionInput]
+}
+
+private struct SessionSteerTurnHTTPRequest: Encodable {
+  let content: String
+  let images: [ServerImageInput]
+  let mentions: [ServerMentionInput]
+}
+
+private struct UploadedImageAttachmentHTTPResponse: Decodable {
+  let image: ServerImageInput
+}
+
 private struct CreateReviewCommentHTTPRequest: Encodable {
   let turnId: String?
   let filePath: String
@@ -1080,6 +1099,68 @@ class ServerConnection: ObservableObject {
     )
   }
 
+  func sendMessageViaHTTP(
+    sessionId: String,
+    content: String,
+    model: String? = nil,
+    effort: String? = nil,
+    skills: [ServerSkillInput] = [],
+    images: [ServerImageInput] = [],
+    mentions: [ServerMentionInput] = []
+  ) async throws {
+    let escapedSessionId = encodePathComponent(sessionId)
+    try await fireAndForgetAPI(
+      path: "/api/sessions/\(escapedSessionId)/messages",
+      method: "POST",
+      body: SessionMessageHTTPRequest(
+        content: content,
+        model: model,
+        effort: effort,
+        skills: skills,
+        images: images,
+        mentions: mentions
+      )
+    )
+  }
+
+  func uploadImageAttachment(
+    sessionId: String,
+    data: Data,
+    mimeType: String,
+    displayName: String? = nil,
+    pixelWidth: Int? = nil,
+    pixelHeight: Int? = nil
+  ) async throws -> ServerImageInput {
+    let escapedSessionId = encodePathComponent(sessionId)
+    var queryItems: [URLQueryItem] = []
+    if let displayName, !displayName.isEmpty {
+      queryItems.append(URLQueryItem(name: "display_name", value: displayName))
+    }
+    if let pixelWidth {
+      queryItems.append(URLQueryItem(name: "pixel_width", value: String(pixelWidth)))
+    }
+    if let pixelHeight {
+      queryItems.append(URLQueryItem(name: "pixel_height", value: String(pixelHeight)))
+    }
+
+    let response: UploadedImageAttachmentHTTPResponse = try await requestAPIRawJSON(
+      path: "/api/sessions/\(escapedSessionId)/attachments/images",
+      method: "POST",
+      bodyData: data,
+      contentType: mimeType,
+      queryItems: queryItems
+    )
+    return response.image
+  }
+
+  func downloadImageAttachment(sessionId: String, attachmentId: String) async throws -> Data {
+    let escapedSessionId = encodePathComponent(sessionId)
+    let escapedAttachmentId = encodePathComponent(attachmentId)
+    return try await requestAPIData(
+      path: "/api/sessions/\(escapedSessionId)/attachments/images/\(escapedAttachmentId)"
+    )
+  }
+
   /// Approve or reject a tool with a specific decision
   func approveTool(
     sessionId: String,
@@ -1660,6 +1741,24 @@ class ServerConnection: ObservableObject {
     )
   }
 
+  func steerTurnViaHTTP(
+    sessionId: String,
+    content: String,
+    images: [ServerImageInput] = [],
+    mentions: [ServerMentionInput] = []
+  ) async throws {
+    let escapedSessionId = encodePathComponent(sessionId)
+    try await fireAndForgetAPI(
+      path: "/api/sessions/\(escapedSessionId)/steer",
+      method: "POST",
+      body: SessionSteerTurnHTTPRequest(
+        content: content,
+        images: images,
+        mentions: mentions
+      )
+    )
+  }
+
   /// Stop a background task (subagent)
   func stopTask(sessionId: String, taskId: String) {
     send(.stopTask(sessionId: sessionId, taskId: taskId))
@@ -2225,6 +2324,67 @@ class ServerConnection: ObservableObject {
         message: apiError?.error
       )
     }
+  }
+
+  private func requestAPIRawJSON<Response: Decodable>(
+    path: String,
+    method: String,
+    bodyData: Data,
+    contentType: String,
+    queryItems: [URLQueryItem] = []
+  ) async throws -> Response {
+    guard let url = apiURL(path: path, queryItems: queryItems) else {
+      throw ServerRequestError.invalidEndpoint
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = method
+    request.timeoutInterval = 30
+    request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+    applyAuth(to: &request)
+    request.httpBody = bodyData
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw ServerRequestError.invalidResponse
+    }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      let apiError = try? JSONDecoder().decode(APIErrorHTTPResponse.self, from: data)
+      throw ServerRequestError.httpStatus(
+        http.statusCode,
+        code: apiError?.code,
+        message: apiError?.error
+      )
+    }
+    return try JSONDecoder().decode(Response.self, from: data)
+  }
+
+  private func requestAPIData(
+    path: String,
+    queryItems: [URLQueryItem] = []
+  ) async throws -> Data {
+    guard let url = apiURL(path: path, queryItems: queryItems) else {
+      throw ServerRequestError.invalidEndpoint
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.timeoutInterval = 30
+    applyAuth(to: &request)
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw ServerRequestError.invalidResponse
+    }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      let apiError = try? JSONDecoder().decode(APIErrorHTTPResponse.self, from: data)
+      throw ServerRequestError.httpStatus(
+        http.statusCode,
+        code: apiError?.code,
+        message: apiError?.error
+      )
+    }
+    return data
   }
 
   private func fetchAPIJSON<Response: Decodable>(

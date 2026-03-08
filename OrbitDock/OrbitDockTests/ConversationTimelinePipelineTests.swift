@@ -171,6 +171,44 @@ struct ConversationTimelinePipelineTests {
     }
   }
 
+  @Test func projectorMarksImageRowDirtyWhenAttachmentSourceResolves() {
+    let attachment = ServerAttachmentImageReference(
+      endpointId: nil,
+      sessionId: "session-1",
+      attachmentId: "attachment-1"
+    )
+    let unresolvedImage = MessageImage(
+      id: "image-1",
+      source: .serverAttachment(attachment),
+      mimeType: "image/png",
+      byteCount: 48_000,
+      pixelWidth: 1200,
+      pixelHeight: 800
+    )
+    let resolvedImage = MessageImage(
+      id: "image-1",
+      source: .filePath("/tmp/session-1/attachment-1.png"),
+      mimeType: "image/png",
+      byteCount: 48_000,
+      pixelWidth: 1200,
+      pixelHeight: 800
+    )
+
+    let initialSource = makeSource(messages: [
+      makeMessage(id: "m1", content: "image", images: [unresolvedImage]),
+    ])
+    let ui = ConversationUIState(widthBucket: 12)
+    let initial = ConversationTimelineProjector.project(source: initialSource, ui: ui)
+
+    let resolvedSource = makeSource(messages: [
+      makeMessage(id: "m1", content: "image", images: [resolvedImage]),
+    ])
+    let resolved = ConversationTimelineProjector.project(source: resolvedSource, ui: ui, previous: initial)
+
+    #expect(resolved.diff.reloads == [0])
+    #expect(resolved.dirtyRowIDs.contains(.message("m1")))
+  }
+
   @Test func projectorTracksLayoutHashSeparatelyFromRenderHash() {
     let source = makeSource(
       messages: [
@@ -412,47 +450,6 @@ struct ConversationTimelinePipelineTests {
     #expect(clamped == 200)
   }
 
-  @Test func messageSyncAppliesStreamingUpsertIncrementally() {
-    let localMessages = [makeMessage(id: "m1", content: "hello")]
-    let streamedMessage = makeMessage(id: "m2", content: "streaming reply")
-    let serverMessages = localMessages + [streamedMessage]
-    let mutation = ConversationMessageMutation(revision: 2, kind: .upsert(streamedMessage))
-
-    let result = ConversationMessageSync.reconcile(
-      localMessages: localMessages,
-      serverMessages: serverMessages,
-      displayedCount: 1,
-      pageSize: 50,
-      mutation: mutation
-    )
-
-    #expect(result.didChange)
-    #expect(result.messages.map(\.id) == ["m1", "m2"])
-    #expect(result.messages.last?.content == "streaming reply")
-    #expect(result.displayedCount == 2)
-  }
-
-  @Test func messageSyncFallsBackToReplaceAllWhenIncrementalHintCannotBeApplied() {
-    let localMessages = [makeMessage(id: "m1", content: "old")]
-    let serverMessages = [makeMessage(id: "m2", content: "new")]
-    let mutation = ConversationMessageMutation(
-      revision: 2,
-      kind: .upsert(makeMessage(id: "m2", content: "new"))
-    )
-
-    let result = ConversationMessageSync.reconcile(
-      localMessages: localMessages,
-      serverMessages: serverMessages,
-      displayedCount: 1,
-      pageSize: 50,
-      mutation: mutation
-    )
-
-    #expect(result.didChange)
-    #expect(result.messages.map(\.id) == ["m2"])
-    #expect(result.displayedCount == 1)
-  }
-
   @Test func renderMessageNormalizerDeduplicatesIDsWithoutReorderingTimeline() {
     let duplicate = makeMessage(id: "m1", content: "newest")
     let original = makeMessage(id: "m1", content: "original")
@@ -539,7 +536,8 @@ struct ConversationTimelinePipelineTests {
     id: String,
     type: TranscriptMessage.MessageType = .assistant,
     content: String,
-    toolName: String? = nil
+    toolName: String? = nil,
+    images: [MessageImage] = []
   ) -> TranscriptMessage {
     TranscriptMessage(
       id: id,
@@ -551,7 +549,8 @@ struct ConversationTimelinePipelineTests {
       toolOutput: nil,
       toolDuration: nil,
       inputTokens: nil,
-      outputTokens: nil
+      outputTokens: nil,
+      images: images
     )
   }
 }

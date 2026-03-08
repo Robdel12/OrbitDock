@@ -50,7 +50,6 @@ struct QuickCommand: Identifiable {
 
   static func sessionCommands(
     onRename: @escaping (Session) -> Void,
-    onFocus: @escaping (Session) -> Void,
     onOpenFinder: @escaping (Session) -> Void,
     onCopyResume: @escaping (Session) -> Void,
     onClose: @escaping (Session) -> Void
@@ -63,14 +62,6 @@ struct QuickCommand: Identifiable {
         shortcut: "⌘R",
         requiresSession: true,
         action: { session in if let s = session { onRename(s) } }
-      ),
-      QuickCommand(
-        id: "focus",
-        name: "Focus Terminal",
-        icon: "terminal",
-        shortcut: nil,
-        requiresSession: true,
-        action: { session in if let s = session { onFocus(s) } }
       ),
       QuickCommand(
         id: "finder",
@@ -195,10 +186,6 @@ struct QuickSwitcher: View {
       onRename: { session in
         renameText = session.customName ?? ""
         renamingSession = session
-      },
-      onFocus: { [self] session in
-        focusTerminal(for: session)
-        router.closeQuickSwitcher()
       },
       onOpenFinder: { session in
         _ = Platform.services.revealInFileBrowser(session.projectPath)
@@ -981,10 +968,6 @@ struct QuickSwitcher: View {
           UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
         } else if isHighlighted {
           HStack(spacing: Spacing.xs) {
-            actionButton(icon: "terminal", tooltip: "Focus Terminal") {
-              focusTerminal(for: session)
-              router.closeQuickSwitcher()
-            }
             actionButton(icon: "folder", tooltip: "Open in Finder") {
               _ = Platform.services.revealInFileBrowser(session.projectPath)
               router.closeQuickSwitcher()
@@ -1028,13 +1011,6 @@ struct QuickSwitcher: View {
       hoveredIndex = isHovered ? index : nil
     }
     .modifier(CompactContextMenuModifier(isCompact: isCompactLayout) {
-      Button {
-        focusTerminal(for: session)
-        router.closeQuickSwitcher()
-      } label: {
-        Label("Focus Terminal", systemImage: "terminal")
-      }
-
       Button {
         _ = Platform.services.revealInFileBrowser(session.projectPath)
         router.closeQuickSwitcher()
@@ -1223,10 +1199,6 @@ struct QuickSwitcher: View {
     let session = allVisibleSessions[sessionIndex]
     renameText = session.customName ?? ""
     renamingSession = session
-  }
-
-  private func focusTerminal(for session: Session) {
-    Task { await TerminalService.shared.focusSession(session) }
   }
 
   private func focusSearchField() {

@@ -7,6 +7,12 @@ import Foundation
 
 // MARK: - Message Image
 
+nonisolated struct ServerAttachmentImageReference: Hashable {
+  let endpointId: UUID?
+  let sessionId: String
+  let attachmentId: String
+}
+
 /// Lightweight image reference — stores only path/URI + metadata, never raw bytes.
 /// Actual Data/NSImage loading is deferred to `ImageCache`.
 nonisolated struct MessageImage: Identifiable, Hashable {
@@ -14,6 +20,8 @@ nonisolated struct MessageImage: Identifiable, Hashable {
   enum Source: Hashable {
     case filePath(String)
     case dataURI(String)
+    case inlineData(Data)
+    case serverAttachment(ServerAttachmentImageReference)
   }
 
   let id: String
@@ -21,12 +29,23 @@ nonisolated struct MessageImage: Identifiable, Hashable {
   let mimeType: String
   /// Pre-computed byte count for display (avoids loading data just to show size)
   let byteCount: Int
+  let pixelWidth: Int?
+  let pixelHeight: Int?
 
-  init(id: String = UUID().uuidString, source: Source, mimeType: String, byteCount: Int) {
+  init(
+    id: String = UUID().uuidString,
+    source: Source,
+    mimeType: String,
+    byteCount: Int,
+    pixelWidth: Int? = nil,
+    pixelHeight: Int? = nil
+  ) {
     self.id = id
     self.source = source
     self.mimeType = mimeType
     self.byteCount = byteCount
+    self.pixelWidth = pixelWidth
+    self.pixelHeight = pixelHeight
   }
 }
 
@@ -41,14 +60,14 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
   let toolName: String?
   let toolInput: [String: Any]?
   let rawToolInput: String?
-  var toolOutput: String? // Result of tool execution (var for incremental updates)
-  var toolDuration: TimeInterval? // How long the tool took
+  var toolOutput: String? { didSet { recomputeContentSignature() } }
+  var toolDuration: TimeInterval? { didSet { recomputeContentSignature() } }
   let inputTokens: Int?
   let outputTokens: Int?
-  var isError: Bool = false // Error message from connector (rate limit, etc.)
-  var isInProgress: Bool = false // Tool is currently running
-  var images: [MessageImage] = [] // Support multiple images
-  var thinking: String? // Claude's thinking trace (collapsed by default)
+  var isError: Bool = false
+  var isInProgress: Bool = false { didSet { recomputeContentSignature() } }
+  var images: [MessageImage] = [] { didSet { recomputeContentSignature() } }
+  var thinking: String? { didSet { recomputeContentSignature() } }
 
   var imageMimeType: String? {
     images.first?.mimeType
@@ -93,6 +112,10 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
     type == .shell
   }
 
+  /// Precomputed hash of all renderable content fields.
+  /// The projector combines this single Int instead of re-scanning text on every pass.
+  private(set) var contentSignature: Int = 0
+
   init(
     id: String,
     sequence: UInt64? = nil,
@@ -127,6 +150,47 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
     self.isInProgress = isInProgress
     self.images = images
     self.thinking = thinking
+    self.contentSignature = Self.computeContentSignature(
+      content: content, rawToolInput: rawToolInput,
+      toolOutput: toolOutput, thinking: thinking,
+      toolName: toolName, toolDuration: toolDuration,
+      inputTokens: inputTokens, outputTokens: outputTokens,
+      isInProgress: isInProgress, images: images
+    )
+  }
+
+  private mutating func recomputeContentSignature() {
+    contentSignature = Self.computeContentSignature(
+      content: content, rawToolInput: rawToolInput,
+      toolOutput: toolOutput, thinking: thinking,
+      toolName: toolName, toolDuration: toolDuration,
+      inputTokens: inputTokens, outputTokens: outputTokens,
+      isInProgress: isInProgress, images: images
+    )
+  }
+
+  private static func computeContentSignature(
+    content: String, rawToolInput: String?,
+    toolOutput: String?, thinking: String?,
+    toolName: String?, toolDuration: TimeInterval?,
+    inputTokens: Int?, outputTokens: Int?,
+    isInProgress: Bool, images: [MessageImage]
+  ) -> Int {
+    var h = Hasher()
+    h.combine(content)
+    h.combine(rawToolInput)
+    h.combine(toolOutput)
+    h.combine(thinking)
+    h.combine(toolName)
+    h.combine(toolDuration)
+    h.combine(inputTokens)
+    h.combine(outputTokens)
+    h.combine(isInProgress)
+    h.combine(images.count)
+    for img in images {
+      h.combine(img.id)
+    }
+    return h.finalize()
   }
 
   var isBashLikeCommand: Bool {

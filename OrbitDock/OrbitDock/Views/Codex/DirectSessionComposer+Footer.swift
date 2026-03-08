@@ -21,43 +21,7 @@ extension DirectSessionComposer {
 
   var desktopComposerFooter: some View {
     HStack(spacing: Spacing.xs) {
-      // Ghost action icons
-      HStack(spacing: Spacing.xs) {
-        if obs.workStatus == .working {
-          CodexInterruptButton(sessionId: sessionId)
-        }
-
-        if obs.isDirectCodex || obs.isDirectClaude {
-          providerModelControlButton
-        }
-
-        fileMentionControlButton
-        commandDeckControlButton
-
-        if shouldShowDictation {
-          dictationControlButton
-        }
-
-        Rectangle()
-          .fill(Color.surfaceBorder.opacity(OpacityTier.light))
-          .frame(width: 0.5, height: 16)
-
-        desktopWorkflowOverflowMenu
-
-        if inputMode == .shell || inputMode == .reviewNotes {
-          Button {
-            withAnimation(Motion.gentle) {
-              if inputMode == .shell { manualShellMode = false }
-              if inputMode == .reviewNotes { manualReviewMode = false }
-            }
-            Platform.services.playHaptic(.selection)
-          } label: {
-            ghostActionLabel(icon: "xmark.circle", isActive: true, tint: Color.textSecondary)
-          }
-          .buttonStyle(.plain)
-          .help("Exit \(inputMode == .shell ? "shell" : "review") mode")
-        }
-      }
+      desktopComposeControls
 
       Spacer()
 
@@ -72,21 +36,7 @@ extension DirectSessionComposer {
     HStack(spacing: Spacing.sm_) {
       ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: Spacing.xs) {
-          if obs.workStatus == .working {
-            CodexInterruptButton(sessionId: sessionId, isCompact: true)
-          }
-
-          if obs.isDirectCodex || obs.isDirectClaude {
-            providerModelControlButton
-          }
-
-          commandDeckControlButton
-
-          if shouldShowDictation {
-            dictationControlButton
-          }
-
-          compactWorkflowOverflowMenu
+          compactComposeControls
         }
         .padding(.trailing, Spacing.xs)
       }
@@ -115,6 +65,63 @@ extension DirectSessionComposer {
   }
 
   // MARK: - Footer Helpers
+
+  var desktopComposeControls: some View {
+    HStack(spacing: Spacing.xs) {
+      primaryComposeControls(isCompact: false)
+
+      Rectangle()
+        .fill(Color.surfaceBorder.opacity(OpacityTier.light))
+        .frame(width: 0.5, height: 16)
+
+      desktopWorkflowOverflowMenu
+      exitInputModeButton
+    }
+  }
+
+  var compactComposeControls: some View {
+    Group {
+      primaryComposeControls(isCompact: true)
+      compactWorkflowOverflowMenu
+      exitInputModeButton
+    }
+  }
+
+  @ViewBuilder
+  func primaryComposeControls(isCompact: Bool) -> some View {
+    if obs.workStatus == .working {
+      CodexInterruptButton(sessionId: sessionId, isCompact: isCompact)
+    }
+
+    if obs.isDirectCodex || obs.isDirectClaude {
+      providerModelControlButton
+    }
+
+    imageAttachmentDockControl
+    fileMentionControlButton
+    commandDeckControlButton
+
+    if shouldShowDictation {
+      dictationControlButton
+    }
+  }
+
+  @ViewBuilder
+  var exitInputModeButton: some View {
+    if inputMode == .shell || inputMode == .reviewNotes {
+      Button {
+        withAnimation(Motion.gentle) {
+          if inputMode == .shell { manualShellMode = false }
+          if inputMode == .reviewNotes { manualReviewMode = false }
+        }
+        Platform.services.playHaptic(.selection)
+      } label: {
+        ghostActionLabel(icon: "xmark.circle", isActive: true, tint: Color.textSecondary)
+      }
+      .buttonStyle(.plain)
+      .help("Exit \(inputMode == .shell ? "shell" : "review") mode")
+    }
+  }
 
   var footerTokenLabel: some View {
     let pct = Int(tokenContextPercentage * 100)
@@ -391,14 +398,14 @@ extension DirectSessionComposer {
         pickImages()
       } label: {
         actionDockLabel(
-          icon: "paperclip",
+          icon: "photo.badge.plus",
           title: attachedImages.isEmpty ? "Images" : "Images \(attachedImages.count)",
           tint: .accent,
           isActive: !attachedImages.isEmpty
         )
       }
       .buttonStyle(.plain)
-      .help("Attach images")
+      .help("Attach images, paste, or drop")
       .contextMenu {
         Button {
           _ = pasteImageFromClipboard()
@@ -423,25 +430,15 @@ extension DirectSessionComposer {
         .disabled(!canPasteImageFromClipboard)
       } label: {
         actionDockLabel(
-          icon: "paperclip",
+          icon: "photo.badge.plus",
           title: attachedImages.isEmpty ? "Images" : "Images \(attachedImages.count)",
           tint: .accent,
           isActive: !attachedImages.isEmpty
         )
       }
       .buttonStyle(.plain)
-      .help("Attach images")
+      .help("Attach images or paste from the clipboard")
     #endif
-  }
-
-  var turnActionsDockMenu: some View {
-    Menu {
-      turnActionsMenuContent
-    } label: {
-      actionDockLabel(icon: "ellipsis.circle", title: "Turn", tint: Color.textTertiary)
-    }
-    .buttonStyle(.plain)
-    .help("Turn actions")
   }
 
   @ViewBuilder
@@ -525,28 +522,10 @@ extension DirectSessionComposer {
   }
 
   var compactWorkflowOverflowMenu: some View {
-    let attachmentCount = attachedImages.count + attachedMentions.count + selectedSkills.count
+    let composeIndicatorCount = selectedSkills.count + (manualShellMode ? 1 : 0)
 
     return Menu {
       Section("Compose") {
-        Button {
-          openFilePicker()
-        } label: {
-          Label("Attach Files", systemImage: "doc.badge.plus")
-        }
-
-        if shouldShowDictation {
-          Button {
-            toggleDictation()
-          } label: {
-            Label(
-              dictationController.isRecording ? "Stop Dictation" : "Start Dictation",
-              systemImage: dictationController.isRecording ? "stop.fill" : "mic.fill"
-            )
-          }
-          .disabled(dictationController.isBusy)
-        }
-
         if hasSkillsPanel {
           Button {
             serverState.listSkills(sessionId: sessionId)
@@ -555,19 +534,6 @@ extension DirectSessionComposer {
             Label("Attach Skills", systemImage: "bolt.fill")
           }
         }
-
-        Button {
-          pickImages()
-        } label: {
-          Label("Attach Images", systemImage: "photo")
-        }
-
-        Button {
-          _ = pasteImageFromClipboard()
-        } label: {
-          Label("Paste Image", systemImage: "doc.on.clipboard")
-        }
-        .disabled(!canPasteImageFromClipboard)
 
         if hasMcpData {
           Button {
@@ -598,11 +564,11 @@ extension DirectSessionComposer {
         icon: "ellipsis.circle",
         title: "More",
         tint: Color.textTertiary,
-        isActive: attachmentCount > 0
+        isActive: composeIndicatorCount > 0
       )
       .overlay(alignment: .topTrailing) {
-        if attachmentCount > 0 {
-          Text("\(min(attachmentCount, 9))")
+        if composeIndicatorCount > 0 {
+          Text("\(min(composeIndicatorCount, 9))")
             .font(.system(size: 8, weight: .bold, design: .monospaced))
             .foregroundStyle(.white)
             .padding(.horizontal, Spacing.xs)
@@ -617,23 +583,10 @@ extension DirectSessionComposer {
   }
 
   var desktopWorkflowOverflowMenu: some View {
-    let hasActiveState = !selectedSkills.isEmpty || !attachedImages.isEmpty || !attachedMentions
-      .isEmpty || manualShellMode
+    let hasActiveState = !selectedSkills.isEmpty || manualShellMode
 
     return Menu {
       Section("Compose") {
-        if shouldShowDictation {
-          Button {
-            toggleDictation()
-          } label: {
-            Label(
-              dictationController.isRecording ? "Stop Dictation" : "Start Dictation",
-              systemImage: dictationController.isRecording ? "stop.fill" : "mic.fill"
-            )
-          }
-          .disabled(dictationController.isBusy)
-        }
-
         if hasSkillsPanel {
           Button {
             serverState.listSkills(sessionId: sessionId)
@@ -642,19 +595,6 @@ extension DirectSessionComposer {
             Label("Attach Skills", systemImage: "bolt.fill")
           }
         }
-
-        Button {
-          pickImages()
-        } label: {
-          Label("Attach Images", systemImage: "photo")
-        }
-
-        Button {
-          _ = pasteImageFromClipboard()
-        } label: {
-          Label("Paste Image", systemImage: "doc.on.clipboard")
-        }
-        .disabled(!canPasteImageFromClipboard)
 
         if hasMcpData {
           Button {

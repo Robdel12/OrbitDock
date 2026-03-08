@@ -52,6 +52,7 @@ struct DirectSessionComposer: View {
   /// Attachments
   @State var attachedImages: [AttachedImage] = []
   @State var attachedMentions: [AttachedMention] = []
+  @State var isImageDropTargeted = false
   @State var mentionActive = false
   @State var mentionQuery = ""
   @State var mentionIndex = 0
@@ -571,62 +572,7 @@ struct DirectSessionComposer: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      // ━━━ Command Deck (/ trigger) ━━━
-      if shouldShowCommandDeck {
-        ComposerCommandDeckList(
-          items: commandDeckItems,
-          selectedIndex: commandDeckIndex,
-          query: commandDeckQuery,
-          onSelect: acceptCommandDeckItem
-        )
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.xs)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-
-      // ━━━ Skill completion ($ trigger) ━━━
-      if shouldShowCompletion, !shouldShowCommandDeck {
-        SkillCompletionList(
-          skills: filteredSkills,
-          selectedIndex: completionIndex,
-          query: completionQuery,
-          onSelect: acceptSkillCompletion
-        )
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.xs)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-
-      // ━━━ Mention completion (@ trigger) ━━━
-      if shouldShowMentionCompletion, !shouldShowCommandDeck {
-        MentionCompletionList(
-          files: filteredFiles,
-          selectedIndex: mentionIndex,
-          query: mentionQuery,
-          onSelect: acceptMentionCompletion
-        )
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.xs)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-
-      // ━━━ Attachment bar ━━━
-      if hasAttachments {
-        AttachmentBar(images: $attachedImages, mentions: $attachedMentions)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-
-      // ━━━ Prompt suggestion chips ━━━
-      if !obs.promptSuggestions.isEmpty, isSessionActive, !isSessionWorking {
-        promptSuggestionChips
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-
-      // ━━━ Rate limit banner ━━━
-      if let rateLimitInfo = obs.rateLimitInfo, rateLimitInfo.needsDisplay {
-        RateLimitBanner(info: rateLimitInfo)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
+      composerLeadingSections
 
       // ━━━ Composer area ━━━
       if isSessionActive {
@@ -656,7 +602,7 @@ struct DirectSessionComposer: View {
       matching: .images
     )
     #endif
-    .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+    .onDrop(of: [.image, .fileURL], isTargeted: $isImageDropTargeted) { providers in
       handleDrop(providers)
     }
     .task(id: sessionId) {
@@ -786,6 +732,60 @@ struct DirectSessionComposer: View {
       }
   }
 
+  @ViewBuilder
+  var composerLeadingSections: some View {
+    if shouldShowCommandDeck {
+      ComposerCommandDeckList(
+        items: commandDeckItems,
+        selectedIndex: commandDeckIndex,
+        query: commandDeckQuery,
+        onSelect: acceptCommandDeckItem
+      )
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.xs)
+      .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    if shouldShowCompletion, !shouldShowCommandDeck {
+      SkillCompletionList(
+        skills: filteredSkills,
+        selectedIndex: completionIndex,
+        query: completionQuery,
+        onSelect: acceptSkillCompletion
+      )
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.xs)
+      .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    if shouldShowMentionCompletion, !shouldShowCommandDeck {
+      MentionCompletionList(
+        files: filteredFiles,
+        selectedIndex: mentionIndex,
+        query: mentionQuery,
+        onSelect: acceptMentionCompletion
+      )
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.xs)
+      .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    if hasAttachments {
+      AttachmentBar(images: $attachedImages, mentions: $attachedMentions)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    if !obs.promptSuggestions.isEmpty, isSessionActive, !isSessionWorking {
+      promptSuggestionChips
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    if let rateLimitInfo = obs.rateLimitInfo, rateLimitInfo.needsDisplay {
+      RateLimitBanner(info: rateLimitInfo)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+  }
+
   // MARK: - Composer Row
 
   var promptSuggestionChips: some View {
@@ -849,20 +849,7 @@ struct DirectSessionComposer: View {
 
   var composerSurface: some View {
     VStack(spacing: 0) {
-      // Permission summary panel (toggled from status bar pill)
-      if permissionPanelExpanded, obs.isDirect {
-        PermissionInlinePanel(
-          sessionId: sessionId,
-          isExpanded: $permissionPanelExpanded
-        )
-        .transition(.move(edge: .top).combined(with: .opacity))
-      }
-
-      // Inline approval zone (when pending)
-      if let model = pendingApprovalModel {
-        pendingInlineZone(model)
-          .transition(.move(edge: .top).combined(with: .opacity))
-      }
+      composerSurfaceTopSections
 
       // Text input
       composerTextInput
@@ -873,30 +860,80 @@ struct DirectSessionComposer: View {
       // Unified footer: actions + metadata + send
       composerFooter
 
-      // Internal status zone
-      if hasStatusBarContent {
-        Rectangle()
-          .fill(Color.surfaceBorder.opacity(OpacityTier.subtle))
-          .frame(height: 0.5)
-          .padding(.horizontal, Spacing.sm)
-        statusBar
-      }
-
-      // Connection notice (inside card)
-      if let notice = connectionNoticeMessage {
-        connectionNoticeRow(notice)
-          .padding(.top, Spacing.xxs)
-      }
+      composerSurfaceBottomSections
     }
     .background(composerSurfaceBackground)
     .overlay(composerSurfaceBorder)
+    .overlay(composerDropTargetOverlay)
     .animation(Motion.gentle, value: inputMode)
     .animation(Motion.standard, value: pendingApprovalIdentity)
     .animation(Motion.standard, value: pendingPanelExpanded)
     .animation(Motion.standard, value: permissionPanelExpanded)
     .animation(Motion.hover, value: isFocused)
+    .animation(Motion.standard, value: isImageDropTargeted)
     .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
     .padding(.vertical, Spacing.sm)
+  }
+
+  @ViewBuilder
+  var composerSurfaceTopSections: some View {
+    if permissionPanelExpanded, obs.isDirect {
+      PermissionInlinePanel(
+        sessionId: sessionId,
+        isExpanded: $permissionPanelExpanded
+      )
+      .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    if let model = pendingApprovalModel {
+      pendingInlineZone(model)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+  }
+
+  @ViewBuilder
+  var composerSurfaceBottomSections: some View {
+    if hasStatusBarContent {
+      composerStatusDivider
+      statusBar
+    }
+
+    if let notice = connectionNoticeMessage {
+      connectionNoticeRow(notice)
+        .padding(.top, Spacing.xxs)
+    }
+  }
+
+  var composerStatusDivider: some View {
+    Rectangle()
+      .fill(Color.surfaceBorder.opacity(OpacityTier.subtle))
+      .frame(height: 0.5)
+      .padding(.horizontal, Spacing.sm)
+  }
+
+  @ViewBuilder
+  var composerDropTargetOverlay: some View {
+    if isImageDropTargeted {
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .fill(Color.accent.opacity(0.16))
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+            .strokeBorder(Color.accent.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [8, 6]))
+        )
+        .overlay {
+          Label("Drop images to attach", systemImage: "photo.badge.plus")
+            .font(.system(size: TypeScale.body, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.sm)
+            .background(
+              Capsule()
+                .fill(Color.backgroundPrimary.opacity(0.82))
+            )
+        }
+        .padding(Spacing.xs)
+        .transition(.opacity)
+    }
   }
 
   var composerSurfaceBackground: some View {

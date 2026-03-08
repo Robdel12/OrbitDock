@@ -194,7 +194,7 @@ extension ServerApprovalRequest {
 // MARK: - ServerMessage → TranscriptMessage
 
 extension ServerMessage {
-  func toTranscriptMessage() -> TranscriptMessage {
+  func toTranscriptMessage(endpointId: UUID? = nil) -> TranscriptMessage {
     let msgType: TranscriptMessage.MessageType = switch type {
       case .user: .user
       case .assistant: .assistant
@@ -212,7 +212,14 @@ extension ServerMessage {
 
     let duration: TimeInterval? = durationMs.map { Double($0) / 1_000.0 }
 
-    let messageImages = images.compactMap { convertServerImage($0) }
+    let messageImages = images.enumerated().compactMap { index, image in
+      convertServerImage(
+        image,
+        index: index,
+        endpointId: endpointId,
+        sessionId: sessionId
+      )
+    }
 
     var msg = TranscriptMessage(
       id: id,
@@ -237,25 +244,48 @@ extension ServerMessage {
 
 // MARK: - Image Conversion (Lazy — no Data loaded at decode time)
 
-private func convertServerImage(_ input: ServerImageInput) -> MessageImage? {
-  switch input.inputType {
+private func convertServerImage(
+  _ input: ServerImageInput,
+  index: Int,
+  endpointId: UUID?,
+  sessionId: String
+) -> MessageImage? {
+  let imageId = "\(input.inputType):\(input.value):\(index)"
+  return switch input.inputType {
     case "url":
-      messageImageFromDataURI(input.value)
+      messageImageFromDataURI(input, imageId: imageId)
     case "path":
-      messageImageFromPath(input.value)
+      messageImageFromPath(input, imageId: imageId)
+    case "attachment":
+      messageImageFromAttachment(
+        input,
+        imageId: imageId,
+        endpointId: endpointId,
+        sessionId: sessionId
+      )
     default:
       nil
   }
 }
 
-private func messageImageFromPath(_ path: String) -> MessageImage? {
+private func messageImageFromPath(_ input: ServerImageInput, imageId: String) -> MessageImage? {
+  let path = input.value
   let url = URL(fileURLWithPath: path)
-  let byteCount = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
-  let mimeType = mimeTypeForExtension(url.pathExtension)
-  return MessageImage(source: .filePath(path), mimeType: mimeType, byteCount: byteCount)
+  let byteCount = input.byteCount
+    ?? ((try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0)
+  let mimeType = input.mimeType ?? mimeTypeForExtension(url.pathExtension)
+  return MessageImage(
+    id: imageId,
+    source: .filePath(path),
+    mimeType: mimeType,
+    byteCount: byteCount,
+    pixelWidth: input.pixelWidth,
+    pixelHeight: input.pixelHeight
+  )
 }
 
-private func messageImageFromDataURI(_ uri: String) -> MessageImage? {
+private func messageImageFromDataURI(_ input: ServerImageInput, imageId: String) -> MessageImage? {
+  let uri = input.value
   guard uri.hasPrefix("data:") else { return nil }
   let withoutScheme = String(uri.dropFirst(5))
   guard let commaIndex = withoutScheme.firstIndex(of: ",") else { return nil }
@@ -264,11 +294,37 @@ private func messageImageFromDataURI(_ uri: String) -> MessageImage? {
   let mimeType = String(meta.dropLast(7))
   // Estimate decoded size from base64 length (3 bytes per 4 chars)
   let base64Len = withoutScheme.distance(from: withoutScheme.index(after: commaIndex), to: withoutScheme.endIndex)
-  let byteCount = base64Len * 3 / 4
+  let byteCount = input.byteCount ?? (base64Len * 3 / 4)
   return MessageImage(
+    id: imageId,
     source: .dataURI(uri),
-    mimeType: mimeType.isEmpty ? "image/png" : mimeType,
-    byteCount: byteCount
+    mimeType: input.mimeType ?? (mimeType.isEmpty ? "image/png" : mimeType),
+    byteCount: byteCount,
+    pixelWidth: input.pixelWidth,
+    pixelHeight: input.pixelHeight
+  )
+}
+
+private func messageImageFromAttachment(
+  _ input: ServerImageInput,
+  imageId: String,
+  endpointId: UUID?,
+  sessionId: String
+) -> MessageImage? {
+  let mimeType = input.mimeType ?? mimeTypeForExtension(URL(fileURLWithPath: input.value).pathExtension)
+  return MessageImage(
+    id: imageId,
+    source: .serverAttachment(
+      ServerAttachmentImageReference(
+        endpointId: endpointId,
+        sessionId: sessionId,
+        attachmentId: input.value
+      )
+    ),
+    mimeType: mimeType,
+    byteCount: input.byteCount ?? 0,
+    pixelWidth: input.pixelWidth,
+    pixelHeight: input.pixelHeight
   )
 }
 

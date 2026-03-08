@@ -12,6 +12,26 @@ import SwiftUI
 
   import AppKit
 
+  private func sanitizedConversationMessages(
+    _ messages: [TranscriptMessage],
+    sessionId: String?,
+    source: String
+  ) -> [TranscriptMessage] {
+    guard !messages.isEmpty else { return messages }
+
+    var seenIDs = Set<String>()
+    seenIDs.reserveCapacity(messages.count)
+
+    for message in messages {
+      let trimmedID = message.id.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmedID.isEmpty || !seenIDs.insert(trimmedID).inserted {
+        return ConversationRenderMessageNormalizer.normalize(messages, sessionId: sessionId, source: source)
+      }
+    }
+
+    return messages
+  }
+
   struct ConversationCollectionView: NSViewControllerRepresentable {
     let messages: [TranscriptMessage]
     let chatViewMode: ChatViewMode
@@ -446,10 +466,10 @@ import SwiftUI
       remainingLoadCount: Int,
       hasMoreMessages: Bool
     ) {
-      let normalizedMessages = ConversationRenderMessageNormalizer.normalize(
+      let resolvedMessages = sanitizedConversationMessages(
         messages,
-        sessionId: sessionId,
-        source: "macos-apply-full-state"
+        sessionId: self.sessionId,
+        source: "timeline-apply-macos"
       )
 
       // Approval metadata is server-authoritative from session summary fields.
@@ -488,7 +508,7 @@ import SwiftUI
         projectPath: session?.projectPath
       )
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setSessionMetadata(metadata))
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setMessages(normalizedMessages))
+      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setMessages(resolvedMessages))
 
       // Rebuild derived caches
       messagesByID = Dictionary(uniqueKeysWithValues: sourceState.messages.map { ($0.id, $0) })

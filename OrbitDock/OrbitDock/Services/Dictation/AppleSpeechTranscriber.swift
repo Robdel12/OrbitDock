@@ -10,19 +10,23 @@ import Foundation
 #endif
 
 #if canImport(Speech)
+  /// Wrapper that abstracts over SpeechTranscriber (preferred) and DictationTranscriber (fallback).
   @available(macOS 26.0, iOS 26.0, *)
-  nonisolated enum AppleSpeechDictationConfiguration {
+  nonisolated enum TranscriberModule {
+    case speech(SpeechTranscriber)
+    case dictation(DictationTranscriber)
+
+    var speechModule: any SpeechModule {
+      switch self {
+        case let .speech(transcriber): transcriber
+        case let .dictation(transcriber): transcriber
+      }
+    }
+  }
+
+  @available(macOS 26.0, iOS 26.0, *)
+  nonisolated enum AppleSpeechTranscriberConfiguration {
     static let inputSampleRate = 16_000.0
-    static let contentHints: Set<DictationTranscriber.ContentHint> = [.shortForm]
-    static let transcriptionOptions: Set<DictationTranscriber.TranscriptionOption> = [
-      .punctuation,
-      .etiquetteReplacements,
-    ]
-    static let reportingOptions: Set<DictationTranscriber.ReportingOption> = [
-      .volatileResults,
-      .frequentFinalization,
-    ]
-    static let attributeOptions: Set<DictationTranscriber.ResultAttributeOption> = []
 
     static func preferredInputFormat() -> AVAudioFormat {
       AVAudioFormat(
@@ -37,13 +41,31 @@ import Foundation
       format.channelCount == 1 && format.commonFormat == .pcmFormatInt16
     }
 
-    static func makeDictationTranscriber(locale: Locale) -> DictationTranscriber {
-      DictationTranscriber(
-        locale: locale,
-        contentHints: contentHints,
-        transcriptionOptions: transcriptionOptions,
-        reportingOptions: reportingOptions,
-        attributeOptions: attributeOptions
+    /// Creates the best available transcriber for the device.
+    /// Prefers SpeechTranscriber (newer, better punctuation) with fallback to DictationTranscriber.
+    static func makeTranscriber(locale: Locale) async -> TranscriberModule {
+      // SpeechTranscriber is the newer model with better long-form support
+      if SpeechTranscriber.isAvailable,
+         let supportedLocale = await SpeechTranscriber.supportedLocale(equivalentTo: locale)
+      {
+        let transcriber = SpeechTranscriber(
+          locale: supportedLocale,
+          transcriptionOptions: [],
+          reportingOptions: [.volatileResults],
+          attributeOptions: []
+        )
+        return .speech(transcriber)
+      }
+
+      // Fallback to DictationTranscriber for older devices
+      return .dictation(
+        DictationTranscriber(
+          locale: locale,
+          contentHints: [],
+          transcriptionOptions: [.punctuation, .etiquetteReplacements],
+          reportingOptions: [.volatileResults, .frequentFinalization],
+          attributeOptions: []
+        )
       )
     }
   }
@@ -79,13 +101,13 @@ import Foundation
       let locale = Locale.autoupdatingCurrent
       try await prepareSpeechAssets(locale: locale)
 
-      let transcriber = AppleSpeechDictationConfiguration.makeDictationTranscriber(locale: locale)
+      let transcriberModule = await AppleSpeechTranscriberConfiguration.makeTranscriber(locale: locale)
       let analyzer = SpeechAnalyzer(
-        modules: [transcriber],
+        modules: [transcriberModule.speechModule],
         options: .init(priority: .userInitiated, modelRetention: .lingering)
       )
       let sourceFormat = try makeSourceFormat()
-      let targetFormat = try await compatibleInputFormat(for: transcriber)
+      let targetFormat = try await compatibleInputFormat(for: transcriberModule)
 
       guard let converter = AVAudioConverter(from: sourceFormat, to: targetFormat) else {
         throw DictationError.audioCaptureFailure(
@@ -106,22 +128,7 @@ import Foundation
         )
       }
 
-      let resultsTask = Task<String, Error> {
-        var latestTranscript = ""
-        var transcriptSegments: [DictationTranscriptAssembler.Segment] = []
-        for try await result in transcriber.results {
-          transcriptSegments = DictationTranscriptAssembler.updating(
-            transcriptSegments,
-            with: .init(
-              range: result.range,
-              text: String(result.text.characters)
-            )
-          )
-          latestTranscript = DictationTranscriptAssembler.render(transcriptSegments)
-          await onTranscriptUpdate(latestTranscript)
-        }
-        return latestTranscript
-      }
+      let resultsTask = makeResultsTask(for: transcriberModule, onTranscriptUpdate: onTranscriptUpdate)
 
       let analysisTask = Task<Void, Error> {
         try await analyzer.start(inputSequence: inputSequence)
@@ -136,6 +143,48 @@ import Foundation
         targetFormat: targetFormat,
         converter: converter
       )
+    }
+
+    private func makeResultsTask(
+      for module: TranscriberModule,
+      onTranscriptUpdate: @escaping TranscriptUpdateHandler
+    ) -> Task<String, Error> {
+      switch module {
+        case let .speech(transcriber):
+          return Task<String, Error> {
+            var latestTranscript = ""
+            var transcriptSegments: [DictationTranscriptAssembler.Segment] = []
+            for try await result in transcriber.results {
+              transcriptSegments = DictationTranscriptAssembler.updating(
+                transcriptSegments,
+                with: .init(
+                  range: result.range,
+                  text: String(result.text.characters)
+                )
+              )
+              latestTranscript = DictationTranscriptAssembler.render(transcriptSegments)
+              await onTranscriptUpdate(latestTranscript)
+            }
+            return latestTranscript
+          }
+        case let .dictation(transcriber):
+          return Task<String, Error> {
+            var latestTranscript = ""
+            var transcriptSegments: [DictationTranscriptAssembler.Segment] = []
+            for try await result in transcriber.results {
+              transcriptSegments = DictationTranscriptAssembler.updating(
+                transcriptSegments,
+                with: .init(
+                  range: result.range,
+                  text: String(result.text.characters)
+                )
+              )
+              latestTranscript = DictationTranscriptAssembler.render(transcriptSegments)
+              await onTranscriptUpdate(latestTranscript)
+            }
+            return latestTranscript
+          }
+      }
     }
 
     func appendAudioSamples(_ samples: [Float]) async throws {
@@ -236,9 +285,9 @@ import Foundation
     }
 
     private func prepareSpeechAssets(locale: Locale) async throws {
-      let transcriber = AppleSpeechDictationConfiguration.makeDictationTranscriber(locale: locale)
+      let transcriberModule = await AppleSpeechTranscriberConfiguration.makeTranscriber(locale: locale)
 
-      let availability = await AssetInventory.status(forModules: [transcriber])
+      let availability = await AssetInventory.status(forModules: [transcriberModule.speechModule])
       if availability == .unsupported {
         throw DictationError.dictationUnavailable(
           message: "Apple Speech is unavailable for \(locale.localizedString(forIdentifier: locale.identifier) ?? locale.identifier) on this device."
@@ -247,7 +296,9 @@ import Foundation
 
       do {
         if availability != .installed,
-           let installationRequest = try await AssetInventory.assetInstallationRequest(supporting: [transcriber])
+           let installationRequest = try await AssetInventory.assetInstallationRequest(
+             supporting: [transcriberModule.speechModule]
+           )
         {
           try await installationRequest.downloadAndInstall()
         }
@@ -311,7 +362,7 @@ import Foundation
     private func makeSourceFormat() throws -> AVAudioFormat {
       guard let format = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
-        sampleRate: AppleSpeechDictationConfiguration.inputSampleRate,
+        sampleRate: AppleSpeechTranscriberConfiguration.inputSampleRate,
         channels: 1,
         interleaved: false
       ) else {
@@ -350,32 +401,32 @@ import Foundation
       return buffer
     }
 
-    private func compatibleInputFormat(for transcriber: DictationTranscriber) async throws -> AVAudioFormat {
-      let preferredFormat = AppleSpeechDictationConfiguration.preferredInputFormat()
+    private func compatibleInputFormat(for module: TranscriberModule) async throws -> AVAudioFormat {
+      let preferredFormat = AppleSpeechTranscriberConfiguration.preferredInputFormat()
 
       if let bestFormat = await SpeechAnalyzer.bestAvailableAudioFormat(
-        compatibleWith: [transcriber],
+        compatibleWith: [module.speechModule],
         considering: preferredFormat
-      ), AppleSpeechDictationConfiguration.isCompatibleSpeechInputFormat(bestFormat) {
+      ), AppleSpeechTranscriberConfiguration.isCompatibleSpeechInputFormat(bestFormat) {
         return bestFormat
       }
 
-      let compatibleFormats = await transcriber.availableCompatibleAudioFormats
+      let compatibleFormats = await module.speechModule.availableCompatibleAudioFormats
 
-      if let exactMatch = compatibleFormats.first(where: {
-        AppleSpeechDictationConfiguration.isCompatibleSpeechInputFormat($0)
-          && abs($0.sampleRate - AppleSpeechDictationConfiguration.inputSampleRate) < 0.5
+      if let exactMatch = compatibleFormats.first(where: { format in
+        AppleSpeechTranscriberConfiguration.isCompatibleSpeechInputFormat(format)
+          && abs(format.sampleRate - AppleSpeechTranscriberConfiguration.inputSampleRate) < 0.5
       }) {
         return exactMatch
       }
 
-      if let fallbackMatch = compatibleFormats.first(
-        where: AppleSpeechDictationConfiguration.isCompatibleSpeechInputFormat
-      ) {
+      if let fallbackMatch = compatibleFormats.first(where: { format in
+        AppleSpeechTranscriberConfiguration.isCompatibleSpeechInputFormat(format)
+      }) {
         return fallbackMatch
       }
 
-      if AppleSpeechDictationConfiguration.isCompatibleSpeechInputFormat(preferredFormat) {
+      if AppleSpeechTranscriberConfiguration.isCompatibleSpeechInputFormat(preferredFormat) {
         return preferredFormat
       }
 

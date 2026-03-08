@@ -8,11 +8,17 @@
 import SwiftUI
 
 struct NativeRichMessageRowModel {
+  enum RenderMode {
+    case markdown
+    case streamingPlainText
+  }
+
   let messageID: String
   let speaker: String
   let content: String
   let thinking: String?
   let messageType: MessageType
+  let renderMode: RenderMode
   let timestamp: Date
   let hasImages: Bool
   let images: [MessageImage]
@@ -95,5 +101,9 @@ struct NativeRichMessageRowModel {
 
   var isUserAligned: Bool {
     messageType == .user || messageType == .shell
+  }
+
+  var usesStreamingTextRenderer: Bool {
+    renderMode == .streamingPlainText
   }
 }

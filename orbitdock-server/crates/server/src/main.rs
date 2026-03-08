@@ -77,7 +77,9 @@ use tokio::sync::mpsc;
 
 /// Server version, baked in at compile time.
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
-const MAX_HTTP_BODY_BYTES: usize = 1024 * 1024;
+/// Per-request body budget for REST uploads. Image attachments are uploaded
+/// one at a time, so this should comfortably exceed the client-side single-image limit.
+const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -1050,7 +1052,19 @@ async fn async_main(
         )
         .route(
             "/api/sessions/{session_id}/messages",
-            get(http_api::get_conversation_history),
+            get(http_api::get_conversation_history).post(http_api::post_session_message),
+        )
+        .route(
+            "/api/sessions/{session_id}/steer",
+            post(http_api::post_steer_turn),
+        )
+        .route(
+            "/api/sessions/{session_id}/attachments/images",
+            post(http_api::upload_session_image_attachment),
+        )
+        .route(
+            "/api/sessions/{session_id}/attachments/images/{attachment_id}",
+            get(http_api::get_session_image_attachment),
         )
         .route("/api/approvals", get(http_api::list_approvals_endpoint))
         .route(

@@ -12,7 +12,6 @@ struct HeaderView: View {
 
   let sessionId: String
   let endpointId: UUID
-  let onFocusTerminal: () -> Void
   var onEndSession: (() -> Void)?
   var showTurnSidebar: Binding<Bool>?
   var hasSidebarContent: Bool = false
@@ -184,17 +183,6 @@ struct HeaderView: View {
 
   private var overflowMenu: some View {
     Menu {
-      if Platform.services.capabilities.canFocusTerminal {
-        Button {
-          onFocusTerminal()
-        } label: {
-          Label(
-            obs.isActive ? "Focus Terminal" : "Resume in Terminal",
-            systemImage: obs.isActive ? "arrow.up.forward.app" : "terminal"
-          )
-        }
-      }
-
       if let sidebarBinding = showTurnSidebar {
         Button {
           withAnimation(Motion.standard) {
@@ -445,17 +433,6 @@ struct HeaderView: View {
 
   private var compactOverflowMenu: some View {
     Menu {
-      if Platform.services.capabilities.canFocusTerminal {
-        Button {
-          onFocusTerminal()
-        } label: {
-          Label(
-            obs.isActive ? "Focus Terminal" : "Resume in Terminal",
-            systemImage: obs.isActive ? "arrow.up.forward.app" : "terminal"
-          )
-        }
-      }
-
       if let sidebarBinding = showTurnSidebar {
         Button {
           withAnimation(Motion.standard) {
@@ -858,8 +835,7 @@ struct CodexTokenBadge: View {
   VStack(spacing: 0) {
     HeaderView(
       sessionId: "test-123",
-      endpointId: UUID(),
-      onFocusTerminal: {}
+      endpointId: UUID()
     )
     .environment(AppRouter())
 

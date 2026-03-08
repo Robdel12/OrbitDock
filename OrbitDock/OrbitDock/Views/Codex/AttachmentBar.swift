@@ -2,8 +2,7 @@
 //  AttachmentBar.swift
 //  OrbitDock
 //
-//  Horizontal strip showing attached images and file mentions
-//  above the input row, with remove buttons.
+//  Rich attachment tray for composer images and file mentions.
 //
 
 import SwiftUI
@@ -11,7 +10,11 @@ import SwiftUI
 struct AttachedImage: Identifiable, Equatable {
   let id: String
   let thumbnail: PlatformImage
-  let serverInput: ServerImageInput
+  let uploadData: Data
+  let uploadMimeType: String
+  let displayName: String?
+  let pixelWidth: Int?
+  let pixelHeight: Int?
 
   static func == (lhs: AttachedImage, rhs: AttachedImage) -> Bool {
     lhs.id == rhs.id
@@ -19,149 +22,198 @@ struct AttachedImage: Identifiable, Equatable {
 }
 
 struct AttachedMention: Identifiable, Equatable {
-  let id: String // relative path
-  let name: String // filename
-  let path: String // absolute path
+  let id: String
+  let name: String
+  let path: String
 }
 
 struct AttachmentBar: View {
   @Binding var images: [AttachedImage]
   @Binding var mentions: [AttachedMention]
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @State private var previewSelection: AttachmentPreviewSelection?
 
   private var isCompactLayout: Bool {
     horizontalSizeClass == .compact
   }
 
-  var body: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: Spacing.sm) {
-        if !images.isEmpty {
-          attachmentCountBadge(
-            icon: "photo",
-            count: images.count,
-            tint: Color.accent
-          )
-        }
-        if !mentions.isEmpty {
-          attachmentCountBadge(
-            icon: "paperclip",
-            count: mentions.count,
-            tint: Color.composerPrompt
-          )
-        }
-
-        ForEach(images) { image in
-          imageChip(image)
-            .transition(.scale.combined(with: .opacity))
-        }
-        ForEach(mentions) { mention in
-          mentionChip(mention)
-            .transition(.scale.combined(with: .opacity))
-        }
-      }
-      .padding(.horizontal, isCompactLayout ? Spacing.md_ : Spacing.sm)
-      .padding(.vertical, Spacing.xxs)
-      .animation(Motion.gentle, value: images.count)
-      .animation(Motion.gentle, value: mentions.count)
-    }
-    .padding(.horizontal, isCompactLayout ? Spacing.xs : 0)
-    .padding(.vertical, isCompactLayout ? Spacing.gap : 0)
-    .background(
-      Group {
-        if isCompactLayout {
-          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-            .fill(Color.backgroundTertiary.opacity(0.5))
-        }
-      }
-    )
-    .overlay(
-      Group {
-        if isCompactLayout {
-          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-            .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
-        }
-      }
-    )
-    .padding(.horizontal, Spacing.md)
-    .padding(.top, isCompactLayout ? Spacing.gap : 1)
+  private var totalImageBytes: Int {
+    images.reduce(0) { $0 + $1.uploadData.count }
   }
 
-  private func imageChip(_ image: AttachedImage) -> some View {
-    #if os(iOS)
-      let chipSize: CGFloat = 44
-    #else
-      let chipSize: CGFloat = 38
-    #endif
+  var body: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(spacing: Spacing.sm) {
+        if !images.isEmpty {
+          Label("\(images.count) image\(images.count == 1 ? "" : "s")", systemImage: "photo.on.rectangle.angled")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+        }
 
-    return ZStack(alignment: .topTrailing) {
-      #if os(macOS)
-        Image(nsImage: image.thumbnail)
-          .resizable()
-          .aspectRatio(contentMode: .fill)
-          .frame(width: chipSize, height: chipSize)
-          .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
-      #else
-        Image(uiImage: image.thumbnail)
-          .resizable()
-          .aspectRatio(contentMode: .fill)
-          .frame(width: chipSize, height: chipSize)
-          .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
-      #endif
+        if !images.isEmpty {
+          Text(byteCountLabel(totalImageBytes))
+            .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+        }
 
-      removeButton {
-        removeImage(withID: image.id)
+        if !mentions.isEmpty {
+          Text("•")
+            .foregroundStyle(Color.textQuaternary)
+          Label("\(mentions.count) mention\(mentions.count == 1 ? "" : "s")", systemImage: "paperclip")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textSecondary)
+        }
+
+        Spacer(minLength: 0)
       }
-      .padding(Spacing.xxs)
-      .zIndex(1)
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(alignment: .top, spacing: Spacing.md) {
+          ForEach(images.indices, id: \.self) { index in
+            imageCard(images[index], index: index)
+              .transition(.move(edge: .top).combined(with: .opacity))
+          }
+
+          ForEach(mentions) { mention in
+            mentionCard(mention)
+              .transition(.move(edge: .top).combined(with: .opacity))
+          }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xs)
+      }
     }
-    .frame(width: chipSize, height: chipSize)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundTertiary.opacity(isCompactLayout ? 0.72 : 0.58))
+    )
     .overlay(
-      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-        .strokeBorder(Color.white.opacity(isCompactLayout ? 0.07 : 0.05), lineWidth: 1)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
     )
     .themeShadow(Shadow.sm)
-    .contentShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
+    .sheet(item: $previewSelection) { selection in
+      ImageFullscreen(
+        images: previewImages,
+        currentIndex: selection.index
+      )
+    }
+  }
+
+  private var previewImages: [MessageImage] {
+    images.map { image in
+      MessageImage(
+        id: image.id,
+        source: .inlineData(image.uploadData),
+        mimeType: image.uploadMimeType,
+        byteCount: image.uploadData.count,
+        pixelWidth: image.pixelWidth,
+        pixelHeight: image.pixelHeight
+      )
+    }
+  }
+
+  private func imageCard(_ image: AttachedImage, index: Int) -> some View {
+    Button {
+      previewSelection = AttachmentPreviewSelection(index: index)
+    } label: {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        ZStack(alignment: .topTrailing) {
+          Group {
+            #if os(macOS)
+              Image(nsImage: image.thumbnail)
+                .resizable()
+            #else
+              Image(uiImage: image.thumbnail)
+                .resizable()
+            #endif
+          }
+          .aspectRatio(contentMode: .fill)
+          .frame(width: 112, height: 84)
+          .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+              .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+          )
+
+          removeButton {
+            removeImage(withID: image.id)
+          }
+          .padding(Spacing.xxs)
+        }
+
+        VStack(alignment: .leading, spacing: 3) {
+          Text(image.displayName ?? image.uploadMimeType.replacingOccurrences(of: "image/", with: "").uppercased())
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+            .lineLimit(1)
+
+          Text(imageMetadata(image))
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(1)
+        }
+        .frame(width: 112, alignment: .leading)
+      }
+      .padding(Spacing.xs)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .fill(Color.backgroundSecondary.opacity(0.78))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
+      )
+      .themeShadow(Shadow.sm)
+    }
+    .buttonStyle(.plain)
     .contextMenu {
+      Button("Preview Image") {
+        previewSelection = AttachmentPreviewSelection(index: index)
+      }
       Button("Remove Image", role: .destructive) {
         removeImage(withID: image.id)
       }
     }
   }
 
-  private func mentionChip(_ mention: AttachedMention) -> some View {
-    HStack(spacing: 5) {
+  private func mentionCard(_ mention: AttachedMention) -> some View {
+    HStack(alignment: .center, spacing: Spacing.sm) {
       Image(systemName: fileIcon(for: mention.name))
-        .font(.system(size: 10, weight: .semibold))
+        .font(.system(size: 12, weight: .semibold))
         .foregroundStyle(Color.accent)
 
-      Text(mention.name)
-        .font(.caption2.weight(.medium))
-        .lineLimit(1)
-
-      Button {
-        removeMention(withID: mention.id)
-      } label: {
-        Image(systemName: "xmark.circle.fill")
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(Color.textSecondary.opacity(0.9))
+      VStack(alignment: .leading, spacing: 2) {
+        Text(mention.name)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+          .lineLimit(1)
+        Text(mention.path)
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+          .lineLimit(1)
       }
-      .buttonStyle(.plain)
-      .contentShape(Circle())
-      .padding(.vertical, 1)
+
+      Spacer(minLength: 0)
+
+      removeButton {
+        removeMention(withID: mention.id)
+      }
     }
     .padding(.horizontal, Spacing.sm)
-    .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.gap)
-    .background(Color.accent.opacity(isCompactLayout ? 0.12 : 0.08))
-    .overlay {
-      if isCompactLayout {
-        Capsule()
-          .strokeBorder(Color.accent.opacity(0.22), lineWidth: 1)
-      }
-    }
-    .clipShape(Capsule())
+    .padding(.vertical, Spacing.sm)
+    .frame(width: 240, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.accent.opacity(0.09))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(Color.accent.opacity(0.16), lineWidth: 1)
+    )
     .themeShadow(Shadow.sm)
-    .help(mention.path)
     .contextMenu {
       Button("Remove Mention", role: .destructive) {
         removeMention(withID: mention.id)
@@ -169,17 +221,22 @@ struct AttachmentBar: View {
     }
   }
 
-  private func attachmentCountBadge(icon: String, count: Int, tint: Color) -> some View {
-    HStack(spacing: Spacing.xs) {
-      Image(systemName: icon)
-        .font(.system(size: 9, weight: .semibold))
-      Text("\(count)")
-        .font(.system(size: 10, weight: .bold, design: .monospaced))
+  private func imageMetadata(_ image: AttachedImage) -> String {
+    let size = byteCountLabel(image.uploadData.count)
+    guard let width = image.pixelWidth, let height = image.pixelHeight, width > 0, height > 0 else {
+      return size
     }
-    .foregroundStyle(tint)
-    .padding(.horizontal, 7)
-    .padding(.vertical, Spacing.xs)
-    .background(tint.opacity(0.14), in: Capsule())
+    return "\(width)×\(height) • \(size)"
+  }
+
+  private func byteCountLabel(_ bytes: Int) -> String {
+    if bytes < 1_024 {
+      return "\(bytes) B"
+    }
+    if bytes < 1_024 * 1_024 {
+      return String(format: "%.1f KB", Double(bytes) / 1_024)
+    }
+    return String(format: "%.1f MB", Double(bytes) / (1_024 * 1_024))
   }
 
   private func removeImage(withID id: String) {
@@ -232,4 +289,10 @@ struct AttachmentBar: View {
       default: return "doc"
     }
   }
+}
+
+private struct AttachmentPreviewSelection: Identifiable {
+  let index: Int
+
+  var id: Int { index }
 }

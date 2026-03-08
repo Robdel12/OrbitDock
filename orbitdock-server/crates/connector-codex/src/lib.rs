@@ -531,6 +531,7 @@ impl CodexConnector {
                         images.push(orbitdock_protocol::ImageInput {
                             input_type: "url".to_string(),
                             value: url.clone(),
+                            ..Default::default()
                         });
                     }
                 }
@@ -538,6 +539,7 @@ impl CodexConnector {
                     images.push(orbitdock_protocol::ImageInput {
                         input_type: "path".to_string(),
                         value: path.to_string_lossy().to_string(),
+                        ..Default::default()
                     });
                 }
 
@@ -1035,6 +1037,7 @@ impl CodexConnector {
                     images: vec![orbitdock_protocol::ImageInput {
                         input_type: "path".to_string(),
                         value: e.path.to_string_lossy().to_string(),
+                        ..Default::default()
                     }],
                 };
                 vec![ConnectorEvent::MessageCreated(message)]

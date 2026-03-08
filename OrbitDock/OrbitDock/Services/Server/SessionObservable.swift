@@ -8,16 +8,6 @@
 
 import Foundation
 
-enum ConversationMessageMutationKind {
-  case replaceAll
-  case upsert(TranscriptMessage)
-}
-
-struct ConversationMessageMutation {
-  let revision: Int
-  let kind: ConversationMessageMutationKind
-}
-
 @Observable
 @MainActor
 final class SessionObservable {
@@ -26,8 +16,24 @@ final class SessionObservable {
   // Messages
   var messages: [TranscriptMessage] = []
   private(set) var messagesRevision: Int = 0
-  private(set) var lastMessageMutation: ConversationMessageMutation?
   var totalMessageCount: Int = 0
+
+  // Cached normalized messages — recomputed only when messagesRevision changes
+  private var _normalizedMessagesCache: [TranscriptMessage] = []
+  private var _normalizedRevision: Int = -1
+
+  var normalizedMessages: [TranscriptMessage] {
+    if _normalizedRevision == messagesRevision {
+      return _normalizedMessagesCache
+    }
+    _normalizedMessagesCache = ConversationRenderMessageNormalizer.normalize(
+      messages,
+      sessionId: id,
+      source: "observable"
+    )
+    _normalizedRevision = messagesRevision
+    return _normalizedMessagesCache
+  }
   var oldestLoadedSequence: UInt64?
   var newestLoadedSequence: UInt64?
   var hasMoreHistoryBefore: Bool = false
@@ -70,7 +76,6 @@ final class SessionObservable {
 
   /// Lifecycle
   var hasReceivedSnapshot: Bool = false
-  var hasLoadedCachedConversation: Bool = false
 
   // Operation flags
   var undoInProgress: Bool = false
@@ -221,10 +226,23 @@ final class SessionObservable {
   }
 
   var effectiveContextInputTokens: Int {
-    let input = max(inputTokens ?? 0, 0)
-    let cached = max(cachedTokens ?? 0, 0)
+    Int(Self.effectiveInput(
+      input: UInt64(max(inputTokens ?? 0, 0)),
+      cached: UInt64(max(cachedTokens ?? 0, 0)),
+      snapshotKind: tokenUsageSnapshotKind,
+      provider: provider
+    ))
+  }
 
-    switch tokenUsageSnapshotKind {
+  /// Shared logic for computing effective context input tokens.
+  /// Used by the popover per-turn timeline and the header pill.
+  static func effectiveInput(
+    input: UInt64,
+    cached: UInt64,
+    snapshotKind: ServerTokenUsageSnapshotKind,
+    provider: Provider
+  ) -> UInt64 {
+    switch snapshotKind {
       case .mixedLegacy:
         return input + cached
       case .compactionReset:
@@ -270,13 +288,8 @@ final class SessionObservable {
     (inputTokens ?? 0) > 0 || (outputTokens ?? 0) > 0 || (cachedTokens ?? 0) > 0
   }
 
-  var hasConversationSeed: Bool {
-    hasReceivedSnapshot || hasLoadedCachedConversation
-  }
-
-  func bumpMessagesRevision(_ kind: ConversationMessageMutationKind = .replaceAll) {
+  func bumpMessagesRevision() {
     messagesRevision += 1
-    lastMessageMutation = ConversationMessageMutation(revision: messagesRevision, kind: kind)
   }
 
   var hasMcpData: Bool {
@@ -364,7 +377,7 @@ final class SessionObservable {
 
   /// Drop heavy conversation payloads when a session is no longer observed.
   /// Keep lightweight identity/config fields so list UI remains stable.
-  func clearConversationPayloadsForCaching() {
+  func clearConversationPayloads() {
     messages = []
     totalMessageCount = 0
     oldestLoadedSequence = nil
@@ -372,7 +385,6 @@ final class SessionObservable {
     hasMoreHistoryBefore = false
     isLoadingOlderMessages = false
     hasReceivedSnapshot = false
-    hasLoadedCachedConversation = false
     bumpMessagesRevision()
     turnDiffs = []
     diff = nil

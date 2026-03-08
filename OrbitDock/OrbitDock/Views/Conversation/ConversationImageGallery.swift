@@ -87,6 +87,10 @@ final class ImageCache {
       case let .dataURI(uri):
         guard let data = Self.decodeDataURI(uri) else { return nil }
         return CGImageSourceCreateWithData(data as CFData, opts)
+      case let .inlineData(data):
+        return CGImageSourceCreateWithData(data as CFData, opts)
+      case .serverAttachment:
+        return nil
     }
   }
 
@@ -171,6 +175,10 @@ struct ImageGallery: View {
             ) {
               selectedIndex = 0
             }
+          } else {
+            SingleImagePlaceholderView(imageData: images[0]) {
+              selectedIndex = 0
+            }
           }
         } else {
           FlowLayout(spacing: Spacing.md) {
@@ -181,6 +189,10 @@ struct ImageGallery: View {
                   imageData: image,
                   index: index
                 ) {
+                  selectedIndex = index
+                }
+              } else {
+                ImageThumbnailPlaceholder(imageData: image, index: index) {
                   selectedIndex = index
                 }
               }
@@ -209,6 +221,21 @@ private struct ImageSelection: Identifiable {
   }
 }
 
+private func imageSizeLabel(_ bytes: Int) -> String {
+  if bytes < 1_024 {
+    return "\(bytes) B"
+  } else if bytes < 1_024 * 1_024 {
+    return String(format: "%.1f KB", Double(bytes) / 1_024)
+  } else {
+    return String(format: "%.1f MB", Double(bytes) / (1_024 * 1_024))
+  }
+}
+
+private func imageDimensionsLabel(width: Int?, height: Int?) -> String? {
+  guard let width, let height, width > 0, height > 0 else { return nil }
+  return "\(width) \u{00D7} \(height)"
+}
+
 struct SingleImageView: View {
   let platformImage: PlatformImage
   let imageData: MessageImage
@@ -223,14 +250,7 @@ struct SingleImageView: View {
   }
 
   private var imageSize: String {
-    let bytes = imageData.byteCount
-    if bytes < 1_024 {
-      return "\(bytes) B"
-    } else if bytes < 1_024 * 1_024 {
-      return String(format: "%.1f KB", Double(bytes) / 1_024)
-    } else {
-      return String(format: "%.1f MB", Double(bytes) / (1_024 * 1_024))
-    }
+    imageSizeLabel(imageData.byteCount)
   }
 
   private var swiftUIImage: Image {
@@ -263,6 +283,49 @@ struct SingleImageView: View {
               .padding(Spacing.sm)
               .opacity(isHovering ? 1 : 0)
           }
+
+        HStack(spacing: Spacing.sm) {
+          Text(imageDimensions)
+          Text("•")
+          Text(imageSize)
+        }
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+      }
+      .scaleEffect(isHovering ? 1.01 : 1.0)
+      .animation(Motion.hover, value: isHovering)
+    }
+    .buttonStyle(.plain)
+    #if os(macOS)
+      .onHover { isHovering = $0 }
+    #endif
+  }
+}
+
+struct SingleImagePlaceholderView: View {
+  let imageData: MessageImage
+  let onTap: () -> Void
+
+  @State private var isHovering = false
+
+  private var imageDimensions: String {
+    imageDimensionsLabel(width: imageData.pixelWidth, height: imageData.pixelHeight) ?? "Loading image"
+  }
+
+  private var imageSize: String {
+    imageSizeLabel(imageData.byteCount)
+  }
+
+  var body: some View {
+    Button(action: onTap) {
+      VStack(alignment: .trailing, spacing: Spacing.sm_) {
+        AttachmentImagePlaceholder(aspectRatio: placeholderAspectRatio(for: imageData))
+          .frame(maxWidth: 400, maxHeight: 300)
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+              .strokeBorder(Color.white.opacity(isHovering ? 0.25 : 0.1), lineWidth: 1)
+          )
+          .themeShadow(Shadow.md)
 
         HStack(spacing: Spacing.sm) {
           Text(imageDimensions)
@@ -344,6 +407,41 @@ struct ImageThumbnail: View {
   }
 }
 
+struct ImageThumbnailPlaceholder: View {
+  let imageData: MessageImage
+  let index: Int
+  let onTap: () -> Void
+
+  @State private var isHovering = false
+
+  var body: some View {
+    Button(action: onTap) {
+      ZStack(alignment: .topTrailing) {
+        AttachmentImagePlaceholder(aspectRatio: placeholderAspectRatio(for: imageData))
+          .frame(width: 200, height: 150)
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+              .strokeBorder(Color.white.opacity(isHovering ? 0.3 : 0.12), lineWidth: 1)
+          )
+          .themeShadow(Shadow.md)
+
+        Text("\(index + 1)")
+          .font(.system(size: TypeScale.meta, weight: .bold, design: .rounded))
+          .foregroundStyle(.white)
+          .frame(width: 22, height: 22)
+          .background(Color.accent.opacity(0.9), in: Circle())
+          .padding(Spacing.sm)
+      }
+      .scaleEffect(isHovering ? 1.03 : 1.0)
+      .animation(Motion.hover, value: isHovering)
+    }
+    .buttonStyle(.plain)
+    #if os(macOS)
+      .onHover { isHovering = $0 }
+    #endif
+  }
+}
+
 struct ImageFullscreen: View {
   let images: [MessageImage]
   @State var currentIndex: Int
@@ -364,19 +462,14 @@ struct ImageFullscreen: View {
   }
 
   private var imageDimensions: String {
-    guard let entry = cachedEntry else { return "" }
-    return "\(entry.originalWidth) \u{00D7} \(entry.originalHeight)"
+    if let entry = cachedEntry {
+      return "\(entry.originalWidth) \u{00D7} \(entry.originalHeight)"
+    }
+    return imageDimensionsLabel(width: currentImage.pixelWidth, height: currentImage.pixelHeight) ?? "Loading image"
   }
 
   private var imageSize: String {
-    let bytes = currentImage.byteCount
-    if bytes < 1_024 {
-      return "\(bytes) B"
-    } else if bytes < 1_024 * 1_024 {
-      return String(format: "%.1f KB", Double(bytes) / 1_024)
-    } else {
-      return String(format: "%.1f MB", Double(bytes) / (1_024 * 1_024))
-    }
+    imageSizeLabel(currentImage.byteCount)
   }
 
   var body: some View {
@@ -398,6 +491,12 @@ struct ImageFullscreen: View {
             .padding(.top, 50)
             .padding(.bottom, images.count > 1 ? 80 : Spacing.md)
             .id(currentIndex)
+        } else {
+          AttachmentImagePlaceholder(aspectRatio: placeholderAspectRatio(for: currentImage))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, Spacing.md)
+            .padding(.top, 50)
+            .padding(.bottom, images.count > 1 ? 80 : Spacing.md)
         }
 
         VStack(spacing: 0) {
@@ -484,6 +583,21 @@ struct ImageFullscreen: View {
                         .opacity(index == currentIndex ? 1.0 : 0.5)
                     }
                     .buttonStyle(.plain)
+                  } else {
+                    Button {
+                      withAnimation(Motion.fade) {
+                        currentIndex = index
+                      }
+                    } label: {
+                      AttachmentImagePlaceholder(aspectRatio: placeholderAspectRatio(for: image))
+                        .frame(width: 56, height: 42)
+                        .overlay(
+                          RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
+                            .strokeBorder(index == currentIndex ? Color.accent : Color.clear, lineWidth: 2)
+                        )
+                        .opacity(index == currentIndex ? 1.0 : 0.5)
+                    }
+                    .buttonStyle(.plain)
                   }
                 }
               }
@@ -516,6 +630,48 @@ struct ImageFullscreen: View {
     .frame(minWidth: 800, idealWidth: 1_000, minHeight: 600, idealHeight: 750)
     #endif
   }
+}
+
+private struct AttachmentImagePlaceholder: View {
+  let aspectRatio: CGFloat
+
+  var body: some View {
+    ZStack {
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(
+          LinearGradient(
+            colors: [
+              Color.backgroundTertiary.opacity(0.95),
+              Color.backgroundSecondary.opacity(0.88),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          )
+        )
+
+      VStack(spacing: Spacing.xs) {
+        Image(systemName: "photo.badge.arrow.down")
+          .font(.system(size: 22, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+        Text("Loading image")
+          .font(.system(size: TypeScale.meta, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+      }
+    }
+    .aspectRatio(max(aspectRatio, 0.6), contentMode: .fit)
+    .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+  }
+}
+
+private func placeholderAspectRatio(for image: MessageImage) -> CGFloat {
+  guard let width = image.pixelWidth,
+        let height = image.pixelHeight,
+        width > 0,
+        height > 0
+  else {
+    return 4.0 / 3.0
+  }
+  return CGFloat(width) / CGFloat(height)
 }
 
 struct FlowLayout: Layout {

@@ -619,12 +619,22 @@ pub struct SkillInput {
 }
 
 /// Image attached to a message
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ImageInput {
-    /// "url" for data URI, "path" for local file
+    /// "url" for data URI, "path" for local file, "attachment" for server-managed image ids
     pub input_type: String,
-    /// Data URI string or local file path
+    /// Data URI string, local file path, or attachment id
     pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub byte_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pixel_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pixel_height: Option<u32>,
 }
 
 /// File/resource mention attached to a message

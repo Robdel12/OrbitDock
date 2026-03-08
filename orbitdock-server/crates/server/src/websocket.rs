@@ -21,7 +21,7 @@ use tracing::{debug, error, info, warn};
 use orbitdock_protocol::{ClientMessage, ServerMessage, SessionState};
 
 use crate::snapshot_compaction::{
-    compact_snapshot_for_transport, replay_has_oversize_event, sanitize_replay_event_for_transport,
+    prepare_snapshot_for_transport, replay_has_oversize_event, sanitize_replay_event_for_transport,
     sanitize_server_message_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
 };
 use crate::state::SessionRegistry;
@@ -68,19 +68,18 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
         while let Some(msg) = outbound_rx.recv().await {
             let result = match msg {
                 OutboundMessage::Json(server_msg) => {
-                    let compacted = sanitize_server_message_for_transport(server_msg);
-                    match serde_json::to_string(&compacted) {
+                    let sanitized = sanitize_server_message_for_transport(server_msg);
+                    match serde_json::to_string(&sanitized) {
                         Ok(json) => {
                             if json.len() > WS_MAX_TEXT_MESSAGE_BYTES {
                                 warn!(
                                     component = "websocket",
-                                    event = "ws.send.message_dropped_oversize",
+                                    event = "ws.send.oversize_message",
                                     connection_id = conn_id,
                                     bytes = json.len(),
                                     max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
-                                    "Dropped oversized server message after compaction"
+                                    "Sending oversized server message (no truncation)"
                                 );
-                                continue;
                             }
                             ws_tx.send(Message::Text(json.into())).await
                         }
@@ -100,13 +99,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
                     if json.len() > WS_MAX_TEXT_MESSAGE_BYTES {
                         warn!(
                             component = "websocket",
-                            event = "ws.send.raw_dropped_oversize",
+                            event = "ws.send.oversize_raw",
                             connection_id = conn_id,
                             bytes = json.len(),
                             max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
-                            "Dropped oversized replay payload"
+                            "Sending oversized replay payload (no truncation)"
                         );
-                        continue;
                     }
                     ws_tx.send(Message::Text(json.into())).await
                 }
@@ -298,7 +296,7 @@ pub(crate) async fn send_snapshot_if_requested(
         send_json(
             tx,
             ServerMessage::SessionSnapshot {
-                session: compact_snapshot_for_transport(snapshot),
+                session: prepare_snapshot_for_transport(snapshot),
             },
         )
         .await;
@@ -494,10 +492,9 @@ mod tests {
         direct_mode_activation_changes,
     };
     use crate::snapshot_compaction::{
-        compact_message_for_transport, compact_snapshot_to_transport_limit,
-        replay_has_oversize_event, sanitize_replay_event_for_transport,
-        sanitize_server_message_for_transport, snapshot_transport_size_bytes,
-        SNAPSHOT_MAX_CONTENT_CHARS, SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES, WS_MAX_TEXT_MESSAGE_BYTES,
+        prepare_snapshot_for_transport, replay_has_oversize_event,
+        sanitize_replay_event_for_transport, sanitize_server_message_for_transport,
+        WS_MAX_TEXT_MESSAGE_BYTES,
     };
     use crate::state::SessionRegistry;
     use crate::transition::Input;
@@ -856,24 +853,24 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_compaction_fits_websocket_transport_limit() {
+    fn snapshot_preparation_normalizes_images_and_sets_pagination() {
         let mut snapshot = SessionHandle::new(
-            "oversized".to_string(),
+            "prep-test".to_string(),
             Provider::Codex,
-            "/tmp/oversized".into(),
+            "/tmp/prep-test".into(),
         )
         .retained_state();
 
-        snapshot.messages = (0..80)
+        snapshot.messages = (0..5)
             .map(|index| Message {
                 id: format!("m-{index}"),
                 session_id: snapshot.id.clone(),
                 sequence: Some(index as u64),
                 message_type: MessageType::Assistant,
-                content: "A".repeat(60_000),
-                tool_name: Some("bash".to_string()),
-                tool_input: Some("B".repeat(20_000)),
-                tool_output: Some("C".repeat(20_000)),
+                content: format!("Message {index}"),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
                 is_error: false,
                 is_in_progress: false,
                 timestamp: "2026-01-01T00:00:00Z".to_string(),
@@ -882,35 +879,14 @@ mod tests {
             })
             .collect();
 
-        snapshot.current_diff = Some("D".repeat(120_000));
-        snapshot.current_plan = Some("E".repeat(120_000));
-        snapshot.pending_tool_input = Some("F".repeat(120_000));
-        snapshot.pending_question = Some("G".repeat(120_000));
-        snapshot.turn_diffs = (0..120)
-            .map(|idx| TurnDiff {
-                turn_id: format!("turn-{idx}"),
-                diff: "H".repeat(120_000),
-                token_usage: None,
-                snapshot_kind: None,
-            })
-            .collect();
+        let prepared = prepare_snapshot_for_transport(snapshot);
 
-        let compacted = compact_snapshot_to_transport_limit(snapshot);
-        let compacted_size =
-            snapshot_transport_size_bytes(&compacted).expect("compacted snapshot serialized");
-
-        assert!(
-            compacted_size <= WS_MAX_TEXT_MESSAGE_BYTES,
-            "expected compacted snapshot <= {} bytes, got {}",
-            WS_MAX_TEXT_MESSAGE_BYTES,
-            compacted_size
-        );
-        assert!(
-            compacted_size <= SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES,
-            "expected compacted snapshot <= {} bytes target, got {}",
-            SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES,
-            compacted_size
-        );
+        // Pagination metadata should be set
+        assert_eq!(prepared.oldest_sequence, Some(0));
+        assert_eq!(prepared.newest_sequence, Some(4));
+        assert_eq!(prepared.total_message_count, Some(5));
+        // All messages preserved — no truncation
+        assert_eq!(prepared.messages.len(), 5);
     }
 
     #[test]
@@ -926,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_compaction_dedupes_duplicate_turn_ids() {
+    fn snapshot_preparation_dedupes_duplicate_turn_ids() {
         let mut snapshot = SessionHandle::new(
             "dupe-turns".to_string(),
             Provider::Codex,
@@ -954,17 +930,62 @@ mod tests {
             },
         ];
 
-        let compacted = compact_snapshot_to_transport_limit(snapshot);
-        assert_eq!(compacted.turn_diffs.len(), 2);
-        assert_eq!(compacted.turn_diffs[0].turn_id, "turn-21");
-        assert_eq!(compacted.turn_diffs[1].turn_id, "turn-20");
-        assert_eq!(compacted.turn_diffs[1].diff, "new");
+        let prepared = prepare_snapshot_for_transport(snapshot);
+        assert_eq!(prepared.turn_diffs.len(), 2);
+        assert_eq!(prepared.turn_diffs[0].turn_id, "turn-21");
+        assert_eq!(prepared.turn_diffs[1].turn_id, "turn-20");
+        assert_eq!(prepared.turn_diffs[1].diff, "new");
     }
 
     #[test]
-    fn compact_message_transport_preserves_data_uri_images() {
-        let mut message = Message {
-            id: "m-image".to_string(),
+    fn sanitize_message_appended_normalizes_managed_path_images() {
+        ensure_test_data_dir();
+        let session_id = "s";
+        let image_dir = crate::paths::images_dir().join(session_id);
+        std::fs::create_dir_all(&image_dir).expect("create image dir");
+        let image_path = image_dir.join(format!("orbitdock-image-{}.png", new_id()));
+        std::fs::write(&image_path, b"hello-image").expect("write test image");
+
+        let message = Message {
+            id: "m-path".to_string(),
+            session_id: session_id.to_string(),
+            sequence: None,
+            message_type: MessageType::User,
+            content: "send path".to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            is_in_progress: false,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            duration_ms: None,
+            images: vec![ImageInput {
+                input_type: "path".to_string(),
+                value: image_path.to_string_lossy().to_string(),
+                ..Default::default()
+            }],
+        };
+
+        let sanitized = sanitize_server_message_for_transport(ServerMessage::MessageAppended {
+            session_id: session_id.to_string(),
+            message,
+        });
+        let _ = std::fs::remove_file(image_path);
+
+        match sanitized {
+            ServerMessage::MessageAppended { message, .. } => {
+                assert_eq!(message.images.len(), 1);
+                assert_eq!(message.images[0].input_type, "attachment");
+                assert!(message.images[0].value.ends_with(".png"));
+            }
+            other => panic!("expected MessageAppended, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn sanitize_preserves_data_uri_images() {
+        let message = Message {
+            id: "m-data-uri".to_string(),
             session_id: "s".to_string(),
             sequence: None,
             message_type: MessageType::User,
@@ -979,77 +1000,8 @@ mod tests {
             images: vec![ImageInput {
                 input_type: "url".to_string(),
                 value: format!("data:image/png;base64,{}", "A".repeat(5_000)),
+                ..Default::default()
             }],
-        };
-
-        compact_message_for_transport(&mut message, SNAPSHOT_MAX_CONTENT_CHARS);
-
-        assert_eq!(message.images.len(), 1);
-        assert_eq!(message.images[0].input_type, "url");
-        assert!(message.images[0]
-            .value
-            .starts_with("data:image/png;base64,"));
-    }
-
-    #[test]
-    fn compact_message_transport_converts_path_images_to_data_uri() {
-        let image_path = std::env::temp_dir().join(format!("orbitdock-image-{}.png", new_id()));
-        std::fs::write(&image_path, b"hello-image").expect("write test image");
-
-        let mut message = Message {
-            id: "m-path".to_string(),
-            session_id: "s".to_string(),
-            sequence: None,
-            message_type: MessageType::User,
-            content: "send path".to_string(),
-            tool_name: None,
-            tool_input: None,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: false,
-            timestamp: "2026-01-01T00:00:00Z".to_string(),
-            duration_ms: None,
-            images: vec![ImageInput {
-                input_type: "path".to_string(),
-                value: image_path.to_string_lossy().to_string(),
-            }],
-        };
-
-        compact_message_for_transport(&mut message, SNAPSHOT_MAX_CONTENT_CHARS);
-        let _ = std::fs::remove_file(image_path);
-
-        assert_eq!(message.images.len(), 1);
-        assert_eq!(message.images[0].input_type, "url");
-        assert_eq!(
-            message.images[0].value,
-            "data:image/png;base64,aGVsbG8taW1hZ2U="
-        );
-    }
-
-    #[test]
-    fn sanitize_message_appended_trims_oversized_images_instead_of_dropping_message() {
-        let oversized_image = ImageInput {
-            input_type: "url".to_string(),
-            value: format!(
-                "data:image/png;base64,{}",
-                "A".repeat(WS_MAX_TEXT_MESSAGE_BYTES + 512)
-            ),
-        };
-
-        let message = Message {
-            id: "m-large".to_string(),
-            session_id: "s".to_string(),
-            sequence: None,
-            message_type: MessageType::User,
-            content: "large image".to_string(),
-            tool_name: None,
-            tool_input: None,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: false,
-            timestamp: "2026-01-01T00:00:00Z".to_string(),
-            duration_ms: None,
-            images: vec![oversized_image],
         };
 
         let sanitized = sanitize_server_message_for_transport(ServerMessage::MessageAppended {
@@ -1057,38 +1009,32 @@ mod tests {
             message,
         });
 
-        let json = serde_json::to_string(&sanitized).expect("serialize sanitized message");
-        assert!(
-            json.len() <= WS_MAX_TEXT_MESSAGE_BYTES,
-            "expected sanitized message <= {} bytes, got {}",
-            WS_MAX_TEXT_MESSAGE_BYTES,
-            json.len()
-        );
-
         match sanitized {
             ServerMessage::MessageAppended { message, .. } => {
-                assert!(
-                    message.images.is_empty(),
-                    "oversized image should be trimmed from outbound transport"
-                );
+                assert_eq!(message.images.len(), 1);
+                assert_eq!(message.images[0].input_type, "url");
+                assert!(message.images[0].value.starts_with("data:image/png;base64,"));
             }
             other => panic!("expected MessageAppended, got {:?}", other),
         }
     }
 
     #[test]
-    fn replay_sanitize_preserves_revision_and_normalizes_path_images() {
-        let image_path =
-            std::env::temp_dir().join(format!("orbitdock-replay-image-{}.png", new_id()));
+    fn replay_sanitize_preserves_revision_and_normalizes_managed_path_images() {
+        ensure_test_data_dir();
+        let session_id = "s";
+        let image_dir = crate::paths::images_dir().join(session_id);
+        std::fs::create_dir_all(&image_dir).expect("create image dir");
+        let image_path = image_dir.join(format!("orbitdock-image-{}.png", new_id()));
         std::fs::write(&image_path, b"replay-image").expect("write test image");
 
         let replay_json = serde_json::json!({
             "type": "message_appended",
             "revision": 42,
-            "session_id": "s",
+            "session_id": session_id,
             "message": {
                 "id": "m",
-                "session_id": "s",
+                "session_id": session_id,
                 "message_type": "user",
                 "content": "hello",
                 "is_error": false,
@@ -1118,7 +1064,7 @@ mod tests {
                 .and_then(|images| images.first())
                 .and_then(|image| image.get("input_type"))
                 .and_then(|value| value.as_str()),
-            Some("url")
+            Some("attachment")
         );
     }
 
@@ -1971,6 +1917,7 @@ mod tests {
                 images: vec![ImageInput {
                     input_type: "url".to_string(),
                     value: "data:image/png;base64,aGVsbG8=".to_string(),
+                    ..Default::default()
                 }],
                 mentions: vec![],
             },
@@ -2017,6 +1964,7 @@ mod tests {
                 images: vec![ImageInput {
                     input_type: "url".to_string(),
                     value: "data:image/png;base64,aGVsbG8=".to_string(),
+                    ..Default::default()
                 }],
                 mentions: vec![],
             },
@@ -2060,6 +2008,7 @@ mod tests {
                 images: vec![ImageInput {
                     input_type: "url".to_string(),
                     value: "data:image/png;base64,aGVsbG8=".to_string(),
+                    ..Default::default()
                 }],
                 mentions: vec![MentionInput {
                     name: "main.rs".to_string(),
@@ -2111,6 +2060,7 @@ mod tests {
                 images: vec![ImageInput {
                     input_type: "url".to_string(),
                     value: "data:image/png;base64,aGVsbG8=".to_string(),
+                    ..Default::default()
                 }],
                 mentions: vec![],
             },

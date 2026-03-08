@@ -1328,10 +1328,38 @@ struct ServerSkillInput: Codable {
 struct ServerImageInput: Codable {
   let inputType: String
   let value: String
+  let mimeType: String?
+  let byteCount: Int?
+  let displayName: String?
+  let pixelWidth: Int?
+  let pixelHeight: Int?
 
   enum CodingKeys: String, CodingKey {
     case inputType = "input_type"
     case value
+    case mimeType = "mime_type"
+    case byteCount = "byte_count"
+    case displayName = "display_name"
+    case pixelWidth = "pixel_width"
+    case pixelHeight = "pixel_height"
+  }
+
+  init(
+    inputType: String,
+    value: String,
+    mimeType: String? = nil,
+    byteCount: Int? = nil,
+    displayName: String? = nil,
+    pixelWidth: Int? = nil,
+    pixelHeight: Int? = nil
+  ) {
+    self.inputType = inputType
+    self.value = value
+    self.mimeType = mimeType
+    self.byteCount = byteCount
+    self.displayName = displayName
+    self.pixelWidth = pixelWidth
+    self.pixelHeight = pixelHeight
   }
 }
 

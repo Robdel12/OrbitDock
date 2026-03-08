@@ -17,7 +17,6 @@ struct SessionDetailView: View {
     serverState.session(sessionId)
   }
 
-  @State private var terminalActionFailed = false
   @State private var copiedResume = false
 
   // Chat scroll state
@@ -55,7 +54,6 @@ struct SessionDetailView: View {
       HeaderView(
         sessionId: sessionId,
         endpointId: endpointId,
-        onFocusTerminal: { openInITerm() },
         onEndSession: obs.isDirect ? { endDirectSession() } : nil,
         showTurnSidebar: obs.isDirect ? $showTurnSidebar : nil,
         hasSidebarContent: hasSidebarContent,
@@ -161,10 +159,6 @@ struct SessionDetailView: View {
         serverState.setSessionAutoMarkRead(sessionId, enabled: isPinned)
         if obs.isDirect {
           serverState.loadApprovalHistory(sessionId: sessionId)
-          serverState.loadGlobalApprovalHistory()
-          serverState.listMcpTools(sessionId: sessionId)
-          serverState.listSkills(sessionId: sessionId)
-          serverState.listReviewComments(sessionId: sessionId)
         }
       }
     }
@@ -177,12 +171,6 @@ struct SessionDetailView: View {
     .onChange(of: isPinned) { _, pinned in
       guard shouldSubscribeToServerSession else { return }
       serverState.setSessionAutoMarkRead(sessionId, enabled: pinned)
-    }
-    .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
-      Button("Open New") { Task { await TerminalService.shared.focusSession(terminalSession) } }
-      Button("Cancel", role: .cancel) {}
-    } message: {
-      Text("Couldn't find the terminal. Open a new iTerm window to resume?")
     }
     // Keyboard shortcuts for rail presets + rail toggle (Cmd+Option to avoid macOS screenshot conflicts)
     .onKeyPress(phases: .down) { keyPress in
@@ -328,27 +316,6 @@ struct SessionDetailView: View {
 
   private var passiveInstrumentStrip: some View {
     HStack(spacing: 0) {
-      // Focus / Resume button
-      if Platform.services.capabilities.canFocusTerminal {
-        Button {
-          openInITerm()
-        } label: {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: obs.isActive ? "arrow.up.forward.app" : "terminal")
-              .font(.system(size: TypeScale.caption, weight: .semibold))
-            Text(obs.isActive ? "Focus" : "Resume")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-          }
-          .foregroundStyle(Color.textSecondary)
-        }
-        .buttonStyle(.plain)
-        .keyboardShortcut("t", modifiers: .command)
-        .help(obs.isActive ? "Focus terminal (⌘T)" : "Resume in iTerm (⌘T)")
-        .padding(.horizontal, Spacing.md)
-
-        stripDivider
-      }
-
       // Git branch
       if let branch = obs.branch, !branch.isEmpty {
         HStack(spacing: Spacing.xs) {
@@ -439,24 +406,6 @@ struct SessionDetailView: View {
   private var compactActionBar: some View {
     VStack(spacing: Spacing.xs) {
       HStack(spacing: Spacing.sm) {
-        if Platform.services.capabilities.canFocusTerminal {
-          Button {
-            openInITerm()
-          } label: {
-            HStack(spacing: Spacing.xs) {
-              Image(systemName: obs.isActive ? "arrow.up.forward.app" : "terminal")
-                .font(.system(size: TypeScale.code, weight: .medium))
-              Text(obs.isActive ? "Focus" : "Resume")
-                .font(.system(size: TypeScale.code, weight: .medium))
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.xs)
-            .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-            .foregroundStyle(.primary)
-          }
-          .buttonStyle(.plain)
-        }
-
         Button {
           copyResumeCommand()
         } label: {
@@ -663,7 +612,6 @@ struct SessionDetailView: View {
   }
 
   private var diffFileCount: Int {
-    let obs = serverState.session(sessionId)
     // Build cumulative diff from all turn snapshots + current live diff
     var parts: [String] = []
     for td in obs.turnDiffs {
@@ -786,7 +734,6 @@ struct SessionDetailView: View {
   /// Whether any sidebar tab has content (for header badge indicator)
   private var hasSidebarContent: Bool {
     guard obs.isDirect else { return false }
-    let obs = serverState.session(sessionId)
     let hasPlan = obs.getPlanSteps() != nil
     let hasDiff = obs.diff != nil
     let hasMcp = obs.hasMcpData
@@ -840,20 +787,10 @@ struct SessionDetailView: View {
 
   // MARK: - Helpers
 
-  /// Construct a minimal Session struct for TerminalService (which still takes Session)
-  private var terminalSession: Session {
-    Session(
-      id: sessionId,
-      projectPath: obs.projectPath,
-      status: obs.status,
-      workStatus: obs.workStatus
-    )
-  }
-
   private var shouldSubscribeToServerSession: Bool {
-    // Any server-managed session (direct or passive) needs snapshot/message subscription.
-    // Restricting this to direct sessions causes passive Codex sessions to render "No messages yet".
-    serverState.isServerSession(sessionId)
+    // The selected route is authoritative. Loading should not depend on the
+    // sessions list already being hydrated on this client.
+    !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   private func copyResumeCommand() {
@@ -870,19 +807,6 @@ struct SessionDetailView: View {
     }
   }
 
-  private func openInITerm() {
-    logger
-      .info(
-        "focus terminal clicked session=\(sessionId, privacy: .public) provider=\(String(describing: obs.provider), privacy: .public)"
-      )
-    Task {
-      let success = await TerminalService.shared.focusSession(terminalSession)
-      if !success {
-        terminalActionFailed = true
-      }
-    }
-  }
-
   private func endDirectSession() {
     serverState.endSession(sessionId)
   }
@@ -893,7 +817,6 @@ struct SessionDetailView: View {
   /// Uses selected comments if any, otherwise all open. Includes diff content
   /// and embeds comment IDs for transcript traceability.
   private func sendReviewToModel() {
-    let obs = serverState.session(sessionId)
     let openComments = obs.reviewComments.filter { $0.status == .open }
     guard !openComments.isEmpty else { return }
 

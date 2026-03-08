@@ -216,6 +216,59 @@ enum ConversationRichMessageLayout {
     ])
   }
 
+  static func streamingAttributedText(for model: NativeRichMessageRowModel, style: ContentStyle) -> NSAttributedString {
+    let paragraph = NSMutableParagraphStyle()
+    paragraph.lineSpacing = style == .thinking ? 2 : 3
+    paragraph.paragraphSpacing = MarkdownLayoutMetrics.minimumTextBlockSpacing(style: style)
+    paragraph.paragraphSpacingBefore = 0
+
+    let font = PlatformFont.systemFont(ofSize: style == .thinking ? TypeScale.code : TypeScale.chatBody)
+    let color = PlatformColor(style == .thinking ? Color.textSecondary : Color.textPrimary)
+
+    return NSAttributedString(string: model.displayContent, attributes: [
+      .font: font,
+      .foregroundColor: color,
+      .paragraphStyle: paragraph,
+    ])
+  }
+
+  private static func streamingBodyHeight(
+    for width: CGFloat,
+    model: NativeRichMessageRowModel,
+    presentation: RichMessagePresentation,
+    imageHeightProvider: (CGFloat) -> CGFloat
+  ) -> CGFloat {
+    let contentWidth = contentWidth(for: width, presentation: presentation)
+    let attrStr = streamingAttributedText(for: model, style: presentation.contentStyle)
+
+    switch presentation.bodyChrome {
+      case .assistant:
+        let textHeight = NativeMarkdownContentView.measureTextHeight(attrStr, width: contentWidth)
+        return textHeight + imageHeightProvider(contentWidth)
+
+      case let .userBubble(horizontalPadding, verticalPadding, accentBarWidth):
+        let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
+        let textHeight = NativeMarkdownContentView.measureTextHeight(attrStr, width: innerWidth)
+        let bubbleHeight = textHeight + verticalPadding * 2
+        return bubbleHeight + imageHeightProvider(contentWidth)
+
+      case let .steer(lineSpacing):
+        let steerAttrStr = steerAttributedText(model.content, lineSpacing: lineSpacing)
+        return NativeMarkdownContentView.measureTextHeight(steerAttrStr, width: contentWidth)
+
+      case let .thinking(horizontalPadding, verticalTop, verticalBottom, footerHeight, _):
+        let innerWidth = contentWidth - horizontalPadding * 2
+        let textHeight = NativeMarkdownContentView.measureTextHeight(attrStr, width: innerWidth)
+        let bottomZone = presentation.thinkingButtonTitle == nil ? 0 : footerHeight
+        return verticalTop + textHeight + verticalBottom + bottomZone
+
+      case let .error(horizontalPadding, verticalTop, verticalBottom, accentBarWidth):
+        let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
+        let textHeight = NativeMarkdownContentView.measureTextHeight(attrStr, width: innerWidth)
+        return verticalTop + textHeight + verticalBottom
+    }
+  }
+
   static func bodyHeight(
     for width: CGFloat,
     model: NativeRichMessageRowModel,
@@ -223,6 +276,14 @@ enum ConversationRichMessageLayout {
     imageHeightProvider: (CGFloat) -> CGFloat
   ) -> CGFloat {
     let presentation = presentation(for: model)
+    if model.usesStreamingTextRenderer {
+      return streamingBodyHeight(
+        for: width,
+        model: model,
+        presentation: presentation,
+        imageHeightProvider: imageHeightProvider
+      )
+    }
     let contentWidth = contentWidth(for: width, presentation: presentation)
 
     switch presentation.bodyChrome {

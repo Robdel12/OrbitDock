@@ -2604,6 +2604,7 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                             images.push(orbitdock_protocol::ImageInput {
                                 input_type: "url".to_string(),
                                 value: data_uri,
+                                ..Default::default()
                             });
                         }
                     } else if source_type == "url" {
@@ -2611,6 +2612,7 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                             images.push(orbitdock_protocol::ImageInput {
                                 input_type: "url".to_string(),
                                 value: url.to_string(),
+                                ..Default::default()
                             });
                         }
                     }
@@ -2622,6 +2624,7 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                     images.push(orbitdock_protocol::ImageInput {
                         input_type: "url".to_string(),
                         value: url.to_string(),
+                        ..Default::default()
                     });
                 }
             }

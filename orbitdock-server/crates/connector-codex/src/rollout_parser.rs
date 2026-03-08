@@ -986,6 +986,7 @@ fn extract_images_from_content(content: &[ContentItem]) -> Vec<ImageInput> {
             images.push(ImageInput {
                 input_type: "url".to_string(),
                 value: image_url.clone(),
+                ..Default::default()
             });
         }
     }

@@ -978,25 +978,32 @@ enum SharedModelBuilders {
 
     let messageType: NativeRichMessageRowModel.MessageType
     let speaker: String
+    let renderMode: NativeRichMessageRowModel.RenderMode
 
     if message.isUser {
       messageType = .user
       speaker = "YOU"
+      renderMode = .markdown
     } else if message.isThinking {
       messageType = .thinking
       speaker = "REASONING"
+      renderMode = message.isInProgress ? .streamingPlainText : .markdown
     } else if message.isSteer {
       messageType = .steer
       speaker = "STEER"
+      renderMode = .markdown
     } else if message.isShell {
       messageType = .shell
       speaker = "YOU"
+      renderMode = .markdown
     } else if message.isError, message.isAssistant {
       messageType = .error
       speaker = "ERROR"
+      renderMode = .markdown
     } else {
       messageType = .assistant
       speaker = "ASSISTANT"
+      renderMode = message.isInProgress ? .streamingPlainText : .markdown
     }
 
     return NativeRichMessageRowModel(
@@ -1005,6 +1012,7 @@ enum SharedModelBuilders {
       content: displayContent,
       thinking: message.thinking,
       messageType: messageType,
+      renderMode: renderMode,
       timestamp: message.timestamp,
       hasImages: message.hasImage,
       images: message.images,

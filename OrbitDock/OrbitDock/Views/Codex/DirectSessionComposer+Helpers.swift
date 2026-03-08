@@ -143,14 +143,23 @@ extension DirectSessionComposer {
       expandedContent = expandedContent.replacingOccurrences(of: "@\(mention.name)", with: mention.path)
     }
     let mentionInputs = attachedMentions.map { ServerMentionInput(name: $0.name, path: $0.path) }
-    let imageInputs = attachedImages.map(\.serverInput)
+    let hasAttachedImages = !attachedImages.isEmpty
 
     if isSessionWorking {
-      guard !expandedContent.isEmpty || !imageInputs.isEmpty || !mentionInputs.isEmpty else { return }
+      guard !expandedContent.isEmpty || hasAttachedImages || !mentionInputs.isEmpty else { return }
+      if hasAttachedImages {
+        sendSteerTurnViaHTTP(
+          content: expandedContent,
+          images: attachedImages,
+          mentions: mentionInputs
+        )
+        return
+      }
+
       let disposition = serverState.steerTurn(
         sessionId: sessionId,
         content: expandedContent,
-        images: imageInputs,
+        images: [],
         mentions: mentionInputs
       )
 
@@ -218,13 +227,25 @@ extension DirectSessionComposer {
       expandedContent = "\(shellContext)\n\n\(expandedContent)"
     }
 
+    if hasAttachedImages {
+      sendMessageViaHTTP(
+        content: expandedContent,
+        model: effectiveModel,
+        effort: effort,
+        skills: skillInputs,
+        images: attachedImages,
+        mentions: mentionInputs
+      )
+      return
+    }
+
     let disposition = serverState.sendMessage(
       sessionId: sessionId,
       content: expandedContent,
       model: effectiveModel,
       effort: effort,
       skills: skillInputs,
-      images: imageInputs,
+      images: [],
       mentions: mentionInputs
     )
 
@@ -252,6 +273,104 @@ extension DirectSessionComposer {
         errorMessage = "Couldn't send message. Your draft is still here."
         requestComposerFocus()
     }
+  }
+
+  private func sendMessageViaHTTP(
+    content: String,
+    model: String?,
+    effort: String?,
+    skills: [ServerSkillInput],
+    images: [AttachedImage],
+    mentions: [ServerMentionInput]
+  ) {
+    isSending = true
+    Task {
+      do {
+        let uploadedImages = try await uploadAttachedImages(images)
+        try await serverState.sendMessageViaHTTP(
+          sessionId: sessionId,
+          content: content,
+          model: model,
+          effort: effort,
+          skills: skills,
+          images: uploadedImages,
+          mentions: mentions
+        )
+
+        await MainActor.run {
+          isSending = false
+          completeSuccessfulComposerSend()
+        }
+      } catch {
+        await MainActor.run {
+          isSending = false
+          Platform.services.playHaptic(.error)
+          errorMessage = "Couldn't send image message. Your draft is still here."
+          requestComposerFocus()
+        }
+      }
+    }
+  }
+
+  private func sendSteerTurnViaHTTP(
+    content: String,
+    images: [AttachedImage],
+    mentions: [ServerMentionInput]
+  ) {
+    isSending = true
+    Task {
+      do {
+        let uploadedImages = try await uploadAttachedImages(images)
+        try await serverState.steerTurnViaHTTP(
+          sessionId: sessionId,
+          content: content,
+          images: uploadedImages,
+          mentions: mentions
+        )
+
+        await MainActor.run {
+          isSending = false
+          completeSuccessfulComposerSend()
+        }
+      } catch {
+        await MainActor.run {
+          isSending = false
+          Platform.services.playHaptic(.error)
+          errorMessage = "Couldn't send steer message with images. Your draft is still here."
+          requestComposerFocus()
+        }
+      }
+    }
+  }
+
+  private func uploadAttachedImages(_ images: [AttachedImage]) async throws -> [ServerImageInput] {
+    var uploaded: [ServerImageInput] = []
+    uploaded.reserveCapacity(images.count)
+
+    for image in images {
+      let input = try await serverState.uploadImageAttachment(
+        sessionId: sessionId,
+        data: image.uploadData,
+        mimeType: image.uploadMimeType,
+        displayName: image.displayName,
+        pixelWidth: image.pixelWidth,
+        pixelHeight: image.pixelHeight
+      )
+      uploaded.append(input)
+    }
+
+    return uploaded
+  }
+
+  private func completeSuccessfulComposerSend() {
+    Platform.services.playHaptic(.action)
+    errorMessage = nil
+    message = ""
+    withAnimation(Motion.gentle) {
+      attachedImages = []
+      attachedMentions = []
+    }
+    requestComposerFocus()
   }
 
   // MARK: - Dictation

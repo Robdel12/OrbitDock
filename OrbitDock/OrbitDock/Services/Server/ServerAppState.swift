@@ -31,9 +31,6 @@ final class ServerAppState {
   /// Long-lived ownership in app state avoids view lifecycle races.
   @ObservationIgnored
   private let sharedProjectFileIndex = ProjectFileIndex()
-
-  @ObservationIgnored
-  private let conversationReadModel = ConversationReadModelStore()
   private let conversationPageSize = 50
   private let conversationBootstrapMinimumTurnCount = 4
   private let conversationBootstrapMaximumMessageCount = 200
@@ -191,12 +188,8 @@ final class ServerAppState {
 
   /// Temporary: autonomy level from the most recent createSession call
   private var pendingCreationAutonomy: AutonomyLevel?
-
-  /// Debounced disk writes for per-session conversation snapshots.
   @ObservationIgnored
-  private var pendingConversationCacheWrites: [String: Task<Void, Never>] = [:]
-  @ObservationIgnored
-  private var pendingConversationCacheWriteModes: [String: ConversationCacheWriteMode] = [:]
+  private var attachmentDownloadTasks: [String: Task<Void, Never>] = [:]
 
   /// When true, navigate to the next session that gets created
   private var pendingNavigationOnCreate = false
@@ -211,57 +204,6 @@ final class ServerAppState {
   private struct ApprovalDispatchKey: Hashable {
     let sessionId: String
     let requestId: String
-  }
-
-  private enum ConversationCacheWriteMode {
-    case metadataOnly
-    case upsertMessages([TranscriptMessage])
-    case replaceLoadedWindow
-
-    var debugName: String {
-      switch self {
-        case .metadataOnly: return "metadata-only"
-        case .upsertMessages: return "upsert-messages"
-        case .replaceLoadedWindow: return "replace-loaded-window"
-      }
-    }
-
-    mutating func merge(with other: ConversationCacheWriteMode) {
-      switch (self, other) {
-        case (.replaceLoadedWindow, _), (_, .replaceLoadedWindow):
-          self = .replaceLoadedWindow
-        case (.metadataOnly, .metadataOnly), (.upsertMessages, .metadataOnly):
-          break
-        case (.metadataOnly, .upsertMessages(let messages)):
-          self = .upsertMessages(messages)
-        case (.upsertMessages(let existing), .upsertMessages(let incoming)):
-          self = .upsertMessages(Self.mergeUpserts(existing: existing, incoming: incoming))
-      }
-    }
-
-    private static func mergeUpserts(
-      existing: [TranscriptMessage],
-      incoming: [TranscriptMessage]
-    ) -> [TranscriptMessage] {
-      var mergedByID: [String: TranscriptMessage] = [:]
-      for message in existing {
-        mergedByID[message.id] = message
-      }
-      for message in incoming {
-        mergedByID[message.id] = message
-      }
-      return mergedByID.values.sorted { lhs, rhs in
-        let lhsSequence = lhs.sequence ?? UInt64.max
-        let rhsSequence = rhs.sequence ?? UInt64.max
-        if lhsSequence != rhsSequence {
-          return lhsSequence < rhsSequence
-        }
-        if lhs.timestamp != rhs.timestamp {
-          return lhs.timestamp < rhs.timestamp
-        }
-        return lhs.id < rhs.id
-      }
-    }
   }
 
   /// Client-side idempotency for approval/question decisions.
@@ -279,6 +221,11 @@ final class ServerAppState {
   enum ApprovalDispatchResult: Equatable {
     case dispatched
     case stale(nextPendingRequestId: String?)
+  }
+
+  private enum ConversationSubscriptionSeedStrategy: String {
+    case bootstrap
+    case retainedSnapshot
   }
 
   init(connection: ServerConnection, endpointId: UUID) {
@@ -638,12 +585,7 @@ final class ServerAppState {
           obs.messages[idx].toolDuration = Double(durationMs) / 1_000.0
           obs.messages[idx].isError = isError
           obs.messages[idx].isInProgress = false
-          obs.bumpMessagesRevision(.upsert(obs.messages[idx]))
-          self.queueConversationSnapshotWrite(
-            sessionId: sessionId,
-            reason: "shell-output",
-            mode: .upsertMessages([obs.messages[idx]])
-          )
+          obs.bumpMessagesRevision()
         }
       }
     }
@@ -893,158 +835,6 @@ final class ServerAppState {
     }
   }
 
-  private func hydrateConversationCacheIfNeeded(sessionId: String) async {
-    let obs = session(sessionId)
-    guard !obs.hasConversationSeed, obs.messages.isEmpty else { return }
-
-    guard let cached = await conversationReadModel.loadConversation(
-      endpointId: endpointId,
-      sessionId: sessionId,
-      limit: conversationPageSize
-    ) else {
-      return
-    }
-
-    let cachedMessages = normalizedTranscriptMessages(
-      cached.messages,
-      sessionId: sessionId,
-      source: "cache"
-    )
-    obs.messages = cachedMessages
-    obs.hasLoadedCachedConversation = true
-    obs.bumpMessagesRevision()
-    obs.totalMessageCount = cached.metadata.totalMessageCount
-    obs.oldestLoadedSequence = cachedMessages.first?.sequence ?? cached.metadata.oldestLoadedSequence
-    obs.newestLoadedSequence = cachedMessages.last?.sequence ?? cached.metadata.newestLoadedSequence
-    obs.hasMoreHistoryBefore = obs.oldestLoadedSequence.map { $0 > 0 } ?? false
-    obs.turnDiffs = normalizedTurnDiffs(cached.metadata.turnDiffs, sessionId: sessionId, source: "cache")
-    obs.diff = cached.metadata.currentDiff
-    obs.plan = cached.metadata.currentPlan
-    obs.currentTurnId = cached.metadata.currentTurnId
-    obs.tokenUsage = cached.metadata.tokenUsage
-    obs.tokenUsageSnapshotKind = cached.metadata.tokenUsageSnapshotKind
-    obs.totalTokens = Int((cached.metadata.tokenUsage?.inputTokens ?? 0) + (cached.metadata.tokenUsage?.outputTokens ?? 0))
-    obs.inputTokens = cached.metadata.tokenUsage.map { Int($0.inputTokens) }
-    obs.outputTokens = cached.metadata.tokenUsage.map { Int($0.outputTokens) }
-    obs.cachedTokens = cached.metadata.tokenUsage.map { Int($0.cachedTokens) }
-    obs.contextWindow = cached.metadata.tokenUsage.map { Int($0.contextWindow) }
-
-    if let revision = cached.metadata.revision {
-      lastRevision[sessionId] = revision
-    }
-
-    logger.info(
-      "Hydrated cached conversation \(sessionId, privacy: .public) messages=\(cachedMessages.count, privacy: .public) total=\(cached.metadata.totalMessageCount, privacy: .public) revision=\(cached.metadata.revision.map(String.init) ?? "nil", privacy: .public)"
-    )
-  }
-
-  private func queueConversationSnapshotWrite(
-    sessionId: String,
-    reason: String,
-    mode: ConversationCacheWriteMode
-  ) {
-    if var existingMode = pendingConversationCacheWriteModes[sessionId] {
-      existingMode.merge(with: mode)
-      pendingConversationCacheWriteModes[sessionId] = existingMode
-    } else {
-      pendingConversationCacheWriteModes[sessionId] = mode
-    }
-
-    pendingConversationCacheWrites[sessionId]?.cancel()
-    pendingConversationCacheWrites[sessionId] = Task { @MainActor [weak self] in
-      try? await Task.sleep(for: .milliseconds(400))
-      guard let self else { return }
-      self.pendingConversationCacheWrites.removeValue(forKey: sessionId)
-      let writeMode = self.pendingConversationCacheWriteModes.removeValue(forKey: sessionId) ?? mode
-      self.persistConversationSnapshot(sessionId: sessionId, reason: reason, mode: writeMode)
-    }
-  }
-
-  private func flushConversationSnapshotWrite(
-    sessionId: String,
-    reason: String,
-    mode: ConversationCacheWriteMode
-  ) {
-    let resolvedMode: ConversationCacheWriteMode = {
-      if var existingMode = pendingConversationCacheWriteModes.removeValue(forKey: sessionId) {
-        existingMode.merge(with: mode)
-        return existingMode
-      }
-      return mode
-    }()
-    pendingConversationCacheWrites[sessionId]?.cancel()
-    pendingConversationCacheWrites.removeValue(forKey: sessionId)
-    persistConversationSnapshot(sessionId: sessionId, reason: reason, mode: resolvedMode)
-  }
-
-  private func cancelConversationSnapshotWrite(sessionId: String) {
-    pendingConversationCacheWrites[sessionId]?.cancel()
-    pendingConversationCacheWrites.removeValue(forKey: sessionId)
-    pendingConversationCacheWriteModes.removeValue(forKey: sessionId)
-  }
-
-  private func persistConversationSnapshot(
-    sessionId: String,
-    reason: String,
-    mode: ConversationCacheWriteMode
-  ) {
-    let obs = session(sessionId)
-    guard
-      obs.hasConversationSeed
-        || !obs.messages.isEmpty
-        || !obs.turnDiffs.isEmpty
-        || obs.diff != nil
-        || obs.plan != nil
-    else {
-      return
-    }
-
-    let metadata = CachedConversationMetadata(
-      sessionId: sessionId,
-      revision: lastRevision[sessionId],
-      totalMessageCount: max(obs.totalMessageCount, obs.messages.count),
-      oldestLoadedSequence: obs.messages.first?.sequence ?? obs.oldestLoadedSequence,
-      newestLoadedSequence: obs.messages.last?.sequence ?? obs.newestLoadedSequence,
-      currentDiff: obs.diff,
-      currentPlan: obs.plan,
-      currentTurnId: obs.currentTurnId,
-      turnDiffs: obs.turnDiffs,
-      tokenUsage: obs.tokenUsage,
-      tokenUsageSnapshotKind: obs.tokenUsageSnapshotKind
-    )
-    let cacheEndpointId = endpointId
-    let allMessages = obs.messages
-
-    Task {
-      switch mode {
-        case .metadataOnly:
-          await conversationReadModel.saveMetadata(
-            endpointId: cacheEndpointId,
-            sessionId: sessionId,
-            metadata: metadata
-          )
-        case .upsertMessages(let messages):
-          await conversationReadModel.upsertMessages(
-            endpointId: cacheEndpointId,
-            sessionId: sessionId,
-            metadata: metadata,
-            messages: messages
-          )
-        case .replaceLoadedWindow:
-          await conversationReadModel.save(
-            endpointId: cacheEndpointId,
-            sessionId: sessionId,
-            metadata: metadata,
-            messages: allMessages
-          )
-      }
-    }
-
-    logger.debug(
-      "Persisted cached conversation \(sessionId, privacy: .public) reason=\(reason, privacy: .public) mode=\(mode.debugName, privacy: .public) loaded=\(allMessages.count, privacy: .public) total=\(metadata.totalMessageCount, privacy: .public) revision=\(metadata.revision.map(String.init) ?? "nil", privacy: .public)"
-    )
-  }
-
   /// Send a message to a session with optional per-turn overrides, skills, images, and mentions
   @discardableResult
   func sendMessage(
@@ -1065,6 +855,45 @@ final class ServerAppState {
       skills: skills,
       images: images,
       mentions: mentions
+    )
+  }
+
+  func sendMessageViaHTTP(
+    sessionId: String,
+    content: String,
+    model: String? = nil,
+    effort: String? = nil,
+    skills: [ServerSkillInput] = [],
+    images: [ServerImageInput] = [],
+    mentions: [ServerMentionInput] = []
+  ) async throws {
+    logger.info("Sending message via HTTP to \(sessionId)")
+    try await connection.sendMessageViaHTTP(
+      sessionId: sessionId,
+      content: content,
+      model: model,
+      effort: effort,
+      skills: skills,
+      images: images,
+      mentions: mentions
+    )
+  }
+
+  func uploadImageAttachment(
+    sessionId: String,
+    data: Data,
+    mimeType: String,
+    displayName: String? = nil,
+    pixelWidth: Int? = nil,
+    pixelHeight: Int? = nil
+  ) async throws -> ServerImageInput {
+    try await connection.uploadImageAttachment(
+      sessionId: sessionId,
+      data: data,
+      mimeType: mimeType,
+      displayName: displayName,
+      pixelWidth: pixelWidth,
+      pixelHeight: pixelHeight
     )
   }
 
@@ -1189,6 +1018,20 @@ final class ServerAppState {
   ) -> OutboundSendDisposition {
     logger.info("Steering turn for \(sessionId)")
     return connection.steerTurn(
+      sessionId: sessionId,
+      content: content,
+      images: images,
+      mentions: mentions
+    )
+  }
+
+  func steerTurnViaHTTP(
+    sessionId: String,
+    content: String,
+    images: [ServerImageInput] = [],
+    mentions: [ServerMentionInput] = []
+  ) async throws {
+    try await connection.steerTurnViaHTTP(
       sessionId: sessionId,
       content: content,
       images: images,
@@ -1369,17 +1212,32 @@ final class ServerAppState {
   /// Subscribe to a session's updates (called when viewing a session)
   func subscribeToSession(_ sessionId: String, forceRefresh: Bool = false) {
     if forceRefresh, subscribedSessions.contains(sessionId) {
+      cancelConversationBootstrapBackfill(sessionId: sessionId)
       connection.unsubscribeSession(sessionId)
       subscribedSessions.remove(sessionId)
     }
     guard !subscribedSessions.contains(sessionId) else { return }
     subscribedSessions.insert(sessionId)
 
+    let seedStrategy = conversationSubscriptionSeedStrategy(
+      sessionId: sessionId,
+      forceRefresh: forceRefresh
+    )
+
     Task { @MainActor in
-      await hydrateConversationCacheIfNeeded(sessionId: sessionId)
+      if seedStrategy == .retainedSnapshot {
+        connection.subscribeSession(
+          sessionId,
+          sinceRevision: nil,
+          includeSnapshot: true
+        )
+        connection.listApprovals(sessionId: sessionId, limit: 200)
+        logger.debug("Subscribed to session \(sessionId) using retained snapshot seed")
+        return
+      }
 
       var sinceRev = lastRevision[sessionId]
-      var includeSnapshot = !session(sessionId).hasConversationSeed && sinceRev == nil
+      var includeSnapshot = !session(sessionId).hasReceivedSnapshot && sinceRev == nil
 
       do {
         let bootstrap = try await connection.fetchConversationBootstrap(sessionId, limit: conversationPageSize)
@@ -1401,7 +1259,7 @@ final class ServerAppState {
       connection.listApprovals(sessionId: sessionId, limit: 200)
       scheduleConversationBootstrapBackfill(sessionId: sessionId)
       logger.debug(
-        "Subscribed to session \(sessionId) (sinceRevision: \(sinceRev.map(String.init) ?? "nil"), includeSnapshot: \(includeSnapshot))"
+        "Subscribed to session \(sessionId) using bootstrap seed (sinceRevision: \(sinceRev.map(String.init) ?? "nil"), includeSnapshot: \(includeSnapshot))"
       )
     }
   }
@@ -1465,17 +1323,6 @@ final class ServerAppState {
   ) async -> Bool {
     let currentCount = session(sessionId).messages.count
 
-    let cachedMessages = await conversationReadModel.loadMessagesBefore(
-      endpointId: endpointId,
-      sessionId: sessionId,
-      beforeSequence: beforeSequence,
-      limit: limit
-    )
-    if !cachedMessages.isEmpty {
-      prependConversationMessages(sessionId: sessionId, messages: cachedMessages, source: "cache-history")
-      return session(sessionId).messages.count > currentCount
-    }
-
     do {
       let page = try await connection.fetchConversationHistory(
         sessionId,
@@ -1518,11 +1365,6 @@ final class ServerAppState {
     autoMarkReadSessions.remove(sessionId)
     cancelConversationBootstrapBackfill(sessionId: sessionId)
     connection.unsubscribeSession(sessionId)
-    flushConversationSnapshotWrite(
-      sessionId: sessionId,
-      reason: "unsubscribe",
-      mode: .replaceLoadedWindow
-    )
     trimInactiveSessionPayload(sessionId, reason: "unsubscribe")
     logger.debug("Unsubscribed from session \(sessionId)")
   }
@@ -1687,7 +1529,6 @@ final class ServerAppState {
     let staleIds = _sessionObservables.keys.filter { !liveIds.contains($0) }
     for id in staleIds {
       cancelConversationBootstrapBackfill(sessionId: id)
-      cancelConversationSnapshotWrite(sessionId: id)
       _sessionObservables.removeValue(forKey: id)
     }
 
@@ -1720,7 +1561,12 @@ final class ServerAppState {
     let obs = session(state.id)
     let existingMessages = obs.messages
     let incomingMessages = normalizedTranscriptMessages(
-      state.messages.map { $0.toTranscriptMessage() },
+      state.messages.map {
+        resolvedTranscriptMessage(
+          $0.toTranscriptMessage(endpointId: endpointId),
+          sessionId: state.id
+        )
+      },
       sessionId: state.id,
       source: "conversation-bootstrap"
     )
@@ -1762,12 +1608,6 @@ final class ServerAppState {
     obs.oldestLoadedSequence = obs.messages.first?.sequence ?? bootstrap.oldestSequence
     obs.newestLoadedSequence = obs.messages.last?.sequence ?? bootstrap.newestSequence
     obs.hasMoreHistoryBefore = obs.oldestLoadedSequence.map { $0 > 0 } ?? bootstrap.hasMoreBefore
-
-    flushConversationSnapshotWrite(
-      sessionId: state.id,
-      reason: "conversation-bootstrap",
-      mode: .replaceLoadedWindow
-    )
   }
 
   private func prependConversationMessages(
@@ -1810,18 +1650,16 @@ final class ServerAppState {
     obs.newestLoadedSequence = mergedMessages.last?.sequence ?? newestSequence ?? obs.newestLoadedSequence
     obs.hasMoreHistoryBefore = obs.oldestLoadedSequence.map { $0 > 0 } ?? hasMoreBefore ?? false
     obs.bumpMessagesRevision()
-    if !source.hasPrefix("cache") {
-      queueConversationSnapshotWrite(
-        sessionId: sessionId,
-        reason: "history-page",
-        mode: .upsertMessages(incoming)
-      )
-    }
   }
 
   private func handleConversationHistoryPage(_ page: ServerConversationHistoryPage) {
     let incoming = normalizedTranscriptMessages(
-      page.messages.map { $0.toTranscriptMessage() },
+      page.messages.map {
+        resolvedTranscriptMessage(
+          $0.toTranscriptMessage(endpointId: endpointId),
+          sessionId: page.sessionId
+        )
+      },
       sessionId: page.sessionId,
       source: "history-page"
     )
@@ -1856,15 +1694,22 @@ final class ServerAppState {
     // Hydrate observable with session-level fields
     let obs = session(state.id)
     hydrateObservable(obs, from: sess)
-    let snapshotMessages = state.messages.map { $0.toTranscriptMessage() }
+    let snapshotMessages = state.messages.map {
+      resolvedTranscriptMessage(
+        $0.toTranscriptMessage(endpointId: endpointId),
+        sessionId: state.id
+      )
+    }
     obs.messages = normalizedTranscriptMessages(snapshotMessages, sessionId: state.id, source: "snapshot")
     obs.totalMessageCount = Int(state.totalMessageCount ?? UInt64(state.messages.count))
     obs.oldestLoadedSequence = obs.messages.first?.sequence ?? state.oldestSequence
     obs.newestLoadedSequence = obs.messages.last?.sequence ?? state.newestSequence
     obs.hasMoreHistoryBefore = state.hasMoreBefore ?? (obs.oldestLoadedSequence.map { $0 > 0 } ?? false)
     obs.hasReceivedSnapshot = true
-    obs.hasLoadedCachedConversation = false
     obs.bumpMessagesRevision()
+    if subscribedSessions.contains(state.id) {
+      scheduleConversationBootstrapBackfill(sessionId: state.id)
+    }
 
     if let approval = state.pendingApproval {
       obs.pendingApproval = approval
@@ -1949,12 +1794,6 @@ final class ServerAppState {
     if autoMarkReadSessions.contains(state.id) {
       markSessionAsRead(state.id)
     }
-
-    flushConversationSnapshotWrite(
-      sessionId: state.id,
-      reason: "snapshot",
-      mode: .replaceLoadedWindow
-    )
   }
 
   private func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
@@ -2231,8 +2070,6 @@ final class ServerAppState {
     if hadPendingApproval, !hasPendingApproval {
       refreshApprovalHistory(sessionId: sessionId)
     }
-
-    queueConversationSnapshotWrite(sessionId: sessionId, reason: "session-delta", mode: .metadataOnly)
   }
 
   private func refreshApprovalHistory(sessionId: String) {
@@ -2275,6 +2112,230 @@ final class ServerAppState {
     return false
   }
 
+  private func resolvedTranscriptMessages(
+    _ messages: [TranscriptMessage],
+    sessionId: String
+  ) -> [TranscriptMessage] {
+    messages.map { resolvedTranscriptMessage($0, sessionId: sessionId) }
+  }
+
+  private func resolvedTranscriptMessage(
+    _ message: TranscriptMessage,
+    sessionId: String
+  ) -> TranscriptMessage {
+    let resolvedImages = resolvedAttachmentImages(message.images, sessionId: sessionId)
+    guard resolvedImages != message.images else { return message }
+    return TranscriptMessage(
+      id: message.id,
+      sequence: message.sequence,
+      type: message.type,
+      content: message.content,
+      timestamp: message.timestamp,
+      toolName: message.toolName,
+      toolInput: message.toolInput,
+      rawToolInput: message.rawToolInput,
+      toolOutput: message.toolOutput,
+      toolDuration: message.toolDuration,
+      inputTokens: message.inputTokens,
+      outputTokens: message.outputTokens,
+      isError: message.isError,
+      isInProgress: message.isInProgress,
+      images: resolvedImages,
+      thinking: message.thinking
+    )
+  }
+
+  private func resolvedAttachmentImages(
+    _ images: [MessageImage],
+    sessionId: String
+  ) -> [MessageImage] {
+    images.map { image in
+      guard case let .serverAttachment(reference) = image.source else { return image }
+      let resolvedReference = ServerAttachmentImageReference(
+        endpointId: reference.endpointId ?? endpointId,
+        sessionId: reference.sessionId,
+        attachmentId: reference.attachmentId
+      )
+      if let filePath = cachedAttachmentFilePath(for: resolvedReference) {
+        return MessageImage(
+          id: image.id,
+          source: .filePath(filePath),
+          mimeType: image.mimeType,
+          byteCount: image.byteCount,
+          pixelWidth: image.pixelWidth,
+          pixelHeight: image.pixelHeight
+        )
+      }
+      scheduleAttachmentDownloadIfNeeded(reference: resolvedReference, sessionId: sessionId)
+      return MessageImage(
+        id: image.id,
+        source: .serverAttachment(resolvedReference),
+        mimeType: image.mimeType,
+        byteCount: image.byteCount,
+        pixelWidth: image.pixelWidth,
+        pixelHeight: image.pixelHeight
+      )
+    }
+  }
+
+  private func scheduleAttachmentDownloadIfNeeded(
+    reference: ServerAttachmentImageReference,
+    sessionId: String
+  ) {
+    guard reference.endpointId == nil || reference.endpointId == endpointId else { return }
+    if cachedAttachmentFilePath(for: reference) != nil { return }
+
+    let taskKey = attachmentTaskKey(reference)
+    guard attachmentDownloadTasks[taskKey] == nil else { return }
+
+    let cacheURL = attachmentCacheURL(for: reference)
+    attachmentDownloadTasks[taskKey] = Task { [weak self] in
+      defer {
+        Task { @MainActor [weak self] in
+          self?.attachmentDownloadTasks.removeValue(forKey: taskKey)
+        }
+      }
+
+      guard let self else { return }
+
+      do {
+        let data = try await self.connection.downloadImageAttachment(
+          sessionId: reference.sessionId,
+          attachmentId: reference.attachmentId
+        )
+        PlatformPaths.ensureDirectory(cacheURL.deletingLastPathComponent())
+        try data.write(to: cacheURL, options: .atomic)
+        await MainActor.run {
+          self.replaceAttachmentImage(
+            sessionId: sessionId,
+            reference: reference,
+            filePath: cacheURL.path
+          )
+        }
+      } catch {
+        logger.error(
+          "Failed to download attachment \(reference.attachmentId, privacy: .public) for \(sessionId, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        )
+      }
+    }
+  }
+
+  private func replaceAttachmentImage(
+    sessionId: String,
+    reference: ServerAttachmentImageReference,
+    filePath: String
+  ) {
+    let obs = session(sessionId)
+    var updatedMessages: [TranscriptMessage] = []
+    let rewrittenMessages = obs.messages.map { message in
+      let rewrittenImages = message.images.map { image in
+        guard case let .serverAttachment(currentReference) = image.source,
+              currentReference.sessionId == reference.sessionId,
+              currentReference.attachmentId == reference.attachmentId
+        else {
+          return image
+        }
+        return MessageImage(
+          id: image.id,
+          source: .filePath(filePath),
+          mimeType: image.mimeType,
+          byteCount: image.byteCount,
+          pixelWidth: image.pixelWidth,
+          pixelHeight: image.pixelHeight
+        )
+      }
+
+      guard rewrittenImages != message.images else { return message }
+      let rewrittenMessage = TranscriptMessage(
+        id: message.id,
+        sequence: message.sequence,
+        type: message.type,
+        content: message.content,
+        timestamp: message.timestamp,
+        toolName: message.toolName,
+        toolInput: message.toolInput,
+        rawToolInput: message.rawToolInput,
+        toolOutput: message.toolOutput,
+        toolDuration: message.toolDuration,
+        inputTokens: message.inputTokens,
+        outputTokens: message.outputTokens,
+        isError: message.isError,
+        isInProgress: message.isInProgress,
+        images: rewrittenImages,
+        thinking: message.thinking
+      )
+      updatedMessages.append(rewrittenMessage)
+      return rewrittenMessage
+    }
+
+    guard rewrittenMessages != obs.messages else { return }
+    obs.messages = rewrittenMessages
+    obs.bumpMessagesRevision()
+  }
+
+  private func cachedAttachmentFilePath(for reference: ServerAttachmentImageReference) -> String? {
+    let url = attachmentCacheURL(for: reference)
+    return FileManager.default.fileExists(atPath: url.path) ? url.path : nil
+  }
+
+  private func attachmentCacheURL(for reference: ServerAttachmentImageReference) -> URL {
+    PlatformPaths.orbitDockCacheDirectory
+      .appendingPathComponent("attachments", isDirectory: true)
+      .appendingPathComponent(safeCacheComponent((reference.endpointId ?? endpointId).uuidString), isDirectory: true)
+      .appendingPathComponent(safeCacheComponent(reference.sessionId), isDirectory: true)
+      .appendingPathComponent(safeCacheComponent(reference.attachmentId))
+  }
+
+  private func attachmentTaskKey(_ reference: ServerAttachmentImageReference) -> String {
+    "\((reference.endpointId ?? endpointId).uuidString):\(reference.sessionId):\(reference.attachmentId)"
+  }
+
+  private func safeCacheComponent(_ value: String) -> String {
+    String(
+      value.map { character in
+        if character.isASCII,
+           character.isLetter || character.isNumber || character == "-" || character == "_" || character == "."
+        {
+          return character
+        }
+        return "_"
+      }
+    )
+  }
+
+  private func mergedImages(existing: [MessageImage], incoming: [MessageImage]) -> [MessageImage] {
+    guard !incoming.isEmpty else { return existing }
+
+    let existingByID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+    return incoming.map { incomingImage in
+      guard let existingImage = existingByID[incomingImage.id] else { return incomingImage }
+      let mergedByteCount = incomingImage.byteCount > 0 ? incomingImage.byteCount : existingImage.byteCount
+      let mergedPixelWidth = incomingImage.pixelWidth ?? existingImage.pixelWidth
+      let mergedPixelHeight = incomingImage.pixelHeight ?? existingImage.pixelHeight
+
+      switch (existingImage.source, incomingImage.source) {
+        case let (.filePath(path), .serverAttachment):
+          return MessageImage(
+            id: incomingImage.id,
+            source: .filePath(path),
+            mimeType: incomingImage.mimeType,
+            byteCount: mergedByteCount,
+            pixelWidth: mergedPixelWidth,
+            pixelHeight: mergedPixelHeight
+          )
+        default:
+          return MessageImage(
+            id: incomingImage.id,
+            source: incomingImage.source,
+            mimeType: incomingImage.mimeType,
+            byteCount: mergedByteCount,
+            pixelWidth: mergedPixelWidth,
+            pixelHeight: mergedPixelHeight
+          )
+      }
+    }
+  }
+
   private func mergeMessage(_ existing: TranscriptMessage, with incoming: TranscriptMessage) -> TranscriptMessage {
     let mergedThinking: String? = {
       if let incomingThinking = incoming.thinking,
@@ -2300,7 +2361,7 @@ final class ServerAppState {
       outputTokens: incoming.outputTokens ?? existing.outputTokens,
       isError: incoming.isError || existing.isError,
       isInProgress: incoming.isInProgress,
-      images: incoming.images.isEmpty ? existing.images : incoming.images,
+      images: mergedImages(existing: existing.images, incoming: incoming.images),
       thinking: mergedThinking
     )
   }
@@ -2422,7 +2483,7 @@ final class ServerAppState {
   private func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
     logger.debug("Message event for \(sessionId): id=\(message.id, privacy: .public) type=\(message.type.rawValue)")
     guard let transcriptMsg = normalizedTranscriptMessages(
-      [message.toTranscriptMessage()],
+      [resolvedTranscriptMessage(message.toTranscriptMessage(endpointId: endpointId), sessionId: sessionId)],
       sessionId: sessionId,
       source: "append"
     ).first
@@ -2431,21 +2492,18 @@ final class ServerAppState {
     let obs = session(sessionId)
     var messages = obs.messages
     let beforeCount = messages.count
-    let persistedMessage: TranscriptMessage
 
     let mergeAction: String
     if let idx = messages.firstIndex(where: { $0.id == transcriptMsg.id }) {
       messages[idx] = mergeMessage(messages[idx], with: transcriptMsg)
       mergeAction = "merged"
       obs.messages = messages
-      obs.bumpMessagesRevision(.upsert(messages[idx]))
-      persistedMessage = messages[idx]
+      obs.bumpMessagesRevision()
     } else {
       messages.append(transcriptMsg)
       mergeAction = "appended"
       obs.messages = messages
-      obs.bumpMessagesRevision(.upsert(transcriptMsg))
-      persistedMessage = transcriptMsg
+      obs.bumpMessagesRevision()
     }
     logger.debug(
       "Message \(mergeAction, privacy: .public) for \(sessionId): id=\(transcriptMsg.id, privacy: .public) before=\(beforeCount, privacy: .public) after=\(obs.messages.count, privacy: .public)"
@@ -2461,11 +2519,6 @@ final class ServerAppState {
       obs.newestLoadedSequence = obs.messages.last?.sequence
     }
     obs.hasMoreHistoryBefore = obs.oldestLoadedSequence.map { $0 > 0 } ?? false
-    queueConversationSnapshotWrite(
-      sessionId: sessionId,
-      reason: "message-appended",
-      mode: .upsertMessages([persistedMessage])
-    )
 
     // Auto mark-read only when the conversation is actually visible and following the bottom.
     if autoMarkReadSessions.contains(sessionId) {
@@ -2513,13 +2566,8 @@ final class ServerAppState {
       obs.oldestLoadedSequence = obs.messages.first?.sequence ?? obs.oldestLoadedSequence
       obs.newestLoadedSequence = obs.messages.last?.sequence ?? obs.newestLoadedSequence
       obs.hasMoreHistoryBefore = obs.oldestLoadedSequence.map { $0 > 0 } ?? false
-      obs.bumpMessagesRevision(.upsert(normalizedFallback))
+      obs.bumpMessagesRevision()
       logger.warning("Message update arrived before create; upserted \(normalizedMessageId) in \(sessionId)")
-      queueConversationSnapshotWrite(
-        sessionId: sessionId,
-        reason: "message-updated",
-        mode: .upsertMessages([normalizedFallback])
-      )
       return
     }
 
@@ -2562,12 +2610,7 @@ final class ServerAppState {
     obs.oldestLoadedSequence = obs.messages.first?.sequence ?? obs.oldestLoadedSequence
     obs.newestLoadedSequence = obs.messages.last?.sequence ?? obs.newestLoadedSequence
     obs.hasMoreHistoryBefore = obs.oldestLoadedSequence.map { $0 > 0 } ?? false
-    obs.bumpMessagesRevision(.upsert(msg))
-    queueConversationSnapshotWrite(
-      sessionId: sessionId,
-      reason: "message-updated",
-      mode: .upsertMessages([msg])
-    )
+    obs.bumpMessagesRevision()
   }
 
   private func handleApprovalRequested(
@@ -2806,7 +2849,6 @@ final class ServerAppState {
       sessions[idx].tokenUsageSnapshotKind = snapshotKind
     }
 
-    queueConversationSnapshotWrite(sessionId: sessionId, reason: "tokens-updated", mode: .metadataOnly)
   }
 
   private func handleContextCompacted(_ sessionId: String) {
@@ -2842,7 +2884,6 @@ final class ServerAppState {
       sessions[idx].tokenUsageSnapshotKind = .compactionReset
     }
 
-    queueConversationSnapshotWrite(sessionId: sessionId, reason: "context-compacted", mode: .metadataOnly)
   }
 
   private func handleSessionCreated(_ summary: ServerSessionSummary) {
@@ -2926,11 +2967,6 @@ final class ServerAppState {
     if let endingRevision {
       lastRevision[sessionId] = endingRevision
     }
-    flushConversationSnapshotWrite(
-      sessionId: sessionId,
-      reason: "session-ended",
-      mode: .replaceLoadedWindow
-    )
   }
 
   private func deliverPendingCreatePromptIfNeeded(sessionId: String) {
@@ -2984,13 +3020,14 @@ final class ServerAppState {
       handled = true
     }
 
-    // Conversation replay is stale or oversized — re-bootstrap over HTTP and then resume WS replay.
+    // Conversation replay is stale or oversized — force a fresh reseed.
+    // Active sessions prefer the retained snapshot path so in-memory assistant
+    // state survives route re-entry and replay gaps.
     if (code == "lagged" || code == "replay_oversized" || code == "snapshot_unavailable"),
        let sid = sessionId
     {
       logger.info("Re-subscribing to \(sid) after \(code, privacy: .public)")
-      subscribedSessions.remove(sid)
-      subscribeToSession(sid)
+      subscribeToSession(sid, forceRefresh: true)
       handled = true
     }
 
@@ -3075,7 +3112,6 @@ final class ServerAppState {
     var turnDiffs = obs.turnDiffs
     turnDiffs.append(newDiff)
     obs.turnDiffs = normalizedTurnDiffs(turnDiffs, sessionId: sessionId, source: "delta")
-    queueConversationSnapshotWrite(sessionId: sessionId, reason: "turn-diff", mode: .metadataOnly)
   }
 
   // MARK: - Review Comment Handlers
@@ -3215,12 +3251,25 @@ final class ServerAppState {
     let turnDiffCount = obs.turnDiffs.count
     guard messageCount > 0 || turnDiffCount > 0 || obs.diff != nil || obs.plan != nil else { return }
 
-    obs.clearConversationPayloadsForCaching()
+    obs.clearConversationPayloads()
     lastRevision.removeValue(forKey: sessionId)
 
     logger.info(
       "Trimmed inactive session payload \(sessionId, privacy: .public) reason=\(reason, privacy: .public) messages=\(messageCount, privacy: .public) turnDiffs=\(turnDiffCount, privacy: .public)"
     )
+  }
+
+  private func conversationSubscriptionSeedStrategy(
+    sessionId: String,
+    forceRefresh: Bool
+  ) -> ConversationSubscriptionSeedStrategy {
+    guard forceRefresh else { return .bootstrap }
+
+    if let summary = sessions.first(where: { $0.id == sessionId }) {
+      return summary.isActive ? .retainedSnapshot : .bootstrap
+    }
+
+    return session(sessionId).isActive ? .retainedSnapshot : .bootstrap
   }
 
   private func shouldRequestCodexConnectorData(sessionId: String) -> Bool {

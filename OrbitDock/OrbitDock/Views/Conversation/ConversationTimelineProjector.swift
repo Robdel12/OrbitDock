@@ -694,28 +694,7 @@ nonisolated enum ConversationTimelineProjector {
   private static func combineRenderable(message: TranscriptMessage, into hasher: inout Hasher) {
     hasher.combine(message.id)
     hasher.combine(message.type.rawValue)
-    combineTextSignature(message.content, into: &hasher)
-    hasher.combine(message.toolName)
-    combineTextSignature(toolInputRenderSignature(for: message), into: &hasher)
-    combineTextSignature(message.toolOutput, into: &hasher)
-    hasher.combine(message.toolDuration)
-    hasher.combine(message.inputTokens)
-    hasher.combine(message.outputTokens)
-    hasher.combine(message.isInProgress)
-    combineTextSignature(message.thinking, into: &hasher)
-    hasher.combine(message.images.count)
-    for image in message.images {
-      hasher.combine(image.id)
-      hasher.combine(image.mimeType)
-      hasher.combine(image.byteCount)
-    }
-  }
-
-  private static func toolInputRenderSignature(for message: TranscriptMessage) -> String? {
-    if let raw = message.rawToolInput?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
-      return raw
-    }
-    return nil
+    hasher.combine(message.contentSignature)
   }
 
   private static func combineTextSignature(_ text: String?, into hasher: inout Hasher) {
@@ -723,9 +702,16 @@ nonisolated enum ConversationTimelineProjector {
       hasher.combine(0)
       return
     }
-    hasher.combine(text.count)
-    hasher.combine(String(text.prefix(256)))
-    hasher.combine(String(text.suffix(64)))
+    let utf8 = text.utf8
+    let byteCount = utf8.count          // O(1) for native Swift strings
+    hasher.combine(byteCount)
+
+    // Sample prefix/suffix via UTF-8 byte offsets — O(k) not O(n).
+    let prefixEnd = utf8.index(utf8.startIndex, offsetBy: min(256, byteCount))
+    hasher.combine(text[utf8.startIndex ..< prefixEnd].hashValue)
+
+    let suffixStart = utf8.index(utf8.endIndex, offsetBy: -min(64, byteCount))
+    hasher.combine(text[suffixStart ..< utf8.endIndex].hashValue)
   }
 
   private struct ProjectionContext {

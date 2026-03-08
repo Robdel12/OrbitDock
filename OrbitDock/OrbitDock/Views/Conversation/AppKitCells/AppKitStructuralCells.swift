@@ -379,6 +379,7 @@
 
   final class NativeLiveIndicatorCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeLiveIndicatorCell")
+    private static let labelSpacing = Spacing.sm
 
     private let orbitalHost = NSView()
     private var orbitalLayer: OrbitalAnimationLayer?
@@ -435,13 +436,15 @@
         iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
         iconView.widthAnchor.constraint(equalToConstant: 16),
 
-        primaryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
         primaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
         detailLabel.leadingAnchor.constraint(equalTo: primaryLabel.trailingAnchor, constant: Spacing.xs),
         detailLabel.centerYAnchor.constraint(equalTo: primaryLabel.centerYAnchor),
         detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -inset),
       ])
+
+      primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset)
+      primaryLeadingConstraint?.isActive = true
     }
 
     override func layout() {
@@ -523,11 +526,11 @@
       primaryLeadingConstraint?.isActive = false
       if hasIcon {
         primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
-          equalTo: iconView.trailingAnchor, constant: Spacing.xs
+          equalTo: iconView.trailingAnchor, constant: Self.labelSpacing
         )
       } else if hasOrbital {
         primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
-          equalTo: orbitalHost.trailingAnchor, constant: Spacing.xs
+          equalTo: orbitalHost.trailingAnchor, constant: Self.labelSpacing
         )
       } else {
         primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(

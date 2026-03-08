@@ -75,6 +75,7 @@
     private let speakerLabel = UILabel()
     private let bodyContainer = UIView()
     private let markdownContentView = NativeMarkdownContentView()
+    private let streamingTextView = UITextView()
 
     // User-specific
     private let bubbleBackground = UIView()
@@ -164,6 +165,13 @@
       thinkingShowMoreButton.isHidden = true
       thinkingShowMoreButton.contentHorizontalAlignment = .left
 
+      streamingTextView.backgroundColor = .clear
+      streamingTextView.isEditable = false
+      streamingTextView.isSelectable = true
+      streamingTextView.isScrollEnabled = false
+      streamingTextView.textContainerInset = .zero
+      streamingTextView.textContainer.lineFragmentPadding = 0
+
       // Error background
       errorBackground.backgroundColor = Self.errorColor.withAlphaComponent(0.08)
       errorBackground.layer.cornerRadius = Self.errorCornerRadius
@@ -208,6 +216,7 @@
       currentBlocks = []
       currentImages = []
       currentContentStyle = .standard
+      streamingTextView.attributedText = nil
     }
 
     // MARK: - Configure
@@ -223,7 +232,11 @@
       configureHeader(model: model, presentation: presentation, width: width)
 
       currentContentStyle = presentation.contentStyle
-      currentBlocks = MarkdownSystemParser.parse(model.displayContent, style: presentation.contentStyle)
+      currentBlocks = if model.usesStreamingTextRenderer {
+        []
+      } else {
+        MarkdownSystemParser.parse(model.displayContent, style: presentation.contentStyle)
+      }
 
       rebuildBody(model: model, presentation: presentation, width: width)
 
@@ -338,6 +351,7 @@
       errorBackground.isHidden = true
       errorAccentBar.isHidden = true
       markdownContentView.layer.mask = nil
+      streamingTextView.layer.mask = nil
 
       let contentWidth = ConversationRichMessageLayout.contentWidth(for: width, presentation: presentation)
 
@@ -392,7 +406,38 @@
       bodyContainer.frame = CGRect(x: 0, y: presentation.bodyOriginY, width: width, height: bodyHeight)
     }
 
+    private func configureStreamingTextView(_ attributedText: NSAttributedString, frame: CGRect) {
+      streamingTextView.attributedText = attributedText
+      streamingTextView.frame = frame
+    }
+
     private func rebuildAssistantBody(model: NativeRichMessageRowModel, contentWidth: CGFloat) {
+      if model.usesStreamingTextRenderer {
+        let attrStr = ConversationRichMessageLayout.streamingAttributedText(for: model, style: currentContentStyle)
+        let textHeight = NativeMarkdownContentView.measureTextHeight(attrStr, width: contentWidth)
+        configureStreamingTextView(
+          attrStr,
+          frame: CGRect(
+            x: Self.laneHorizontalInset,
+            y: 0,
+            width: contentWidth,
+            height: textHeight
+          )
+        )
+        bodyContainer.addSubview(streamingTextView)
+
+        if !model.images.isEmpty {
+          addImageViews(
+            images: model.images,
+            below: textHeight,
+            leadingX: Self.laneHorizontalInset,
+            availableWidth: contentWidth,
+            isUserAligned: false
+          )
+        }
+        return
+      }
+
       let mdHeight = NativeMarkdownContentView.requiredHeight(
         for: currentBlocks,
         width: contentWidth,
@@ -497,7 +542,13 @@
       buttonTitle: String?
     ) {
       let innerWidth = contentWidth - horizontalPadding * 2
-      let mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth, style: .thinking)
+      let mdHeight: CGFloat
+      if model.usesStreamingTextRenderer {
+        let attrStr = ConversationRichMessageLayout.streamingAttributedText(for: model, style: .thinking)
+        mdHeight = NativeMarkdownContentView.measureTextHeight(attrStr, width: innerWidth)
+      } else {
+        mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth, style: .thinking)
+      }
 
       let hasShowMore = buttonTitle != nil
       let isCollapsed = hasShowMore && !model.isThinkingExpanded
@@ -516,14 +567,24 @@
 
       // Markdown content
       let contentX = Self.laneHorizontalInset + horizontalPadding
-      markdownContentView.frame = CGRect(x: contentX, y: verticalTop, width: innerWidth, height: mdHeight)
-      markdownContentView.configure(blocks: currentBlocks, style: .thinking)
-      bodyContainer.addSubview(markdownContentView)
+      if model.usesStreamingTextRenderer {
+        let attrStr = ConversationRichMessageLayout.streamingAttributedText(for: model, style: .thinking)
+        configureStreamingTextView(
+          attrStr,
+          frame: CGRect(x: contentX, y: verticalTop, width: innerWidth, height: mdHeight)
+        )
+        bodyContainer.addSubview(streamingTextView)
+      } else {
+        markdownContentView.frame = CGRect(x: contentX, y: verticalTop, width: innerWidth, height: mdHeight)
+        markdownContentView.configure(blocks: currentBlocks, style: .thinking)
+        bodyContainer.addSubview(markdownContentView)
+      }
 
       // Gradient mask: fade text to transparent over the last lines when collapsed
       if isCollapsed {
         let maskLayer = CAGradientLayer()
-        maskLayer.frame = markdownContentView.bounds
+        let maskTarget: UIView = model.usesStreamingTextRenderer ? streamingTextView : markdownContentView
+        maskLayer.frame = maskTarget.bounds
         let fadeStart = max(0, 1.0 - Double(fadeHeight) / Double(mdHeight))
         maskLayer.colors = [
           UIColor.white.cgColor,
@@ -531,7 +592,7 @@
           UIColor.clear.cgColor,
         ]
         maskLayer.locations = [0, NSNumber(value: fadeStart), 1.0]
-        markdownContentView.layer.mask = maskLayer
+        maskTarget.layer.mask = maskLayer
       }
 
       thinkingFadeOverlay.isHidden = true
@@ -633,34 +694,37 @@
 
       if images.count == 1 {
         let image = images[0]
-        guard let cached = ImageCache.shared.cachedImage(for: image) else { return }
-        let displayImage = cached.displayImage
-
-        let aspect = displayImage.size.width / max(displayImage.size.height, 1)
-        let displayWidth = min(Self.imageMaxWidth, availableWidth)
-        let displayHeight = min(Self.imageMaxHeight, displayWidth / aspect)
-        let finalWidth = displayHeight * aspect
+        let cached = ImageCache.shared.cachedImage(for: image)
+        let metrics = Self.imageDisplayMetrics(
+          for: image,
+          availableWidth: availableWidth,
+          displaySize: cached?.displayImage.size
+        )
 
         let imageX: CGFloat = isUserAligned
-          ? leadingX + availableWidth - finalWidth
+          ? leadingX + availableWidth - metrics.width
           : leadingX
 
         let container = makeImageContainer(
-          frame: CGRect(x: imageX, y: currentY, width: finalWidth, height: displayHeight),
+          frame: CGRect(x: imageX, y: currentY, width: metrics.width, height: metrics.height),
           shadowRadius: 8, shadowOffset: 4, shadowOpacity: 0.3
         )
-        let imageView = makeClippedImageView(in: container)
-        imageView.image = displayImage
-        imageView.contentMode = .scaleAspectFit
+        if let cached {
+          let imageView = makeClippedImageView(in: container)
+          imageView.image = cached.displayImage
+          imageView.contentMode = .scaleAspectFit
+        } else {
+          addImagePlaceholder(to: container, title: "Loading image")
+        }
         addFullscreenTap(to: container, imageIndex: 0)
         bodyContainer.addSubview(container)
 
-        currentY += displayHeight + Self.imageDimensionSpacing
+        currentY += metrics.height + Self.imageDimensionSpacing
 
-        let dimText = Self.formatDimensions(
-          width: cached.originalWidth,
-          height: cached.originalHeight,
-          bytes: image.byteCount
+        let dimText = Self.formatImageMetadata(
+          for: image,
+          originalWidth: cached?.originalWidth,
+          originalHeight: cached?.originalHeight
         )
         let dimLabel = Self.makeDimensionLabel(text: dimText)
         dimLabel.sizeToFit()
@@ -675,8 +739,6 @@
         var y = currentY
 
         for (index, image) in images.enumerated() {
-          guard let displayImage = ImageCache.shared.image(for: image) else { continue }
-
           let size = Self.imageThumbnailSize
           if x + size > leadingX + availableWidth, x > leadingX {
             x = leadingX
@@ -687,9 +749,13 @@
             frame: CGRect(x: x, y: y, width: size, height: size),
             shadowRadius: 6, shadowOffset: 3, shadowOpacity: 0.25
           )
-          let imageView = makeClippedImageView(in: container)
-          imageView.image = displayImage
-          imageView.contentMode = .scaleAspectFill
+          if let displayImage = ImageCache.shared.image(for: image) {
+            let imageView = makeClippedImageView(in: container)
+            imageView.image = displayImage
+            imageView.contentMode = .scaleAspectFill
+          } else {
+            addImagePlaceholder(to: container, title: nil)
+          }
           addFullscreenTap(to: container, imageIndex: index)
           bodyContainer.addSubview(container)
 
@@ -731,6 +797,43 @@
       iv.layer.borderWidth = 1
       container.addSubview(iv)
       return iv
+    }
+
+    private func addImagePlaceholder(to container: UIView, title: String?) {
+      let placeholder = UIView(frame: container.bounds)
+      placeholder.clipsToBounds = true
+      placeholder.layer.cornerRadius = Self.imageCornerRadius
+      placeholder.layer.borderColor = UIColor.white.withAlphaComponent(0.08).cgColor
+      placeholder.layer.borderWidth = 1
+      placeholder.backgroundColor = PlatformColor(Color.backgroundSecondary)
+
+      let icon = UIImageView(image: UIImage(systemName: "photo.badge.arrow.down"))
+      icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+      icon.tintColor = PlatformColor(Color.textSecondary)
+      icon.frame = CGRect(
+        x: (placeholder.bounds.width - 24) / 2,
+        y: title == nil ? (placeholder.bounds.height - 24) / 2 : placeholder.bounds.height / 2 - 18,
+        width: 24,
+        height: 24
+      )
+      placeholder.addSubview(icon)
+
+      if let title, !title.isEmpty {
+        let label = UILabel()
+        label.text = title
+        label.font = .systemFont(ofSize: TypeScale.meta, weight: .semibold)
+        label.textColor = PlatformColor(Color.textSecondary)
+        label.textAlignment = .center
+        label.frame = CGRect(
+          x: 8,
+          y: max(8, icon.frame.minY - 24),
+          width: max(0, placeholder.bounds.width - 16),
+          height: 20
+        )
+        placeholder.addSubview(label)
+      }
+
+      container.addSubview(placeholder)
     }
 
     private func makeImageHeaderBar(imageCount: Int, totalBytes: Int, width: CGFloat) -> UIView {
@@ -791,6 +894,39 @@
       "\(width) \u{00D7} \(height)  \u{00B7}  \(formatBytes(bytes))"
     }
 
+    private static func formatImageMetadata(
+      for image: MessageImage,
+      originalWidth: Int?,
+      originalHeight: Int?
+    ) -> String {
+      let width = originalWidth ?? image.pixelWidth
+      let height = originalHeight ?? image.pixelHeight
+      guard let width, let height, width > 0, height > 0 else {
+        return formatBytes(image.byteCount)
+      }
+      return formatDimensions(width: width, height: height, bytes: image.byteCount)
+    }
+
+    private static func imageDisplayMetrics(
+      for image: MessageImage,
+      availableWidth: CGFloat,
+      displaySize: CGSize?
+    ) -> (width: CGFloat, height: CGFloat) {
+      let aspect: CGFloat
+      if let displaySize, displaySize.height > 0 {
+        aspect = displaySize.width / displaySize.height
+      } else if let width = image.pixelWidth, let height = image.pixelHeight, height > 0 {
+        aspect = CGFloat(width) / CGFloat(height)
+      } else {
+        aspect = 4.0 / 3.0
+      }
+
+      let displayWidth = min(imageMaxWidth, availableWidth)
+      let displayHeight = min(imageMaxHeight, displayWidth / max(aspect, 0.1))
+      let finalWidth = min(displayWidth, displayHeight * aspect)
+      return (finalWidth, displayHeight)
+    }
+
     private static func formatBytes(_ bytes: Int) -> String {
       if bytes < 1_024 {
         "\(bytes) B"
@@ -839,11 +975,12 @@
 
       if images.count == 1 {
         let image = images[0]
-        guard let displayImage = ImageCache.shared.image(for: image) else { return 0 }
-        let aspect = displayImage.size.width / max(displayImage.size.height, 1)
-        let displayWidth = min(imageMaxWidth, availableWidth)
-        let displayHeight = min(imageMaxHeight, displayWidth / aspect)
-        return headerTotal + displayHeight + imageDimensionSpacing + imageDimensionLabelHeight
+        let metrics = imageDisplayMetrics(
+          for: image,
+          availableWidth: availableWidth,
+          displaySize: ImageCache.shared.image(for: image)?.size
+        )
+        return headerTotal + metrics.height + imageDimensionSpacing + imageDimensionLabelHeight
       } else {
         let size = imageThumbnailSize
         let cols = max(1, Int((availableWidth + imageSpacing) / (size + imageSpacing)))
@@ -857,8 +994,11 @@
 
     static func requiredHeight(for width: CGFloat, model: NativeRichMessageRowModel) -> CGFloat {
       guard width > 1 else { return 1 }
-      let presentation = ConversationRichMessageLayout.presentation(for: model)
-      let blocks = MarkdownSystemParser.parse(model.displayContent, style: presentation.contentStyle)
+      var blocks: [MarkdownBlock] = []
+      if !model.usesStreamingTextRenderer {
+        let presentation = ConversationRichMessageLayout.presentation(for: model)
+        blocks = MarkdownSystemParser.parse(model.displayContent, style: presentation.contentStyle)
+      }
       let body = bodyHeight(for: width, model: model, blocks: blocks)
       let total = ConversationRichMessageLayout.requiredHeight(
         for: width,

@@ -272,6 +272,9 @@ struct ReviewCanvas: View {
     .onAppear {
       isCanvasFocused = true
       handlePendingNavigation()
+      if obs.reviewComments.isEmpty {
+        serverState.listReviewComments(sessionId: sessionId)
+      }
     }
   }
 

@@ -35,10 +35,8 @@
       let encodeAsDataURI = shouldEncodeLocalFileImagesAsDataURI
 
       for url in panel.urls {
-        guard let thumbnail = createThumbnail(from: url),
-              let input = serverInputForImageFile(url: url, encodeAsDataURI: encodeAsDataURI)
-        else { continue }
-        appendAttachedImage(AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input))
+        guard let thumbnail = createThumbnail(from: url) else { continue }
+        _ = appendLocalFileImage(url: url, thumbnail: thumbnail, encodeAsDataURI: encodeAsDataURI)
       }
     }
 
@@ -48,12 +46,10 @@
 
       if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
         for url in urls where url.isFileURL && isImageFileURL(url) {
-          guard let thumbnail = createThumbnail(from: url),
-                let input = serverInputForImageFile(url: url, encodeAsDataURI: encodeAsDataURI)
-          else { continue }
-
-          appendAttachedImage(AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input))
-          return true
+          guard let thumbnail = createThumbnail(from: url) else { continue }
+          if appendLocalFileImage(url: url, thumbnail: thumbnail, encodeAsDataURI: encodeAsDataURI) {
+            return true
+          }
         }
       }
 
@@ -78,14 +74,11 @@
           provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
             guard let urlData = data as? Data,
                   let url = URL(dataRepresentation: urlData, relativeTo: nil),
-                  let thumbnail = createThumbnail(from: url),
-                  let input = serverInputForImageFile(url: url, encodeAsDataURI: encodeAsDataURI)
+                  let thumbnail = createThumbnail(from: url)
             else { return }
 
-            let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
-
             DispatchQueue.main.async {
-              appendAttachedImage(attached)
+              _ = appendLocalFileImage(url: url, thumbnail: thumbnail, encodeAsDataURI: encodeAsDataURI)
             }
           }
           handled = true

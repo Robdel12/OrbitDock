@@ -2702,6 +2702,7 @@ mod tests {
         let input = orbitdock_protocol::ImageInput {
             input_type: "url".to_string(),
             value: "data:image/png;base64,aGVsbG8=".to_string(),
+            ..Default::default()
         };
         let block = transform_image(&input).expect("transform should succeed");
         match block {
@@ -2720,6 +2721,7 @@ mod tests {
         let input = orbitdock_protocol::ImageInput {
             input_type: "url".to_string(),
             value: "https://example.com/image.png".to_string(),
+            ..Default::default()
         };
         let block = transform_image(&input).expect("transform should succeed");
         match block {

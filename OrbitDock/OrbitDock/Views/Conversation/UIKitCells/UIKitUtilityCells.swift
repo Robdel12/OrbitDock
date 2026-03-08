@@ -339,6 +339,7 @@
   final class UIKitLiveIndicatorCell: UICollectionViewCell {
     static let reuseIdentifier = "UIKitLiveIndicatorCell"
     static let cellHeight: CGFloat = ConversationLayout.liveIndicatorHeight
+    private static let labelSpacing = Spacing.sm
 
     private let orbitalHost = UIView()
     private var orbitalLayer: OrbitalAnimationLayer?
@@ -487,12 +488,12 @@
       if hasIcon {
         primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
           equalTo: iconView.trailingAnchor,
-          constant: Spacing.xs
+          constant: Self.labelSpacing
         )
       } else if hasOrbital {
         primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
           equalTo: orbitalHost.trailingAnchor,
-          constant: Spacing.xs
+          constant: Self.labelSpacing
         )
       } else {
         primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(

@@ -3,7 +3,6 @@ import Foundation
 struct PlatformCapabilities {
   let canInstallLocalServer: Bool
   let canUseAppleScript: Bool
-  let canFocusTerminal: Bool
   let canManageClaudeHooks: Bool
   let canRevealInFileBrowser: Bool
   let canPlaySystemSounds: Bool
@@ -14,7 +13,6 @@ struct PlatformCapabilities {
     static let current = PlatformCapabilities(
       canInstallLocalServer: true,
       canUseAppleScript: true,
-      canFocusTerminal: true,
       canManageClaudeHooks: true,
       canRevealInFileBrowser: true,
       canPlaySystemSounds: true,
@@ -25,7 +23,6 @@ struct PlatformCapabilities {
     static let current = PlatformCapabilities(
       canInstallLocalServer: false,
       canUseAppleScript: false,
-      canFocusTerminal: false,
       canManageClaudeHooks: false,
       canRevealInFileBrowser: false,
       canPlaySystemSounds: true,
