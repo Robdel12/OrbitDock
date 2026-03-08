@@ -165,7 +165,7 @@ struct ShellCard: View {
         timestamp: Date(),
         toolName: nil,
         toolInput: nil,
-        toolOutput: "On branch main\nChanges not staged for commit:\n  modified: ShellCard.swift\n  modified: WorkStreamEntry.swift",
+        toolOutput: "On branch main\nChanges not staged for commit:\n  modified: ShellCard.swift\n  modified: ConversationView.swift",
         toolDuration: 0.032,
         inputTokens: nil,
         outputTokens: nil
