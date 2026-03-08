@@ -50,6 +50,8 @@
   final class UIKitExpandedToolCell: UICollectionViewCell {
     static let reuseIdentifier = "UIKitExpandedToolCell"
 
+    private let groupCardBg = CellCardBackground()
+
     // ── Subviews ──
 
     private let cardBackground = UIView()
@@ -89,6 +91,8 @@
     private func setup() {
       backgroundColor = .clear
       contentView.backgroundColor = .clear
+
+      groupCardBg.install(in: contentView)
 
       // Card background
       cardBackground.backgroundColor = EL.bgColor
@@ -183,8 +187,18 @@
       onCancel?(messageID)
     }
 
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      groupCardBg.layoutInBounds(contentView.bounds)
+    }
+
+    func configureCardPosition(_ position: CardPosition, topInset: CGFloat, bottomInset: CGFloat) {
+      groupCardBg.configure(position: position, topInset: topInset, bottomInset: bottomInset)
+    }
+
     override func prepareForReuse() {
       super.prepareForReuse()
+      groupCardBg.reset()
       onCollapse = nil
       onCancel = nil
       model = nil

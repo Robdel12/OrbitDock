@@ -56,7 +56,7 @@ nonisolated struct ConversationSourceState {
     var projectPath: String?
 
     var shouldShowLiveIndicator: Bool {
-      isSessionActive && workStatus == .permission
+      isSessionActive && (workStatus == .permission || workStatus == .waiting)
     }
   }
 
@@ -99,6 +99,8 @@ nonisolated struct ConversationUIState: Hashable, Sendable {
   var isPinnedToBottom: Bool
   var widthBucket: Int
   var scrollAnchor: ScrollAnchor?
+  var focusModeEnabled: Bool
+  var expandedTurns: Set<String>
 
   nonisolated struct ScrollAnchor: Hashable, Sendable {
     var rowID: TimelineRowID
@@ -111,7 +113,9 @@ nonisolated struct ConversationUIState: Hashable, Sendable {
     expandedMarkdownBlocks: Set<String> = [],
     isPinnedToBottom: Bool = true,
     widthBucket: Int = 1,
-    scrollAnchor: ScrollAnchor? = nil
+    scrollAnchor: ScrollAnchor? = nil,
+    focusModeEnabled: Bool = false,
+    expandedTurns: Set<String> = []
   ) {
     self.expandedToolCards = expandedToolCards
     self.expandedRollups = expandedRollups
@@ -119,7 +123,20 @@ nonisolated struct ConversationUIState: Hashable, Sendable {
     self.isPinnedToBottom = isPinnedToBottom
     self.widthBucket = widthBucket
     self.scrollAnchor = scrollAnchor
+    self.focusModeEnabled = focusModeEnabled
+    self.expandedTurns = expandedTurns
   }
+}
+
+// MARK: - Card Position
+
+/// Position of a row within a turn card — determines corner rounding.
+nonisolated enum CardPosition: Hashable, Sendable {
+  case none    // Not part of a card
+  case top     // Top of card (top corners rounded)
+  case middle  // Middle of card (no rounding)
+  case bottom  // Bottom of card (bottom corners rounded)
+  case solo    // Single-row card (all corners rounded)
 }
 
 // MARK: - Timeline Projection Types
@@ -160,6 +177,12 @@ nonisolated struct TimelineRowID: Hashable, Sendable, RawRepresentable, Expressi
   static func turnRollupKey(_ turnID: String) -> String {
     "timeline:turn-rollup:\(turnID)"
   }
+
+  static let liveProgress: Self = "timeline:live-progress"
+
+  static func collapsedTurn(_ turnID: String) -> Self {
+    Self(rawValue: "timeline:collapsed-turn:\(turnID)")
+  }
 }
 
 nonisolated enum TimelineRowKind: Hashable, Sendable {
@@ -172,6 +195,8 @@ nonisolated enum TimelineRowKind: Hashable, Sendable {
   case liveIndicator
   case approvalCard
   case bottomSpacer
+  case liveProgress
+  case collapsedTurn
 }
 
 /// Tool breakdown entry for rollup summary — groups tool usage by name.
@@ -185,13 +210,26 @@ nonisolated struct ToolBreakdownEntry: Hashable, Sendable {
 nonisolated enum TimelineRowPayload: Hashable, Sendable {
   case none
   case message(id: String, showHeader: Bool)
-  case turnHeader(turnID: String)
+  case turnHeader(turnID: String, turnNumber: Int, timestamp: Date?)
   case tool(id: String)
   case rollupSummary(
     id: String, hiddenCount: Int, totalToolCount: Int, isExpanded: Bool,
-    breakdown: [ToolBreakdownEntry]
+    breakdown: [ToolBreakdownEntry],
+    hiddenMessageIDs: [String]
   )
   case approvalCard(mode: ApprovalCardMode)
+  case liveProgress(
+    currentTool: String,
+    completedCount: Int,
+    elapsedTime: TimeInterval
+  )
+  case collapsedTurn(
+    turnID: String,
+    userPreview: String,
+    assistantPreview: String,
+    toolCount: Int,
+    totalDuration: TimeInterval?
+  )
 }
 
 nonisolated struct TimelineRow: Hashable, Sendable {

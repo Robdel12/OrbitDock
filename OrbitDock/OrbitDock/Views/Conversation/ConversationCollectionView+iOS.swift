@@ -184,7 +184,9 @@ import SwiftUI
     private var loadMoreCellReg: UICollectionView.CellRegistration<UIKitLoadMoreCell, Void>!
     private var messageCountCellReg: UICollectionView.CellRegistration<UIKitMessageCountCell, Void>!
     private var liveIndicatorCellReg: UICollectionView.CellRegistration<UIKitLiveIndicatorCell, Void>!
+    private var liveProgressCellReg: UICollectionView.CellRegistration<UIKitLiveProgressCell, Void>!
     private var approvalCardCellReg: UICollectionView.CellRegistration<UIKitApprovalCardCell, Void>!
+    private var collapsedTurnCellReg: UICollectionView.CellRegistration<UIKitCollapsedTurnCell, String>!
     private var spacerCellReg: UICollectionView.CellRegistration<UIKitSpacerCell, Void>!
 
     private var needsInitialScroll = true
@@ -283,21 +285,14 @@ import SwiftUI
 
       turnHeaderCellReg = UICollectionView.CellRegistration<UIKitTurnHeaderCell, String> {
         [weak self] cell, _, turnId in
-        guard let self, let turn = self.turnsByID[turnId] else { return }
-        cell.configure(turn: turn)
+        guard let self, let model = self.buildTurnHeaderModel(for: turnId) else { return }
+        cell.configure(model: model)
       }
 
       rollupSummaryCellReg = UICollectionView.CellRegistration<UIKitRollupSummaryCell, String> {
         [weak self] cell, _, rollupId in
-        guard let self else { return }
-        // Find the row to get payload data
-        guard let row = self.currentRows.first(where: { $0.id == .rollupSummary(rollupId) }),
-              case let .rollupSummary(_, hiddenCount, totalToolCount, isExpanded, breakdown) = row.payload
-        else { return }
-        cell.configure(
-          hiddenCount: hiddenCount, totalToolCount: totalToolCount,
-          isExpanded: isExpanded, breakdown: breakdown
-        )
+        guard let self, let model = self.buildRollupSummaryModel(for: rollupId) else { return }
+        cell.configure(model: model)
         cell.onToggle = { [weak self] in
           self?.toggleRollup(id: rollupId)
         }
@@ -322,20 +317,30 @@ import SwiftUI
       liveIndicatorCellReg = UICollectionView.CellRegistration<UIKitLiveIndicatorCell, Void> {
         [weak self] cell, _, _ in
         guard let self else { return }
-        let meta = self.sourceState.metadata
-        cell.configure(model: UIKitLiveIndicatorCell.Model(
-          workStatus: meta.workStatus,
-          currentTool: meta.currentTool,
-          currentPrompt: meta.currentPrompt,
-          pendingToolName: meta.pendingToolName,
-          provider: self.provider
-        ))
+        cell.configure(model: self.buildLiveIndicatorModel())
+      }
+
+      liveProgressCellReg = UICollectionView.CellRegistration<UIKitLiveProgressCell, Void> {
+        [weak self] cell, indexPath, _ in
+        guard let self else { return }
+        guard indexPath.item < self.currentRows.count else { return }
+        guard let model = self.buildLiveProgressModel(for: self.currentRows[indexPath.item]) else { return }
+        cell.configure(model: model)
       }
 
       approvalCardCellReg = UICollectionView.CellRegistration<UIKitApprovalCardCell, Void> {
         [weak self] cell, _, _ in
         guard let self, let model = self.buildApprovalCardModel() else { return }
         cell.configure(model: model)
+      }
+
+      collapsedTurnCellReg = UICollectionView.CellRegistration<UIKitCollapsedTurnCell, String> {
+        [weak self] cell, _, turnId in
+        guard let self, let model = self.buildCollapsedTurnModel(for: turnId) else { return }
+        cell.configure(model: model)
+        cell.onTap = { [weak self] in
+          self?.toggleTurnExpansion(turnID: turnId)
+        }
       }
 
       spacerCellReg = UICollectionView.CellRegistration<UIKitSpacerCell, Void> { _, _, _ in
@@ -355,57 +360,79 @@ import SwiftUI
         guard indexPath.item < self.currentRows.count else { return UICollectionViewCell() }
         let row = self.currentRows[indexPath.item]
 
-        switch row.kind {
-          case .loadMore:
-            return collectionView.dequeueConfiguredReusableCell(
-              using: self.loadMoreCellReg, for: indexPath, item: ()
-            )
-          case .messageCount:
-            return collectionView.dequeueConfiguredReusableCell(
-              using: self.messageCountCellReg, for: indexPath, item: ()
-            )
-          case .message:
-            if case let .message(id, _) = row.payload {
+        let cell: UICollectionViewCell? = {
+          switch row.kind {
+            case .loadMore:
               return collectionView.dequeueConfiguredReusableCell(
-                using: self.messageCellReg, for: indexPath, item: id
+                using: self.loadMoreCellReg, for: indexPath, item: ()
               )
-            }
-          case .tool:
-            if case let .tool(id) = row.payload {
-              if self.uiState.expandedToolCards.contains(id) {
+            case .messageCount:
+              return collectionView.dequeueConfiguredReusableCell(
+                using: self.messageCountCellReg, for: indexPath, item: ()
+              )
+            case .message:
+              if case let .message(id, _) = row.payload {
                 return collectionView.dequeueConfiguredReusableCell(
-                  using: self.expandedToolCellReg, for: indexPath, item: id
-                )
-              } else {
-                return collectionView.dequeueConfiguredReusableCell(
-                  using: self.compactToolCellReg, for: indexPath, item: id
+                  using: self.messageCellReg, for: indexPath, item: id
                 )
               }
-            }
-          case .turnHeader:
-            if case let .turnHeader(turnID) = row.payload {
+              return nil
+            case .tool:
+              if case let .tool(id) = row.payload {
+                if self.uiState.expandedToolCards.contains(id) {
+                  return collectionView.dequeueConfiguredReusableCell(
+                    using: self.expandedToolCellReg, for: indexPath, item: id
+                  )
+                } else {
+                  return collectionView.dequeueConfiguredReusableCell(
+                    using: self.compactToolCellReg, for: indexPath, item: id
+                  )
+                }
+              }
+              return nil
+            case .turnHeader:
+              if case let .turnHeader(turnID, _, _) = row.payload {
+                return collectionView.dequeueConfiguredReusableCell(
+                  using: self.turnHeaderCellReg, for: indexPath, item: turnID
+                )
+              }
+              return nil
+            case .rollupSummary:
+              if case let .rollupSummary(rollupID, _, _, _, _, _) = row.payload {
+                return collectionView.dequeueConfiguredReusableCell(
+                  using: self.rollupSummaryCellReg, for: indexPath, item: rollupID
+                )
+              }
+              return nil
+            case .liveIndicator:
               return collectionView.dequeueConfiguredReusableCell(
-                using: self.turnHeaderCellReg, for: indexPath, item: turnID
+                using: self.liveIndicatorCellReg, for: indexPath, item: ()
               )
-            }
-          case .rollupSummary:
-            if case let .rollupSummary(rollupID, _, _, _, _) = row.payload {
+            case .approvalCard:
               return collectionView.dequeueConfiguredReusableCell(
-                using: self.rollupSummaryCellReg, for: indexPath, item: rollupID
+                using: self.approvalCardCellReg, for: indexPath, item: ()
               )
-            }
-          case .liveIndicator:
-            return collectionView.dequeueConfiguredReusableCell(
-              using: self.liveIndicatorCellReg, for: indexPath, item: ()
-            )
-          case .approvalCard:
-            return collectionView.dequeueConfiguredReusableCell(
-              using: self.approvalCardCellReg, for: indexPath, item: ()
-            )
-          case .bottomSpacer:
-            return collectionView.dequeueConfiguredReusableCell(
-              using: self.spacerCellReg, for: indexPath, item: ()
-            )
+            case .bottomSpacer:
+              return collectionView.dequeueConfiguredReusableCell(
+                using: self.spacerCellReg, for: indexPath, item: ()
+              )
+            case .liveProgress:
+              return collectionView.dequeueConfiguredReusableCell(
+                using: self.liveProgressCellReg, for: indexPath, item: ()
+              )
+            case .collapsedTurn:
+              if case let .collapsedTurn(turnID, _, _, _, _) = row.payload {
+                return collectionView.dequeueConfiguredReusableCell(
+                  using: self.collapsedTurnCellReg, for: indexPath, item: turnID
+                )
+              }
+              return nil
+          }
+        }()
+
+        if let cell {
+          self.applyCardPosition(to: cell, at: indexPath)
+          return cell
         }
         return UICollectionViewCell()
       }
@@ -485,7 +512,7 @@ import SwiftUI
         pendingApprovalId: resolvedApprovalId,
         isDirectSession: session?.isDirect ?? false,
         isDirectCodexSession: session?.isDirectCodex ?? false,
-        supportsRichToolingCards: session?.isDirectCodex ?? false,
+        supportsRichToolingCards: session?.isDirect ?? false,
         sessionId: self.sessionId,
         projectPath: session?.projectPath
       )
@@ -691,6 +718,43 @@ import SwiftUI
       }
     }
 
+    // MARK: - Card Spacing
+
+    private func cardPosition(forItem item: Int) -> CardPosition {
+      ConversationTimelineLayoutHelpers.cardPosition(for: item, rows: currentRows) { [messagesByID] messageID in
+        messagesByID[messageID]
+      }
+    }
+
+    private func cardSpacing(forItem item: Int) -> ConversationCardSpacing {
+      ConversationTimelineLayoutHelpers.cardSpacing(for: item, rows: currentRows) { [messagesByID] messageID in
+        messagesByID[messageID]
+      }
+    }
+
+    private func cardSpacingHeightExtra(forItem item: Int) -> CGFloat {
+      cardSpacing(forItem: item).heightExtra
+    }
+
+    private func applyCardPosition(to cell: UICollectionViewCell, at indexPath: IndexPath) {
+      let spacing = cardSpacing(forItem: indexPath.item)
+      let position = cardPosition(forItem: indexPath.item)
+      switch cell {
+        case let c as UIKitRichMessageCell:
+          c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
+        case let c as UIKitCompactToolCell:
+          c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
+        case let c as UIKitExpandedToolCell:
+          c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
+        case let c as UIKitRollupSummaryCell:
+          c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
+        case let c as UIKitLiveProgressCell:
+          c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
+        default:
+          break
+      }
+    }
+
     // MARK: - UICollectionViewDelegateFlowLayout
 
     private static func f(_ v: CGFloat) -> String {
@@ -707,9 +771,10 @@ import SwiftUI
       guard indexPath.item < currentRows.count else { return CGSize(width: width, height: 1) }
 
       let row = currentRows[indexPath.item]
+      let spacingExtra = cardSpacingHeightExtra(forItem: indexPath.item)
 
       if let cached = heightCache[row.id] {
-        return CGSize(width: width, height: cached)
+        return CGSize(width: width, height: cached + spacingExtra)
       }
 
       let height: CGFloat
@@ -717,9 +782,9 @@ import SwiftUI
         case .bottomSpacer:
           height = ConversationLayout.bottomSpacerHeight
         case .turnHeader:
-          height = ConversationLayout.turnHeaderHeight
+          height = ConversationTimelineLayoutHelpers.turnHeaderHeight(for: row)
         case .rollupSummary:
-          height = ConversationLayout.rollupSummaryHeight
+          height = ConversationLayout.activityCapsuleHeight
         case .loadMore:
           height = ConversationLayout.loadMoreHeight
         case .messageCount:
@@ -732,21 +797,11 @@ import SwiftUI
             logger.debug("sizeForItem[\(indexPath.item)] tool[\(id.prefix(8))] expanded h=\(Self.f(height))")
           } else if case let .tool(id) = row.payload {
             if let message = messagesByID[id] {
-              let summary = CompactToolHelpers.compactSingleLineSummary(
-                CompactToolHelpers.summary(
-                  for: message,
-                  supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
-                )
+              let model = SharedModelBuilders.compactToolModel(
+                from: message,
+                supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
               )
-              let preview = CompactToolHelpers.diffPreview(for: message)
-              let livePreview = CompactToolHelpers.liveOutputPreview(for: message)
-              height = UIKitCompactToolCell.requiredHeight(
-                for: width,
-                summary: summary,
-                hasDiffPreview: preview != nil,
-                hasContextLine: preview?.contextLine != nil,
-                hasLivePreview: livePreview != nil
-              )
+              height = UIKitCompactToolCell.requiredHeight(model: model, width: width)
             } else {
               height = ConversationLayout.compactToolRowHeight
             }
@@ -766,17 +821,72 @@ import SwiftUI
             logger.debug("sizeForItem[\(indexPath.item)] msg fallback h=44")
           }
         case .liveIndicator:
-          height = UIKitLiveIndicatorCell.cellHeight
+          height = ConversationLayout.liveIndicatorHeight
         case .approvalCard:
           let model = buildApprovalCardModel()
           height = UIKitApprovalCardCell.requiredHeight(for: model, availableWidth: width)
+        case .liveProgress:
+          height = ConversationLayout.liveProgressHeight
+        case .collapsedTurn:
+          height = ConversationLayout.collapsedTurnHeight
       }
 
       heightCache[row.id] = height
-      return CGSize(width: width, height: height)
+      return CGSize(width: width, height: height + spacingExtra)
     }
 
     // MARK: - Model Building
+
+    private func buildTurnHeaderModel(for turnID: String) -> ConversationUtilityRowModels.TurnHeaderModel? {
+      guard let turn = turnsByID[turnID] else { return nil }
+      return ConversationUtilityRowModels.turnHeader(for: turn)
+    }
+
+    private func buildRollupSummaryModel(for rollupID: String) -> ConversationUtilityRowModels.RollupSummaryModel? {
+      guard let row = currentRows.first(where: { $0.id == .rollupSummary(rollupID) }),
+            case let .rollupSummary(_, hiddenCount, totalToolCount, isExpanded, breakdown, hiddenMessageIDs) = row.payload
+      else { return nil }
+
+      let groupMessages = hiddenMessageIDs.compactMap { messagesByID[$0] }
+      return ConversationUtilityRowModels.rollupSummary(
+        hiddenCount: hiddenCount,
+        totalToolCount: totalToolCount,
+        isExpanded: isExpanded,
+        breakdown: breakdown,
+        messages: groupMessages
+      )
+    }
+
+    private func buildLiveIndicatorModel() -> ConversationUtilityRowModels.LiveIndicatorModel {
+      let meta = sourceState.metadata
+      return ConversationUtilityRowModels.liveIndicator(
+        workStatus: meta.workStatus,
+        currentTool: meta.currentTool,
+        pendingToolName: meta.pendingToolName
+      )
+    }
+
+    private func buildLiveProgressModel(for row: TimelineRow) -> ConversationUtilityRowModels.LiveProgressModel? {
+      guard case let .liveProgress(currentTool, completedCount, elapsedTime) = row.payload else { return nil }
+      return ConversationUtilityRowModels.liveProgress(
+        currentTool: currentTool,
+        completedCount: completedCount,
+        elapsedTime: elapsedTime
+      )
+    }
+
+    private func buildCollapsedTurnModel(for turnID: String) -> ConversationUtilityRowModels.CollapsedTurnModel? {
+      guard let row = currentRows.first(where: { $0.id == .collapsedTurn(turnID) }),
+            case let .collapsedTurn(_, userPreview, assistantPreview, toolCount, totalDuration) = row.payload
+      else { return nil }
+
+      return ConversationUtilityRowModels.collapsedTurn(
+        userPreview: userPreview,
+        assistantPreview: assistantPreview,
+        toolCount: toolCount,
+        totalDuration: totalDuration
+      )
+    }
 
     private func buildRichMessageModel(for row: TimelineRow) -> NativeRichMessageRowModel? {
       guard case let .message(messageId, showHeader) = row.payload else { return nil }
@@ -797,6 +907,7 @@ import SwiftUI
       } else {
         expandedThinkingIDs.insert(messageID)
       }
+      Platform.services.playHaptic(.expansion)
       // Invalidate cached height and reconfigure
       let rowID = TimelineRowID.message(messageID)
       heightCache.removeValue(forKey: rowID)
@@ -852,6 +963,7 @@ import SwiftUI
       let wasExpanded = uiState.expandedToolCards.contains(messageID)
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleToolCard(messageID))
       logger.debug("toggleToolExpansion[\(messageID.prefix(8))] \(wasExpanded ? "collapse" : "expand")")
+      Platform.services.playHaptic(.expansion)
       // Invalidate cached height for this tool row
       let toolRowID = currentRows.first(where: {
         if case let .tool(id) = $0.payload { return id == messageID }
@@ -885,6 +997,13 @@ import SwiftUI
 
     private func toggleRollup(id: String) {
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleRollup(id))
+      Platform.services.playHaptic(.expansion)
+      applyProjectionUpdate()
+    }
+
+    private func toggleTurnExpansion(turnID: String) {
+      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleTurnExpansion(turnID))
+      Platform.services.playHaptic(.expansion)
       applyProjectionUpdate()
     }
 

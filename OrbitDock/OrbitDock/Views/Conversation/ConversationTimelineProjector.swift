@@ -54,8 +54,17 @@ nonisolated enum ConversationTimelineProjector {
         }
 
       case .focused:
-        for turn in context.source.turns {
-          appendFocusedRows(for: turn, context: context, rows: &rows)
+        let turns = context.source.turns
+        for (index, turn) in turns.enumerated() {
+          let isLastTurn = index == turns.count - 1
+          if context.ui.focusModeEnabled,
+             !isLastTurn,
+             !context.ui.expandedTurns.contains(turn.id)
+          {
+            appendCollapsedTurn(turn, context: context, rows: &rows)
+          } else {
+            appendFocusedRows(for: turn, context: context, rows: &rows)
+          }
         }
     }
 
@@ -70,6 +79,21 @@ nonisolated enum ConversationTimelineProjector {
       ))
     } else if metadata.shouldShowLiveIndicator {
       rows.append(makeRow(id: .liveIndicator, kind: .liveIndicator, payload: .none, context: context))
+    } else if metadata.isSessionActive, metadata.workStatus == .working {
+      let lastTurn = context.source.turns.last
+      let toolCount = lastTurn?.messages.filter(isToolLikeMessage).count ?? 0
+      let elapsed = lastTurn?.messages.compactMap(\.toolDuration).reduce(0, +) ?? 0
+      let currentTool = metadata.currentTool ?? ""
+      rows.append(makeRow(
+        id: .liveProgress,
+        kind: .liveProgress,
+        payload: .liveProgress(
+          currentTool: currentTool,
+          completedCount: toolCount,
+          elapsedTime: elapsed
+        ),
+        context: context
+      ))
     }
 
     rows.append(makeRow(id: .bottomSpacer, kind: .bottomSpacer, payload: .none, context: context))
@@ -85,7 +109,7 @@ nonisolated enum ConversationTimelineProjector {
       makeRow(
         id: .turnHeader(turn.id),
         kind: .turnHeader,
-        payload: .turnHeader(turnID: turn.id),
+        payload: .turnHeader(turnID: turn.id, turnNumber: turn.turnNumber, timestamp: turn.startTimestamp),
         context: context
       )
     )
@@ -119,7 +143,9 @@ nonisolated enum ConversationTimelineProjector {
             let visibleTailCount = min(focusedVisibleToolTail, max(1, messages.count - 1))
             let hiddenCount = messages.count - visibleTailCount
             let hiddenToolCount = messages.prefix(hiddenCount).filter(isToolLikeMessage).count
-            let breakdown = toolBreakdown(from: Array(messages.prefix(hiddenCount)))
+            let hiddenMessages = Array(messages.prefix(hiddenCount))
+            let breakdown = toolBreakdown(from: hiddenMessages)
+            let allMessageIDs = messages.map(\.id)
 
             rows.append(
               makeRow(
@@ -130,7 +156,8 @@ nonisolated enum ConversationTimelineProjector {
                   hiddenCount: hiddenToolCount,
                   totalToolCount: toolCount,
                   isExpanded: isExpanded,
-                  breakdown: breakdown
+                  breakdown: breakdown,
+                  hiddenMessageIDs: allMessageIDs
                 ),
                 context: context
               )
@@ -147,6 +174,40 @@ nonisolated enum ConversationTimelineProjector {
     for message in split.trailing {
       appendMessageRow(message, toolRowsEnabled: true, context: context, rows: &rows)
     }
+  }
+
+  private static func appendCollapsedTurn(
+    _ turn: TurnSummary,
+    context: ProjectionContext,
+    rows: inout [TimelineRow]
+  ) {
+    let userPreview = turn.messages
+      .first { $0.type == .user }
+      .map { String($0.content.prefix(80)).trimmingCharacters(in: .whitespacesAndNewlines) }
+      ?? ""
+
+    let assistantPreview = turn.messages
+      .first { $0.type == .assistant && !$0.content.isEmpty }
+      .map { String($0.content.prefix(80)).trimmingCharacters(in: .whitespacesAndNewlines) }
+      ?? ""
+
+    let toolCount = turn.messages.filter(isToolLikeMessage).count
+    let totalDuration = turn.messages.compactMap(\.toolDuration).reduce(0, +)
+
+    rows.append(
+      makeRow(
+        id: .collapsedTurn(turn.id),
+        kind: .collapsedTurn,
+        payload: .collapsedTurn(
+          turnID: turn.id,
+          userPreview: userPreview,
+          assistantPreview: assistantPreview,
+          toolCount: toolCount,
+          totalDuration: totalDuration > 0 ? totalDuration : nil
+        ),
+        context: context
+      )
+    )
   }
 
   private static func appendMessageRow(
@@ -481,17 +542,18 @@ nonisolated enum ConversationTimelineProjector {
         }
 
       case .turnHeader:
-        if case let .turnHeader(turnID) = payload, let turn = context.turnsByID[turnID] {
+        if case let .turnHeader(turnID, _, _) = payload, let turn = context.turnsByID[turnID] {
           combineTurnHeader(turn: turn, into: &hasher)
         }
 
       case .rollupSummary:
-        if case let .rollupSummary(id, hiddenCount, totalToolCount, isExpanded, breakdown) = payload {
+        if case let .rollupSummary(id, hiddenCount, totalToolCount, isExpanded, breakdown, hiddenMessageIDs) = payload {
           hasher.combine(id)
           hasher.combine(hiddenCount)
           hasher.combine(totalToolCount)
           hasher.combine(isExpanded)
           hasher.combine(breakdown)
+          hasher.combine(hiddenMessageIDs)
         }
 
       case .liveIndicator:
@@ -514,6 +576,22 @@ nonisolated enum ConversationTimelineProjector {
 
       case .bottomSpacer:
         hasher.combine(32)
+
+      case .liveProgress:
+        if case let .liveProgress(currentTool, completedCount, elapsedTime) = payload {
+          combineTextSignature(currentTool, into: &hasher)
+          hasher.combine(completedCount)
+          hasher.combine(Int(elapsedTime * 10))
+        }
+
+      case .collapsedTurn:
+        if case let .collapsedTurn(turnID, userPreview, assistantPreview, toolCount, totalDuration) = payload {
+          hasher.combine(turnID)
+          combineTextSignature(userPreview, into: &hasher)
+          combineTextSignature(assistantPreview, into: &hasher)
+          hasher.combine(toolCount)
+          if let d = totalDuration { hasher.combine(Int(d * 10)) }
+        }
     }
 
     return hasher.finalize()

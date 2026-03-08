@@ -45,19 +45,22 @@ struct ConversationView: View {
   }()
 
   private var effectiveDisplayedCount: Int {
-    guard !messages.isEmpty else { return 0 }
-    if displayedCount <= 0 { return messages.count }
-    return min(displayedCount, messages.count)
+    messages.count
   }
 
   var displayedMessages: [TranscriptMessage] {
-    guard !messages.isEmpty else { return [] }
-    let startIndex = max(0, messages.count - effectiveDisplayedCount)
-    return Array(messages[startIndex...])
+    messages
   }
 
   var hasMoreMessages: Bool {
-    effectiveDisplayedCount < messages.count
+    guard let sid = sessionId else { return false }
+    return serverState.session(sid).hasMoreHistoryBefore
+  }
+
+  var remainingLoadCount: Int {
+    guard let sid = sessionId else { return 0 }
+    let totalCount = serverState.session(sid).totalMessageCount
+    return min(pageSize, max(0, totalCount - messages.count))
   }
 
   var body: some View {
@@ -132,10 +135,13 @@ struct ConversationView: View {
       serverState: serverState,
       hasMoreMessages: hasMoreMessages,
       currentPrompt: currentPrompt,
-      messageCount: messages.count,
-      remainingLoadCount: min(pageSize, messages.count - effectiveDisplayedCount),
+      messageCount: sessionId.map { max(messages.count, serverState.session($0).totalMessageCount) } ?? messages.count,
+      remainingLoadCount: remainingLoadCount,
       openFileInReview: openFileInReview,
-      onLoadMore: { displayedCount = min(displayedCount + pageSize, messages.count) },
+      onLoadMore: {
+        guard let sid = sessionId else { return }
+        serverState.loadOlderMessages(sessionId: sid, limit: pageSize)
+      },
       onNavigateToReviewFile: onNavigateToReviewFile,
       isPinned: $isPinned,
       unreadCount: $unreadCount,
@@ -168,11 +174,11 @@ struct ConversationView: View {
       source: "load"
     )
     messages = serverMessages
-    displayedCount = min(pageSize, serverMessages.count)
+    displayedCount = serverMessages.count
 
     // Only clear loading if we already have messages or the snapshot confirmed empty.
     // Otherwise keep loading visible until the refresh loop copies snapshot data.
-    if !serverMessages.isEmpty || obs.hasReceivedSnapshot {
+    if !serverMessages.isEmpty || obs.hasConversationSeed {
       isLoading = false
     }
     logDebugState("load_messages")
@@ -181,7 +187,7 @@ struct ConversationView: View {
   private func refreshFromServerStateIfNeeded() {
     guard let sid = sessionId else { return }
     let obs = serverState.session(sid)
-    let snapshotReceived = obs.hasReceivedSnapshot
+    let snapshotReceived = obs.hasConversationSeed
     let serverMessages = ConversationRenderMessageNormalizer.normalize(
       obs.messages,
       sessionId: sid,
@@ -190,7 +196,7 @@ struct ConversationView: View {
     let syncResult = ConversationMessageSync.reconcile(
       localMessages: messages,
       serverMessages: serverMessages,
-      displayedCount: displayedCount,
+      displayedCount: messages.count,
       pageSize: pageSize,
       mutation: obs.lastMessageMutation
     )

@@ -18,6 +18,16 @@ struct ApprovalHeaderConfig {
   let denyTitle: String
 }
 
+struct ApprovalStripConfig {
+  let iconName: String
+  let iconTint: Color
+  let title: String
+  let subtitle: String
+  let backgroundColor: Color
+  let backgroundOpacity: CGFloat
+  let accentOpacity: CGFloat
+}
+
 enum ApprovalCardConfiguration {
 
   static func headerConfig(for model: ApprovalCardModel, mode: ApprovalCardMode) -> ApprovalHeaderConfig {
@@ -43,6 +53,19 @@ enum ApprovalCardConfiguration {
           denyTitle: ""
         )
     }
+  }
+
+  static func stripConfig(for model: ApprovalCardModel) -> ApprovalStripConfig {
+    let header = headerConfig(for: model, mode: model.mode)
+    return ApprovalStripConfig(
+      iconName: header.iconName,
+      iconTint: model.risk.tintColor,
+      title: stripTitle(for: model),
+      subtitle: stripSubtitle(for: model),
+      backgroundColor: Color.backgroundSecondary,
+      backgroundOpacity: 0.5,
+      accentOpacity: 0.72
+    )
   }
 
   private static func permissionHeaderConfig(for model: ApprovalCardModel) -> ApprovalHeaderConfig {
@@ -96,6 +119,33 @@ enum ApprovalCardConfiguration {
       approveTitle: "",
       denyTitle: ""
     )
+  }
+
+  private static func stripTitle(for model: ApprovalCardModel) -> String {
+    switch model.mode {
+      case .permission:
+        model.toolName ?? "Tool"
+      case .question:
+        "Question"
+      case .takeover:
+        model.toolName ?? "Takeover"
+      case .none:
+        ""
+    }
+  }
+
+  private static func stripSubtitle(for model: ApprovalCardModel) -> String {
+    switch model.mode {
+      case .permission:
+        let segmentCount = ApprovalPermissionPreviewHelpers.shellSegmentDisplayLines(for: model).count
+        return segmentCount > 1 ? "\(segmentCount)-step chain awaiting approval" : "Awaiting approval"
+      case .question:
+        return model.questions.count > 1 ? "\(model.questions.count) questions waiting" : "Awaiting your response"
+      case .takeover:
+        return "Manual takeover required"
+      case .none:
+        return ""
+    }
   }
 
   // MARK: - Menu Action Definitions

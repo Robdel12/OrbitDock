@@ -65,6 +65,7 @@ struct ConversationViewModeToggle: View {
       withAnimation(Motion.gentle) {
         chatViewMode = mode
       }
+      Platform.services.playHaptic(.selection)
     } label: {
       switch presentation {
         case .iconOnly:

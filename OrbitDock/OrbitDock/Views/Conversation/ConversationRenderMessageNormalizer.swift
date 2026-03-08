@@ -70,6 +70,7 @@ enum ConversationRenderMessageNormalizer {
 
     return TranscriptMessage(
       id: incoming.id,
+      sequence: incoming.sequence ?? existing.sequence,
       type: incoming.type,
       content: incoming.content.isEmpty ? existing.content : incoming.content,
       timestamp: incoming.timestamp,
@@ -110,6 +111,7 @@ enum ConversationRenderMessageNormalizer {
   private static func withMessageID(_ message: TranscriptMessage, id: String) -> TranscriptMessage {
     TranscriptMessage(
       id: id,
+      sequence: message.sequence,
       type: message.type,
       content: message.content,
       timestamp: message.timestamp,

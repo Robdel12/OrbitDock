@@ -8,6 +8,18 @@
 
 import SwiftUI
 
+// MARK: - Compact Tool Type
+
+nonisolated enum CompactToolType: Hashable, Sendable {
+  case bash, read, edit, glob, grep, task, todo, mcp, web, plan, question, skill, generic
+}
+
+// MARK: - Compact Todo Item
+
+struct CompactTodoItem: Hashable {
+  let status: NativeTodoStatus
+}
+
 // MARK: - Diff Preview Info
 
 struct DiffPreviewInfo {
@@ -17,6 +29,15 @@ struct DiffPreviewInfo {
   let isAddition: Bool
   let additions: Int
   let deletions: Int
+
+  /// Compute proportional bar widths for a diff bar visualization.
+  func barWidths(maxWidth: CGFloat) -> (added: CGFloat, removed: CGFloat) {
+    let total = CGFloat(additions + deletions)
+    let addedFrac = total > 0 ? CGFloat(additions) / total : 1
+    let addedW = round(addedFrac * maxWidth)
+    let removedW = deletions > 0 ? max(0, maxWidth - addedW - 1) : 0
+    return (addedW, removedW)
+  }
 }
 
 // MARK: - Compact Tool Row Model
@@ -26,10 +47,37 @@ struct NativeCompactToolRowModel {
   let glyphSymbol: String
   let glyphColor: PlatformColor
   let summary: String
+  let subtitle: String?
   let rightMeta: String?
   let isInProgress: Bool
   let diffPreview: DiffPreviewInfo?
   let liveOutputPreview: String?
+  let toolType: CompactToolType
+  let outputPreview: String?
+  let language: String?
+  let mcpServer: String?
+  let todoItems: [CompactTodoItem]?
+}
+
+// MARK: - Shared Height Calculation
+
+extension NativeCompactToolRowModel {
+  /// Cross-platform height calculation shared by macOS and iOS cells.
+  static func requiredHeight(for model: NativeCompactToolRowModel, width: CGFloat) -> CGFloat {
+    let base: CGFloat = 40 // strip padding (3+3) + content area (34)
+
+    if model.diffPreview != nil {
+      let contextExtra: CGFloat = model.diffPreview?.contextLine != nil ? 15 : 0
+      return base + 22 + contextExtra
+    }
+    if model.liveOutputPreview != nil { return base + 17 }
+    if let items = model.todoItems, !items.isEmpty { return base + 17 }
+    if let preview = model.outputPreview {
+      let lineCount = min(preview.components(separatedBy: "\n").count, 3)
+      return base + CGFloat(lineCount) * 15
+    }
+    return base
+  }
 }
 
 // MARK: - Tool Glyph Info
@@ -361,6 +409,37 @@ private enum TodoToolParser {
 // MARK: - Compact Tool Helpers
 
 enum CompactToolHelpers {
+  /// Human-friendly display name for a tool. Shared by macOS and iOS rollup cells.
+  static func displayName(for toolName: String) -> String {
+    let lowered = toolName.lowercased()
+    let normalized = lowered.split(separator: ":").last.map(String.init) ?? lowered
+    switch normalized {
+      case "bash": return "Bash"
+      case "read": return "Read"
+      case "edit": return "Edit"
+      case "write": return "Write"
+      case "glob": return "Glob"
+      case "grep": return "Grep"
+      case "task": return "Task"
+      case "webfetch": return "Fetch"
+      case "websearch": return "Search"
+      case "skill": return "Skill"
+      case "enterplanmode", "exitplanmode": return "Plan"
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan":
+        return "Todo"
+      case "askuserquestion": return "Question"
+      case "mcp_approval": return "MCP Approval"
+      case "notebookedit": return "Notebook"
+      default:
+        if toolName.hasPrefix("mcp__") {
+          return toolName
+            .replacingOccurrences(of: "mcp__", with: "")
+            .components(separatedBy: "__").last ?? "MCP"
+        }
+        return toolName
+    }
+  }
+
   static func compactSingleLineSummary(_ value: String, maxLength: Int = 180) -> String {
     let normalizedLines = value
       .replacingOccurrences(of: "\r\n", with: "\n")
@@ -668,6 +747,185 @@ enum CompactToolHelpers {
     return nil
   }
 
+  // MARK: - Subtitle Extraction
+
+  static func subtitle(
+    for message: TranscriptMessage,
+    toolType: CompactToolType,
+    rightMeta: String?,
+    supportsRichToolingCards: Bool
+  ) -> String? {
+    switch toolType {
+      case .read: return rightMeta
+      case .glob: return rightMeta
+      case .grep: return rightMeta
+      case .task:
+        if message.isInProgress { return "Running" }
+        if let desc = message.taskDescription {
+          return desc.count > 60 ? String(desc.prefix(60)) + "…" : desc
+        }
+        return nil
+      case .todo: return rightMeta
+      case .mcp: return mcpPrimaryParameter(message: message)
+      default: return nil
+    }
+  }
+
+  /// Tool types whose rightMeta moves to subtitle (avoid duplication).
+  static func subtitleAbsorbsMeta(_ toolType: CompactToolType) -> Bool {
+    switch toolType {
+      case .read, .glob, .grep, .todo: return true
+      default: return false
+    }
+  }
+
+  // MARK: - Tool Type Classification
+
+  static func toolType(for message: TranscriptMessage) -> CompactToolType {
+    if message.isShell { return .bash }
+    guard let name = message.toolName?.lowercased() else { return .generic }
+    if TodoToolOperation(toolName: name) != nil { return .todo }
+    if name.hasPrefix("mcp__") { return .mcp }
+    switch name {
+      case "bash": return .bash
+      case "read": return .read
+      case "edit", "write", "notebookedit": return .edit
+      case "glob": return .glob
+      case "grep": return .grep
+      case "task": return .task
+      case "webfetch", "websearch": return .web
+      case "enterplanmode", "exitplanmode": return .plan
+      case "askuserquestion": return .question
+      case "skill": return .skill
+      default: return .generic
+    }
+  }
+
+  // MARK: - Rich Preview Extraction
+
+  static func outputPreview(for message: TranscriptMessage) -> String? {
+    let toolType = toolType(for: message)
+    switch toolType {
+      case .bash:
+        guard !message.isInProgress else { return nil }
+        guard let output = message.sanitizedToolOutput, !output.isEmpty else { return nil }
+        return lastNLines(output, n: 3)
+
+      case .glob:
+        guard let output = message.toolOutput, !output.isEmpty else { return nil }
+        return globDirectorySummary(output)
+
+      case .grep:
+        guard let output = message.toolOutput, !output.isEmpty else { return nil }
+        return firstGrepMatch(output)
+
+      case .task:
+        return message.taskDescription ?? message.taskPrompt
+
+      case .mcp:
+        return mcpPrimaryParameter(message: message)
+
+      default:
+        return nil
+    }
+  }
+
+  static func detectedLanguage(for message: TranscriptMessage) -> String? {
+    guard message.toolName?.lowercased() == "read", let path = message.filePath else { return nil }
+    let ext = (path as NSString).pathExtension.lowercased()
+    switch ext {
+      case "swift": return "Swift"
+      case "ts", "tsx": return "TypeScript"
+      case "js", "jsx": return "JavaScript"
+      case "py": return "Python"
+      case "rs": return "Rust"
+      case "go": return "Go"
+      case "rb": return "Ruby"
+      case "md": return "Markdown"
+      case "json": return "JSON"
+      case "yaml", "yml": return "YAML"
+      case "toml": return "TOML"
+      case "sh", "bash", "zsh": return "Shell"
+      case "css", "scss": return "CSS"
+      case "html": return "HTML"
+      case "xml": return "XML"
+      case "sql": return "SQL"
+      case "kt": return "Kotlin"
+      case "java": return "Java"
+      case "c", "h": return "C"
+      case "cpp", "hpp", "cc": return "C++"
+      case "m", "mm": return "Obj-C"
+      default: return nil
+    }
+  }
+
+  static func mcpServerName(for message: TranscriptMessage) -> String? {
+    guard let name = message.toolName, name.hasPrefix("mcp__") else { return nil }
+    let stripped = name.replacingOccurrences(of: "mcp__", with: "")
+    return stripped.components(separatedBy: "__").first
+  }
+
+  static func compactTodoItems(
+    for message: TranscriptMessage,
+    supportsRichToolingCards: Bool
+  ) -> [CompactTodoItem]? {
+    guard let name = message.toolName, TodoToolOperation(toolName: name) != nil else { return nil }
+    guard let payload = TodoToolParser.payload(
+      from: message,
+      toolName: name,
+      supportsRichToolingCards: supportsRichToolingCards
+    ), !payload.items.isEmpty else { return nil }
+    return payload.items.map { CompactTodoItem(status: $0.status) }
+  }
+
+  // MARK: - Preview Helpers
+
+  private static func lastNLines(_ text: String, n: Int) -> String? {
+    let lines = text
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .components(separatedBy: "\n")
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+    guard !lines.isEmpty else { return nil }
+    let taken = lines.suffix(n)
+    let result = taken.map { line in
+      line.count > 80 ? String(line.prefix(80)) + "…" : line
+    }.joined(separator: "\n")
+    return result
+  }
+
+  private static func globDirectorySummary(_ output: String) -> String? {
+    let files = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+    guard !files.isEmpty else { return nil }
+
+    var dirCounts: [(String, Int)] = []
+    var counts: [String: Int] = [:]
+    var order: [String] = []
+    for file in files {
+      let comps = file.components(separatedBy: "/")
+      let dir = comps.count > 1 ? comps.dropLast().joined(separator: "/") : "."
+      if counts[dir] == nil { order.append(dir) }
+      counts[dir, default: 0] += 1
+    }
+    for dir in order {
+      let shortDir = ToolCardStyle.shortenPath(dir)
+      dirCounts.append((shortDir, counts[dir] ?? 0))
+    }
+
+    let display = dirCounts.prefix(3).map { "\($0.0) (\($0.1))" }.joined(separator: ", ")
+    if dirCounts.count > 3 {
+      return display + " +\(dirCounts.count - 3) more"
+    }
+    return display
+  }
+
+  private static func firstGrepMatch(_ output: String) -> String? {
+    let lines = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+    guard let firstMatch = lines.first else { return nil }
+    let truncated = firstMatch.count > 80 ? String(firstMatch.prefix(80)) + "…" : firstMatch
+    return truncated
+  }
+
   static func liveOutputPreview(for message: TranscriptMessage) -> String? {
     guard message.toolName?.lowercased() == "bash" || message.isShell, message.isInProgress else { return nil }
 
@@ -762,22 +1020,51 @@ enum SharedModelBuilders {
     supportsRichToolingCards: Bool
   ) -> NativeCompactToolRowModel {
     let glyph = ToolGlyphInfo.from(message: message)
+    let toolType = CompactToolHelpers.toolType(for: message)
     let summary = CompactToolHelpers.compactSingleLineSummary(
       CompactToolHelpers.summary(for: message, supportsRichToolingCards: supportsRichToolingCards)
     )
-    let meta = CompactToolHelpers.rightMeta(for: message, supportsRichToolingCards: supportsRichToolingCards)
+    var meta = CompactToolHelpers.rightMeta(for: message, supportsRichToolingCards: supportsRichToolingCards)
     let preview = CompactToolHelpers.diffPreview(for: message)
     let liveOutputPreview = CompactToolHelpers.liveOutputPreview(for: message)
+    let outputPreview = CompactToolHelpers.outputPreview(for: message)
+    let language = CompactToolHelpers.detectedLanguage(for: message)
+    let mcpServer = CompactToolHelpers.mcpServerName(for: message)
+    let todoItems = CompactToolHelpers.compactTodoItems(for: message, supportsRichToolingCards: supportsRichToolingCards)
+
+    // Enrich meta with language for read tools
+    if toolType == .read, let lang = language, let existing = meta {
+      meta = "\(existing) · \(lang)"
+    } else if toolType == .read, let lang = language {
+      meta = lang
+    }
+
+    // Extract subtitle — some tool types absorb rightMeta into subtitle
+    let subtitle = CompactToolHelpers.subtitle(
+      for: message,
+      toolType: toolType,
+      rightMeta: meta,
+      supportsRichToolingCards: supportsRichToolingCards
+    )
+    if CompactToolHelpers.subtitleAbsorbsMeta(toolType), subtitle != nil {
+      meta = nil
+    }
 
     return NativeCompactToolRowModel(
       timestamp: message.timestamp,
       glyphSymbol: glyph.symbol,
       glyphColor: glyph.color,
       summary: summary,
+      subtitle: subtitle,
       rightMeta: meta,
       isInProgress: message.isInProgress,
       diffPreview: preview,
-      liveOutputPreview: liveOutputPreview
+      liveOutputPreview: liveOutputPreview,
+      toolType: toolType,
+      outputPreview: outputPreview,
+      language: language,
+      mcpServer: mcpServer,
+      todoItems: todoItems
     )
   }
 

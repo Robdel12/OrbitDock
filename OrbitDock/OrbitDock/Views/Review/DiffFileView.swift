@@ -173,13 +173,7 @@ struct DiffFileView: View {
 
       // Bottom accent line
       Rectangle()
-        .fill(
-          LinearGradient(
-            colors: [changeTypeColor.opacity(0.4), changeTypeColor.opacity(0.05)],
-            startPoint: .leading,
-            endPoint: .trailing
-          )
-        )
+        .fill(changeTypeColor.opacity(OpacityTier.medium))
         .frame(height: 1)
     }
     .background(Color.backgroundSecondary)

@@ -23,99 +23,6 @@
 
 import SwiftUI
 
-// MARK: - Rich Message Row Model
-
-struct NativeRichMessageRowModel {
-  let messageID: String
-  let speaker: String
-  let content: String
-  let thinking: String?
-  let messageType: MessageType
-  let timestamp: Date
-  let hasImages: Bool
-  let images: [MessageImage]
-  /// Whether thinking content is expanded (only relevant for .thinking type)
-  var isThinkingExpanded: Bool = false
-  /// Whether to show the speaker header (glyph + optional label).
-  /// False when the previous row is the same role — reduces visual noise.
-  var showHeader: Bool = true
-
-  /// Max characters to show in collapsed thinking preview (matches SwiftUI)
-  static let maxThinkingPreviewLength = 600
-
-  enum MessageType {
-    case user
-    case assistant
-    case thinking
-    case steer
-    case shell
-    case error
-  }
-
-  /// The display content for this row — truncated for collapsed thinking.
-  var displayContent: String {
-    if messageType == .thinking, !isThinkingExpanded,
-       content.count > Self.maxThinkingPreviewLength
-    {
-      let prefix = content.prefix(Self.maxThinkingPreviewLength)
-      // Truncate at a word boundary to avoid mid-word cutoff
-      if let lastSpace = prefix.lastIndex(where: { $0.isWhitespace }) {
-        return String(prefix[prefix.startIndex ..< lastSpace])
-      }
-      return String(prefix)
-    }
-    return content
-  }
-
-  /// Whether the thinking content is long enough to truncate.
-  var isThinkingLong: Bool {
-    messageType == .thinking && content.count > Self.maxThinkingPreviewLength
-  }
-
-  var speakerColor: PlatformColor {
-    switch messageType {
-      case .user:
-        PlatformColor(Color.accent).withAlphaComponent(0.8)
-      case .assistant:
-        PlatformColor(Color.textSecondary)
-      case .thinking:
-        PlatformColor.calibrated(red: 0.65, green: 0.6, blue: 0.85, alpha: 0.9)
-      case .steer:
-        PlatformColor(Color.accent).withAlphaComponent(0.85)
-      case .shell:
-        PlatformColor(Color.accent).withAlphaComponent(0.8)
-      case .error:
-        PlatformColor(Color.statusPermission)
-    }
-  }
-
-  var glyphSymbol: String {
-    switch messageType {
-      case .user: "arrow.right"
-      case .assistant: "sparkle"
-      case .thinking: "brain.head.profile"
-      case .steer: "arrow.turn.down.right"
-      case .shell: "terminal"
-      case .error: "exclamationmark.triangle.fill"
-    }
-  }
-
-  var glyphColor: PlatformColor {
-    switch messageType {
-      case .user: PlatformColor(Color.accent).withAlphaComponent(0.7)
-      case .assistant: PlatformColor.white.withAlphaComponent(0.85)
-      case .thinking: PlatformColor.calibrated(red: 0.6, green: 0.55, blue: 0.8, alpha: 1)
-      case .steer: PlatformColor(Color.accent)
-      case .shell: PlatformColor(Color.shellAccent)
-      case .error: PlatformColor(Color.statusPermission)
-    }
-  }
-
-  var isUserAligned: Bool {
-    messageType == .user || messageType == .shell
-  }
-}
-
 // MARK: - Cell View
 
 #if os(macOS)
@@ -128,20 +35,20 @@ struct NativeRichMessageRowModel {
     // MARK: - Layout Constants
 
     /// Header height when visible — glyph only, no label (except error)
-    private static let headerHeight: CGFloat = 20
-    private static let laneHorizontalInset = ConversationLayout.laneHorizontalInset
-    private static let metadataHorizontalInset = ConversationLayout.metadataHorizontalInset
-    private static let headerToBodySpacing = ConversationLayout.headerToBodySpacing
-    private static let entryBottomSpacing = ConversationLayout.entryBottomSpacing
-    private static let assistantRailMaxWidth = ConversationLayout.assistantRailMaxWidth
-    private static let thinkingRailMaxWidth = ConversationLayout.thinkingRailMaxWidth
-    private static let userRailMaxWidth = ConversationLayout.userRailMaxWidth
+    private static let headerHeight = ConversationRichMessageLayout.headerHeight
+    private static let laneHorizontalInset = ConversationRichMessageLayout.laneHorizontalInset
+    private static let metadataHorizontalInset = ConversationRichMessageLayout.metadataHorizontalInset
+    private static let headerToBodySpacing = ConversationRichMessageLayout.headerToBodySpacing
+    private static let entryBottomSpacing = ConversationRichMessageLayout.entryBottomSpacing
+    private static let assistantRailMaxWidth = ConversationRichMessageLayout.assistantRailMaxWidth
+    private static let thinkingRailMaxWidth = ConversationRichMessageLayout.thinkingRailMaxWidth
+    private static let userRailMaxWidth = ConversationRichMessageLayout.userRailMaxWidth
 
     // User bubble
     private static let userBubbleCornerRadius: CGFloat = Radius.lg
-    private static let userBubbleHorizontalPad: CGFloat = 14
-    private static let userBubbleVerticalPad: CGFloat = 10
-    private static let userAccentBarWidth: CGFloat = EdgeBar.width
+    private static let userBubbleHorizontalPad = ConversationRichMessageLayout.userBubbleHorizontalPad
+    private static let userBubbleVerticalPad = ConversationRichMessageLayout.userBubbleVerticalPad
+    private static let userAccentBarWidth = ConversationRichMessageLayout.userAccentBarWidth
 
     // Image gallery
     private static let imageMaxWidth: CGFloat = 400
@@ -155,19 +62,19 @@ struct NativeRichMessageRowModel {
 
     // Thinking containment
     private static let thinkingCornerRadius: CGFloat = Radius.lg
-    private static let thinkingHPad: CGFloat = 16
-    private static let thinkingVPadTop: CGFloat = 14
-    private static let thinkingVPadBottom: CGFloat = 12
+    private static let thinkingHPad = ConversationRichMessageLayout.thinkingHPad
+    private static let thinkingVPadTop = ConversationRichMessageLayout.thinkingVPadTop
+    private static let thinkingVPadBottom = ConversationRichMessageLayout.thinkingVPadBottom
     private static let thinkingColor = NSColor(Color.textTertiary)
-    private static let thinkingShowMoreHeight: CGFloat = 32
-    private static let thinkingFadeHeight: CGFloat = 28
+    private static let thinkingShowMoreHeight = ConversationRichMessageLayout.thinkingShowMoreHeight
+    private static let thinkingFadeHeight = ConversationRichMessageLayout.thinkingFadeHeight
 
     // Error containment
     private static let errorCornerRadius: CGFloat = Radius.lg
-    private static let errorHPad: CGFloat = 16
-    private static let errorVPadTop: CGFloat = 14
-    private static let errorVPadBottom: CGFloat = 12
-    private static let errorAccentBarWidth: CGFloat = EdgeBar.width
+    private static let errorHPad = ConversationRichMessageLayout.errorHPad
+    private static let errorVPadTop = ConversationRichMessageLayout.errorVPadTop
+    private static let errorVPadBottom = ConversationRichMessageLayout.errorVPadBottom
+    private static let errorAccentBarWidth = ConversationRichMessageLayout.errorAccentBarWidth
     private static let errorColor = NSColor(Color.statusPermission)
 
     // MARK: - Subviews
@@ -323,12 +230,13 @@ struct NativeRichMessageRowModel {
 
     func configure(model: NativeRichMessageRowModel, width: CGFloat) {
       currentModel = model
+      let presentation = ConversationRichMessageLayout.presentation(for: model)
 
       // Configure header
-      configureHeader(model: model)
+      configureHeader(model: model, presentation: presentation)
 
       // Adjust header height + body spacing based on showHeader
-      if model.showHeader {
+      if presentation.header.isVisible {
         headerHeightConstraint?.constant = Self.headerHeight
         bodyTopConstraint?.constant = Self.headerToBodySpacing
       } else {
@@ -337,20 +245,25 @@ struct NativeRichMessageRowModel {
       }
 
       // Parse markdown — use displayContent (truncated for thinking)
-      let style: ContentStyle = model.messageType == .thinking ? .thinking : .standard
-      currentContentStyle = style
-      currentBlocks = MarkdownSystemParser.parse(model.displayContent, style: style)
+      currentContentStyle = presentation.contentStyle
+      currentBlocks = MarkdownSystemParser.parse(model.displayContent, style: presentation.contentStyle)
 
       // Configure body based on message type
-      rebuildBody(model: model, width: width)
+      rebuildBody(model: model, presentation: presentation, width: width)
 
       // ── Diagnostic: detect body overflow ──
-      let expectedTotal = Self.requiredHeight(for: width, model: model, blocks: currentBlocks)
+      let expectedTotal = ConversationRichMessageLayout.requiredHeight(
+        for: width,
+        model: model,
+        blocks: currentBlocks
+      ) { availableWidth in
+        Self.imageBlockHeight(for: model.images, availableWidth: availableWidth)
+      }
       let maxBodyBottom = bodyContainer.subviews
         .map(\.frame.maxY)
         .max() ?? 0
-      let actualHeaderHeight: CGFloat = model.showHeader ? Self.headerHeight : 0
-      let actualSpacing: CGFloat = model.showHeader ? Self.headerToBodySpacing : 0
+      let actualHeaderHeight = presentation.actualHeaderHeight
+      let actualSpacing = presentation.actualHeaderSpacing
       let bodyBudget = expectedTotal - actualHeaderHeight - actualSpacing - Self.entryBottomSpacing
       let msgType = "\(model.messageType)"
       if maxBodyBottom > bodyBudget + 1 {
@@ -364,39 +277,32 @@ struct NativeRichMessageRowModel {
       }
     }
 
-    private func configureHeader(model: NativeRichMessageRowModel) {
-      if !model.showHeader {
+    private func configureHeader(model: NativeRichMessageRowModel, presentation: RichMessagePresentation) {
+      let header = presentation.header
+      if !header.isVisible {
         headerContainer.isHidden = true
         return
       }
       headerContainer.isHidden = false
 
-      glyphImage.image = NSImage(systemSymbolName: model.glyphSymbol, accessibilityDescription: nil)
-      glyphImage.contentTintColor = model.glyphColor
-
-      let isThinking = model.messageType == .thinking
+      glyphImage.image = NSImage(systemSymbolName: header.glyphSymbol, accessibilityDescription: nil)
+      glyphImage.contentTintColor = header.glyphColor
       glyphImage.symbolConfiguration = NSImage.SymbolConfiguration(
-        pointSize: isThinking ? 8 : 10,
-        weight: isThinking ? .regular : .medium
+        pointSize: header.glyphPointSize,
+        weight: header.glyphWeight.platformWeight
       )
 
-      // Only show speaker label for error messages — all others rely on glyph alone
-      if model.messageType == .error {
+      if let labelText = header.labelText, let labelAttributes = header.labelAttributes {
         speakerLabel.isHidden = false
-        let attrs: [NSAttributedString.Key: Any] = [
-          .kern: 0.5 as CGFloat,
-          .font: NSFont.systemFont(ofSize: TypeScale.chatLabel, weight: .semibold),
-          .foregroundColor: model.speakerColor,
-        ]
-        speakerLabel.attributedStringValue = NSAttributedString(string: model.speaker, attributes: attrs)
+        speakerLabel.attributedStringValue = NSAttributedString(string: labelText, attributes: labelAttributes)
       } else {
         speakerLabel.isHidden = true
       }
 
-      configureHeaderLayout(isUserAligned: model.isUserAligned)
+      configureHeaderLayout(isRightAligned: header.isRightAligned, glyphFrameSize: header.glyphFrameSize)
     }
 
-    private func configureHeaderLayout(isUserAligned: Bool) {
+    private func configureHeaderLayout(isRightAligned: Bool, glyphFrameSize: CGFloat) {
       // Remove existing header constraints
       for constraint in headerContainer.constraints {
         if constraint.firstItem === glyphImage
@@ -406,7 +312,7 @@ struct NativeRichMessageRowModel {
         }
       }
 
-      if isUserAligned {
+      if isRightAligned {
         // Right-aligned: ... SPEAKER GLYPH
         NSLayoutConstraint.activate([
           glyphImage.trailingAnchor.constraint(
@@ -414,7 +320,7 @@ struct NativeRichMessageRowModel {
             constant: -Self.laneHorizontalInset
           ),
           glyphImage.centerYAnchor.constraint(equalTo: headerContainer.centerYAnchor),
-          glyphImage.widthAnchor.constraint(equalToConstant: 20),
+          glyphImage.widthAnchor.constraint(equalToConstant: glyphFrameSize),
 
           speakerLabel.trailingAnchor.constraint(equalTo: glyphImage.leadingAnchor, constant: -Spacing.xs),
           speakerLabel.centerYAnchor.constraint(equalTo: headerContainer.centerYAnchor),
@@ -427,7 +333,7 @@ struct NativeRichMessageRowModel {
             constant: Self.metadataHorizontalInset
           ),
           glyphImage.centerYAnchor.constraint(equalTo: headerContainer.centerYAnchor),
-          glyphImage.widthAnchor.constraint(equalToConstant: 20),
+          glyphImage.widthAnchor.constraint(equalToConstant: glyphFrameSize),
 
           speakerLabel.leadingAnchor.constraint(equalTo: glyphImage.trailingAnchor, constant: Spacing.xs),
           speakerLabel.centerYAnchor.constraint(equalTo: headerContainer.centerYAnchor),
@@ -437,7 +343,7 @@ struct NativeRichMessageRowModel {
 
     // MARK: - Body Layout
 
-    private func rebuildBody(model: NativeRichMessageRowModel, width: CGFloat) {
+    private func rebuildBody(model: NativeRichMessageRowModel, presentation: RichMessagePresentation, width: CGFloat) {
       bodyContainer.subviews.forEach { $0.removeFromSuperview() }
       bubbleBackground.isHidden = true
       accentBar.isHidden = true
@@ -446,28 +352,46 @@ struct NativeRichMessageRowModel {
       errorAccentBar.isHidden = true
       markdownContentView.layer?.mask = nil
 
-      let contentWidth: CGFloat
+      let contentWidth = ConversationRichMessageLayout.contentWidth(for: width, presentation: presentation)
 
-      if model.isUserAligned {
-        // User: right-aligned bubble with accent bar
-        contentWidth = min(width - Self.laneHorizontalInset * 2, Self.userRailMaxWidth)
-        rebuildUserBody(model: model, contentWidth: contentWidth, totalWidth: width)
-      } else if model.messageType == .steer {
-        // Steer: italic text, left-aligned
-        contentWidth = min(width - Self.laneHorizontalInset * 2, Self.assistantRailMaxWidth)
-        rebuildSteerBody(model: model, contentWidth: contentWidth)
-      } else if model.messageType == .thinking {
-        // Thinking: compact, narrower, left-aligned
-        contentWidth = min(width - Self.laneHorizontalInset * 2, Self.thinkingRailMaxWidth)
-        rebuildThinkingBody(model: model, contentWidth: contentWidth)
-      } else if model.messageType == .error {
-        // Error: coral-tinted container, left-aligned
-        contentWidth = min(width - Self.laneHorizontalInset * 2, Self.assistantRailMaxWidth)
-        rebuildErrorBody(model: model, contentWidth: contentWidth)
-      } else {
-        // Assistant: markdown content, left-aligned
-        contentWidth = min(width - Self.laneHorizontalInset * 2, Self.assistantRailMaxWidth)
-        rebuildAssistantBody(model: model, contentWidth: contentWidth)
+      switch presentation.bodyChrome {
+        case .assistant:
+          rebuildAssistantBody(model: model, contentWidth: contentWidth)
+
+        case let .userBubble(horizontalPadding, verticalPadding, accentBarWidth):
+          rebuildUserBody(
+            model: model,
+            contentWidth: contentWidth,
+            totalWidth: width,
+            horizontalPadding: horizontalPadding,
+            verticalPadding: verticalPadding,
+            accentBarWidth: accentBarWidth
+          )
+
+        case let .steer(lineSpacing):
+          rebuildSteerBody(model: model, contentWidth: contentWidth, lineSpacing: lineSpacing)
+
+        case let .thinking(horizontalPadding, verticalTop, verticalBottom, footerHeight, fadeHeight):
+          rebuildThinkingBody(
+            model: model,
+            contentWidth: contentWidth,
+            horizontalPadding: horizontalPadding,
+            verticalTop: verticalTop,
+            verticalBottom: verticalBottom,
+            footerHeight: footerHeight,
+            fadeHeight: fadeHeight,
+            buttonTitle: presentation.thinkingButtonTitle
+          )
+
+        case let .error(horizontalPadding, verticalTop, verticalBottom, accentBarWidth):
+          rebuildErrorBody(
+            model: model,
+            contentWidth: contentWidth,
+            horizontalPadding: horizontalPadding,
+            verticalTop: verticalTop,
+            verticalBottom: verticalBottom,
+            accentBarWidth: accentBarWidth
+          )
       }
     }
 
@@ -492,17 +416,24 @@ struct NativeRichMessageRowModel {
       }
     }
 
-    private func rebuildUserBody(model: NativeRichMessageRowModel, contentWidth: CGFloat, totalWidth: CGFloat) {
-      let innerWidth = contentWidth - Self.userBubbleHorizontalPad * 2 - Self.userAccentBarWidth
+    private func rebuildUserBody(
+      model: NativeRichMessageRowModel,
+      contentWidth: CGFloat,
+      totalWidth: CGFloat,
+      horizontalPadding: CGFloat,
+      verticalPadding: CGFloat,
+      accentBarWidth: CGFloat
+    ) {
+      let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
       let mdHeight = NativeMarkdownContentView.requiredHeight(
         for: currentBlocks,
         width: innerWidth,
         style: currentContentStyle
       )
-      let bubbleHeight = mdHeight + Self.userBubbleVerticalPad * 2
+      let bubbleHeight = mdHeight + verticalPadding * 2
 
       // Position bubble right-aligned
-      let bubbleWidth = min(contentWidth, innerWidth + Self.userBubbleHorizontalPad * 2 + Self.userAccentBarWidth)
+      let bubbleWidth = min(contentWidth, innerWidth + horizontalPadding * 2 + accentBarWidth)
       let bubbleX = totalWidth - Self.laneHorizontalInset - bubbleWidth
 
       bubbleBackground.frame = NSRect(x: bubbleX, y: 0, width: bubbleWidth, height: bubbleHeight)
@@ -511,9 +442,9 @@ struct NativeRichMessageRowModel {
 
       // Accent bar on right edge of bubble
       accentBar.frame = NSRect(
-        x: bubbleX + bubbleWidth - Self.userAccentBarWidth,
+        x: bubbleX + bubbleWidth - accentBarWidth,
         y: 0,
-        width: Self.userAccentBarWidth,
+        width: accentBarWidth,
         height: bubbleHeight
       )
       accentBar.isHidden = false
@@ -521,8 +452,8 @@ struct NativeRichMessageRowModel {
 
       // Content inside bubble
       markdownContentView.frame = NSRect(
-        x: bubbleX + Self.userBubbleHorizontalPad,
-        y: Self.userBubbleVerticalPad,
+        x: bubbleX + horizontalPadding,
+        y: verticalPadding,
         width: innerWidth,
         height: mdHeight
       )
@@ -540,13 +471,7 @@ struct NativeRichMessageRowModel {
       }
     }
 
-    private func rebuildSteerBody(model: NativeRichMessageRowModel, contentWidth: CGFloat) {
-      let font: NSFont = {
-        let descriptor = NSFont.systemFont(ofSize: TypeScale.subhead).fontDescriptor.withSymbolicTraits(.italic)
-        return NSFont(descriptor: descriptor, size: TypeScale.subhead)
-          ?? NSFont.systemFont(ofSize: TypeScale.subhead)
-      }()
-
+    private func rebuildSteerBody(model: NativeRichMessageRowModel, contentWidth: CGFloat, lineSpacing: CGFloat) {
       let textView = NSTextView(frame: NSRect(x: Self.laneHorizontalInset, y: 0, width: contentWidth, height: 0))
       textView.drawsBackground = false
       textView.isEditable = false
@@ -554,13 +479,7 @@ struct NativeRichMessageRowModel {
       textView.textContainerInset = .zero
       textView.textContainer?.lineFragmentPadding = 0
 
-      let para = NSMutableParagraphStyle()
-      para.lineSpacing = 3
-      let attrStr = NSAttributedString(string: model.content, attributes: [
-        .font: font,
-        .foregroundColor: NSColor.secondaryLabelColor,
-        .paragraphStyle: para,
-      ])
+      let attrStr = ConversationRichMessageLayout.steerAttributedText(model.content, lineSpacing: lineSpacing)
       textView.textStorage?.setAttributedString(attrStr)
 
       let height = NativeMarkdownContentView.measureTextHeight(attrStr, width: contentWidth)
@@ -568,19 +487,25 @@ struct NativeRichMessageRowModel {
       bodyContainer.addSubview(textView)
     }
 
-    private func rebuildThinkingBody(model: NativeRichMessageRowModel, contentWidth: CGFloat) {
-      let hPad = Self.thinkingHPad
-      let vTop = Self.thinkingVPadTop
-      let vBottom = Self.thinkingVPadBottom
-      let innerWidth = contentWidth - hPad * 2
+    private func rebuildThinkingBody(
+      model: NativeRichMessageRowModel,
+      contentWidth: CGFloat,
+      horizontalPadding: CGFloat,
+      verticalTop: CGFloat,
+      verticalBottom: CGFloat,
+      footerHeight: CGFloat,
+      fadeHeight: CGFloat,
+      buttonTitle: String?
+    ) {
+      let innerWidth = contentWidth - horizontalPadding * 2
       let mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth, style: .thinking)
 
-      let hasShowMore = model.isThinkingLong
+      let hasShowMore = buttonTitle != nil
       let isCollapsed = hasShowMore && !model.isThinkingExpanded
 
       // Bottom area: show more button only (fade mask handles the transition)
-      let bottomZoneHeight: CGFloat = hasShowMore ? Self.thinkingShowMoreHeight : 0
-      let containerHeight = vTop + mdHeight + vBottom + bottomZoneHeight
+      let bottomZoneHeight: CGFloat = hasShowMore ? footerHeight : 0
+      let containerHeight = verticalTop + mdHeight + verticalBottom + bottomZoneHeight
 
       // Purple-tinted background with subtle border
       thinkingBackground.frame = NSRect(
@@ -593,10 +518,10 @@ struct NativeRichMessageRowModel {
       bodyContainer.addSubview(thinkingBackground)
 
       // Content inside the container
-      let contentX = Self.laneHorizontalInset + hPad
+      let contentX = Self.laneHorizontalInset + horizontalPadding
       markdownContentView.frame = NSRect(
         x: contentX,
-        y: vTop,
+        y: verticalTop,
         width: innerWidth,
         height: mdHeight
       )
@@ -607,7 +532,7 @@ struct NativeRichMessageRowModel {
       if isCollapsed {
         let maskLayer = CAGradientLayer()
         maskLayer.frame = markdownContentView.bounds
-        let fadeStart = max(0, 1.0 - Double(Self.thinkingFadeHeight) / Double(mdHeight))
+        let fadeStart = max(0, 1.0 - Double(fadeHeight) / Double(mdHeight))
         maskLayer.colors = [
           NSColor.white.cgColor,
           NSColor.white.cgColor,
@@ -621,9 +546,8 @@ struct NativeRichMessageRowModel {
       thinkingSeparator.isHidden = true
 
       // "Show more / Show less" button
-      if hasShowMore {
-        let buttonY = vTop + mdHeight + vBottom
-        let buttonTitle = model.isThinkingExpanded ? "Show less" : "Show more\u{2026}"
+      if let buttonTitle {
+        let buttonY = verticalTop + mdHeight + verticalBottom
         let attrs: [NSAttributedString.Key: Any] = [
           .font: NSFont.systemFont(ofSize: TypeScale.body, weight: .medium),
           .foregroundColor: Self.thinkingColor.withAlphaComponent(0.65),
@@ -631,10 +555,10 @@ struct NativeRichMessageRowModel {
         ]
         thinkingShowMoreButton.attributedTitle = NSAttributedString(string: buttonTitle, attributes: attrs)
         thinkingShowMoreButton.frame = NSRect(
-          x: Self.laneHorizontalInset + hPad,
+          x: Self.laneHorizontalInset + horizontalPadding,
           y: buttonY,
           width: innerWidth,
-          height: Self.thinkingShowMoreHeight
+          height: footerHeight
         )
         thinkingShowMoreButton.alignment = .left
         thinkingShowMoreButton.isHidden = false
@@ -649,18 +573,21 @@ struct NativeRichMessageRowModel {
       onThinkingExpandToggle?(model.messageID)
     }
 
-    private func rebuildErrorBody(model: NativeRichMessageRowModel, contentWidth: CGFloat) {
-      let hPad = Self.errorHPad
-      let vTop = Self.errorVPadTop
-      let vBottom = Self.errorVPadBottom
-      let barWidth = Self.errorAccentBarWidth
-      let innerWidth = contentWidth - hPad * 2 - barWidth
+    private func rebuildErrorBody(
+      model: NativeRichMessageRowModel,
+      contentWidth: CGFloat,
+      horizontalPadding: CGFloat,
+      verticalTop: CGFloat,
+      verticalBottom: CGFloat,
+      accentBarWidth: CGFloat
+    ) {
+      let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
       let mdHeight = NativeMarkdownContentView.requiredHeight(
         for: currentBlocks,
         width: innerWidth,
         style: currentContentStyle
       )
-      let containerHeight = vTop + mdHeight + vBottom
+      let containerHeight = verticalTop + mdHeight + verticalBottom
 
       // Coral-tinted background with subtle border
       errorBackground.frame = NSRect(
@@ -676,17 +603,17 @@ struct NativeRichMessageRowModel {
       errorAccentBar.frame = NSRect(
         x: Self.laneHorizontalInset,
         y: 0,
-        width: barWidth,
+        width: accentBarWidth,
         height: containerHeight
       )
       errorAccentBar.isHidden = false
       bodyContainer.addSubview(errorAccentBar)
 
       // Content inside the container (offset by accent bar + padding)
-      let contentX = Self.laneHorizontalInset + barWidth + hPad
+      let contentX = Self.laneHorizontalInset + accentBarWidth + horizontalPadding
       markdownContentView.frame = NSRect(
         x: contentX,
-        y: vTop,
+        y: verticalTop,
         width: innerWidth,
         height: mdHeight
       )
@@ -957,8 +884,8 @@ struct NativeRichMessageRowModel {
     static func requiredHeight(for width: CGFloat, model: NativeRichMessageRowModel) -> CGFloat {
       guard width > 1 else { return 1 }
 
-      let style: ContentStyle = model.messageType == .thinking ? .thinking : .standard
-      let blocks = MarkdownSystemParser.parse(model.displayContent, style: style)
+      let presentation = ConversationRichMessageLayout.presentation(for: model)
+      let blocks = MarkdownSystemParser.parse(model.displayContent, style: presentation.contentStyle)
       return requiredHeight(for: width, model: model, blocks: blocks)
     }
 
@@ -967,52 +894,20 @@ struct NativeRichMessageRowModel {
       model: NativeRichMessageRowModel,
       blocks: [MarkdownBlock]
     ) -> CGFloat {
-      let style: ContentStyle = model.messageType == .thinking ? .thinking : .standard
-      let bodyHeight: CGFloat
-
-      if model.isUserAligned {
-        let contentWidth = min(width - laneHorizontalInset * 2, userRailMaxWidth)
-        let innerWidth = contentWidth - userBubbleHorizontalPad * 2 - userAccentBarWidth
-        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth, style: style)
-        let bubbleHeight = mdHeight + userBubbleVerticalPad * 2
-        let imgHeight = imageBlockHeight(for: model.images, availableWidth: contentWidth)
-        bodyHeight = bubbleHeight + imgHeight
-      } else if model.messageType == .steer {
-        let contentWidth = min(width - laneHorizontalInset * 2, assistantRailMaxWidth)
-        let font: NSFont = {
-          let descriptor = NSFont.systemFont(ofSize: TypeScale.subhead).fontDescriptor.withSymbolicTraits(.italic)
-          return NSFont(descriptor: descriptor, size: TypeScale.subhead)
-            ?? NSFont.systemFont(ofSize: TypeScale.subhead)
-        }()
-        let para = NSMutableParagraphStyle()
-        para.lineSpacing = 3
-        let attrStr = NSAttributedString(string: model.content, attributes: [
-          .font: font,
-          .foregroundColor: NSColor.secondaryLabelColor,
-          .paragraphStyle: para,
-        ])
-        bodyHeight = NativeMarkdownContentView.measureTextHeight(attrStr, width: contentWidth)
-      } else if model.messageType == .thinking {
-        let contentWidth = min(width - laneHorizontalInset * 2, thinkingRailMaxWidth)
-        let innerWidth = contentWidth - thinkingHPad * 2
-        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth, style: style)
-        let bottomZoneHeight: CGFloat = model.isThinkingLong ? thinkingShowMoreHeight : 0
-        bodyHeight = thinkingVPadTop + mdHeight + thinkingVPadBottom + bottomZoneHeight
-      } else if model.messageType == .error {
-        let contentWidth = min(width - laneHorizontalInset * 2, assistantRailMaxWidth)
-        let innerWidth = contentWidth - errorHPad * 2 - errorAccentBarWidth
-        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth, style: style)
-        bodyHeight = errorVPadTop + mdHeight + errorVPadBottom
-      } else {
-        let contentWidth = min(width - laneHorizontalInset * 2, assistantRailMaxWidth)
-        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: contentWidth, style: style)
-        let imgHeight = imageBlockHeight(for: model.images, availableWidth: contentWidth)
-        bodyHeight = mdHeight + imgHeight
+      let bodyHeight = ConversationRichMessageLayout.bodyHeight(
+        for: width,
+        model: model,
+        blocks: blocks
+      ) { availableWidth in
+        imageBlockHeight(for: model.images, availableWidth: availableWidth)
       }
-
-      let actualHeaderHeight: CGFloat = model.showHeader ? headerHeight : 0
-      let actualSpacing: CGFloat = model.showHeader ? headerToBodySpacing : 0
-      let total = max(1, ceil(actualHeaderHeight + actualSpacing + bodyHeight + entryBottomSpacing))
+      let total = ConversationRichMessageLayout.requiredHeight(
+        for: width,
+        model: model,
+        blocks: blocks
+      ) { availableWidth in
+        imageBlockHeight(for: model.images, availableWidth: availableWidth)
+      }
       logger.debug(
         "requiredHeight-rich[\(model.messageID)] \(model.messageType) "
           + "body=\(f(bodyHeight)) total=\(f(total)) w=\(f(width)) "

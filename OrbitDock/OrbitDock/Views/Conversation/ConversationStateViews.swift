@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ConversationLoadingView: View {
-  @State private var shimmer = false
+  @State private var pulse = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xl) {
@@ -16,32 +16,9 @@ struct ConversationLoadingView: View {
     }
     .padding(.horizontal, 40)
     .frame(maxWidth: 720, maxHeight: .infinity)
-    .mask(
-      LinearGradient(
-        stops: [
-          .init(color: .clear, location: 0),
-          .init(color: .black, location: 0.15),
-          .init(color: .black, location: 0.85),
-          .init(color: .clear, location: 1),
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-      )
-    )
-    .overlay {
-      // Shimmer sweep
-      Rectangle()
-        .fill(
-          LinearGradient(
-            colors: [.clear, Color.accent.opacity(0.04), .clear],
-            startPoint: .leading,
-            endPoint: .trailing
-          )
-        )
-        .offset(x: shimmer ? 400 : -400)
-        .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: false), value: shimmer)
-    }
-    .onAppear { shimmer = true }
+    .opacity(pulse ? 1.0 : 0.76)
+    .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: pulse)
+    .onAppear { pulse = true }
   }
 
   private func skeletonBubble(alignment: HorizontalAlignment, widths: [CGFloat]) -> some View {

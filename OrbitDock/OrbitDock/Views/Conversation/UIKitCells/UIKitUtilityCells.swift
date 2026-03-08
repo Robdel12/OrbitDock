@@ -2,10 +2,9 @@
 //  UIKitUtilityCells.swift
 //  OrbitDock
 //
-//  Native UICollectionViewCell subclasses for structural/utility rows on iOS.
-//  Ports macOS NativeTurnHeaderCellView, NativeRollupSummaryCellView,
-//  NativeLoadMoreCellView, NativeMessageCountCellView, NativeSpacerCellView.
-//  All fixed height (see ConversationLayout).
+//  Native UICollectionViewCell subclasses for structural timeline rows on iOS.
+//  Utility cells render shared presentation models so their semantics stay in
+//  sync with the AppKit conversation timeline.
 //
 
 #if os(iOS)
@@ -13,15 +12,14 @@
   import SwiftUI
   import UIKit
 
-  // MARK: - Turn Header Cell (40pt)
+  // MARK: - Turn Header Cell (36pt)
 
   final class UIKitTurnHeaderCell: UICollectionViewCell {
     static let reuseIdentifier = "UIKitTurnHeaderCell"
 
-    private let dividerLine = UIView()
+    private let leftHairline = UIView()
+    private let rightHairline = UIView()
     private let turnLabel = UILabel()
-    private let statusCapsule = UIView()
-    private let statusLabel = UILabel()
     private let toolsLabel = UILabel()
 
     override init(frame: CGRect) {
@@ -39,118 +37,89 @@
       contentView.backgroundColor = .clear
 
       let inset = ConversationLayout.laneHorizontalInset
+      let hairlineColor = UIColor(Color.textQuaternary).withAlphaComponent(0.15)
 
-      // Divider
-      dividerLine.backgroundColor = UIColor(Color.textQuaternary).withAlphaComponent(0.5)
-      dividerLine.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(dividerLine)
+      leftHairline.backgroundColor = hairlineColor
+      leftHairline.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(leftHairline)
 
-      // Turn label
-      turnLabel.font = Self.roundedFont(size: TypeScale.micro, weight: .bold)
-      turnLabel.textColor = UIColor(Color.textSecondary)
+      rightHairline.backgroundColor = hairlineColor
+      rightHairline.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(rightHairline)
+
+      turnLabel.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
+      turnLabel.textColor = UIColor(Color.textQuaternary)
       turnLabel.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(turnLabel)
 
-      // Status capsule
-      statusCapsule.layer.cornerRadius = 8
-      statusCapsule.layer.masksToBounds = true
-      statusCapsule.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(statusCapsule)
-
-      // Status label
-      statusLabel.font = Self.roundedFont(size: TypeScale.mini, weight: .bold)
-      statusLabel.translatesAutoresizingMaskIntoConstraints = false
-      statusCapsule.addSubview(statusLabel)
-
-      // Tools label
-      toolsLabel.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-      toolsLabel.textColor = UIColor(Color.textTertiary)
+      toolsLabel.font = UIFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .medium)
+      toolsLabel.textColor = UIColor(Color.textQuaternary)
+      toolsLabel.textAlignment = .right
+      toolsLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
       toolsLabel.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(toolsLabel)
 
       NSLayoutConstraint.activate([
-        dividerLine.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-        dividerLine.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
-        dividerLine.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -inset),
-        dividerLine.heightAnchor.constraint(equalToConstant: 1),
+        leftHairline.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
+        leftHairline.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        leftHairline.trailingAnchor.constraint(equalTo: turnLabel.leadingAnchor, constant: -Spacing.sm),
+        leftHairline.heightAnchor.constraint(equalToConstant: 0.5),
 
-        turnLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
-        turnLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor, constant: 4),
+        turnLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+        turnLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
 
-        statusCapsule.leadingAnchor.constraint(equalTo: turnLabel.trailingAnchor, constant: 10),
-        statusCapsule.centerYAnchor.constraint(equalTo: turnLabel.centerYAnchor),
+        rightHairline.leadingAnchor.constraint(equalTo: turnLabel.trailingAnchor, constant: Spacing.sm),
+        rightHairline.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        rightHairline.trailingAnchor.constraint(equalTo: toolsLabel.leadingAnchor, constant: -Spacing.sm),
+        rightHairline.heightAnchor.constraint(equalToConstant: 0.5),
 
-        statusLabel.topAnchor.constraint(equalTo: statusCapsule.topAnchor, constant: 3),
-        statusLabel.bottomAnchor.constraint(equalTo: statusCapsule.bottomAnchor, constant: -3),
-        statusLabel.leadingAnchor.constraint(equalTo: statusCapsule.leadingAnchor, constant: 7),
-        statusLabel.trailingAnchor.constraint(equalTo: statusCapsule.trailingAnchor, constant: -7),
-
-        toolsLabel.leadingAnchor.constraint(equalTo: statusCapsule.trailingAnchor, constant: 10),
-        toolsLabel.centerYAnchor.constraint(equalTo: turnLabel.centerYAnchor),
+        toolsLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -inset),
+        toolsLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
       ])
     }
 
-    func configure(turn: TurnSummary) {
-      let turnAttrs: [NSAttributedString.Key: Any] = [
-        .font: turnLabel.font as Any,
-        .foregroundColor: turnLabel.textColor as Any,
-        .kern: 1.0,
-      ]
+    func configure(model: ConversationUtilityRowModels.TurnHeaderModel) {
+      let isHidden = model.isHidden
+      leftHairline.isHidden = isHidden
+      rightHairline.isHidden = isHidden
+      turnLabel.isHidden = isHidden
+      toolsLabel.isHidden = isHidden || model.toolsText == nil
+
+      guard let labelText = model.labelText else { return }
+
       turnLabel.attributedText = NSAttributedString(
-        string: "TURN \(turn.turnNumber)",
-        attributes: turnAttrs
+        string: labelText,
+        attributes: [
+          .font: UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold),
+          .foregroundColor: UIColor(Color.textQuaternary),
+          .kern: 1.5,
+        ]
       )
-
-      let (label, color) = statusInfo(for: turn.status)
-      let statusAttrs: [NSAttributedString.Key: Any] = [
-        .font: statusLabel.font as Any,
-        .foregroundColor: color,
-        .kern: 0.8,
-      ]
-      statusLabel.attributedText = NSAttributedString(string: label, attributes: statusAttrs)
-      statusCapsule.backgroundColor = color.withAlphaComponent(0.16)
-
-      if turn.toolsUsed.isEmpty {
-        toolsLabel.isHidden = true
-      } else {
-        toolsLabel.isHidden = false
-        toolsLabel.text = "\(turn.toolsUsed.count) tools"
-      }
+      toolsLabel.text = model.toolsText
     }
 
     override func prepareForReuse() {
       super.prepareForReuse()
+      leftHairline.isHidden = false
+      rightHairline.isHidden = false
+      turnLabel.isHidden = false
       toolsLabel.isHidden = false
-    }
-
-    private static func roundedFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
-      UIFont.systemFont(ofSize: size, weight: weight)
-    }
-
-    private func statusInfo(for status: TurnStatus) -> (String, UIColor) {
-      switch status {
-        case .active:
-          ("ACTIVE", UIColor(Color.accent))
-        case .completed:
-          ("DONE", UIColor(Color.textTertiary))
-        case .failed:
-          ("FAILED", UIColor(red: 0.95, green: 0.48, blue: 0.42, alpha: 1))
-      }
+      turnLabel.attributedText = nil
+      toolsLabel.text = nil
     }
   }
 
-  // MARK: - Rollup Summary Cell (40pt)
+  // MARK: - Rollup Summary Cell (36pt)
 
   final class UIKitRollupSummaryCell: UICollectionViewCell {
     static let reuseIdentifier = "UIKitRollupSummaryCell"
 
-    private let accentLine = UIView()
-    private let backgroundBox = UIView()
+    private let cardBg = CellCardBackground()
+    private let capsuleBackground = UIView()
+    private let iconImage = UIImageView()
+    private let summaryLabel = UILabel()
+    private let durationLabel = UILabel()
     private let chevronImage = UIImageView()
-    private let countLabel = UILabel()
-    private let actionsLabel = UILabel()
-    private let separatorDot = UIView()
-    private let breakdownStack = UIStackView()
     var onToggle: (() -> Void)?
 
     override init(frame: CGRect) {
@@ -167,89 +136,57 @@
       backgroundColor = .clear
       contentView.backgroundColor = .clear
 
+      cardBg.install(in: contentView)
+
       let inset = ConversationLayout.laneHorizontalInset
 
-      // Accent line
-      accentLine.backgroundColor = UIColor(Color.textQuaternary).withAlphaComponent(0.4)
-      accentLine.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(accentLine)
+      capsuleBackground.layer.cornerRadius = ConversationLayout.capsuleCornerRadius
+      capsuleBackground.layer.masksToBounds = true
+      capsuleBackground.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(capsuleBackground)
 
-      // Background pill
-      backgroundBox.layer.cornerRadius = Radius.lg
-      backgroundBox.layer.masksToBounds = true
-      backgroundBox.backgroundColor = UIColor(Color.backgroundTertiary).withAlphaComponent(0.7)
-      backgroundBox.layer.borderWidth = 0.5
-      backgroundBox.layer.borderColor = UIColor(Color.surfaceBorder).withAlphaComponent(0.4).cgColor
-      backgroundBox.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(backgroundBox)
+      iconImage.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+      iconImage.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(iconImage)
 
-      // Chevron
-      let symbolConfig = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
-      chevronImage.preferredSymbolConfiguration = symbolConfig
+      summaryLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
+      summaryLabel.textColor = UIColor(Color.textSecondary)
+      summaryLabel.lineBreakMode = .byTruncatingTail
+      summaryLabel.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(summaryLabel)
+
+      durationLabel.font = UIFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .medium)
+      durationLabel.textColor = UIColor(Color.textTertiary)
+      durationLabel.textAlignment = .right
+      durationLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+      durationLabel.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(durationLabel)
+
+      chevronImage.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 9, weight: .medium)
+      chevronImage.tintColor = UIColor(Color.textQuaternary)
       chevronImage.translatesAutoresizingMaskIntoConstraints = false
-      backgroundBox.addSubview(chevronImage)
-
-      // Count label
-      countLabel.font = UIFont.monospacedDigitSystemFont(ofSize: TypeScale.body, weight: .bold)
-      countLabel.textColor = UIColor(Color.textPrimary)
-      countLabel.translatesAutoresizingMaskIntoConstraints = false
-      backgroundBox.addSubview(countLabel)
-
-      // Actions label
-      actionsLabel.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .medium)
-      actionsLabel.textColor = UIColor(Color.textSecondary)
-      actionsLabel.text = "actions"
-      actionsLabel.translatesAutoresizingMaskIntoConstraints = false
-      backgroundBox.addSubview(actionsLabel)
-
-      // Separator dot
-      separatorDot.layer.cornerRadius = 1.5
-      separatorDot.backgroundColor = UIColor(Color.surfaceBorder)
-      separatorDot.translatesAutoresizingMaskIntoConstraints = false
-      backgroundBox.addSubview(separatorDot)
-
-      // Breakdown stack
-      breakdownStack.axis = .horizontal
-      breakdownStack.spacing = 12
-      breakdownStack.alignment = .center
-      breakdownStack.translatesAutoresizingMaskIntoConstraints = false
-      backgroundBox.addSubview(breakdownStack)
+      contentView.addSubview(chevronImage)
 
       NSLayoutConstraint.activate([
-        accentLine.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset + 6),
-        accentLine.widthAnchor.constraint(equalToConstant: 2),
-        accentLine.topAnchor.constraint(equalTo: contentView.topAnchor),
-        accentLine.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        capsuleBackground.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
+        capsuleBackground.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -inset),
+        capsuleBackground.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2),
+        capsuleBackground.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
 
-        backgroundBox.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset + 16),
-        backgroundBox.trailingAnchor.constraint(
-          lessThanOrEqualTo: contentView.trailingAnchor,
-          constant: -inset
-        ),
-        backgroundBox.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
-        backgroundBox.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -4),
+        iconImage.leadingAnchor.constraint(equalTo: capsuleBackground.leadingAnchor, constant: Spacing.sm),
+        iconImage.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        iconImage.widthAnchor.constraint(equalToConstant: 14),
 
-        chevronImage.leadingAnchor.constraint(equalTo: backgroundBox.leadingAnchor, constant: 14),
-        chevronImage.centerYAnchor.constraint(equalTo: backgroundBox.centerYAnchor),
+        summaryLabel.leadingAnchor.constraint(equalTo: iconImage.trailingAnchor, constant: Spacing.sm_),
+        summaryLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
+        durationLabel.leadingAnchor.constraint(greaterThanOrEqualTo: summaryLabel.trailingAnchor, constant: Spacing.sm),
+        durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
+        chevronImage.leadingAnchor.constraint(equalTo: durationLabel.trailingAnchor, constant: Spacing.sm_),
+        chevronImage.trailingAnchor.constraint(equalTo: capsuleBackground.trailingAnchor, constant: -Spacing.sm),
+        chevronImage.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
         chevronImage.widthAnchor.constraint(equalToConstant: 10),
-
-        countLabel.leadingAnchor.constraint(equalTo: chevronImage.trailingAnchor, constant: 6),
-        countLabel.centerYAnchor.constraint(equalTo: backgroundBox.centerYAnchor),
-
-        actionsLabel.leadingAnchor.constraint(equalTo: countLabel.trailingAnchor, constant: 4),
-        actionsLabel.centerYAnchor.constraint(equalTo: backgroundBox.centerYAnchor),
-
-        separatorDot.leadingAnchor.constraint(equalTo: actionsLabel.trailingAnchor, constant: 16),
-        separatorDot.centerYAnchor.constraint(equalTo: backgroundBox.centerYAnchor),
-        separatorDot.widthAnchor.constraint(equalToConstant: 3),
-        separatorDot.heightAnchor.constraint(equalToConstant: 3),
-
-        breakdownStack.leadingAnchor.constraint(equalTo: separatorDot.trailingAnchor, constant: 16),
-        breakdownStack.centerYAnchor.constraint(equalTo: backgroundBox.centerYAnchor),
-        breakdownStack.trailingAnchor.constraint(
-          lessThanOrEqualTo: backgroundBox.trailingAnchor,
-          constant: -14
-        ),
       ])
 
       let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
@@ -260,128 +197,36 @@
       onToggle?()
     }
 
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      cardBg.layoutInBounds(contentView.bounds)
+    }
+
+    func configureCardPosition(_ position: CardPosition, topInset: CGFloat, bottomInset: CGFloat) {
+      cardBg.configure(position: position, topInset: topInset, bottomInset: bottomInset)
+    }
+
+    func configure(model: ConversationUtilityRowModels.RollupSummaryModel) {
+      let accentColor = UIColor(ConversationUtilityRowModels.color(for: model.colorKey))
+      iconImage.image = UIImage(systemName: model.symbolName)
+      iconImage.tintColor = accentColor
+      summaryLabel.text = model.summaryText
+      summaryLabel.textColor = model.isExpanded ? UIColor(Color.textTertiary) : UIColor(Color.textSecondary)
+      durationLabel.text = model.durationText
+      durationLabel.isHidden = model.durationText == nil
+      chevronImage.image = UIImage(systemName: model.chevronName)
+      capsuleBackground.backgroundColor = accentColor.withAlphaComponent(model.isExpanded ? 0.06 : 0.08)
+    }
+
     override func prepareForReuse() {
       super.prepareForReuse()
+      cardBg.reset()
       onToggle = nil
-    }
-
-    func configure(
-      hiddenCount: Int, totalToolCount: Int, isExpanded: Bool,
-      breakdown: [ToolBreakdownEntry]
-    ) {
-      let symbolName = isExpanded ? "chevron.down" : "chevron.right"
-      chevronImage.image = UIImage(systemName: symbolName)
-
-      let lineColor = isExpanded
-        ? UIColor(Color.textQuaternary).withAlphaComponent(0.3)
-        : UIColor(Color.textQuaternary).withAlphaComponent(0.4)
-      accentLine.backgroundColor = lineColor
-
-      if isExpanded {
-        chevronImage.tintColor = UIColor(Color.textTertiary)
-        countLabel.isHidden = true
-        actionsLabel.textColor = UIColor(Color.textTertiary)
-        actionsLabel.text = "Collapse tools"
-        separatorDot.isHidden = true
-        breakdownStack.isHidden = true
-        backgroundBox.backgroundColor = UIColor.white.withAlphaComponent(0.02)
-        backgroundBox.layer.borderColor = UIColor.clear.cgColor
-      } else {
-        chevronImage.tintColor = UIColor(Color.textSecondary)
-        countLabel.isHidden = false
-        countLabel.text = "\(hiddenCount)"
-        actionsLabel.textColor = UIColor(Color.textSecondary)
-        actionsLabel.text = "actions"
-        separatorDot.isHidden = breakdown.isEmpty
-        breakdownStack.isHidden = breakdown.isEmpty
-        backgroundBox.backgroundColor =
-          UIColor(Color.backgroundTertiary).withAlphaComponent(0.7)
-        backgroundBox.layer.borderColor =
-          UIColor(Color.surfaceBorder).withAlphaComponent(0.4).cgColor
-
-        rebuildBreakdownChips(breakdown)
-      }
-    }
-
-    private func rebuildBreakdownChips(_ breakdown: [ToolBreakdownEntry]) {
-      breakdownStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-
-      for entry in breakdown.prefix(6) {
-        let chip = UIStackView()
-        chip.axis = .horizontal
-        chip.spacing = 5
-        chip.alignment = .center
-
-        let icon = UIImageView()
-        icon.image = UIImage(systemName: entry.icon)
-        icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-        icon.tintColor = UIColor(Self.toolColor(for: entry.colorKey))
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.widthAnchor.constraint(equalToConstant: 12).isActive = true
-
-        let count = UILabel()
-        count.font = UIFont.monospacedDigitSystemFont(ofSize: TypeScale.body, weight: .bold)
-        count.textColor = UIColor(Color.textSecondary)
-        count.text = "\(entry.count)"
-
-        let name = UILabel()
-        name.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .medium)
-        name.textColor = UIColor(Color.textTertiary)
-        name.text = Self.displayName(for: entry.name)
-        name.lineBreakMode = .byTruncatingTail
-
-        chip.addArrangedSubview(icon)
-        chip.addArrangedSubview(count)
-        chip.addArrangedSubview(name)
-        breakdownStack.addArrangedSubview(chip)
-      }
-    }
-
-    private static func toolColor(for key: String) -> Color {
-      switch key {
-        case "bash": .toolBash
-        case "read": .toolRead
-        case "write": .toolWrite
-        case "search": .toolSearch
-        case "task": .toolTask
-        case "web": .toolWeb
-        case "skill": .toolSkill
-        case "plan": .toolPlan
-        case "todo": .toolTodo
-        case "question": .toolQuestion
-        case "mcp": .toolMcp
-        default: .textSecondary
-      }
-    }
-
-    private static func displayName(for toolName: String) -> String {
-      let lowered = toolName.lowercased()
-      let normalized = lowered.split(separator: ":").last.map(String.init) ?? lowered
-      switch normalized {
-        case "bash": return "Bash"
-        case "read": return "Read"
-        case "edit": return "Edit"
-        case "write": return "Write"
-        case "glob": return "Glob"
-        case "grep": return "Grep"
-        case "task": return "Task"
-        case "webfetch": return "Fetch"
-        case "websearch": return "Search"
-        case "skill": return "Skill"
-        case "enterplanmode", "exitplanmode": return "Plan"
-        case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan":
-          return "Todo"
-        case "askuserquestion": return "Question"
-        case "mcp_approval": return "MCP Approval"
-        case "notebookedit": return "Notebook"
-        default:
-          if toolName.hasPrefix("mcp__") {
-            return toolName
-              .replacingOccurrences(of: "mcp__", with: "")
-              .components(separatedBy: "__").last ?? "MCP"
-          }
-          return toolName
-      }
+      summaryLabel.text = nil
+      durationLabel.text = nil
+      durationLabel.isHidden = false
+      chevronImage.image = nil
+      iconImage.image = nil
     }
   }
 
@@ -493,18 +338,16 @@
 
   final class UIKitLiveIndicatorCell: UICollectionViewCell {
     static let reuseIdentifier = "UIKitLiveIndicatorCell"
-    static let cellHeight: CGFloat = 40
+    static let cellHeight: CGFloat = ConversationLayout.liveIndicatorHeight
 
-    private let dotView = UIView()
+    private let orbitalHost = UIView()
+    private var orbitalLayer: OrbitalAnimationLayer?
     private let iconView = UIImageView()
     private let primaryLabel = UILabel()
-    private let separatorLabel = UILabel()
     private let detailLabel = UILabel()
+    private var primaryLeadingConstraint: NSLayoutConstraint?
 
-    private static let dotSize: CGFloat = 6
-    private static let statusColumnWidth: CGFloat = 20
-    private static let hInset = ConversationLayout.metadataHorizontalInset
-    private static let itemSpacing = Spacing.xs
+    private static let hInset = ConversationLayout.laneHorizontalInset
 
     override init(frame: CGRect) {
       super.init(frame: frame)
@@ -519,181 +362,155 @@
     }
 
     private func setupSubviews() {
-      dotView.layer.cornerRadius = Self.dotSize / 2
-      dotView.clipsToBounds = true
-      contentView.addSubview(dotView)
+      orbitalHost.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(orbitalHost)
 
       iconView.contentMode = .center
-      iconView.tintColor = UIColor(Color.statusPermission)
+      iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+      iconView.isHidden = true
+      iconView.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(iconView)
 
       primaryLabel.font = .systemFont(ofSize: TypeScale.body, weight: .medium)
+      primaryLabel.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(primaryLabel)
 
-      separatorLabel.text = "\u{00B7}"
-      separatorLabel.font = .systemFont(ofSize: TypeScale.body)
-      separatorLabel.textColor = UIColor(Color.textQuaternary)
-      contentView.addSubview(separatorLabel)
-
-      detailLabel.font = .systemFont(ofSize: TypeScale.body)
+      detailLabel.font = .monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
+      detailLabel.textColor = UIColor(Color.textTertiary)
       detailLabel.lineBreakMode = .byTruncatingTail
+      detailLabel.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(detailLabel)
+
+      let orbitalSize: CGFloat = 20
+
+      NSLayoutConstraint.activate([
+        orbitalHost.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.hInset),
+        orbitalHost.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        orbitalHost.widthAnchor.constraint(equalToConstant: orbitalSize),
+        orbitalHost.heightAnchor.constraint(equalToConstant: orbitalSize),
+
+        iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.hInset),
+        iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        iconView.widthAnchor.constraint(equalToConstant: 16),
+
+        primaryLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+
+        detailLabel.leadingAnchor.constraint(equalTo: primaryLabel.trailingAnchor, constant: Spacing.xs),
+        detailLabel.centerYAnchor.constraint(equalTo: primaryLabel.centerYAnchor),
+        detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -Self.hInset),
+      ])
     }
 
-    struct Model {
-      let workStatus: Session.WorkStatus
-      let currentTool: String?
-      let currentPrompt: String?
-      let pendingToolName: String?
-      let provider: Provider
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      orbitalLayer?.frame = orbitalHost.bounds
     }
 
-    func configure(model: Model) {
-      let h = Self.cellHeight
-      let hInset = Self.hInset
-      let dotSize = Self.dotSize
-      let colW = Self.statusColumnWidth
-      let sp = Self.itemSpacing
-
-      // Reset visibility
-      dotView.isHidden = true
+    func configure(model: ConversationUtilityRowModels.LiveIndicatorModel) {
       iconView.isHidden = true
-      separatorLabel.isHidden = true
+      orbitalHost.isHidden = true
       detailLabel.isHidden = true
+      primaryLabel.text = nil
+      detailLabel.text = nil
 
-      // Status column center
-      let colX = hInset
-      let dotY = (h - dotSize) / 2
+      let hasOrbital: Bool
+      switch model.barStyle {
+        case let .orbiting(colorKey, secondary):
+          orbitalHost.isHidden = false
+          ensureOrbitalLayer()
+          let color = UIColor(ConversationUtilityRowModels.color(for: colorKey)).cgColor
+          let secondaryColor = secondary.map { UIColor(ConversationUtilityRowModels.color(for: $0)).cgColor }
+          orbitalLayer?.configure(state: .orbiting, color: color, secondaryColor: secondaryColor)
+          hasOrbital = true
 
-      // Text origin
-      let textX = colX + colW + sp
-      let maxTextW = contentView.bounds.width - textX - hInset
+        case let .holding(colorKey):
+          orbitalHost.isHidden = false
+          ensureOrbitalLayer()
+          let color = UIColor(ConversationUtilityRowModels.color(for: colorKey)).cgColor
+          orbitalLayer?.configure(state: .holding, color: color)
+          hasOrbital = true
 
-      switch model.workStatus {
-        case .working:
-          dotView.isHidden = false
-          dotView.backgroundColor = UIColor(Color.statusWorking)
-          dotView.frame = CGRect(x: colX + (colW - dotSize) / 2, y: dotY, width: dotSize, height: dotSize)
+        case let .parked(colorKey):
+          orbitalHost.isHidden = false
+          ensureOrbitalLayer()
+          let color = UIColor(ConversationUtilityRowModels.color(for: colorKey)).cgColor
+          orbitalLayer?.configure(state: .parked, color: color)
+          hasOrbital = true
 
-          primaryLabel.text = "Working"
-          primaryLabel.textColor = UIColor(Color.statusWorking)
-          primaryLabel.sizeToFit()
-          primaryLabel.frame.origin = CGPoint(x: textX, y: (h - primaryLabel.frame.height) / 2)
+        case .none:
+          orbitalLayer?.configure(state: .hidden, color: CGColor(gray: 0, alpha: 0))
+          hasOrbital = false
+      }
 
-          if let tool = model.currentTool {
-            separatorLabel.isHidden = false
-            separatorLabel.sizeToFit()
-            separatorLabel.frame.origin = CGPoint(
-              x: primaryLabel.frame.maxX + sp, y: (h - separatorLabel.frame.height) / 2
-            )
-            detailLabel.isHidden = false
-            detailLabel.text = tool
+      if let iconName = model.iconName {
+        iconView.isHidden = false
+        iconView.image = UIImage(systemName: iconName)
+        if let colorKey = model.iconColorKey {
+          iconView.tintColor = UIColor(ConversationUtilityRowModels.color(for: colorKey))
+        }
+      }
+
+      primaryLabel.text = model.primaryText
+      primaryLabel.textColor = UIColor(ConversationUtilityRowModels.color(for: model.primaryColorKey))
+        .withAlphaComponent(0.8)
+      updateLabelLeadingConstraint(hasIcon: model.iconName != nil, hasOrbital: hasOrbital)
+
+      if let detailText = model.detailText, !detailText.isEmpty {
+        detailLabel.isHidden = false
+        detailLabel.text = detailText
+        detailLabel.textColor = UIColor(ConversationUtilityRowModels.color(for: model.detailColorKey))
+        switch model.detailStyle {
+          case .none:
+            detailLabel.font = .systemFont(ofSize: TypeScale.body, weight: .regular)
+          case .regular:
+            detailLabel.font = .systemFont(ofSize: TypeScale.body, weight: .regular)
+          case .monospaced:
             detailLabel.font = .monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-            detailLabel.textColor = UIColor(Color.textTertiary)
-            let detailX = separatorLabel.frame.maxX + sp
-            let detailW = max(0, maxTextW - (detailX - textX))
-            detailLabel.frame = CGRect(
-              x: detailX,
-              y: (h - primaryLabel.frame.height) / 2,
-              width: detailW,
-              height: primaryLabel.frame.height
-            )
-          }
-
-        case .waiting:
-          dotView.isHidden = false
-          dotView.backgroundColor = UIColor(Color.statusReply)
-          dotView.frame = CGRect(x: colX + (colW - dotSize) / 2, y: dotY, width: dotSize, height: dotSize)
-
-          primaryLabel.text = "Your turn"
-          primaryLabel.textColor = UIColor(Color.statusReply)
-          primaryLabel.sizeToFit()
-          primaryLabel.frame.origin = CGPoint(x: textX, y: (h - primaryLabel.frame.height) / 2)
-
-          separatorLabel.isHidden = false
-          separatorLabel.sizeToFit()
-          separatorLabel.frame.origin = CGPoint(
-            x: primaryLabel.frame.maxX + sp, y: (h - separatorLabel.frame.height) / 2
-          )
-          detailLabel.isHidden = false
-          detailLabel.text = model.provider == .codex ? "Send a message below" : "Respond in terminal"
-          detailLabel.font = .systemFont(ofSize: TypeScale.body)
-          detailLabel.textColor = UIColor(Color.textTertiary)
-          let detailX = separatorLabel.frame.maxX + sp
-          let detailW = max(0, maxTextW - (detailX - textX))
-          detailLabel.frame = CGRect(
-            x: detailX,
-            y: (h - primaryLabel.frame.height) / 2,
-            width: detailW,
-            height: primaryLabel.frame.height
-          )
-
-        case .permission:
-          iconView.isHidden = false
-          let iconConfig = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-          iconView.image = UIImage(systemName: "exclamationmark.triangle.fill", withConfiguration: iconConfig)
-          iconView.tintColor = UIColor(Color.statusPermission)
-          iconView.frame = CGRect(x: colX, y: 0, width: colW, height: h)
-
-          primaryLabel.text = "Permission"
-          primaryLabel.textColor = UIColor(Color.statusPermission)
-          primaryLabel.sizeToFit()
-          primaryLabel.frame.origin = CGPoint(x: textX, y: (h - primaryLabel.frame.height) / 2)
-
-          var nextX = primaryLabel.frame.maxX
-
-          if let toolName = model.pendingToolName {
-            separatorLabel.isHidden = false
-            separatorLabel.sizeToFit()
-            separatorLabel.frame.origin = CGPoint(
-              x: nextX + sp, y: (h - separatorLabel.frame.height) / 2
-            )
-            nextX = separatorLabel.frame.maxX + sp
-
-            let toolLabel = UILabel()
-            toolLabel.text = toolName
-            toolLabel.font = .systemFont(ofSize: TypeScale.body, weight: .bold)
-            toolLabel.textColor = UIColor(Color.textPrimary)
-            toolLabel.sizeToFit()
-            toolLabel.frame.origin = CGPoint(x: nextX, y: (h - toolLabel.frame.height) / 2)
-            contentView.addSubview(toolLabel)
-            nextX = toolLabel.frame.maxX
-          }
-
-          separatorLabel.isHidden = false
-          separatorLabel.sizeToFit()
-          separatorLabel.frame.origin = CGPoint(
-            x: nextX + sp, y: (h - separatorLabel.frame.height) / 2
-          )
-          detailLabel.isHidden = false
-          detailLabel.text = "Review in composer"
-          detailLabel.font = .systemFont(ofSize: TypeScale.body)
-          detailLabel.textColor = UIColor(Color.textTertiary)
-          let detailX = separatorLabel.frame.maxX + sp
-          let detailW = max(0, maxTextW - (detailX - textX))
-          detailLabel.frame = CGRect(
-            x: detailX,
-            y: (h - primaryLabel.frame.height) / 2,
-            width: detailW,
-            height: primaryLabel.frame.height
-          )
-
-        case .unknown:
-          primaryLabel.text = ""
+          case .emphasis:
+            detailLabel.font = .systemFont(ofSize: TypeScale.body, weight: .bold)
+        }
       }
     }
 
     override func prepareForReuse() {
       super.prepareForReuse()
-      // Remove any dynamically added tool name labels from permission state
-      for sub in contentView.subviews
-        where sub !== dotView && sub !== iconView && sub !== primaryLabel && sub !== separatorLabel && sub !==
-        detailLabel
-      {
-        sub.removeFromSuperview()
-      }
+      orbitalLayer?.removeAllOrbitalAnimations()
+      orbitalLayer?.removeFromSuperlayer()
+      orbitalLayer = nil
+      iconView.image = nil
+      primaryLabel.text = nil
+      detailLabel.text = nil
     }
 
+    private func updateLabelLeadingConstraint(hasIcon: Bool, hasOrbital: Bool) {
+      primaryLeadingConstraint?.isActive = false
+      if hasIcon {
+        primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
+          equalTo: iconView.trailingAnchor,
+          constant: Spacing.xs
+        )
+      } else if hasOrbital {
+        primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
+          equalTo: orbitalHost.trailingAnchor,
+          constant: Spacing.xs
+        )
+      } else {
+        primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
+          equalTo: contentView.leadingAnchor,
+          constant: Self.hInset
+        )
+      }
+      primaryLeadingConstraint?.isActive = true
+    }
+
+    private func ensureOrbitalLayer() {
+      guard orbitalLayer == nil else { return }
+      orbitalHost.layoutIfNeeded()
+      let layer = OrbitalAnimationLayer()
+      layer.frame = orbitalHost.bounds
+      orbitalHost.layer.addSublayer(layer)
+      orbitalLayer = layer
+    }
   }
 
 #endif

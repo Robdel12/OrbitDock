@@ -20,6 +20,8 @@ nonisolated enum ConversationTimelineAction: Sendable {
   case setPinnedToBottom(Bool)
   case setScrollAnchor(ConversationUIState.ScrollAnchor?)
   case widthChanged(CGFloat)
+  case toggleFocusMode
+  case toggleTurnExpansion(String)
 }
 
 nonisolated enum ConversationTimelineReducer {
@@ -74,6 +76,12 @@ nonisolated enum ConversationTimelineReducer {
 
       case let .widthChanged(width):
         ui.widthBucket = widthBucket(for: width)
+
+      case .toggleFocusMode:
+        ui.focusModeEnabled.toggle()
+
+      case let .toggleTurnExpansion(turnID):
+        toggle(turnID, in: &ui.expandedTurns)
     }
   }
 
