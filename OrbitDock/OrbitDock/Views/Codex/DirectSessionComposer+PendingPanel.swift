@@ -33,6 +33,7 @@ extension DirectSessionComposer {
         withAnimation(Motion.standard) {
           pendingPanelExpanded.toggle()
         }
+        Platform.services.playHaptic(.expansion)
       } label: {
         pendingInlineHeader(model, header: header, modeColor: modeColor)
       }
@@ -782,6 +783,7 @@ extension DirectSessionComposer {
         Button {
           pendingPanelShowDenyReason = false
           pendingPanelDenyReason = ""
+          Platform.services.playHaptic(.selection)
         } label: {
           Text("Cancel")
             .font(.system(size: TypeScale.caption, weight: .medium))
@@ -824,6 +826,7 @@ extension DirectSessionComposer {
           if let denyPrimary {
             if denyPrimary.decision == "deny_reason" {
               pendingPanelShowDenyReason = true
+              Platform.services.playHaptic(.selection)
             } else {
               sendPendingDecision(
                 model: model, decision: denyPrimary.decision, message: nil, interrupt: nil
@@ -875,6 +878,7 @@ extension DirectSessionComposer {
                   Button(role: action.isDestructive ? .destructive : nil) {
                     if action.decision == "deny_reason" {
                       pendingPanelShowDenyReason = true
+                      Platform.services.playHaptic(.selection)
                     } else {
                       sendPendingDecision(
                         model: model, decision: action.decision,
@@ -996,6 +1000,7 @@ extension DirectSessionComposer {
             withAnimation(Motion.gentle) {
               pendingPanelPromptIndex = max(0, boundedIndex - 1)
             }
+            Platform.services.playHaptic(.selection)
           } label: {
             Text("Back")
               .font(.system(size: TypeScale.caption, weight: .medium))
@@ -1011,6 +1016,7 @@ extension DirectSessionComposer {
             withAnimation(Motion.gentle) {
               pendingPanelPromptIndex = boundedIndex + 1
             }
+            Platform.services.playHaptic(.selection)
           } else {
             sendPendingQuestionAnswers(model: model, prompts: prompts)
           }
@@ -1040,6 +1046,7 @@ extension DirectSessionComposer {
 
   private func takeoverFooterActions(_ model: ApprovalCardModel) -> some View {
     Button {
+      Platform.services.playHaptic(.success)
       serverState.takeoverSession(model.sessionId)
     } label: {
       Text(ApprovalCardConfiguration.takeoverButtonTitle(for: model))
@@ -1093,6 +1100,7 @@ extension DirectSessionComposer {
     } else {
       pendingPanelAnswers[questionId] = values
     }
+    Platform.services.playHaptic(.selection)
   }
 
   func pendingPromptIsAnswered(_ prompt: ApprovalQuestionPrompt) -> Bool {
@@ -1147,13 +1155,19 @@ extension DirectSessionComposer {
     }()
     guard let primaryAnswer, !primaryAnswer.isEmpty else { return }
 
-    serverState.answerQuestion(
+    let result = serverState.answerQuestion(
       sessionId: model.sessionId,
       requestId: requestId,
       answer: primaryAnswer,
       questionId: primaryQuestionId,
       answers: answers
     )
+    switch result {
+      case .dispatched:
+        Platform.services.playHaptic(.success)
+      case .stale:
+        Platform.services.playHaptic(.warning)
+    }
   }
 
   func sendPendingDecision(
@@ -1170,8 +1184,23 @@ extension DirectSessionComposer {
       message: message,
       interrupt: interrupt
     )
-    if case .stale = result {
-      approvalLog.warning("[approval] decision returned stale for \(requestId)")
+    switch result {
+      case .dispatched:
+        Platform.services.playHaptic(hapticForPendingDecision(decision))
+      case .stale:
+        Platform.services.playHaptic(.warning)
+        approvalLog.warning("[approval] decision returned stale for \(requestId)")
+    }
+  }
+
+  private func hapticForPendingDecision(_ decision: String) -> AppHaptic {
+    switch decision {
+      case "approved", "approved_for_session", "approved_always":
+        .success
+      case "abort":
+        .destructive
+      default:
+        .warning
     }
   }
 }

@@ -117,7 +117,7 @@ struct ProviderUsageCard: View {
 
     var lines: [String] = []
     for window in windows {
-      var text = "\(window.label): \(Int(window.utilization))% used"
+      var text = "\(window.descriptiveLabel): \(Int(window.utilization))% used"
       if let resets = window.resetsInDescription {
         text += " (resets in \(resets))"
       }

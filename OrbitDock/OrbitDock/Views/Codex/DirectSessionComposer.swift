@@ -22,6 +22,7 @@ struct DirectSessionComposer: View {
 
   @Environment(ServerAppState.self) var serverState
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
+  @Environment(AppRouter.self) var router
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
   @AppStorage("localDictationEnabled") var localDictationEnabled = true
 
@@ -42,6 +43,9 @@ struct DirectSessionComposer: View {
   @State var completionQuery = ""
   @State var completionIndex = 0
   @State var isFocused = false
+  @State var focusRequestSignal = 0
+  @State var blurRequestSignal = 0
+  @State var shouldMaintainTypingFocus = false
   @State var moveCursorToEndSignal = 0
   @State var composerInputHeight: CGFloat = 30
 
@@ -74,6 +78,7 @@ struct DirectSessionComposer: View {
   @State var pendingPanelHovering = false
   @State var permissionPanelExpanded = false
   @State var hoveringSuggestion: String?
+  @State var lastHapticPendingApprovalIdentity = ""
 
   var obs: SessionObservable {
     serverState.session(sessionId)
@@ -81,6 +86,22 @@ struct DirectSessionComposer: View {
 
   var sessionSummary: Session? {
     serverState.sessions.first(where: { $0.id == sessionId })
+  }
+
+  var currentContinuation: SessionContinuation {
+    SessionContinuation(
+      endpointId: serverState.endpointId,
+      sessionId: sessionId,
+      provider: obs.provider,
+      displayName: sessionSummary?.displayName ?? obs.displayName,
+      projectPath: obs.projectPath,
+      model: obs.model,
+      hasGitRepository: obs.branch != nil || obs.repositoryRoot != nil || obs.isWorktree
+    )
+  }
+
+  var canContinueInNewSession: Bool {
+    !serverState.connection.isRemoteConnection
   }
 
   var pendingApprovalModel: ApprovalCardModel? {
@@ -283,7 +304,8 @@ struct DirectSessionComposer: View {
   }
 
   var projectPath: String? {
-    obs.projectPath
+    let normalized = obs.projectPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? nil : normalized
   }
 
   var fileIndex: ProjectFileIndex {
@@ -653,19 +675,29 @@ struct DirectSessionComposer: View {
           selectedClaudeModel = defaultClaudeModelSelection
         }
       }
-      if let path = projectPath {
-        await fileIndex.loadIfNeeded(path)
-      }
       if message.isEmpty, let restoredDraft = ComposerDraftStore.load(for: draftStorageKey) {
         message = restoredDraft
       }
       resetPendingPanelStateForRequest()
+      guard obs.isActive else { return }
+      await Task.yield()
+      requestComposerFocus()
+    }
+    .task(id: projectPath) {
+      guard let path = projectPath else { return }
+      await fileIndex.loadIfNeeded(path)
     }
     .onChange(of: message) { _, newValue in
       ComposerDraftStore.save(newValue, for: draftStorageKey)
     }
-    .onChange(of: pendingApprovalIdentity) { _, _ in
+    .onChange(of: pendingApprovalIdentity) { _, newValue in
       resetPendingPanelStateForRequest()
+      guard !newValue.isEmpty, newValue != lastHapticPendingApprovalIdentity else {
+        lastHapticPendingApprovalIdentity = newValue
+        return
+      }
+      lastHapticPendingApprovalIdentity = newValue
+      Platform.services.playHaptic(.warning)
     }
     .onReceive(NotificationCenter.default.publisher(for: .openPendingActionPanel)) { notification in
       guard let requestedSessionId = notification.userInfo?["sessionId"] as? String else { return }
@@ -722,7 +754,8 @@ struct DirectSessionComposer: View {
     ComposerTextArea(
       text: $message,
       placeholder: composerPlaceholder,
-      isFocused: $isFocused,
+      focusRequestSignal: $focusRequestSignal,
+      blurRequestSignal: $blurRequestSignal,
       moveCursorToEndSignal: $moveCursorToEndSignal,
       measuredHeight: $composerInputHeight,
       isEnabled: !isSending && !isDictationActive,
@@ -730,7 +763,8 @@ struct DirectSessionComposer: View {
       maxLines: 4,
       onPasteImage: { pasteImageFromClipboard() },
       canPasteImage: { canPasteImageFromClipboard },
-      onKeyCommand: handleComposerTextAreaKeyCommand
+      onKeyCommand: handleComposerTextAreaKeyCommand,
+      onFocusEvent: handleComposerFocusEvent
     )
     .frame(maxWidth: .infinity, alignment: .leading)
     .frame(height: composerInputHeight)
@@ -739,7 +773,7 @@ struct DirectSessionComposer: View {
       .toolbar {
         ToolbarItemGroup(placement: .keyboard) {
           Spacer()
-          Button("Done") { isFocused = false }
+          Button("Done") { relinquishComposerFocus() }
             .font(.system(size: TypeScale.body, weight: .semibold))
         }
       }

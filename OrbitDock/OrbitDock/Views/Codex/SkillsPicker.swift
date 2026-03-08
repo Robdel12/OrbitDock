@@ -81,6 +81,7 @@ struct SkillsPicker: View {
                     } else {
                       selectedSkills.insert(skill.path)
                     }
+                    Platform.services.playHaptic(.selection)
                   }
                 }
               }

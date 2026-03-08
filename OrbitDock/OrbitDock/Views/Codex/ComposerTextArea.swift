@@ -19,10 +19,16 @@ enum ComposerTextAreaKeyCommand {
   case commandShiftT
 }
 
+enum ComposerTextAreaFocusEvent {
+  case began
+  case ended(userInitiated: Bool)
+}
+
 struct ComposerTextArea: View {
   @Binding var text: String
   let placeholder: String
-  @Binding var isFocused: Bool
+  @Binding var focusRequestSignal: Int
+  @Binding var blurRequestSignal: Int
   @Binding var moveCursorToEndSignal: Int
   @Binding var measuredHeight: CGFloat
   let isEnabled: Bool
@@ -31,11 +37,13 @@ struct ComposerTextArea: View {
   let onPasteImage: () -> Bool
   let canPasteImage: () -> Bool
   let onKeyCommand: (ComposerTextAreaKeyCommand) -> Bool
+  let onFocusEvent: (ComposerTextAreaFocusEvent) -> Void
 
   init(
     text: Binding<String>,
     placeholder: String,
-    isFocused: Binding<Bool>,
+    focusRequestSignal: Binding<Int>,
+    blurRequestSignal: Binding<Int>,
     moveCursorToEndSignal: Binding<Int>,
     measuredHeight: Binding<CGFloat>,
     isEnabled: Bool,
@@ -43,11 +51,13 @@ struct ComposerTextArea: View {
     maxLines: Int = 5,
     onPasteImage: @escaping () -> Bool,
     canPasteImage: @escaping () -> Bool,
-    onKeyCommand: @escaping (ComposerTextAreaKeyCommand) -> Bool
+    onKeyCommand: @escaping (ComposerTextAreaKeyCommand) -> Bool,
+    onFocusEvent: @escaping (ComposerTextAreaFocusEvent) -> Void
   ) {
     _text = text
     self.placeholder = placeholder
-    _isFocused = isFocused
+    _focusRequestSignal = focusRequestSignal
+    _blurRequestSignal = blurRequestSignal
     _moveCursorToEndSignal = moveCursorToEndSignal
     _measuredHeight = measuredHeight
     self.isEnabled = isEnabled
@@ -56,6 +66,7 @@ struct ComposerTextArea: View {
     self.onPasteImage = onPasteImage
     self.canPasteImage = canPasteImage
     self.onKeyCommand = onKeyCommand
+    self.onFocusEvent = onFocusEvent
   }
 
   var body: some View {
@@ -71,7 +82,8 @@ struct ComposerTextArea: View {
 
       PlatformComposerTextArea(
         text: $text,
-        isFocused: $isFocused,
+        focusRequestSignal: $focusRequestSignal,
+        blurRequestSignal: $blurRequestSignal,
         moveCursorToEndSignal: $moveCursorToEndSignal,
         measuredHeight: $measuredHeight,
         isEnabled: isEnabled,
@@ -79,7 +91,8 @@ struct ComposerTextArea: View {
         maxLines: maxLines,
         onPasteImage: onPasteImage,
         canPasteImage: canPasteImage,
-        onKeyCommand: onKeyCommand
+        onKeyCommand: onKeyCommand,
+        onFocusEvent: onFocusEvent
       )
     }
   }
@@ -99,7 +112,8 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
 
   private struct ComposerTextAreaIOS: UIViewRepresentable {
     @Binding var text: String
-    @Binding var isFocused: Bool
+    @Binding var focusRequestSignal: Int
+    @Binding var blurRequestSignal: Int
     @Binding var moveCursorToEndSignal: Int
     @Binding var measuredHeight: CGFloat
     let isEnabled: Bool
@@ -108,6 +122,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
     let onPasteImage: () -> Bool
     let canPasteImage: () -> Bool
     let onKeyCommand: (ComposerTextAreaKeyCommand) -> Bool
+    let onFocusEvent: (ComposerTextAreaFocusEvent) -> Void
 
     func makeCoordinator() -> Coordinator {
       Coordinator(parent: self)
@@ -157,7 +172,8 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         coordinator.recalculateHeight(for: uiView)
       }
 
-      coordinator.syncFocus(in: uiView)
+      coordinator.applyFocusRequestIfNeeded(in: uiView)
+      coordinator.applyBlurRequestIfNeeded(in: uiView)
       coordinator.applyCursorRequestIfNeeded(in: uiView)
     }
 
@@ -175,10 +191,14 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       weak var textView: ComposerUITextView?
 
       private var isApplyingExternalText = false
+      private var lastAppliedFocusRequestSignal: Int
+      private var lastAppliedBlurRequestSignal: Int
       private var lastAppliedCursorSignal: Int
 
       init(parent: ComposerTextAreaIOS) {
         self.parent = parent
+        lastAppliedFocusRequestSignal = parent.focusRequestSignal
+        lastAppliedBlurRequestSignal = parent.blurRequestSignal
         lastAppliedCursorSignal = parent.moveCursorToEndSignal
       }
 
@@ -201,14 +221,23 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         return true
       }
 
-      func syncFocus(in textView: ComposerUITextView) {
-        if parent.isFocused {
-          if textView.window != nil, !textView.isFirstResponder {
-            textView.becomeFirstResponder()
-          }
-        } else if textView.isFirstResponder {
+      func applyFocusRequestIfNeeded(in textView: ComposerUITextView) {
+        guard parent.focusRequestSignal != lastAppliedFocusRequestSignal else { return }
+        guard textView.window != nil else { return }
+
+        if !textView.isFirstResponder {
+          textView.becomeFirstResponder()
+        }
+        lastAppliedFocusRequestSignal = parent.focusRequestSignal
+      }
+
+      func applyBlurRequestIfNeeded(in textView: ComposerUITextView) {
+        guard parent.blurRequestSignal != lastAppliedBlurRequestSignal else { return }
+
+        if textView.isFirstResponder {
           textView.resignFirstResponder()
         }
+        lastAppliedBlurRequestSignal = parent.blurRequestSignal
       }
 
       func applyCursorRequestIfNeeded(in textView: ComposerUITextView) {
@@ -221,13 +250,11 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       }
 
       func textViewDidBeginEditing(_ textView: UITextView) {
-        guard !parent.isFocused else { return }
-        parent.isFocused = true
+        parent.onFocusEvent(.began)
       }
 
       func textViewDidEndEditing(_ textView: UITextView) {
-        guard parent.isFocused else { return }
-        parent.isFocused = false
+        parent.onFocusEvent(.ended(userInitiated: true))
       }
 
       func textViewDidChange(_ textView: UITextView) {
@@ -312,7 +339,8 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
 
   private struct ComposerTextAreaMacOS: NSViewRepresentable {
     @Binding var text: String
-    @Binding var isFocused: Bool
+    @Binding var focusRequestSignal: Int
+    @Binding var blurRequestSignal: Int
     @Binding var moveCursorToEndSignal: Int
     @Binding var measuredHeight: CGFloat
     let isEnabled: Bool
@@ -321,6 +349,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
     let onPasteImage: () -> Bool
     let canPasteImage: () -> Bool
     let onKeyCommand: (ComposerTextAreaKeyCommand) -> Bool
+    let onFocusEvent: (ComposerTextAreaFocusEvent) -> Void
 
     func makeCoordinator() -> Coordinator {
       Coordinator(parent: self)
@@ -396,7 +425,8 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         coordinator.recalculateHeight(for: textView)
       }
 
-      coordinator.syncFocus(in: textView)
+      coordinator.applyFocusRequestIfNeeded(in: textView)
+      coordinator.applyBlurRequestIfNeeded(in: textView)
       coordinator.applyCursorRequestIfNeeded(in: textView)
     }
 
@@ -416,10 +446,14 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       weak var textView: ComposerNSTextView?
 
       private var isApplyingExternalText = false
+      private var lastAppliedFocusRequestSignal: Int
+      private var lastAppliedBlurRequestSignal: Int
       private var lastAppliedCursorSignal: Int
 
       init(parent: ComposerTextAreaMacOS) {
         self.parent = parent
+        lastAppliedFocusRequestSignal = parent.focusRequestSignal
+        lastAppliedBlurRequestSignal = parent.blurRequestSignal
         lastAppliedCursorSignal = parent.moveCursorToEndSignal
       }
 
@@ -443,17 +477,22 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         return true
       }
 
-      func syncFocus(in textView: ComposerNSTextView) {
+      func applyFocusRequestIfNeeded(in textView: ComposerNSTextView) {
+        guard parent.focusRequestSignal != lastAppliedFocusRequestSignal else { return }
         guard let window = textView.window else { return }
-        let focused = isTextViewFirstResponder(textView)
 
-        if parent.isFocused {
-          if !focused {
-            window.makeFirstResponder(textView)
-          }
-        } else if focused {
+        if !isTextViewFirstResponder(textView) {
+          window.makeFirstResponder(textView)
+        }
+        lastAppliedFocusRequestSignal = parent.focusRequestSignal
+      }
+
+      func applyBlurRequestIfNeeded(in textView: ComposerNSTextView) {
+        guard parent.blurRequestSignal != lastAppliedBlurRequestSignal else { return }
+        if let window = textView.window, isTextViewFirstResponder(textView) {
           window.makeFirstResponder(nil)
         }
+        lastAppliedBlurRequestSignal = parent.blurRequestSignal
       }
 
       func applyCursorRequestIfNeeded(in textView: ComposerNSTextView) {
@@ -466,13 +505,11 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       }
 
       func textDidBeginEditing(_ notification: Notification) {
-        guard !parent.isFocused else { return }
-        parent.isFocused = true
+        parent.onFocusEvent(.began)
       }
 
       func textDidEndEditing(_ notification: Notification) {
-        guard parent.isFocused else { return }
-        parent.isFocused = false
+        parent.onFocusEvent(.ended(userInitiated: blurWasUserInitiated()))
       }
 
       func textDidChange(_ notification: Notification) {
@@ -535,6 +572,16 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         }
         let end = textView.string.utf16.count
         return NSRange(location: end, length: 0)
+      }
+
+      private func blurWasUserInitiated() -> Bool {
+        guard let event = NSApp.currentEvent else { return false }
+        switch event.type {
+          case .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown:
+            return true
+          default:
+            return false
+        }
       }
     }
   }

@@ -126,16 +126,7 @@ final class UsageServiceRegistry {
 
   private var claudeWindows: [RateLimitWindow] {
     guard let usage = claude.usage else { return [] }
-
-    var windows: [RateLimitWindow] = [
-      .fiveHour(utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt),
-    ]
-
-    if let sevenDay = usage.sevenDay {
-      windows.append(.sevenDay(utilization: sevenDay.utilization, resetsAt: sevenDay.resetsAt))
-    }
-
-    return windows
+    return usage.windows
   }
 
   private var codexWindows: [RateLimitWindow] {

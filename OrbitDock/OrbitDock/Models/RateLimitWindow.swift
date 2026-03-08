@@ -17,6 +17,31 @@ struct RateLimitWindow: Sendable, Identifiable {
   let resetsAt: Date?
   let windowDuration: TimeInterval
 
+  var descriptiveLabel: String {
+    switch id {
+      case "claude-session":
+        return "Current session"
+      case "claude-all-models":
+        return "All models"
+      case "claude-sonnet":
+        return "Sonnet only"
+      case "claude-opus":
+        return "Opus only"
+      default:
+        switch label {
+          case "5h":
+            return "5h Session"
+          case "7d":
+            return "7d Rolling"
+          default:
+            if label.hasSuffix("m") || label.hasSuffix("h") {
+              return "\(label) window"
+            }
+            return label
+        }
+    }
+  }
+
   var remaining: Double {
     max(0, 100 - utilization)
   }
@@ -127,6 +152,50 @@ enum PaceStatus: String, Sendable {
 // MARK: - Convenience Initializers
 
 extension RateLimitWindow {
+  /// Create Claude's current session window.
+  static func claudeSession(utilization: Double, resetsAt: Date?) -> RateLimitWindow {
+    RateLimitWindow(
+      id: "claude-session",
+      label: "Session",
+      utilization: utilization,
+      resetsAt: resetsAt,
+      windowDuration: 5 * 3_600
+    )
+  }
+
+  /// Create Claude's weekly all-models window.
+  static func claudeWeeklyAllModels(utilization: Double, resetsAt: Date?) -> RateLimitWindow {
+    RateLimitWindow(
+      id: "claude-all-models",
+      label: "All",
+      utilization: utilization,
+      resetsAt: resetsAt,
+      windowDuration: 7 * 24 * 3_600
+    )
+  }
+
+  /// Create Claude's weekly Sonnet-only window.
+  static func claudeWeeklySonnet(utilization: Double, resetsAt: Date?) -> RateLimitWindow {
+    RateLimitWindow(
+      id: "claude-sonnet",
+      label: "Sonnet",
+      utilization: utilization,
+      resetsAt: resetsAt,
+      windowDuration: 7 * 24 * 3_600
+    )
+  }
+
+  /// Create Claude's weekly Opus-only window.
+  static func claudeWeeklyOpus(utilization: Double, resetsAt: Date?) -> RateLimitWindow {
+    RateLimitWindow(
+      id: "claude-opus",
+      label: "Opus",
+      utilization: utilization,
+      resetsAt: resetsAt,
+      windowDuration: 7 * 24 * 3_600
+    )
+  }
+
   /// Create a 5-hour session window
   static func fiveHour(id: String = "5h", utilization: Double, resetsAt: Date?) -> RateLimitWindow {
     RateLimitWindow(

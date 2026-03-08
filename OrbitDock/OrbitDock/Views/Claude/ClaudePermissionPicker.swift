@@ -265,16 +265,15 @@ struct ClaudePermissionTrack: View {
         let segmentWidth = geo.size.width / CGFloat(modes.count)
 
         ZStack {
-          // Gradient bar
-          Capsule()
-            .fill(
-              LinearGradient(
-                colors: modes.map(\.color),
-                startPoint: .leading,
-                endPoint: .trailing
-              )
-            )
-            .frame(height: 4)
+          // Segmented color track
+          HStack(spacing: Spacing.xxs) {
+            ForEach(modes, id: \.id) { mode in
+              Capsule()
+                .fill(mode.color.opacity(mode == selection ? OpacityTier.strong : OpacityTier.medium))
+                .frame(maxWidth: .infinity)
+            }
+          }
+          .frame(height: 4)
 
           // Mode dots (tap targets)
           ForEach(Array(modes.enumerated()), id: \.element.id) { idx, mode in

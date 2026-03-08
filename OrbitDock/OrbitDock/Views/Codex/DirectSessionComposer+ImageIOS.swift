@@ -61,20 +61,25 @@
       guard !newItems.isEmpty else { return }
 
       photoPickerLoadTask = Task {
+        var addedAttachment = false
         for item in newItems {
           guard !Task.isCancelled else { break }
           guard let data = try? await item.loadTransferable(type: Data.self),
                 let image = UIImage(data: data)
           else { continue }
 
-          await MainActor.run {
-            _ = appendUIImageAttachment(image)
+          let didAppend = await MainActor.run {
+            appendUIImageAttachment(image)
           }
+          addedAttachment = addedAttachment || didAppend
         }
 
         await MainActor.run {
           photoPickerItems = []
           photoPickerLoadTask = nil
+          if addedAttachment {
+            Platform.services.playHaptic(.action)
+          }
         }
       }
     }
@@ -83,6 +88,7 @@
       photoPickerItems = []
       Task { @MainActor in
         isPhotoPickerPresented = true
+        Platform.services.playHaptic(.selection)
       }
     }
 
@@ -90,7 +96,11 @@
       let pasteboard = UIPasteboard.general
 
       if let image = pasteboard.image {
-        return appendUIImageAttachment(image)
+        let appended = appendUIImageAttachment(image)
+        if appended {
+          Platform.services.playHaptic(.action)
+        }
+        return appended
       }
 
       if let urlData = pasteboard.data(forPasteboardType: UTType.fileURL.identifier),
@@ -99,7 +109,11 @@
          let fileData = try? Data(contentsOf: url),
          let image = UIImage(data: fileData)
       {
-        return appendUIImageAttachment(image)
+        let appended = appendUIImageAttachment(image)
+        if appended {
+          Platform.services.playHaptic(.action)
+        }
+        return appended
       }
 
       for pasteboardType in supportedImagePasteboardTypes {
@@ -107,7 +121,11 @@
               let image = UIImage(data: imageData)
         else { continue }
 
-        return appendUIImageAttachment(image)
+        let appended = appendUIImageAttachment(image)
+        if appended {
+          Platform.services.playHaptic(.action)
+        }
+        return appended
       }
 
       return false

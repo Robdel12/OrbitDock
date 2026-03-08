@@ -10,6 +10,41 @@ import SwiftUI
 extension DirectSessionComposer {
   // MARK: - Cursor
 
+  func requestComposerFocus() {
+    shouldMaintainTypingFocus = true
+    focusRequestSignal &+= 1
+  }
+
+  func relinquishComposerFocus() {
+    shouldMaintainTypingFocus = false
+    blurRequestSignal &+= 1
+  }
+
+  func handleComposerFocusEvent(_ event: ComposerTextAreaFocusEvent) {
+    switch event {
+      case .began:
+        if !isFocused {
+          isFocused = true
+        }
+        shouldMaintainTypingFocus = true
+
+      case let .ended(userInitiated):
+        if isFocused {
+          isFocused = false
+        }
+        if userInitiated {
+          shouldMaintainTypingFocus = false
+          return
+        }
+        guard shouldMaintainTypingFocus, isSessionActive else { return }
+        Task { @MainActor in
+          await Task.yield()
+          guard shouldMaintainTypingFocus, !isFocused, isSessionActive else { return }
+          focusRequestSignal &+= 1
+        }
+    }
+  }
+
   func moveComposerCursorToEnd() {
     moveCursorToEndSignal &+= 1
   }
@@ -77,11 +112,14 @@ extension DirectSessionComposer {
     if inputMode == .shell {
       guard isConnected else {
         errorMessage = "Server is offline. Shell command not sent."
+        Platform.services.playHaptic(.error)
         return
       }
       serverState.executeShell(sessionId: sessionId, command: trimmed)
+      Platform.services.playHaptic(.action)
       message = ""
       manualShellMode = false
+      requestComposerFocus()
       return
     }
 
@@ -89,11 +127,14 @@ extension DirectSessionComposer {
     if trimmed.hasPrefix("!"), trimmed.count > 1 {
       guard isConnected else {
         errorMessage = "Server is offline. Shell command not sent."
+        Platform.services.playHaptic(.error)
         return
       }
       let shellCmd = String(trimmed.dropFirst())
       serverState.executeShell(sessionId: sessionId, command: shellCmd)
+      Platform.services.playHaptic(.action)
       message = ""
+      requestComposerFocus()
       return
     }
 
@@ -115,21 +156,27 @@ extension DirectSessionComposer {
 
       switch disposition {
         case .sent:
+          Platform.services.playHaptic(.action)
           errorMessage = nil
           message = ""
           withAnimation(Motion.gentle) {
             attachedImages = []
             attachedMentions = []
           }
+          requestComposerFocus()
         case .queued:
+          Platform.services.playHaptic(.action)
           errorMessage = "Offline: steering message queued and will send after reconnect."
           message = ""
           withAnimation(Motion.gentle) {
             attachedImages = []
             attachedMentions = []
           }
+          requestComposerFocus()
         case .dropped:
+          Platform.services.playHaptic(.error)
           errorMessage = "Couldn't send steer message. Your draft is still here."
+          requestComposerFocus()
       }
       return
     }
@@ -183,21 +230,27 @@ extension DirectSessionComposer {
 
     switch disposition {
       case .sent:
+        Platform.services.playHaptic(.action)
         errorMessage = nil
         message = ""
         withAnimation(Motion.gentle) {
           attachedImages = []
           attachedMentions = []
         }
+        requestComposerFocus()
       case .queued:
+        Platform.services.playHaptic(.action)
         errorMessage = "Offline: message queued and will send after reconnect."
         message = ""
         withAnimation(Motion.gentle) {
           attachedImages = []
           attachedMentions = []
         }
+        requestComposerFocus()
       case .dropped:
+        Platform.services.playHaptic(.error)
         errorMessage = "Couldn't send message. Your draft is still here."
+        requestComposerFocus()
     }
   }
 
@@ -244,11 +297,17 @@ extension DirectSessionComposer {
           }
         }
         clearDictationDraftState()
+        Platform.services.playHaptic(.action)
       } else {
         beginDictationDraftState()
         await dictationController.start()
-        if !dictationController.isRecording {
+        if dictationController.isRecording {
+          Platform.services.playHaptic(.action)
+        } else {
           clearDictationDraftState()
+          if dictationController.errorMessage != nil {
+            Platform.services.playHaptic(.error)
+          }
         }
       }
     }

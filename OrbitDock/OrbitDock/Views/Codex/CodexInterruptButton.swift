@@ -51,6 +51,7 @@ struct CodexInterruptButton: View {
 
   private func interrupt() {
     isInterrupting = true
+    Platform.services.playHaptic(.destructive)
     serverState.interruptSession(sessionId)
   }
 

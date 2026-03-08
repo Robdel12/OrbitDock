@@ -113,17 +113,7 @@ struct GenericMenuBarGauge: View {
 
   /// Convert label to more descriptive form for menu bar
   private var windowLabel: String {
-    // If the window label is just a duration code, expand it
-    switch window.label {
-      case "5h": return "5h Session"
-      case "7d": return "7d Rolling"
-      default:
-        // For Codex-style labels like "15m", "1h"
-        if window.label.hasSuffix("m") || window.label.hasSuffix("h") {
-          return "\(window.label) window"
-        }
-        return window.label
-    }
+    window.descriptiveLabel
   }
 }
 

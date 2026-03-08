@@ -18,7 +18,7 @@ struct GenericUsageBar: View {
   }
 
   private var helpText: String {
-    var text = "\(window.label): \(Int(window.utilization))% used"
+    var text = "\(window.descriptiveLabel): \(Int(window.utilization))% used"
     if let resets = window.resetsInDescription {
       text += " • resets in \(resets)"
     }

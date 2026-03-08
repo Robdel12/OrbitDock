@@ -97,13 +97,7 @@ extension ProviderMenuBarSection {
     self.error = service.error
 
     if let usage = service.usage {
-      var windows: [RateLimitWindow] = [
-        .fiveHour(utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt),
-      ]
-      if let sevenDay = usage.sevenDay {
-        windows.append(.sevenDay(utilization: sevenDay.utilization, resetsAt: sevenDay.resetsAt))
-      }
-      self.windows = windows
+      self.windows = usage.windows
     } else {
       self.windows = []
     }

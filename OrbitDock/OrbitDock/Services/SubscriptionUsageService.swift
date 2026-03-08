@@ -129,10 +129,16 @@ struct SubscriptionUsage: Sendable {
   /// Convert to unified RateLimitWindow array for generic UI components
   var windows: [RateLimitWindow] {
     var result: [RateLimitWindow] = [
-      .fiveHour(utilization: fiveHour.utilization, resetsAt: fiveHour.resetsAt),
+      .claudeSession(utilization: fiveHour.utilization, resetsAt: fiveHour.resetsAt),
     ]
     if let sevenDay {
-      result.append(.sevenDay(utilization: sevenDay.utilization, resetsAt: sevenDay.resetsAt))
+      result.append(.claudeWeeklyAllModels(utilization: sevenDay.utilization, resetsAt: sevenDay.resetsAt))
+    }
+    if let sevenDaySonnet {
+      result.append(.claudeWeeklySonnet(utilization: sevenDaySonnet.utilization, resetsAt: sevenDaySonnet.resetsAt))
+    }
+    if let sevenDayOpus {
+      result.append(.claudeWeeklyOpus(utilization: sevenDayOpus.utilization, resetsAt: sevenDayOpus.resetsAt))
     }
     return result
   }
@@ -285,8 +291,12 @@ final class SubscriptionUsageService {
       sevenDay: cached.sevenDayUtilization.map {
         .init(utilization: $0, resetsAt: cached.sevenDayResetsAt, windowDuration: 7 * 24 * 3_600)
       },
-      sevenDaySonnet: nil,
-      sevenDayOpus: nil,
+      sevenDaySonnet: cached.sevenDaySonnetUtilization.map {
+        .init(utilization: $0, resetsAt: cached.sevenDaySonnetResetsAt, windowDuration: 7 * 24 * 3_600)
+      },
+      sevenDayOpus: cached.sevenDayOpusUtilization.map {
+        .init(utilization: $0, resetsAt: cached.sevenDayOpusResetsAt, windowDuration: 7 * 24 * 3_600)
+      },
       fetchedAt: cached.fetchedAt,
       rateLimitTier: cached.rateLimitTier
     )
@@ -300,6 +310,10 @@ final class SubscriptionUsageService {
       fiveHourResetsAt: usage.fiveHour.resetsAt,
       sevenDayUtilization: usage.sevenDay?.utilization,
       sevenDayResetsAt: usage.sevenDay?.resetsAt,
+      sevenDaySonnetUtilization: usage.sevenDaySonnet?.utilization,
+      sevenDaySonnetResetsAt: usage.sevenDaySonnet?.resetsAt,
+      sevenDayOpusUtilization: usage.sevenDayOpus?.utilization,
+      sevenDayOpusResetsAt: usage.sevenDayOpus?.resetsAt,
       fetchedAt: usage.fetchedAt,
       rateLimitTier: usage.rateLimitTier
     )
@@ -314,6 +328,10 @@ final class SubscriptionUsageService {
     let fiveHourResetsAt: Date?
     let sevenDayUtilization: Double?
     let sevenDayResetsAt: Date?
+    let sevenDaySonnetUtilization: Double?
+    let sevenDaySonnetResetsAt: Date?
+    let sevenDayOpusUtilization: Double?
+    let sevenDayOpusResetsAt: Date?
     let fetchedAt: Date
     let rateLimitTier: String?
   }

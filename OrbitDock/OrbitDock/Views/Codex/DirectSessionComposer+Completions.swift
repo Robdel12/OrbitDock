@@ -46,7 +46,7 @@ extension DirectSessionComposer {
     completionActive = false
     completionQuery = ""
     completionIndex = 0
-    isFocused = true
+    requestComposerFocus()
   }
 
   func extractInlineSkillNames(from text: String) -> [String] {
@@ -109,9 +109,10 @@ extension DirectSessionComposer {
     mentionActive = false
     mentionQuery = ""
     mentionIndex = 0
-    isFocused = true
+    requestComposerFocus()
 
     addMentionAttachment(file)
+    Platform.services.playHaptic(.selection)
   }
 
   func addMentionAttachment(_ file: ProjectFileIndex.ProjectFile) {
@@ -131,17 +132,20 @@ extension DirectSessionComposer {
     addMentionAttachment(file)
     showFilePickerPopover = false
     clearCommandDeckState()
-    isFocused = true
+    requestComposerFocus()
+    Platform.services.playHaptic(.selection)
   }
 
   func openFilePicker() {
     guard projectPath != nil else {
       errorMessage = "No project path available for this session."
+      Platform.services.playHaptic(.error)
       return
     }
     filePickerQuery = ""
     loadProjectFilesIfNeeded()
     showFilePickerPopover = true
+    Platform.services.playHaptic(.selection)
   }
 
   // MARK: - Command Deck
@@ -189,6 +193,7 @@ extension DirectSessionComposer {
     if shouldShowCommandDeck {
       clearCommandDeckState()
       removeTrailingCommandDeckToken()
+      Platform.services.playHaptic(.selection)
       return
     }
     activateCommandDeck()
@@ -198,7 +203,8 @@ extension DirectSessionComposer {
     let updated = ComposerTextEditing.activateCommandDeckToken(in: message, prefill: prefill)
     setComposerMessage(updated, moveCursorToEnd: true)
     updateCommandDeckCompletion(message)
-    isFocused = true
+    requestComposerFocus()
+    Platform.services.playHaptic(.selection)
   }
 
   func clearCommandDeckState() {
@@ -272,7 +278,7 @@ extension DirectSessionComposer {
         let snippet = "Use MCP resource \(server):\(resource.uri)"
         replaceTrailingCommandDeckToken(with: snippet)
     }
-    isFocused = true
+    requestComposerFocus()
   }
 
   // MARK: - Keyboard Navigation

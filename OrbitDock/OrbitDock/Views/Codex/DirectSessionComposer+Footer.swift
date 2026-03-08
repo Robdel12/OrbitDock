@@ -50,6 +50,7 @@ extension DirectSessionComposer {
               if inputMode == .shell { manualShellMode = false }
               if inputMode == .reviewNotes { manualReviewMode = false }
             }
+            Platform.services.playHaptic(.selection)
           } label: {
             ghostActionLabel(icon: "xmark.circle", isActive: true, tint: Color.textSecondary)
           }
@@ -170,6 +171,7 @@ extension DirectSessionComposer {
           isPinned = true
           unreadCount = 0
           scrollToBottomTrigger += 1
+          Platform.services.playHaptic(.selection)
         } label: {
           Text("\(unreadCount)")
             .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
@@ -187,6 +189,7 @@ extension DirectSessionComposer {
           unreadCount = 0
           scrollToBottomTrigger += 1
         }
+        Platform.services.playHaptic(.selection)
       } label: {
         Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
           .font(.system(size: isCompactLayout ? TypeScale.body : TypeScale.caption, weight: .semibold))
@@ -251,6 +254,7 @@ extension DirectSessionComposer {
   var modelEffortControlButton: some View {
     Button {
       showModelEffortPopover.toggle()
+      Platform.services.playHaptic(.selection)
     } label: {
       ghostActionLabel(icon: "slider.horizontal.3", isActive: hasOverrides)
     }
@@ -283,6 +287,7 @@ extension DirectSessionComposer {
   var claudeModelControlButton: some View {
     Button {
       showClaudeModelPopover.toggle()
+      Platform.services.playHaptic(.selection)
     } label: {
       ghostActionLabel(icon: "slider.horizontal.3", isActive: hasOverrides, tint: .providerClaude)
     }
@@ -483,6 +488,23 @@ extension DirectSessionComposer {
       Label("Fork to Existing Worktree", systemImage: "arrow.triangle.branch.circlepath")
     }
     .disabled(!canForkToExistingWorktree)
+
+    Menu {
+      Button {
+        router.openNewSession(provider: .claude, continuation: currentContinuation)
+      } label: {
+        Label("Claude Session", systemImage: "sparkles")
+      }
+
+      Button {
+        router.openNewSession(provider: .codex, continuation: currentContinuation)
+      } label: {
+        Label("Codex Session", systemImage: "chevron.left.forwardslash.chevron.right")
+      }
+    } label: {
+      Label("Continue in New Session", systemImage: "arrow.right.circle")
+    }
+    .disabled(!canContinueInNewSession)
 
     if obs.hasTokenUsage {
       Button {

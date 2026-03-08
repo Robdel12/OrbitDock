@@ -134,15 +134,10 @@ struct SettingsView: View {
     .background(
       ZStack {
         Color.backgroundPrimary
-        LinearGradient(
-          colors: [
-            Color.accent.opacity(0.10),
-            Color.clear,
-            Color.statusQuestion.opacity(0.08),
-          ],
-          startPoint: .topLeading,
-          endPoint: .bottomTrailing
-        )
+        Rectangle()
+          .fill(Color.backgroundSecondary.opacity(0.32))
+          .frame(height: 148)
+          .frame(maxHeight: .infinity, alignment: .top)
       }
     )
     .animation(Motion.standard, value: selectedPane)
@@ -733,6 +728,9 @@ struct NotificationSettingsView: View {
   @AppStorage("notificationsEnabled") private var notificationsEnabled = true
   @AppStorage("notifyOnWorkComplete") private var notifyOnWorkComplete = true
   @AppStorage("notificationSound") private var notificationSound = "default"
+  #if os(iOS)
+    @AppStorage("hapticFeedbackLevel") private var hapticFeedbackLevel = AppHapticLevel.minimal.rawValue
+  #endif
 
   private let systemSounds: [(id: String, name: String)] = [
     ("default", "Default"),
@@ -837,6 +835,23 @@ struct NotificationSettingsView: View {
         .opacity(notificationsEnabled ? 1 : 0.5)
         .allowsHitTesting(notificationsEnabled)
 
+        #if os(iOS)
+          SettingsSection(title: "HAPTICS", icon: "iphone.radiowaves.left.and.right") {
+            VStack(alignment: .leading, spacing: Spacing.md_) {
+              Picker("Haptic Feedback", selection: $hapticFeedbackLevel) {
+                ForEach(AppHapticLevel.allCases) { level in
+                  Text(level.title).tag(level.rawValue)
+                }
+              }
+              .pickerStyle(.segmented)
+
+              Text(selectedHapticLevel.detail)
+                .font(.system(size: TypeScale.meta))
+                .foregroundStyle(Color.textTertiary)
+            }
+          }
+        #endif
+
         // Test notification button
         Button {
           sendTestNotification()
@@ -862,7 +877,19 @@ struct NotificationSettingsView: View {
       }
       .padding(Spacing.xl)
     }
+    #if os(iOS)
+    .onChange(of: hapticFeedbackLevel) { _, newValue in
+      guard let level = AppHapticLevel(rawValue: newValue), level != .off else { return }
+      Platform.services.playHaptic(level == .full ? .success : .action)
+    }
+    #endif
   }
+
+  #if os(iOS)
+    private var selectedHapticLevel: AppHapticLevel {
+      AppHapticLevel(rawValue: hapticFeedbackLevel) ?? .minimal
+    }
+  #endif
 
   private func previewSound() {
     guard notificationSound != "none" else { return }

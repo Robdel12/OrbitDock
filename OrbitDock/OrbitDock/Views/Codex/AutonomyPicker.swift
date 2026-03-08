@@ -386,16 +386,15 @@ struct AutonomyTrack: View {
         let segmentWidth = geo.size.width / CGFloat(levels.count)
 
         ZStack {
-          // Gradient bar
-          Capsule()
-            .fill(
-              LinearGradient(
-                colors: levels.map(\.color),
-                startPoint: .leading,
-                endPoint: .trailing
-              )
-            )
-            .frame(height: 4)
+          // Segmented color track
+          HStack(spacing: Spacing.xxs) {
+            ForEach(levels, id: \.id) { level in
+              Capsule()
+                .fill(level.color.opacity(level == selection ? OpacityTier.strong : OpacityTier.medium))
+                .frame(maxWidth: .infinity)
+            }
+          }
+          .frame(height: 4)
 
           // Level dots (tap targets)
           ForEach(Array(levels.enumerated()), id: \.element.id) { idx, level in
