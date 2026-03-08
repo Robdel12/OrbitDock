@@ -263,4 +263,58 @@ struct ConversationSnapshotCacheTests {
     #expect(loaded.metadata.currentDiff == "diff")
     #expect(loaded.messages.map(\.id) == ["msg-1", "msg-2"])
   }
+
+  @Test func sqliteReadModelIgnoresExpiredConversationEntries() async throws {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let databaseURL = directory.appendingPathComponent("conversation-cache.sqlite", isDirectory: false)
+    let store = ConversationReadModelStore(databaseURL: databaseURL, maxEntries: 10, maxAge: 60)
+    let endpointId = UUID()
+
+    await store.save(
+      endpointId: endpointId,
+      sessionId: "session-expired",
+      metadata: CachedConversationMetadata(
+        sessionId: "session-expired",
+        revision: 1,
+        totalMessageCount: 1,
+        oldestLoadedSequence: 0,
+        newestLoadedSequence: 0,
+        currentDiff: nil,
+        currentPlan: nil,
+        currentTurnId: nil,
+        turnDiffs: [],
+        tokenUsage: nil,
+        tokenUsageSnapshotKind: .unknown,
+        cachedAt: Date().addingTimeInterval(-3_600)
+      ),
+      messages: [
+        TranscriptMessage(
+          id: "msg-expired",
+          sequence: 0,
+          type: .assistant,
+          content: "Expired",
+          timestamp: Date(timeIntervalSince1970: 10)
+        )
+      ]
+    )
+
+    let loaded = await store.loadConversation(
+      endpointId: endpointId,
+      sessionId: "session-expired",
+      limit: 10
+    )
+    #expect(loaded == nil)
+
+    let older = await store.loadMessagesBefore(
+      endpointId: endpointId,
+      sessionId: "session-expired",
+      beforeSequence: 1,
+      limit: 10
+    )
+    #expect(older.isEmpty)
+  }
 }

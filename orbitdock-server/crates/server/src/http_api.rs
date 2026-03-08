@@ -9,13 +9,12 @@ use axum::{
 };
 use orbitdock_connector_codex::discover_models;
 use orbitdock_protocol::{
-    ApprovalHistoryItem, ClaudeIntegrationMode, ClaudeModelOption, ClaudeUsageSnapshot,
-    CodexAccountStatus, CodexIntegrationMode, CodexModelOption, CodexUsageSnapshot, DirectoryEntry,
-    McpAuthStatus, McpResource, McpResourceTemplate, McpTool, Message, PermissionRule, Provider,
-    RecentProject, RemoteSkillSummary, ReviewComment, ReviewCommentStatus, ReviewCommentTag,
-    ServerMessage, SessionPermissionRules, SessionState, SessionStatus, SessionSummary,
-    SkillErrorInfo, SkillsListEntry, SubagentTool, TokenUsage, TurnDiff, UsageErrorInfo,
-    WorkStatus, WorktreeOrigin, WorktreeStatus, WorktreeSummary,
+    ApprovalHistoryItem, ClaudeModelOption, ClaudeUsageSnapshot, CodexAccountStatus,
+    CodexModelOption, CodexUsageSnapshot, DirectoryEntry, McpAuthStatus, McpResource,
+    McpResourceTemplate, McpTool, Message, PermissionRule, RecentProject, RemoteSkillSummary,
+    ReviewComment, ReviewCommentStatus, ReviewCommentTag, ServerMessage, SessionPermissionRules,
+    SessionState, SessionSummary, SkillErrorInfo, SkillsListEntry, SubagentTool, UsageErrorInfo,
+    WorktreeOrigin, WorktreeStatus, WorktreeSummary,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
@@ -24,13 +23,13 @@ use tracing::{error, info, warn};
 use crate::codex_session::CodexAction;
 use crate::persistence::{
     delete_approval, list_approvals, list_review_comments as load_review_comments,
-    load_cached_claude_models, load_message_page_for_session, load_messages_for_session,
-    load_messages_from_transcript_path, load_session_by_id, load_subagent_transcript_path,
-    load_subagents_for_session, PersistCommand,
-    RestoredSession,
+    load_cached_claude_models, load_messages_for_session, load_subagent_transcript_path,
+    PersistCommand,
 };
-use crate::session_actor::SessionActorHandle;
-use crate::session_command::{ConversationBootstrap, ConversationPage, SessionCommand, SubscribeResult};
+use crate::session_command::{SessionCommand, SubscribeResult};
+use crate::session_history::{
+    load_conversation_bootstrap, load_conversation_page, load_full_session_state, SessionLoadError,
+};
 use crate::state::SessionRegistry;
 use orbitdock_connector_claude::session::ClaudeAction;
 
@@ -370,13 +369,6 @@ pub(crate) struct ApiErrorResponse {
 }
 
 #[derive(Debug)]
-enum SessionLoadError {
-    NotFound,
-    Db(String),
-    Runtime(String),
-}
-
-#[derive(Debug)]
 enum CodexActionError {
     SessionNotFound,
     ConnectorNotAvailable,
@@ -400,7 +392,7 @@ pub async fn get_session(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<SessionResponse> {
-    match load_session_state(&state, &session_id).await {
+    match load_full_session_state(&state, &session_id).await {
         Ok(session) => Ok(Json(SessionResponse { session })),
         Err(SessionLoadError::NotFound) => Err((
             StatusCode::NOT_FOUND,
@@ -1831,456 +1823,6 @@ fn clamp_conversation_limit(limit: Option<usize>) -> usize {
         .clamp(1, MAX_CONVERSATION_PAGE_SIZE)
 }
 
-fn normalize_message_sequences(messages: &mut [Message]) {
-    let mut next_sequence = 0_u64;
-    for message in messages {
-        let sequence = message.sequence.unwrap_or(next_sequence);
-        message.sequence = Some(sequence);
-        next_sequence = sequence + 1;
-    }
-}
-
-fn conversation_page_from_messages(
-    mut messages: Vec<Message>,
-    before_sequence: Option<u64>,
-    limit: usize,
-) -> ConversationPage {
-    normalize_message_sequences(&mut messages);
-    let total_message_count = messages.len() as u64;
-    if messages.is_empty() || limit == 0 {
-        return ConversationPage {
-            messages: vec![],
-            total_message_count,
-            has_more_before: false,
-            oldest_sequence: None,
-            newest_sequence: None,
-        };
-    }
-
-    let upper_bound = before_sequence.unwrap_or(u64::MAX);
-    let mut page: Vec<Message> = messages
-        .into_iter()
-        .filter(|message| message.sequence.unwrap_or(u64::MAX) < upper_bound)
-        .rev()
-        .take(limit)
-        .collect();
-    page.reverse();
-
-    let oldest_sequence = page.first().and_then(|message| message.sequence);
-    let newest_sequence = page.last().and_then(|message| message.sequence);
-    let has_more_before = oldest_sequence.is_some_and(|sequence| sequence > 0);
-
-    ConversationPage {
-        messages: page,
-        total_message_count,
-        has_more_before,
-        oldest_sequence,
-        newest_sequence,
-    }
-}
-
-async fn load_conversation_page(
-    state: &Arc<SessionRegistry>,
-    session_id: &str,
-    before_sequence: Option<u64>,
-    limit: usize,
-) -> Result<ConversationPage, SessionLoadError> {
-    if let Some(actor) = state.get_session(session_id) {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        actor
-            .send(SessionCommand::GetConversationPage {
-                before_sequence,
-                limit,
-                reply: reply_tx,
-            })
-            .await;
-
-        let page = reply_rx
-            .await
-            .map_err(|err| SessionLoadError::Runtime(err.to_string()))?;
-        if !page.messages.is_empty() || page.total_message_count > 0 {
-            return Ok(page);
-        }
-
-        let snapshot = actor.snapshot();
-        if let Some(path) = snapshot.transcript_path.clone() {
-            let (reply_tx, reply_rx) = oneshot::channel();
-            actor
-                .send(SessionCommand::LoadTranscriptAndSync {
-                    path,
-                    session_id: session_id.to_string(),
-                    reply: reply_tx,
-                })
-                .await;
-            if let Ok(Some(loaded)) = reply_rx.await {
-                return Ok(conversation_page_from_messages(
-                    loaded.messages,
-                    before_sequence,
-                    limit,
-                ));
-            }
-        }
-
-        let page = load_message_page_for_session(session_id, before_sequence, limit)
-            .await
-            .map_err(|err| SessionLoadError::Db(err.to_string()))?;
-        return Ok(ConversationPage {
-            has_more_before: page
-                .messages
-                .first()
-                .and_then(|message| message.sequence)
-                .is_some_and(|sequence| sequence > 0),
-            oldest_sequence: page.messages.first().and_then(|message| message.sequence),
-            newest_sequence: page.messages.last().and_then(|message| message.sequence),
-            total_message_count: page.total_count,
-            messages: page.messages,
-        });
-    }
-
-    match load_session_by_id(session_id).await {
-        Ok(Some(mut restored)) => {
-            let page = load_message_page_for_session(session_id, before_sequence, limit)
-                .await
-                .map_err(|err| SessionLoadError::Db(err.to_string()))?;
-            if !page.messages.is_empty() || page.total_count > 0 {
-                return Ok(ConversationPage {
-                    has_more_before: page
-                        .messages
-                        .first()
-                        .and_then(|message| message.sequence)
-                        .is_some_and(|sequence| sequence > 0),
-                    oldest_sequence: page.messages.first().and_then(|message| message.sequence),
-                    newest_sequence: page.messages.last().and_then(|message| message.sequence),
-                    total_message_count: page.total_count,
-                    messages: page.messages,
-                });
-            }
-
-            if restored.messages.is_empty() {
-                if let Some(ref transcript_path) = restored.transcript_path {
-                    if let Ok(messages) =
-                        load_messages_from_transcript_path(transcript_path, session_id).await
-                    {
-                        restored.messages = messages;
-                    }
-                }
-            }
-
-            Ok(conversation_page_from_messages(
-                restored.messages,
-                before_sequence,
-                limit,
-            ))
-        }
-        Ok(None) => Err(SessionLoadError::NotFound),
-        Err(err) => Err(SessionLoadError::Db(err.to_string())),
-    }
-}
-
-async fn load_conversation_bootstrap(
-    state: &Arc<SessionRegistry>,
-    session_id: &str,
-    limit: usize,
-) -> Result<ConversationBootstrap, SessionLoadError> {
-    if let Some(actor) = state.get_session(session_id) {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        actor
-            .send(SessionCommand::GetConversationBootstrap {
-                limit,
-                reply: reply_tx,
-            })
-            .await;
-
-        let mut bootstrap = reply_rx
-            .await
-            .map_err(|err| SessionLoadError::Runtime(err.to_string()))?;
-
-        if bootstrap.session.messages.is_empty() && bootstrap.total_message_count == 0 {
-            if let Some(path) = bootstrap.session.transcript_path.clone() {
-                let (reply_tx, reply_rx) = oneshot::channel();
-                actor
-                    .send(SessionCommand::LoadTranscriptAndSync {
-                        path,
-                        session_id: session_id.to_string(),
-                        reply: reply_tx,
-                    })
-                    .await;
-                if let Ok(Some(loaded)) = reply_rx.await {
-                    let page = conversation_page_from_messages(loaded.messages.clone(), None, limit);
-                    bootstrap.session = loaded;
-                    bootstrap.session.messages = page.messages.clone();
-                    bootstrap.total_message_count = page.total_message_count;
-                    bootstrap.has_more_before = page.has_more_before;
-                    bootstrap.oldest_sequence = page.oldest_sequence;
-                    bootstrap.newest_sequence = page.newest_sequence;
-                }
-            }
-        }
-
-        if bootstrap.session.messages.is_empty() && bootstrap.total_message_count == 0 {
-            let page = load_message_page_for_session(session_id, None, limit)
-                .await
-                .map_err(|err| SessionLoadError::Db(err.to_string()))?;
-            bootstrap.session.messages = page.messages;
-            bootstrap.total_message_count = page.total_count;
-            bootstrap.has_more_before = bootstrap
-                .session
-                .messages
-                .first()
-                .and_then(|message| message.sequence)
-                .is_some_and(|sequence| sequence > 0);
-            bootstrap.oldest_sequence = bootstrap
-                .session
-                .messages
-                .first()
-                .and_then(|message| message.sequence);
-            bootstrap.newest_sequence = bootstrap
-                .session
-                .messages
-                .last()
-                .and_then(|message| message.sequence);
-        }
-
-        hydrate_subagents(&mut bootstrap.session, session_id).await;
-        return Ok(bootstrap);
-    }
-
-    match load_session_by_id(session_id).await {
-        Ok(Some(mut restored)) => {
-            let page = load_message_page_for_session(session_id, None, limit)
-                .await
-                .map_err(|err| SessionLoadError::Db(err.to_string()))?;
-
-            let page = if !page.messages.is_empty() || page.total_count > 0 {
-                ConversationPage {
-                    has_more_before: page
-                        .messages
-                        .first()
-                        .and_then(|message| message.sequence)
-                        .is_some_and(|sequence| sequence > 0),
-                    oldest_sequence: page.messages.first().and_then(|message| message.sequence),
-                    newest_sequence: page.messages.last().and_then(|message| message.sequence),
-                    total_message_count: page.total_count,
-                    messages: page.messages,
-                }
-            } else {
-                if restored.messages.is_empty() {
-                    if let Some(ref transcript_path) = restored.transcript_path {
-                        if let Ok(messages) =
-                            load_messages_from_transcript_path(transcript_path, session_id).await
-                        {
-                            restored.messages = messages;
-                        }
-                    }
-                }
-                conversation_page_from_messages(restored.messages.clone(), None, limit)
-            };
-
-            let mut state = restored_session_to_state(restored);
-            state.messages = page.messages.clone();
-            hydrate_subagents(&mut state, session_id).await;
-            Ok(ConversationBootstrap {
-                session: state,
-                total_message_count: page.total_message_count,
-                has_more_before: page.has_more_before,
-                oldest_sequence: page.oldest_sequence,
-                newest_sequence: page.newest_sequence,
-            })
-        }
-        Ok(None) => Err(SessionLoadError::NotFound),
-        Err(err) => Err(SessionLoadError::Db(err.to_string())),
-    }
-}
-
-async fn load_session_state(
-    state: &Arc<SessionRegistry>,
-    session_id: &str,
-) -> Result<SessionState, SessionLoadError> {
-    if let Some(actor) = state.get_session(session_id) {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        actor
-            .send(SessionCommand::GetState { reply: reply_tx })
-            .await;
-
-        let mut snapshot = reply_rx
-            .await
-            .map_err(|err| SessionLoadError::Runtime(err.to_string()))?;
-
-        hydrate_runtime_messages(&actor, &mut snapshot, session_id).await;
-        hydrate_subagents(&mut snapshot, session_id).await;
-        return Ok(snapshot);
-    }
-
-    match load_session_by_id(session_id).await {
-        Ok(Some(mut restored)) => {
-            if restored.messages.is_empty() {
-                if let Some(ref transcript_path) = restored.transcript_path {
-                    if let Ok(messages) =
-                        load_messages_from_transcript_path(transcript_path, session_id).await
-                    {
-                        if !messages.is_empty() {
-                            restored.messages = messages;
-                        }
-                    }
-                }
-            }
-
-            let mut state = restored_session_to_state(restored);
-            hydrate_subagents(&mut state, session_id).await;
-            Ok(state)
-        }
-        Ok(None) => Err(SessionLoadError::NotFound),
-        Err(err) => Err(SessionLoadError::Db(err.to_string())),
-    }
-}
-
-async fn hydrate_runtime_messages(
-    actor: &SessionActorHandle,
-    state: &mut SessionState,
-    session_id: &str,
-) {
-    if !state.messages.is_empty() {
-        return;
-    }
-
-    if let Some(path) = state.transcript_path.clone() {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        actor
-            .send(SessionCommand::LoadTranscriptAndSync {
-                path,
-                session_id: session_id.to_string(),
-                reply: reply_tx,
-            })
-            .await;
-
-        if let Ok(Some(loaded)) = reply_rx.await {
-            *state = loaded;
-        }
-    }
-
-    if state.messages.is_empty() {
-        if let Ok(messages) = load_messages_for_session(session_id).await {
-            if !messages.is_empty() {
-                state.messages = messages;
-            }
-        }
-    }
-}
-
-async fn hydrate_subagents(state: &mut SessionState, session_id: &str) {
-    if !state.subagents.is_empty() {
-        return;
-    }
-
-    match load_subagents_for_session(session_id).await {
-        Ok(subagents) => {
-            state.subagents = subagents;
-        }
-        Err(err) => {
-            warn!(
-                component = "api",
-                event = "api.get_session.subagents_load_failed",
-                session_id = %session_id,
-                error = %err,
-                "Failed to load session subagents"
-            );
-        }
-    }
-}
-
-fn restored_session_to_state(restored: RestoredSession) -> SessionState {
-    let provider = parse_provider(&restored.provider);
-    let status = parse_session_status(restored.end_reason.as_ref(), &restored.status);
-    let work_status = parse_work_status(status, &restored.work_status);
-    let total_message_count = restored.messages.len() as u64;
-    let oldest_sequence = restored.messages.first().and_then(|message| message.sequence);
-    let newest_sequence = restored.messages.last().and_then(|message| message.sequence);
-
-    SessionState {
-        id: restored.id,
-        provider,
-        project_path: restored.project_path,
-        transcript_path: restored.transcript_path,
-        project_name: restored.project_name,
-        model: restored.model,
-        custom_name: restored.custom_name,
-        summary: restored.summary,
-        first_prompt: restored.first_prompt,
-        last_message: restored.last_message,
-        status,
-        work_status,
-        messages: restored.messages,
-        total_message_count: Some(total_message_count),
-        has_more_before: Some(false),
-        oldest_sequence,
-        newest_sequence,
-        pending_approval: None,
-        permission_mode: restored.permission_mode,
-        pending_tool_name: restored.pending_tool_name,
-        pending_tool_input: restored.pending_tool_input,
-        pending_question: restored.pending_question,
-        pending_approval_id: restored.pending_approval_id,
-        token_usage: TokenUsage {
-            input_tokens: restored.input_tokens as u64,
-            output_tokens: restored.output_tokens as u64,
-            cached_tokens: restored.cached_tokens as u64,
-            context_window: restored.context_window as u64,
-        },
-        token_usage_snapshot_kind: restored.token_usage_snapshot_kind,
-        current_diff: restored.current_diff,
-        current_plan: restored.current_plan,
-        codex_integration_mode: parse_codex_integration_mode(restored.codex_integration_mode),
-        claude_integration_mode: parse_claude_integration_mode(restored.claude_integration_mode),
-        approval_policy: restored.approval_policy,
-        sandbox_mode: restored.sandbox_mode,
-        started_at: restored.started_at,
-        last_activity_at: restored.last_activity_at,
-        forked_from_session_id: restored.forked_from_session_id,
-        revision: Some(0),
-        current_turn_id: None,
-        turn_count: 0,
-        turn_diffs: restored
-            .turn_diffs
-            .into_iter()
-            .map(
-                |(
-                    turn_id,
-                    diff,
-                    input_tokens,
-                    output_tokens,
-                    cached_tokens,
-                    context_window,
-                    snapshot_kind,
-                )| {
-                    TurnDiff {
-                        turn_id,
-                        diff,
-                        token_usage: Some(TokenUsage {
-                            input_tokens: input_tokens as u64,
-                            output_tokens: output_tokens as u64,
-                            cached_tokens: cached_tokens as u64,
-                            context_window: context_window as u64,
-                        }),
-                        snapshot_kind: Some(snapshot_kind),
-                    }
-                },
-            )
-            .collect(),
-        git_branch: restored.git_branch,
-        git_sha: restored.git_sha,
-        current_cwd: restored.current_cwd,
-        subagents: Vec::new(),
-        effort: restored.effort,
-        terminal_session_id: restored.terminal_session_id,
-        terminal_app: restored.terminal_app,
-        approval_version: Some(restored.approval_version),
-        repository_root: None,
-        is_worktree: false,
-        worktree_id: None,
-        unread_count: restored.unread_count,
-    }
-}
-
 fn resolve_browse_target(path: Option<&str>) -> PathBuf {
     match path {
         Some(path) if !path.is_empty() => {
@@ -2584,57 +2126,6 @@ fn not_control_plane_endpoint_error() -> UsageErrorInfo {
     }
 }
 
-fn parse_provider(value: &str) -> Provider {
-    if value.eq_ignore_ascii_case("claude") {
-        Provider::Claude
-    } else {
-        Provider::Codex
-    }
-}
-
-fn parse_session_status(end_reason: Option<&String>, value: &str) -> SessionStatus {
-    if end_reason.is_some() {
-        return SessionStatus::Ended;
-    }
-
-    if value.eq_ignore_ascii_case("ended") {
-        SessionStatus::Ended
-    } else {
-        SessionStatus::Active
-    }
-}
-
-fn parse_work_status(status: SessionStatus, value: &str) -> WorkStatus {
-    if status == SessionStatus::Ended {
-        return WorkStatus::Ended;
-    }
-
-    match value.trim().to_ascii_lowercase().as_str() {
-        "working" => WorkStatus::Working,
-        "permission" => WorkStatus::Permission,
-        "question" => WorkStatus::Question,
-        "reply" => WorkStatus::Reply,
-        "ended" => WorkStatus::Ended,
-        _ => WorkStatus::Waiting,
-    }
-}
-
-fn parse_codex_integration_mode(value: Option<String>) -> Option<CodexIntegrationMode> {
-    match value.as_deref() {
-        Some("direct") => Some(CodexIntegrationMode::Direct),
-        Some("passive") => Some(CodexIntegrationMode::Passive),
-        _ => None,
-    }
-}
-
-fn parse_claude_integration_mode(value: Option<String>) -> Option<ClaudeIntegrationMode> {
-    match value.as_deref() {
-        Some("direct") => Some(ClaudeIntegrationMode::Direct),
-        Some("passive") => Some(ClaudeIntegrationMode::Passive),
-        _ => None,
-    }
-}
-
 // -- Mark read --
 
 #[derive(Debug, Serialize)]
@@ -2690,8 +2181,8 @@ mod tests {
     use crate::codex_session::CodexAction;
     use crate::session::SessionHandle;
     use orbitdock_protocol::{
-        McpResource, McpResourceTemplate, Message, MessageType, RemoteSkillSummary, SkillMetadata,
-        SkillScope,
+        McpResource, McpResourceTemplate, Message, MessageType, Provider, RemoteSkillSummary,
+        SkillMetadata, SkillScope,
     };
     use serde_json::json;
     use std::collections::HashMap;
@@ -2711,24 +2202,6 @@ mod tests {
         ensure_test_data_dir();
         let (persist_tx, _persist_rx) = mpsc::channel(32);
         Arc::new(SessionRegistry::new_with_primary(persist_tx, is_primary))
-    }
-
-    fn test_message(session_id: &str, id: &str, sequence: u64, content: &str) -> Message {
-        Message {
-            id: id.to_string(),
-            session_id: session_id.to_string(),
-            sequence: Some(sequence),
-            message_type: MessageType::Assistant,
-            content: content.to_string(),
-            tool_name: None,
-            tool_input: None,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: false,
-            timestamp: "2026-01-01T00:00:00Z".to_string(),
-            duration_ms: None,
-            images: vec![],
-        }
     }
 
     #[tokio::test]
@@ -2785,90 +2258,6 @@ mod tests {
             }
             Err((status, body)) => panic!(
                 "expected successful session response, got status {:?} with error {:?}",
-                status, body.error
-            ),
-        }
-    }
-
-    #[tokio::test]
-    async fn conversation_bootstrap_returns_newest_page_with_counts() {
-        let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let mut handle = SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-api-test".to_string(),
-        );
-        handle.add_message(test_message(&session_id, "msg-1", 0, "one"));
-        handle.add_message(test_message(&session_id, "msg-2", 1, "two"));
-        handle.add_message(test_message(&session_id, "msg-3", 2, "three"));
-        state.add_session(handle);
-
-        let response = get_conversation_bootstrap(
-            Path(session_id.clone()),
-            Query(ConversationPageQuery {
-                limit: Some(2),
-                before_sequence: None,
-            }),
-            State(state),
-        )
-        .await;
-
-        match response {
-            Ok(Json(payload)) => {
-                assert_eq!(payload.total_message_count, 3);
-                assert!(payload.has_more_before);
-                assert_eq!(payload.oldest_sequence, Some(1));
-                assert_eq!(payload.newest_sequence, Some(2));
-                assert_eq!(payload.session.total_message_count, Some(3));
-                assert_eq!(payload.session.has_more_before, Some(true));
-                assert_eq!(payload.session.messages.len(), 2);
-                assert_eq!(payload.session.messages[0].id, "msg-2");
-                assert_eq!(payload.session.messages[1].id, "msg-3");
-            }
-            Err((status, body)) => panic!(
-                "expected successful conversation bootstrap, got status {:?} with error {:?}",
-                status, body.error
-            ),
-        }
-    }
-
-    #[tokio::test]
-    async fn conversation_history_returns_page_before_sequence() {
-        let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let mut handle = SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-api-test".to_string(),
-        );
-        handle.add_message(test_message(&session_id, "msg-1", 0, "one"));
-        handle.add_message(test_message(&session_id, "msg-2", 1, "two"));
-        handle.add_message(test_message(&session_id, "msg-3", 2, "three"));
-        state.add_session(handle);
-
-        let response = get_conversation_history(
-            Path(session_id.clone()),
-            Query(ConversationPageQuery {
-                limit: Some(2),
-                before_sequence: Some(2),
-            }),
-            State(state),
-        )
-        .await;
-
-        match response {
-            Ok(Json(payload)) => {
-                assert_eq!(payload.total_message_count, 3);
-                assert!(!payload.has_more_before);
-                assert_eq!(payload.oldest_sequence, Some(0));
-                assert_eq!(payload.newest_sequence, Some(1));
-                assert_eq!(payload.messages.len(), 2);
-                assert_eq!(payload.messages[0].id, "msg-1");
-                assert_eq!(payload.messages[1].id, "msg-2");
-            }
-            Err((status, body)) => panic!(
-                "expected successful conversation history page, got status {:?} with error {:?}",
                 status, body.error
             ),
         }

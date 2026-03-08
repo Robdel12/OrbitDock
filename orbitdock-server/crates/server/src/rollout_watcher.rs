@@ -1666,7 +1666,9 @@ mod tests {
         let state = {
             let actor = app_state.get_session(&session_id).expect("session exists");
             let (tx, rx) = tokio::sync::oneshot::channel();
-            actor.send(SessionCommand::GetState { reply: tx }).await;
+            actor
+                .send(SessionCommand::GetRetainedState { reply: tx })
+                .await;
             rx.await.expect("get state")
         };
         let has_user_message = state.messages.iter().any(|msg| {

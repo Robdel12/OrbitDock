@@ -13,7 +13,7 @@ use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{load_messages_from_transcript_path, load_worktree_by_id, PersistCommand};
 use crate::session::SessionHandle;
 use crate::session_command::{PersistOp, SessionCommand};
-use crate::session_utils::claim_codex_thread_for_direct_session;
+use crate::session_utils::{claim_codex_thread_for_direct_session, hydrate_full_message_history};
 use crate::state::SessionRegistry;
 use crate::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
 
@@ -119,7 +119,7 @@ pub(crate) async fn handle(
             spawn_broadcast_forwarder(rx, client_tx.clone(), Some(id.clone()));
 
             let summary = handle.summary();
-            let snapshot = handle.state();
+            let snapshot = handle.retained_state();
 
             // Persist session creation
             let persist_tx = state.persist().clone();
@@ -867,7 +867,7 @@ pub(crate) async fn handle(
                             spawn_broadcast_forwarder(rx, client_tx.clone(), Some(new_id.clone()));
 
                             let summary = handle.summary();
-                            let snapshot = handle.state();
+                            let snapshot = handle.retained_state();
 
                             let persist_tx = state.persist().clone();
                             let _ = persist_tx
@@ -1053,17 +1053,25 @@ pub(crate) async fn handle(
                         if let Some(source_actor) = state.get_session(&source_session_id) {
                             let (state_tx, state_rx) = oneshot::channel();
                             source_actor
-                                .send(SessionCommand::GetState { reply: state_tx })
+                                .send(SessionCommand::GetRetainedState { reply: state_tx })
                                 .await;
 
                             match state_rx.await {
-                                Ok(source_state) => remap_messages_for_fork(
-                                    truncate_messages_before_nth_user_message(
-                                        &source_state.messages,
-                                        nth_user_message,
-                                    ),
-                                    &new_id,
-                                ),
+                                Ok(source_state) => {
+                                    let full_source_messages = hydrate_full_message_history(
+                                        &source_session_id,
+                                        source_state.messages,
+                                        source_state.total_message_count,
+                                    )
+                                    .await;
+                                    remap_messages_for_fork(
+                                        truncate_messages_before_nth_user_message(
+                                            &full_source_messages,
+                                            nth_user_message,
+                                        ),
+                                        &new_id,
+                                    )
+                                }
                                 Err(_) => {
                                     warn!(
                                         component = "session",
@@ -1142,7 +1150,7 @@ pub(crate) async fn handle(
                     spawn_broadcast_forwarder(rx, client_tx.clone(), Some(new_id.clone()));
 
                     let summary = handle.summary();
-                    let snapshot = handle.state();
+                    let snapshot = handle.retained_state();
 
                     let persist_tx = state.persist().clone();
 

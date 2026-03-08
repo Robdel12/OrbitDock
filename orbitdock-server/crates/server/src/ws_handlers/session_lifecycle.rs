@@ -209,9 +209,9 @@ pub(crate) async fn handle(
             let rx = handle.subscribe();
             spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
 
-            // Send full snapshot immediately so the client shows Direct/Active
+            // Send the retained session snapshot immediately so the client shows Direct/Active
             // before the connector finishes connecting.
-            let snapshot = handle.state();
+            let snapshot = handle.retained_state();
             send_json(
                 client_tx,
                 ServerMessage::SessionSnapshot { session: snapshot },

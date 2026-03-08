@@ -157,7 +157,7 @@ struct SessionDetailView: View {
     }
     .onAppear {
       if shouldSubscribeToServerSession {
-        serverState.subscribeToSession(sessionId)
+        serverState.subscribeToSession(sessionId, forceRefresh: true)
         serverState.setSessionAutoMarkRead(sessionId, enabled: isPinned)
         if obs.isDirect {
           serverState.loadApprovalHistory(sessionId: sessionId)

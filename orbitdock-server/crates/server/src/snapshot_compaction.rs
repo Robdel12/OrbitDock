@@ -219,8 +219,14 @@ fn compact_snapshot_for_transport_with_limits(
     }
 
     snapshot.total_message_count = Some(original_total_message_count);
-    snapshot.oldest_sequence = snapshot.messages.first().and_then(|message| message.sequence);
-    snapshot.newest_sequence = snapshot.messages.last().and_then(|message| message.sequence);
+    snapshot.oldest_sequence = snapshot
+        .messages
+        .first()
+        .and_then(|message| message.sequence);
+    snapshot.newest_sequence = snapshot
+        .messages
+        .last()
+        .and_then(|message| message.sequence);
     snapshot.has_more_before = Some(
         snapshot.has_more_before.unwrap_or(false)
             || original_total_message_count > snapshot.messages.len() as u64

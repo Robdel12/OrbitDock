@@ -98,8 +98,8 @@ pub async fn handle_session_command(
     persist_tx: &mpsc::Sender<PersistCommand>,
 ) {
     match cmd {
-        SessionCommand::GetState { reply } => {
-            let _ = reply.send(handle.state());
+        SessionCommand::GetRetainedState { reply } => {
+            let _ = reply.send(handle.retained_state());
         }
         SessionCommand::GetSummary { reply } => {
             let _ = reply.send(handle.summary());
@@ -116,7 +116,7 @@ pub async fn handle_session_command(
                 }
             }
             let rx = handle.subscribe();
-            let state = handle.state();
+            let state = handle.retained_state();
             let _ = reply.send(SubscribeResult::Snapshot {
                 state: Box::new(state),
                 rx,
@@ -273,7 +273,8 @@ pub async fn handle_session_command(
         SessionCommand::AddMessageAndBroadcast { message } => {
             let session_id = handle.id().to_string();
             let mut last_message_delta: Option<String> = None;
-            let should_broadcast_unread = !matches!(message.message_type, MessageType::User | MessageType::Steer);
+            let should_broadcast_unread =
+                !matches!(message.message_type, MessageType::User | MessageType::Steer);
 
             if let Some(snippet) = completed_conversation_message_snippet(&message) {
                 let previous = handle.to_snapshot().last_message.clone();
@@ -377,14 +378,14 @@ pub async fn handle_session_command(
             session_id,
             reply,
         } => {
-            let state = handle.state();
+            let state = handle.retained_state();
             if state.messages.is_empty() {
                 match crate::persistence::load_messages_from_transcript_path(&path, &session_id)
                     .await
                 {
                     Ok(messages) if !messages.is_empty() => {
                         handle.replace_messages(messages);
-                        let _ = reply.send(Some(handle.state()));
+                        let _ = reply.send(Some(handle.retained_state()));
                     }
                     _ => {
                         let _ = reply.send(Some(state));
@@ -579,7 +580,7 @@ mod tests {
         )
         .await;
 
-        let state = handle.state();
+        let state = handle.retained_state();
         assert_eq!(state.status, SessionStatus::Active);
         assert_eq!(state.unread_count, 1);
 

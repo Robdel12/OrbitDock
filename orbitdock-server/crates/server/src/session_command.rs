@@ -50,8 +50,8 @@ pub enum PersistOp {
 #[allow(clippy::large_enum_variant)]
 pub enum SessionCommand {
     // -- Queries (use oneshot reply channels) --
-    /// Get the full session state
-    GetState {
+    /// Get the retained in-memory session snapshot.
+    GetRetainedState {
         reply: oneshot::Sender<SessionState>,
     },
 
@@ -63,7 +63,7 @@ pub enum SessionCommand {
     /// Subscribe to session updates.
     /// Returns (Option<SessionState>, broadcast::Receiver, Vec<String> for replay).
     /// If `since_revision` is provided and replay is possible, state is None and
-    /// replay events are returned. Otherwise state is a full snapshot.
+    /// replay events are returned. Otherwise state is the retained session snapshot.
     Subscribe {
         since_revision: Option<u64>,
         reply: oneshot::Sender<SubscribeResult>,
@@ -233,7 +233,7 @@ pub struct PendingApprovalResolution {
 
 /// Result of a Subscribe command
 pub enum SubscribeResult {
-    /// Full snapshot (when replay not possible)
+    /// Retained session snapshot (when replay not possible)
     Snapshot {
         state: Box<SessionState>,
         rx: broadcast::Receiver<ServerMessage>,

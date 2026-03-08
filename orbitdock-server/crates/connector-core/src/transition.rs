@@ -60,6 +60,7 @@ pub struct TransitionState {
     pub revision: u64,
     pub phase: WorkPhase,
     pub messages: Vec<Message>,
+    pub total_message_count: u64,
     pub token_usage: TokenUsage,
     pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
     pub current_diff: Option<String>,
@@ -613,6 +614,7 @@ pub fn transition(
                 images: vec![],
             };
             state.messages.push(error_msg.clone());
+            state.total_message_count = state.total_message_count.saturating_add(1);
 
             effects.push(Effect::Persist(Box::new(PersistOp::MessageAppend {
                 session_id: sid.clone(),
@@ -651,6 +653,7 @@ pub fn transition(
 
             if !is_dup {
                 state.messages.push(message.clone());
+                state.total_message_count = state.total_message_count.saturating_add(1);
                 state.last_activity_at = Some(now.to_string());
 
                 effects.push(Effect::Persist(Box::new(PersistOp::MessageAppend {
@@ -1172,6 +1175,7 @@ pub fn transition(
                 images: vec![],
             };
             state.messages.push(compact_msg.clone());
+            state.total_message_count = state.total_message_count.saturating_add(1);
 
             effects.push(Effect::Persist(Box::new(PersistOp::MessageAppend {
                 session_id: sid.clone(),
@@ -2451,6 +2455,7 @@ mod tests {
             revision: 0,
             phase: WorkPhase::Idle,
             messages: Vec::new(),
+            total_message_count: 0,
             token_usage: TokenUsage::default(),
             token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
             current_diff: None,

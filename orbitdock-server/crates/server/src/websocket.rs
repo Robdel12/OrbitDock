@@ -273,9 +273,8 @@ pub(crate) async fn send_replay_or_snapshot_fallback(
             tx,
             ServerMessage::Error {
                 code: "replay_oversized".to_string(),
-                message:
-                    "Replay payload exceeded transport limit; re-bootstrap the conversation"
-                        .to_string(),
+                message: "Replay payload exceeded transport limit; re-bootstrap the conversation"
+                    .to_string(),
                 session_id: Some(session_id.to_string()),
             },
         )
@@ -863,7 +862,7 @@ mod tests {
             Provider::Codex,
             "/tmp/oversized".into(),
         )
-        .state();
+        .retained_state();
 
         snapshot.messages = (0..80)
             .map(|index| Message {
@@ -933,7 +932,7 @@ mod tests {
             Provider::Codex,
             "/tmp/dupe-turns".into(),
         )
-        .state();
+        .retained_state();
         snapshot.turn_diffs = vec![
             TurnDiff {
                 turn_id: "turn-20".to_string(),

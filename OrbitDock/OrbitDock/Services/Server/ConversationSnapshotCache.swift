@@ -308,8 +308,8 @@ actor ConversationReadModelStore {
       "conversation-cache.sqlite",
       isDirectory: false
     ),
-    maxEntries: Int = 200,
-    maxAge: TimeInterval = 30 * 24 * 60 * 60
+    maxEntries: Int = 50,
+    maxAge: TimeInterval = 60 * 60
   ) {
     self.databaseURL = databaseURL
     self.maxEntries = maxEntries
@@ -344,6 +344,9 @@ actor ConversationReadModelStore {
     limit: Int
   ) async -> [TranscriptMessage] {
     guard let database = openDatabase() else { return [] }
+    guard hasFreshMetadata(endpointId: endpointId, sessionId: sessionId, database: database) else {
+      return []
+    }
     let rows = loadRows(
       endpointId: endpointId,
       sessionId: sessionId,
@@ -543,7 +546,7 @@ actor ConversationReadModelStore {
 
   private func loadMetadataData(endpointId: UUID, sessionId: String, database: OpaquePointer) -> Data? {
     let sql = """
-      SELECT metadata_json
+      SELECT updated_at, metadata_json
       FROM conversation_cache_meta
       WHERE endpoint_id = ? AND session_id = ?
       LIMIT 1
@@ -555,7 +558,32 @@ actor ConversationReadModelStore {
     bind(text: sessionId, to: 2, in: statement)
 
     guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
-    return data(from: statement, column: 0)
+    let updatedAt = sqlite3_column_double(statement, 0)
+    guard !isExpired(updatedAt: updatedAt) else {
+      return nil
+    }
+    return data(from: statement, column: 1)
+  }
+
+  private func hasFreshMetadata(endpointId: UUID, sessionId: String, database: OpaquePointer) -> Bool {
+    let sql = """
+      SELECT updated_at
+      FROM conversation_cache_meta
+      WHERE endpoint_id = ? AND session_id = ?
+      LIMIT 1
+      """
+    guard let statement = prepareStatement(database, sql: sql) else { return false }
+    defer { sqlite3_finalize(statement) }
+
+    bind(text: endpointId.uuidString, to: 1, in: statement)
+    bind(text: sessionId, to: 2, in: statement)
+
+    guard sqlite3_step(statement) == SQLITE_ROW else { return false }
+    let updatedAt = sqlite3_column_double(statement, 0)
+    guard !isExpired(updatedAt: updatedAt) else {
+      return false
+    }
+    return true
   }
 
   private func loadRows(
@@ -893,6 +921,10 @@ actor ConversationReadModelStore {
       return false
     }
     return true
+  }
+
+  private func isExpired(updatedAt: TimeInterval) -> Bool {
+    updatedAt < Date().addingTimeInterval(-maxAge).timeIntervalSince1970
   }
 
   private func touch(endpointId: UUID, sessionId: String, database: OpaquePointer) {

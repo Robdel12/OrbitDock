@@ -3,6 +3,7 @@
 //! Uses `spawn_blocking` for async-safe SQLite access.
 //! Batches writes for better performance under high event volume.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{
@@ -642,7 +643,9 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 MessageType::Shell => "shell",
             };
 
-            let seq: i64 = match message.sequence.and_then(|sequence| i64::try_from(sequence).ok())
+            let seq: i64 = match message
+                .sequence
+                .and_then(|sequence| i64::try_from(sequence).ok())
             {
                 Some(sequence) => sequence,
                 None => conn.query_row(
@@ -2342,7 +2345,9 @@ fn load_messages_from_db(
             Ok(Message {
                 id: row.get(0)?,
                 session_id: session_id.to_string(),
-                sequence: row.get::<_, Option<i64>>(4)?.and_then(|sequence| u64::try_from(sequence).ok()),
+                sequence: row
+                    .get::<_, Option<i64>>(4)?
+                    .and_then(|sequence| u64::try_from(sequence).ok()),
                 message_type,
                 content: row.get(2)?,
                 timestamp: row.get(3)?,
@@ -2431,7 +2436,9 @@ fn load_message_page_from_db(
             Ok(Message {
                 id: row.get(0)?,
                 session_id: session_id.to_string(),
-                sequence: row.get::<_, Option<i64>>(4)?.and_then(|sequence| u64::try_from(sequence).ok()),
+                sequence: row
+                    .get::<_, Option<i64>>(4)?
+                    .and_then(|sequence| u64::try_from(sequence).ok()),
                 message_type,
                 content: row.get(2)?,
                 timestamp: row.get(3)?,
@@ -2471,7 +2478,9 @@ fn load_message_page_from_db(
             Ok(Message {
                 id: row.get(0)?,
                 session_id: session_id.to_string(),
-                sequence: row.get::<_, Option<i64>>(4)?.and_then(|sequence| u64::try_from(sequence).ok()),
+                sequence: row
+                    .get::<_, Option<i64>>(4)?
+                    .and_then(|sequence| u64::try_from(sequence).ok()),
                 message_type,
                 content: row.get(2)?,
                 timestamp: row.get(3)?,
@@ -4592,6 +4601,21 @@ pub fn load_worktrees_by_repo(db_path: &PathBuf, repo_root: &str) -> Vec<Worktre
     .ok()
     .map(|rows| rows.filter_map(|r| r.ok()).collect())
     .unwrap_or_default()
+}
+
+pub fn load_removed_worktree_paths(db_path: &PathBuf) -> HashSet<String> {
+    let Some(conn) = open_readonly_conn(db_path) else {
+        return HashSet::new();
+    };
+    let mut stmt =
+        match conn.prepare("SELECT worktree_path FROM worktrees WHERE status = 'removed'") {
+            Ok(s) => s,
+            Err(_) => return HashSet::new(),
+        };
+    stmt.query_map([], |row| row.get::<_, String>(0))
+        .ok()
+        .map(|rows| rows.filter_map(|row| row.ok()).collect())
+        .unwrap_or_default()
 }
 
 /// Derive a human-readable display name from a Claude model string.

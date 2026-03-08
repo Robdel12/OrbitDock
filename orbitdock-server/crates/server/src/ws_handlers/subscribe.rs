@@ -612,10 +612,14 @@ pub(crate) async fn handle(
 
                         // Build SessionState for transport
                         let total_message_count = restored.messages.len() as u64;
-                        let oldest_sequence =
-                            restored.messages.first().and_then(|message| message.sequence);
-                        let newest_sequence =
-                            restored.messages.last().and_then(|message| message.sequence);
+                        let oldest_sequence = restored
+                            .messages
+                            .first()
+                            .and_then(|message| message.sequence);
+                        let newest_sequence = restored
+                            .messages
+                            .last()
+                            .and_then(|message| message.sequence);
                         let state = SessionState {
                             id: restored.id,
                             provider,

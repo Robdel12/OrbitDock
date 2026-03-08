@@ -35,6 +35,8 @@ final class ServerAppState {
   @ObservationIgnored
   private let conversationReadModel = ConversationReadModelStore()
   private let conversationPageSize = 50
+  private let conversationBootstrapMinimumTurnCount = 4
+  private let conversationBootstrapMaximumMessageCount = 200
 
   let endpointId: UUID
 
@@ -87,6 +89,8 @@ final class ServerAppState {
 
   @ObservationIgnored
   private var _sessionObservables: [String: SessionObservable] = [:]
+  @ObservationIgnored
+  private var conversationBootstrapBackfillTasks: [String: Task<Void, Never>] = [:]
 
   /// Get or create per-session observable. Does NOT trigger observation on ServerAppState.
   func session(_ id: String) -> SessionObservable {
@@ -1363,7 +1367,11 @@ final class ServerAppState {
   }
 
   /// Subscribe to a session's updates (called when viewing a session)
-  func subscribeToSession(_ sessionId: String) {
+  func subscribeToSession(_ sessionId: String, forceRefresh: Bool = false) {
+    if forceRefresh, subscribedSessions.contains(sessionId) {
+      connection.unsubscribeSession(sessionId)
+      subscribedSessions.remove(sessionId)
+    }
     guard !subscribedSessions.contains(sessionId) else { return }
     subscribedSessions.insert(sessionId)
 
@@ -1391,6 +1399,7 @@ final class ServerAppState {
         includeSnapshot: includeSnapshot
       )
       connection.listApprovals(sessionId: sessionId, limit: 200)
+      scheduleConversationBootstrapBackfill(sessionId: sessionId)
       logger.debug(
         "Subscribed to session \(sessionId) (sinceRevision: \(sinceRev.map(String.init) ?? "nil"), includeSnapshot: \(includeSnapshot))"
       )
@@ -1408,28 +1417,76 @@ final class ServerAppState {
 
     Task { @MainActor in
       defer { session(sessionId).isLoadingOlderMessages = false }
-
-      let cachedMessages = await conversationReadModel.loadMessagesBefore(
-        endpointId: endpointId,
+      _ = await loadOlderMessagesPage(
         sessionId: sessionId,
         beforeSequence: beforeSequence,
         limit: pageLimit
       )
-      if !cachedMessages.isEmpty {
-        prependConversationMessages(sessionId: sessionId, messages: cachedMessages, source: "cache-history")
-        return
-      }
+    }
+  }
 
-      do {
-        let page = try await connection.fetchConversationHistory(
-          sessionId,
-          beforeSequence: beforeSequence,
-          limit: pageLimit
-        )
-        handleConversationHistoryPage(page)
-      } catch {
-        logger.warning("Failed to load older history for \(sessionId): \(error.localizedDescription)")
-      }
+  private func scheduleConversationBootstrapBackfill(sessionId: String) {
+    cancelConversationBootstrapBackfill(sessionId: sessionId)
+    conversationBootstrapBackfillTasks[sessionId] = Task { @MainActor in
+      defer { conversationBootstrapBackfillTasks.removeValue(forKey: sessionId) }
+      await backfillConversationBootstrapIfNeeded(sessionId: sessionId)
+    }
+  }
+
+  private func cancelConversationBootstrapBackfill(sessionId: String) {
+    conversationBootstrapBackfillTasks.removeValue(forKey: sessionId)?.cancel()
+  }
+
+  private func backfillConversationBootstrapIfNeeded(sessionId: String) async {
+    while !Task.isCancelled, subscribedSessions.contains(sessionId) {
+      let obs = session(sessionId)
+      guard Self.requiresConversationBootstrapBackfill(
+        messages: obs.messages,
+        hasMoreHistoryBefore: obs.hasMoreHistoryBefore,
+        minimumTurnCount: conversationBootstrapMinimumTurnCount
+      ) else { return }
+      guard obs.messages.count < conversationBootstrapMaximumMessageCount,
+            let beforeSequence = obs.oldestLoadedSequence
+      else { return }
+
+      let didLoadAny = await loadOlderMessagesPage(
+        sessionId: sessionId,
+        beforeSequence: beforeSequence,
+        limit: conversationPageSize
+      )
+      guard didLoadAny else { return }
+    }
+  }
+
+  private func loadOlderMessagesPage(
+    sessionId: String,
+    beforeSequence: UInt64,
+    limit: Int
+  ) async -> Bool {
+    let currentCount = session(sessionId).messages.count
+
+    let cachedMessages = await conversationReadModel.loadMessagesBefore(
+      endpointId: endpointId,
+      sessionId: sessionId,
+      beforeSequence: beforeSequence,
+      limit: limit
+    )
+    if !cachedMessages.isEmpty {
+      prependConversationMessages(sessionId: sessionId, messages: cachedMessages, source: "cache-history")
+      return session(sessionId).messages.count > currentCount
+    }
+
+    do {
+      let page = try await connection.fetchConversationHistory(
+        sessionId,
+        beforeSequence: beforeSequence,
+        limit: limit
+      )
+      handleConversationHistoryPage(page)
+      return session(sessionId).messages.count > currentCount
+    } catch {
+      logger.warning("Failed to load older history for \(sessionId): \(error.localizedDescription)")
+      return false
     }
   }
 
@@ -1459,6 +1516,7 @@ final class ServerAppState {
   func unsubscribeFromSession(_ sessionId: String) {
     subscribedSessions.remove(sessionId)
     autoMarkReadSessions.remove(sessionId)
+    cancelConversationBootstrapBackfill(sessionId: sessionId)
     connection.unsubscribeSession(sessionId)
     flushConversationSnapshotWrite(
       sessionId: sessionId,
@@ -1628,6 +1686,7 @@ final class ServerAppState {
     let liveIds = Set(summaries.map(\.id))
     let staleIds = _sessionObservables.keys.filter { !liveIds.contains($0) }
     for id in staleIds {
+      cancelConversationBootstrapBackfill(sessionId: id)
       cancelConversationSnapshotWrite(sessionId: id)
       _sessionObservables.removeValue(forKey: id)
     }
@@ -2814,7 +2873,9 @@ final class ServerAppState {
       session(summary.id).permissionMode = ClaudePermissionMode(rawValue: pm) ?? .default
     }
 
-    subscribeToSession(summary.id)
+    if shouldAutoSubscribeToCreatedSession(summary.id) {
+      subscribeToSession(summary.id)
+    }
 
     if pendingCreateInitialPrompt != nil, pendingCreatePromptTargetSessionId == nil {
       pendingCreatePromptTargetSessionId = summary.id
@@ -2886,6 +2947,23 @@ final class ServerAppState {
   private func clearPendingCreateAutomation() {
     pendingCreateInitialPrompt = nil
     pendingCreatePromptTargetSessionId = nil
+  }
+
+  func isSessionSubscribed(_ sessionId: String) -> Bool {
+    subscribedSessions.contains(sessionId)
+  }
+
+  func shouldAutoSubscribeToCreatedSession(_ sessionId: String) -> Bool {
+    if subscribedSessions.contains(sessionId) {
+      return true
+    }
+    if pendingNavigationOnCreate {
+      return true
+    }
+    if pendingCreatePromptTargetSessionId == sessionId {
+      return true
+    }
+    return false
   }
 
   private func handleError(_ code: String, _ message: String, _ sessionId: String?) {
@@ -3150,6 +3228,28 @@ final class ServerAppState {
       return false
     }
     return session.isActive && session.isDirectCodex
+  }
+
+  nonisolated static func requiresConversationBootstrapBackfill(
+    messages: [TranscriptMessage],
+    hasMoreHistoryBefore: Bool,
+    minimumTurnCount: Int
+  ) -> Bool {
+    guard hasMoreHistoryBefore, !messages.isEmpty else { return false }
+
+    let startsAtTurnBoundary = messages.first.map { message in
+      message.type == .user || message.type == .steer
+    } ?? false
+    if !startsAtTurnBoundary {
+      return true
+    }
+
+    let turnCount = messages.reduce(into: 0) { count, message in
+      if message.type == .user || message.type == .steer {
+        count += 1
+      }
+    }
+    return turnCount < minimumTurnCount
   }
 
   private static func mockSessions() -> [Session] {

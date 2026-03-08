@@ -4,18 +4,20 @@
 //! syncing, and path resolution. Used by WebSocket handlers, hook
 //! handlers, and session management code.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{mpsc, oneshot};
 
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexIntegrationMode, Provider, ServerMessage, SessionStatus,
+    ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, ServerMessage, SessionStatus,
     StateChanges, TokenUsageSnapshotKind, WorkStatus,
 };
 
 use crate::persistence::{
-    load_messages_from_transcript_path, load_token_usage_from_transcript_path, PersistCommand,
+    load_messages_for_session, load_messages_from_transcript_path,
+    load_token_usage_from_transcript_path, PersistCommand,
 };
 use crate::session_actor::SessionActorHandle;
 use crate::session_command::{PersistOp, SessionCommand};
@@ -29,6 +31,54 @@ pub(crate) fn chrono_now() -> String {
         .unwrap_or_default()
         .as_secs();
     format!("{}Z", secs)
+}
+
+fn normalize_message_sequences(messages: &mut [Message]) {
+    let mut next_sequence = 0_u64;
+    for message in messages {
+        let sequence = message.sequence.unwrap_or(next_sequence);
+        message.sequence = Some(sequence);
+        next_sequence = sequence + 1;
+    }
+}
+
+pub(crate) fn merge_messages_by_sequence(
+    mut base: Vec<Message>,
+    mut overlay: Vec<Message>,
+) -> Vec<Message> {
+    normalize_message_sequences(&mut base);
+    normalize_message_sequences(&mut overlay);
+
+    let mut merged = BTreeMap::<u64, Message>::new();
+    for message in base {
+        if let Some(sequence) = message.sequence {
+            merged.insert(sequence, message);
+        }
+    }
+    for message in overlay {
+        if let Some(sequence) = message.sequence {
+            merged.insert(sequence, message);
+        }
+    }
+    merged.into_values().collect()
+}
+
+pub(crate) async fn hydrate_full_message_history(
+    session_id: &str,
+    retained_messages: Vec<Message>,
+    total_message_count: Option<u64>,
+) -> Vec<Message> {
+    let expected_count = total_message_count.unwrap_or(retained_messages.len() as u64);
+    if retained_messages.len() as u64 >= expected_count {
+        return retained_messages;
+    }
+
+    match load_messages_for_session(session_id).await {
+        Ok(db_messages) if !db_messages.is_empty() => {
+            merge_messages_by_sequence(db_messages, retained_messages)
+        }
+        _ => retained_messages,
+    }
 }
 
 pub(crate) async fn mark_session_working_after_send(

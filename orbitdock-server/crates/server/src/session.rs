@@ -316,6 +316,7 @@ struct PendingApprovalEntry {
 
 const EVENT_LOG_CAPACITY: usize = 1000;
 const BROADCAST_CAPACITY: usize = 512;
+const RETAINED_FINALIZED_MESSAGE_LIMIT: usize = 200;
 
 /// Handle to a running session
 pub struct SessionHandle {
@@ -335,6 +336,7 @@ pub struct SessionHandle {
     work_status: WorkStatus,
     last_tool: Option<String>,
     messages: Vec<Message>,
+    total_message_count: u64,
     token_usage: TokenUsage,
     token_usage_snapshot_kind: TokenUsageSnapshotKind,
     current_diff: Option<String>,
@@ -391,7 +393,7 @@ impl SessionHandle {
             .last()
             .and_then(|message| message.sequence)
             .map(|sequence| sequence + 1)
-            .unwrap_or(0)
+            .unwrap_or(self.total_message_count)
     }
 
     fn normalize_message_sequences(messages: &mut [Message]) {
@@ -403,6 +405,39 @@ impl SessionHandle {
         }
     }
 
+    fn oldest_retained_sequence(&self) -> Option<u64> {
+        self.messages.first().and_then(|message| message.sequence)
+    }
+
+    fn newest_retained_sequence(&self) -> Option<u64> {
+        self.messages.last().and_then(|message| message.sequence)
+    }
+
+    fn retained_has_more_before(&self) -> bool {
+        self.oldest_retained_sequence()
+            .is_some_and(|sequence| sequence > 0)
+            || self.total_message_count > self.messages.len() as u64
+    }
+
+    fn trim_retained_messages(&mut self) {
+        let Some(newest_sequence) = self.newest_retained_sequence() else {
+            return;
+        };
+        let Some(oldest_allowed_sequence) = newest_sequence
+            .checked_add(1)
+            .and_then(|count| count.checked_sub(RETAINED_FINALIZED_MESSAGE_LIMIT as u64))
+        else {
+            return;
+        };
+
+        self.messages.retain(|message| {
+            message.is_in_progress
+                || message
+                    .sequence
+                    .is_some_and(|sequence| sequence >= oldest_allowed_sequence)
+        });
+    }
+
     pub fn conversation_page(
         &self,
         before_sequence: Option<u64>,
@@ -411,7 +446,7 @@ impl SessionHandle {
         if self.messages.is_empty() || limit == 0 {
             return ConversationPage {
                 messages: vec![],
-                total_message_count: self.messages.len() as u64,
+                total_message_count: self.total_message_count,
                 has_more_before: false,
                 oldest_sequence: None,
                 newest_sequence: None,
@@ -435,7 +470,7 @@ impl SessionHandle {
 
         ConversationPage {
             messages: page,
-            total_message_count: self.messages.len() as u64,
+            total_message_count: self.total_message_count,
             has_more_before,
             oldest_sequence,
             newest_sequence,
@@ -444,7 +479,7 @@ impl SessionHandle {
 
     pub fn conversation_bootstrap(&self, limit: usize) -> ConversationBootstrap {
         let page = self.conversation_page(None, limit);
-        let mut session = self.state();
+        let mut session = self.retained_state();
         session.messages = page.messages.clone();
         session.total_message_count = Some(page.total_message_count);
         session.has_more_before = Some(page.has_more_before);
@@ -522,6 +557,7 @@ impl SessionHandle {
             work_status: WorkStatus::Waiting,
             last_tool: None,
             messages: Vec::new(),
+            total_message_count: 0,
             token_usage: TokenUsage::default(),
             token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
             current_diff: None,
@@ -662,6 +698,7 @@ impl SessionHandle {
             work_status,
             last_tool: None,
             messages,
+            total_message_count: 0,
             token_usage,
             token_usage_snapshot_kind,
             current_diff,
@@ -699,6 +736,8 @@ impl SessionHandle {
             event_log: VecDeque::new(),
             snapshot_handle: Arc::new(ArcSwap::from_pointee(snapshot)),
         };
+        handle.total_message_count = handle.messages.len() as u64;
+        handle.trim_retained_messages();
         handle.bootstrap_pending_approval_from_persisted_fields();
         handle.refresh_snapshot();
         handle
@@ -771,8 +810,8 @@ impl SessionHandle {
         }
     }
 
-    /// Get the full session state
-    pub fn state(&self) -> SessionState {
+    /// Get the retained in-memory session snapshot.
+    pub fn retained_state(&self) -> SessionState {
         SessionState {
             id: self.id.clone(),
             provider: self.provider,
@@ -785,10 +824,10 @@ impl SessionHandle {
             status: self.status,
             work_status: self.work_status,
             messages: self.messages.clone(),
-            total_message_count: Some(self.messages.len() as u64),
-            has_more_before: Some(false),
-            oldest_sequence: self.messages.first().and_then(|message| message.sequence),
-            newest_sequence: self.messages.last().and_then(|message| message.sequence),
+            total_message_count: Some(self.total_message_count),
+            has_more_before: Some(self.retained_has_more_before()),
+            oldest_sequence: self.oldest_retained_sequence(),
+            newest_sequence: self.newest_retained_sequence(),
             pending_approval: self.pending_approval.clone(),
             permission_mode: self.permission_mode.clone(),
             pending_tool_name: self.pending_tool_name.clone(),
@@ -912,7 +951,7 @@ impl SessionHandle {
     }
 
     pub fn message_count(&self) -> usize {
-        self.messages.len()
+        self.total_message_count as usize
     }
 
     /// Check if a user message with this content already exists (dedup for connector echo)
@@ -1050,6 +1089,8 @@ impl SessionHandle {
             self.unread_count += 1;
         }
         self.messages.push(message.clone());
+        self.total_message_count = self.total_message_count.saturating_add(1);
+        self.trim_retained_messages();
         self.last_activity_at = Some(chrono_now());
         message
     }
@@ -1086,7 +1127,9 @@ impl SessionHandle {
     /// Replace all messages (used for snapshot hydration from transcript fallback)
     pub fn replace_messages(&mut self, mut messages: Vec<Message>) {
         Self::normalize_message_sequences(&mut messages);
+        self.total_message_count = messages.len() as u64;
         self.messages = messages;
+        self.trim_retained_messages();
     }
 
     /// Update aggregated diff
@@ -1488,7 +1531,7 @@ impl SessionHandle {
                 .pending_approval_id
                 .clone()
                 .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
-            message_count: self.messages.len(),
+            message_count: self.total_message_count as usize,
             token_usage: self.token_usage.clone(),
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             started_at: self.started_at.clone(),
@@ -1551,11 +1594,11 @@ impl SessionHandle {
     }
 
     /// Replay events since a given revision.
-    /// Returns `None` if the gap is too large (caller should send full snapshot).
+    /// Returns `None` if the gap is too large (caller should send a retained snapshot fallback).
     pub fn replay_since(&self, since_revision: u64) -> Option<Vec<String>> {
         let oldest = self.event_log.front().map(|(rev, _)| *rev)?;
         if oldest > since_revision + 1 {
-            return None; // Gap too large, need full snapshot
+            return None; // Gap too large, need a retained snapshot fallback.
         }
         let events: Vec<String> = self
             .event_log
@@ -1601,6 +1644,7 @@ impl SessionHandle {
             revision: self.revision,
             phase,
             messages: self.messages.clone(),
+            total_message_count: self.total_message_count,
             token_usage: self.token_usage.clone(),
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             current_diff: self.current_diff.clone(),
@@ -1625,6 +1669,7 @@ impl SessionHandle {
         let phase = state.phase.clone();
         self.work_status = phase.to_work_status();
         self.messages = state.messages;
+        self.total_message_count = state.total_message_count;
         self.token_usage = state.token_usage;
         self.token_usage_snapshot_kind = state.token_usage_snapshot_kind;
         self.current_diff = state.current_diff;
@@ -1667,6 +1712,7 @@ impl SessionHandle {
             self.pending_approval_id = None;
         }
 
+        self.trim_retained_messages();
         self.refresh_snapshot();
     }
 }
@@ -1748,7 +1794,7 @@ mod tests {
         );
         assert_eq!(work_status, WorkStatus::Permission);
 
-        let state = handle.state();
+        let state = handle.retained_state();
         assert_eq!(state.pending_approval_id.as_deref(), Some("req-2"));
         assert_eq!(
             state
@@ -1777,7 +1823,7 @@ mod tests {
         assert!(next_pending.is_none());
         assert_eq!(work_status, WorkStatus::Waiting);
 
-        let state = handle.state();
+        let state = handle.retained_state();
         assert_eq!(state.pending_approval_id, None);
         assert!(state.pending_approval.is_none());
     }
@@ -1793,7 +1839,7 @@ mod tests {
         apply_approval_event(&mut handle, "req-first", ApprovalType::Exec, None);
         apply_approval_event(&mut handle, "req-second", ApprovalType::Exec, None);
 
-        let state = handle.state();
+        let state = handle.retained_state();
         assert_eq!(
             state.pending_approval_id.as_deref(),
             Some("req-first"),
@@ -1830,7 +1876,7 @@ mod tests {
         );
         assert_eq!(work_status, WorkStatus::Permission);
 
-        let state = handle.state();
+        let state = handle.retained_state();
         assert_eq!(state.pending_approval_id.as_deref(), Some("req-1"));
     }
 
@@ -1861,8 +1907,45 @@ mod tests {
         );
         assert_eq!(work_status, WorkStatus::Permission);
 
-        let state = handle.state();
+        let state = handle.retained_state();
         assert_eq!(state.pending_approval_id.as_deref(), Some("req-2"));
+    }
+
+    #[test]
+    fn session_retains_recent_tail_but_reports_full_message_count() {
+        let mut handle = SessionHandle::new(
+            "session-retention".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+
+        for sequence in 0_u64..260 {
+            handle.add_message(Message {
+                id: format!("msg-{sequence}"),
+                session_id: handle.id().to_string(),
+                sequence: Some(sequence),
+                message_type: orbitdock_protocol::MessageType::Assistant,
+                content: format!("message-{sequence}"),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                is_error: false,
+                is_in_progress: false,
+                timestamp: "2026-03-08T00:00:00Z".to_string(),
+                duration_ms: None,
+                images: vec![],
+            });
+        }
+
+        assert_eq!(handle.messages().len(), RETAINED_FINALIZED_MESSAGE_LIMIT);
+        assert_eq!(handle.message_count(), 260);
+
+        let state = handle.retained_state();
+        assert_eq!(state.total_message_count, Some(260));
+        assert_eq!(state.has_more_before, Some(true));
+        assert_eq!(state.oldest_sequence, Some(60));
+        assert_eq!(state.newest_sequence, Some(259));
+        assert_eq!(state.messages.len(), RETAINED_FINALIZED_MESSAGE_LIMIT);
     }
 }
 
