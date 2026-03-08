@@ -15,15 +15,20 @@ Everything OrbitDock can do, organized by area.
 
 ## Dashboard
 
-- **Project-grouped sessions** — Active agents grouped by project directory
+- **Activity stream dashboard** — Active agents grouped into attention, working, and ready zones
 - **Multi-server merge** — Sessions from multiple connected endpoints are merged into one dashboard view
 - **Endpoint-safe identity** — Duplicate session IDs across servers are isolated by endpoint-scoped IDs
-- **Attention banner** — Sessions needing action surfaced at the top
-- **Session history** — Browse ended sessions grouped by project
-- **Live filters** — Filter by provider (All / Claude / Codex), sort active sessions, workbench filter
-- **Command strip** — Today's stats, usage gauges, "New Claude Session" and "New Codex Session" buttons
+- **Desktop sidebar** — Quick agent list, project filter, and usage snapshot on larger screens
+- **Live filters** — Filter by provider (All / Claude / Codex), sort active sessions, and focus by urgency
+- **Command strip** — Today's stats, usage gauges, library toggle, and new-session actions
 - **Keyboard navigation** — Arrow keys + Emacs bindings (C-n, C-p, C-a, C-e)
 - **Loading skeleton** — Smooth loading state before first data arrives
+
+## Library
+
+- **Project archive** — Browse active and ended sessions grouped by project
+- **Search and filters** — Search by title, prompt, project, or last message; filter by provider; sort by recent, name, cost, tokens, or status
+- **Shared session rows** — Library reuses the same naming precedence and row language as the dashboard
 
 ## Conversation View
 

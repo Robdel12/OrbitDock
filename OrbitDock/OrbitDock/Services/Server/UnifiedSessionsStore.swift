@@ -75,6 +75,7 @@ enum UnifiedSessionsProjection {
         var decorated = session
         decorated.endpointId = endpoint.id
         decorated.endpointName = endpoint.name
+        decorated.endpointConnectionStatus = input.status
 
         if shouldInclude(ref: ref, filter: filter) {
           mergedSessions.append(decorated)

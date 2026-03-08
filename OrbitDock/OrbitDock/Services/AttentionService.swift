@@ -42,7 +42,7 @@ final class AttentionService {
   func update(sessions: [Session], sessionObservable: (Session) -> SessionObservable?) {
     var newEvents: [AttentionEvent] = []
 
-    for session in sessions where session.status == .active {
+    for session in sessions where session.showsInMissionControl {
       let obs = sessionObservable(session)
       let now = Date()
 

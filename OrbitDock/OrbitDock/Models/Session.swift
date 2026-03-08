@@ -25,6 +25,7 @@ struct Session: Identifiable, Hashable, Sendable {
   let id: String
   var endpointId: UUID?
   var endpointName: String?
+  var endpointConnectionStatus: ConnectionStatus?
   let projectPath: String
   let projectName: String?
   var branch: String?
@@ -149,6 +150,7 @@ struct Session: Identifiable, Hashable, Sendable {
     id: String,
     endpointId: UUID? = nil,
     endpointName: String? = nil,
+    endpointConnectionStatus: ConnectionStatus? = nil,
     projectPath: String,
     projectName: String? = nil,
     branch: String? = nil,
@@ -191,6 +193,7 @@ struct Session: Identifiable, Hashable, Sendable {
     self.id = id
     self.endpointId = endpointId
     self.endpointName = endpointName
+    self.endpointConnectionStatus = endpointConnectionStatus
     self.projectPath = projectPath
     self.projectName = projectName
     self.branch = branch
@@ -244,8 +247,19 @@ struct Session: Identifiable, Hashable, Sendable {
   }
 
   var displayName: String {
-    let raw = customName ?? summary ?? firstPrompt ?? projectName ?? projectPath.components(separatedBy: "/").last ?? "Unknown"
-    return raw.strippingXMLTags()
+    [
+      customName,
+      summary,
+      firstPrompt,
+      projectName,
+      projectPath.components(separatedBy: "/").last,
+    ]
+    .compactMap { value -> String? in
+      guard let value else { return nil }
+      let cleaned = value.strippingXMLTags().trimmingCharacters(in: .whitespacesAndNewlines)
+      return cleaned.isEmpty ? nil : cleaned
+    }
+    .first ?? "Unknown"
   }
 
   /// Path used for project grouping — worktree sessions group with their parent repo.
@@ -261,6 +275,21 @@ struct Session: Identifiable, Hashable, Sendable {
 
   var isActive: Bool {
     status == .active
+  }
+
+  var hasLiveEndpointConnection: Bool {
+    guard let endpointConnectionStatus else { return true }
+    return endpointConnectionStatus == .connected
+  }
+
+  /// Active dashboard surfaces should only treat sessions as live when their
+  /// source endpoint is currently connected.
+  var showsInMissionControl: Bool {
+    isActive && hasLiveEndpointConnection
+  }
+
+  var hasUnreadMessages: Bool {
+    unreadCount > 0
   }
 
   var needsAttention: Bool {
@@ -479,7 +508,7 @@ extension String {
 
   /// Strips shell wrapper prefixes used by tooling so UI can show the actual command.
   /// e.g., "/bin/zsh -lc git status" -> "git status"
-  func strippingShellWrapperPrefix() -> String {
+  nonisolated func strippingShellWrapperPrefix() -> String {
     let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return trimmed }
 
@@ -497,7 +526,7 @@ extension String {
   }
 
   /// Build a display-friendly shell command from either a raw string or an argv-style array.
-  static func shellCommandDisplay(from value: Any?) -> String? {
+  nonisolated static func shellCommandDisplay(from value: Any?) -> String? {
     guard let value else { return nil }
 
     if let command = value as? String {
@@ -518,7 +547,7 @@ extension String {
     return nil
   }
 
-  private static func shellCommandDisplay(fromParts parts: [String]) -> String? {
+  nonisolated private static func shellCommandDisplay(fromParts parts: [String]) -> String? {
     guard !parts.isEmpty else { return nil }
 
     if let wrapped = ShellWrapperParser.extractWrappedCommand(from: parts) {
@@ -530,7 +559,7 @@ extension String {
   }
 }
 
-private enum ShellWrapperParser {
+nonisolated private enum ShellWrapperParser {
   struct Token {
     let value: String
   }
@@ -541,7 +570,7 @@ private enum ShellWrapperParser {
     "cmd", "cmd.exe",
   ]
 
-  static func extractWrappedCommandTokens(from tokens: [Token]) -> [String]? {
+  nonisolated static func extractWrappedCommandTokens(from tokens: [Token]) -> [String]? {
     guard let shellIndex = shellTokenIndex(in: tokens) else { return nil }
     let shell = executableName(from: tokens[shellIndex].value)
 
@@ -556,14 +585,14 @@ private enum ShellWrapperParser {
     return commandTokensForPosixShell(from: tokens, shellIndex: shellIndex)
   }
 
-  static func extractWrappedCommand(from parts: [String]) -> String? {
+  nonisolated static func extractWrappedCommand(from parts: [String]) -> String? {
     let tokens = parts.map { Token(value: $0) }
     guard let commandTokens = extractWrappedCommandTokens(from: tokens) else { return nil }
     let command = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
     return command.isEmpty ? nil : command
   }
 
-  static func tokenize(_ command: String) -> [Token] {
+  nonisolated static func tokenize(_ command: String) -> [Token] {
     var tokens: [Token] = []
     var index = command.startIndex
 

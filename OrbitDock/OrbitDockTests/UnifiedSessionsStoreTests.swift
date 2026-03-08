@@ -173,10 +173,50 @@ struct UnifiedSessionsStoreTests {
     #expect(snapshot.endpointHealth.first?.status == .connected)
     #expect(snapshot.endpointHealth.last?.status == .disconnected)
   }
+
+  @Test func notificationSessionMergePrefersCurrentSnapshotAndKeepsPreviousOnlySessions() throws {
+    let endpointId = try #require(UUID(uuidString: "12345678-1234-1234-1234-123456789abc"))
+
+    let previousShared = makeSession(
+      id: "shared",
+      endpointId: endpointId,
+      projectPath: "/repo/shared",
+      status: .active,
+      workStatus: .working,
+      lastActivityAt: Date(timeIntervalSince1970: 100)
+    )
+    let currentShared = makeSession(
+      id: "shared",
+      endpointId: endpointId,
+      projectPath: "/repo/shared",
+      status: .active,
+      workStatus: .waiting,
+      attentionReason: .awaitingReply,
+      lastActivityAt: Date(timeIntervalSince1970: 200)
+    )
+    let previousOnly = makeSession(
+      id: "previous-only",
+      endpointId: endpointId,
+      projectPath: "/repo/previous-only",
+      status: .active,
+      workStatus: .working,
+      lastActivityAt: Date(timeIntervalSince1970: 50)
+    )
+
+    let merged = MissionControlNotificationSessions.merge(
+      previousSessions: [previousShared, previousOnly],
+      currentSessions: [currentShared]
+    )
+
+    #expect(merged.map(\.id) == ["shared", "previous-only"])
+    #expect(merged.first?.workStatus == .waiting)
+    #expect(merged.first?.attentionReason == .awaitingReply)
+  }
 }
 
 private func makeSession(
   id: String,
+  endpointId: UUID? = nil,
   projectPath: String,
   status: Session.SessionStatus = .active,
   workStatus: Session.WorkStatus = .waiting,
@@ -185,6 +225,7 @@ private func makeSession(
 ) -> Session {
   Session(
     id: id,
+    endpointId: endpointId,
     projectPath: projectPath,
     projectName: URL(fileURLWithPath: projectPath).lastPathComponent,
     status: status,

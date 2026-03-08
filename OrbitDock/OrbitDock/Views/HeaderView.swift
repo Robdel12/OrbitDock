@@ -42,6 +42,18 @@ struct HeaderView: View {
     horizontalSizeClass == .compact
   }
 
+  private var currentContinuation: SessionContinuation {
+    SessionContinuation(
+      endpointId: endpointId,
+      sessionId: sessionId,
+      provider: obs.provider,
+      displayName: agentName,
+      projectPath: obs.projectPath,
+      model: obs.model,
+      hasGitRepository: obs.branch != nil || obs.repositoryRoot != nil || obs.isWorktree
+    )
+  }
+
   var body: some View {
     Group {
       if isCompactLayout {
@@ -103,7 +115,10 @@ struct HeaderView: View {
   // MARK: - Back Button
 
   private var backButton: some View {
-    Button(action: { router.goToDashboard() }) {
+    Button(action: {
+      Platform.services.playHaptic(.navigation)
+      router.goToDashboard()
+    }) {
       HStack(spacing: Spacing.xs) {
         Image(systemName: "chevron.left")
           .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -126,7 +141,10 @@ struct HeaderView: View {
   // MARK: - Session Title Dropdown
 
   private var sessionTitleDropdown: some View {
-    Button(action: { router.openQuickSwitcher() }) {
+    Button(action: {
+      Platform.services.playHaptic(.selection)
+      router.openQuickSwitcher()
+    }) {
       HStack(spacing: Spacing.xs) {
         Text(agentName)
           .font(.system(size: 17, weight: .semibold))
@@ -182,6 +200,7 @@ struct HeaderView: View {
           withAnimation(Motion.standard) {
             sidebarBinding.wrappedValue.toggle()
           }
+          Platform.services.playHaptic(.selection)
         } label: {
           Label(
             sidebarBinding.wrappedValue ? "Hide Sidebar" : "Show Sidebar",
@@ -189,6 +208,8 @@ struct HeaderView: View {
           )
         }
       }
+
+      continueMenuSection
 
       Divider()
 
@@ -459,6 +480,8 @@ struct HeaderView: View {
         }
       }
 
+      continueMenuSection
+
       Divider()
 
       debugContextMenu
@@ -479,6 +502,23 @@ struct HeaderView: View {
         .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     }
     .help("More")
+  }
+
+  @ViewBuilder
+  private var continueMenuSection: some View {
+    Section("Continue In New Session") {
+      Button {
+        router.openNewSession(provider: .claude, continuation: currentContinuation)
+      } label: {
+        Label("Claude Session", systemImage: "sparkles")
+      }
+
+      Button {
+        router.openNewSession(provider: .codex, continuation: currentContinuation)
+      } label: {
+        Label("Codex Session", systemImage: "chevron.left.forwardslash.chevron.right")
+      }
+    }
   }
 
   // MARK: - Nav Button Helper

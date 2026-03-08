@@ -2,8 +2,8 @@
 //  FlatSessionRow.swift
 //  OrbitDock
 //
-//  Two-line session row for project stream. Prioritizes scannability:
-//  Line 1: status dot + identity (branch + name) + model + duration
+//  Two-line session row shared by dashboard archive surfaces. Prioritizes scannability:
+//  Line 1: unread dot + identity (branch + name) + status + model
 //  Line 2: first prompt snippet for context
 //
 
@@ -37,49 +37,16 @@ struct FlatSessionRow: View {
     runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count > 1
   }
 
-  /// Whether the label is a real name vs a first-prompt fallback.
-  /// The rollout watcher stuffs first_prompt into custom_name as a placeholder —
-  /// detect that and treat it as "no real name".
-  private var hasRealName: Bool {
-    if let summary = session.summary, !summary.isEmpty { return true }
-    if let custom = session.customName, !custom.isEmpty {
-      // If custom_name matches first_prompt, it's not a real name
-      if let prompt = session.firstPrompt, !prompt.isEmpty {
-        let customClean = custom.trimmingCharacters(in: .whitespaces)
-        let promptClean = prompt.strippingXMLTags()
-          .replacingOccurrences(of: "\n", with: " ")
-          .trimmingCharacters(in: .whitespaces)
-        if customClean.hasPrefix(String(promptClean.prefix(40))) {
-          return false
-        }
-      }
-      return true
+  /// Whether the title comes from a named conversation rather than the prompt fallback.
+  private var hasExplicitTitle: Bool {
+    [session.customName, session.summary].contains { value in
+      guard let value else { return false }
+      return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-    return false
   }
 
-  /// Smart name: real name → first prompt → generic fallback.
-  /// Model shorthand is NOT used — the model badge already shows on the right.
   private var agentLabel: String {
-    if hasRealName {
-      if let custom = session.customName, !custom.isEmpty {
-        return custom.strippingXMLTags()
-      }
-      if let summary = session.summary, !summary.isEmpty {
-        return summary.strippingXMLTags()
-      }
-    }
-
-    if let prompt = session.firstPrompt, !prompt.isEmpty {
-      return cleanPrompt(prompt, maxLength: 65)
-    }
-
-    // customName that IS a real name but no first_prompt — use it
-    if let custom = session.customName, !custom.isEmpty {
-      return custom.strippingXMLTags()
-    }
-
-    return "Untitled session"
+    session.displayName
   }
 
   /// Context line — shows last message for current activity context,
@@ -87,7 +54,7 @@ struct FlatSessionRow: View {
   private var contextLine: String? {
     // Prefer last message — shows what's happening now
     if let lastMsg = session.lastMessage, !lastMsg.isEmpty {
-      let cleaned = cleanPrompt(lastMsg, maxLength: 80)
+      let cleaned = DashboardFormatters.cleanPrompt(lastMsg, maxLength: 100)
       // Don't show if it's identical to the agent label (avoids redundancy)
       if cleaned != agentLabel {
         return cleaned
@@ -95,23 +62,13 @@ struct FlatSessionRow: View {
     }
 
     // Fall back to first prompt when there's a real name above
-    if hasRealName {
+    if hasExplicitTitle {
       if let prompt = session.firstPrompt, !prompt.isEmpty {
-        return cleanPrompt(prompt, maxLength: 80)
+        return DashboardFormatters.cleanPrompt(prompt, maxLength: 100)
       }
     }
 
     return nil
-  }
-
-  private func cleanPrompt(_ prompt: String, maxLength: Int) -> String {
-    let clean = prompt.strippingXMLTags()
-      .replacingOccurrences(of: "\n", with: " ")
-      .trimmingCharacters(in: .whitespaces)
-    if clean.count > maxLength {
-      return String(clean.prefix(maxLength - 3)) + "..."
-    }
-    return clean
   }
 
   /// Branch to show inline — hidden when suppressed by project header or when on default branch
@@ -126,25 +83,14 @@ struct FlatSessionRow: View {
   }
 
   private var activityRecency: String? {
-    let activity = session.lastActivityAt ?? session.startedAt
-    guard let activity else { return nil }
-    let interval = Date().timeIntervalSince(activity)
-
-    if interval < 60 {
-      return "just now"
-    }
-    if interval < 3_600 {
-      return "\(Int(interval / 60))m"
-    }
-    if interval < 86_400 {
-      let hours = Int(interval / 3_600)
-      return "\(hours)h"
-    }
-    return "\(Int(interval / 86_400))d"
+    DashboardFormatters.recency(for: session.lastActivityAt ?? session.startedAt)
   }
 
   var body: some View {
-    Button(action: onSelect) {
+    Button {
+      Platform.services.playHaptic(.navigation)
+      onSelect()
+    } label: {
       Group {
         if isPhoneCompact {
           compactRowContent
@@ -185,8 +131,8 @@ struct FlatSessionRow: View {
 
   private var regularRowContent: some View {
     HStack(spacing: Spacing.md_) {
-      // Status dot
-      SessionStatusDot(status: displayStatus, size: 8, showGlow: displayStatus.needsAttention)
+      // Reserve the leading dot for unread state.
+      UnreadIndicatorDot(isVisible: session.hasUnreadMessages, size: 8)
         .frame(width: 14)
 
       // Main content — two lines
@@ -195,10 +141,10 @@ struct FlatSessionRow: View {
         HStack(spacing: 5) {
           Text(agentLabel)
             .font(.system(
-              size: hasRealName ? TypeScale.subhead : TypeScale.code,
-              weight: hasRealName ? .semibold : .regular
+              size: hasExplicitTitle ? TypeScale.subhead : TypeScale.code,
+              weight: hasExplicitTitle ? .semibold : .regular
             ))
-            .foregroundStyle(hasRealName ? .primary : Color.textSecondary)
+            .foregroundStyle(hasExplicitTitle ? .primary : Color.textSecondary)
             .lineLimit(1)
 
           if hasMultipleEndpoints, session.endpointName != nil {
@@ -240,7 +186,7 @@ struct FlatSessionRow: View {
         if let context = contextLine {
           Text(context)
             .font(.system(size: TypeScale.caption, weight: .regular))
-            .foregroundStyle(Color.textTertiary)
+            .foregroundStyle(Color.textSecondary)
             .lineLimit(1)
         }
       }
@@ -256,7 +202,7 @@ struct FlatSessionRow: View {
 
   private var compactRowContent: some View {
     HStack(alignment: .top, spacing: Spacing.sm) {
-      SessionStatusDot(status: displayStatus, size: 7, showGlow: displayStatus.needsAttention)
+      UnreadIndicatorDot(isVisible: session.hasUnreadMessages, size: 7)
         .frame(width: 12)
         .padding(.top, Spacing.xxs)
 
@@ -277,7 +223,7 @@ struct FlatSessionRow: View {
         if let context = contextLine {
           Text(context)
             .font(.system(size: TypeScale.caption, weight: .regular))
-            .foregroundStyle(Color.textQuaternary)
+            .foregroundStyle(Color.textSecondary)
             .lineLimit(1)
         }
 
@@ -428,18 +374,6 @@ struct FlatSessionRow: View {
     return Color.surfaceBorder.opacity(OpacityTier.subtle)
   }
 
-  // MARK: - Formatting
-
-  private func formatTokens(_ value: Int) -> String {
-    if value <= 0 { return "—" }
-    if value >= 1_000_000 {
-      return String(format: "%.1fM", Double(value) / 1_000_000)
-    }
-    if value >= 1_000 {
-      return String(format: "%.1fk", Double(value) / 1_000)
-    }
-    return "\(value)"
-  }
 }
 
 #Preview {

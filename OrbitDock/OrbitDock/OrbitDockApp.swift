@@ -81,6 +81,11 @@ struct OrbitDockApp: App {
           }
           .keyboardShortcut("0", modifiers: .command)
 
+          Button("Library") {
+            router.goToLibrary()
+          }
+          .keyboardShortcut("1", modifiers: .command)
+
           Button("Quick Switch") {
             router.openQuickSwitcher()
           }

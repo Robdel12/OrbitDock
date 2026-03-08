@@ -12,11 +12,15 @@ import SwiftUI
     @Environment(\.colorScheme) private var colorScheme
 
     var activeSessions: [Session] {
-      serverState.sessions.filter(\.isActive)
+      serverState.sessions.filter(\.showsInMissionControl)
     }
 
     var recentSessions: [Session] {
-      serverState.sessions.filter { !$0.isActive }.prefix(5).map { $0 }
+      serverState.sessions
+        .filter { !$0.showsInMissionControl }
+        .sorted { activityDate(for: $0) > activityDate(for: $1) }
+        .prefix(5)
+        .map { $0 }
     }
 
     var body: some View {
@@ -191,6 +195,10 @@ import SwiftUI
 
     private var dividerColor: Color {
       colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.1)
+    }
+
+    private func activityDate(for session: Session) -> Date {
+      session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
     }
   }
 

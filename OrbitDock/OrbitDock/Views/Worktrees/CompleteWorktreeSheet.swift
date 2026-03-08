@@ -155,6 +155,7 @@ struct CompleteWorktreeSheet: View {
         .keyboardShortcut(.cancelAction)
 
         Button(mode.actionLabel) {
+          Platform.services.playHaptic(mode == .archive ? .action : .warning)
           onConfirm(cleanupRequest)
         }
         .keyboardShortcut(.defaultAction)
@@ -271,6 +272,7 @@ struct CompleteWorktreeSheet: View {
 
           ToolbarItem(placement: .confirmationAction) {
             Button(mode == .archive ? "Archive" : "Complete") {
+              Platform.services.playHaptic(mode == .archive ? .action : .warning)
               onConfirm(cleanupRequest)
             }
           }

@@ -161,6 +161,7 @@ struct RemoteProjectPicker: View {
           withAnimation(Motion.hover) {
             activeTab = tab
           }
+          Platform.services.playHaptic(.selection)
           if tab == .browse, directoryEntries.isEmpty {
             browseDirectory(nil)
           }
@@ -273,6 +274,7 @@ struct RemoteProjectPicker: View {
     Button {
       selectedPath = project.path
       selectedPathIsGit = true
+      Platform.services.playHaptic(.selection)
     } label: {
       HStack(alignment: .top, spacing: Spacing.md) {
         Image(systemName: "folder.fill")
@@ -338,6 +340,7 @@ struct RemoteProjectPicker: View {
     Button {
       selectedPath = group.repoPath
       selectedPathIsGit = true
+      Platform.services.playHaptic(.selection)
     } label: {
       HStack(alignment: .top, spacing: Spacing.md) {
         Image(systemName: "folder.fill")
@@ -401,6 +404,7 @@ struct RemoteProjectPicker: View {
     Button {
       selectedPath = worktree.project.path
       selectedPathIsGit = true
+      Platform.services.playHaptic(.selection)
     } label: {
       HStack(alignment: .top, spacing: Spacing.md) {
         Image(systemName: "arrow.triangle.branch")
@@ -471,6 +475,7 @@ struct RemoteProjectPicker: View {
         if !browseHistory.isEmpty {
           Button {
             navigateBack()
+            Platform.services.playHaptic(.selection)
           } label: {
             Image(systemName: "chevron.left")
               .font(.system(size: 11, weight: .semibold))
@@ -493,6 +498,7 @@ struct RemoteProjectPicker: View {
           Button {
             selectedPath = currentBrowsePath
             selectedPathIsGit = false
+            Platform.services.playHaptic(.action)
           } label: {
             Text("Use This")
               .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -536,9 +542,11 @@ struct RemoteProjectPicker: View {
         // Git repo — select it as the project path
         selectedPath = newPath
         selectedPathIsGit = true
+        Platform.services.playHaptic(.selection)
       } else {
         // Regular dir — navigate into it
         browseDirectory(newPath)
+        Platform.services.playHaptic(.selection)
       }
     } label: {
       HStack(spacing: Spacing.md) {
@@ -605,6 +613,7 @@ struct RemoteProjectPicker: View {
         guard !trimmed.isEmpty else { return }
         selectedPath = trimmed
         selectedPathIsGit = false // Unknown — let the sheet handle verification
+        Platform.services.playHaptic(.action)
       } label: {
         Text("Use Path")
           .font(.system(size: TypeScale.body, weight: .semibold))

@@ -24,12 +24,15 @@ class ToastManager: ObservableObject {
   private let dismissDuration: TimeInterval = 5.0
 
   private var dismissTasks: [UUID: Task<Void, Never>] = [:]
+  private var lastAttentionHapticAt = Date.distantPast
 
   private init() {}
 
   /// Show a toast for a session that needs attention
   func showToast(for session: Session) {
     let scopedID = session.scopedID
+
+    guard session.showsInMissionControl else { return }
 
     // Don't show if viewing this session
     guard scopedID != currentSessionId else { return }
@@ -51,6 +54,10 @@ class ToastManager: ObservableObject {
 
     notifiedSessionIds.insert(scopedID)
     toasts.append(toast)
+    if Date().timeIntervalSince(lastAttentionHapticAt) > 0.75 {
+      Platform.services.playHaptic(.warning)
+      lastAttentionHapticAt = Date()
+    }
 
     // Schedule auto-dismiss
     let task = Task {

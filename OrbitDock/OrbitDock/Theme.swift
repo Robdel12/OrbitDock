@@ -170,6 +170,9 @@ extension Color {
   static let surfaceBorder = accent.opacity(0.10)
   static let surfaceActive = accent.opacity(0.20)
 
+  /// Elevated card surface — subtle lift above backgroundPrimary for turn cards
+  static let surfaceElevated = Color.white.opacity(0.04)
+
   /// Row highlight
   static let rowHighlight = Color(red: 0.15, green: 0.18, blue: 0.28).opacity(0.35)
 
@@ -612,6 +615,27 @@ struct SessionStatusDot: View {
         radius: glow.radius
       )
       .frame(width: size * 2.5, height: size * 2.5)
+  }
+}
+
+/// Unread indicator reserved for list rows where the dot channel means "new activity".
+struct UnreadIndicatorDot: View {
+  var isVisible: Bool
+  var size: CGFloat = IconScale.xs
+  var color: Color = .accent
+
+  var body: some View {
+    let glow = Shadow.glow(color: color)
+
+    Circle()
+      .fill(isVisible ? color : Color.clear)
+      .frame(width: size, height: size)
+      .shadow(
+        color: isVisible ? glow.color.opacity(0.75) : .clear,
+        radius: isVisible ? glow.radius * 0.6 : 0
+      )
+      .frame(width: size * 2.5, height: size * 2.5)
+      .accessibilityHidden(true)
   }
 }
 

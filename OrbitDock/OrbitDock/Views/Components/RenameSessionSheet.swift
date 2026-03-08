@@ -68,6 +68,7 @@ struct RenameSessionSheet: View {
       HStack {
         if !initialText.isEmpty {
           Button("Clear Name") {
+            Platform.services.playHaptic(.action)
             onSave("")
           }
           .buttonStyle(.plain)
@@ -77,11 +78,13 @@ struct RenameSessionSheet: View {
         Spacer()
 
         Button("Cancel") {
+          Platform.services.playHaptic(.selection)
           onCancel()
         }
         .keyboardShortcut(.cancelAction)
 
         Button("Save") {
+          Platform.services.playHaptic(.action)
           onSave(text)
         }
         .keyboardShortcut(.defaultAction)
@@ -158,6 +161,7 @@ struct RenameSessionSheet: View {
 
             if !initialText.isEmpty {
               Button {
+                Platform.services.playHaptic(.action)
                 onSave("")
               } label: {
                 Label("Use AI Title", systemImage: "sparkles")
@@ -177,12 +181,14 @@ struct RenameSessionSheet: View {
         .toolbar {
           ToolbarItem(placement: .cancellationAction) {
             Button("Cancel") {
+              Platform.services.playHaptic(.selection)
               onCancel()
             }
           }
 
           ToolbarItem(placement: .confirmationAction) {
             Button("Save") {
+              Platform.services.playHaptic(.action)
               onSave(text)
             }
             .disabled(text == initialText)

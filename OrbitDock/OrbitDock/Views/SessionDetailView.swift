@@ -158,6 +158,7 @@ struct SessionDetailView: View {
     .onAppear {
       if shouldSubscribeToServerSession {
         serverState.subscribeToSession(sessionId)
+        serverState.setSessionAutoMarkRead(sessionId, enabled: isPinned)
         if obs.isDirect {
           serverState.loadApprovalHistory(sessionId: sessionId)
           serverState.loadGlobalApprovalHistory()
@@ -169,8 +170,13 @@ struct SessionDetailView: View {
     }
     .onDisappear {
       if shouldSubscribeToServerSession {
+        serverState.setSessionAutoMarkRead(sessionId, enabled: false)
         serverState.unsubscribeFromSession(sessionId)
       }
+    }
+    .onChange(of: isPinned) { _, pinned in
+      guard shouldSubscribeToServerSession else { return }
+      serverState.setSessionAutoMarkRead(sessionId, enabled: pinned)
     }
     .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
       Button("Open New") { Task { await TerminalService.shared.focusSession(terminalSession) } }

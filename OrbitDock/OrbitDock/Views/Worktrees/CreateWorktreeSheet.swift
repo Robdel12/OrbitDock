@@ -204,6 +204,7 @@ struct CreateWorktreeSheet: View {
 
   private func submitCreate() {
     let base = trimmedBaseBranch
+    Platform.services.playHaptic(.action)
     onCreate(trimmedBranchName, base.isEmpty ? nil : base)
   }
 }

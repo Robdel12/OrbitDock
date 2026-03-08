@@ -66,6 +66,7 @@ class NotificationManager {
 
     guard isAuthorized else { return }
     guard notificationsEnabled else { return }
+    guard session.showsInMissionControl else { return }
     guard !notifiedSessionIds.contains(scopedID) else { return }
 
     notifiedSessionIds.insert(scopedID)
@@ -113,17 +114,14 @@ class NotificationManager {
   func updateSessionWorkStatus(session: Session) {
     let scopedID = session.scopedID
     let wasWorking = workingSessionIds.contains(scopedID)
-    let isWorking = session.isActive && session.workStatus == .working
+    let isWorking = session.showsInMissionControl && session.workStatus == .working
 
     if isWorking {
-      // Session started working
       workingSessionIds.insert(scopedID)
-    } else if wasWorking, !isWorking, session.isActive {
-      // Session was working but now stopped (waiting/permission)
+    } else if wasWorking, session.showsInMissionControl {
       workingSessionIds.remove(scopedID)
       notifyWorkComplete(session: session)
-    } else if !session.isActive {
-      // Session ended, clean up
+    } else if !session.showsInMissionControl {
       workingSessionIds.remove(scopedID)
     }
   }

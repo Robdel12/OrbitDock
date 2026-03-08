@@ -173,7 +173,7 @@ struct QuickSwitcher: View {
         shortcut: nil,
         requiresSession: false,
         action: { _ in
-          router.showNewClaudeSheet = true
+          router.openNewSession(provider: .claude)
           router.closeQuickSwitcher()
         }
       ),
@@ -184,7 +184,7 @@ struct QuickSwitcher: View {
         shortcut: nil,
         requiresSession: false,
         action: { _ in
-          router.showNewCodexSheet = true
+          router.openNewSession(provider: .codex)
           router.closeQuickSwitcher()
         }
       ),
@@ -239,15 +239,15 @@ struct QuickSwitcher: View {
   /// All active sessions sorted by start time (newest first)
   private var activeSessions: [Session] {
     filteredSessions
-      .filter(\.isActive)
+      .filter(\.showsInMissionControl)
       .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
   }
 
-  /// Recent ended sessions
+  /// Recent inactive sessions, including sessions cached from offline endpoints.
   private var recentSessions: [Session] {
     filteredSessions
-      .filter { !$0.isActive }
-      .sorted { ($0.endedAt ?? .distantPast) > ($1.endedAt ?? .distantPast) }
+      .filter { !$0.showsInMissionControl }
+      .sorted { recentSessionDate(for: $0) > recentSessionDate(for: $1) }
       .prefix(20)
       .map { $0 }
   }
@@ -445,8 +445,10 @@ struct QuickSwitcher: View {
     if command.requiresSession {
       // Use current session (from ContentView), or target (from navigation), or first visible
       guard let session = currentSession ?? targetSession ?? allVisibleSessions.first else { return }
+      Platform.services.playHaptic(.action)
       command.action(session)
     } else {
+      Platform.services.playHaptic(.action)
       command.action(nil)
     }
   }
@@ -843,6 +845,7 @@ struct QuickSwitcher: View {
     let iconSize: CGFloat = isCompactLayout ? 28 : 32
 
     return Button {
+      Platform.services.playHaptic(.navigation)
       router.goToDashboard()
       router.closeQuickSwitcher()
     } label: {
@@ -903,6 +906,7 @@ struct QuickSwitcher: View {
     let displayStatus = SessionDisplayStatus.from(session)
 
     return Button {
+      Platform.services.playHaptic(.navigation)
       router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
       router.closeQuickSwitcher()
     } label: {
@@ -954,7 +958,7 @@ struct QuickSwitcher: View {
               .lineLimit(1)
 
             // Activity indicator for active sessions
-            if session.isActive {
+            if session.showsInMissionControl {
               activityIndicator(for: session, status: displayStatus)
             } else {
               // Ended badge with relative time
@@ -994,7 +998,7 @@ struct QuickSwitcher: View {
               Platform.services.copyToClipboard(command)
               router.closeQuickSwitcher()
             }
-            if session.isActive {
+            if session.showsInMissionControl {
               actionButton(icon: "xmark.circle", tooltip: "Close Session") {
                 appState(for: session).endSession(session.id)
                 router.closeQuickSwitcher()
@@ -1053,7 +1057,7 @@ struct QuickSwitcher: View {
         Label("Copy Resume Command", systemImage: "doc.on.doc")
       }
 
-      if session.isActive {
+      if session.showsInMissionControl {
         Divider()
         Button(role: .destructive) {
           appState(for: session).endSession(session.id)
@@ -1075,6 +1079,10 @@ struct QuickSwitcher: View {
     }
     .buttonStyle(.plain)
     .help(tooltip)
+  }
+
+  private func recentSessionDate(for session: Session) -> Date {
+    session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
   }
 
   // MARK: - Empty State
@@ -1192,6 +1200,7 @@ struct QuickSwitcher: View {
 
     // Dashboard is after commands
     if selectedIndex == dashboardIndex {
+      Platform.services.playHaptic(.navigation)
       router.goToDashboard()
       router.closeQuickSwitcher()
       return
@@ -1201,6 +1210,7 @@ struct QuickSwitcher: View {
     let sessionIndex = selectedIndex - sessionStartIndex
     guard sessionIndex >= 0, sessionIndex < allVisibleSessions.count else { return }
     let session = allVisibleSessions[sessionIndex]
+    Platform.services.playHaptic(.navigation)
     router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
     router.closeQuickSwitcher()
   }
@@ -1337,6 +1347,7 @@ struct QuickSwitcher: View {
 
   private func quickLaunchSession(path: String) {
     guard let provider = quickLaunchMode else { return }
+    Platform.services.playHaptic(.action)
     switch provider {
       case .claude:
         onQuickLaunchClaude?(path)
@@ -1348,12 +1359,8 @@ struct QuickSwitcher: View {
 
   private func openFullSheet() {
     guard let provider = quickLaunchMode else { return }
-    switch provider {
-      case .claude:
-        router.showNewClaudeSheet = true
-      case .codex:
-        router.showNewCodexSheet = true
-    }
+    Platform.services.playHaptic(.selection)
+    router.openNewSession(provider: provider == .claude ? .claude : .codex)
     router.closeQuickSwitcher()
   }
 }
