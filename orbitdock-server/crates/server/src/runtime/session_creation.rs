@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tokio::sync::mpsc;
 
 use orbitdock_protocol::{
@@ -6,6 +8,11 @@ use orbitdock_protocol::{
 
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
+use crate::runtime::session_direct_start::{
+    start_direct_claude_session, start_direct_codex_session,
+};
+use crate::runtime::session_mutations::end_failed_direct_session;
+use crate::runtime::session_registry::SessionRegistry;
 
 pub(crate) struct DirectSessionCreationInputs {
     pub id: String,
@@ -20,6 +27,27 @@ pub(crate) struct DirectSessionCreationInputs {
 
 pub(crate) struct PreparedDirectSession {
     pub project_name: Option<String>,
+    pub handle: SessionHandle,
+    pub summary: SessionSummary,
+    pub snapshot: SessionState,
+}
+
+#[derive(Clone)]
+pub(crate) struct DirectSessionRequest {
+    pub provider: Provider,
+    pub cwd: String,
+    pub model: Option<String>,
+    pub approval_policy: Option<String>,
+    pub sandbox_mode: Option<String>,
+    pub permission_mode: Option<String>,
+    pub allowed_tools: Vec<String>,
+    pub disallowed_tools: Vec<String>,
+    pub effort: Option<String>,
+}
+
+pub(crate) struct PreparedPersistedDirectSession {
+    pub id: String,
+    pub request: DirectSessionRequest,
     pub handle: SessionHandle,
     pub summary: SessionSummary,
     pub snapshot: SessionState,
@@ -93,9 +121,98 @@ pub(crate) async fn persist_direct_session_create(
     }
 }
 
+pub(crate) async fn prepare_persist_direct_session(
+    state: &Arc<SessionRegistry>,
+    id: String,
+    request: DirectSessionRequest,
+) -> PreparedPersistedDirectSession {
+    let git_branch = crate::domain::git::repo::resolve_git_branch(&request.cwd).await;
+    let prepared = prepare_direct_session(DirectSessionCreationInputs {
+        id: id.clone(),
+        provider: request.provider,
+        cwd: request.cwd.clone(),
+        git_branch: git_branch.clone(),
+        model: request.model.clone(),
+        approval_policy: request.approval_policy.clone(),
+        sandbox_mode: request.sandbox_mode.clone(),
+        effort: request.effort.clone(),
+    });
+
+    let persist_tx = state.persist().clone();
+    persist_direct_session_create(
+        &persist_tx,
+        id.clone(),
+        request.provider,
+        request.cwd.clone(),
+        prepared.project_name,
+        git_branch,
+        request.model.clone(),
+        request.approval_policy.clone(),
+        request.sandbox_mode.clone(),
+        request.permission_mode.clone(),
+        request.effort.clone(),
+    )
+    .await;
+
+    PreparedPersistedDirectSession {
+        id,
+        request,
+        handle: prepared.handle,
+        summary: prepared.summary,
+        snapshot: prepared.snapshot,
+    }
+}
+
+pub(crate) async fn launch_prepared_direct_session(
+    state: &Arc<SessionRegistry>,
+    prepared: PreparedPersistedDirectSession,
+) -> Result<(), String> {
+    let session_id = prepared.id.clone();
+    let request = prepared.request.clone();
+    let handle = prepared.handle;
+
+    let start_result = match request.provider {
+        Provider::Codex => {
+            start_direct_codex_session(
+                state,
+                handle,
+                &session_id,
+                &request.cwd,
+                request.model.as_deref(),
+                request.approval_policy.as_deref(),
+                request.sandbox_mode.as_deref(),
+            )
+            .await
+        }
+        Provider::Claude => {
+            start_direct_claude_session(
+                state,
+                handle,
+                &session_id,
+                &request.cwd,
+                request.model.as_deref(),
+                request.permission_mode.as_deref(),
+                &request.allowed_tools,
+                &request.disallowed_tools,
+                request.effort.as_deref(),
+            )
+            .await
+        }
+    };
+
+    if start_result.is_err() {
+        end_failed_direct_session(state, &session_id).await;
+    }
+
+    start_result
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{prepare_direct_session, DirectSessionCreationInputs};
+    use super::{
+        prepare_direct_session, DirectSessionCreationInputs, DirectSessionRequest,
+        PreparedPersistedDirectSession,
+    };
     use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
 
     #[test]
@@ -143,5 +260,43 @@ mod tests {
         );
         assert_eq!(prepared.snapshot.model.as_deref(), Some("claude-opus"));
         assert_eq!(prepared.snapshot.approval_policy, None);
+    }
+
+    #[test]
+    fn prepared_persisted_direct_session_keeps_transport_relevant_state() {
+        let request = DirectSessionRequest {
+            provider: Provider::Claude,
+            cwd: "/tmp/claude".into(),
+            model: Some("claude-opus".into()),
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: Some("plan".into()),
+            allowed_tools: vec!["Read".into()],
+            disallowed_tools: vec!["Edit".into()],
+            effort: Some("medium".into()),
+        };
+        let prepared = prepare_direct_session(DirectSessionCreationInputs {
+            id: "session-3".into(),
+            provider: request.provider,
+            cwd: request.cwd.clone(),
+            git_branch: None,
+            model: request.model.clone(),
+            approval_policy: request.approval_policy.clone(),
+            sandbox_mode: request.sandbox_mode.clone(),
+            effort: request.effort.clone(),
+        });
+
+        let persisted = PreparedPersistedDirectSession {
+            id: "session-3".into(),
+            request,
+            handle: prepared.handle,
+            summary: prepared.summary,
+            snapshot: prepared.snapshot,
+        };
+
+        assert_eq!(persisted.summary.id, "session-3");
+        assert_eq!(persisted.snapshot.id, "session-3");
+        assert_eq!(persisted.request.permission_mode.as_deref(), Some("plan"));
+        assert_eq!(persisted.request.allowed_tools, vec!["Read"]);
     }
 }

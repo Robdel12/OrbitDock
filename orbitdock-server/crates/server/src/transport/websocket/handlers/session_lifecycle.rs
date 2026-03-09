@@ -1004,3 +1004,117 @@ pub(crate) async fn handle(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::mpsc;
+
+    use orbitdock_protocol::{ClientMessage, Provider, ServerMessage, SessionStatus};
+
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::transport::websocket::test_support::{new_test_state, recv_json};
+
+    use super::handle;
+
+    #[tokio::test]
+    async fn resume_session_rejects_already_active_sessions() {
+        let state = new_test_state();
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let session_handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/orbitdock-active".to_string(),
+        );
+        state.add_session(session_handle);
+
+        let (client_tx, mut client_rx) = mpsc::channel(8);
+        handle(
+            ClientMessage::ResumeSession {
+                session_id: session_id.clone(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::Error {
+                code,
+                session_id: returned_session_id,
+                ..
+            } => {
+                assert_eq!(code, "already_active");
+                assert_eq!(returned_session_id.as_deref(), Some(session_id.as_str()));
+            }
+            other => panic!("expected already_active error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn resume_session_reports_not_found_for_missing_session() {
+        let state = new_test_state();
+        let missing_id = format!("od-{}", orbitdock_protocol::new_id());
+        let (client_tx, mut client_rx) = mpsc::channel(8);
+
+        handle(
+            ClientMessage::ResumeSession {
+                session_id: missing_id.clone(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::Error {
+                code,
+                session_id: returned_session_id,
+                ..
+            } => {
+                assert_eq!(code, "not_found");
+                assert_eq!(returned_session_id.as_deref(), Some(missing_id.as_str()));
+            }
+            other => panic!("expected not_found error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn resume_session_treats_ended_runtime_handles_as_resumable() {
+        let state = new_test_state();
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let mut session_handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/orbitdock-ended".to_string(),
+        );
+        session_handle.set_status(SessionStatus::Ended);
+        state.add_session(session_handle);
+
+        let (client_tx, mut client_rx) = mpsc::channel(8);
+        handle(
+            ClientMessage::ResumeSession {
+                session_id: session_id.clone(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::Error {
+                code,
+                session_id: returned_session_id,
+                ..
+            } => {
+                assert_eq!(code, "not_found");
+                assert_eq!(returned_session_id.as_deref(), Some(session_id.as_str()));
+            }
+            other => {
+                panic!("expected not_found error after clearing ended handle, got {other:?}")
+            }
+        }
+    }
+}

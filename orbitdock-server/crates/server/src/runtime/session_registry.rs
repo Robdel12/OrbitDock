@@ -77,10 +77,27 @@ pub struct SessionRegistry {
 impl SessionRegistry {
     #[cfg(test)]
     pub fn new(persist_tx: mpsc::Sender<PersistCommand>) -> Self {
-        Self::new_with_primary(persist_tx, true)
+        Self::new_with_primary_and_db_path(
+            persist_tx,
+            crate::infrastructure::paths::db_path(),
+            true,
+        )
     }
 
+    #[cfg(test)]
     pub fn new_with_primary(persist_tx: mpsc::Sender<PersistCommand>, is_primary: bool) -> Self {
+        Self::new_with_primary_and_db_path(
+            persist_tx,
+            crate::infrastructure::paths::db_path(),
+            is_primary,
+        )
+    }
+
+    pub fn new_with_primary_and_db_path(
+        persist_tx: mpsc::Sender<PersistCommand>,
+        db_path: PathBuf,
+        is_primary: bool,
+    ) -> Self {
         let (list_tx, _) = broadcast::channel(64);
         let codex_auth = Arc::new(CodexAuthService::new(list_tx.clone()));
         Self {
@@ -88,7 +105,7 @@ impl SessionRegistry {
             connectors: ConnectorRegistry::new(),
             list_tx,
             persist_tx,
-            db_path: crate::infrastructure::paths::db_path(),
+            db_path,
             codex_auth,
             naming_guard: Arc::new(NamingGuard::new()),
             pending_claude_sessions: DashMap::new(),

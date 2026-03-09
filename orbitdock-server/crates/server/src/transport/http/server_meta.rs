@@ -8,9 +8,9 @@ use orbitdock_protocol::{
 use serde::Serialize;
 
 use crate::runtime::session_registry::SessionRegistry;
+use crate::support::usage_errors::not_control_plane_endpoint_error;
 
 use super::errors::{ApiErrorResponse, ApiResult};
-use super::server_info::not_control_plane_endpoint_error;
 
 #[derive(Debug, Serialize)]
 pub struct CodexUsageResponse {
@@ -87,4 +87,41 @@ pub async fn list_claude_models() -> Json<ClaudeModelsResponse> {
     Json(ClaudeModelsResponse {
         models: crate::infrastructure::persistence::load_cached_claude_models(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{extract::State, Json};
+
+    use crate::transport::http::test_support::new_test_state;
+
+    #[tokio::test]
+    async fn usage_endpoints_return_control_plane_error_when_secondary() {
+        let state = new_test_state(false);
+
+        let Json(codex) = fetch_codex_usage(State(state.clone())).await;
+        assert!(codex.usage.is_none());
+        assert_eq!(
+            codex.error_info.as_ref().map(|info| info.code.as_str()),
+            Some("not_control_plane_endpoint")
+        );
+
+        let Json(claude) = fetch_claude_usage(State(state)).await;
+        assert!(claude.usage.is_none());
+        assert_eq!(
+            claude.error_info.as_ref().map(|info| info.code.as_str()),
+            Some("not_control_plane_endpoint")
+        );
+    }
+
+    #[tokio::test]
+    async fn claude_models_endpoint_returns_cached_shape() {
+        crate::support::test_support::ensure_server_test_data_dir();
+        let Json(response) = list_claude_models().await;
+        assert!(response
+            .models
+            .iter()
+            .all(|model| !model.value.trim().is_empty()));
+    }
 }

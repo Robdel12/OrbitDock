@@ -6,3 +6,4 @@ pub(crate) mod session_time;
 pub(crate) mod snapshot_compaction;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub(crate) mod usage_errors;

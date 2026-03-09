@@ -175,7 +175,7 @@ pub async fn create_worktree(
     Json(body): Json<CreateWorktreeRequest>,
 ) -> ApiResult<WorktreeCreatedResponse> {
     let worktree_revision = revision_now();
-    match crate::domain::worktrees::service::create_tracked_worktree(
+    match crate::runtime::worktree_creation::create_tracked_worktree(
         &state,
         &body.repo_path,
         &body.branch_name,

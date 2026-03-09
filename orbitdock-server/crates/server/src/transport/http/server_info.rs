@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtime::server_info::server_info_message;
 
 #[derive(Debug, Serialize)]
 pub struct OpenAiKeyStatusResponse {
@@ -25,13 +26,6 @@ pub struct SetClientPrimaryClaimRequest {
     pub client_id: String,
     pub device_name: String,
     pub is_primary: bool,
-}
-
-pub fn not_control_plane_endpoint_error() -> UsageErrorInfo {
-    UsageErrorInfo {
-        code: "not_control_plane_endpoint".to_string(),
-        message: "This endpoint is not primary for control-plane usage reads.".to_string(),
-    }
 }
 
 pub async fn check_open_ai_key() -> Json<OpenAiKeyStatusResponse> {
@@ -87,7 +81,7 @@ pub async fn set_server_role(
         })
         .await;
 
-    let update = crate::transport::websocket::server_info_message(&state);
+    let update = server_info_message(&state);
     state.broadcast_to_list(update);
 
     Ok(Json(ServerRoleResponse {
@@ -100,7 +94,7 @@ pub async fn set_client_primary_claim(
     Json(body): Json<SetClientPrimaryClaimRequest>,
 ) -> Json<AcceptedResponse> {
     state.set_client_primary_claim(0, body.client_id, body.device_name, body.is_primary);
-    let update = crate::transport::websocket::server_info_message(&state);
+    let update = server_info_message(&state);
     state.broadcast_to_list(update);
     Json(AcceptedResponse { accepted: true })
 }

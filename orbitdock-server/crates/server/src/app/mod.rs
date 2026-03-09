@@ -181,8 +181,9 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             .await;
     }
 
-    let state = Arc::new(SessionRegistry::new_with_primary(
+    let state = Arc::new(SessionRegistry::new_with_primary_and_db_path(
         persist_tx.clone(),
+        db_path.clone(),
         is_primary,
     ));
 

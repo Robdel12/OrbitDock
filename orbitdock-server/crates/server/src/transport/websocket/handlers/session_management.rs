@@ -5,12 +5,8 @@ use tracing::{error, info};
 
 use orbitdock_protocol::{Provider, ServerMessage};
 
-use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_creation::{
-    persist_direct_session_create, prepare_direct_session, DirectSessionCreationInputs,
-};
-use crate::runtime::session_direct_start::{
-    start_direct_claude_session, start_direct_codex_session,
+    launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
 };
 use crate::runtime::session_mutations::{
     end_session as end_runtime_session, rename_session as rename_runtime_session,
@@ -50,39 +46,28 @@ pub(crate) async fn handle_create_session(
     );
 
     let id = orbitdock_protocol::new_id();
-    let git_branch = crate::domain::git::repo::resolve_git_branch(&request.cwd).await;
-    let prepared = prepare_direct_session(DirectSessionCreationInputs {
-        id: id.clone(),
-        provider: request.provider,
-        cwd: request.cwd.clone(),
-        git_branch: git_branch.clone(),
-        model: request.model.clone(),
-        approval_policy: request.approval_policy.clone(),
-        sandbox_mode: request.sandbox_mode.clone(),
-        effort: request.effort.clone(),
-    });
-    let handle = prepared.handle;
-
-    let rx = handle.subscribe();
-    spawn_broadcast_forwarder(rx, client_tx.clone(), Some(id.clone()));
-
-    let summary = prepared.summary;
-    let snapshot = prepared.snapshot;
-    let persist_tx = state.persist().clone();
-    persist_direct_session_create(
-        &persist_tx,
+    let prepared = prepare_persist_direct_session(
+        state,
         id.clone(),
-        request.provider,
-        request.cwd.clone(),
-        prepared.project_name,
-        git_branch,
-        request.model.clone(),
-        request.approval_policy.clone(),
-        request.sandbox_mode.clone(),
-        request.permission_mode.clone(),
-        request.effort.clone(),
+        DirectSessionRequest {
+            provider: request.provider,
+            cwd: request.cwd.clone(),
+            model: request.model.clone(),
+            approval_policy: request.approval_policy.clone(),
+            sandbox_mode: request.sandbox_mode.clone(),
+            permission_mode: request.permission_mode.clone(),
+            allowed_tools: request.allowed_tools.clone(),
+            disallowed_tools: request.disallowed_tools.clone(),
+            effort: request.effort.clone(),
+        },
     )
     .await;
+
+    let rx = prepared.handle.subscribe();
+    spawn_broadcast_forwarder(rx, client_tx.clone(), Some(id.clone()));
+
+    let summary = prepared.summary.clone();
+    let snapshot = prepared.snapshot.clone();
 
     send_json(
         client_tx,
@@ -90,98 +75,28 @@ pub(crate) async fn handle_create_session(
     )
     .await;
 
-    if request.provider == Provider::Codex {
-        let session_id = id.clone();
-        match start_direct_codex_session(
-            state,
-            handle,
-            &session_id,
-            &request.cwd,
-            request.model.as_deref(),
-            request.approval_policy.as_deref(),
-            request.sandbox_mode.as_deref(),
+    if let Err(error_message) = launch_prepared_direct_session(state, prepared).await {
+        let code = match request.provider {
+            Provider::Codex => "codex_error",
+            Provider::Claude => "claude_error",
+        };
+        error!(
+            component = "session",
+            event = "session.create.connector_failed",
+            connection_id = conn_id,
+            session_id = %id,
+            error = %error_message,
+            "Failed to start direct session connector"
+        );
+        send_json(
+            client_tx,
+            ServerMessage::Error {
+                code: code.into(),
+                message: error_message,
+                session_id: Some(id.clone()),
+            },
         )
-        .await
-        {
-            Ok(()) => {}
-            Err(error_message) => {
-                let _ = persist_tx
-                    .send(PersistCommand::SessionEnd {
-                        id: session_id.clone(),
-                        reason: "connector_failed".to_string(),
-                    })
-                    .await;
-                state.broadcast_to_list(ServerMessage::SessionEnded {
-                    session_id: session_id.clone(),
-                    reason: "connector_failed".into(),
-                });
-                error!(
-                    component = "session",
-                    event = "session.create.connector_failed",
-                    connection_id = conn_id,
-                    session_id = %session_id,
-                    error = %error_message,
-                    "Failed to start Codex session — ended immediately"
-                );
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "codex_error".into(),
-                        message: error_message,
-                        session_id: Some(session_id),
-                    },
-                )
-                .await;
-            }
-        }
-    } else if request.provider == Provider::Claude {
-        let session_id = id.clone();
-        match start_direct_claude_session(
-            state,
-            handle,
-            &session_id,
-            &request.cwd,
-            request.model.as_deref(),
-            request.permission_mode.as_deref(),
-            &request.allowed_tools,
-            &request.disallowed_tools,
-            request.effort.as_deref(),
-        )
-        .await
-        {
-            Ok(()) => {}
-            Err(error_message) => {
-                let _ = persist_tx
-                    .send(PersistCommand::SessionEnd {
-                        id: session_id.clone(),
-                        reason: "connector_failed".to_string(),
-                    })
-                    .await;
-                state.broadcast_to_list(ServerMessage::SessionEnded {
-                    session_id: session_id.clone(),
-                    reason: "connector_failed".into(),
-                });
-                error!(
-                    component = "session",
-                    event = "session.create.claude_connector_failed",
-                    connection_id = conn_id,
-                    session_id = %session_id,
-                    error = %error_message,
-                    "Failed to start Claude session — ended immediately"
-                );
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "claude_error".into(),
-                        message: error_message,
-                        session_id: Some(session_id),
-                    },
-                )
-                .await;
-            }
-        }
-    } else {
-        state.add_session(handle);
+        .await;
     }
 
     state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
@@ -258,4 +173,48 @@ pub(crate) async fn handle_update_session_config(
         permission_mode,
     )
     .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::sync::mpsc;
+
+    use orbitdock_protocol::{Provider, ServerMessage};
+
+    use crate::transport::websocket::test_support::{new_test_state, recv_json};
+
+    use super::{handle_create_session, CreateSessionRequest};
+
+    #[tokio::test]
+    async fn create_session_emits_session_snapshot_immediately() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel(8);
+        let cwd = "/tmp/orbitdock-create-session".to_string();
+
+        handle_create_session(
+            CreateSessionRequest {
+                provider: Provider::Codex,
+                cwd: cwd.clone(),
+                model: None,
+                approval_policy: None,
+                sandbox_mode: None,
+                permission_mode: None,
+                allowed_tools: vec![],
+                disallowed_tools: vec![],
+                effort: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::SessionSnapshot { session } => {
+                assert_eq!(session.provider, Provider::Codex);
+                assert_eq!(session.project_path, cwd);
+            }
+            other => panic!("expected SessionSnapshot first, got {other:?}"),
+        }
+    }
 }

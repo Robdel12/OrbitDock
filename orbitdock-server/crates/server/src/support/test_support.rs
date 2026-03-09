@@ -19,7 +19,11 @@ pub(crate) fn ensure_server_test_data_dir() {
 pub(crate) fn new_test_session_registry(is_primary: bool) -> Arc<SessionRegistry> {
     ensure_server_test_data_dir();
     let (persist_tx, _persist_rx) = mpsc::channel(128);
-    Arc::new(SessionRegistry::new_with_primary(persist_tx, is_primary))
+    Arc::new(SessionRegistry::new_with_primary_and_db_path(
+        persist_tx,
+        paths::db_path(),
+        is_primary,
+    ))
 }
 
 pub(crate) fn server_test_data_dir() -> PathBuf {

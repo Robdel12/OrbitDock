@@ -1,9 +1,11 @@
+pub(crate) mod approval_dispatch;
 pub(crate) mod background;
 pub(crate) mod conversation_policy;
 pub(crate) mod message_dispatch;
 pub(crate) mod message_dispatch_policy;
 pub(crate) mod query_fallback_policy;
 pub(crate) mod restored_sessions;
+pub(crate) mod server_info;
 pub(crate) mod session_activation;
 pub(crate) mod session_actor;
 pub(crate) mod session_broadcasts;
@@ -24,3 +26,4 @@ pub(crate) mod session_subscription_queries;
 pub(crate) mod session_subscriptions;
 pub(crate) mod session_takeover;
 pub(crate) mod transcript_sync_policy;
+pub(crate) mod worktree_creation;

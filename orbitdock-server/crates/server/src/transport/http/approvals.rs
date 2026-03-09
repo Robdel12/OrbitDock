@@ -1,6 +1,31 @@
 use std::collections::HashMap;
 
+use super::errors::{bad_request, internal, not_found, unprocessable};
 use super::*;
+
+fn approval_dispatch_error_response(
+    code: &'static str,
+    session_id: &str,
+) -> (StatusCode, Json<ApiErrorResponse>) {
+    match code {
+        "not_found" => not_found(
+            "not_found",
+            format!(
+                "Session {} not found or has no active connector",
+                session_id
+            ),
+        ),
+        "invalid_answer_payload" => bad_request(
+            "invalid_answer_payload",
+            "Question approvals require a non-empty answer or answers map",
+        ),
+        "rollback_failed" => unprocessable(
+            "rollback_failed",
+            "Could not find user message for rollback",
+        ),
+        _ => internal(code, format!("Operation failed for session {}", session_id)),
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub struct ApprovalsResponse {
@@ -102,7 +127,7 @@ pub async fn approve_tool(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<ApproveToolRequest>,
 ) -> Result<Json<ApprovalDecisionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let result = crate::transport::websocket::handlers::approvals::dispatch_approve_tool(
+    let result = crate::runtime::approval_dispatch::dispatch_approve_tool(
         &state,
         &session_id,
         body.request_id.clone(),
@@ -112,7 +137,7 @@ pub async fn approve_tool(
         body.updated_input,
     )
     .await
-    .map_err(|code| dispatch_error_response(code, &session_id))?;
+    .map_err(|code| approval_dispatch_error_response(code, &session_id))?;
 
     Ok(Json(ApprovalDecisionResponse {
         session_id,
@@ -137,7 +162,7 @@ pub async fn answer_question(
         body.answers,
     )
     .await
-    .map_err(|code| dispatch_error_response(code, &session_id))?;
+    .map_err(|code| approval_dispatch_error_response(code, &session_id))?;
 
     Ok(Json(ApprovalDecisionResponse {
         session_id,

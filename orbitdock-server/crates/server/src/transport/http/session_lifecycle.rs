@@ -3,10 +3,7 @@ use super::*;
 use crate::connectors::codex_session::CodexAction;
 use crate::runtime::restored_sessions::load_prepared_resume_session;
 use crate::runtime::session_creation::{
-    persist_direct_session_create, prepare_direct_session, DirectSessionCreationInputs,
-};
-use crate::runtime::session_direct_start::{
-    start_direct_claude_session, start_direct_codex_session,
+    launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
 };
 use crate::runtime::session_fork_policy::{plan_fork_config, ForkConfigInputs};
 use crate::runtime::session_fork_runtime::{
@@ -16,8 +13,7 @@ use crate::runtime::session_fork_targets::{
     create_fork_target_worktree, resolve_existing_fork_worktree_path,
 };
 use crate::runtime::session_mutations::{
-    end_failed_direct_session, end_session as end_runtime_session,
-    rename_session as rename_runtime_session,
+    end_session as end_runtime_session, rename_session as rename_runtime_session,
     update_session_config as update_runtime_session_config, SessionMutationError,
 };
 use crate::runtime::session_resume::{launch_resumed_session, ResumeSessionError};
@@ -146,83 +142,32 @@ pub async fn create_session(
     Json(body): Json<CreateSessionRequest>,
 ) -> Result<Json<CreateSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
     let session_id = orbitdock_protocol::new_id();
-    let git_branch = crate::domain::git::repo::resolve_git_branch(&body.cwd).await;
-    let prepared = prepare_direct_session(DirectSessionCreationInputs {
-        id: session_id.clone(),
-        provider: body.provider,
-        cwd: body.cwd.clone(),
-        git_branch: git_branch.clone(),
-        model: body.model.clone(),
-        approval_policy: body.approval_policy.clone(),
-        sandbox_mode: body.sandbox_mode.clone(),
-        effort: body.effort.clone(),
-    });
-    let summary = prepared.summary.clone();
-    let handle = prepared.handle;
-
-    let persist_tx = state.persist().clone();
-    persist_direct_session_create(
-        &persist_tx,
+    let prepared = prepare_persist_direct_session(
+        &state,
         session_id.clone(),
-        body.provider,
-        body.cwd.clone(),
-        prepared.project_name,
-        git_branch,
-        body.model.clone(),
-        body.approval_policy.clone(),
-        body.sandbox_mode.clone(),
-        body.permission_mode.clone(),
-        body.effort.clone(),
+        DirectSessionRequest {
+            provider: body.provider,
+            cwd: body.cwd.clone(),
+            model: body.model.clone(),
+            approval_policy: body.approval_policy.clone(),
+            sandbox_mode: body.sandbox_mode.clone(),
+            permission_mode: body.permission_mode.clone(),
+            allowed_tools: body.allowed_tools.clone(),
+            disallowed_tools: body.disallowed_tools.clone(),
+            effort: body.effort.clone(),
+        },
     )
     .await;
+    let summary = prepared.summary.clone();
 
-    match body.provider {
-        Provider::Codex => {
-            if let Err(error_message) = start_direct_codex_session(
-                &state,
-                handle,
-                &session_id,
-                &body.cwd,
-                body.model.as_deref(),
-                body.approval_policy.as_deref(),
-                body.sandbox_mode.as_deref(),
-            )
-            .await
-            {
-                end_failed_direct_session(&state, &session_id).await;
-                error!(
-                    component = "session",
-                    event = "session.create.http.codex_failed",
-                    session_id = %session_id,
-                    error = %error_message,
-                    "HTTP: Failed to start Codex session"
-                );
-            }
-        }
-        Provider::Claude => {
-            if let Err(error_message) = start_direct_claude_session(
-                &state,
-                handle,
-                &session_id,
-                &body.cwd,
-                body.model.as_deref(),
-                body.permission_mode.as_deref(),
-                &body.allowed_tools,
-                &body.disallowed_tools,
-                body.effort.as_deref(),
-            )
-            .await
-            {
-                end_failed_direct_session(&state, &session_id).await;
-                error!(
-                    component = "session",
-                    event = "session.create.http.claude_failed",
-                    session_id = %session_id,
-                    error = %error_message,
-                    "HTTP: Failed to start Claude session"
-                );
-            }
-        }
+    if let Err(error_message) = launch_prepared_direct_session(&state, prepared).await {
+        error!(
+            component = "session",
+            event = "session.create.http.connector_failed",
+            session_id = %session_id,
+            error = %error_message,
+            "HTTP: Failed to start direct session connector"
+        );
     }
 
     state.broadcast_to_list(ServerMessage::SessionCreated {

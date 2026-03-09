@@ -104,7 +104,7 @@ pub(crate) async fn create_fork_target_worktree(
     let trimmed_branch = validate_new_worktree_branch_name(branch_name)?;
     let repo_root = resolve_source_repo_root(source_snapshot).await;
 
-    crate::domain::worktrees::service::create_tracked_worktree(
+    crate::runtime::worktree_creation::create_tracked_worktree(
         state,
         &repo_root,
         &trimmed_branch,
