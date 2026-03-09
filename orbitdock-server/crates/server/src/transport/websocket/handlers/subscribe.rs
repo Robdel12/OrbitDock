@@ -9,16 +9,18 @@ use orbitdock_protocol::{
     SessionState, SessionStatus, StateChanges, TokenUsage, WorkStatus,
 };
 
-use crate::claude_session::ClaudeSession;
-use crate::codex_session::CodexSession;
-use crate::persistence::{
+use crate::connectors::claude_session::ClaudeSession;
+use crate::connectors::codex_session::CodexSession;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session_command::{PersistOp, SessionCommand, SubscribeResult};
+use crate::domain::sessions::session_utils::{
+    chrono_now, claim_codex_thread_for_direct_session, parse_unix_z,
+};
+use crate::infrastructure::persistence::{
     load_messages_for_session, load_messages_from_transcript_path, load_session_by_id,
     PersistCommand,
 };
-use crate::session_command::{PersistOp, SessionCommand, SubscribeResult};
-use crate::session_utils::{chrono_now, claim_codex_thread_for_direct_session, parse_unix_z};
-use crate::state::SessionRegistry;
-use crate::websocket::{
+use crate::transport::websocket::{
     send_json, send_replay_or_snapshot_fallback, send_snapshot_if_requested,
     spawn_broadcast_forwarder, OutboundMessage,
 };
@@ -256,7 +258,7 @@ pub(crate) async fn handle(
                                     )
                                     .await;
                                     let (actor_handle, action_tx) =
-                                        crate::codex_session::start_event_loop(
+                                        crate::connectors::codex_session::start_event_loop(
                                             codex,
                                             handle,
                                             persist_tx,
@@ -346,7 +348,7 @@ pub(crate) async fn handle(
                             match tokio::time::timeout(connector_timeout, connector_task).await {
                                 Ok(Ok(Ok(claude_session))) => {
                                     let (actor_handle, action_tx) =
-                                        crate::claude_session::start_event_loop(
+                                        crate::connectors::claude_session::start_event_loop(
                                             claude_session,
                                             handle,
                                             persist_tx,
@@ -417,7 +419,7 @@ pub(crate) async fn handle(
                                         let mut snapshot = *snapshot;
                                         if snapshot.subagents.is_empty() {
                                             if let Ok(subagents) =
-                                                crate::persistence::load_subagents_for_session(
+                                                crate::infrastructure::persistence::load_subagents_for_session(
                                                     &session_id,
                                                 )
                                                 .await
@@ -538,8 +540,10 @@ pub(crate) async fn handle(
                             // Enrich snapshot with subagents from DB
                             if snapshot.subagents.is_empty() {
                                 if let Ok(subagents) =
-                                    crate::persistence::load_subagents_for_session(&session_id)
-                                        .await
+                                    crate::infrastructure::persistence::load_subagents_for_session(
+                                        &session_id,
+                                    )
+                                    .await
                                 {
                                     snapshot.subagents = subagents;
                                 }

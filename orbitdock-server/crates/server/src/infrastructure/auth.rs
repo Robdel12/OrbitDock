@@ -12,7 +12,7 @@ use axum::{
 };
 use tracing::warn;
 
-use crate::auth_tokens;
+use crate::infrastructure::auth_tokens;
 
 const MAX_BEARER_TOKEN_LEN: usize = 1024;
 

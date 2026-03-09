@@ -15,8 +15,8 @@ use tracing::info;
 
 use orbitdock_protocol::ServerMessage;
 
-use crate::session_command::{ConversationBootstrap, ConversationPage};
-use crate::transition::{approval_preview, TransitionState, WorkPhase};
+use crate::domain::sessions::session_command::{ConversationBootstrap, ConversationPage};
+use crate::domain::sessions::transition::{approval_preview, TransitionState, WorkPhase};
 
 /// Events that matter for the session list sidebar (status, mode, name changes).
 /// Per-message events (streaming deltas, message appends) are excluded to avoid
@@ -1728,7 +1728,7 @@ impl SessionHandle {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
-    use crate::transition::WorkPhase;
+    use crate::domain::sessions::transition::WorkPhase;
     use orbitdock_protocol::Provider;
 
     fn approval_request(

@@ -9,14 +9,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 
-use crate::ai_naming::NamingGuard;
-use crate::claude_session::ClaudeAction;
-use crate::codex_session::CodexAction;
-use crate::hook_handler::PendingClaudeSession;
-use crate::persistence::PersistCommand;
-use crate::session::SessionHandle;
-use crate::session_actor::SessionActorHandle;
-use crate::shell::ShellService;
+use crate::connectors::claude_session::ClaudeAction;
+use crate::connectors::codex_session::CodexAction;
+use crate::connectors::hook_handler::PendingClaudeSession;
+use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session_actor::SessionActorHandle;
+use crate::infrastructure::persistence::PersistCommand;
+use crate::infrastructure::shell::ShellService;
+use crate::support::ai_naming::NamingGuard;
 use orbitdock_connector_codex::auth::CodexAuthService;
 
 #[derive(Clone)]
@@ -134,7 +134,7 @@ impl SessionRegistry {
             claude_threads: DashMap::new(),
             list_tx,
             persist_tx,
-            db_path: crate::paths::db_path(),
+            db_path: crate::infrastructure::paths::db_path(),
             codex_auth,
             naming_guard: Arc::new(NamingGuard::new()),
             pending_claude_sessions: DashMap::new(),
@@ -499,7 +499,8 @@ impl SessionRegistry {
     /// Collect recent project paths from active/ended sessions.
     /// Archived/completed worktrees are marked `removed` and should stay out of launch pickers.
     pub async fn list_recent_projects(&self) -> Vec<orbitdock_protocol::RecentProject> {
-        let removed_worktree_paths = crate::persistence::load_removed_worktree_paths(&self.db_path);
+        let removed_worktree_paths =
+            crate::infrastructure::persistence::load_removed_worktree_paths(&self.db_path);
         let sessions = self.sessions.iter().map(|entry| {
             let snap = entry.value().snapshot();
             (snap.project_path.clone(), snap.last_activity_at.clone())

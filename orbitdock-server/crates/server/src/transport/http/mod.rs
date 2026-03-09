@@ -31,16 +31,16 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
 use tracing::{error, info};
 
-use crate::codex_session::CodexAction;
-use crate::persistence::{
+use crate::connectors::codex_session::CodexAction;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session_command::{SessionCommand, SubscribeResult};
+use crate::domain::sessions::session_history::{
+    load_conversation_bootstrap, load_conversation_page, load_full_session_state, SessionLoadError,
+};
+use crate::infrastructure::persistence::{
     delete_approval, list_approvals, load_cached_claude_models, load_messages_for_session,
     PersistCommand,
 };
-use crate::session_command::{SessionCommand, SubscribeResult};
-use crate::session_history::{
-    load_conversation_bootstrap, load_conversation_page, load_full_session_state, SessionLoadError,
-};
-use crate::state::SessionRegistry;
 use orbitdock_connector_claude::session::ClaudeAction;
 
 pub use approvals::{
@@ -195,11 +195,11 @@ fn next_http_message_id(prefix: &str) -> String {
 }
 
 fn messaging_dispatch_error_response(
-    error: crate::ws_handlers::messaging::DispatchMessageError,
+    error: crate::transport::websocket::handlers::messaging::DispatchMessageError,
     session_id: &str,
 ) -> (StatusCode, Json<ApiErrorResponse>) {
     match error {
-        crate::ws_handlers::messaging::DispatchMessageError::NotFound => (
+        crate::transport::websocket::handlers::messaging::DispatchMessageError::NotFound => (
             StatusCode::NOT_FOUND,
             Json(ApiErrorResponse {
                 code: "not_found",
@@ -222,7 +222,7 @@ pub async fn fetch_codex_usage(
         });
     }
 
-    let (usage, error_info) = match crate::usage_probe::fetch_codex_usage().await {
+    let (usage, error_info) = match crate::infrastructure::usage_probe::fetch_codex_usage().await {
         Ok(usage) => (Some(usage), None),
         Err(err) => (None, Some(err.to_info())),
     };
@@ -240,7 +240,7 @@ pub async fn fetch_claude_usage(
         });
     }
 
-    let (usage, error_info) = match crate::usage_probe::fetch_claude_usage().await {
+    let (usage, error_info) = match crate::infrastructure::usage_probe::fetch_claude_usage().await {
         Ok(usage) => (Some(usage), None),
         Err(err) => (None, Some(err.to_info())),
     };
@@ -808,14 +808,14 @@ pub async fn execute_shell_endpoint(
         tool_output: None,
         is_error: false,
         is_in_progress: true,
-        timestamp: crate::session_utils::iso_timestamp(ts_millis),
+        timestamp: crate::domain::sessions::session_utils::iso_timestamp(ts_millis),
         duration_ms: None,
         images: vec![],
     };
 
     actor
         .send(SessionCommand::ProcessEvent {
-            event: crate::transition::Input::MessageCreated(shell_msg),
+            event: crate::domain::sessions::transition::Input::MessageCreated(shell_msg),
         })
         .await;
 
@@ -865,7 +865,7 @@ pub async fn execute_shell_endpoint(
             if let Some(actor) = state_ref.get_session(&sid) {
                 actor
                     .send(SessionCommand::ProcessEvent {
-                        event: crate::transition::Input::MessageUpdated {
+                        event: crate::domain::sessions::transition::Input::MessageUpdated {
                             message_id: rid.clone(),
                             content: None,
                             tool_output: Some(streamed_output.clone()),
@@ -880,19 +880,20 @@ pub async fn execute_shell_endpoint(
 
         let result = match completion_rx.await {
             Ok(result) => result,
-            Err(recv_err) => crate::shell::ShellResult {
+            Err(recv_err) => crate::infrastructure::shell::ShellResult {
                 stdout: String::new(),
                 stderr: format!("Shell execution completion channel failed: {recv_err}"),
                 exit_code: None,
                 duration_ms: 0,
-                outcome: crate::shell::ShellOutcome::Failed,
+                outcome: crate::infrastructure::shell::ShellOutcome::Failed,
             },
         };
 
         let is_error = match result.outcome {
-            crate::shell::ShellOutcome::Completed => result.exit_code != Some(0),
-            crate::shell::ShellOutcome::Failed | crate::shell::ShellOutcome::TimedOut => true,
-            crate::shell::ShellOutcome::Canceled => false,
+            crate::infrastructure::shell::ShellOutcome::Completed => result.exit_code != Some(0),
+            crate::infrastructure::shell::ShellOutcome::Failed
+            | crate::infrastructure::shell::ShellOutcome::TimedOut => true,
+            crate::infrastructure::shell::ShellOutcome::Canceled => false,
         };
         let combined_output = if result.stderr.is_empty() {
             result.stdout.clone()
@@ -907,14 +908,16 @@ pub async fn execute_shell_endpoint(
             combined_output
         };
         let outcome = match result.outcome {
-            crate::shell::ShellOutcome::Completed => {
+            crate::infrastructure::shell::ShellOutcome::Completed => {
                 orbitdock_protocol::ShellExecutionOutcome::Completed
             }
-            crate::shell::ShellOutcome::Failed => orbitdock_protocol::ShellExecutionOutcome::Failed,
-            crate::shell::ShellOutcome::TimedOut => {
+            crate::infrastructure::shell::ShellOutcome::Failed => {
+                orbitdock_protocol::ShellExecutionOutcome::Failed
+            }
+            crate::infrastructure::shell::ShellOutcome::TimedOut => {
                 orbitdock_protocol::ShellExecutionOutcome::TimedOut
             }
-            crate::shell::ShellOutcome::Canceled => {
+            crate::infrastructure::shell::ShellOutcome::Canceled => {
                 orbitdock_protocol::ShellExecutionOutcome::Canceled
             }
         };
@@ -922,7 +925,7 @@ pub async fn execute_shell_endpoint(
         if let Some(actor) = state_ref.get_session(&sid) {
             actor
                 .send(SessionCommand::ProcessEvent {
-                    event: crate::transition::Input::MessageUpdated {
+                    event: crate::domain::sessions::transition::Input::MessageUpdated {
                         message_id: rid.clone(),
                         content: None,
                         tool_output: Some(final_output),
@@ -964,8 +967,10 @@ pub async fn cancel_shell_endpoint(
     }
 
     match state.shell_service().cancel(&session_id, &body.request_id) {
-        crate::shell::ShellCancelStatus::Canceled => Ok(Json(AcceptedResponse { accepted: true })),
-        crate::shell::ShellCancelStatus::NotFound => Err((
+        crate::infrastructure::shell::ShellCancelStatus::Canceled => {
+            Ok(Json(AcceptedResponse { accepted: true }))
+        }
+        crate::infrastructure::shell::ShellCancelStatus::NotFound => Err((
             StatusCode::NOT_FOUND,
             Json(ApiErrorResponse {
                 code: "shell_not_found",
@@ -981,9 +986,9 @@ pub async fn cancel_shell_endpoint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codex_session::CodexAction;
-    use crate::persistence::{flush_batch_for_test, PersistCommand};
-    use crate::session::SessionHandle;
+    use crate::connectors::codex_session::CodexAction;
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::infrastructure::persistence::{flush_batch_for_test, PersistCommand};
     use axum::body::{to_bytes, Bytes};
     use axum::http::HeaderValue;
     use axum::response::IntoResponse;
@@ -997,10 +1002,10 @@ mod tests {
     use std::sync::Once;
     use tokio::sync::mpsc;
 
-    use crate::http_api::review_comments::{
+    use crate::transport::http::review_comments::{
         CreateReviewCommentRequest, ReviewCommentsQuery, UpdateReviewCommentRequest,
     };
-    use crate::http_api::session_actions::{
+    use crate::transport::http::session_actions::{
         SendSessionMessageRequest, SteerTurnRequest, UploadImageAttachmentQuery,
     };
 
@@ -1009,7 +1014,7 @@ mod tests {
     fn ensure_test_data_dir() {
         INIT_TEST_DATA_DIR.call_once(|| {
             let dir = std::env::temp_dir().join("orbitdock-http-api-tests");
-            crate::paths::init_data_dir(Some(&dir));
+            crate::infrastructure::paths::init_data_dir(Some(&dir));
         });
     }
 
@@ -1021,9 +1026,10 @@ mod tests {
 
     fn ensure_test_db() -> PathBuf {
         ensure_test_data_dir();
-        let db_path = crate::paths::db_path();
+        let db_path = crate::infrastructure::paths::db_path();
         let mut conn = rusqlite::Connection::open(&db_path).expect("open test db");
-        crate::migration_runner::run_migrations(&mut conn).expect("run test migrations");
+        crate::infrastructure::migration_runner::run_migrations(&mut conn)
+            .expect("run test migrations");
         db_path
     }
 
@@ -1263,7 +1269,7 @@ mod tests {
         flush_batch_for_test(&db_path, vec![create_cmd]).expect("flush created comment");
 
         let stored_after_create =
-            crate::persistence::load_review_comment_by_id(&created.comment_id)
+            crate::infrastructure::persistence::load_review_comment_by_id(&created.comment_id)
                 .await
                 .expect("load created comment")
                 .expect("created comment should exist");
@@ -1305,7 +1311,7 @@ mod tests {
         flush_batch_for_test(&db_path, vec![update_cmd]).expect("flush updated comment");
 
         let stored_after_update =
-            crate::persistence::load_review_comment_by_id(&created.comment_id)
+            crate::infrastructure::persistence::load_review_comment_by_id(&created.comment_id)
                 .await
                 .expect("load updated comment")
                 .expect("updated comment should exist");
@@ -1336,7 +1342,7 @@ mod tests {
         flush_batch_for_test(&db_path, vec![delete_cmd]).expect("flush deleted comment");
 
         let stored_after_delete =
-            crate::persistence::load_review_comment_by_id(&created.comment_id)
+            crate::infrastructure::persistence::load_review_comment_by_id(&created.comment_id)
                 .await
                 .expect("load deleted comment");
         assert!(stored_after_delete.is_none());

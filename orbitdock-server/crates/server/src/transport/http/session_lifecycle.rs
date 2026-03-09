@@ -26,10 +26,12 @@ pub async fn rename_session(
         .get_session(&session_id)
         .ok_or_else(|| session_not_found_error(&session_id))?;
 
-    let persist_op = Some(crate::session_command::PersistOp::SetCustomName {
-        session_id: session_id.clone(),
-        name: body.name.clone(),
-    });
+    let persist_op = Some(
+        crate::domain::sessions::session_command::PersistOp::SetCustomName {
+            session_id: session_id.clone(),
+            name: body.name.clone(),
+        },
+    );
     let (reply_tx, _reply_rx) = oneshot::channel();
     actor
         .send(SessionCommand::SetCustomNameAndNotify {
@@ -58,12 +60,14 @@ pub async fn update_session_config(
         ..Default::default()
     };
 
-    let persist_op = Some(crate::session_command::PersistOp::SetSessionConfig {
-        session_id: session_id.clone(),
-        approval_policy: body.approval_policy,
-        sandbox_mode: body.sandbox_mode,
-        permission_mode: body.permission_mode.clone(),
-    });
+    let persist_op = Some(
+        crate::domain::sessions::session_command::PersistOp::SetSessionConfig {
+            session_id: session_id.clone(),
+            approval_policy: body.approval_policy,
+            sandbox_mode: body.sandbox_mode,
+            permission_mode: body.permission_mode.clone(),
+        },
+    );
 
     actor
         .send(SessionCommand::ApplyDelta {
@@ -171,10 +175,13 @@ pub async fn create_session(
 
     let id = orbitdock_protocol::new_id();
     let project_name = body.cwd.split('/').next_back().map(String::from);
-    let git_branch = crate::git::resolve_git_branch(&body.cwd).await;
+    let git_branch = crate::domain::git::repo::resolve_git_branch(&body.cwd).await;
 
-    let mut handle =
-        crate::session::SessionHandle::new(id.clone(), body.provider, body.cwd.clone());
+    let mut handle = crate::domain::sessions::session::SessionHandle::new(
+        id.clone(),
+        body.provider,
+        body.cwd.clone(),
+    );
     handle.set_git_branch(git_branch.clone());
 
     if let Some(ref m) = body.model {
@@ -235,7 +242,7 @@ pub async fn create_session(
             let task_sandbox = sandbox.clone();
 
             let mut connector_task = tokio::spawn(async move {
-                crate::codex_session::CodexSession::new(
+                crate::connectors::codex_session::CodexSession::new(
                     task_sid,
                     &task_cwd,
                     task_model.as_deref(),
@@ -259,7 +266,7 @@ pub async fn create_session(
             match codex_start {
                 Ok(codex_session) => {
                     let thread_id = codex_session.thread_id().to_string();
-                    crate::session_utils::claim_codex_thread_for_direct_session(
+                    crate::domain::sessions::session_utils::claim_codex_thread_for_direct_session(
                         &state2,
                         &persist_tx2,
                         &session_id,
@@ -269,12 +276,13 @@ pub async fn create_session(
                     .await;
 
                     handle.set_list_tx(state2.list_tx());
-                    let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
-                        codex_session,
-                        handle,
-                        persist_tx2,
-                        state2.clone(),
-                    );
+                    let (actor_handle, action_tx) =
+                        crate::connectors::codex_session::start_event_loop(
+                            codex_session,
+                            handle,
+                            persist_tx2,
+                            state2.clone(),
+                        );
                     state2.add_session_actor(actor_handle);
                     state2.set_codex_action_tx(&session_id, action_tx);
                     info!(
@@ -317,7 +325,7 @@ pub async fn create_session(
         let persist_tx2 = persist_tx.clone();
 
         tokio::spawn(async move {
-            match crate::claude_session::ClaudeSession::new(
+            match crate::connectors::claude_session::ClaudeSession::new(
                 session_id.clone(),
                 &cwd,
                 model.as_deref(),
@@ -331,13 +339,14 @@ pub async fn create_session(
             {
                 Ok(claude_session) => {
                     handle.set_list_tx(state2.list_tx());
-                    let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
-                        claude_session,
-                        handle,
-                        persist_tx2,
-                        state2.list_tx(),
-                        state2.clone(),
-                    );
+                    let (actor_handle, action_tx) =
+                        crate::connectors::claude_session::start_event_loop(
+                            claude_session,
+                            handle,
+                            persist_tx2,
+                            state2.list_tx(),
+                            state2.clone(),
+                        );
 
                     if let Some(ref mode) = permission_mode {
                         let _ = actor_handle
@@ -454,19 +463,20 @@ pub async fn resume_session(
         state.remove_session(&session_id);
     }
 
-    let mut restored = match crate::persistence::load_session_by_id(&session_id).await {
-        Ok(Some(rs)) => rs,
-        Ok(None) => return Err(session_not_found_error(&session_id)),
-        Err(e) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse {
-                    code: "db_error",
-                    error: e.to_string(),
-                }),
-            ))
-        }
-    };
+    let mut restored =
+        match crate::infrastructure::persistence::load_session_by_id(&session_id).await {
+            Ok(Some(rs)) => rs,
+            Ok(None) => return Err(session_not_found_error(&session_id)),
+            Err(e) => {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ApiErrorResponse {
+                        code: "db_error",
+                        error: e.to_string(),
+                    }),
+                ))
+            }
+        };
 
     let is_claude = restored.provider == "claude";
     let provider = if is_claude {
@@ -478,7 +488,11 @@ pub async fn resume_session(
     if restored.messages.is_empty() {
         if let Some(ref tp) = restored.transcript_path {
             if let Ok(msgs) =
-                crate::persistence::load_messages_from_transcript_path(tp, &session_id).await
+                crate::infrastructure::persistence::load_messages_from_transcript_path(
+                    tp,
+                    &session_id,
+                )
+                .await
             {
                 if !msgs.is_empty() {
                     restored.messages = msgs;
@@ -487,7 +501,7 @@ pub async fn resume_session(
         }
     }
 
-    let mut handle = crate::session::SessionHandle::restore(
+    let mut handle = crate::domain::sessions::session::SessionHandle::restore(
         restored.id.clone(),
         provider,
         restored.project_path.clone(),
@@ -583,7 +597,10 @@ pub async fn resume_session(
     let session_id_for_response = session_id.clone();
     if is_claude {
         let project = if let Some(ref tp) = restored.transcript_path {
-            crate::session_utils::resolve_claude_resume_cwd(&restored.project_path, tp)
+            crate::domain::sessions::session_utils::resolve_claude_resume_cwd(
+                &restored.project_path,
+                tp,
+            )
         } else {
             restored.project_path.clone()
         };
@@ -609,7 +626,7 @@ pub async fn resume_session(
         let sid = session_id.clone();
         let m = restored.model.clone();
         let restored_permission_mode =
-            crate::persistence::load_session_permission_mode(&session_id)
+            crate::infrastructure::persistence::load_session_permission_mode(&session_id)
                 .await
                 .unwrap_or(None);
         let pm = restored_permission_mode.clone();
@@ -620,7 +637,7 @@ pub async fn resume_session(
         tokio::spawn(async move {
             let connector_timeout = std::time::Duration::from_secs(15);
             let connector_task = tokio::spawn(async move {
-                crate::claude_session::ClaudeSession::new(
+                crate::connectors::claude_session::ClaudeSession::new(
                     sid.clone(),
                     &project,
                     m.as_deref(),
@@ -637,13 +654,14 @@ pub async fn resume_session(
                 Ok(Ok(Ok(claude_session))) => {
                     state2.register_claude_thread(&session_id, provider_resume_id.as_str());
                     handle.set_list_tx(state2.list_tx());
-                    let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
-                        claude_session,
-                        handle,
-                        persist_tx2.clone(),
-                        state2.list_tx(),
-                        state2.clone(),
-                    );
+                    let (actor_handle, action_tx) =
+                        crate::connectors::claude_session::start_event_loop(
+                            claude_session,
+                            handle,
+                            persist_tx2.clone(),
+                            state2.list_tx(),
+                            state2.clone(),
+                        );
                     state2.add_session_actor(actor_handle);
                     state2.set_claude_action_tx(&session_id, action_tx);
 
@@ -725,7 +743,7 @@ pub async fn resume_session(
             let task_s = sandbox.clone();
 
             let mut connector_task = tokio::spawn(async move {
-                crate::codex_session::CodexSession::new(
+                crate::connectors::codex_session::CodexSession::new(
                     task_sid,
                     &task_pp,
                     task_m.as_deref(),
@@ -749,7 +767,7 @@ pub async fn resume_session(
             match codex_start {
                 Ok(codex_session) => {
                     let thread_id = codex_session.thread_id().to_string();
-                    crate::session_utils::claim_codex_thread_for_direct_session(
+                    crate::domain::sessions::session_utils::claim_codex_thread_for_direct_session(
                         &state2,
                         &persist_tx2,
                         &sid,
@@ -759,12 +777,13 @@ pub async fn resume_session(
                     .await;
 
                     handle.set_list_tx(state2.list_tx());
-                    let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
-                        codex_session,
-                        handle,
-                        persist_tx2,
-                        state2.clone(),
-                    );
+                    let (actor_handle, action_tx) =
+                        crate::connectors::codex_session::start_event_loop(
+                            codex_session,
+                            handle,
+                            persist_tx2,
+                            state2.clone(),
+                        );
                     state2.add_session_actor(actor_handle);
                     state2.set_codex_action_tx(&sid, action_tx);
                     info!(
@@ -874,7 +893,11 @@ pub async fn takeover_session(
     if handle.messages().is_empty() {
         if let Some(ref tp) = snap.transcript_path {
             if let Ok(msgs) =
-                crate::persistence::load_messages_from_transcript_path(tp, &session_id).await
+                crate::infrastructure::persistence::load_messages_from_transcript_path(
+                    tp,
+                    &session_id,
+                )
+                .await
             {
                 if !msgs.is_empty() {
                     for msg in msgs {
@@ -897,7 +920,7 @@ pub async fn takeover_session(
     let persist_tx = state.persist().clone();
     let (turn_context_model, turn_context_effort) = if snap.provider == Provider::Codex {
         if let Some(ref transcript_path) = snap.transcript_path {
-            crate::persistence::load_latest_codex_turn_context_settings_from_transcript_path(
+            crate::infrastructure::persistence::load_latest_codex_turn_context_settings_from_transcript_path(
                 transcript_path,
             )
             .await
@@ -919,7 +942,7 @@ pub async fn takeover_session(
     let requested_permission_mode = body.permission_mode.clone();
     let stored_permission_mode =
         if snap.provider == Provider::Claude && requested_permission_mode.is_none() {
-            crate::persistence::load_session_permission_mode(&session_id)
+            crate::infrastructure::persistence::load_session_permission_mode(&session_id)
                 .await
                 .unwrap_or(None)
         } else {
@@ -944,7 +967,7 @@ pub async fn takeover_session(
 
         let mut connector_task = tokio::spawn(async move {
             if let Some(ref tid) = thread_id {
-                match crate::codex_session::CodexSession::resume(
+                match crate::connectors::codex_session::CodexSession::resume(
                     sid.clone(),
                     &project,
                     tid,
@@ -956,7 +979,7 @@ pub async fn takeover_session(
                 {
                     Ok(codex) => Ok(codex),
                     Err(_) => {
-                        crate::codex_session::CodexSession::new(
+                        crate::connectors::codex_session::CodexSession::new(
                             sid.clone(),
                             &project,
                             m.as_deref(),
@@ -967,7 +990,7 @@ pub async fn takeover_session(
                     }
                 }
             } else {
-                crate::codex_session::CodexSession::new(
+                crate::connectors::codex_session::CodexSession::new(
                     sid.clone(),
                     &project,
                     m.as_deref(),
@@ -981,7 +1004,7 @@ pub async fn takeover_session(
         match tokio::time::timeout(connector_timeout, &mut connector_task).await {
             Ok(Ok(Ok(codex))) => {
                 let new_thread_id = codex.thread_id().to_string();
-                crate::session_utils::claim_codex_thread_for_direct_session(
+                crate::domain::sessions::session_utils::claim_codex_thread_for_direct_session(
                     &state,
                     &persist_tx,
                     &session_id,
@@ -990,7 +1013,7 @@ pub async fn takeover_session(
                 )
                 .await;
 
-                let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
+                let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
                     codex,
                     handle,
                     persist_tx.clone(),
@@ -1018,7 +1041,9 @@ pub async fn takeover_session(
 
                 if let Some(actor) = state.get_session(&session_id) {
                     let mut changes =
-                        crate::session_utils::direct_mode_activation_changes(Provider::Codex);
+                        crate::domain::sessions::session_utils::direct_mode_activation_changes(
+                            Provider::Codex,
+                        );
                     if let Some(ref effort_name) = effective_effort {
                         changes.effort = Some(Some(effort_name.clone()));
                     }
@@ -1059,7 +1084,10 @@ pub async fn takeover_session(
 
         let sid = session_id.clone();
         let project = if let Some(ref tp) = snap.transcript_path {
-            crate::session_utils::resolve_claude_resume_cwd(&snap.project_path, tp)
+            crate::domain::sessions::session_utils::resolve_claude_resume_cwd(
+                &snap.project_path,
+                tp,
+            )
         } else {
             snap.project_path.clone()
         };
@@ -1074,7 +1102,7 @@ pub async fn takeover_session(
 
         let takeover_sdk_id_for_spawn = takeover_sdk_id.clone();
         let connector_task = tokio::spawn(async move {
-            crate::claude_session::ClaudeSession::new(
+            crate::connectors::claude_session::ClaudeSession::new(
                 sid.clone(),
                 &project,
                 m.as_deref(),
@@ -1093,7 +1121,7 @@ pub async fn takeover_session(
                     state.register_claude_thread(&session_id, sdk_id.as_str());
                 }
 
-                let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
+                let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
                     claude_session,
                     handle,
                     persist_tx.clone(),
@@ -1112,7 +1140,7 @@ pub async fn takeover_session(
                                     ..Default::default()
                                 },
                                 persist_op: if requested_permission_mode.is_some() {
-                                    Some(crate::session_command::PersistOp::SetSessionConfig {
+                                    Some(crate::domain::sessions::session_command::PersistOp::SetSessionConfig {
                                         session_id: session_id.clone(),
                                         approval_policy: None,
                                         sandbox_mode: None,
@@ -1129,7 +1157,7 @@ pub async fn takeover_session(
                 if let Some(actor) = state.get_session(&session_id) {
                     actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: crate::session_utils::direct_mode_activation_changes(
+                            changes: crate::domain::sessions::session_utils::direct_mode_activation_changes(
                                 Provider::Claude,
                             ),
                             persist_op: None,
@@ -1223,12 +1251,12 @@ pub async fn fork_session(
     let effective_sandbox = body.sandbox_mode.clone().or(source_sandbox);
     let effective_cwd = body.cwd.clone().unwrap_or_else(|| source_cwd.clone());
     let project_name = effective_cwd.split('/').next_back().map(String::from);
-    let fork_branch = crate::git::resolve_git_branch(&effective_cwd).await;
+    let fork_branch = crate::domain::git::repo::resolve_git_branch(&effective_cwd).await;
 
     match source_provider {
         Provider::Claude => {
             let new_id = orbitdock_protocol::new_id();
-            match crate::claude_session::ClaudeSession::new(
+            match crate::connectors::claude_session::ClaudeSession::new(
                 new_id.clone(),
                 &effective_cwd,
                 source_model.as_deref(),
@@ -1241,7 +1269,7 @@ pub async fn fork_session(
             .await
             {
                 Ok(claude_session) => {
-                    let mut handle = crate::session::SessionHandle::new(
+                    let mut handle = crate::domain::sessions::session::SessionHandle::new(
                         new_id.clone(),
                         Provider::Claude,
                         effective_cwd.clone(),
@@ -1272,13 +1300,14 @@ pub async fn fork_session(
                         .await;
 
                     handle.set_list_tx(state.list_tx());
-                    let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
-                        claude_session,
-                        handle,
-                        persist_tx,
-                        state.list_tx(),
-                        state.clone(),
-                    );
+                    let (actor_handle, action_tx) =
+                        crate::connectors::claude_session::start_event_loop(
+                            claude_session,
+                            handle,
+                            persist_tx,
+                            state.list_tx(),
+                            state.clone(),
+                        );
                     state.add_session_actor(actor_handle);
                     state.set_claude_action_tx(&new_id, action_tx);
 
@@ -1323,7 +1352,7 @@ pub async fn fork_session(
             let cwd_for_fork = body.cwd.clone().or_else(|| Some(source_cwd.clone()));
 
             if source_action_tx
-                .send(crate::codex_session::CodexAction::ForkSession {
+                .send(crate::connectors::codex_session::CodexAction::ForkSession {
                     source_session_id: source_session_id.clone(),
                     nth_user_message: body.nth_user_message,
                     model: body.model.clone(),
@@ -1373,9 +1402,9 @@ pub async fn fork_session(
             let new_id = orbitdock_protocol::new_id();
             let fork_cwd = cwd_for_fork.unwrap_or_else(|| ".".to_string());
             let fork_project_name = fork_cwd.split('/').next_back().map(String::from);
-            let fork_branch2 = crate::git::resolve_git_branch(&fork_cwd).await;
+            let fork_branch2 = crate::domain::git::repo::resolve_git_branch(&fork_cwd).await;
 
-            let mut handle = crate::session::SessionHandle::new(
+            let mut handle = crate::domain::sessions::session::SessionHandle::new(
                 new_id.clone(),
                 Provider::Codex,
                 fork_cwd.clone(),
@@ -1396,14 +1425,14 @@ pub async fn fork_session(
                 match state_rx.await {
                     Ok(source_state) => {
                         let full_source_messages =
-                            crate::session_utils::hydrate_full_message_history(
+                            crate::domain::sessions::session_utils::hydrate_full_message_history(
                                 &source_session_id,
                                 source_state.messages,
                                 source_state.total_message_count,
                             )
                             .await;
-                        crate::ws_handlers::session_crud::remap_messages_for_fork(
-                            crate::ws_handlers::session_crud::truncate_messages_before_nth_user_message(
+                        crate::transport::websocket::handlers::session_crud::remap_messages_for_fork(
+                            crate::transport::websocket::handlers::session_crud::truncate_messages_before_nth_user_message(
                                 &full_source_messages,
                                 body.nth_user_message,
                             ),
@@ -1417,9 +1446,12 @@ pub async fn fork_session(
             };
 
             let rollout_messages = if let Some(rollout_path) = new_connector.rollout_path().await {
-                crate::persistence::load_messages_from_transcript_path(&rollout_path, &new_id)
-                    .await
-                    .unwrap_or_default()
+                crate::infrastructure::persistence::load_messages_from_transcript_path(
+                    &rollout_path,
+                    &new_id,
+                )
+                .await
+                .unwrap_or_default()
             } else {
                 Vec::new()
             };
@@ -1461,7 +1493,7 @@ pub async fn fork_session(
                     .await;
             }
 
-            crate::session_utils::claim_codex_thread_for_direct_session(
+            crate::domain::sessions::session_utils::claim_codex_thread_for_direct_session(
                 &state,
                 &persist_tx,
                 &new_id,
@@ -1470,12 +1502,12 @@ pub async fn fork_session(
             )
             .await;
 
-            let codex_session = crate::codex_session::CodexSession {
+            let codex_session = crate::connectors::codex_session::CodexSession {
                 session_id: new_id.clone(),
                 connector: new_connector,
             };
             handle.set_list_tx(state.list_tx());
-            let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
+            let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
                 codex_session,
                 handle,
                 persist_tx,
@@ -1542,14 +1574,15 @@ pub async fn fork_session_to_worktree(
         .filter(|r| !r.is_empty())
     {
         root
-    } else if let Some(git_info) = crate::git::resolve_git_info(&source_snapshot.project_path).await
+    } else if let Some(git_info) =
+        crate::domain::git::repo::resolve_git_info(&source_snapshot.project_path).await
     {
         git_info.common_dir_root
     } else {
         source_snapshot.project_path.clone()
     };
 
-    let worktree_summary = match crate::worktree_service::create_tracked_worktree(
+    let worktree_summary = match crate::domain::worktrees::service::create_tracked_worktree(
         &state,
         &repo_root,
         &trimmed_branch,
@@ -1627,7 +1660,8 @@ pub async fn fork_session_to_existing_worktree(
         .filter(|r| !r.is_empty())
     {
         root
-    } else if let Some(git_info) = crate::git::resolve_git_info(&source_snapshot.project_path).await
+    } else if let Some(git_info) =
+        crate::domain::git::repo::resolve_git_info(&source_snapshot.project_path).await
     {
         git_info.common_dir_root.trim_end_matches('/').to_string()
     } else {
@@ -1638,19 +1672,21 @@ pub async fn fork_session_to_existing_worktree(
             .to_string()
     };
 
-    let target_worktree =
-        match crate::persistence::load_worktree_by_id(state.db_path(), &body.worktree_id) {
-            Some(row) => row,
-            None => {
-                return Err((
-                    StatusCode::NOT_FOUND,
-                    Json(ApiErrorResponse {
-                        code: "worktree_not_found",
-                        error: format!("Worktree {} not found", body.worktree_id),
-                    }),
-                ))
-            }
-        };
+    let target_worktree = match crate::infrastructure::persistence::load_worktree_by_id(
+        state.db_path(),
+        &body.worktree_id,
+    ) {
+        Some(row) => row,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ApiErrorResponse {
+                    code: "worktree_not_found",
+                    error: format!("Worktree {} not found", body.worktree_id),
+                }),
+            ))
+        }
+    };
 
     if target_worktree.status == "removed" {
         return Err((
@@ -1677,7 +1713,7 @@ pub async fn fork_session_to_existing_worktree(
         ));
     }
 
-    if !crate::git::worktree_exists_on_disk(&target_worktree.worktree_path).await {
+    if !crate::domain::git::repo::worktree_exists_on_disk(&target_worktree.worktree_path).await {
         return Err((
             StatusCode::GONE,
             Json(ApiErrorResponse {

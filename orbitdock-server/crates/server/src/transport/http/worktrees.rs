@@ -9,8 +9,8 @@ use orbitdock_protocol::{ServerMessage, WorktreeOrigin, WorktreeStatus, Worktree
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::persistence::PersistCommand;
-use crate::state::SessionRegistry;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::infrastructure::persistence::PersistCommand;
 
 use super::{revision_now, ApiErrorResponse, ApiResult};
 
@@ -74,10 +74,11 @@ pub async fn list_worktrees(
 ) -> ApiResult<WorktreesListResponse> {
     let worktree_revision = revision_now();
     let worktrees = if let Some(ref root) = query.repo_root {
-        let db_rows = crate::persistence::load_worktrees_by_repo(state.db_path(), root);
+        let db_rows =
+            crate::infrastructure::persistence::load_worktrees_by_repo(state.db_path(), root);
 
         if db_rows.is_empty() {
-            match crate::git::discover_worktrees(root).await {
+            match crate::domain::git::repo::discover_worktrees(root).await {
                 Ok(discovered) => discovered
                     .into_iter()
                     .map(|worktree| WorktreeSummary {
@@ -102,7 +103,8 @@ pub async fn list_worktrees(
         } else {
             let mut summaries = Vec::with_capacity(db_rows.len());
             for row in db_rows {
-                let disk_present = crate::git::worktree_exists_on_disk(&row.worktree_path).await;
+                let disk_present =
+                    crate::domain::git::repo::worktree_exists_on_disk(&row.worktree_path).await;
                 summaries.push(WorktreeSummary {
                     id: row.id,
                     repo_root: row.repo_root,
@@ -138,7 +140,7 @@ pub async fn discover_worktrees(
     Json(body): Json<DiscoverWorktreesRequest>,
 ) -> ApiResult<WorktreesListResponse> {
     let worktree_revision = revision_now();
-    let worktrees = match crate::git::discover_worktrees(&body.repo_path).await {
+    let worktrees = match crate::domain::git::repo::discover_worktrees(&body.repo_path).await {
         Ok(discovered) => discovered
             .into_iter()
             .map(|worktree| WorktreeSummary {
@@ -173,7 +175,7 @@ pub async fn create_worktree(
     Json(body): Json<CreateWorktreeRequest>,
 ) -> ApiResult<WorktreeCreatedResponse> {
     let worktree_revision = revision_now();
-    match crate::worktree_service::create_tracked_worktree(
+    match crate::domain::worktrees::service::create_tracked_worktree(
         &state,
         &body.repo_path,
         &body.branch_name,
@@ -212,21 +214,25 @@ pub async fn remove_worktree(
     State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<WorktreeRemovedResponse> {
     let worktree_revision = revision_now();
-    let row = crate::persistence::load_worktree_by_id(state.db_path(), &worktree_id).ok_or_else(
-        || {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    code: "not_found",
-                    error: format!("worktree {worktree_id} not found"),
-                }),
-            )
-        },
-    )?;
+    let row =
+        crate::infrastructure::persistence::load_worktree_by_id(state.db_path(), &worktree_id)
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(ApiErrorResponse {
+                        code: "not_found",
+                        error: format!("worktree {worktree_id} not found"),
+                    }),
+                )
+            })?;
 
     if !query.archive_only {
-        if let Err(error) =
-            crate::git::remove_worktree(&row.repo_root, &row.worktree_path, query.force).await
+        if let Err(error) = crate::domain::git::repo::remove_worktree(
+            &row.repo_root,
+            &row.worktree_path,
+            query.force,
+        )
+        .await
         {
             if !query.force {
                 warn!(
@@ -258,7 +264,9 @@ pub async fn remove_worktree(
     }
 
     if !query.archive_only && query.delete_branch {
-        if let Err(error) = crate::git::delete_branch(&row.repo_root, &row.branch).await {
+        if let Err(error) =
+            crate::domain::git::repo::delete_branch(&row.repo_root, &row.branch).await
+        {
             warn!(
                 component = "worktree",
                 event = "worktree.delete_branch.failed",
@@ -272,7 +280,9 @@ pub async fn remove_worktree(
     }
 
     if !query.archive_only && query.delete_remote_branch {
-        if let Err(error) = crate::git::delete_remote_branch(&row.repo_root, &row.branch).await {
+        if let Err(error) =
+            crate::domain::git::repo::delete_remote_branch(&row.repo_root, &row.branch).await
+        {
             warn!(
                 component = "worktree",
                 event = "worktree.delete_remote_branch.failed",

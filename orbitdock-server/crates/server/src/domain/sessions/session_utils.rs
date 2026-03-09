@@ -15,13 +15,13 @@ use orbitdock_protocol::{
     StateChanges, TokenUsageSnapshotKind, WorkStatus,
 };
 
-use crate::persistence::{
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session_actor::SessionActorHandle;
+use crate::domain::sessions::session_command::{PersistOp, SessionCommand};
+use crate::infrastructure::persistence::{
     load_messages_for_session, load_messages_from_transcript_path,
     load_token_usage_from_transcript_path, PersistCommand,
 };
-use crate::session_actor::SessionActorHandle;
-use crate::session_command::{PersistOp, SessionCommand};
-use crate::state::SessionRegistry;
 
 pub(crate) const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
 
@@ -220,7 +220,7 @@ pub(crate) fn claude_transcript_path_from_cwd(cwd: &str, session_id: &str) -> Op
 /// Works for any hook-triggered session (Claude CLI, future Codex CLI hooks).
 pub(crate) async fn sync_transcript_messages(
     actor: &SessionActorHandle,
-    persist_tx: &tokio::sync::mpsc::Sender<crate::persistence::PersistCommand>,
+    persist_tx: &tokio::sync::mpsc::Sender<crate::infrastructure::persistence::PersistCommand>,
 ) {
     let snap = actor.snapshot();
     let transcript_path = match snap.transcript_path.as_deref() {
@@ -245,7 +245,7 @@ pub(crate) async fn sync_transcript_messages(
         {
             actor
                 .send(SessionCommand::ProcessEvent {
-                    event: crate::transition::Input::TokensUpdated {
+                    event: crate::domain::sessions::transition::Input::TokensUpdated {
                         usage,
                         snapshot_kind: match snap.provider {
                             Provider::Codex => TokenUsageSnapshotKind::ContextTurn,
@@ -276,10 +276,12 @@ pub(crate) async fn sync_transcript_messages(
 
     for msg in new_messages {
         let _ = persist_tx
-            .send(crate::persistence::PersistCommand::MessageAppend {
-                session_id: session_id.clone(),
-                message: msg.clone(),
-            })
+            .send(
+                crate::infrastructure::persistence::PersistCommand::MessageAppend {
+                    session_id: session_id.clone(),
+                    message: msg.clone(),
+                },
+            )
             .await;
         actor
             .send(SessionCommand::AddMessageAndBroadcast { message: msg })

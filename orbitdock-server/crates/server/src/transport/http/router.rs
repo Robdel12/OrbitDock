@@ -5,11 +5,14 @@ use axum::{
     Router,
 };
 
-use crate::state::SessionRegistry;
+use crate::domain::sessions::registry::SessionRegistry;
 
 pub fn build_router() -> Router<Arc<SessionRegistry>> {
     Router::new()
-        .route("/api/hook", post(crate::hook_handler::hook_handler))
+        .route(
+            "/api/hook",
+            post(crate::connectors::hook_handler::hook_handler),
+        )
         .route("/api/sessions", get(super::list_sessions))
         .route("/api/sessions/{session_id}", get(super::get_session))
         .route(

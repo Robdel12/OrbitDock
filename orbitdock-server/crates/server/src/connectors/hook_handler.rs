@@ -19,16 +19,18 @@ use tracing::warn;
 
 use orbitdock_protocol::{ClientMessage, Provider, ServerMessage};
 
-use crate::persistence::PersistCommand;
-use crate::session::SessionHandle;
-use crate::session_actor::SessionActorHandle;
-use crate::session_command::SessionCommand;
-use crate::session_utils::{
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session_actor::SessionActorHandle;
+use crate::domain::sessions::session_command::SessionCommand;
+use crate::domain::sessions::session_utils::{
     chrono_now, claude_transcript_path_from_cwd, is_stale_empty_claude_shell,
     project_name_from_cwd, sync_transcript_messages,
 };
-use crate::state::SessionRegistry;
-use crate::transition::{approval_preview, approval_question, approval_question_prompts};
+use crate::domain::sessions::transition::{
+    approval_preview, approval_question, approval_question_prompts,
+};
+use crate::infrastructure::persistence::PersistCommand;
 
 /// Cached metadata from a `ClaudeSessionStart` hook, held in memory until the
 /// first actionable hook materializes the session (or `SessionEnd` discards it).
@@ -281,7 +283,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         })
                         .await;
                 }
-                let git_info = crate::git::resolve_git_info(&cwd).await;
+                let git_info = crate::domain::git::repo::resolve_git_info(&cwd).await;
                 let git_branch = git_info.as_ref().map(|g| g.branch.clone());
                 let git_sha = git_info.as_ref().map(|g| g.sha.clone());
                 let repository_root = git_info.as_ref().map(|g| g.common_dir_root.clone());
@@ -310,7 +312,10 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .persist()
                         .send(PersistCommand::UpsertClaudeModelIfAbsent {
                             value: m.clone(),
-                            display_name: crate::persistence::display_name_from_model_string(m),
+                            display_name:
+                                crate::infrastructure::persistence::display_name_from_model_string(
+                                    m,
+                                ),
                         })
                         .await;
                 }
@@ -377,8 +382,10 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 // Extract AI-generated summary from transcript before ending
                 if let Some(transcript_path) = &existing.snapshot().transcript_path {
                     if let Some(summary) =
-                        crate::persistence::extract_summary_from_transcript_path(transcript_path)
-                            .await
+                        crate::infrastructure::persistence::extract_summary_from_transcript_path(
+                            transcript_path,
+                        )
+                        .await
                     {
                         let _ = persist_tx
                             .send(PersistCommand::SetSummary {
@@ -468,7 +475,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                     .or(derived);
                                 if let Some(path) = tp {
                                     if let Some(summary) =
-                                        crate::persistence::extract_summary_from_transcript_path(
+                                        crate::infrastructure::persistence::extract_summary_from_transcript_path(
                                             &path,
                                         )
                                         .await
@@ -536,7 +543,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
 
             // Resolve full git info from cwd if available
             let git_info = match cwd.as_deref() {
-                Some(path) => crate::git::resolve_git_info(path).await,
+                Some(path) => crate::domain::git::repo::resolve_git_info(path).await,
                 None => None,
             };
             let git_branch = git_info.as_ref().map(|g| g.branch.clone());
@@ -699,7 +706,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .await;
 
                     if state.naming_guard().try_claim(&session_id) {
-                        crate::ai_naming::spawn_naming_task(
+                        crate::support::ai_naming::spawn_naming_task(
                             session_id.clone(),
                             prompt_text.clone(),
                             actor.clone(),
@@ -712,7 +719,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 // Branch freshness: re-resolve git info on every user prompt to catch
                 // branch switches between turns. Cost: ~10ms per user prompt.
                 if let Some(ref prompt_cwd) = cwd {
-                    let fresh_info = crate::git::resolve_git_info(prompt_cwd).await;
+                    let fresh_info = crate::domain::git::repo::resolve_git_info(prompt_cwd).await;
                     if let Some(ref info) = fresh_info {
                         // Push delta to clients
                         let _ = actor
@@ -760,7 +767,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .or_else(|| derived_transcript_path.clone());
                     if let Some(path) = tp {
                         if let Some(extracted_summary) =
-                            crate::persistence::extract_summary_from_transcript_path(&path).await
+                            crate::infrastructure::persistence::extract_summary_from_transcript_path(&path).await
                         {
                             actor
                                 .send(SessionCommand::ApplyDelta {
@@ -977,7 +984,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             let derived_transcript_path = claude_transcript_path_from_cwd(&cwd, &session_id);
 
             // Resolve full git info from cwd
-            let git_info = crate::git::resolve_git_info(&cwd).await;
+            let git_info = crate::domain::git::repo::resolve_git_info(&cwd).await;
             let git_branch = git_info.as_ref().map(|g| g.branch.clone());
             let git_sha = git_info.as_ref().map(|g| g.sha.clone());
             let repository_root = git_info.as_ref().map(|g| g.common_dir_root.clone());
@@ -1431,7 +1438,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             // Subagent events don't carry cwd, so peek it from the pending entry.
             if state.get_session(&session_id).is_none() {
                 if let Some(pending_cwd) = state.peek_pending_claude_cwd(&session_id) {
-                    let git_info = crate::git::resolve_git_info(&pending_cwd).await;
+                    let git_info = crate::domain::git::repo::resolve_git_info(&pending_cwd).await;
                     let derived_tp = claude_transcript_path_from_cwd(&pending_cwd, &session_id);
                     materialize_claude_session(
                         &session_id,
@@ -1532,7 +1539,7 @@ async fn materialize_claude_session(
     session_id: &str,
     fallback_cwd: &str,
     fallback_transcript_path: Option<String>,
-    fallback_git_info: Option<&crate::git::GitInfo>,
+    fallback_git_info: Option<&crate::domain::git::repo::GitInfo>,
     state: &Arc<SessionRegistry>,
     persist_tx: &mpsc::Sender<PersistCommand>,
 ) -> SessionActorHandle {
@@ -1558,7 +1565,7 @@ async fn materialize_claude_session(
     // Resolve git info — prefer fresh resolution when we have a pending cwd,
     // fall back to caller-provided info
     let resolved_git_info = if pending.is_some() {
-        crate::git::resolve_git_info(&cwd).await
+        crate::domain::git::repo::resolve_git_info(&cwd).await
     } else {
         fallback_git_info.cloned()
     };
@@ -1632,7 +1639,7 @@ async fn materialize_claude_session(
         let _ = persist_tx
             .send(PersistCommand::UpsertClaudeModelIfAbsent {
                 value: m.clone(),
-                display_name: crate::persistence::display_name_from_model_string(m),
+                display_name: crate::infrastructure::persistence::display_name_from_model_string(m),
             })
             .await;
     }
@@ -1676,7 +1683,9 @@ async fn emit_capabilities_from_transcript(session_id: &str, actor: &SessionActo
     };
     let Some(tp) = transcript_path else { return };
 
-    let Some(caps) = crate::persistence::load_capabilities_from_transcript_path(&tp).await else {
+    let Some(caps) =
+        crate::infrastructure::persistence::load_capabilities_from_transcript_path(&tp).await
+    else {
         return;
     };
 

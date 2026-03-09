@@ -400,7 +400,7 @@ pub struct PersistenceWriter {
 impl PersistenceWriter {
     /// Create a new persistence writer
     pub fn new(rx: mpsc::Receiver<PersistCommand>) -> Self {
-        let db_path = crate::paths::db_path();
+        let db_path = crate::infrastructure::paths::db_path();
 
         Self {
             rx,
@@ -1724,7 +1724,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
         }
 
         PersistCommand::SetConfig { key, value } => {
-            let stored_value = crate::crypto::encrypt(&value)
+            let stored_value = crate::infrastructure::crypto::encrypt(&value)
                 .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
             conn.execute(
                 "INSERT INTO config (key, value) VALUES (?1, ?2)
@@ -1809,7 +1809,7 @@ fn is_direct_thread_owned(conn: &Connection, thread_id: &str) -> Result<bool, ru
 /// Check if a codex thread_id is already owned by a direct session row.
 pub async fn is_direct_thread_owned_async(thread_id: &str) -> Result<bool, anyhow::Error> {
     let thread_id = thread_id.to_string();
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
 
     tokio::task::spawn_blocking(move || -> Result<bool, anyhow::Error> {
         if !db_path.exists() {
@@ -1951,7 +1951,7 @@ fn resolve_custom_name_from_first_prompt(
 /// Load recent sessions from the database for server restart recovery.
 /// Includes ended sessions so UI history remains visible after app restart.
 pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow::Error> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
 
     let sessions = tokio::task::spawn_blocking(move || -> Result<Vec<RestoredSession>, anyhow::Error> {
         if !db_path.exists() {
@@ -2429,7 +2429,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 
 /// Load a specific session by ID (for resume — includes ended sessions)
 pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, anyhow::Error> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
     let id_owned = id.to_string();
 
     let result = tokio::task::spawn_blocking(move || -> Result<Option<RestoredSession>, anyhow::Error> {
@@ -2689,7 +2689,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
 
 /// Load only the persisted Claude permission_mode for a session.
 pub async fn load_session_permission_mode(id: &str) -> Result<Option<String>, anyhow::Error> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
     let id_owned = id.to_string();
 
     let mode = tokio::task::spawn_blocking(move || -> Result<Option<String>, anyhow::Error> {
@@ -2731,7 +2731,7 @@ pub fn create_persistence_channel() -> (mpsc::Sender<PersistCommand>, mpsc::Rece
 /// This runs at server startup to repair any sessions left in an inconsistent state
 /// from a previous run.
 pub async fn cleanup_stale_permission_state() -> Result<u64, anyhow::Error> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
 
     let (moved_on_count, orphaned_permission_count, orphaned_approval_count) =
         tokio::task::spawn_blocking(move || -> Result<(u64, u64, u64), anyhow::Error> {
@@ -2838,7 +2838,7 @@ pub async fn cleanup_stale_permission_state() -> Result<u64, anyhow::Error> {
 ///
 /// Runs at server startup alongside `cleanup_stale_permission_state`.
 pub async fn cleanup_dangling_in_progress_messages() -> Result<u64, anyhow::Error> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
 
     let count = tokio::task::spawn_blocking(move || -> Result<u64, anyhow::Error> {
         if !db_path.exists() {
@@ -2891,7 +2891,7 @@ mod tests {
 
     impl Drop for DataDirGuard {
         fn drop(&mut self) {
-            crate::paths::reset_data_dir();
+            crate::infrastructure::paths::reset_data_dir();
         }
     }
 
@@ -2900,7 +2900,7 @@ mod tests {
     }
 
     fn set_test_data_dir(home: &Path) -> DataDirGuard {
-        crate::paths::init_data_dir(Some(&home.join(".orbitdock")));
+        crate::infrastructure::paths::init_data_dir(Some(&home.join(".orbitdock")));
         DataDirGuard
     }
 

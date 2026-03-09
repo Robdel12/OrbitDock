@@ -3,7 +3,7 @@
 
 pub use orbitdock_connector_core::transition::*;
 
-use crate::persistence::PersistCommand;
+use crate::infrastructure::persistence::PersistCommand;
 
 /// Convert a transition PersistOp into the server's PersistCommand.
 pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {

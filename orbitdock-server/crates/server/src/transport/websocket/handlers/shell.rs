@@ -8,10 +8,10 @@ use orbitdock_protocol::{
     new_id, ClientMessage, MessageType, ServerMessage, ShellExecutionOutcome,
 };
 
-use crate::session_command::SessionCommand;
-use crate::session_utils::iso_timestamp;
-use crate::state::SessionRegistry;
-use crate::websocket::{send_json, OutboundMessage};
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session_command::SessionCommand;
+use crate::domain::sessions::session_utils::iso_timestamp;
+use crate::transport::websocket::{send_json, OutboundMessage};
 
 pub(crate) async fn handle(
     msg: ClientMessage,
@@ -97,7 +97,7 @@ pub(crate) async fn handle(
 
             actor
                 .send(SessionCommand::ProcessEvent {
-                    event: crate::transition::Input::MessageCreated(shell_msg),
+                    event: crate::domain::sessions::transition::Input::MessageCreated(shell_msg),
                 })
                 .await;
 
@@ -109,7 +109,7 @@ pub(crate) async fn handle(
                 timeout_secs,
             ) {
                 Ok(execution) => execution,
-                Err(crate::shell::ShellStartError::DuplicateRequestId) => {
+                Err(crate::infrastructure::shell::ShellStartError::DuplicateRequestId) => {
                     send_json(
                         client_tx,
                         ServerMessage::Error {
@@ -149,7 +149,7 @@ pub(crate) async fn handle(
                     if let Some(actor) = state_ref.get_session(&sid) {
                         actor
                             .send(SessionCommand::ProcessEvent {
-                                event: crate::transition::Input::MessageUpdated {
+                                event: crate::domain::sessions::transition::Input::MessageUpdated {
                                     message_id: rid.clone(),
                                     content: None,
                                     tool_output: Some(streamed_output.clone()),
@@ -164,21 +164,22 @@ pub(crate) async fn handle(
 
                 let result = match completion_rx.await {
                     Ok(result) => result,
-                    Err(recv_err) => crate::shell::ShellResult {
+                    Err(recv_err) => crate::infrastructure::shell::ShellResult {
                         stdout: String::new(),
                         stderr: format!("Shell execution completion channel failed: {recv_err}"),
                         exit_code: None,
                         duration_ms: 0,
-                        outcome: crate::shell::ShellOutcome::Failed,
+                        outcome: crate::infrastructure::shell::ShellOutcome::Failed,
                     },
                 };
 
                 let is_error = match result.outcome {
-                    crate::shell::ShellOutcome::Completed => result.exit_code != Some(0),
-                    crate::shell::ShellOutcome::Failed | crate::shell::ShellOutcome::TimedOut => {
-                        true
+                    crate::infrastructure::shell::ShellOutcome::Completed => {
+                        result.exit_code != Some(0)
                     }
-                    crate::shell::ShellOutcome::Canceled => false,
+                    crate::infrastructure::shell::ShellOutcome::Failed
+                    | crate::infrastructure::shell::ShellOutcome::TimedOut => true,
+                    crate::infrastructure::shell::ShellOutcome::Canceled => false,
                 };
                 let combined_output = if result.stderr.is_empty() {
                     result.stdout.clone()
@@ -193,16 +194,24 @@ pub(crate) async fn handle(
                     combined_output
                 };
                 let outcome = match result.outcome {
-                    crate::shell::ShellOutcome::Completed => ShellExecutionOutcome::Completed,
-                    crate::shell::ShellOutcome::Failed => ShellExecutionOutcome::Failed,
-                    crate::shell::ShellOutcome::TimedOut => ShellExecutionOutcome::TimedOut,
-                    crate::shell::ShellOutcome::Canceled => ShellExecutionOutcome::Canceled,
+                    crate::infrastructure::shell::ShellOutcome::Completed => {
+                        ShellExecutionOutcome::Completed
+                    }
+                    crate::infrastructure::shell::ShellOutcome::Failed => {
+                        ShellExecutionOutcome::Failed
+                    }
+                    crate::infrastructure::shell::ShellOutcome::TimedOut => {
+                        ShellExecutionOutcome::TimedOut
+                    }
+                    crate::infrastructure::shell::ShellOutcome::Canceled => {
+                        ShellExecutionOutcome::Canceled
+                    }
                 };
 
                 if let Some(actor) = state_ref.get_session(&sid) {
                     actor
                         .send(SessionCommand::ProcessEvent {
-                            event: crate::transition::Input::MessageUpdated {
+                            event: crate::domain::sessions::transition::Input::MessageUpdated {
                                 message_id: rid.clone(),
                                 content: None,
                                 tool_output: Some(final_output),
@@ -257,7 +266,7 @@ pub(crate) async fn handle(
             }
 
             match state.shell_service().cancel(&session_id, &request_id) {
-                crate::shell::ShellCancelStatus::Canceled => {
+                crate::infrastructure::shell::ShellCancelStatus::Canceled => {
                     info!(
                         component = "shell",
                         event = "shell.cancel.accepted",
@@ -267,7 +276,7 @@ pub(crate) async fn handle(
                         "Shell cancel accepted"
                     );
                 }
-                crate::shell::ShellCancelStatus::NotFound => {
+                crate::infrastructure::shell::ShellCancelStatus::NotFound => {
                     send_json(
                         client_tx,
                         ServerMessage::Error {

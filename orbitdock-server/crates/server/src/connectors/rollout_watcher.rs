@@ -20,11 +20,11 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
-use crate::persistence::{is_direct_thread_owned_async, PersistCommand};
-use crate::session::SessionHandle;
-use crate::session_command::SessionCommand;
-use crate::session_naming::name_from_first_prompt;
-use crate::state::SessionRegistry;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session_command::SessionCommand;
+use crate::domain::sessions::session_naming::name_from_first_prompt;
+use crate::infrastructure::persistence::{is_direct_thread_owned_async, PersistCommand};
 use tokio::sync::oneshot;
 
 pub async fn start_rollout_watcher(
@@ -52,7 +52,7 @@ pub async fn start_rollout_watcher(
         return Ok(());
     }
 
-    let state_path = crate::paths::rollout_state_path();
+    let state_path = crate::infrastructure::paths::rollout_state_path();
     let persisted_state = load_persisted_state(&state_path);
 
     let (tx, mut rx) = mpsc::unbounded_channel::<WatcherMessage>();
@@ -737,7 +737,7 @@ impl WatcherRuntime {
 
         actor
             .send(SessionCommand::ProcessEvent {
-                event: crate::transition::Input::MessageUpdated {
+                event: crate::domain::sessions::transition::Input::MessageUpdated {
                     message_id: format!("rollout-tool-{call_id}"),
                     content: None,
                     tool_output: output,
@@ -774,7 +774,7 @@ impl WatcherRuntime {
                     .await;
 
                 if self.app_state.naming_guard().try_claim(session_id) {
-                    crate::ai_naming::spawn_naming_task(
+                    crate::support::ai_naming::spawn_naming_task(
                         session_id.to_string(),
                         prompt.clone(),
                         actor,
@@ -830,7 +830,7 @@ impl WatcherRuntime {
             if let Some(actor) = self.app_state.get_session(session_id) {
                 actor
                     .send(SessionCommand::ProcessEvent {
-                        event: crate::transition::Input::TokensUpdated {
+                        event: crate::domain::sessions::transition::Input::TokensUpdated {
                             usage,
                             snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
                         },
@@ -1083,7 +1083,7 @@ impl WatcherRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::flush_batch_for_test;
+    use crate::infrastructure::persistence::flush_batch_for_test;
     use orbitdock_connector_codex::rollout_parser::{FileState, PersistedState};
     use rusqlite::{params, Connection};
     use std::collections::HashMap;
@@ -1100,7 +1100,7 @@ mod tests {
         INIT_TEST_DATA_DIR.call_once(|| {
             let dir = std::env::temp_dir().join("orbitdock-rollout-tests");
             std::fs::create_dir_all(&dir).expect("create rollout test data dir");
-            crate::paths::init_data_dir(Some(&dir));
+            crate::infrastructure::paths::init_data_dir(Some(&dir));
         });
     }
 

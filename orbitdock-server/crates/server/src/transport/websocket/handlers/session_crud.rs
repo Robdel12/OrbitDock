@@ -8,14 +8,18 @@ use orbitdock_protocol::{
     ServerMessage, WorktreeOrigin,
 };
 
-use crate::claude_session::{ClaudeAction, ClaudeSession};
-use crate::codex_session::{CodexAction, CodexSession};
-use crate::persistence::{load_messages_from_transcript_path, load_worktree_by_id, PersistCommand};
-use crate::session::SessionHandle;
-use crate::session_command::{PersistOp, SessionCommand};
-use crate::session_utils::{claim_codex_thread_for_direct_session, hydrate_full_message_history};
-use crate::state::SessionRegistry;
-use crate::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
+use crate::connectors::claude_session::{ClaudeAction, ClaudeSession};
+use crate::connectors::codex_session::{CodexAction, CodexSession};
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session_command::{PersistOp, SessionCommand};
+use crate::domain::sessions::session_utils::{
+    claim_codex_thread_for_direct_session, hydrate_full_message_history,
+};
+use crate::infrastructure::persistence::{
+    load_messages_from_transcript_path, load_worktree_by_id, PersistCommand,
+};
+use crate::transport::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
 
 pub(crate) fn truncate_messages_before_nth_user_message(
     messages: &[Message],
@@ -97,9 +101,13 @@ pub(crate) async fn handle(
 
             let id = orbitdock_protocol::new_id();
             let project_name = cwd.split('/').next_back().map(String::from);
-            let git_branch = crate::git::resolve_git_branch(&cwd).await;
+            let git_branch = crate::domain::git::repo::resolve_git_branch(&cwd).await;
 
-            let mut handle = crate::session::SessionHandle::new(id.clone(), provider, cwd.clone());
+            let mut handle = crate::domain::sessions::session::SessionHandle::new(
+                id.clone(),
+                provider,
+                cwd.clone(),
+            );
             handle.set_git_branch(git_branch.clone());
 
             if let Some(ref m) = model {
@@ -203,12 +211,13 @@ pub(crate) async fn handle(
                         .await;
 
                         handle.set_list_tx(state.list_tx());
-                        let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
-                            codex_session,
-                            handle,
-                            persist_tx,
-                            state.clone(),
-                        );
+                        let (actor_handle, action_tx) =
+                            crate::connectors::codex_session::start_event_loop(
+                                codex_session,
+                                handle,
+                                persist_tx,
+                                state.clone(),
+                            );
                         state.add_session_actor(actor_handle);
                         state.set_codex_action_tx(&session_id, action_tx);
                         info!(
@@ -272,13 +281,14 @@ pub(crate) async fn handle(
                 {
                     Ok(claude_session) => {
                         handle.set_list_tx(state.list_tx());
-                        let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
-                            claude_session,
-                            handle,
-                            persist_tx,
-                            state.list_tx(),
-                            state.clone(),
-                        );
+                        let (actor_handle, action_tx) =
+                            crate::connectors::claude_session::start_event_loop(
+                                claude_session,
+                                handle,
+                                persist_tx,
+                                state.list_tx(),
+                                state.clone(),
+                            );
 
                         // Emit permission_mode delta so the Swift UI picks it up.
                         // Initial SessionSnapshot uses a direct connector state where
@@ -615,14 +625,14 @@ pub(crate) async fn handle(
             {
                 root
             } else if let Some(git_info) =
-                crate::git::resolve_git_info(&source_snapshot.project_path).await
+                crate::domain::git::repo::resolve_git_info(&source_snapshot.project_path).await
             {
                 git_info.common_dir_root
             } else {
                 source_snapshot.project_path.clone()
             };
 
-            let worktree_summary = match crate::worktree_service::create_tracked_worktree(
+            let worktree_summary = match crate::domain::worktrees::service::create_tracked_worktree(
                 state,
                 &repo_root,
                 &trimmed_branch,
@@ -650,7 +660,7 @@ pub(crate) async fn handle(
             state.broadcast_to_list(ServerMessage::WorktreeCreated {
                 request_id: String::new(),
                 repo_root: worktree_summary.repo_root.clone(),
-                worktree_revision: crate::http_api::revision_now(),
+                worktree_revision: crate::transport::http::revision_now(),
                 worktree: worktree_summary,
             });
 
@@ -702,7 +712,7 @@ pub(crate) async fn handle(
             {
                 root
             } else if let Some(git_info) =
-                crate::git::resolve_git_info(&source_snapshot.project_path).await
+                crate::domain::git::repo::resolve_git_info(&source_snapshot.project_path).await
             {
                 git_info.common_dir_root.trim_end_matches('/').to_string()
             } else {
@@ -760,7 +770,9 @@ pub(crate) async fn handle(
                 return;
             }
 
-            if !crate::git::worktree_exists_on_disk(&target_worktree.worktree_path).await {
+            if !crate::domain::git::repo::worktree_exists_on_disk(&target_worktree.worktree_path)
+                .await
+            {
                 send_json(
                     client_tx,
                     ServerMessage::Error {
@@ -839,7 +851,8 @@ pub(crate) async fn handle(
                         .or(source_cwd)
                         .unwrap_or_else(|| ".".to_string());
                     let project_name = effective_cwd.split('/').next_back().map(String::from);
-                    let fork_branch = crate::git::resolve_git_branch(&effective_cwd).await;
+                    let fork_branch =
+                        crate::domain::git::repo::resolve_git_branch(&effective_cwd).await;
 
                     // Spawn new Claude CLI session (starts fresh — no message copying)
                     let new_id = orbitdock_protocol::new_id();
@@ -891,13 +904,14 @@ pub(crate) async fn handle(
                                 .await;
 
                             handle.set_list_tx(state.list_tx());
-                            let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
-                                claude_session,
-                                handle,
-                                persist_tx,
-                                state.list_tx(),
-                                state.clone(),
-                            );
+                            let (actor_handle, action_tx) =
+                                crate::connectors::claude_session::start_event_loop(
+                                    claude_session,
+                                    handle,
+                                    persist_tx,
+                                    state.list_tx(),
+                                    state.clone(),
+                                );
                             state.add_session_actor(actor_handle);
                             state.set_claude_action_tx(&new_id, action_tx);
 
@@ -1043,7 +1057,7 @@ pub(crate) async fn handle(
                     let fork_cwd = effective_cwd.unwrap_or_else(|| ".".to_string());
                     let project_name = fork_cwd.split('/').next_back().map(String::from);
 
-                    let fork_branch = crate::git::resolve_git_branch(&fork_cwd).await;
+                    let fork_branch = crate::domain::git::repo::resolve_git_branch(&fork_cwd).await;
                     let mut handle =
                         SessionHandle::new(new_id.clone(), Provider::Codex, fork_cwd.clone());
                     handle.set_git_branch(fork_branch.clone());
@@ -1197,12 +1211,13 @@ pub(crate) async fn handle(
                         connector: new_connector,
                     };
                     handle.set_list_tx(state.list_tx());
-                    let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
-                        codex_session,
-                        handle,
-                        persist_tx,
-                        state.clone(),
-                    );
+                    let (actor_handle, action_tx) =
+                        crate::connectors::codex_session::start_event_loop(
+                            codex_session,
+                            handle,
+                            persist_tx,
+                            state.clone(),
+                        );
                     state.add_session_actor(actor_handle);
                     state.set_codex_action_tx(&new_id, action_tx);
 

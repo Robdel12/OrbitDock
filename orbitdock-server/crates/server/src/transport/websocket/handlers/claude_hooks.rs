@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
-use crate::state::SessionRegistry;
-use crate::websocket::{send_rest_only_error, OutboundMessage};
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::transport::websocket::{send_rest_only_error, OutboundMessage};
 use orbitdock_protocol::ClientMessage;
 
 /// Handles Claude Code hook events forwarded over WebSocket.
@@ -23,7 +23,7 @@ pub(crate) async fn handle(
         | ClientMessage::ClaudeStatusEvent { .. }
         | ClientMessage::ClaudeToolEvent { .. }
         | ClientMessage::ClaudeSubagentEvent { .. } => {
-            crate::hook_handler::handle_hook_message(msg, state).await;
+            crate::connectors::hook_handler::handle_hook_message(msg, state).await;
         }
 
         ClientMessage::GetSubagentTools {

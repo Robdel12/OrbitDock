@@ -17,7 +17,7 @@ use tracing::warn;
 
 use orbitdock_protocol::ImageInput;
 
-use crate::paths::images_dir;
+use crate::infrastructure::paths::images_dir;
 
 /// Cached `fs::metadata` results keyed by absolute path.
 /// Stores (file_size, mime_type) to avoid repeated syscalls.

@@ -1,6 +1,6 @@
 //! `orbitdock pair` — generate a connection URL + QR code for clients.
 
-use crate::auth_tokens;
+use crate::infrastructure::auth_tokens;
 
 pub fn run(tunnel_url: Option<&str>, show_qr: bool) -> anyhow::Result<()> {
     let env_token = std::env::var("ORBITDOCK_AUTH_TOKEN")

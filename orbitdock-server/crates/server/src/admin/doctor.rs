@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use crate::{auth_tokens, crypto, paths};
+use crate::infrastructure::{auth_tokens, crypto, paths};
 
 enum Status {
     Pass,

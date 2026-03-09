@@ -10,9 +10,9 @@ use orbitdock_protocol::{ServerMessage, StateChanges};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 
-use crate::persistence::PersistCommand;
-use crate::session_actor::SessionActorHandle;
-use crate::session_command::SessionCommand;
+use crate::domain::sessions::session_actor::SessionActorHandle;
+use crate::domain::sessions::session_command::SessionCommand;
+use crate::infrastructure::persistence::PersistCommand;
 
 /// Dedup guard — ensures each session is only named once per server lifetime.
 pub struct NamingGuard {
@@ -42,13 +42,13 @@ pub fn resolve_api_key() -> Option<String> {
     }
 
     // Fall back to config table in SQLite
-    crate::persistence::load_config_value("openai_api_key")
+    crate::infrastructure::persistence::load_config_value("openai_api_key")
 }
 
 /// Returns true if the prompt is a bootstrap/system prompt that shouldn't be named.
 fn is_bootstrap_prompt(prompt: &str) -> bool {
     // Delegate to session_naming's existing bootstrap detection
-    crate::session_naming::name_from_first_prompt(prompt).is_none()
+    crate::domain::sessions::session_naming::name_from_first_prompt(prompt).is_none()
 }
 
 /// Spawn a fire-and-forget task to generate an AI name for a session.

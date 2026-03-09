@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
+use crate::infrastructure::{auth_tokens, paths};
 use crate::VERSION;
-use crate::{auth_tokens, paths};
 
 pub fn run(data_dir: &Path) -> anyhow::Result<()> {
     println!();

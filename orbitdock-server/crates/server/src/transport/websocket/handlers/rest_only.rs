@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
 
-use crate::websocket::{send_rest_only_error, OutboundMessage};
+use crate::transport::websocket::{send_rest_only_error, OutboundMessage};
 use orbitdock_protocol::ClientMessage;
 
 /// Handles `ClientMessage` variants that have been migrated to REST endpoints.

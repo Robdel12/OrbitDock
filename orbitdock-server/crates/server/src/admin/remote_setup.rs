@@ -5,7 +5,7 @@ use std::io::{self, BufRead, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use crate::auth_tokens;
+use crate::infrastructure::auth_tokens;
 
 use super::{install_hooks, install_service, status};
 

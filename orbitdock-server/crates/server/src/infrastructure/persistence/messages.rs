@@ -222,7 +222,7 @@ pub(super) fn load_latest_completed_conversation_message_from_db(
 /// Load messages for a session directly from the database.
 /// Used for lazy-loading messages when viewing closed sessions.
 pub async fn load_messages_for_session(session_id: &str) -> Result<Vec<Message>, anyhow::Error> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
     let session_id_owned = session_id.to_string();
 
     tokio::task::spawn_blocking(move || {
@@ -246,7 +246,7 @@ pub async fn load_message_page_for_session(
     before_sequence: Option<u64>,
     limit: usize,
 ) -> Result<MessagePage, anyhow::Error> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
     let session_id_owned = session_id.to_string();
 
     tokio::task::spawn_blocking(move || {

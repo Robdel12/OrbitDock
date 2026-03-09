@@ -122,7 +122,7 @@ pub async fn list_approvals(
     session_id: Option<String>,
     limit: Option<u32>,
 ) -> Result<Vec<ApprovalHistoryItem>, anyhow::Error> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
     let limit = limit.unwrap_or(200).min(1000) as i64;
 
     Ok(
@@ -184,7 +184,7 @@ pub async fn list_approvals(
 }
 
 pub async fn delete_approval(approval_id: i64) -> Result<bool, anyhow::Error> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
 
     Ok(
         tokio::task::spawn_blocking(move || -> Result<bool, anyhow::Error> {

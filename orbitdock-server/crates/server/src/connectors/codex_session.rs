@@ -9,15 +9,15 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
-use crate::persistence::PersistCommand;
-use crate::session::SessionHandle;
-use crate::session_actor::SessionActorHandle;
-use crate::session_command::SessionCommand;
-use crate::session_command_handler::{
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session_actor::SessionActorHandle;
+use crate::domain::sessions::session_command::SessionCommand;
+use crate::domain::sessions::session_command_handler::{
     dispatch_connector_event, dispatch_transition_input, handle_session_command, is_turn_ending,
     spawn_interrupt_watchdog,
 };
-use crate::state::SessionRegistry;
+use crate::infrastructure::persistence::PersistCommand;
 
 // Re-export so existing server code doesn't break
 pub use orbitdock_connector_codex::session::{CodexAction, CodexSession};
@@ -64,10 +64,10 @@ pub fn start_event_loop(
                         orbitdock_connector_core::ConnectorEvent::EnvironmentChanged {
                             cwd: Some(cwd), ..
                         } => {
-                            let git_info = crate::git::resolve_git_info(cwd).await;
+                            let git_info = crate::domain::git::repo::resolve_git_info(cwd).await;
                             if let Some(ref info) = git_info {
-                                let mut input = crate::transition::Input::from(event);
-                                if let crate::transition::Input::EnvironmentChanged {
+                                let mut input = crate::domain::sessions::transition::Input::from(event);
+                                if let crate::domain::sessions::transition::Input::EnvironmentChanged {
                                     ref mut repository_root,
                                     ref mut is_worktree,
                                     ..

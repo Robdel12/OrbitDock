@@ -16,7 +16,7 @@ use serde_json::{Map, Value};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-use crate::{crypto, paths};
+use crate::infrastructure::{crypto, paths};
 
 const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:4000";
 

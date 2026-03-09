@@ -10,9 +10,9 @@ use arc_swap::ArcSwap;
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::persistence::PersistCommand;
-use crate::session::{SessionHandle, SessionSnapshot};
-use crate::session_command::SessionCommand;
+use crate::domain::sessions::session::{SessionHandle, SessionSnapshot};
+use crate::domain::sessions::session_command::SessionCommand;
+use crate::infrastructure::persistence::PersistCommand;
 
 /// Handle to a running session actor (cheap to Clone).
 #[derive(Clone)]
@@ -110,7 +110,12 @@ async fn passive_actor_loop(
             let _ = reply.send(handle);
             return; // Stop the passive loop — handle is now owned by the caller
         }
-        crate::session_command_handler::handle_session_command(cmd, &mut handle, &persist_tx).await;
+        crate::domain::sessions::session_command_handler::handle_session_command(
+            cmd,
+            &mut handle,
+            &persist_tx,
+        )
+        .await;
     }
 }
 
@@ -182,10 +187,12 @@ mod tests {
 
         let result = rx.await.unwrap();
         match result {
-            crate::session_command::SubscribeResult::Snapshot { state, .. } => {
+            crate::domain::sessions::session_command::SubscribeResult::Snapshot {
+                state, ..
+            } => {
                 assert_eq!(state.as_ref().id, "test-session");
             }
-            crate::session_command::SubscribeResult::Replay { .. } => {
+            crate::domain::sessions::session_command::SubscribeResult::Replay { .. } => {
                 panic!("expected snapshot, got replay")
             }
         }
@@ -198,7 +205,7 @@ mod tests {
 
         actor_handle
             .send(SessionCommand::ProcessEvent {
-                event: crate::transition::Input::TurnStarted,
+                event: crate::domain::sessions::transition::Input::TurnStarted,
             })
             .await;
 

@@ -6,7 +6,7 @@ pub async fn list_review_comments(
 ) -> Result<Vec<orbitdock_protocol::ReviewComment>, anyhow::Error> {
     let session_id = session_id.to_string();
     let turn_id = turn_id.map(ToString::to_string);
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
 
     let comments = tokio::task::spawn_blocking(
         move || -> Result<Vec<orbitdock_protocol::ReviewComment>, anyhow::Error> {
@@ -69,7 +69,7 @@ pub async fn load_review_comment_by_id(
     comment_id: &str,
 ) -> Result<Option<orbitdock_protocol::ReviewComment>, anyhow::Error> {
     let comment_id = comment_id.to_string();
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
 
     tokio::task::spawn_blocking(
         move || -> Result<Option<orbitdock_protocol::ReviewComment>, anyhow::Error> {

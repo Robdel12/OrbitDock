@@ -5,7 +5,7 @@ use super::*;
 /// Transparently decrypts values with the `enc:` prefix.
 /// Plaintext values pass through unchanged (no migration needed).
 pub fn load_config_value(key: &str) -> Option<String> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
     if !db_path.exists() {
         return None;
     }
@@ -27,7 +27,7 @@ pub fn load_config_value(key: &str) -> Option<String> {
         .ok()
         .flatten()?;
 
-    crate::crypto::decrypt(&raw)
+    crate::infrastructure::crypto::decrypt(&raw)
 }
 
 /// Derive a human-readable display name from a Claude model string.
@@ -89,7 +89,7 @@ fn capitalize_first(s: &str) -> String {
 /// Only inserts models not already present — preserves richer direct connector data.
 /// Called once at server startup to seed the table from historical hook sessions.
 pub async fn backfill_claude_models_from_sessions() {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
     if !db_path.exists() {
         return;
     }
@@ -171,7 +171,7 @@ pub async fn backfill_claude_models_from_sessions() {
 ///
 /// Opens its own connection like `load_config_value` — safe to call from any context.
 pub fn load_cached_claude_models() -> Vec<orbitdock_protocol::ClaudeModelOption> {
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
     if !db_path.exists() {
         return Vec::new();
     }

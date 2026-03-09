@@ -42,8 +42,10 @@ pub(crate) fn prepare_snapshot_for_transport(mut snapshot: SessionState) -> Sess
 
     // Normalize image references (strip raw bytes, resolve paths to attachment IDs)
     for message in &mut snapshot.messages {
-        message.images =
-            crate::images::normalize_images_for_transport(&message.session_id, &message.images);
+        message.images = crate::infrastructure::images::normalize_images_for_transport(
+            &message.session_id,
+            &message.images,
+        );
     }
 
     // Deduplicate turn diffs (keep latest per turn_id)
@@ -84,8 +86,10 @@ pub(crate) fn sanitize_server_message_for_transport(msg: ServerMessage) -> Serve
             session_id,
             mut message,
         } => {
-            message.images =
-                crate::images::normalize_images_for_transport(&session_id, &message.images);
+            message.images = crate::infrastructure::images::normalize_images_for_transport(
+                &session_id,
+                &message.images,
+            );
             ServerMessage::MessageAppended {
                 session_id,
                 message,

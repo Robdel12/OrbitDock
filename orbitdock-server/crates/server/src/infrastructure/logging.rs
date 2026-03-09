@@ -14,7 +14,7 @@ pub struct LoggingHandle {
 }
 
 pub fn init_logging() -> anyhow::Result<LoggingHandle> {
-    let log_dir = crate::paths::log_dir();
+    let log_dir = crate::infrastructure::paths::log_dir();
     std::fs::create_dir_all(&log_dir)?;
     let log_path = log_dir.join("server.log");
 

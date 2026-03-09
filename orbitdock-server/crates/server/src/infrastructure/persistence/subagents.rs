@@ -5,7 +5,7 @@ pub async fn load_subagents_for_session(
     session_id: &str,
 ) -> Result<Vec<orbitdock_protocol::SubagentInfo>, anyhow::Error> {
     let session_id = session_id.to_string();
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
 
     let subagents = tokio::task::spawn_blocking(
         move || -> Result<Vec<orbitdock_protocol::SubagentInfo>, anyhow::Error> {
@@ -56,7 +56,7 @@ pub async fn load_subagent_transcript_path(
     subagent_id: &str,
 ) -> Result<Option<String>, anyhow::Error> {
     let subagent_id = subagent_id.to_string();
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
 
     let path = tokio::task::spawn_blocking(move || -> Result<Option<String>, anyhow::Error> {
         if !db_path.exists() {

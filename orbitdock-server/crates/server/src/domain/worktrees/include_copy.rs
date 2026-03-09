@@ -326,7 +326,7 @@ mod tests {
             .to_string_lossy()
             .to_string();
 
-        crate::git::create_worktree(
+        crate::domain::git::repo::create_worktree(
             repo.to_string_lossy().as_ref(),
             &worktree,
             branch,

@@ -6,7 +6,7 @@
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 
-use crate::paths;
+use crate::infrastructure::paths;
 
 pub fn run(port: u16, name: Option<&str>) -> anyhow::Result<()> {
     let cloudflared = find_cloudflared()?;

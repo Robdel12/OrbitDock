@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::{fs::OpenOptions, os::fd::AsRawFd};
 
-use crate::paths;
+use crate::infrastructure::paths;
 
 use super::hook_forward;
 

@@ -7,14 +7,16 @@ use orbitdock_protocol::{
 use tokio::sync::oneshot;
 use tracing::warn;
 
-use crate::persistence::{
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session_actor::SessionActorHandle;
+use crate::domain::sessions::session_command::{
+    ConversationBootstrap, ConversationPage, SessionCommand,
+};
+use crate::domain::sessions::session_utils::hydrate_full_message_history;
+use crate::infrastructure::persistence::{
     load_message_page_for_session, load_messages_for_session, load_messages_from_transcript_path,
     load_session_by_id, load_subagents_for_session, RestoredSession,
 };
-use crate::session_actor::SessionActorHandle;
-use crate::session_command::{ConversationBootstrap, ConversationPage, SessionCommand};
-use crate::session_utils::hydrate_full_message_history;
-use crate::state::SessionRegistry;
 
 const COHERENT_HISTORY_MIN_TURNS: usize = 4;
 const COHERENT_HISTORY_MAX_MESSAGES: usize = 200;
@@ -738,9 +740,9 @@ mod tests {
 
     use orbitdock_protocol::{MessageType, Provider};
 
-    use crate::migration_runner;
-    use crate::paths;
-    use crate::session::SessionHandle;
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::infrastructure::migration_runner;
+    use crate::infrastructure::paths;
 
     use super::*;
 

@@ -24,10 +24,10 @@ use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::{ClientMessage, ServerMessage};
 
-use crate::snapshot_compaction::{
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::support::snapshot_compaction::{
     sanitize_server_message_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
 };
-use crate::state::SessionRegistry;
 
 pub(crate) use router::handle_client_message;
 pub(crate) use server_info::server_info_message;
@@ -208,24 +208,24 @@ fn truncate_for_log(value: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{handle_client_message, send_replay_or_snapshot_fallback, OutboundMessage};
-    use crate::claude_session::ClaudeAction;
-    use crate::codex_session::CodexAction;
-    use crate::normalization::work_status_for_approval_decision;
-    use crate::persistence::PersistCommand;
-    use crate::session::SessionHandle;
-    use crate::session_command::SessionCommand;
-    use crate::session_naming::name_from_first_prompt;
-    use crate::session_utils::{
+    use crate::connectors::claude_session::ClaudeAction;
+    use crate::connectors::codex_session::CodexAction;
+    use crate::domain::sessions::registry::SessionRegistry;
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::domain::sessions::session_command::SessionCommand;
+    use crate::domain::sessions::session_naming::name_from_first_prompt;
+    use crate::domain::sessions::session_utils::{
         claim_codex_thread_for_direct_session, claude_transcript_path_from_cwd,
         direct_mode_activation_changes,
     };
-    use crate::snapshot_compaction::{
+    use crate::domain::sessions::transition::Input;
+    use crate::infrastructure::persistence::PersistCommand;
+    use crate::support::normalization::work_status_for_approval_decision;
+    use crate::support::snapshot_compaction::{
         prepare_snapshot_for_transport, replay_has_oversize_event,
         sanitize_replay_event_for_transport, sanitize_server_message_for_transport,
         WS_MAX_TEXT_MESSAGE_BYTES,
     };
-    use crate::state::SessionRegistry;
-    use crate::transition::Input;
     use orbitdock_protocol::{
         new_id, ApprovalType, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode,
         ImageInput, MentionInput, Message, MessageType, Provider, ServerMessage, SessionStatus,
@@ -239,7 +239,7 @@ mod tests {
     fn ensure_test_data_dir() {
         INIT_TEST_DATA_DIR.call_once(|| {
             let dir = std::env::temp_dir().join("orbitdock-websocket-tests");
-            crate::paths::init_data_dir(Some(&dir));
+            crate::infrastructure::paths::init_data_dir(Some(&dir));
         });
     }
 
@@ -669,7 +669,7 @@ mod tests {
     fn sanitize_message_appended_normalizes_managed_path_images() {
         ensure_test_data_dir();
         let session_id = "s";
-        let image_dir = crate::paths::images_dir().join(session_id);
+        let image_dir = crate::infrastructure::paths::images_dir().join(session_id);
         std::fs::create_dir_all(&image_dir).expect("create image dir");
         let image_path = image_dir.join(format!("orbitdock-image-{}.png", new_id()));
         std::fs::write(&image_path, b"hello-image").expect("write test image");
@@ -753,7 +753,7 @@ mod tests {
     fn replay_sanitize_preserves_revision_and_normalizes_managed_path_images() {
         ensure_test_data_dir();
         let session_id = "s";
-        let image_dir = crate::paths::images_dir().join(session_id);
+        let image_dir = crate::infrastructure::paths::images_dir().join(session_id);
         std::fs::create_dir_all(&image_dir).expect("create image dir");
         let image_path = image_dir.join(format!("orbitdock-image-{}.png", new_id()));
         std::fs::write(&image_path, b"replay-image").expect("write test image");

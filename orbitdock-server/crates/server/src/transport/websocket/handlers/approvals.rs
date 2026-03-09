@@ -3,13 +3,13 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tracing::info;
 
-use crate::claude_session::ClaudeAction;
-use crate::codex_session::CodexAction;
-use crate::normalization::work_status_for_approval_decision;
-use crate::persistence::PersistCommand;
-use crate::session_command::SessionCommand;
-use crate::state::SessionRegistry;
-use crate::websocket::{send_json, send_rest_only_error, OutboundMessage};
+use crate::connectors::claude_session::ClaudeAction;
+use crate::connectors::codex_session::CodexAction;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session_command::SessionCommand;
+use crate::infrastructure::persistence::PersistCommand;
+use crate::support::normalization::work_status_for_approval_decision;
+use crate::transport::websocket::{send_json, send_rest_only_error, OutboundMessage};
 use orbitdock_protocol::ClientMessage;
 use orbitdock_protocol::ServerMessage;
 

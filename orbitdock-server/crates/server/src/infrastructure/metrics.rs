@@ -9,8 +9,8 @@ use axum::extract::State;
 use axum::http::header;
 use axum::response::IntoResponse;
 
-use crate::paths;
-use crate::state::SessionRegistry;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::infrastructure::paths;
 
 pub async fn metrics_handler(State(state): State<Arc<SessionRegistry>>) -> impl IntoResponse {
     let body = render_metrics(&state);

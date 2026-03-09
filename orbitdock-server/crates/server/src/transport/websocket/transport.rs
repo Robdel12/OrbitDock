@@ -4,7 +4,7 @@ use tracing::{info, warn};
 
 use orbitdock_protocol::{ServerMessage, SessionState};
 
-use crate::snapshot_compaction::{
+use crate::support::snapshot_compaction::{
     prepare_snapshot_for_transport, replay_has_oversize_event, sanitize_replay_event_for_transport,
     WS_MAX_TEXT_MESSAGE_BYTES,
 };

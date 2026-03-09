@@ -7,8 +7,8 @@ use tracing::debug;
 
 use orbitdock_protocol::ClientMessage;
 
-use crate::state::SessionRegistry;
-use crate::websocket::OutboundMessage;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::transport::websocket::OutboundMessage;
 
 /// Dispatch a single client WebSocket message.
 ///
@@ -35,7 +35,10 @@ pub(crate) fn handle_client_message<'a>(
             ClientMessage::SubscribeList
             | ClientMessage::SubscribeSession { .. }
             | ClientMessage::UnsubscribeSession { .. } => {
-                crate::ws_handlers::subscribe::handle(msg, client_tx, state, conn_id).await;
+                crate::transport::websocket::handlers::subscribe::handle(
+                    msg, client_tx, state, conn_id,
+                )
+                .await;
             }
 
             ClientMessage::CreateSession { .. }
@@ -45,11 +48,17 @@ pub(crate) fn handle_client_message<'a>(
             | ClientMessage::ForkSession { .. }
             | ClientMessage::ForkSessionToWorktree { .. }
             | ClientMessage::ForkSessionToExistingWorktree { .. } => {
-                crate::ws_handlers::session_crud::handle(msg, client_tx, state, conn_id).await;
+                crate::transport::websocket::handlers::session_crud::handle(
+                    msg, client_tx, state, conn_id,
+                )
+                .await;
             }
 
             ClientMessage::ResumeSession { .. } | ClientMessage::TakeoverSession { .. } => {
-                crate::ws_handlers::session_lifecycle::handle(msg, client_tx, state, conn_id).await;
+                crate::transport::websocket::handlers::session_lifecycle::handle(
+                    msg, client_tx, state, conn_id,
+                )
+                .await;
             }
 
             ClientMessage::SendMessage { .. }
@@ -61,17 +70,26 @@ pub(crate) fn handle_client_message<'a>(
             | ClientMessage::RollbackTurns { .. }
             | ClientMessage::StopTask { .. }
             | ClientMessage::RewindFiles { .. } => {
-                crate::ws_handlers::messaging::handle(msg, client_tx, state, conn_id).await;
+                crate::transport::websocket::handlers::messaging::handle(
+                    msg, client_tx, state, conn_id,
+                )
+                .await;
             }
 
             ClientMessage::ApproveTool { .. }
             | ClientMessage::ListApprovals { .. }
             | ClientMessage::DeleteApproval { .. } => {
-                crate::ws_handlers::approvals::handle(msg, client_tx, state, conn_id).await;
+                crate::transport::websocket::handlers::approvals::handle(
+                    msg, client_tx, state, conn_id,
+                )
+                .await;
             }
 
             ClientMessage::SetClientPrimaryClaim { .. } => {
-                crate::ws_handlers::config::handle(msg, client_tx, state, conn_id).await;
+                crate::transport::websocket::handlers::config::handle(
+                    msg, client_tx, state, conn_id,
+                )
+                .await;
             }
 
             ClientMessage::ClaudeSessionStart { .. }
@@ -80,11 +98,15 @@ pub(crate) fn handle_client_message<'a>(
             | ClientMessage::ClaudeToolEvent { .. }
             | ClientMessage::ClaudeSubagentEvent { .. }
             | ClientMessage::GetSubagentTools { .. } => {
-                crate::ws_handlers::claude_hooks::handle(msg, client_tx, state).await;
+                crate::transport::websocket::handlers::claude_hooks::handle(msg, client_tx, state)
+                    .await;
             }
 
             ClientMessage::ExecuteShell { .. } | ClientMessage::CancelShell { .. } => {
-                crate::ws_handlers::shell::handle(msg, client_tx, state, conn_id).await;
+                crate::transport::websocket::handlers::shell::handle(
+                    msg, client_tx, state, conn_id,
+                )
+                .await;
             }
 
             ClientMessage::BrowseDirectory { .. }
@@ -113,7 +135,7 @@ pub(crate) fn handle_client_message<'a>(
             | ClientMessage::UpdateReviewComment { .. }
             | ClientMessage::DeleteReviewComment { .. }
             | ClientMessage::ListReviewComments { .. } => {
-                crate::ws_handlers::rest_only::handle(msg, client_tx).await;
+                crate::transport::websocket::handlers::rest_only::handle(msg, client_tx).await;
             }
         }
     })

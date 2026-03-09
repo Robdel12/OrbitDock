@@ -3,8 +3,8 @@ use std::sync::Arc;
 use orbitdock_protocol::{WorktreeOrigin, WorktreeStatus, WorktreeSummary};
 use tracing::{info, warn};
 
-use crate::persistence::PersistCommand;
-use crate::state::SessionRegistry;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::infrastructure::persistence::PersistCommand;
 
 pub async fn create_tracked_worktree(
     state: &Arc<SessionRegistry>,
@@ -32,7 +32,7 @@ pub async fn create_tracked_worktree(
         normalized_repo, normalized_branch
     );
 
-    crate::git::create_worktree(
+    crate::domain::git::repo::create_worktree(
         normalized_repo,
         &worktree_path,
         normalized_branch,
@@ -40,7 +40,12 @@ pub async fn create_tracked_worktree(
     )
     .await?;
 
-    match crate::worktree_include::copy_worktreeinclude(normalized_repo, &worktree_path).await {
+    match crate::domain::worktrees::include_copy::copy_worktreeinclude(
+        normalized_repo,
+        &worktree_path,
+    )
+    .await
+    {
         Ok(copy_summary) => {
             if copy_summary.manifest_found {
                 info!(
@@ -78,7 +83,7 @@ pub async fn create_tracked_worktree(
         status: WorktreeStatus::Active,
         active_session_count: 0,
         total_session_count: 0,
-        created_at: crate::session_utils::chrono_now(),
+        created_at: crate::domain::sessions::session_utils::chrono_now(),
         last_session_ended_at: None,
         disk_present: true,
         auto_prune: true,

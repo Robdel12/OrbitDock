@@ -100,7 +100,7 @@ pub async fn approve_tool(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<ApproveToolRequest>,
 ) -> Result<Json<ApprovalDecisionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let result = crate::ws_handlers::approvals::dispatch_approve_tool(
+    let result = crate::transport::websocket::handlers::approvals::dispatch_approve_tool(
         &state,
         &session_id,
         body.request_id.clone(),
@@ -126,7 +126,7 @@ pub async fn answer_question(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<AnswerQuestionRequest>,
 ) -> Result<Json<ApprovalDecisionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let result = crate::ws_handlers::messaging::dispatch_answer_question(
+    let result = crate::transport::websocket::handlers::messaging::dispatch_answer_question(
         &state,
         &session_id,
         body.request_id.clone(),

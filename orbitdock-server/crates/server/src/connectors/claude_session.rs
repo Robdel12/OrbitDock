@@ -13,14 +13,14 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
-use crate::persistence::PersistCommand;
-use crate::session::SessionHandle;
-use crate::session_actor::SessionActorHandle;
-use crate::session_command::SessionCommand;
-use crate::session_command_handler::{
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session_actor::SessionActorHandle;
+use crate::domain::sessions::session_command::SessionCommand;
+use crate::domain::sessions::session_command_handler::{
     dispatch_connector_event, handle_session_command, is_turn_ending, spawn_interrupt_watchdog,
 };
-use crate::state::SessionRegistry;
+use crate::infrastructure::persistence::PersistCommand;
 
 // Re-export so existing server code doesn't break
 pub use orbitdock_connector_claude::session::{
@@ -163,13 +163,13 @@ pub fn start_event_loop(
                                 ..Default::default()
                             };
                             let _ = actor_for_naming
-                                .send(crate::session_command::SessionCommand::ApplyDelta {
+                                .send(crate::domain::sessions::session_command::SessionCommand::ApplyDelta {
                                     changes,
                                     persist_op: None,
                                 })
                                 .await;
 
-                            crate::ai_naming::spawn_naming_task(
+                            crate::support::ai_naming::spawn_naming_task(
                                 session_id.clone(),
                                 prompt,
                                 actor_for_naming.clone(),

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use orbitdock_protocol::{DirectoryEntry, RecentProject, SubagentTool};
 use tracing::warn;
 
-use crate::persistence::load_subagent_transcript_path;
+use crate::infrastructure::persistence::load_subagent_transcript_path;
 
 #[derive(Debug, Serialize)]
 pub struct DirectoryListingResponse {
@@ -95,7 +95,7 @@ pub async fn git_init_endpoint(Json(body): Json<GitInitRequest>) -> ApiResult<Gi
         ));
     }
 
-    crate::git::git_init(&body.path)
+    crate::domain::git::repo::git_init(&body.path)
         .await
         .map(|_| Json(GitInitResponse { ok: true }))
         .map_err(|error| {
@@ -170,7 +170,7 @@ async fn load_subagent_tools(subagent_id: &str) -> Vec<SubagentTool> {
         Ok(Some(path)) => {
             let parse_path = path.clone();
             tokio::task::spawn_blocking(move || {
-                crate::subagent_parser::parse_tools(std::path::Path::new(&parse_path))
+                crate::connectors::subagent_parser::parse_tools(std::path::Path::new(&parse_path))
             })
             .await
             .unwrap_or_default()

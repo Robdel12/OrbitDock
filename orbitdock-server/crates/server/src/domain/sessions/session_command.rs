@@ -72,7 +72,7 @@ pub enum SessionCommand {
     // -- Connector event processing --
     /// Process a connector event through the transition function
     ProcessEvent {
-        event: crate::transition::Input,
+        event: crate::domain::sessions::transition::Input,
     },
 
     // -- Simple mutations (fire-and-forget) --
@@ -214,7 +214,7 @@ pub enum SessionCommand {
     /// Extract the owned SessionHandle from a passive actor, stopping its loop.
     /// Used for upgrading a passive session to one with a live connector.
     TakeHandle {
-        reply: oneshot::Sender<crate::session::SessionHandle>,
+        reply: oneshot::Sender<crate::domain::sessions::session::SessionHandle>,
     },
 
     /// Mark the session as read and broadcast the updated unread count.

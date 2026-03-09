@@ -36,7 +36,7 @@ pub fn not_control_plane_endpoint_error() -> UsageErrorInfo {
 
 pub async fn check_open_ai_key() -> Json<OpenAiKeyStatusResponse> {
     Json(OpenAiKeyStatusResponse {
-        configured: crate::ai_naming::resolve_api_key().is_some(),
+        configured: crate::support::ai_naming::resolve_api_key().is_some(),
     })
 }
 
@@ -87,7 +87,7 @@ pub async fn set_server_role(
         })
         .await;
 
-    let update = crate::websocket::server_info_message(&state);
+    let update = crate::transport::websocket::server_info_message(&state);
     state.broadcast_to_list(update);
 
     Ok(Json(ServerRoleResponse {
@@ -100,7 +100,7 @@ pub async fn set_client_primary_claim(
     Json(body): Json<SetClientPrimaryClaimRequest>,
 ) -> Json<AcceptedResponse> {
     state.set_client_primary_claim(0, body.client_id, body.device_name, body.is_primary);
-    let update = crate::websocket::server_info_message(&state);
+    let update = crate::transport::websocket::server_info_message(&state);
     state.broadcast_to_list(update);
     Json(AcceptedResponse { accepted: true })
 }

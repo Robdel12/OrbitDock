@@ -8,21 +8,21 @@ use orbitdock_protocol::{
     SessionStatus, StateChanges, TokenUsage, WorkStatus,
 };
 
-use crate::claude_session::ClaudeSession;
-use crate::codex_session::CodexSession;
-use crate::persistence::{
-    load_latest_codex_turn_context_settings_from_transcript_path, load_session_by_id,
-    load_session_permission_mode, PersistCommand,
-};
-use crate::session::SessionHandle;
-use crate::session_command::{PersistOp, SessionCommand, SubscribeResult};
-use crate::session_utils::{
+use crate::connectors::claude_session::ClaudeSession;
+use crate::connectors::codex_session::CodexSession;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session_command::{PersistOp, SessionCommand, SubscribeResult};
+use crate::domain::sessions::session_utils::{
     claim_codex_thread_for_direct_session, direct_mode_activation_changes,
     resolve_claude_resume_cwd,
 };
-use crate::snapshot_compaction::prepare_snapshot_for_transport;
-use crate::state::SessionRegistry;
-use crate::websocket::{
+use crate::infrastructure::persistence::{
+    load_latest_codex_turn_context_settings_from_transcript_path, load_session_by_id,
+    load_session_permission_mode, PersistCommand,
+};
+use crate::support::snapshot_compaction::prepare_snapshot_for_transport;
+use crate::transport::websocket::{
     send_json, send_replay_or_snapshot_fallback, spawn_broadcast_forwarder, OutboundMessage,
 };
 
@@ -104,8 +104,11 @@ pub(crate) async fn handle(
             // file has the complete history.
             if restored.messages.is_empty() {
                 if let Some(ref tp) = restored.transcript_path {
-                    match crate::persistence::load_messages_from_transcript_path(tp, &session_id)
-                        .await
+                    match crate::infrastructure::persistence::load_messages_from_transcript_path(
+                        tp,
+                        &session_id,
+                    )
+                    .await
                     {
                         Ok(msgs) if !msgs.is_empty() => {
                             info!(
@@ -295,13 +298,14 @@ pub(crate) async fn handle(
 
                         handle.set_list_tx(state.list_tx());
 
-                        let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
-                            claude_session,
-                            handle,
-                            persist_tx.clone(),
-                            state.list_tx(),
-                            state.clone(),
-                        );
+                        let (actor_handle, action_tx) =
+                            crate::connectors::claude_session::start_event_loop(
+                                claude_session,
+                                handle,
+                                persist_tx.clone(),
+                                state.list_tx(),
+                                state.clone(),
+                            );
                         state.add_session_actor(actor_handle);
                         state.set_claude_action_tx(&session_id, action_tx);
 
@@ -450,12 +454,13 @@ pub(crate) async fn handle(
                         .await;
 
                         handle.set_list_tx(state.list_tx());
-                        let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
-                            codex_session,
-                            handle,
-                            persist_tx,
-                            state.clone(),
-                        );
+                        let (actor_handle, action_tx) =
+                            crate::connectors::codex_session::start_event_loop(
+                                codex_session,
+                                handle,
+                                persist_tx,
+                                state.clone(),
+                            );
                         state.add_session_actor(actor_handle);
                         state.set_codex_action_tx(&session_id, action_tx);
                         info!(
@@ -590,8 +595,11 @@ pub(crate) async fn handle(
             if handle.messages().is_empty() {
                 if let Some(ref tp) = snap.transcript_path {
                     if let Ok(msgs) =
-                        crate::persistence::load_messages_from_transcript_path(tp, &session_id)
-                            .await
+                        crate::infrastructure::persistence::load_messages_from_transcript_path(
+                            tp,
+                            &session_id,
+                        )
+                        .await
                     {
                         if !msgs.is_empty() {
                             info!(
@@ -710,12 +718,13 @@ pub(crate) async fn handle(
                         )
                         .await;
 
-                        let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
-                            codex,
-                            handle,
-                            persist_tx.clone(),
-                            state.clone(),
-                        );
+                        let (actor_handle, action_tx) =
+                            crate::connectors::codex_session::start_event_loop(
+                                codex,
+                                handle,
+                                persist_tx.clone(),
+                                state.clone(),
+                            );
                         state.add_session_actor(actor_handle);
                         state.set_codex_action_tx(&session_id, action_tx);
 
@@ -887,13 +896,14 @@ pub(crate) async fn handle(
                             state.register_claude_thread(&session_id, sdk_id.as_str());
                         }
 
-                        let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
-                            claude_session,
-                            handle,
-                            persist_tx.clone(),
-                            state.list_tx(),
-                            state.clone(),
-                        );
+                        let (actor_handle, action_tx) =
+                            crate::connectors::claude_session::start_event_loop(
+                                claude_session,
+                                handle,
+                                persist_tx.clone(),
+                                state.list_tx(),
+                                state.clone(),
+                            );
                         state.add_session_actor(actor_handle);
                         state.set_claude_action_tx(&session_id, action_tx);
 

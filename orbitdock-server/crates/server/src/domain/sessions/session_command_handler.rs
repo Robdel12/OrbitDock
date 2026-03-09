@@ -14,12 +14,12 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::persistence::PersistCommand;
-use crate::session::SessionHandle;
-use crate::session_command::{
+use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session_command::{
     PendingApprovalResolution, PersistOp, SessionCommand, SubscribeResult,
 };
-use crate::transition;
+use crate::domain::sessions::transition;
+use crate::infrastructure::persistence::PersistCommand;
 
 /// Inject approval_version into ApprovalRequested and SessionDelta messages.
 pub(crate) fn inject_approval_version(msg: &mut ServerMessage, version: u64) {
@@ -380,8 +380,11 @@ pub async fn handle_session_command(
         } => {
             let state = handle.retained_state();
             if state.messages.is_empty() {
-                match crate::persistence::load_messages_from_transcript_path(&path, &session_id)
-                    .await
+                match crate::infrastructure::persistence::load_messages_from_transcript_path(
+                    &path,
+                    &session_id,
+                )
+                .await
                 {
                     Ok(messages) if !messages.is_empty() => {
                         handle.replace_messages(messages);

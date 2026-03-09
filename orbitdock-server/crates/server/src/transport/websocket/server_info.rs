@@ -1,6 +1,6 @@
 use orbitdock_protocol::ServerMessage;
 
-use crate::state::SessionRegistry;
+use crate::domain::sessions::registry::SessionRegistry;
 
 pub(crate) fn server_info_message(state: &SessionRegistry) -> ServerMessage {
     ServerMessage::ServerInfo {

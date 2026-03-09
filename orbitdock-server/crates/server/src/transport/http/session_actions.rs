@@ -81,7 +81,7 @@ pub async fn post_session_message(
 
     let message_id = next_http_message_id("user-http");
 
-    crate::ws_handlers::messaging::dispatch_send_message(
+    crate::transport::websocket::handlers::messaging::dispatch_send_message(
         &state,
         session_id.clone(),
         body.content,
@@ -143,7 +143,7 @@ pub async fn upload_session_image_attachment(
             )
         })?;
 
-    let image = crate::images::store_uploaded_attachment(
+    let image = crate::infrastructure::images::store_uploaded_attachment(
         &session_id,
         body.as_ref(),
         mime_type,
@@ -167,22 +167,25 @@ pub async fn upload_session_image_attachment(
 pub async fn get_session_image_attachment(
     Path((session_id, attachment_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ApiErrorResponse>)> {
-    let (bytes, mime_type) = crate::images::read_attachment_bytes(&session_id, &attachment_id)
-        .map_err(|error| {
-            let status =
-                if error.contains("invalid attachment id") || error.contains("read attachment") {
-                    StatusCode::NOT_FOUND
-                } else {
-                    StatusCode::INTERNAL_SERVER_ERROR
-                };
-            (
-                status,
-                Json(ApiErrorResponse {
-                    code: "attachment_read_failed",
-                    error,
-                }),
-            )
-        })?;
+    let (bytes, mime_type) = crate::infrastructure::images::read_attachment_bytes(
+        &session_id,
+        &attachment_id,
+    )
+    .map_err(|error| {
+        let status = if error.contains("invalid attachment id") || error.contains("read attachment")
+        {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
+        (
+            status,
+            Json(ApiErrorResponse {
+                code: "attachment_read_failed",
+                error,
+            }),
+        )
+    })?;
 
     Ok(([(CONTENT_TYPE, mime_type)], bytes))
 }
@@ -204,7 +207,7 @@ pub async fn post_steer_turn(
 
     let message_id = next_http_message_id("steer-http");
 
-    crate::ws_handlers::messaging::dispatch_steer_turn(
+    crate::transport::websocket::handlers::messaging::dispatch_steer_turn(
         &state,
         session_id.clone(),
         body.content,
@@ -225,7 +228,7 @@ pub async fn interrupt_session(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    crate::ws_handlers::messaging::dispatch_interrupt(&state, &session_id)
+    crate::transport::websocket::handlers::messaging::dispatch_interrupt(&state, &session_id)
         .await
         .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
@@ -235,7 +238,7 @@ pub async fn compact_context(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    crate::ws_handlers::messaging::dispatch_compact(&state, &session_id)
+    crate::transport::websocket::handlers::messaging::dispatch_compact(&state, &session_id)
         .await
         .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
@@ -245,7 +248,7 @@ pub async fn undo_last_turn(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    crate::ws_handlers::messaging::dispatch_undo(&state, &session_id)
+    crate::transport::websocket::handlers::messaging::dispatch_undo(&state, &session_id)
         .await
         .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
@@ -265,9 +268,13 @@ pub async fn rollback_turns(
             }),
         ));
     }
-    crate::ws_handlers::messaging::dispatch_rollback(&state, &session_id, body.num_turns)
-        .await
-        .map_err(|code| dispatch_error_response(code, &session_id))?;
+    crate::transport::websocket::handlers::messaging::dispatch_rollback(
+        &state,
+        &session_id,
+        body.num_turns,
+    )
+    .await
+    .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
 }
 
@@ -276,9 +283,13 @@ pub async fn stop_task(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<StopTaskRequest>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    crate::ws_handlers::messaging::dispatch_stop_task(&state, &session_id, body.task_id)
-        .await
-        .map_err(|code| dispatch_error_response(code, &session_id))?;
+    crate::transport::websocket::handlers::messaging::dispatch_stop_task(
+        &state,
+        &session_id,
+        body.task_id,
+    )
+    .await
+    .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
 }
 
@@ -287,8 +298,12 @@ pub async fn rewind_files(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<RewindFilesRequest>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    crate::ws_handlers::messaging::dispatch_rewind_files(&state, &session_id, body.user_message_id)
-        .await
-        .map_err(|code| dispatch_error_response(code, &session_id))?;
+    crate::transport::websocket::handlers::messaging::dispatch_rewind_files(
+        &state,
+        &session_id,
+        body.user_message_id,
+    )
+    .await
+    .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
 }

@@ -5,8 +5,8 @@
 
 use std::path::Path;
 
-use crate::migration_runner;
-use crate::paths;
+use crate::infrastructure::migration_runner;
+use crate::infrastructure::paths;
 
 pub fn run(data_dir: &Path, _server_url: &str) -> anyhow::Result<()> {
     let installer_mode = installer_mode();
@@ -17,7 +17,7 @@ pub fn run(data_dir: &Path, _server_url: &str) -> anyhow::Result<()> {
     println!("  Created {}/", data_dir.display());
 
     // 2. Ensure encryption key exists
-    crate::crypto::ensure_key();
+    crate::infrastructure::crypto::ensure_key();
     println!(
         "  Encryption key ready at {}",
         paths::encryption_key_path().display()

@@ -9,8 +9,10 @@ use orbitdock_protocol::{ReviewComment, ReviewCommentStatus, ReviewCommentTag, S
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::persistence::{list_review_comments, load_review_comment_by_id, PersistCommand};
-use crate::state::SessionRegistry;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::infrastructure::persistence::{
+    list_review_comments, load_review_comment_by_id, PersistCommand,
+};
 
 use super::{revision_now, ApiErrorResponse, ApiResult};
 
@@ -147,19 +149,21 @@ pub async fn update_review_comment(
         tag: updated_tag.or_else(|| existing.tag.clone()),
         status: updated_status.unwrap_or_else(|| existing.status.clone()),
         created_at: existing.created_at.clone(),
-        updated_at: Some(crate::session_utils::chrono_now()),
+        updated_at: Some(crate::domain::sessions::session_utils::chrono_now()),
     };
 
     let review_revision = revision_now();
     if let Some(actor) = state.get_session(&updated.session_id) {
         actor
-            .send(crate::session_command::SessionCommand::Broadcast {
-                msg: ServerMessage::ReviewCommentUpdated {
-                    session_id: updated.session_id.clone(),
-                    review_revision,
-                    comment: updated.clone(),
+            .send(
+                crate::domain::sessions::session_command::SessionCommand::Broadcast {
+                    msg: ServerMessage::ReviewCommentUpdated {
+                        session_id: updated.session_id.clone(),
+                        review_revision,
+                        comment: updated.clone(),
+                    },
                 },
-            })
+            )
             .await;
     }
 
@@ -209,13 +213,15 @@ pub async fn delete_review_comment_by_id(
     let review_revision = revision_now();
     if let Some(actor) = state.get_session(&existing.session_id) {
         actor
-            .send(crate::session_command::SessionCommand::Broadcast {
-                msg: ServerMessage::ReviewCommentDeleted {
-                    session_id: existing.session_id.clone(),
-                    review_revision,
-                    comment_id: comment_id.clone(),
+            .send(
+                crate::domain::sessions::session_command::SessionCommand::Broadcast {
+                    msg: ServerMessage::ReviewCommentDeleted {
+                        session_id: existing.session_id.clone(),
+                        review_revision,
+                        comment_id: comment_id.clone(),
+                    },
                 },
-            })
+            )
             .await;
     }
 
@@ -255,7 +261,7 @@ pub async fn create_review_comment_endpoint(
         .to_string()
     });
 
-    let now = crate::session_utils::chrono_now();
+    let now = crate::domain::sessions::session_utils::chrono_now();
     let review_revision = revision_now();
 
     let comment = ReviewComment {
@@ -288,13 +294,15 @@ pub async fn create_review_comment_endpoint(
 
     if let Some(actor) = state.get_session(&session_id) {
         actor
-            .send(crate::session_command::SessionCommand::Broadcast {
-                msg: ServerMessage::ReviewCommentCreated {
-                    session_id: session_id.clone(),
-                    review_revision,
-                    comment: comment.clone(),
+            .send(
+                crate::domain::sessions::session_command::SessionCommand::Broadcast {
+                    msg: ServerMessage::ReviewCommentCreated {
+                        session_id: session_id.clone(),
+                        review_revision,
+                        comment: comment.clone(),
+                    },
                 },
-            })
+            )
             .await;
     }
 

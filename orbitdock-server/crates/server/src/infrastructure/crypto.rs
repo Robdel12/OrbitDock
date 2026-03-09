@@ -12,7 +12,7 @@ use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 use ring::rand::{SecureRandom, SystemRandom};
 use tracing::{error, info, warn};
 
-use crate::paths;
+use crate::infrastructure::paths;
 
 const NONCE_LEN: usize = 12; // AES-256-GCM standard nonce size
 const KEY_LEN: usize = 32; // 256 bits

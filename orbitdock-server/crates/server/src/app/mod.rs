@@ -21,13 +21,13 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
-use crate::logging::init_logging;
-use crate::persistence::{
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::infrastructure::logging::init_logging;
+use crate::infrastructure::persistence::{
     cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
     create_persistence_channel, load_sessions_for_startup, PersistCommand, PersistenceWriter,
 };
-use crate::state::SessionRegistry;
-use crate::websocket::ws_handler;
+use crate::transport::websocket::ws_handler;
 use crate::VERSION;
 
 /// Per-request body budget for REST uploads. Image attachments are uploaded
@@ -48,8 +48,8 @@ pub struct ServerRunOptions {
 pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     let auth_token = normalize_auth_token(options.auth_token);
 
-    crate::paths::ensure_dirs()?;
-    crate::crypto::ensure_key();
+    crate::infrastructure::paths::ensure_dirs()?;
+    crate::infrastructure::crypto::ensure_key();
 
     let logging = init_logging()?;
     let run_id = logging.run_id.clone();
@@ -76,15 +76,15 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         "Starting OrbitDock Server..."
     );
 
-    let db_path = crate::paths::db_path();
+    let db_path = crate::infrastructure::paths::db_path();
     {
         let mut conn = rusqlite::Connection::open(&db_path)
             .map_err(|e| anyhow::anyhow!("open db for migrations: {e}"))?;
-        crate::migration_runner::run_migrations(&mut conn)
+        crate::infrastructure::migration_runner::run_migrations(&mut conn)
             .map_err(|e| anyhow::anyhow!("database migration failed: {e}"))?;
     }
 
-    let active_db_tokens = crate::auth_tokens::active_token_count().unwrap_or(0);
+    let active_db_tokens = crate::infrastructure::auth_tokens::active_token_count().unwrap_or(0);
     let has_db_tokens = active_db_tokens > 0;
 
     if !options.bind_addr.ip().is_loopback()
@@ -121,7 +121,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         );
     }
 
-    let persisted_is_primary = crate::persistence::load_config_value("server_role")
+    let persisted_is_primary = crate::infrastructure::persistence::load_config_value("server_role")
         .and_then(|value| parse_server_role_value(&value));
     let is_primary = persisted_is_primary.unwrap_or(options.startup_is_primary);
     info!(
@@ -206,7 +206,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             let mut backfill_tasks: Vec<(String, String)> = Vec::new();
 
             for rs in restored {
-                let crate::persistence::RestoredSession {
+                let crate::infrastructure::persistence::RestoredSession {
                     id,
                     provider,
                     status,
@@ -265,7 +265,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     _ => Provider::Claude,
                 };
 
-                let mut handle = crate::session::SessionHandle::restore(
+                let mut handle = crate::domain::sessions::session::SessionHandle::restore(
                     id.clone(),
                     provider,
                     project_path.clone(),
@@ -415,7 +415,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                 let backfill_state = state.clone();
                 tokio::spawn(async move {
                     for (session_id, transcript_path) in backfill_tasks {
-                        match crate::persistence::load_messages_from_transcript_path(
+                        match crate::infrastructure::persistence::load_messages_from_transcript_path(
                             &transcript_path,
                             &session_id,
                         )
@@ -425,7 +425,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                                 let count = messages.len();
                                 for message in &messages {
                                     let _ = backfill_persist_tx
-                                        .send(crate::persistence::PersistCommand::MessageAppend {
+                                        .send(crate::infrastructure::persistence::PersistCommand::MessageAppend {
                                             session_id: session_id.clone(),
                                             message: message.clone(),
                                         })
@@ -435,7 +435,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                                 if let Some(actor) = backfill_state.get_session(&session_id) {
                                     actor
                                         .send(
-                                            crate::session_command::SessionCommand::ReplaceMessages {
+                                            crate::domain::sessions::session_command::SessionCommand::ReplaceMessages {
                                                 messages,
                                             },
                                         )
@@ -482,7 +482,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         }
     }
 
-    crate::persistence::backfill_claude_models_from_sessions().await;
+    crate::infrastructure::persistence::backfill_claude_models_from_sessions().await;
     drain_spool(&state).await;
 
     {
@@ -494,7 +494,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             {
                 if let Some(actor) = state.get_session(&summary.id) {
                     if state.naming_guard().try_claim(&summary.id) {
-                        crate::ai_naming::spawn_naming_task(
+                        crate::support::ai_naming::spawn_naming_task(
                             summary.id.clone(),
                             summary.first_prompt.clone().unwrap(),
                             actor,
@@ -510,8 +510,11 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     let watcher_state = state.clone();
     let watcher_persist = persist_tx.clone();
     tokio::spawn(async move {
-        if let Err(error) =
-            crate::rollout_watcher::start_rollout_watcher(watcher_state, watcher_persist).await
+        if let Err(error) = crate::connectors::rollout_watcher::start_rollout_watcher(
+            watcher_state,
+            watcher_persist,
+        )
+        .await
         {
             warn!(
                 component = "rollout_watcher",
@@ -532,7 +535,9 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     });
 
     let git_state = state.clone();
-    tokio::spawn(crate::git_refresh::start_git_refresh_loop(git_state));
+    tokio::spawn(crate::domain::git::git_refresh::start_git_refresh_loop(
+        git_state,
+    ));
 
     let shutdown_state = state.clone();
     let shutdown_persist = persist_tx.clone();
@@ -540,16 +545,19 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     let mut app = Router::new()
         .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
         .route("/ws", get(ws_handler))
-        .merge(crate::http_api::build_router())
+        .merge(crate::transport::http::build_router())
         .route("/health", get(health_handler))
-        .route("/metrics", get(crate::metrics::metrics_handler));
+        .route(
+            "/metrics",
+            get(crate::infrastructure::metrics::metrics_handler),
+        );
 
-    let auth_state = crate::auth::AuthState {
+    let auth_state = crate::infrastructure::auth::AuthState {
         static_token: auth_token.clone(),
     };
     app = app.layer(axum::middleware::from_fn_with_state(
         auth_state,
-        crate::auth::auth_middleware,
+        crate::infrastructure::auth::auth_middleware,
     ));
 
     let mut app = app.layer(TraceLayer::new_for_http());
@@ -669,7 +677,7 @@ fn configured_cors_layer() -> anyhow::Result<Option<CorsLayer>> {
 }
 
 fn write_pid_file() {
-    let pid_path = crate::paths::pid_file_path();
+    let pid_path = crate::infrastructure::paths::pid_file_path();
     if let Err(error) = std::fs::write(&pid_path, std::process::id().to_string()) {
         warn!(
             component = "server",
@@ -682,7 +690,7 @@ fn write_pid_file() {
 }
 
 fn remove_pid_file() {
-    let pid_path = crate::paths::pid_file_path();
+    let pid_path = crate::infrastructure::paths::pid_file_path();
     let _ = std::fs::remove_file(&pid_path);
 }
 
@@ -726,7 +734,7 @@ fn binary_metadata(path: &str) -> (u64, i64) {
 }
 
 async fn drain_spool(state: &Arc<SessionRegistry>) {
-    let spool_dir = crate::paths::spool_dir();
+    let spool_dir = crate::infrastructure::paths::spool_dir();
     let entries = match std::fs::read_dir(&spool_dir) {
         Ok(entries) => entries,
         Err(_) => return,
@@ -779,7 +787,7 @@ async fn drain_spool(state: &Arc<SessionRegistry>) {
             }
         };
 
-        crate::hook_handler::handle_hook_message(message, state).await;
+        crate::connectors::hook_handler::handle_hook_message(message, state).await;
         let _ = std::fs::remove_file(path);
         drained += 1;
     }

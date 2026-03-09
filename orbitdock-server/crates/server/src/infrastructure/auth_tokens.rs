@@ -10,7 +10,7 @@ use ring::digest::{Context as DigestContext, SHA256};
 use ring::rand::{SecureRandom, SystemRandom};
 use rusqlite::{params, Connection};
 
-use crate::{migration_runner, paths};
+use crate::infrastructure::{migration_runner, paths};
 
 const TOKEN_PREFIX: &str = "odtk";
 const TOKEN_ID_BYTES: usize = 9;

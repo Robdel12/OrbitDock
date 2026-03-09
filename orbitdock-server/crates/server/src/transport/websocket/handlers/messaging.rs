@@ -9,17 +9,17 @@ use orbitdock_protocol::{
     ClientMessage, ImageInput, MentionInput, ServerMessage, SkillInput, WorkStatus,
 };
 
-use crate::claude_session::ClaudeAction;
-use crate::codex_session::CodexAction;
-use crate::normalization::{
+use crate::connectors::claude_session::ClaudeAction;
+use crate::connectors::codex_session::CodexAction;
+use crate::domain::sessions::registry::SessionRegistry;
+use crate::domain::sessions::session_command::SessionCommand;
+use crate::domain::sessions::session_naming::name_from_first_prompt;
+use crate::domain::sessions::session_utils::{iso_timestamp, mark_session_working_after_send};
+use crate::infrastructure::persistence::PersistCommand;
+use crate::support::normalization::{
     normalize_model_override, normalize_non_empty, normalize_question_answers,
 };
-use crate::persistence::PersistCommand;
-use crate::session_command::SessionCommand;
-use crate::session_naming::name_from_first_prompt;
-use crate::session_utils::{iso_timestamp, mark_session_working_after_send};
-use crate::state::SessionRegistry;
-use crate::websocket::{send_json, OutboundMessage};
+use crate::transport::websocket::{send_json, OutboundMessage};
 
 pub(crate) enum DispatchMessageError {
     NotFound,
@@ -70,7 +70,7 @@ pub(crate) async fn dispatch_send_message(
             .await;
 
         if state.naming_guard().try_claim(&session_id) {
-            crate::ai_naming::spawn_naming_task(
+            crate::support::ai_naming::spawn_naming_task(
                 session_id.clone(),
                 prompt,
                 actor.clone(),
@@ -142,9 +142,10 @@ pub(crate) async fn dispatch_send_message(
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let persisted_images = crate::images::materialize_images_for_message(&session_id, &images);
+    let persisted_images =
+        crate::infrastructure::images::materialize_images_for_message(&session_id, &images);
     let connector_images =
-        crate::images::resolve_images_for_connector(&session_id, &persisted_images);
+        crate::infrastructure::images::resolve_images_for_connector(&session_id, &persisted_images);
     let user_msg = orbitdock_protocol::Message {
         id: message_id,
         session_id: session_id.clone(),
@@ -243,9 +244,10 @@ pub(crate) async fn dispatch_steer_turn(
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let persisted_images = crate::images::materialize_images_for_message(&session_id, &images);
+    let persisted_images =
+        crate::infrastructure::images::materialize_images_for_message(&session_id, &images);
     let connector_images =
-        crate::images::resolve_images_for_connector(&session_id, &persisted_images);
+        crate::infrastructure::images::resolve_images_for_connector(&session_id, &persisted_images);
     let steer_msg = orbitdock_protocol::Message {
         id: message_id.clone(),
         session_id: session_id.clone(),
