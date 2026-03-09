@@ -17,7 +17,7 @@ use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::mark_session_working_after_send;
 use crate::support::normalization::{
-    normalize_model_override, normalize_non_empty, normalize_question_answers,
+    build_question_answers, normalize_model_override, normalize_non_empty,
 };
 use crate::support::session_time::iso_timestamp;
 use crate::transport::websocket::{send_json, OutboundMessage};
@@ -413,12 +413,7 @@ pub(crate) async fn dispatch_answer_question(
     question_id: Option<String>,
     answers: HashMap<String, Vec<String>>,
 ) -> Result<AnswerQuestionResult, &'static str> {
-    let mut normalized_answers = normalize_question_answers(Some(answers));
-    let trimmed_answer = answer.trim().to_string();
-    if normalized_answers.is_empty() && !trimmed_answer.is_empty() {
-        let key = question_id.clone().unwrap_or_else(|| "0".to_string());
-        normalized_answers.insert(key, vec![trimmed_answer.clone()]);
-    }
+    let normalized_answers = build_question_answers(&answer, question_id.as_deref(), Some(answers));
     if normalized_answers.is_empty() {
         return Err("invalid_answer_payload");
     }
@@ -471,15 +466,10 @@ pub(crate) async fn dispatch_answer_question(
             })
             .await;
     } else if let Some(tx) = state.get_claude_action_tx(session_id) {
-        let mut claude_answers = normalized_answers;
-        if claude_answers.is_empty() && !trimmed_answer.is_empty() {
-            let key = question_id.unwrap_or_else(|| "0".to_string());
-            claude_answers.insert(key, vec![trimmed_answer]);
-        }
         let _ = tx
             .send(ClaudeAction::AnswerQuestion {
                 request_id,
-                answers: claude_answers,
+                answers: normalized_answers,
             })
             .await;
     }
@@ -633,12 +623,8 @@ pub(crate) async fn handle(
             question_id,
             answers,
         } => {
-            let mut normalized_answers = normalize_question_answers(answers);
-            let trimmed_answer = answer.trim().to_string();
-            if normalized_answers.is_empty() && !trimmed_answer.is_empty() {
-                let key = question_id.clone().unwrap_or_else(|| "0".to_string());
-                normalized_answers.insert(key, vec![trimmed_answer.clone()]);
-            }
+            let normalized_answers =
+                build_question_answers(&answer, question_id.as_deref(), answers);
 
             info!(
                 component = "approval",
@@ -646,7 +632,7 @@ pub(crate) async fn handle(
                 connection_id = conn_id,
                 session_id = %session_id,
                 request_id = %request_id,
-                answer_chars = trimmed_answer.chars().count(),
+                answer_chars = answer.trim().chars().count(),
                 answer_questions = normalized_answers.len(),
                 "Answer submitted for question approval"
             );
@@ -672,111 +658,60 @@ pub(crate) async fn handle(
                 return;
             }
 
-            let fallback_work_status = WorkStatus::Working;
-            let mut resolved_work_status = fallback_work_status;
-            let mut resolved = false;
-            let mut next_pending_request_id: Option<String> = None;
-            let mut approval_version: u64 = 0;
-            if let Some(actor) = state.get_session(&session_id) {
-                let (reply_tx, reply_rx) = oneshot::channel();
-                actor
-                    .send(SessionCommand::ResolvePendingApproval {
-                        request_id: request_id.clone(),
-                        fallback_work_status,
-                        reply: reply_tx,
-                    })
+            let result = match dispatch_answer_question(
+                state,
+                &session_id,
+                request_id.clone(),
+                answer,
+                question_id,
+                normalized_answers,
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err("invalid_answer_payload") => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "invalid_answer_payload".into(),
+                            message: "Question approvals require a non-empty answer or answers map"
+                                .into(),
+                            session_id: Some(session_id),
+                        },
+                    )
                     .await;
-                if let Ok(resolution) = reply_rx.await {
-                    resolved = resolution.approval_type.is_some();
-                    resolved_work_status = resolution.work_status;
-                    next_pending_request_id = resolution.next_pending_approval.map(|a| a.id);
-                    approval_version = resolution.approval_version;
-                }
-            }
-
-            if state.get_session(&session_id).is_some() && !resolved {
-                send_json(
-                    client_tx,
-                    ServerMessage::ApprovalDecisionResult {
-                        session_id: session_id.clone(),
-                        request_id: request_id.clone(),
-                        outcome: "stale".to_string(),
-                        active_request_id: next_pending_request_id.clone(),
-                        approval_version,
-                    },
-                )
-                .await;
-                return;
-            }
-
-            let request_id_for_result = request_id.clone();
-
-            let _ = state
-                .persist()
-                .send(PersistCommand::ApprovalDecision {
-                    session_id: session_id.clone(),
-                    request_id: request_id.clone(),
-                    decision: "approved".to_string(),
-                })
-                .await;
-
-            if let Some(tx) = state.get_codex_action_tx(&session_id) {
-                let _ = tx
-                    .send(CodexAction::AnswerQuestion {
-                        request_id: request_id.clone(),
-                        answers: normalized_answers,
-                    })
-                    .await;
-            } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
-                // If the client sent a plain text answer, normalize it into the
-                // answers map so the connector always gets structured data.
-                let mut claude_answers = normalized_answers.clone();
-                if claude_answers.is_empty() && !trimmed_answer.is_empty() {
-                    let key = question_id.clone().unwrap_or_else(|| "0".to_string());
-                    claude_answers.insert(key, vec![trimmed_answer]);
-                }
-                if claude_answers.is_empty() {
-                    warn!(
-                        component = "approval",
-                        event = "approval.answer.missing_payload",
-                        connection_id = conn_id,
-                        session_id = %session_id,
-                        request_id = %request_id,
-                        "Question answer request had no usable answer payload"
-                    );
                     return;
                 }
-                let _ = tx
-                    .send(ClaudeAction::AnswerQuestion {
-                        request_id,
-                        answers: claude_answers,
-                    })
+                Err(_) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "not_found".into(),
+                            message: format!(
+                                "Session {} not found or has no active connector",
+                                session_id
+                            ),
+                            session_id: Some(session_id),
+                        },
+                    )
                     .await;
-            }
-
-            let _ = state
-                .persist()
-                .send(PersistCommand::SessionUpdate {
-                    id: session_id.clone(),
-                    status: None,
-                    work_status: Some(resolved_work_status),
-                    last_activity_at: None,
-                })
-                .await;
+                    return;
+                }
+            };
 
             send_json(
                 client_tx,
                 ServerMessage::ApprovalDecisionResult {
                     session_id: session_id.clone(),
-                    request_id: request_id_for_result,
-                    outcome: "applied".to_string(),
-                    active_request_id: next_pending_request_id.clone(),
-                    approval_version,
+                    request_id: request_id.clone(),
+                    outcome: result.outcome,
+                    active_request_id: result.active_request_id.clone(),
+                    approval_version: result.approval_version,
                 },
             )
             .await;
 
-            if let Some(next_pending_request_id) = next_pending_request_id {
+            if let Some(next_pending_request_id) = result.active_request_id {
                 info!(
                     component = "approval",
                     event = "approval.queue.promoted",
