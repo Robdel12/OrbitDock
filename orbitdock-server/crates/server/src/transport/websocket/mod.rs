@@ -3,32 +3,14 @@
 //! Handler logic lives in `ws_handlers/`, compaction in `snapshot_compaction`,
 //! session utilities in `session_utils`, and normalization in `normalization`.
 
+mod connection;
 pub(crate) mod handlers;
+mod message_groups;
 mod router;
 mod server_info;
 mod transport;
 
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-
-use axum::{
-    extract::{
-        ws::{Message, WebSocket},
-        State, WebSocketUpgrade,
-    },
-    response::IntoResponse,
-};
-use futures::{SinkExt, StreamExt};
-use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
-
-use orbitdock_protocol::{ClientMessage, ServerMessage};
-
-use crate::runtime::session_registry::SessionRegistry;
-use crate::support::snapshot_compaction::{
-    sanitize_server_message_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
-};
-
+pub use connection::ws_handler;
 pub(crate) use router::handle_client_message;
 pub(crate) use server_info::server_info_message;
 pub(crate) use transport::{
@@ -36,189 +18,20 @@ pub(crate) use transport::{
     spawn_broadcast_forwarder, OutboundMessage,
 };
 
-static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
-
-/// WebSocket upgrade handler
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<SessionRegistry>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
-}
-
-/// Handle a WebSocket connection
-async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
-    let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
-    state.ws_connect();
-    info!(
-        component = "websocket",
-        event = "ws.connection.opened",
-        connection_id = conn_id,
-        "WebSocket connection opened"
-    );
-
-    let (mut ws_tx, mut ws_rx) = socket.split();
-
-    // Channel for sending messages to this client (supports both JSON and raw frames)
-    let (outbound_tx, mut outbound_rx) = mpsc::channel::<OutboundMessage>(100);
-
-    // Spawn task to forward messages to WebSocket
-    let send_task = tokio::spawn(async move {
-        while let Some(msg) = outbound_rx.recv().await {
-            let result = match msg {
-                OutboundMessage::Json(server_msg) => {
-                    let sanitized = sanitize_server_message_for_transport(server_msg);
-                    match serde_json::to_string(&sanitized) {
-                        Ok(json) => {
-                            if json.len() > WS_MAX_TEXT_MESSAGE_BYTES {
-                                warn!(
-                                    component = "websocket",
-                                    event = "ws.send.oversize_message",
-                                    connection_id = conn_id,
-                                    bytes = json.len(),
-                                    max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
-                                    "Sending oversized server message (no truncation)"
-                                );
-                            }
-                            ws_tx.send(Message::Text(json.into())).await
-                        }
-                        Err(e) => {
-                            error!(
-                                component = "websocket",
-                                event = "ws.send.serialize_failed",
-                                connection_id = conn_id,
-                                error = %e,
-                                "Failed to serialize server message"
-                            );
-                            continue;
-                        }
-                    }
-                }
-                OutboundMessage::Raw(json) => {
-                    if json.len() > WS_MAX_TEXT_MESSAGE_BYTES {
-                        warn!(
-                            component = "websocket",
-                            event = "ws.send.oversize_raw",
-                            connection_id = conn_id,
-                            bytes = json.len(),
-                            max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
-                            "Sending oversized replay payload (no truncation)"
-                        );
-                    }
-                    ws_tx.send(Message::Text(json.into())).await
-                }
-                OutboundMessage::Pong(data) => ws_tx.send(Message::Pong(data)).await,
-            };
-
-            if result.is_err() {
-                debug!(
-                    component = "websocket",
-                    event = "ws.send.disconnected",
-                    connection_id = conn_id,
-                    "WebSocket send failed, client disconnected"
-                );
-                break;
-            }
-        }
-    });
-
-    // Wrapper to send JSON messages (used by handle_client_message)
-    let client_tx = outbound_tx.clone();
-
-    // Announce server role immediately so clients can derive control-plane routing.
-    send_json(&outbound_tx, server_info_message(&state)).await;
-
-    // Handle incoming messages
-    while let Some(result) = ws_rx.next().await {
-        let msg = match result {
-            Ok(Message::Text(text)) => text,
-            Ok(Message::Ping(data)) => {
-                // Respond to ping with pong
-                let _ = outbound_tx.send(OutboundMessage::Pong(data)).await;
-                continue;
-            }
-            Ok(Message::Close(_)) => {
-                info!(
-                    component = "websocket",
-                    event = "ws.connection.close_frame",
-                    connection_id = conn_id,
-                    "Client sent close frame"
-                );
-                break;
-            }
-            Ok(_) => continue,
-            Err(e) => {
-                warn!(
-                    component = "websocket",
-                    event = "ws.connection.error",
-                    connection_id = conn_id,
-                    error = %e,
-                    "WebSocket error"
-                );
-                break;
-            }
-        };
-
-        // Parse client message
-        let client_msg: ClientMessage = match serde_json::from_str(&msg) {
-            Ok(m) => m,
-            Err(e) => {
-                warn!(
-                    component = "websocket",
-                    event = "ws.message.parse_failed",
-                    connection_id = conn_id,
-                    error = %e,
-                    payload_bytes = msg.len(),
-                    payload_preview = %truncate_for_log(&msg, 240),
-                    "Failed to parse client message"
-                );
-                send_json(
-                    &client_tx,
-                    ServerMessage::Error {
-                        code: "parse_error".into(),
-                        message: e.to_string(),
-                        session_id: None,
-                    },
-                )
-                .await;
-                continue;
-            }
-        };
-
-        handle_client_message(client_msg, &client_tx, &state, conn_id).await;
-    }
-
-    state.ws_disconnect();
-    info!(
-        component = "websocket",
-        event = "ws.connection.closed",
-        connection_id = conn_id,
-        "WebSocket connection closed"
-    );
-    if state.clear_client_primary_claim(conn_id) {
-        state.broadcast_to_list(server_info_message(&state));
-    }
-    send_task.abort();
-}
-
-fn truncate_for_log(value: &str, max_chars: usize) -> String {
-    value.chars().take(max_chars).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::{handle_client_message, send_replay_or_snapshot_fallback, OutboundMessage};
     use crate::connectors::claude_session::ClaudeAction;
     use crate::connectors::codex_session::CodexAction;
-    use crate::runtime::session_registry::SessionRegistry;
     use crate::domain::sessions::session::SessionHandle;
-    use crate::runtime::session_commands::SessionCommand;
     use crate::domain::sessions::session_naming::name_from_first_prompt;
+    use crate::domain::sessions::transition::Input;
+    use crate::infrastructure::persistence::PersistCommand;
+    use crate::runtime::session_commands::SessionCommand;
+    use crate::runtime::session_registry::SessionRegistry;
     use crate::runtime::session_runtime_helpers::{
         claim_codex_thread_for_direct_session, direct_mode_activation_changes,
     };
-    use crate::domain::sessions::transition::Input;
-    use crate::infrastructure::persistence::PersistCommand;
     use crate::support::normalization::work_status_for_approval_decision;
     use crate::support::session_paths::claude_transcript_path_from_cwd;
     use crate::support::snapshot_compaction::{

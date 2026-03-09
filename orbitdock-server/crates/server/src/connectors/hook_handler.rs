@@ -17,17 +17,19 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 use tracing::warn;
 
-use orbitdock_protocol::{ClientMessage, Provider, ServerMessage};
+use orbitdock_protocol::{ClientMessage, Provider, ServerMessage, SessionSummary};
 
-use crate::runtime::session_registry::{PendingClaudeSession, SessionRegistry};
-use crate::runtime::session_actor::SessionActorHandle;
-use crate::runtime::session_commands::SessionCommand;
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::transition::{
     approval_preview, approval_question, approval_question_prompts,
 };
 use crate::infrastructure::persistence::PersistCommand;
-use crate::runtime::session_runtime_helpers::{is_stale_empty_claude_shell, sync_transcript_messages};
+use crate::runtime::session_actor::SessionActorHandle;
+use crate::runtime::session_commands::SessionCommand;
+use crate::runtime::session_registry::{PendingClaudeSession, SessionRegistry};
+use crate::runtime::session_runtime_helpers::{
+    is_stale_empty_claude_shell, sync_transcript_messages,
+};
 use crate::support::session_paths::{claude_transcript_path_from_cwd, project_name_from_cwd};
 use crate::support::session_time::chrono_now;
 
@@ -1741,17 +1743,8 @@ fn find_most_recent_claude_session(
     project_path: &str,
     state: &Arc<SessionRegistry>,
 ) -> Option<String> {
-    state
-        .get_session_summaries()
-        .into_iter()
-        .filter(|s| {
-            s.provider == Provider::Claude
-                && s.id != current_session_id
-                && s.project_path == project_path
-        })
-        // Most recent by last_activity_at (descending)
-        .max_by(|a, b| a.last_activity_at.cmp(&b.last_activity_at))
-        .map(|s| s.id)
+    let summaries = state.get_session_summaries();
+    most_recent_claude_session_id(current_session_id, project_path, summaries.iter())
 }
 
 /// Check if a session-start payload is actually from Codex CLI.
@@ -1768,4 +1761,188 @@ fn is_codex_rollout_payload(transcript_path: Option<&str>, model: Option<&str>) 
         }
     }
     false
+}
+
+fn most_recent_claude_session_id<'a>(
+    current_session_id: &str,
+    project_path: &str,
+    sessions: impl IntoIterator<Item = &'a SessionSummary>,
+) -> Option<String> {
+    sessions
+        .into_iter()
+        .filter(|session| {
+            session.provider == Provider::Claude
+                && session.id != current_session_id
+                && session.project_path == project_path
+        })
+        .max_by(|left, right| left.last_activity_at.cmp(&right.last_activity_at))
+        .map(|session| session.id.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use orbitdock_protocol::{
+        ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionStatus, SessionSummary,
+        TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    };
+    use serde_json::json;
+
+    use super::{
+        classify_permission_request, extract_plan_from_tool_input,
+        extract_question_from_tool_input, is_codex_rollout_payload, most_recent_claude_session_id,
+    };
+    use crate::support::session_time::chrono_now;
+
+    fn session_summary(
+        id: &str,
+        provider: Provider,
+        project_path: &str,
+        last_activity_at: Option<&str>,
+    ) -> SessionSummary {
+        SessionSummary {
+            id: id.to_string(),
+            provider,
+            project_path: project_path.to_string(),
+            transcript_path: None,
+            project_name: Some("Project".to_string()),
+            model: None,
+            custom_name: None,
+            summary: None,
+            first_prompt: None,
+            last_message: None,
+            status: SessionStatus::Active,
+            work_status: WorkStatus::Waiting,
+            token_usage: TokenUsage::default(),
+            token_usage_snapshot_kind: TokenUsageSnapshotKind::default(),
+            has_pending_approval: false,
+            codex_integration_mode: Some(CodexIntegrationMode::Passive),
+            claude_integration_mode: Some(ClaudeIntegrationMode::Passive),
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: None,
+            pending_tool_name: None,
+            pending_tool_input: None,
+            pending_question: None,
+            pending_approval_id: None,
+            started_at: Some(chrono_now()),
+            last_activity_at: last_activity_at.map(str::to_string),
+            git_branch: None,
+            git_sha: None,
+            current_cwd: None,
+            effort: None,
+            approval_version: Some(0),
+            repository_root: None,
+            is_worktree: false,
+            worktree_id: None,
+            unread_count: 0,
+        }
+    }
+
+    #[test]
+    fn permission_requests_map_to_expected_approval_and_attention_state() {
+        let question = classify_permission_request("AskUserQuestion");
+        let patch = classify_permission_request("Edit");
+        let exec = classify_permission_request("Bash");
+
+        assert_eq!(question.0, orbitdock_protocol::ApprovalType::Question);
+        assert_eq!(question.1, WorkStatus::Question);
+        assert_eq!(question.2, "awaitingQuestion");
+
+        assert_eq!(patch.0, orbitdock_protocol::ApprovalType::Patch);
+        assert_eq!(patch.1, WorkStatus::Permission);
+        assert_eq!(patch.2, "awaitingPermission");
+
+        assert_eq!(exec.0, orbitdock_protocol::ApprovalType::Exec);
+        assert_eq!(exec.1, WorkStatus::Permission);
+        assert_eq!(exec.2, "awaitingPermission");
+    }
+
+    #[test]
+    fn question_extraction_prefers_direct_question_then_nested_questions() {
+        let direct = json!({ "question": "Ship it?" });
+        let nested = json!({ "questions": [{ "question": "Need approval?" }] });
+        let empty = json!({ "questions": [{ "label": "missing" }] });
+
+        assert_eq!(
+            extract_question_from_tool_input(Some(&direct)),
+            Some("Ship it?".to_string())
+        );
+        assert_eq!(
+            extract_question_from_tool_input(Some(&nested)),
+            Some("Need approval?".to_string())
+        );
+        assert_eq!(extract_question_from_tool_input(Some(&empty)), None);
+    }
+
+    #[test]
+    fn plan_extraction_prefers_plan_and_trims_whitespace() {
+        let direct = json!({ "plan": "  First do the safe thing.  " });
+        let fallback = json!({ "current_plan": "Use the fallback plan" });
+        let blank = json!({ "plan": "   " });
+
+        assert_eq!(
+            extract_plan_from_tool_input(Some(&direct)),
+            Some("First do the safe thing.".to_string())
+        );
+        assert_eq!(
+            extract_plan_from_tool_input(Some(&fallback)),
+            Some("Use the fallback plan".to_string())
+        );
+        assert_eq!(extract_plan_from_tool_input(Some(&blank)), None);
+    }
+
+    #[test]
+    fn codex_rollout_detection_uses_transcript_path_or_model_hint() {
+        assert!(is_codex_rollout_payload(
+            Some("/tmp/.codex/sessions/abc/rollout.jsonl"),
+            None
+        ));
+        assert!(is_codex_rollout_payload(None, Some("codex-mini-latest")));
+        assert!(is_codex_rollout_payload(None, Some("gpt-5")));
+        assert!(!is_codex_rollout_payload(
+            Some("/tmp/.claude/projects/demo/transcript.jsonl"),
+            Some("claude-sonnet")
+        ));
+    }
+
+    #[test]
+    fn most_recent_claude_session_selector_ignores_other_projects_and_current_session() {
+        let summaries = vec![
+            session_summary(
+                "current",
+                Provider::Claude,
+                "/repo",
+                Some("2026-03-09T01:00:00Z"),
+            ),
+            session_summary(
+                "older",
+                Provider::Claude,
+                "/repo",
+                Some("2026-03-09T02:00:00Z"),
+            ),
+            session_summary(
+                "latest",
+                Provider::Claude,
+                "/repo",
+                Some("2026-03-09T03:00:00Z"),
+            ),
+            session_summary(
+                "codex",
+                Provider::Codex,
+                "/repo",
+                Some("2026-03-09T04:00:00Z"),
+            ),
+            session_summary(
+                "other-project",
+                Provider::Claude,
+                "/else",
+                Some("2026-03-09T05:00:00Z"),
+            ),
+        ];
+
+        assert_eq!(
+            most_recent_claude_session_id("current", "/repo", summaries.iter()),
+            Some("latest".to_string())
+        );
+    }
 }
