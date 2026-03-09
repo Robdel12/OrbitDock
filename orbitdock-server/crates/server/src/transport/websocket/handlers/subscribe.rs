@@ -24,6 +24,49 @@ use crate::transport::websocket::{
     spawn_broadcast_forwarder, OutboundMessage,
 };
 
+fn should_reactivate_passive_codex_session(
+    provider: Provider,
+    status: SessionStatus,
+    codex_integration_mode: Option<CodexIntegrationMode>,
+    transcript_path_present: bool,
+    transcript_modified_at_secs: Option<u64>,
+    last_activity_at_secs: Option<u64>,
+) -> bool {
+    let is_passive_ended = provider == Provider::Codex
+        && status == SessionStatus::Ended
+        && (codex_integration_mode == Some(CodexIntegrationMode::Passive)
+            || (codex_integration_mode != Some(CodexIntegrationMode::Direct)
+                && transcript_path_present));
+    if !is_passive_ended {
+        return false;
+    }
+
+    transcript_modified_at_secs
+        .zip(last_activity_at_secs)
+        .map(|(modified_at, last_activity_at)| modified_at > last_activity_at)
+        .unwrap_or(false)
+}
+
+fn needs_lazy_connector(
+    provider: Provider,
+    status: SessionStatus,
+    codex_integration_mode: Option<CodexIntegrationMode>,
+    claude_integration_mode: Option<ClaudeIntegrationMode>,
+    has_codex_connector: bool,
+    has_claude_connector: bool,
+) -> bool {
+    let is_active_codex_direct = provider == Provider::Codex
+        && status == SessionStatus::Active
+        && codex_integration_mode == Some(CodexIntegrationMode::Direct)
+        && !has_codex_connector;
+    let is_claude_direct_needing_connector = provider == Provider::Claude
+        && claude_integration_mode == Some(ClaudeIntegrationMode::Direct)
+        && status == SessionStatus::Active
+        && !has_claude_connector;
+
+    is_active_codex_direct || is_claude_direct_needing_connector
+}
+
 pub(crate) async fn handle(
     msg: ClientMessage,
     client_tx: &mpsc::Sender<OutboundMessage>,
@@ -49,128 +92,118 @@ pub(crate) async fn handle(
                 let snap = actor.snapshot();
 
                 // Check for passive ended sessions that may need reactivation
-                let is_passive_ended = snap.provider == Provider::Codex
-                    && snap.status == SessionStatus::Ended
-                    && (snap.codex_integration_mode == Some(CodexIntegrationMode::Passive)
-                        || (snap.codex_integration_mode != Some(CodexIntegrationMode::Direct)
-                            && snap.transcript_path.is_some()));
-                if is_passive_ended {
-                    let should_reactivate = snap
-                        .transcript_path
+                let should_reactivate = should_reactivate_passive_codex_session(
+                    snap.provider,
+                    snap.status,
+                    snap.codex_integration_mode,
+                    snap.transcript_path.is_some(),
+                    snap.transcript_path
                         .as_deref()
                         .and_then(|path| std::fs::metadata(path).ok())
                         .and_then(|meta| meta.modified().ok())
                         .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-                        .map(|d| d.as_secs())
-                        .zip(parse_unix_z(snap.last_activity_at.as_deref()))
-                        .map(|(modified_at, last_activity_at)| modified_at > last_activity_at)
-                        .unwrap_or(false);
-                    if should_reactivate {
-                        let now = chrono_now();
-                        actor
-                            .send(SessionCommand::ApplyDelta {
-                                changes: StateChanges {
-                                    status: Some(SessionStatus::Active),
-                                    work_status: Some(WorkStatus::Waiting),
-                                    last_activity_at: Some(now),
-                                    ..Default::default()
-                                },
-                                persist_op: Some(PersistOp::SessionUpdate {
-                                    id: session_id.clone(),
-                                    status: Some(SessionStatus::Active),
-                                    work_status: Some(WorkStatus::Waiting),
-                                    last_activity_at: Some(chrono_now()),
-                                }),
-                            })
-                            .await;
-
-                        let _ = state
-                            .persist()
-                            .send(PersistCommand::RolloutSessionUpdate {
-                                id: session_id.clone(),
-                                project_path: None,
-                                model: None,
+                        .map(|duration| duration.as_secs()),
+                    parse_unix_z(snap.last_activity_at.as_deref()),
+                );
+                if should_reactivate {
+                    let now = chrono_now();
+                    actor
+                        .send(SessionCommand::ApplyDelta {
+                            changes: StateChanges {
                                 status: Some(SessionStatus::Active),
                                 work_status: Some(WorkStatus::Waiting),
-                                attention_reason: Some(Some("awaitingReply".to_string())),
-                                pending_tool_name: Some(None),
-                                pending_tool_input: Some(None),
-                                pending_question: Some(None),
-                                total_tokens: None,
-                                last_tool: None,
-                                last_tool_at: None,
-                                custom_name: None,
-                            })
-                            .await;
+                                last_activity_at: Some(now),
+                                ..Default::default()
+                            },
+                            persist_op: Some(PersistOp::SessionUpdate {
+                                id: session_id.clone(),
+                                status: Some(SessionStatus::Active),
+                                work_status: Some(WorkStatus::Waiting),
+                                last_activity_at: Some(chrono_now()),
+                            }),
+                        })
+                        .await;
 
-                        if let Ok(summary) = actor.summary().await {
-                            state.broadcast_to_list(ServerMessage::SessionCreated {
-                                session: summary,
-                            });
-                        }
+                    let _ = state
+                        .persist()
+                        .send(PersistCommand::RolloutSessionUpdate {
+                            id: session_id.clone(),
+                            project_path: None,
+                            model: None,
+                            status: Some(SessionStatus::Active),
+                            work_status: Some(WorkStatus::Waiting),
+                            attention_reason: Some(Some("awaitingReply".to_string())),
+                            pending_tool_name: Some(None),
+                            pending_tool_input: Some(None),
+                            pending_question: Some(None),
+                            total_tokens: None,
+                            last_tool: None,
+                            last_tool_at: None,
+                            custom_name: None,
+                        })
+                        .await;
 
-                        // Subscribe via actor command
-                        let (sub_tx, sub_rx) = oneshot::channel();
-                        actor
-                            .send(SessionCommand::Subscribe {
-                                since_revision: None,
-                                reply: sub_tx,
-                            })
-                            .await;
+                    if let Ok(summary) = actor.summary().await {
+                        state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                    }
 
-                        if let Ok(result) = sub_rx.await {
-                            match result {
-                                SubscribeResult::Snapshot {
-                                    state: snapshot,
+                    // Subscribe via actor command
+                    let (sub_tx, sub_rx) = oneshot::channel();
+                    actor
+                        .send(SessionCommand::Subscribe {
+                            since_revision: None,
+                            reply: sub_tx,
+                        })
+                        .await;
+
+                    if let Ok(result) = sub_rx.await {
+                        match result {
+                            SubscribeResult::Snapshot {
+                                state: snapshot,
+                                rx,
+                            } => {
+                                spawn_broadcast_forwarder(
                                     rx,
-                                } => {
-                                    spawn_broadcast_forwarder(
-                                        rx,
-                                        client_tx.clone(),
-                                        Some(session_id.clone()),
-                                    );
-                                    send_snapshot_if_requested(
-                                        client_tx,
-                                        &session_id,
-                                        *snapshot,
-                                        include_snapshot,
-                                        conn_id,
-                                    )
-                                    .await;
-                                }
-                                SubscribeResult::Replay { events, rx } => {
-                                    spawn_broadcast_forwarder(
-                                        rx,
-                                        client_tx.clone(),
-                                        Some(session_id.clone()),
-                                    );
-                                    send_replay_or_snapshot_fallback(
-                                        client_tx,
-                                        &session_id,
-                                        events,
-                                        conn_id,
-                                    )
-                                    .await;
-                                }
+                                    client_tx.clone(),
+                                    Some(session_id.clone()),
+                                );
+                                send_snapshot_if_requested(
+                                    client_tx,
+                                    &session_id,
+                                    *snapshot,
+                                    include_snapshot,
+                                    conn_id,
+                                )
+                                .await;
+                            }
+                            SubscribeResult::Replay { events, rx } => {
+                                spawn_broadcast_forwarder(
+                                    rx,
+                                    client_tx.clone(),
+                                    Some(session_id.clone()),
+                                );
+                                send_replay_or_snapshot_fallback(
+                                    client_tx,
+                                    &session_id,
+                                    events,
+                                    conn_id,
+                                )
+                                .await;
                             }
                         }
-                        return;
                     }
+                    return;
                 }
-
                 // Lazy connector creation: if the session needs a live connector
                 // but doesn't have one yet, create it now on first subscribe.
-                let needs_lazy_connector = {
-                    let is_active_codex_direct = snap.provider == Provider::Codex
-                        && snap.status == SessionStatus::Active
-                        && snap.codex_integration_mode == Some(CodexIntegrationMode::Direct)
-                        && !state.has_codex_connector(&session_id);
-                    let is_claude_direct_needing_connector = snap.provider == Provider::Claude
-                        && snap.claude_integration_mode == Some(ClaudeIntegrationMode::Direct)
-                        && !state.has_claude_connector(&session_id)
-                        && snap.status == SessionStatus::Active;
-                    is_active_codex_direct || is_claude_direct_needing_connector
-                };
+                let needs_lazy_connector = needs_lazy_connector(
+                    snap.provider,
+                    snap.status,
+                    snap.codex_integration_mode,
+                    snap.claude_integration_mode,
+                    state.has_codex_connector(&session_id),
+                    state.has_claude_connector(&session_id),
+                );
 
                 if needs_lazy_connector {
                     info!(
@@ -508,8 +541,9 @@ pub(crate) async fn handle(
                             if snapshot.messages.is_empty() {
                                 // First try transcript (for Codex sessions)
                                 if let Some(path) = snapshot.transcript_path.clone() {
-                                    if let Ok(Some(loaded_snapshot)) =
-                                        actor.load_transcript_and_sync(path, session_id.clone()).await
+                                    if let Ok(Some(loaded_snapshot)) = actor
+                                        .load_transcript_and_sync(path, session_id.clone())
+                                        .await
                                     {
                                         snapshot = loaded_snapshot;
                                     }
@@ -735,5 +769,77 @@ pub(crate) async fn handle(
         }
 
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{needs_lazy_connector, should_reactivate_passive_codex_session};
+    use orbitdock_protocol::{
+        ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionStatus,
+    };
+
+    #[test]
+    fn passive_codex_reactivation_requires_newer_transcript_activity() {
+        assert!(should_reactivate_passive_codex_session(
+            Provider::Codex,
+            SessionStatus::Ended,
+            Some(CodexIntegrationMode::Passive),
+            true,
+            Some(200),
+            Some(100),
+        ));
+        assert!(!should_reactivate_passive_codex_session(
+            Provider::Codex,
+            SessionStatus::Ended,
+            Some(CodexIntegrationMode::Passive),
+            true,
+            Some(100),
+            Some(200),
+        ));
+        assert!(!should_reactivate_passive_codex_session(
+            Provider::Claude,
+            SessionStatus::Ended,
+            Some(CodexIntegrationMode::Passive),
+            true,
+            Some(200),
+            Some(100),
+        ));
+    }
+
+    #[test]
+    fn lazy_connector_detection_matches_direct_active_sessions_only() {
+        assert!(needs_lazy_connector(
+            Provider::Codex,
+            SessionStatus::Active,
+            Some(CodexIntegrationMode::Direct),
+            None,
+            false,
+            false,
+        ));
+        assert!(needs_lazy_connector(
+            Provider::Claude,
+            SessionStatus::Active,
+            None,
+            Some(ClaudeIntegrationMode::Direct),
+            false,
+            false,
+        ));
+        assert!(!needs_lazy_connector(
+            Provider::Codex,
+            SessionStatus::Ended,
+            Some(CodexIntegrationMode::Direct),
+            None,
+            false,
+            false,
+        ));
+        assert!(!needs_lazy_connector(
+            Provider::Claude,
+            SessionStatus::Active,
+            None,
+            Some(ClaudeIntegrationMode::Direct),
+            false,
+            true,
+        ));
     }
 }
