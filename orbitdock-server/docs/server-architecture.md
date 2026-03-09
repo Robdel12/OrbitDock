@@ -122,6 +122,40 @@ Just as important are the negative rules:
 
 If a change wants to violate one of these, that is a design review moment, not a casual import.
 
+## Runtime Operation Contract
+
+The runtime layer is where orchestration belongs, but it still needs predictable shapes.
+
+Preferred runtime module types:
+
+- `*_policy` for pure planners and classifiers
+- `*_queries` for authoritative read assembly
+- `*_subscriptions` for replay/snapshot/reactivation preparation
+- `*_creation` for bootstrap and persistence flows
+- `*_targets` or `*_ops` for focused effectful operations
+
+A transport handler should mostly do three things:
+
+1. Parse the request.
+2. Call a runtime operation.
+3. Translate the result into a response or outbound event.
+
+If a handler starts deciding repo roots, worktree validity, replay policy, transcript hydration, or connector reactivation inline, that logic belongs in `runtime/` or `support/`.
+
+Runtime operations should:
+
+- take explicit inputs
+- return user-visible outcomes or shaped errors
+- keep pure planning separate from side effects when practical
+- avoid pulling transport types into runtime APIs unless the transport concern is the actual output
+
+Recent examples in the current refactor:
+
+- `session_subscriptions.rs` owns subscribe reactivation and lazy connector startup preparation
+- `session_fork_policy.rs` owns fork config and history selection rules
+- `session_fork_targets.rs` owns worktree fork target validation and repo-root resolution
+- `message_dispatch.rs` owns send/steer/interrupt orchestration that used to sit in WebSocket handlers
+
 ### Prefer capability-shaped exports
 
 Good:
@@ -254,6 +288,20 @@ Examples:
 - `remote_setup.rs`: unit test exposure-mode planning and summary rules
 - `doctor.rs`: unit test report classification and summary counts
 - HTTP handlers: integration test request/response behavior with real state and temp files
+- runtime planners and policies: unit test pure branches directly
+- WebSocket and HTTP handlers: keep tests focused on routing, payloads, and delivery outcomes
+
+### Transport Test Rule
+
+When a transport-layer test only proves a pure helper, move that test beside the helper.
+
+Keep transport tests for:
+
+- request routing
+- authoritative response payloads
+- snapshot and replay delivery behavior
+- connector command dispatch
+- cross-layer integration outcomes
 
 ## Concurrency-Friendly Work Splits
 
