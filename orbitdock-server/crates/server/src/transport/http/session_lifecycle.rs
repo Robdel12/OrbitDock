@@ -1,10 +1,9 @@
 use super::*;
 use crate::connectors::codex_session::CodexAction;
 use crate::domain::sessions::session::SessionHandle;
-use crate::runtime::restored_sessions::{
-    hydrate_restored_messages_if_missing, parse_provider, restored_session_to_handle,
-};
+use crate::runtime::restored_sessions::load_prepared_resume_session;
 use crate::runtime::session_commands::SessionCommand;
+use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::support::session_modes::{
     is_passive_rollout_session, is_takeover_eligible_passive_session,
 };
@@ -454,9 +453,7 @@ pub async fn resume_session(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<ResumeSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    use orbitdock_protocol::{
-        ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionStatus,
-    };
+    use orbitdock_protocol::{Provider, SessionStatus};
 
     if let Some(handle) = state.get_session(&session_id) {
         let snap = handle.snapshot();
@@ -472,44 +469,29 @@ pub async fn resume_session(
         state.remove_session(&session_id);
     }
 
-    let mut restored =
-        match crate::infrastructure::persistence::load_session_by_id(&session_id).await {
-            Ok(Some(rs)) => rs,
-            Ok(None) => return Err(session_not_found_error(&session_id)),
-            Err(e) => {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiErrorResponse {
-                        code: "db_error",
-                        error: e.to_string(),
-                    }),
-                ))
-            }
-        };
+    let prepared = match load_prepared_resume_session(&session_id).await {
+        Ok(Some(prepared)) => prepared,
+        Ok(None) => return Err(session_not_found_error(&session_id)),
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse {
+                    code: "db_error",
+                    error: e.to_string(),
+                }),
+            ))
+        }
+    };
 
-    let is_claude = parse_provider(&restored.provider) == Provider::Claude;
-    let restored_project_path = restored.project_path.clone();
-    let restored_transcript_path = restored.transcript_path.clone();
-    let restored_model = restored.model.clone();
-    let restored_approval_policy = restored.approval_policy.clone();
-    let restored_sandbox_mode = restored.sandbox_mode.clone();
-    let restored_claude_sdk_session_id = restored.claude_sdk_session_id.clone();
-
-    hydrate_restored_messages_if_missing(&mut restored, &session_id).await;
-
-    let mut handle = restored_session_to_handle(
-        restored,
-        SessionStatus::Active,
-        orbitdock_protocol::WorkStatus::Waiting,
-    );
-
-    if is_claude {
-        handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
-    } else {
-        handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-    }
-
-    let summary = handle.summary();
+    let is_claude = prepared.provider == Provider::Claude;
+    let restored_project_path = prepared.project_path.clone();
+    let restored_transcript_path = prepared.transcript_path.clone();
+    let restored_model = prepared.model.clone();
+    let restored_approval_policy = prepared.approval_policy.clone();
+    let restored_sandbox_mode = prepared.sandbox_mode.clone();
+    let restored_claude_sdk_session_id = prepared.claude_sdk_session_id.clone();
+    let summary = prepared.summary.clone();
+    let mut handle = prepared.handle;
 
     state.broadcast_to_list(ServerMessage::SessionCreated {
         session: summary.clone(),
@@ -855,13 +837,6 @@ pub async fn takeover_session(
         (None, None)
     };
 
-    let effective_model = body
-        .model
-        .or(turn_context_model)
-        .or_else(|| snap.model.clone());
-    let effective_effort = snap.effort.clone().or(turn_context_effort);
-    let effective_approval = body.approval_policy.or(snap.approval_policy.clone());
-    let effective_sandbox = body.sandbox_mode.or(snap.sandbox_mode.clone());
     let requested_permission_mode = body.permission_mode.clone();
     let stored_permission_mode =
         if snap.provider == Provider::Claude && requested_permission_mode.is_none() {
@@ -871,7 +846,26 @@ pub async fn takeover_session(
         } else {
             None
         };
-    let effective_permission = requested_permission_mode.clone().or(stored_permission_mode);
+    let takeover_plan = plan_takeover_config(TakeoverConfigInputs {
+        provider: snap.provider,
+        session_model: snap.model.clone(),
+        session_effort: snap.effort.clone(),
+        session_approval_policy: snap.approval_policy.clone(),
+        session_sandbox_mode: snap.sandbox_mode.clone(),
+        requested_model: body.model,
+        requested_approval_policy: body.approval_policy,
+        requested_sandbox_mode: body.sandbox_mode,
+        requested_permission_mode,
+        turn_context_model,
+        turn_context_effort,
+        stored_permission_mode,
+    });
+    let effective_model = takeover_plan.effective_model.clone();
+    let effective_effort = takeover_plan.effective_effort.clone();
+    let effective_approval = takeover_plan.effective_approval_policy.clone();
+    let effective_sandbox = takeover_plan.effective_sandbox_mode.clone();
+    let requested_permission_mode = takeover_plan.requested_permission_mode.clone();
+    let effective_permission = takeover_plan.effective_permission_mode.clone();
     let connector_timeout = std::time::Duration::from_secs(15);
 
     if snap.provider == Provider::Codex {

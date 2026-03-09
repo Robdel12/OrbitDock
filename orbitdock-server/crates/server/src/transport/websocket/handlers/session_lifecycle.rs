@@ -11,13 +11,12 @@ use orbitdock_protocol::{
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
 use crate::infrastructure::persistence::{
-    load_latest_codex_turn_context_settings_from_transcript_path, load_session_by_id,
-    load_session_permission_mode, PersistCommand,
+    load_latest_codex_turn_context_settings_from_transcript_path, load_session_permission_mode,
+    PersistCommand,
 };
-use crate::runtime::restored_sessions::{
-    hydrate_restored_messages_if_missing, parse_provider, restored_session_to_handle,
-};
+use crate::runtime::restored_sessions::load_prepared_resume_session;
 use crate::runtime::session_commands::{PersistOp, SessionCommand, SubscribeResult};
+use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
     claim_codex_thread_for_direct_session, direct_mode_activation_changes,
@@ -66,9 +65,8 @@ pub(crate) async fn handle(
                 state.remove_session(&session_id);
             }
 
-            // Load session data from DB
-            let mut restored = match load_session_by_id(&session_id).await {
-                Ok(Some(rs)) => rs,
+            let prepared = match load_prepared_resume_session(&session_id).await {
+                Ok(Some(prepared)) => prepared,
                 Ok(None) => {
                     send_json(
                         client_tx,
@@ -95,42 +93,26 @@ pub(crate) async fn handle(
                 }
             };
 
-            let is_claude =
-                parse_provider(&restored.provider) == orbitdock_protocol::Provider::Claude;
+            let is_claude = prepared.provider == orbitdock_protocol::Provider::Claude;
 
-            // Passive sessions don't store full conversation in DB — the transcript
-            // file has the complete history.
-            let initial_message_count = restored.messages.len();
-            hydrate_restored_messages_if_missing(&mut restored, &session_id).await;
-            if initial_message_count == 0 && !restored.messages.is_empty() {
+            if prepared.transcript_loaded {
                 info!(
                     component = "session",
                     event = "session.resume.transcript_loaded",
                     session_id = %session_id,
-                    message_count = restored.messages.len(),
+                    message_count = prepared.message_count,
                     "Loaded messages from transcript for resume"
                 );
             }
 
-            let msg_count = restored.messages.len();
-            let restored_model = restored.model.clone();
-            let restored_transcript_path = restored.transcript_path.clone();
-            let restored_project_path = restored.project_path.clone();
-            let restored_claude_sdk_session_id = restored.claude_sdk_session_id.clone();
-            let restored_approval_policy = restored.approval_policy.clone();
-            let restored_sandbox_mode = restored.sandbox_mode.clone();
-            let mut handle = restored_session_to_handle(
-                restored,
-                orbitdock_protocol::SessionStatus::Active,
-                orbitdock_protocol::WorkStatus::Waiting,
-            );
-
-            // Set integration mode to direct BEFORE snapshot so the client sees it immediately
-            if is_claude {
-                handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
-            } else {
-                handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-            }
+            let msg_count = prepared.message_count;
+            let restored_model = prepared.model.clone();
+            let restored_transcript_path = prepared.transcript_path.clone();
+            let restored_project_path = prepared.project_path.clone();
+            let restored_claude_sdk_session_id = prepared.claude_sdk_session_id.clone();
+            let restored_approval_policy = prepared.approval_policy.clone();
+            let restored_sandbox_mode = prepared.sandbox_mode.clone();
+            let mut handle = prepared.handle;
 
             // Subscribe the requesting client
             let rx = handle.subscribe();
@@ -559,10 +541,6 @@ pub(crate) async fn handle(
             } else {
                 (None, None)
             };
-            let effective_model = model.or(turn_context_model).or_else(|| snap.model.clone());
-            let effective_effort = snap.effort.clone().or(turn_context_effort);
-            let effective_approval = approval_policy.or(snap.approval_policy.clone());
-            let effective_sandbox = sandbox_mode.or(snap.sandbox_mode.clone());
             let requested_permission_mode = permission_mode.clone();
             let stored_permission_mode =
                 if snap.provider == Provider::Claude && requested_permission_mode.is_none() {
@@ -572,7 +550,26 @@ pub(crate) async fn handle(
                 } else {
                     None
                 };
-            let effective_permission = requested_permission_mode.clone().or(stored_permission_mode);
+            let takeover_plan = plan_takeover_config(TakeoverConfigInputs {
+                provider: snap.provider,
+                session_model: snap.model.clone(),
+                session_effort: snap.effort.clone(),
+                session_approval_policy: snap.approval_policy.clone(),
+                session_sandbox_mode: snap.sandbox_mode.clone(),
+                requested_model: model,
+                requested_approval_policy: approval_policy,
+                requested_sandbox_mode: sandbox_mode,
+                requested_permission_mode,
+                turn_context_model,
+                turn_context_effort,
+                stored_permission_mode,
+            });
+            let effective_model = takeover_plan.effective_model.clone();
+            let effective_effort = takeover_plan.effective_effort.clone();
+            let effective_approval = takeover_plan.effective_approval_policy.clone();
+            let effective_sandbox = takeover_plan.effective_sandbox_mode.clone();
+            let requested_permission_mode = takeover_plan.requested_permission_mode.clone();
+            let effective_permission = takeover_plan.effective_permission_mode.clone();
             let connector_timeout = std::time::Duration::from_secs(15);
 
             let connector_ok = if snap.provider == Provider::Codex {
