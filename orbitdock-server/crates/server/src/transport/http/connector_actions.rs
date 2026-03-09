@@ -26,11 +26,11 @@ enum CodexActionError {
 const CODEX_ACTION_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
 pub(crate) fn messaging_dispatch_error_response(
-    error: crate::transport::websocket::handlers::messaging::DispatchMessageError,
+    error: crate::runtime::message_dispatch::DispatchMessageError,
     session_id: &str,
 ) -> (StatusCode, Json<ApiErrorResponse>) {
     match error {
-        crate::transport::websocket::handlers::messaging::DispatchMessageError::NotFound => (
+        crate::runtime::message_dispatch::DispatchMessageError::NotFound => (
             StatusCode::NOT_FOUND,
             Json(ApiErrorResponse {
                 code: "not_found",

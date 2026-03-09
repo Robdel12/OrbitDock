@@ -1,5 +1,7 @@
 pub(crate) mod background;
 pub(crate) mod conversation_policy;
+pub(crate) mod message_dispatch;
+pub(crate) mod message_dispatch_policy;
 pub(crate) mod query_fallback_policy;
 pub(crate) mod restored_sessions;
 pub(crate) mod session_actor;

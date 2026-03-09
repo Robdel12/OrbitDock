@@ -85,7 +85,7 @@ pub async fn post_session_message(
 
     let message_id = next_http_message_id("user-http");
 
-    crate::transport::websocket::handlers::messaging::dispatch_send_message(
+    crate::runtime::message_dispatch::dispatch_send_message(
         &state,
         session_id.clone(),
         body.content,
@@ -211,7 +211,7 @@ pub async fn post_steer_turn(
 
     let message_id = next_http_message_id("steer-http");
 
-    crate::transport::websocket::handlers::messaging::dispatch_steer_turn(
+    crate::runtime::message_dispatch::dispatch_steer_turn(
         &state,
         session_id.clone(),
         body.content,
@@ -232,7 +232,7 @@ pub async fn interrupt_session(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    crate::transport::websocket::handlers::messaging::dispatch_interrupt(&state, &session_id)
+    crate::runtime::message_dispatch::dispatch_interrupt(&state, &session_id)
         .await
         .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
@@ -242,7 +242,7 @@ pub async fn compact_context(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    crate::transport::websocket::handlers::messaging::dispatch_compact(&state, &session_id)
+    crate::runtime::message_dispatch::dispatch_compact(&state, &session_id)
         .await
         .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
@@ -252,7 +252,7 @@ pub async fn undo_last_turn(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    crate::transport::websocket::handlers::messaging::dispatch_undo(&state, &session_id)
+    crate::runtime::message_dispatch::dispatch_undo(&state, &session_id)
         .await
         .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
@@ -272,13 +272,9 @@ pub async fn rollback_turns(
             }),
         ));
     }
-    crate::transport::websocket::handlers::messaging::dispatch_rollback(
-        &state,
-        &session_id,
-        body.num_turns,
-    )
-    .await
-    .map_err(|code| dispatch_error_response(code, &session_id))?;
+    crate::runtime::message_dispatch::dispatch_rollback(&state, &session_id, body.num_turns)
+        .await
+        .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
 }
 
@@ -287,13 +283,9 @@ pub async fn stop_task(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<StopTaskRequest>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    crate::transport::websocket::handlers::messaging::dispatch_stop_task(
-        &state,
-        &session_id,
-        body.task_id,
-    )
-    .await
-    .map_err(|code| dispatch_error_response(code, &session_id))?;
+    crate::runtime::message_dispatch::dispatch_stop_task(&state, &session_id, body.task_id)
+        .await
+        .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
 }
 
@@ -302,7 +294,7 @@ pub async fn rewind_files(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<RewindFilesRequest>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    crate::transport::websocket::handlers::messaging::dispatch_rewind_files(
+    crate::runtime::message_dispatch::dispatch_rewind_files(
         &state,
         &session_id,
         body.user_message_id,

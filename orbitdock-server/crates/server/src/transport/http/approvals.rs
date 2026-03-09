@@ -128,7 +128,7 @@ pub async fn answer_question(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<AnswerQuestionRequest>,
 ) -> Result<Json<ApprovalDecisionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let result = crate::transport::websocket::handlers::messaging::dispatch_answer_question(
+    let result = crate::runtime::message_dispatch::dispatch_answer_question(
         &state,
         &session_id,
         body.request_id.clone(),
