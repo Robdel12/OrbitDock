@@ -18,7 +18,7 @@ enum ShellKind {
     Other,
 }
 
-pub fn run() -> anyhow::Result<()> {
+pub fn ensure_shell_path() -> anyhow::Result<()> {
     let installer_mode = installer_mode();
     let binary_path = std::env::current_exe().context("failed to resolve current executable")?;
     let bin_dir = binary_path.parent().ok_or_else(|| {

@@ -66,7 +66,7 @@ struct ServiceState {
     bind: Option<SocketAddr>,
 }
 
-pub fn run(data_dir: &Path) -> anyhow::Result<()> {
+pub fn guide_remote_setup(data_dir: &Path) -> anyhow::Result<()> {
     println!();
     println!("  OrbitDock Remote Setup");
     println!("  ======================");
@@ -104,7 +104,7 @@ pub fn run(data_dir: &Path) -> anyhow::Result<()> {
 
     println!();
     println!("  Generating a fresh auth token for this remote setup...");
-    let token = status::create_token(data_dir)?;
+    let token = status::issue_auth_token(data_dir)?;
     println!("  Token: {}", token);
     println!("  Copy it now and store it somewhere secure.");
     println!("  (Stored hashed in the database; OrbitDock will not print it again.)");
@@ -116,7 +116,7 @@ pub fn run(data_dir: &Path) -> anyhow::Result<()> {
             exposure.label(),
             desired_bind
         );
-        install_service::run(data_dir, desired_bind, true, None)?;
+        install_service::install_background_service(data_dir, desired_bind, true, None)?;
     } else if service_state.installed {
         println!();
         println!("  Leaving the existing background service unchanged.");
@@ -129,8 +129,11 @@ pub fn run(data_dir: &Path) -> anyhow::Result<()> {
         println!();
         println!("  Configuring local Claude Code hooks for http://127.0.0.1:4000...");
         std::env::set_var("ORBITDOCK_INSTALLER_MODE", "1");
-        let hook_result =
-            install_hooks::run(None, Some("http://127.0.0.1:4000"), Some(token.as_str()));
+        let hook_result = install_hooks::install_claude_hooks(
+            None,
+            Some("http://127.0.0.1:4000"),
+            Some(token.as_str()),
+        );
         std::env::remove_var("ORBITDOCK_INSTALLER_MODE");
         hook_result?;
     } else {

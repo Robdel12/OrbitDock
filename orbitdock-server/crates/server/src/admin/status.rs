@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::infrastructure::{auth_tokens, paths};
 use crate::VERSION;
 
-pub fn run(data_dir: &Path) -> anyhow::Result<()> {
+pub fn print_server_status(data_dir: &Path) -> anyhow::Result<()> {
     println!();
     println!("  OrbitDock Server v{}", VERSION);
     println!("  Data dir: {}", data_dir.display());
@@ -71,13 +71,13 @@ pub fn run(data_dir: &Path) -> anyhow::Result<()> {
 }
 
 /// Create a new auth token and store its hash in the database. Returns the token string.
-pub fn create_token(data_dir: &Path) -> anyhow::Result<String> {
+pub fn issue_auth_token(data_dir: &Path) -> anyhow::Result<String> {
     let _ = data_dir;
     let issued = auth_tokens::issue_token(None)?;
     Ok(issued.token)
 }
 
-pub fn generate_token(data_dir: &Path) -> anyhow::Result<()> {
+pub fn print_generated_auth_token(data_dir: &Path) -> anyhow::Result<()> {
     let _ = data_dir;
     let issued = auth_tokens::issue_token(None)?;
 
@@ -99,7 +99,7 @@ pub fn generate_token(data_dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn list_tokens() -> anyhow::Result<()> {
+pub fn print_auth_tokens() -> anyhow::Result<()> {
     let tokens = auth_tokens::list_tokens()?;
 
     println!();
@@ -137,7 +137,7 @@ pub fn list_tokens() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn revoke_token(token_id: &str) -> anyhow::Result<()> {
+pub fn revoke_auth_token(token_id: &str) -> anyhow::Result<()> {
     let revoked = auth_tokens::revoke_token(token_id)?;
     println!();
     if revoked {

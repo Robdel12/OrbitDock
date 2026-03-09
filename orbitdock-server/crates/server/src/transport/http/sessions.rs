@@ -1,5 +1,8 @@
 use super::*;
 
+const DEFAULT_CONVERSATION_PAGE_SIZE: usize = 50;
+const MAX_CONVERSATION_PAGE_SIZE: usize = 200;
+
 #[derive(Debug, Serialize)]
 pub struct SessionsResponse {
     pub sessions: Vec<SessionSummary>,
@@ -41,6 +44,12 @@ pub struct ConversationPageQuery {
 pub struct MarkReadResponse {
     pub session_id: String,
     pub unread_count: u64,
+}
+
+fn clamp_conversation_limit(limit: Option<usize>) -> usize {
+    limit
+        .unwrap_or(DEFAULT_CONVERSATION_PAGE_SIZE)
+        .clamp(1, MAX_CONVERSATION_PAGE_SIZE)
 }
 
 pub async fn list_sessions(State(state): State<Arc<SessionRegistry>>) -> Json<SessionsResponse> {

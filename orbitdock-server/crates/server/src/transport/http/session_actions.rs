@@ -60,6 +60,10 @@ pub struct RewindFilesRequest {
     pub user_message_id: String,
 }
 
+fn next_http_message_id(prefix: &str) -> String {
+    format!("{prefix}-{}", orbitdock_protocol::new_id())
+}
+
 pub async fn post_session_message(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,

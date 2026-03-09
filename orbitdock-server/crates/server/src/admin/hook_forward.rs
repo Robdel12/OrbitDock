@@ -86,7 +86,7 @@ struct HookTarget {
     auth_token: Option<String>,
 }
 
-pub fn run(
+pub fn forward_hook_event(
     hook_type: HookForwardType,
     server_url: Option<&str>,
     auth_token: Option<&str>,

@@ -78,13 +78,13 @@ pub struct ServiceOptions {
     pub auth_token: Option<String>,
 }
 
-pub fn run(
+pub fn install_background_service(
     data_dir: &Path,
     bind: SocketAddr,
     enable: bool,
     auth_token: Option<String>,
 ) -> anyhow::Result<()> {
-    run_with_opts(
+    install_background_service_with_options(
         data_dir,
         ServiceOptions {
             bind,
@@ -96,7 +96,10 @@ pub fn run(
     )
 }
 
-pub fn run_with_opts(data_dir: &Path, opts: ServiceOptions) -> anyhow::Result<()> {
+pub fn install_background_service_with_options(
+    data_dir: &Path,
+    opts: ServiceOptions,
+) -> anyhow::Result<()> {
     let binary_path = std::env::current_exe()?.to_string_lossy().to_string();
     let data_dir_str = data_dir.to_string_lossy().to_string();
     let bind_str = opts.bind.to_string();

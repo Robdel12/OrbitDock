@@ -1,4 +1,6 @@
 use super::*;
+use orbitdock_connector_claude::session::ClaudeAction;
+use orbitdock_connector_core::ConnectorError;
 use orbitdock_protocol::{PermissionRule, SessionPermissionRules};
 use tracing::info;
 
@@ -201,7 +203,7 @@ async fn try_get_settings_from_cli(
     state: &Arc<SessionRegistry>,
 ) -> Option<SessionPermissionRules> {
     let tx = state.get_claude_action_tx(session_id)?;
-    let (reply_tx, reply_rx) = oneshot::channel();
+    let (reply_tx, reply_rx) = oneshot::channel::<Result<serde_json::Value, ConnectorError>>();
 
     tx.send(ClaudeAction::GetSettings { reply: reply_tx })
         .await

@@ -28,7 +28,7 @@ struct Check {
     detail: String,
 }
 
-pub fn run(data_dir: &Path) -> anyhow::Result<()> {
+pub fn print_diagnostics(data_dir: &Path) -> anyhow::Result<()> {
     println!();
     println!("  OrbitDock Doctor");
     println!("  ───────────────");

@@ -1,13 +1,16 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 mod approvals;
+mod capabilities;
 mod codex_auth;
+mod connector_actions;
+mod errors;
 mod files;
 mod permissions;
 mod review_comments;
 mod router;
 mod server_info;
+mod server_meta;
 mod session_actions;
 mod session_lifecycle;
 mod sessions;
@@ -20,33 +23,36 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use orbitdock_connector_codex::discover_models;
 use orbitdock_protocol::{
-    ApprovalHistoryItem, ClaudeModelOption, ClaudeUsageSnapshot, CodexModelOption,
-    CodexUsageSnapshot, ImageInput, McpAuthStatus, McpResource, McpResourceTemplate, McpTool,
-    MentionInput, Message, RemoteSkillSummary, ServerMessage, SessionState, SessionSummary,
-    SkillErrorInfo, SkillInput, SkillsListEntry, UsageErrorInfo,
+    ApprovalHistoryItem, ImageInput, MentionInput, Message, ServerMessage, SessionState,
+    SessionSummary, SkillInput, UsageErrorInfo,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::oneshot;
 use tracing::{error, info};
 
-use crate::connectors::codex_session::CodexAction;
-use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_commands::{SessionCommand, SubscribeResult};
+use crate::infrastructure::persistence::{
+    delete_approval, list_approvals, load_messages_for_session, PersistCommand,
+};
+use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_queries::{
     load_conversation_bootstrap, load_conversation_page, load_full_session_state, SessionLoadError,
 };
-use crate::infrastructure::persistence::{
-    delete_approval, list_approvals, load_cached_claude_models, load_messages_for_session,
-    PersistCommand,
-};
-use orbitdock_connector_claude::session::ClaudeAction;
+use crate::runtime::session_registry::SessionRegistry;
 
 pub use approvals::{
     answer_question, approve_tool, delete_approval_endpoint, list_approvals_endpoint,
 };
+pub use capabilities::{
+    apply_flag_settings, download_remote_skill, list_mcp_tools_endpoint,
+    list_remote_skills_endpoint, list_skills_endpoint, mcp_authenticate, mcp_clear_auth,
+    mcp_set_servers, refresh_mcp_servers, toggle_mcp_server,
+};
 pub use codex_auth::{codex_login_cancel, codex_login_start, codex_logout, read_codex_account};
+pub(crate) use connector_actions::{
+    dispatch_error_response, messaging_dispatch_error_response, session_not_found_error,
+};
+pub(crate) use errors::{revision_now, ApiErrorResponse, ApiResult};
 pub use files::{
     browse_directory, git_init_endpoint, list_recent_projects, list_subagent_tools_endpoint,
 };
@@ -57,8 +63,10 @@ pub use review_comments::{
 };
 pub use router::build_router;
 pub use server_info::{
-    check_open_ai_key, not_control_plane_endpoint_error, set_client_primary_claim, set_open_ai_key,
-    set_server_role,
+    check_open_ai_key, set_client_primary_claim, set_open_ai_key, set_server_role,
+};
+pub use server_meta::{
+    fetch_claude_usage, fetch_codex_usage, list_claude_models, list_codex_models,
 };
 pub use session_actions::{
     compact_context, get_session_image_attachment, interrupt_session, post_session_message,
@@ -75,627 +83,6 @@ pub use sessions::{
     mark_session_read,
 };
 pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};
-
-#[derive(Debug, Serialize)]
-pub struct CodexUsageResponse {
-    pub usage: Option<CodexUsageSnapshot>,
-    pub error_info: Option<UsageErrorInfo>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ClaudeUsageResponse {
-    pub usage: Option<ClaudeUsageSnapshot>,
-    pub error_info: Option<UsageErrorInfo>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CodexModelsResponse {
-    pub models: Vec<CodexModelOption>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ClaudeModelsResponse {
-    pub models: Vec<ClaudeModelOption>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SkillsResponse {
-    pub session_id: String,
-    pub skills: Vec<SkillsListEntry>,
-    pub errors: Vec<SkillErrorInfo>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct RemoteSkillsResponse {
-    pub session_id: String,
-    pub skills: Vec<RemoteSkillSummary>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct McpToolsResponse {
-    pub session_id: String,
-    pub tools: HashMap<String, McpTool>,
-    pub resources: HashMap<String, Vec<McpResource>>,
-    pub resource_templates: HashMap<String, Vec<McpResourceTemplate>>,
-    pub auth_statuses: HashMap<String, McpAuthStatus>,
-}
-
-// ── Async action types ────────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct DownloadRemoteSkillRequest {
-    pub hazelnut_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RefreshMcpServerRequest {
-    pub server_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct McpToggleRequest {
-    pub server_name: String,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct McpServerNameRequest {
-    pub server_name: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct McpSetServersRequest {
-    pub servers: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ApplyFlagSettingsRequest {
-    pub settings: serde_json::Value,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct SkillsQuery {
-    #[serde(default)]
-    pub cwd: Vec<String>,
-    #[serde(default)]
-    pub force_reload: Option<bool>,
-}
-
-#[derive(Debug, Serialize)]
-pub(crate) struct ApiErrorResponse {
-    code: &'static str,
-    error: String,
-}
-
-pub(crate) fn revision_now() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros() as u64
-}
-
-#[derive(Debug)]
-enum CodexActionError {
-    SessionNotFound,
-    ConnectorNotAvailable,
-    ChannelClosed,
-    Timeout,
-}
-
-type ApiResult<T> = Result<Json<T>, (StatusCode, Json<ApiErrorResponse>)>;
-type ApiInnerResult<T> = Result<T, (StatusCode, Json<ApiErrorResponse>)>;
-const CODEX_ACTION_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
-const DEFAULT_CONVERSATION_PAGE_SIZE: usize = 50;
-const MAX_CONVERSATION_PAGE_SIZE: usize = 200;
-
-fn next_http_message_id(prefix: &str) -> String {
-    format!("{prefix}-{}", orbitdock_protocol::new_id())
-}
-
-fn messaging_dispatch_error_response(
-    error: crate::transport::websocket::handlers::messaging::DispatchMessageError,
-    session_id: &str,
-) -> (StatusCode, Json<ApiErrorResponse>) {
-    match error {
-        crate::transport::websocket::handlers::messaging::DispatchMessageError::NotFound => (
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "not_found",
-                error: format!(
-                    "Session {} not found or has no active connector",
-                    session_id
-                ),
-            }),
-        ),
-    }
-}
-
-pub async fn fetch_codex_usage(
-    State(state): State<Arc<SessionRegistry>>,
-) -> Json<CodexUsageResponse> {
-    if !state.is_primary() {
-        return Json(CodexUsageResponse {
-            usage: None,
-            error_info: Some(not_control_plane_endpoint_error()),
-        });
-    }
-
-    let (usage, error_info) = match crate::infrastructure::usage_probe::fetch_codex_usage().await {
-        Ok(usage) => (Some(usage), None),
-        Err(err) => (None, Some(err.to_info())),
-    };
-
-    Json(CodexUsageResponse { usage, error_info })
-}
-
-pub async fn fetch_claude_usage(
-    State(state): State<Arc<SessionRegistry>>,
-) -> Json<ClaudeUsageResponse> {
-    if !state.is_primary() {
-        return Json(ClaudeUsageResponse {
-            usage: None,
-            error_info: Some(not_control_plane_endpoint_error()),
-        });
-    }
-
-    let (usage, error_info) = match crate::infrastructure::usage_probe::fetch_claude_usage().await {
-        Ok(usage) => (Some(usage), None),
-        Err(err) => (None, Some(err.to_info())),
-    };
-
-    Json(ClaudeUsageResponse { usage, error_info })
-}
-pub async fn list_codex_models() -> ApiResult<CodexModelsResponse> {
-    match discover_models().await {
-        Ok(models) => Ok(Json(CodexModelsResponse { models })),
-        Err(err) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code: "model_list_failed",
-                error: format!("Failed to list models: {err}"),
-            }),
-        )),
-    }
-}
-
-pub async fn list_claude_models() -> Json<ClaudeModelsResponse> {
-    Json(ClaudeModelsResponse {
-        models: load_cached_claude_models(),
-    })
-}
-pub async fn list_skills_endpoint(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Query(query): Query<SkillsQuery>,
-) -> ApiResult<SkillsResponse> {
-    let mut rx = subscribe_session_events(&state, &session_id).await?;
-
-    dispatch_codex_action(
-        &state,
-        &session_id,
-        CodexAction::ListSkills {
-            cwds: query.cwd,
-            force_reload: query.force_reload.unwrap_or(false),
-        },
-    )
-    .await?;
-
-    let (skills, errors) = wait_for_codex_skills_event(&session_id, &mut rx).await?;
-    Ok(Json(SkillsResponse {
-        session_id,
-        skills,
-        errors,
-    }))
-}
-
-pub async fn list_remote_skills_endpoint(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<RemoteSkillsResponse> {
-    let mut rx = subscribe_session_events(&state, &session_id).await?;
-
-    dispatch_codex_action(&state, &session_id, CodexAction::ListRemoteSkills).await?;
-
-    let skills = wait_for_remote_skills_event(&session_id, &mut rx).await?;
-    Ok(Json(RemoteSkillsResponse { session_id, skills }))
-}
-
-pub async fn list_mcp_tools_endpoint(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<McpToolsResponse> {
-    let mut rx = subscribe_session_events(&state, &session_id).await?;
-
-    // Try Codex first, fall back to Claude
-    if dispatch_codex_action(&state, &session_id, CodexAction::ListMcpTools)
-        .await
-        .is_err()
-    {
-        dispatch_claude_action(&state, &session_id, ClaudeAction::ListMcpTools).await?;
-    }
-
-    let (tools, resources, resource_templates, auth_statuses) =
-        wait_for_mcp_tools_event(&session_id, &mut rx).await?;
-
-    Ok(Json(McpToolsResponse {
-        session_id,
-        tools,
-        resources,
-        resource_templates,
-        auth_statuses,
-    }))
-}
-
-// ── Group C: Async fire-and-forget (202 Accepted) ─────────────
-
-pub async fn download_remote_skill(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<DownloadRemoteSkillRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    dispatch_codex_action(
-        &state,
-        &session_id,
-        CodexAction::DownloadRemoteSkill {
-            hazelnut_id: body.hazelnut_id,
-        },
-    )
-    .await?;
-
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
-    ))
-}
-
-pub async fn refresh_mcp_servers(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    body: Option<Json<RefreshMcpServerRequest>>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    let server_name = body.and_then(|b| b.server_name.clone());
-
-    // Try Codex first, fall back to Claude
-    if dispatch_codex_action(&state, &session_id, CodexAction::RefreshMcpServers)
-        .await
-        .is_err()
-    {
-        let action = match server_name {
-            Some(name) => ClaudeAction::RefreshMcpServer { server_name: name },
-            None => ClaudeAction::ListMcpTools, // No specific server — refresh all via status query
-        };
-        dispatch_claude_action(&state, &session_id, action).await?;
-    }
-
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
-    ))
-}
-
-pub async fn toggle_mcp_server(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<McpToggleRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    dispatch_claude_action(
-        &state,
-        &session_id,
-        ClaudeAction::McpToggle {
-            server_name: body.server_name,
-            enabled: body.enabled,
-        },
-    )
-    .await?;
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
-    ))
-}
-
-pub async fn mcp_authenticate(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<McpServerNameRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    dispatch_claude_action(
-        &state,
-        &session_id,
-        ClaudeAction::McpAuthenticate {
-            server_name: body.server_name,
-        },
-    )
-    .await?;
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
-    ))
-}
-
-pub async fn mcp_clear_auth(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<McpServerNameRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    dispatch_claude_action(
-        &state,
-        &session_id,
-        ClaudeAction::McpClearAuth {
-            server_name: body.server_name,
-        },
-    )
-    .await?;
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
-    ))
-}
-
-pub async fn mcp_set_servers(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<McpSetServersRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    dispatch_claude_action(
-        &state,
-        &session_id,
-        ClaudeAction::McpSetServers {
-            servers: body.servers,
-        },
-    )
-    .await?;
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
-    ))
-}
-
-pub async fn apply_flag_settings(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<ApplyFlagSettingsRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    dispatch_claude_action(
-        &state,
-        &session_id,
-        ClaudeAction::ApplyFlagSettings {
-            settings: body.settings,
-        },
-    )
-    .await?;
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
-    ))
-}
-
-// ── Private helpers ───────────────────────────────────────────
-
-fn clamp_conversation_limit(limit: Option<usize>) -> usize {
-    limit
-        .unwrap_or(DEFAULT_CONVERSATION_PAGE_SIZE)
-        .clamp(1, MAX_CONVERSATION_PAGE_SIZE)
-}
-
-async fn subscribe_session_events(
-    state: &Arc<SessionRegistry>,
-    session_id: &str,
-) -> ApiInnerResult<broadcast::Receiver<ServerMessage>> {
-    let actor = state.get_session(session_id).ok_or_else(|| {
-        codex_action_error_response(CodexActionError::SessionNotFound, session_id)
-    })?;
-
-    let (reply_tx, reply_rx) = oneshot::channel();
-    actor
-        .send(SessionCommand::Subscribe {
-            since_revision: None,
-            reply: reply_tx,
-        })
-        .await;
-
-    match reply_rx.await {
-        Ok(SubscribeResult::Snapshot { rx, .. }) | Ok(SubscribeResult::Replay { rx, .. }) => Ok(rx),
-        Err(_) => Err(codex_action_error_response(
-            CodexActionError::ChannelClosed,
-            session_id,
-        )),
-    }
-}
-
-async fn dispatch_codex_action(
-    state: &Arc<SessionRegistry>,
-    session_id: &str,
-    action: CodexAction,
-) -> ApiInnerResult<()> {
-    let tx = state.get_codex_action_tx(session_id).ok_or_else(|| {
-        codex_action_error_response(CodexActionError::ConnectorNotAvailable, session_id)
-    })?;
-
-    tx.send(action)
-        .await
-        .map_err(|_| codex_action_error_response(CodexActionError::ChannelClosed, session_id))
-}
-
-async fn dispatch_claude_action(
-    state: &Arc<SessionRegistry>,
-    session_id: &str,
-    action: ClaudeAction,
-) -> ApiInnerResult<()> {
-    let tx = state.get_claude_action_tx(session_id).ok_or_else(|| {
-        codex_action_error_response(CodexActionError::ConnectorNotAvailable, session_id)
-    })?;
-
-    tx.send(action)
-        .await
-        .map_err(|_| codex_action_error_response(CodexActionError::ChannelClosed, session_id))
-}
-
-async fn wait_for_codex_skills_event(
-    session_id: &str,
-    rx: &mut broadcast::Receiver<ServerMessage>,
-) -> ApiInnerResult<(Vec<SkillsListEntry>, Vec<SkillErrorInfo>)> {
-    tokio::time::timeout(CODEX_ACTION_WAIT_TIMEOUT, async {
-        loop {
-            match rx.recv().await {
-                Ok(ServerMessage::SkillsList {
-                    session_id: sid,
-                    skills,
-                    errors,
-                }) if sid == session_id => return Ok((skills, errors)),
-                Ok(ServerMessage::Error {
-                    session_id: Some(sid),
-                    code,
-                    message,
-                }) if sid == session_id => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse {
-                            code: "codex_action_error",
-                            error: format!("{code}: {message}"),
-                        }),
-                    ));
-                }
-                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => {
-                    return Err(codex_action_error_response(
-                        CodexActionError::ChannelClosed,
-                        session_id,
-                    ));
-                }
-            }
-        }
-    })
-    .await
-    .map_err(|_| codex_action_error_response(CodexActionError::Timeout, session_id))?
-}
-
-async fn wait_for_remote_skills_event(
-    session_id: &str,
-    rx: &mut broadcast::Receiver<ServerMessage>,
-) -> ApiInnerResult<Vec<RemoteSkillSummary>> {
-    tokio::time::timeout(CODEX_ACTION_WAIT_TIMEOUT, async {
-        loop {
-            match rx.recv().await {
-                Ok(ServerMessage::RemoteSkillsList {
-                    session_id: sid,
-                    skills,
-                }) if sid == session_id => return Ok(skills),
-                Ok(ServerMessage::Error {
-                    session_id: Some(sid),
-                    code,
-                    message,
-                }) if sid == session_id => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse {
-                            code: "codex_action_error",
-                            error: format!("{code}: {message}"),
-                        }),
-                    ));
-                }
-                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => {
-                    return Err(codex_action_error_response(
-                        CodexActionError::ChannelClosed,
-                        session_id,
-                    ));
-                }
-            }
-        }
-    })
-    .await
-    .map_err(|_| codex_action_error_response(CodexActionError::Timeout, session_id))?
-}
-
-type McpToolsEvent = (
-    HashMap<String, McpTool>,
-    HashMap<String, Vec<McpResource>>,
-    HashMap<String, Vec<McpResourceTemplate>>,
-    HashMap<String, McpAuthStatus>,
-);
-
-async fn wait_for_mcp_tools_event(
-    session_id: &str,
-    rx: &mut broadcast::Receiver<ServerMessage>,
-) -> ApiInnerResult<McpToolsEvent> {
-    tokio::time::timeout(CODEX_ACTION_WAIT_TIMEOUT, async {
-        loop {
-            match rx.recv().await {
-                Ok(ServerMessage::McpToolsList {
-                    session_id: sid,
-                    tools,
-                    resources,
-                    resource_templates,
-                    auth_statuses,
-                }) if sid == session_id => {
-                    return Ok((tools, resources, resource_templates, auth_statuses));
-                }
-                Ok(ServerMessage::Error {
-                    session_id: Some(sid),
-                    code,
-                    message,
-                }) if sid == session_id => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse {
-                            code: "codex_action_error",
-                            error: format!("{code}: {message}"),
-                        }),
-                    ));
-                }
-                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => {
-                    return Err(codex_action_error_response(
-                        CodexActionError::ChannelClosed,
-                        session_id,
-                    ));
-                }
-            }
-        }
-    })
-    .await
-    .map_err(|_| codex_action_error_response(CodexActionError::Timeout, session_id))?
-}
-
-fn codex_action_error_response(
-    error: CodexActionError,
-    session_id: &str,
-) -> (StatusCode, Json<ApiErrorResponse>) {
-    match error {
-        CodexActionError::SessionNotFound => (
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "not_found",
-                error: format!("Session {session_id} not found"),
-            }),
-        ),
-        CodexActionError::ConnectorNotAvailable => (
-            StatusCode::CONFLICT,
-            Json(ApiErrorResponse {
-                code: "session_not_found",
-                error: format!("Session {session_id} not found or has no active connector"),
-            }),
-        ),
-        CodexActionError::ChannelClosed => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiErrorResponse {
-                code: "channel_closed",
-                error: format!("Session {session_id} connector channel is closed"),
-            }),
-        ),
-        CodexActionError::Timeout => (
-            StatusCode::GATEWAY_TIMEOUT,
-            Json(ApiErrorResponse {
-                code: "timeout",
-                error: format!("Timed out waiting for session {session_id} response"),
-            }),
-        ),
-    }
-}
-
-// ── New REST endpoints (Phase 0: HTTP-first migration) ───────
 
 #[derive(Debug, Deserialize)]
 pub struct ExecuteShellRequest {
@@ -715,49 +102,6 @@ pub struct ExecuteShellResponse {
 #[derive(Debug, Deserialize)]
 pub struct CancelShellRequest {
     pub request_id: String,
-}
-
-fn session_not_found_error(session_id: &str) -> (StatusCode, Json<ApiErrorResponse>) {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ApiErrorResponse {
-            code: "not_found",
-            error: format!(
-                "Session {} not found or has no active connector",
-                session_id
-            ),
-        }),
-    )
-}
-
-fn dispatch_error_response(
-    code: &'static str,
-    session_id: &str,
-) -> (StatusCode, Json<ApiErrorResponse>) {
-    match code {
-        "not_found" => session_not_found_error(session_id),
-        "invalid_answer_payload" => (
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                code: "invalid_answer_payload",
-                error: "Question approvals require a non-empty answer or answers map".to_string(),
-            }),
-        ),
-        "rollback_failed" => (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ApiErrorResponse {
-                code: "rollback_failed",
-                error: "Could not find user message for rollback".to_string(),
-            }),
-        ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code,
-                error: format!("Operation failed for session {}", session_id),
-            }),
-        ),
-    }
 }
 
 pub async fn execute_shell_endpoint(
@@ -986,6 +330,7 @@ pub async fn cancel_shell_endpoint(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::connectors::claude_session::ClaudeAction;
     use crate::connectors::codex_session::CodexAction;
     use crate::domain::sessions::session::SessionHandle;
     use crate::infrastructure::persistence::{flush_batch_for_test, PersistCommand};
@@ -993,8 +338,9 @@ mod tests {
     use axum::http::HeaderValue;
     use axum::response::IntoResponse;
     use orbitdock_protocol::{
-        McpResource, McpResourceTemplate, Message, MessageType, Provider, RemoteSkillSummary,
-        ReviewCommentStatus, ReviewCommentTag, SkillMetadata, SkillScope,
+        McpAuthStatus, McpResource, McpResourceTemplate, McpTool, Message, MessageType, Provider,
+        RemoteSkillSummary, ReviewCommentStatus, ReviewCommentTag, SkillErrorInfo, SkillMetadata,
+        SkillScope, SkillsListEntry,
     };
     use serde_json::json;
     use std::collections::HashMap;
@@ -1429,7 +775,7 @@ mod tests {
         let response = list_skills_endpoint(
             Path(session_id.clone()),
             State(state),
-            Query(SkillsQuery {
+            Query(capabilities::SkillsQuery {
                 cwd: vec!["/tmp/orbitdock-api-test".to_string()],
                 force_reload: Some(true),
             }),
@@ -1657,7 +1003,7 @@ mod tests {
         let response = list_skills_endpoint(
             Path(session_id),
             State(state),
-            Query(SkillsQuery::default()),
+            Query(capabilities::SkillsQuery::default()),
         )
         .await;
 

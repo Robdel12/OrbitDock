@@ -23,7 +23,7 @@ pub struct SetupOptions {
     pub skip_hooks: bool,
 }
 
-pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
+pub fn run_setup_wizard(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
     println!();
     println!("  OrbitDock Server Setup");
     println!("  =====================");
@@ -43,7 +43,7 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
     // 2. For remote mode, generate auth token
     let auth_token = if mode == Mode::Remote {
         println!("  Generating auth token...");
-        let token = status::create_token(data_dir)?;
+        let token = status::issue_auth_token(data_dir)?;
         println!("  Auth token: {}", token);
         println!("  Copy it now and store it somewhere secure.");
         println!("  (Stored hashed in the database; OrbitDock will not print it again.)");
@@ -73,7 +73,7 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
 
     // 4. Run init
     println!("  Running init...");
-    init::run(data_dir, &init_url)?;
+    init::initialize_data_dir(data_dir, &init_url)?;
 
     // 5. Install hooks
     if !opts.skip_hooks {
@@ -84,7 +84,7 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
         } else {
             None
         };
-        install_hooks::run(None, hook_url, hook_auth)?;
+        install_hooks::install_claude_hooks(None, hook_url, hook_auth)?;
     } else {
         println!("  Skipping hook installation.");
     }
@@ -92,7 +92,7 @@ pub fn run(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
     // 6. Install service
     if !opts.skip_service {
         println!("  Installing system service...");
-        install_service::run(data_dir, bind, true, None)?;
+        install_service::install_background_service(data_dir, bind, true, None)?;
     } else {
         println!("  Skipping service installation.");
     }

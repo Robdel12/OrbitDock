@@ -8,7 +8,7 @@ use std::process::{Child, Command, Stdio};
 
 use crate::infrastructure::paths;
 
-pub fn run(port: u16, name: Option<&str>) -> anyhow::Result<()> {
+pub fn start_cloudflare_tunnel(port: u16, name: Option<&str>) -> anyhow::Result<()> {
     let cloudflared = find_cloudflared()?;
 
     println!();

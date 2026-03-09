@@ -8,7 +8,7 @@ use std::path::Path;
 use crate::infrastructure::migration_runner;
 use crate::infrastructure::paths;
 
-pub fn run(data_dir: &Path, _server_url: &str) -> anyhow::Result<()> {
+pub fn initialize_data_dir(data_dir: &Path, _server_url: &str) -> anyhow::Result<()> {
     let installer_mode = installer_mode();
     println!();
 

@@ -37,7 +37,7 @@ const HOOK_TYPES: &[(&str, &str)] = &[
     // - WorktreeRemove: companion cleanup hook for custom worktree providers.
 ];
 
-pub fn run(
+pub fn install_claude_hooks(
     settings_path: Option<&Path>,
     server_url: Option<&str>,
     auth_token: Option<&str>,

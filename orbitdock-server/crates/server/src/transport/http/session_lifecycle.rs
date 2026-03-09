@@ -1,4 +1,6 @@
 use super::*;
+use crate::connectors::codex_session::CodexAction;
+use orbitdock_connector_claude::session::ClaudeAction;
 use tracing::{error, info, warn};
 
 #[derive(Debug, Deserialize)]
@@ -26,12 +28,10 @@ pub async fn rename_session(
         .get_session(&session_id)
         .ok_or_else(|| session_not_found_error(&session_id))?;
 
-    let persist_op = Some(
-        crate::runtime::session_commands::PersistOp::SetCustomName {
-            session_id: session_id.clone(),
-            name: body.name.clone(),
-        },
-    );
+    let persist_op = Some(crate::runtime::session_commands::PersistOp::SetCustomName {
+        session_id: session_id.clone(),
+        name: body.name.clone(),
+    });
     let (reply_tx, _reply_rx) = oneshot::channel();
     actor
         .send(SessionCommand::SetCustomNameAndNotify {
@@ -597,10 +597,7 @@ pub async fn resume_session(
     let session_id_for_response = session_id.clone();
     if is_claude {
         let project = if let Some(ref tp) = restored.transcript_path {
-            crate::support::session_paths::resolve_claude_resume_cwd(
-                &restored.project_path,
-                tp,
-            )
+            crate::support::session_paths::resolve_claude_resume_cwd(&restored.project_path, tp)
         } else {
             restored.project_path.clone()
         };
@@ -1084,10 +1081,7 @@ pub async fn takeover_session(
 
         let sid = session_id.clone();
         let project = if let Some(ref tp) = snap.transcript_path {
-            crate::support::session_paths::resolve_claude_resume_cwd(
-                &snap.project_path,
-                tp,
-            )
+            crate::support::session_paths::resolve_claude_resume_cwd(&snap.project_path, tp)
         } else {
             snap.project_path.clone()
         };

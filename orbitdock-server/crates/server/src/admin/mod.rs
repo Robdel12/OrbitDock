@@ -10,18 +10,21 @@ mod setup;
 mod status;
 mod tunnel;
 
-pub use doctor::run as doctor;
-pub use ensure_path::run as ensure_path;
+pub use doctor::print_diagnostics;
+pub use ensure_path::ensure_shell_path;
 pub use hook_forward::{
-    run as hook_forward, write_transport_config as write_hook_transport_config, HookForwardType,
+    forward_hook_event, write_transport_config as write_hook_transport_config, HookForwardType,
 };
-pub use init::run as init;
-pub use install_hooks::run as install_hooks;
+pub use init::initialize_data_dir;
+pub use install_hooks::install_claude_hooks;
 pub use install_service::{
-    run as install_service, run_with_opts as install_service_with_opts, ServiceOptions,
+    install_background_service, install_background_service_with_options, ServiceOptions,
 };
-pub use pair::run as pair;
-pub use remote_setup::run as remote_setup;
-pub use setup::{run as setup, Mode as SetupMode, SetupOptions};
-pub use status::{create_token, generate_token, list_tokens, revoke_token, run as status};
-pub use tunnel::run as tunnel;
+pub use pair::print_pairing_details;
+pub use remote_setup::guide_remote_setup;
+pub use setup::{run_setup_wizard, Mode as SetupMode, SetupOptions};
+pub use status::{
+    issue_auth_token, print_auth_tokens, print_generated_auth_token, print_server_status,
+    revoke_auth_token,
+};
+pub use tunnel::start_cloudflare_tunnel;
