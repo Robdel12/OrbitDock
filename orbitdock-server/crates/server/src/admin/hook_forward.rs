@@ -86,6 +86,12 @@ struct HookTarget {
     auth_token: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct ForwardHookPlan {
+    target: HookTarget,
+    body: String,
+}
+
 pub fn forward_hook_event(
     hook_type: HookForwardType,
     server_url: Option<&str>,
@@ -100,21 +106,26 @@ pub fn forward_hook_event(
         return Ok(());
     }
 
-    let body = match build_hook_body(hook_type, &payload) {
-        Ok(body) => body,
+    let persisted = read_transport_config().ok().flatten();
+    let plan = match plan_forwarded_hook(
+        hook_type,
+        &payload,
+        server_url,
+        auth_token,
+        persisted.as_ref(),
+    ) {
+        Ok(plan) => plan,
         Err(_) => {
             // Never fail the hook invocation for malformed payloads.
             return Ok(());
         }
     };
 
-    let target = resolve_target(server_url, auth_token)?;
-
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
 
-    runtime.block_on(forward_with_spool(&target, &body))
+    runtime.block_on(forward_with_spool(&plan.target, &plan.body))
 }
 
 pub fn write_transport_config(
@@ -137,23 +148,18 @@ pub fn write_transport_config(
     Ok(config_path)
 }
 
-fn resolve_target(
+fn resolve_hook_target_with_persisted(
     server_url: Option<&str>,
     auth_token: Option<&str>,
+    persisted: Option<&HookTransportConfig>,
 ) -> anyhow::Result<HookTarget> {
-    let persisted = read_transport_config().ok().flatten();
-
     let resolved_url = server_url
         .map(normalize_server_url)
-        .or_else(|| {
-            persisted
-                .as_ref()
-                .map(|cfg| normalize_server_url(&cfg.server_url))
-        })
+        .or_else(|| persisted.map(|cfg| normalize_server_url(&cfg.server_url)))
         .unwrap_or_else(|| DEFAULT_SERVER_URL.to_string());
 
     let resolved_token = normalized_non_empty(auth_token.map(ToString::to_string))
-        .or_else(|| persisted.and_then(|cfg| cfg.auth_token()));
+        .or_else(|| persisted.and_then(HookTransportConfig::auth_token));
 
     Ok(HookTarget {
         server_url: resolved_url,
@@ -222,6 +228,19 @@ fn normalized_non_empty(value: Option<String>) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
+}
+
+fn plan_forwarded_hook(
+    hook_type: HookForwardType,
+    payload: &str,
+    server_url: Option<&str>,
+    auth_token: Option<&str>,
+    persisted: Option<&HookTransportConfig>,
+) -> anyhow::Result<ForwardHookPlan> {
+    Ok(ForwardHookPlan {
+        target: resolve_hook_target_with_persisted(server_url, auth_token, persisted)?,
+        body: build_hook_body(hook_type, payload)?,
+    })
 }
 
 fn build_hook_body(hook_type: HookForwardType, payload: &str) -> anyhow::Result<String> {
@@ -360,7 +379,10 @@ async fn post_hook(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_hook_body, HookForwardType};
+    use super::{
+        build_hook_body, normalize_server_url, plan_forwarded_hook,
+        resolve_hook_target_with_persisted, HookForwardType, HookTransportConfig,
+    };
 
     #[test]
     fn build_hook_body_injects_type() {
@@ -391,6 +413,63 @@ mod tests {
         assert_eq!(
             value.get("terminal_app").and_then(|v| v.as_str()),
             Some("my-term")
+        );
+    }
+
+    #[test]
+    fn normalize_server_url_trims_and_defaults_empty_values() {
+        assert_eq!(
+            normalize_server_url(" http://127.0.0.1:4000/ "),
+            "http://127.0.0.1:4000"
+        );
+        assert_eq!(normalize_server_url("   "), "http://127.0.0.1:4000");
+    }
+
+    #[test]
+    fn resolve_hook_target_prefers_explicit_values_over_persisted_config() {
+        let persisted = HookTransportConfig {
+            server_url: "http://persisted:4000".to_string(),
+            auth_token_enc: None,
+            auth_token: Some("persisted-token".to_string()),
+        };
+
+        let explicit = resolve_hook_target_with_persisted(
+            Some("http://explicit:4000/"),
+            Some("  explicit-token  "),
+            Some(&persisted),
+        )
+        .expect("resolve explicit target");
+        let persisted_only = resolve_hook_target_with_persisted(None, None, Some(&persisted))
+            .expect("resolve persisted target");
+
+        assert_eq!(explicit.server_url, "http://explicit:4000");
+        assert_eq!(explicit.auth_token.as_deref(), Some("explicit-token"));
+        assert_eq!(persisted_only.server_url, "http://persisted:4000");
+        assert_eq!(
+            persisted_only.auth_token.as_deref(),
+            Some("persisted-token")
+        );
+    }
+
+    #[test]
+    fn forwarded_hook_plan_combines_target_resolution_and_payload_injection() {
+        let payload = r#"{"session_id":"abc","cwd":"/tmp"}"#;
+        let plan = plan_forwarded_hook(
+            HookForwardType::ToolEvent,
+            payload,
+            Some("http://example.com/"),
+            Some("token-123"),
+            None,
+        )
+        .expect("plan forwarded hook");
+        let value: serde_json::Value =
+            serde_json::from_str(&plan.body).expect("parse planned hook body");
+
+        assert_eq!(plan.target.server_url, "http://example.com");
+        assert_eq!(plan.target.auth_token.as_deref(), Some("token-123"));
+        assert_eq!(
+            value.get("type").and_then(|value| value.as_str()),
+            Some("claude_tool_event")
         );
     }
 }
