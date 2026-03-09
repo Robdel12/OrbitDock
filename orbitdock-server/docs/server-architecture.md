@@ -24,6 +24,12 @@ Owns HTTP and WebSocket delivery only.
 
 `transport` should not decide business policy. If a handler needs branching logic that is not about request parsing or response formatting, that logic probably belongs lower.
 
+Current examples:
+
+- `transport/http/router.rs` wires routes only
+- `transport/websocket/router.rs` classifies and dispatches messages only
+- `transport/websocket/handlers/subscribe.rs` delegates subscribe-time reactivation, lazy connector startup, and snapshot prep to runtime helpers
+
 ### `runtime/`
 
 Owns orchestration, live registries, actor command routing, and background coordination.
@@ -34,6 +40,14 @@ Owns orchestration, live registries, actor command routing, and background coord
 - background tasks like git refresh
 
 `runtime` is where stateful coordination lives. It is allowed to know about connectors, persistence, and long-lived tasks.
+
+Current examples:
+
+- `session_creation.rs`
+- `session_lifecycle_policy.rs`
+- `message_dispatch.rs`
+- `session_subscriptions.rs`
+- `restored_sessions.rs`
 
 ### `domain/`
 
@@ -70,6 +84,13 @@ Owns small shared helpers that are pure or close to pure.
 
 This is not a misc bucket. If a helper grows state, side effects, or domain policy, it should move out.
 
+Current examples:
+
+- `snapshot_compaction.rs`
+- `session_modes.rs`
+- `session_paths.rs`
+- `session_time.rs`
+
 ### `admin/`
 
 Owns server-admin flows exposed through the single `orbitdock` binary.
@@ -81,6 +102,25 @@ Owns server-admin flows exposed through the single `orbitdock` binary.
 `admin` should read like a library API, not a pile of `run()` wrappers. Capability-shaped names are the default.
 
 ## API Design Rules
+
+## Dependency Rules
+
+These rules are the guardrails for future refactors.
+
+- `transport` may depend on `runtime`, `domain`, `infrastructure`, and `support`.
+- `runtime` may depend on `domain`, `infrastructure`, `connectors`, and `support`.
+- `domain` may depend on `support`.
+- `infrastructure` may depend on `support`.
+- `support` should not depend on `transport`, `runtime`, `domain`, or `infrastructure`.
+
+Just as important are the negative rules:
+
+- `domain` must not depend on `transport`.
+- `domain` should not know about connector implementations.
+- `infrastructure` must not depend on `transport`.
+- `support` is never a backdoor for runtime or transport behavior.
+
+If a change wants to violate one of these, that is a design review moment, not a casual import.
 
 ### Prefer capability-shaped exports
 
@@ -123,6 +163,13 @@ That pattern gives us real unit-test seams without mocking our own code.
 
 They should not hold large piles of endpoint business logic.
 
+For WebSocket specifically:
+
+- `message_groups.rs` classifies incoming messages
+- `rest_only_policy.rs` maps REST-only websocket requests to their authoritative HTTP routes
+- `handlers/*` adapt protocol messages onto runtime operations
+- `transport.rs` owns outbound websocket delivery helpers
+
 ## HTTP Structure
 
 The HTTP layer is organized by feature module:
@@ -157,6 +204,38 @@ Recommended grouping:
 - server routes
 - filesystem routes
 - worktree routes
+
+## Runtime Operation Contract
+
+When transport needs behavior that is more than trivial formatting, it should call a runtime operation or planner instead of building the flow inline.
+
+Good runtime operations:
+
+- prepare or load a session for resume/takeover
+- plan message dispatch inputs
+- prepare direct session creation
+- prepare subscribe results and persisted fallback snapshots
+- reactivate passive sessions when new rollout activity arrives
+
+The pattern we want is:
+
+1. transport parses the request
+2. runtime plans or executes the operation
+3. transport renders the response or pushes events
+
+That keeps policy and orchestration centralized, and it makes outcome-focused tests much easier to write.
+
+## WebSocket Structure
+
+The websocket layer now has a clearer shape than it started with:
+
+- `router.rs` is the single dispatch entrypoint
+- `message_groups.rs` owns top-level message classification
+- `rest_only_policy.rs` owns the mapping from websocket requests to REST routes
+- `handlers/subscribe.rs` is focused on routing subscribe requests, not rebuilding subscription state by hand
+- `transport.rs` owns replay/snapshot delivery behavior
+
+The remaining goal is to keep shrinking `transport/websocket/mod.rs` until it is mostly module wiring plus a small set of genuinely websocket-wide tests.
 
 ## Testing Rules
 
