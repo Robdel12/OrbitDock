@@ -152,10 +152,17 @@ pub(crate) fn direct_mode_activation_changes(provider: Provider) -> StateChanges
 
 #[cfg(test)]
 mod tests {
-    use super::direct_mode_activation_changes;
+    use super::{claim_codex_thread_for_direct_session, direct_mode_activation_changes};
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::infrastructure::persistence::PersistCommand;
+    use crate::runtime::session_registry::SessionRegistry;
+    use crate::transport::websocket::test_support::ensure_test_data_dir;
     use orbitdock_protocol::{
-        ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionStatus, WorkStatus,
+        ClaudeIntegrationMode, CodexIntegrationMode, Provider, ServerMessage, SessionStatus,
+        WorkStatus,
     };
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
 
     #[test]
     fn direct_mode_activation_changes_sets_active_waiting_for_codex() {
@@ -179,6 +186,84 @@ mod tests {
             Some(Some(ClaudeIntegrationMode::Direct))
         );
         assert_eq!(changes.codex_integration_mode, None);
+    }
+
+    #[tokio::test]
+    async fn claim_codex_thread_ends_shadow_runtime_session_and_persists_cleanup() {
+        ensure_test_data_dir();
+        let (persist_tx, mut persist_rx) = mpsc::channel(16);
+        let state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+        let mut list_rx = state.subscribe_list();
+        let direct_session_id = "od-direct-session".to_string();
+        let shadow_thread_id = "019-shadow-thread".to_string();
+
+        let mut direct = SessionHandle::new(
+            direct_session_id.clone(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        direct.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+        state.add_session(direct);
+
+        let mut shadow = SessionHandle::new(
+            shadow_thread_id.clone(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        shadow.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+        state.add_session(shadow);
+
+        claim_codex_thread_for_direct_session(
+            &state,
+            &persist_tx,
+            &direct_session_id,
+            &shadow_thread_id,
+            "test_shadow_cleanup",
+        )
+        .await;
+
+        assert_eq!(
+            state.codex_thread_for_session(&direct_session_id),
+            Some(shadow_thread_id.clone())
+        );
+        assert!(state.get_session(&shadow_thread_id).is_none());
+
+        match list_rx.recv().await.expect("expected list broadcast") {
+            ServerMessage::SessionEnded { session_id, reason } => {
+                assert_eq!(session_id, shadow_thread_id);
+                assert_eq!(reason, "direct_session_thread_claimed");
+            }
+            other => panic!("expected SessionEnded broadcast, got {:?}", other),
+        }
+
+        match persist_rx
+            .recv()
+            .await
+            .expect("expected SetThreadId command")
+        {
+            PersistCommand::SetThreadId {
+                session_id,
+                thread_id,
+            } => {
+                assert_eq!(session_id, direct_session_id);
+                assert_eq!(thread_id, "019-shadow-thread");
+            }
+            other => panic!("expected SetThreadId command, got {:?}", other),
+        }
+        match persist_rx
+            .recv()
+            .await
+            .expect("expected CleanupThreadShadowSession command")
+        {
+            PersistCommand::CleanupThreadShadowSession { thread_id, reason } => {
+                assert_eq!(thread_id, "019-shadow-thread");
+                assert_eq!(reason, "test_shadow_cleanup");
+            }
+            other => panic!(
+                "expected CleanupThreadShadowSession command, got {:?}",
+                other
+            ),
+        }
     }
 }
 

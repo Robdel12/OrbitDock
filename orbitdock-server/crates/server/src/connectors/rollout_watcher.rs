@@ -1080,26 +1080,16 @@ impl WatcherRuntime {
 mod tests {
     use super::*;
     use crate::infrastructure::persistence::flush_batch_for_test;
+    use crate::support::test_support::ensure_server_test_data_dir;
     use orbitdock_connector_codex::rollout_parser::{FileState, PersistedState};
     use rusqlite::{params, Connection};
     use std::collections::HashMap;
     use std::io::Write;
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Once};
+    use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
-
-    static INIT_TEST_DATA_DIR: Once = Once::new();
-
-    fn ensure_test_data_dir() {
-        INIT_TEST_DATA_DIR.call_once(|| {
-            let dir = std::env::temp_dir().join("orbitdock-server-test-data");
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).expect("create rollout test data dir");
-            crate::infrastructure::paths::init_data_dir(Some(&dir));
-        });
-    }
 
     fn make_test_runtime(
         app_state: Arc<SessionRegistry>,
@@ -1137,7 +1127,7 @@ mod tests {
 
     #[tokio::test]
     async fn mcp_session_meta_is_ignored_for_passive_materialization() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let session_id = format!("mcp-direct-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-mcp-{}", session_id));
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
@@ -1202,7 +1192,7 @@ mod tests {
 
     #[tokio::test]
     async fn rollout_activity_reactivates_ended_passive_session_in_memory() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let session_id = format!("passive-reactivate-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-{}", session_id));
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
@@ -1314,7 +1304,7 @@ mod tests {
 
     #[tokio::test]
     async fn rollout_activity_reactivates_closed_passive_session_in_memory_and_db() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let session_id = format!("passive-reactivate-db-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-db-{}", session_id));
         std::fs::create_dir_all(tmp_dir.join(".orbitdock")).expect("create .orbitdock dir");
@@ -1438,7 +1428,7 @@ mod tests {
 
     #[tokio::test]
     async fn close_then_append_rollout_event_reactivates_via_watcher_event_queue() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let session_id = format!("passive-close-reopen-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-close-{}", session_id));
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
@@ -1531,7 +1521,7 @@ mod tests {
 
     #[tokio::test]
     async fn catchup_sweep_processes_appended_lines_without_fs_event() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let session_id = format!("passive-sweep-reactivate-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-sweep-{}", session_id));
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
@@ -1602,7 +1592,7 @@ mod tests {
 
     #[tokio::test]
     async fn response_item_message_line_appends_passive_chat_message() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let session_id = format!("passive-msg-append-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-msg-{}", session_id));
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");

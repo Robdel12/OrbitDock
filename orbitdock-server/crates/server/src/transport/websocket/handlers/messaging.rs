@@ -354,6 +354,488 @@ pub(crate) async fn handle(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::handle;
+    use crate::connectors::claude_session::ClaudeAction;
+    use crate::connectors::codex_session::CodexAction;
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::transport::websocket::test_support::new_test_state;
+    use crate::transport::websocket::OutboundMessage;
+    use orbitdock_protocol::{ClientMessage, ImageInput, MentionInput, Provider};
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn send_message_does_not_mark_working_when_action_channel_is_closed() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-closed-channel".to_string();
+        let (action_tx, action_rx) = mpsc::channel(1);
+
+        drop(action_rx);
+
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        ));
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        handle(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "ping".to_string(),
+                model: None,
+                effort: None,
+                skills: vec![],
+                images: vec![],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        tokio::task::yield_now().await;
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist");
+        let snapshot = actor.snapshot();
+        assert_eq!(
+            snapshot.work_status,
+            orbitdock_protocol::WorkStatus::Waiting
+        );
+    }
+
+    #[tokio::test]
+    async fn codex_send_message_ignores_bootstrap_prompt_for_naming() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "codex-name-on-prompt".to_string();
+        let (action_tx, _action_rx) = mpsc::channel(8);
+
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        ));
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        handle(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "<environment_context>...</environment_context>".to_string(),
+                model: None,
+                effort: None,
+                skills: vec![],
+                images: vec![],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        handle(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "Investigate flaky auth and propose a safe migration plan".to_string(),
+                model: None,
+                effort: None,
+                skills: vec![],
+                images: vec![],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        tokio::task::yield_now().await;
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist");
+        let snapshot = actor.snapshot();
+        assert_eq!(
+            snapshot.first_prompt.as_deref(),
+            Some("Investigate flaky auth and propose a safe migration plan")
+        );
+        assert_eq!(
+            snapshot.work_status,
+            orbitdock_protocol::WorkStatus::Working
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn send_message_dispatches_extracted_images_to_codex_connector() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-images-codex".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        ));
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        handle(
+            ClientMessage::SendMessage {
+                session_id,
+                content: "ping".to_string(),
+                model: None,
+                effort: None,
+                skills: vec![],
+                images: vec![ImageInput {
+                    input_type: "url".to_string(),
+                    value: "data:image/png;base64,aGVsbG8=".to_string(),
+                    ..Default::default()
+                }],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match action_rx.recv().await.expect("expected codex action") {
+            CodexAction::SendMessage { images, .. } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "path");
+                assert!(images[0].value.ends_with(".png"));
+            }
+            other => panic!("expected SendMessage action, got {:?}", other),
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn send_message_dispatches_extracted_images_to_claude_connector() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-images-claude".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Claude,
+            "/Users/tester/repo".to_string(),
+        ));
+        state.set_claude_action_tx(&session_id, action_tx);
+
+        handle(
+            ClientMessage::SendMessage {
+                session_id,
+                content: "ping".to_string(),
+                model: None,
+                effort: None,
+                skills: vec![],
+                images: vec![ImageInput {
+                    input_type: "url".to_string(),
+                    value: "data:image/png;base64,aGVsbG8=".to_string(),
+                    ..Default::default()
+                }],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match action_rx.recv().await.expect("expected claude action") {
+            ClaudeAction::SendMessage { images, .. } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "path");
+                assert!(images[0].value.ends_with(".png"));
+            }
+            other => panic!("expected SendMessage action, got {:?}", other),
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn steer_turn_dispatches_extracted_images_and_mentions_to_codex_connector() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "steer-turn-images-codex".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        ));
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        handle(
+            ClientMessage::SteerTurn {
+                session_id,
+                content: "consider this".to_string(),
+                images: vec![ImageInput {
+                    input_type: "url".to_string(),
+                    value: "data:image/png;base64,aGVsbG8=".to_string(),
+                    ..Default::default()
+                }],
+                mentions: vec![MentionInput {
+                    name: "main.rs".to_string(),
+                    path: "/project/src/main.rs".to_string(),
+                }],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match action_rx.recv().await.expect("expected codex action") {
+            CodexAction::SteerTurn {
+                images, mentions, ..
+            } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "path");
+                assert!(images[0].value.ends_with(".png"));
+                assert_eq!(mentions.len(), 1);
+                assert_eq!(mentions[0].name, "main.rs");
+                assert_eq!(mentions[0].path, "/project/src/main.rs");
+            }
+            other => panic!("expected SteerTurn action, got {:?}", other),
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn steer_turn_dispatches_extracted_images_to_claude_connector() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "steer-turn-images-claude".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Claude,
+            "/Users/tester/repo".to_string(),
+        ));
+        state.set_claude_action_tx(&session_id, action_tx);
+
+        handle(
+            ClientMessage::SteerTurn {
+                session_id,
+                content: "consider this".to_string(),
+                images: vec![ImageInput {
+                    input_type: "url".to_string(),
+                    value: "data:image/png;base64,aGVsbG8=".to_string(),
+                    ..Default::default()
+                }],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match action_rx.recv().await.expect("expected claude action") {
+            ClaudeAction::SteerTurn { images, .. } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "path");
+                assert!(images[0].value.ends_with(".png"));
+            }
+            other => panic!("expected SteerTurn action, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_message_without_effort_preserves_existing_effort() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-effort-preserve".to_string();
+        let (action_tx, _action_rx) = mpsc::channel(8);
+
+        let mut session_handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        );
+        session_handle.apply_changes(&orbitdock_protocol::StateChanges {
+            effort: Some(Some("xhigh".to_string())),
+            ..Default::default()
+        });
+        state.add_session(session_handle);
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        handle(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "<environment_context>...</environment_context>".to_string(),
+                model: Some("gpt-5.3-codex".to_string()),
+                effort: None,
+                skills: vec![],
+                images: vec![],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        tokio::task::yield_now().await;
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist");
+        let snapshot = actor.snapshot();
+        assert_eq!(snapshot.effort.as_deref(), Some("xhigh"));
+    }
+
+    #[tokio::test]
+    async fn send_message_with_model_override_updates_session_model() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-model-override".to_string();
+        let (action_tx, _action_rx) = mpsc::channel(8);
+
+        let mut session_handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        );
+        session_handle.set_model(Some("openai".to_string()));
+        state.add_session(session_handle);
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        handle(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "<environment_context>...</environment_context>".to_string(),
+                model: Some("gpt-5.3-codex".to_string()),
+                effort: None,
+                skills: vec![],
+                images: vec![],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist");
+        let snapshot = actor.snapshot();
+        assert_eq!(snapshot.model.as_deref(), Some("gpt-5.3-codex"));
+    }
+
+    #[tokio::test]
+    async fn send_message_with_effort_override_updates_codex_session_effort() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-effort-override-codex".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        let mut session_handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        );
+        session_handle.apply_changes(&orbitdock_protocol::StateChanges {
+            effort: Some(Some("xhigh".to_string())),
+            ..Default::default()
+        });
+        state.add_session(session_handle);
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        handle(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "<environment_context>...</environment_context>".to_string(),
+                model: None,
+                effort: Some("high".to_string()),
+                skills: vec![],
+                images: vec![],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match action_rx.recv().await.expect("expected codex action") {
+            CodexAction::SendMessage { effort, .. } => {
+                assert_eq!(effort.as_deref(), Some("high"));
+            }
+            other => panic!("expected Codex send action, got {:?}", other),
+        }
+
+        tokio::task::yield_now().await;
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist after send");
+        let snapshot = actor.snapshot();
+        assert_eq!(snapshot.effort.as_deref(), Some("high"));
+    }
+
+    #[tokio::test]
+    async fn send_message_with_effort_override_ignored_for_claude() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-effort-override-claude".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        let mut session_handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Claude,
+            "/Users/tester/repo".to_string(),
+        );
+        session_handle.apply_changes(&orbitdock_protocol::StateChanges {
+            effort: Some(Some("xhigh".to_string())),
+            ..Default::default()
+        });
+        state.add_session(session_handle);
+        state.set_claude_action_tx(&session_id, action_tx);
+
+        handle(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "<environment_context>...</environment_context>".to_string(),
+                model: None,
+                effort: Some("high".to_string()),
+                skills: vec![],
+                images: vec![],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match action_rx.recv().await.expect("expected claude action") {
+            ClaudeAction::SendMessage { effort, .. } => {
+                assert_eq!(effort, None);
+            }
+            other => panic!("expected Claude send action, got {:?}", other),
+        }
+
+        tokio::task::yield_now().await;
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist after send");
+        let snapshot = actor.snapshot();
+        assert_eq!(snapshot.effort.as_deref(), Some("xhigh"));
+    }
+}
+
 async fn send_not_found(client_tx: &mpsc::Sender<OutboundMessage>, session_id: &str) {
     send_json(
         client_tx,

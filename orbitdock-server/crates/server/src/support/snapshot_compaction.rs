@@ -139,22 +139,11 @@ mod tests {
         sanitize_replay_event_for_transport, sanitize_server_message_for_transport,
         WS_MAX_TEXT_MESSAGE_BYTES,
     };
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::support::test_support::ensure_server_test_data_dir;
     use orbitdock_protocol::{
         new_id, ImageInput, Message, MessageType, Provider, ServerMessage, TurnDiff,
     };
-    use std::sync::Once;
-
-    use crate::domain::sessions::session::SessionHandle;
-
-    static INIT_TEST_DATA_DIR: Once = Once::new();
-
-    fn ensure_test_data_dir() {
-        INIT_TEST_DATA_DIR.call_once(|| {
-            let dir = std::env::temp_dir().join("orbitdock-server-test-data");
-            let _ = std::fs::remove_dir_all(&dir);
-            crate::infrastructure::paths::init_data_dir(Some(&dir));
-        });
-    }
 
     #[test]
     fn snapshot_preparation_normalizes_images_and_sets_pagination() {
@@ -241,7 +230,7 @@ mod tests {
 
     #[test]
     fn sanitize_message_appended_normalizes_managed_path_images() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let session_id = "s";
         let image_dir = crate::infrastructure::paths::images_dir().join(session_id);
         std::fs::create_dir_all(&image_dir).expect("create image dir");
@@ -325,7 +314,7 @@ mod tests {
 
     #[test]
     fn replay_sanitize_preserves_revision_and_normalizes_managed_path_images() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let session_id = "s";
         let image_dir = crate::infrastructure::paths::images_dir().join(session_id);
         std::fs::create_dir_all(&image_dir).expect("create image dir");

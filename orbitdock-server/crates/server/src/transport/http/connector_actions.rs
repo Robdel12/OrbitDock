@@ -13,7 +13,10 @@ use crate::connectors::codex_session::CodexAction;
 use crate::runtime::session_commands::{SessionCommand, SubscribeResult};
 use crate::runtime::session_registry::SessionRegistry;
 
-use super::errors::{ApiErrorResponse, ApiInnerResult};
+use super::errors::{
+    bad_request, conflict, gateway_timeout, internal, not_found, service_unavailable,
+    unprocessable, ApiErrorResponse, ApiInnerResult,
+};
 
 #[derive(Debug)]
 enum CodexActionError {
@@ -30,15 +33,12 @@ pub(crate) fn messaging_dispatch_error_response(
     session_id: &str,
 ) -> (StatusCode, Json<ApiErrorResponse>) {
     match error {
-        crate::runtime::message_dispatch::DispatchMessageError::NotFound => (
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "not_found",
-                error: format!(
-                    "Session {} not found or has no active connector",
-                    session_id
-                ),
-            }),
+        crate::runtime::message_dispatch::DispatchMessageError::NotFound => not_found(
+            "not_found",
+            format!(
+                "Session {} not found or has no active connector",
+                session_id
+            ),
         ),
     }
 }
@@ -49,40 +49,25 @@ pub(crate) fn dispatch_error_response(
 ) -> (StatusCode, Json<ApiErrorResponse>) {
     match code {
         "not_found" => session_not_found_error(session_id),
-        "invalid_answer_payload" => (
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                code: "invalid_answer_payload",
-                error: "Question approvals require a non-empty answer or answers map".to_string(),
-            }),
+        "invalid_answer_payload" => bad_request(
+            "invalid_answer_payload",
+            "Question approvals require a non-empty answer or answers map",
         ),
-        "rollback_failed" => (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(ApiErrorResponse {
-                code: "rollback_failed",
-                error: "Could not find user message for rollback".to_string(),
-            }),
+        "rollback_failed" => unprocessable(
+            "rollback_failed",
+            "Could not find user message for rollback",
         ),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code,
-                error: format!("Operation failed for session {}", session_id),
-            }),
-        ),
+        _ => internal(code, format!("Operation failed for session {}", session_id)),
     }
 }
 
 pub(crate) fn session_not_found_error(session_id: &str) -> (StatusCode, Json<ApiErrorResponse>) {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ApiErrorResponse {
-            code: "not_found",
-            error: format!(
-                "Session {} not found or has no active connector",
-                session_id
-            ),
-        }),
+    not_found(
+        "not_found",
+        format!(
+            "Session {} not found or has no active connector",
+            session_id
+        ),
     )
 }
 
@@ -156,12 +141,9 @@ pub(crate) async fn wait_for_codex_skills_event(
                     code,
                     message,
                 }) if sid == session_id => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse {
-                            code: "codex_action_error",
-                            error: format!("{code}: {message}"),
-                        }),
+                    return Err(bad_request(
+                        "codex_action_error",
+                        format!("{code}: {message}"),
                     ));
                 }
                 Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
@@ -194,12 +176,9 @@ pub(crate) async fn wait_for_remote_skills_event(
                     code,
                     message,
                 }) if sid == session_id => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse {
-                            code: "codex_action_error",
-                            error: format!("{code}: {message}"),
-                        }),
+                    return Err(bad_request(
+                        "codex_action_error",
+                        format!("{code}: {message}"),
                     ));
                 }
                 Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
@@ -244,12 +223,9 @@ pub(crate) async fn wait_for_mcp_tools_event(
                     code,
                     message,
                 }) if sid == session_id => {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(ApiErrorResponse {
-                            code: "codex_action_error",
-                            error: format!("{code}: {message}"),
-                        }),
+                    return Err(bad_request(
+                        "codex_action_error",
+                        format!("{code}: {message}"),
                     ));
                 }
                 Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
@@ -271,33 +247,20 @@ fn codex_action_error_response(
     session_id: &str,
 ) -> (StatusCode, Json<ApiErrorResponse>) {
     match error {
-        CodexActionError::SessionNotFound => (
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "not_found",
-                error: format!("Session {session_id} not found"),
-            }),
+        CodexActionError::SessionNotFound => {
+            not_found("not_found", format!("Session {session_id} not found"))
+        }
+        CodexActionError::ConnectorNotAvailable => conflict(
+            "session_not_found",
+            format!("Session {session_id} not found or has no active connector"),
         ),
-        CodexActionError::ConnectorNotAvailable => (
-            StatusCode::CONFLICT,
-            Json(ApiErrorResponse {
-                code: "session_not_found",
-                error: format!("Session {session_id} not found or has no active connector"),
-            }),
+        CodexActionError::ChannelClosed => service_unavailable(
+            "channel_closed",
+            format!("Session {session_id} connector channel is closed"),
         ),
-        CodexActionError::ChannelClosed => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiErrorResponse {
-                code: "channel_closed",
-                error: format!("Session {session_id} connector channel is closed"),
-            }),
-        ),
-        CodexActionError::Timeout => (
-            StatusCode::GATEWAY_TIMEOUT,
-            Json(ApiErrorResponse {
-                code: "timeout",
-                error: format!("Timed out waiting for session {session_id} response"),
-            }),
+        CodexActionError::Timeout => gateway_timeout(
+            "timeout",
+            format!("Timed out waiting for session {session_id} response"),
         ),
     }
 }

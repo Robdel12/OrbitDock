@@ -4,3 +4,5 @@ pub(crate) mod session_modes;
 pub(crate) mod session_paths;
 pub(crate) mod session_time;
 pub(crate) mod snapshot_compaction;
+#[cfg(test)]
+pub(crate) mod test_support;

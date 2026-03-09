@@ -674,6 +674,7 @@ impl SessionRegistry {
 #[cfg(test)]
 mod tests {
     use super::{collect_recent_projects, SessionRegistry};
+    use crate::support::test_support::ensure_server_test_data_dir;
     use std::collections::HashSet;
     use tokio::sync::mpsc;
 
@@ -735,6 +736,7 @@ mod tests {
 
     #[test]
     fn active_client_primary_claims_dedup_by_client_and_ignore_non_primary() {
+        ensure_server_test_data_dir();
         let (persist_tx, _persist_rx) = mpsc::channel(8);
         let registry = SessionRegistry::new_with_primary(persist_tx, true);
 

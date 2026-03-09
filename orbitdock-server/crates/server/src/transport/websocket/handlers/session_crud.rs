@@ -1,31 +1,28 @@
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info};
 
-use orbitdock_protocol::{
-    ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
-};
+use orbitdock_protocol::{ClientMessage, Provider, ServerMessage};
 
-use crate::connectors::claude_session::{ClaudeAction, ClaudeSession};
-use crate::connectors::codex_session::{CodexAction, CodexSession};
-use crate::domain::sessions::session::SessionHandle;
-use crate::infrastructure::persistence::{load_messages_from_transcript_path, PersistCommand};
+use crate::connectors::claude_session::ClaudeAction;
+use crate::connectors::codex_session::CodexAction;
+use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::{PersistOp, SessionCommand};
 use crate::runtime::session_creation::{
     persist_direct_session_create, prepare_direct_session, DirectSessionCreationInputs,
 };
-use crate::runtime::session_fork_policy::{
-    plan_fork_config, remap_messages_for_fork, select_fork_messages,
-    truncate_messages_before_nth_user_message, ForkConfigInputs,
+use crate::runtime::session_direct_start::{
+    start_direct_claude_session, start_direct_codex_session,
+};
+use crate::runtime::session_fork_policy::{plan_fork_config, ForkConfigInputs};
+use crate::runtime::session_fork_runtime::{
+    finalize_codex_fork_session, start_claude_fork_session,
 };
 use crate::runtime::session_fork_targets::{
     create_fork_target_worktree, resolve_existing_fork_worktree_path, ForkTargetError,
 };
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_runtime_helpers::{
-    claim_codex_thread_for_direct_session, hydrate_full_message_history,
-};
 use crate::support::session_modes::is_passive_rollout_session;
 use crate::transport::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
 
@@ -89,7 +86,7 @@ pub(crate) async fn handle(
                 sandbox_mode: sandbox_mode.clone(),
                 effort: effort.clone(),
             });
-            let mut handle = prepared.handle;
+            let handle = prepared.handle;
 
             // Subscribe the creator before handing off handle
             let rx = handle.subscribe();
@@ -122,73 +119,21 @@ pub(crate) async fn handle(
             )
             .await;
 
-            // Spawn Codex connector if it's a Codex session
             if provider == Provider::Codex {
                 let session_id = id.clone();
-                let cwd_clone = cwd.clone();
-                let model_clone = model.clone();
-                let approval_clone = approval_policy.clone();
-                let sandbox_clone = sandbox_mode.clone();
-                let connector_timeout = std::time::Duration::from_secs(15);
-                let task_session_id = session_id.clone();
-
-                // Codex startup does a lot of async initialization. Running it in a
-                // dedicated task avoids deep poll stack growth in this large handler.
-                let mut connector_task = tokio::spawn(async move {
-                    CodexSession::new(
-                        task_session_id.clone(),
-                        &cwd_clone,
-                        model_clone.as_deref(),
-                        approval_clone.as_deref(),
-                        sandbox_clone.as_deref(),
-                    )
-                    .await
-                });
-
-                let codex_start =
-                    match tokio::time::timeout(connector_timeout, &mut connector_task).await {
-                        Ok(Ok(Ok(codex_session))) => Ok(codex_session),
-                        Ok(Ok(Err(e))) => Err(e.to_string()),
-                        Ok(Err(join_err)) => Err(format!("Connector task panicked: {}", join_err)),
-                        Err(_) => {
-                            connector_task.abort();
-                            Err("Connector creation timed out".to_string())
-                        }
-                    };
-
-                match codex_start {
-                    Ok(codex_session) => {
-                        let thread_id = codex_session.thread_id().to_string();
-                        claim_codex_thread_for_direct_session(
-                            state,
-                            &persist_tx,
-                            &session_id,
-                            &thread_id,
-                            "legacy_codex_thread_row_cleanup",
-                        )
-                        .await;
-
-                        handle.set_list_tx(state.list_tx());
-                        let (actor_handle, action_tx) =
-                            crate::connectors::codex_session::start_event_loop(
-                                codex_session,
-                                handle,
-                                persist_tx,
-                                state.clone(),
-                            );
-                        state.add_session_actor(actor_handle);
-                        state.set_codex_action_tx(&session_id, action_tx);
-                        info!(
-                            component = "session",
-                            event = "session.create.connector_started",
-                            connection_id = conn_id,
-                            session_id = %session_id,
-                            "Codex connector started"
-                        );
-                    }
+                match start_direct_codex_session(
+                    state,
+                    handle,
+                    &session_id,
+                    &cwd,
+                    model.as_deref(),
+                    approval_policy.as_deref(),
+                    sandbox_mode.as_deref(),
+                )
+                .await
+                {
+                    Ok(()) => {}
                     Err(error_message) => {
-                        // Direct sessions that failed to connect have no way to
-                        // receive messages — don't keep as passive (creates ghosts).
                         let _ = persist_tx
                             .send(PersistCommand::SessionEnd {
                                 id: session_id.clone(),
@@ -219,103 +164,22 @@ pub(crate) async fn handle(
                     }
                 }
             } else if provider == Provider::Claude {
-                // Claude direct session
                 let session_id = id.clone();
-                let cwd_clone = cwd.clone();
-                let model_clone = model.clone();
-                let effort_clone = effort.clone();
-
-                match ClaudeSession::new(
-                    session_id.clone(),
-                    &cwd_clone,
-                    model_clone.as_deref(),
-                    None,
+                match start_direct_claude_session(
+                    state,
+                    handle,
+                    &session_id,
+                    &cwd,
+                    model.as_deref(),
                     permission_mode.as_deref(),
                     &allowed_tools,
                     &disallowed_tools,
-                    effort_clone.as_deref(),
+                    effort.as_deref(),
                 )
                 .await
                 {
-                    Ok(claude_session) => {
-                        handle.set_list_tx(state.list_tx());
-                        let (actor_handle, action_tx) =
-                            crate::connectors::claude_session::start_event_loop(
-                                claude_session,
-                                handle,
-                                persist_tx,
-                                state.list_tx(),
-                                state.clone(),
-                            );
-
-                        // Emit permission_mode delta so the Swift UI picks it up.
-                        // Initial SessionSnapshot uses a direct connector state where
-                        // permission_mode has not yet propagated.
-                        if let Some(ref mode) = permission_mode {
-                            let _ = actor_handle
-                                .send(SessionCommand::ApplyDelta {
-                                    changes: orbitdock_protocol::StateChanges {
-                                        permission_mode: Some(Some(mode.clone())),
-                                        ..Default::default()
-                                    },
-                                    persist_op: None,
-                                })
-                                .await;
-                        }
-
-                        state.add_session_actor(actor_handle);
-                        state.set_claude_action_tx(&session_id, action_tx.clone());
-                        info!(
-                            component = "session",
-                            event = "session.create.claude_connector_started",
-                            connection_id = conn_id,
-                            session_id = %session_id,
-                            "Claude connector started"
-                        );
-
-                        // Init-timeout watchdog: if the CLI never sends system/init
-                        // within 45s, the session is a ghost — kill it.
-                        let watchdog_state = state.clone();
-                        let watchdog_session_id = session_id.clone();
-                        let watchdog_action_tx = action_tx;
-                        let watchdog_persist_tx = state.persist().clone();
-                        tokio::spawn(async move {
-                            tokio::time::sleep(std::time::Duration::from_secs(45)).await;
-
-                            // Check if the session registered a Claude SDK ID (set on init)
-                            let has_sdk_id = watchdog_state
-                                .claude_sdk_id_for_session(&watchdog_session_id)
-                                .is_some();
-
-                            if !has_sdk_id {
-                                warn!(
-                                    component = "session",
-                                    event = "session.init_timeout",
-                                    session_id = %watchdog_session_id,
-                                    "Claude session never initialized after 45s — ending ghost"
-                                );
-
-                                // Kill the CLI subprocess
-                                let _ = watchdog_action_tx.send(ClaudeAction::EndSession).await;
-
-                                // End in DB
-                                let _ = watchdog_persist_tx
-                                    .send(PersistCommand::SessionEnd {
-                                        id: watchdog_session_id.clone(),
-                                        reason: "init_timeout".to_string(),
-                                    })
-                                    .await;
-
-                                // Remove from registry and broadcast
-                                watchdog_state.remove_session(&watchdog_session_id);
-                                watchdog_state.broadcast_to_list(ServerMessage::SessionEnded {
-                                    session_id: watchdog_session_id,
-                                    reason: "init_timeout".into(),
-                                });
-                            }
-                        });
-                    }
-                    Err(e) => {
+                    Ok(()) => {}
+                    Err(error_message) => {
                         // Direct sessions that failed to connect have no way to
                         // receive messages — don't keep as passive (creates ghosts).
                         // End immediately.
@@ -334,14 +198,14 @@ pub(crate) async fn handle(
                             event = "session.create.claude_connector_failed",
                             connection_id = conn_id,
                             session_id = %session_id,
-                            error = %e,
+                            error = %error_message,
                             "Failed to start Claude session — ended immediately"
                         );
                         send_json(
                             client_tx,
                             ServerMessage::Error {
                                 code: "claude_error".into(),
-                                message: e.to_string(),
+                                message: error_message,
                                 session_id: Some(session_id),
                             },
                         )
@@ -696,92 +560,40 @@ pub(crate) async fn handle(
 
             match source_provider {
                 Some(Provider::Claude) => {
-                    // ── Claude fork: spawn a new CLI, copy messages ──
                     let effective_cwd = fork_plan
                         .effective_cwd
                         .clone()
                         .unwrap_or_else(|| ".".to_string());
-                    let project_name = effective_cwd.split('/').next_back().map(String::from);
-                    let fork_branch =
-                        crate::domain::git::repo::resolve_git_branch(&effective_cwd).await;
-
-                    // Spawn new Claude CLI session (starts fresh — no message copying)
-                    let new_id = orbitdock_protocol::new_id();
-                    match ClaudeSession::new(
-                        new_id.clone(),
+                    match start_claude_fork_session(
+                        state,
+                        &source_session_id,
                         &effective_cwd,
                         fork_plan.effective_model.as_deref(),
-                        None,
                         permission_mode.as_deref(),
                         &allowed_tools,
                         &disallowed_tools,
-                        None, // effort
                     )
                     .await
                     {
-                        Ok(claude_session) => {
-                            let mut handle = SessionHandle::new(
-                                new_id.clone(),
-                                Provider::Claude,
-                                effective_cwd.clone(),
-                            );
-                            handle.set_git_branch(fork_branch.clone());
-                            handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
-                            handle.set_forked_from(source_session_id.clone());
-                            if let Some(ref m) = fork_plan.effective_model {
-                                handle.set_model(Some(m.clone()));
-                            }
-
-                            let rx = handle.subscribe();
-                            spawn_broadcast_forwarder(rx, client_tx.clone(), Some(new_id.clone()));
-
-                            let summary = handle.summary();
-                            let snapshot = handle.retained_state();
-
-                            let persist_tx = state.persist().clone();
-                            let _ = persist_tx
-                                .send(PersistCommand::SessionCreate {
-                                    id: new_id.clone(),
-                                    provider: Provider::Claude,
-                                    project_path: effective_cwd,
-                                    project_name,
-                                    branch: fork_branch,
-                                    model: fork_plan.effective_model.clone(),
-                                    approval_policy: None,
-                                    sandbox_mode: None,
-                                    permission_mode: permission_mode.clone(),
-                                    forked_from_session_id: Some(source_session_id.clone()),
-                                })
-                                .await;
-
-                            handle.set_list_tx(state.list_tx());
-                            let (actor_handle, action_tx) =
-                                crate::connectors::claude_session::start_event_loop(
-                                    claude_session,
-                                    handle,
-                                    persist_tx,
-                                    state.list_tx(),
-                                    state.clone(),
-                                );
-                            state.add_session_actor(actor_handle);
-                            state.set_claude_action_tx(&new_id, action_tx);
-
+                        Ok(started) => {
                             send_json(
                                 client_tx,
-                                ServerMessage::SessionSnapshot { session: snapshot },
+                                ServerMessage::SessionSnapshot {
+                                    session: started.snapshot,
+                                },
                             )
                             .await;
                             send_json(
                                 client_tx,
                                 ServerMessage::SessionForked {
                                     source_session_id: source_session_id.clone(),
-                                    new_session_id: new_id.clone(),
-                                    forked_from_thread_id: None,
+                                    new_session_id: started.new_session_id.clone(),
+                                    forked_from_thread_id: started.forked_from_thread_id.clone(),
                                 },
                             )
                             .await;
                             state.broadcast_to_list(ServerMessage::SessionCreated {
-                                session: summary,
+                                session: started.summary,
                             });
 
                             info!(
@@ -789,24 +601,24 @@ pub(crate) async fn handle(
                                 event = "session.fork.claude_completed",
                                 connection_id = conn_id,
                                 source_session_id = %source_session_id,
-                                new_session_id = %new_id,
+                                new_session_id = %started.new_session_id,
                                 "Claude session forked successfully"
                             );
                         }
-                        Err(e) => {
+                        Err(error_message) => {
                             error!(
                                 component = "session",
                                 event = "session.fork.claude_failed",
                                 connection_id = conn_id,
                                 source_session_id = %source_session_id,
-                                error = %e,
+                                error = %error_message,
                                 "Failed to fork Claude session"
                             );
                             send_json(
                                 client_tx,
                                 ServerMessage::Error {
                                     code: "fork_failed".into(),
-                                    message: e.to_string(),
+                                    message: error_message,
                                     session_id: Some(source_session_id),
                                 },
                             )
@@ -904,181 +716,61 @@ pub(crate) async fn handle(
                         }
                     };
 
-                    let new_id = orbitdock_protocol::new_id();
                     let fork_cwd = effective_cwd.unwrap_or_else(|| ".".to_string());
-                    let project_name = fork_cwd.split('/').next_back().map(String::from);
-
-                    let fork_branch = crate::domain::git::repo::resolve_git_branch(&fork_cwd).await;
-                    let mut handle =
-                        SessionHandle::new(new_id.clone(), Provider::Codex, fork_cwd.clone());
-                    handle.set_git_branch(fork_branch.clone());
-                    handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-                    handle.set_config(
-                        fork_plan.effective_approval_policy.clone(),
-                        fork_plan.effective_sandbox_mode.clone(),
-                    );
-                    handle.set_forked_from(source_session_id.clone());
-
-                    let source_fork_messages =
-                        if let Some(source_actor) = state.get_session(&source_session_id) {
-                            match source_actor.retained_state().await {
-                                Ok(source_state) => {
-                                    let full_source_messages = hydrate_full_message_history(
-                                        &source_session_id,
-                                        source_state.messages,
-                                        source_state.total_message_count,
-                                    )
-                                    .await;
-                                    remap_messages_for_fork(
-                                        truncate_messages_before_nth_user_message(
-                                            &full_source_messages,
-                                            nth_user_message,
-                                        ),
-                                        &new_id,
-                                    )
-                                }
-                                Err(_) => {
-                                    warn!(
-                                        component = "session",
-                                        event = "session.fork.source_state_unavailable",
-                                        source_session_id = %source_session_id,
-                                        new_session_id = %new_id,
-                                        "Failed to read source session state for fork hydration"
-                                    );
-                                    Vec::new()
-                                }
-                            }
-                        } else {
-                            Vec::new()
-                        };
-
-                    let rollout_messages =
-                        if let Some(rollout_path) = new_connector.rollout_path().await {
-                            match load_messages_from_transcript_path(&rollout_path, &new_id).await {
-                                Ok(messages) if !messages.is_empty() => {
-                                    info!(
-                                        component = "session",
-                                        event = "session.fork.messages_loaded",
-                                        new_session_id = %new_id,
-                                        message_count = messages.len(),
-                                        "Loaded forked conversation history"
-                                    );
-                                    messages
-                                }
-                                Ok(_) => {
-                                    debug!(
-                                        component = "session",
-                                        event = "session.fork.no_messages",
-                                        new_session_id = %new_id,
-                                        "Forked thread rollout has no parseable messages"
-                                    );
-                                    Vec::new()
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        component = "session",
-                                        event = "session.fork.messages_load_failed",
-                                        new_session_id = %new_id,
-                                        error = %e,
-                                        "Failed to load forked conversation history"
-                                    );
-                                    Vec::new()
-                                }
-                            }
-                        } else {
-                            Vec::new()
-                        };
-
-                    if !source_fork_messages.is_empty()
-                        && rollout_messages.len() < source_fork_messages.len()
-                    {
-                        info!(
-                            component = "session",
-                            event = "session.fork.messages_source_selected",
-                            new_session_id = %new_id,
-                            source_message_count = source_fork_messages.len(),
-                            rollout_message_count = rollout_messages.len(),
-                            "Selected source session messages for fork hydration"
-                        );
-                    }
-                    let forked_messages =
-                        select_fork_messages(source_fork_messages, rollout_messages);
-
-                    if !forked_messages.is_empty() {
-                        handle.replace_messages(forked_messages.clone());
-                    }
-
-                    let rx = handle.subscribe();
-                    spawn_broadcast_forwarder(rx, client_tx.clone(), Some(new_id.clone()));
-
-                    let summary = handle.summary();
-                    let snapshot = handle.retained_state();
-
-                    let persist_tx = state.persist().clone();
-
-                    let _ = persist_tx
-                        .send(PersistCommand::SessionCreate {
-                            id: new_id.clone(),
-                            provider: Provider::Codex,
-                            project_path: fork_cwd,
-                            project_name,
-                            branch: fork_branch,
-                            model: fork_plan.effective_model.clone(),
-                            approval_policy: fork_plan.effective_approval_policy.clone(),
-                            sandbox_mode: fork_plan.effective_sandbox_mode.clone(),
-                            permission_mode: None,
-                            forked_from_session_id: Some(source_session_id.clone()),
-                        })
-                        .await;
-
-                    for msg in forked_messages {
-                        let _ = persist_tx
-                            .send(PersistCommand::MessageAppend {
-                                session_id: new_id.clone(),
-                                message: msg,
-                            })
-                            .await;
-                    }
-
-                    claim_codex_thread_for_direct_session(
+                    match finalize_codex_fork_session(
                         state,
-                        &persist_tx,
-                        &new_id,
-                        &new_thread_id,
-                        "legacy_codex_thread_row_cleanup",
+                        &source_session_id,
+                        nth_user_message,
+                        &fork_cwd,
+                        fork_plan.effective_model.as_deref(),
+                        fork_plan.effective_approval_policy.as_deref(),
+                        fork_plan.effective_sandbox_mode.as_deref(),
+                        new_connector,
+                        new_thread_id,
                     )
-                    .await;
-
-                    let codex_session = CodexSession {
-                        session_id: new_id.clone(),
-                        connector: new_connector,
-                    };
-                    handle.set_list_tx(state.list_tx());
-                    let (actor_handle, action_tx) =
-                        crate::connectors::codex_session::start_event_loop(
-                            codex_session,
-                            handle,
-                            persist_tx,
-                            state.clone(),
-                        );
-                    state.add_session_actor(actor_handle);
-                    state.set_codex_action_tx(&new_id, action_tx);
-
-                    send_json(
-                        client_tx,
-                        ServerMessage::SessionSnapshot { session: snapshot },
-                    )
-                    .await;
-                    send_json(
-                        client_tx,
-                        ServerMessage::SessionForked {
-                            source_session_id: source_session_id.clone(),
-                            new_session_id: new_id.clone(),
-                            forked_from_thread_id: Some(new_thread_id),
-                        },
-                    )
-                    .await;
-                    state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                    .await
+                    {
+                        Ok(started) => {
+                            send_json(
+                                client_tx,
+                                ServerMessage::SessionSnapshot {
+                                    session: started.snapshot,
+                                },
+                            )
+                            .await;
+                            send_json(
+                                client_tx,
+                                ServerMessage::SessionForked {
+                                    source_session_id: source_session_id.clone(),
+                                    new_session_id: started.new_session_id.clone(),
+                                    forked_from_thread_id: started.forked_from_thread_id.clone(),
+                                },
+                            )
+                            .await;
+                            state.broadcast_to_list(ServerMessage::SessionCreated {
+                                session: started.summary,
+                            });
+                        }
+                        Err(error_message) => {
+                            error!(
+                                component = "session",
+                                event = "session.fork.finalize_failed",
+                                connection_id = conn_id,
+                                source_session_id = %source_session_id,
+                                error = %error_message,
+                                "Failed to finalize Codex forked session"
+                            );
+                            send_json(
+                                client_tx,
+                                ServerMessage::Error {
+                                    code: "fork_failed".into(),
+                                    message: error_message,
+                                    session_id: Some(source_session_id),
+                                },
+                            )
+                            .await;
+                        }
+                    }
                 }
 
                 None => {
@@ -1098,5 +790,52 @@ pub(crate) async fn handle(
         _ => {
             tracing::warn!(?msg, "session_crud::handle called with unexpected variant");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::handle;
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::transport::websocket::test_support::new_test_state;
+    use crate::transport::websocket::OutboundMessage;
+    use orbitdock_protocol::{
+        ClientMessage, CodexIntegrationMode, Provider, SessionStatus, WorkStatus,
+    };
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn ending_passive_session_keeps_it_available_for_reactivation() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "passive-end-keep".to_string();
+
+        let mut handle_state = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        );
+        handle_state.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+        state.add_session(handle_state);
+
+        handle(
+            ClientMessage::EndSession {
+                session_id: session_id.clone(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("passive session should remain in app state");
+
+        let snap = actor.snapshot();
+        assert_eq!(snap.status, SessionStatus::Ended);
+        assert_eq!(snap.work_status, WorkStatus::Ended);
     }
 }

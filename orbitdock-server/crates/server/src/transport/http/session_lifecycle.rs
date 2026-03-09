@@ -1,3 +1,4 @@
+use super::errors::{conflict, internal, unprocessable};
 use super::*;
 use crate::connectors::codex_session::CodexAction;
 use crate::domain::sessions::session::SessionHandle;
@@ -9,6 +10,9 @@ use crate::runtime::session_creation::{
 use crate::runtime::session_fork_policy::{
     remap_messages_for_fork, truncate_messages_before_nth_user_message,
 };
+use crate::runtime::session_fork_targets::{
+    create_fork_target_worktree, resolve_existing_fork_worktree_path,
+};
 use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::support::session_modes::{
     is_passive_rollout_session, is_takeover_eligible_passive_session,
@@ -17,6 +21,14 @@ use orbitdock_connector_claude::session::ClaudeAction;
 use orbitdock_protocol::ServerMessage;
 use tokio::sync::oneshot;
 use tracing::{error, info, warn};
+
+fn lifecycle_error(
+    status: StatusCode,
+    code: &'static str,
+    error: impl Into<String>,
+) -> (StatusCode, Json<ApiErrorResponse>) {
+    super::errors::api_error(status, code, error)
+}
 
 #[derive(Debug, Deserialize)]
 pub struct RenameSessionRequest {
@@ -444,12 +456,9 @@ pub async fn resume_session(
     if let Some(handle) = state.get_session(&session_id) {
         let snap = handle.snapshot();
         if snap.status == SessionStatus::Active {
-            return Err((
-                StatusCode::CONFLICT,
-                Json(ApiErrorResponse {
-                    code: "already_active",
-                    error: format!("Session {} is already active", session_id),
-                }),
+            return Err(conflict(
+                "already_active",
+                format!("Session {} is already active", session_id),
             ));
         }
         state.remove_session(&session_id);
@@ -458,15 +467,7 @@ pub async fn resume_session(
     let prepared = match load_prepared_resume_session(&session_id).await {
         Ok(Some(prepared)) => prepared,
         Ok(None) => return Err(session_not_found_error(&session_id)),
-        Err(e) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse {
-                    code: "db_error",
-                    error: e.to_string(),
-                }),
-            ))
-        }
+        Err(e) => return Err(internal("db_error", e.to_string())),
     };
 
     let is_claude = prepared.provider == Provider::Claude;
@@ -504,12 +505,9 @@ pub async fn resume_session(
 
         if provider_resume_id.is_none() {
             state.add_session(handle);
-            return Err((
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(ApiErrorResponse {
-                    code: "resume_failed",
-                    error: "Cannot resume — no valid Claude SDK session ID was saved".to_string(),
-                }),
+            return Err(unprocessable(
+                "resume_failed",
+                "Cannot resume — no valid Claude SDK session ID was saved",
             ));
         }
         let provider_resume_id = provider_resume_id.unwrap();
@@ -749,15 +747,12 @@ pub async fn takeover_session(
     );
 
     if !is_passive {
-        return Err((
-            StatusCode::CONFLICT,
-            Json(ApiErrorResponse {
-                code: "not_passive",
-                error: format!(
-                    "Session {} is not a passive session — cannot take over",
-                    session_id
-                ),
-            }),
+        return Err(conflict(
+            "not_passive",
+            format!(
+                "Session {} is not a passive session — cannot take over",
+                session_id
+            ),
         ));
     }
 
@@ -769,12 +764,9 @@ pub async fn takeover_session(
     let mut handle: SessionHandle = match take_rx.await {
         Ok(h) => h,
         Err(_) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse {
-                    code: "take_failed",
-                    error: "Failed to take handle from passive session actor".to_string(),
-                }),
+            return Err(internal(
+                "take_failed",
+                "Failed to take handle from passive session actor",
             ))
         }
     };
@@ -970,12 +962,9 @@ pub async fn takeover_session(
                 connector_task.abort();
                 handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
                 state.add_session(handle);
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiErrorResponse {
-                        code: "connector_failed",
-                        error: "Codex takeover connector failed or timed out".to_string(),
-                    }),
+                return Err(internal(
+                    "connector_failed",
+                    "Codex takeover connector failed or timed out",
                 ));
             }
         }
@@ -1076,12 +1065,9 @@ pub async fn takeover_session(
             _ => {
                 handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Passive));
                 state.add_session(handle);
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiErrorResponse {
-                        code: "connector_failed",
-                        error: "Claude takeover connector failed or timed out".to_string(),
-                    }),
+                return Err(internal(
+                    "connector_failed",
+                    "Claude takeover connector failed or timed out",
                 ));
             }
         }
@@ -1231,15 +1217,12 @@ pub async fn fork_session(
             let source_action_tx = match state.get_codex_action_tx(&source_session_id) {
                 Some(tx) => tx,
                 None => {
-                    return Err((
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        Json(ApiErrorResponse {
-                            code: "not_found",
-                            error: format!(
-                                "Source session {} has no active Codex connector",
-                                source_session_id
-                            ),
-                        }),
+                    return Err(unprocessable(
+                        "not_found",
+                        format!(
+                            "Source session {} has no active Codex connector",
+                            source_session_id
+                        ),
                     ))
                 }
             };
@@ -1260,39 +1243,20 @@ pub async fn fork_session(
                 .await
                 .is_err()
             {
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiErrorResponse {
-                        code: "channel_closed",
-                        error: "Source session's action channel is closed".to_string(),
-                    }),
+                return Err(internal(
+                    "channel_closed",
+                    "Source session's action channel is closed",
                 ));
             }
 
             let fork_result = match reply_rx.await {
                 Ok(result) => result,
-                Err(_) => {
-                    return Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiErrorResponse {
-                            code: "fork_failed",
-                            error: "Fork operation was cancelled".to_string(),
-                        }),
-                    ))
-                }
+                Err(_) => return Err(internal("fork_failed", "Fork operation was cancelled")),
             };
 
             let (new_connector, new_thread_id) = match fork_result {
                 Ok(result) => result,
-                Err(e) => {
-                    return Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ApiErrorResponse {
-                            code: "fork_failed",
-                            error: e.to_string(),
-                        }),
-                    ))
-                }
+                Err(e) => return Err(internal("fork_failed", e.to_string())),
             };
 
             let new_id = orbitdock_protocol::new_id();
@@ -1441,57 +1405,29 @@ pub async fn fork_session_to_worktree(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<ForkToWorktreeRequest>,
 ) -> Result<Json<ForkToWorktreeResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let trimmed_branch = body.branch_name.trim().to_string();
-    if trimmed_branch.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                code: "invalid_input",
-                error: "Branch name is required".to_string(),
-            }),
-        ));
-    }
-
     let source_snapshot = match state.get_session(&source_session_id) {
         Some(s) => s.snapshot(),
         None => return Err(session_not_found_error(&source_session_id)),
     };
 
-    let repo_root = if let Some(root) = source_snapshot
-        .repository_root
-        .clone()
-        .map(|r| r.trim().to_string())
-        .filter(|r| !r.is_empty())
-    {
-        root
-    } else if let Some(git_info) =
-        crate::domain::git::repo::resolve_git_info(&source_snapshot.project_path).await
-    {
-        git_info.common_dir_root
-    } else {
-        source_snapshot.project_path.clone()
-    };
-
-    let worktree_summary = match crate::domain::worktrees::service::create_tracked_worktree(
+    let worktree_summary = create_fork_target_worktree(
         &state,
-        &repo_root,
-        &trimmed_branch,
+        &source_snapshot,
+        &body.branch_name,
         body.base_branch.as_deref(),
-        orbitdock_protocol::WorktreeOrigin::User,
     )
     .await
-    {
-        Ok(summary) => summary,
-        Err(err) => {
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse {
-                    code: "worktree_create_failed",
-                    error: err,
-                }),
-            ))
-        }
-    };
+    .map_err(|error| {
+        lifecycle_error(
+            if error.code == "worktree_create_invalid_input" {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            },
+            error.code,
+            error.message,
+        )
+    })?;
 
     let fork_worktree_path = worktree_summary.worktree_path.clone();
 
@@ -1543,75 +1479,20 @@ pub async fn fork_session_to_existing_worktree(
         None => return Err(session_not_found_error(&source_session_id)),
     };
 
-    let source_repo_root = if let Some(root) = source_snapshot
-        .repository_root
-        .clone()
-        .map(|r| r.trim().trim_end_matches('/').to_string())
-        .filter(|r| !r.is_empty())
-    {
-        root
-    } else if let Some(git_info) =
-        crate::domain::git::repo::resolve_git_info(&source_snapshot.project_path).await
-    {
-        git_info.common_dir_root.trim_end_matches('/').to_string()
-    } else {
-        source_snapshot
-            .project_path
-            .trim()
-            .trim_end_matches('/')
-            .to_string()
-    };
-
-    let target_worktree = match crate::infrastructure::persistence::load_worktree_by_id(
-        state.db_path(),
-        &body.worktree_id,
-    ) {
-        Some(row) => row,
-        None => {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    code: "worktree_not_found",
-                    error: format!("Worktree {} not found", body.worktree_id),
-                }),
-            ))
-        }
-    };
-
-    if target_worktree.status == "removed" {
-        return Err((
-            StatusCode::GONE,
-            Json(ApiErrorResponse {
-                code: "worktree_not_found",
-                error: "Selected worktree has been removed".to_string(),
-            }),
-        ));
-    }
-
-    let target_repo_root = target_worktree
-        .repo_root
-        .trim()
-        .trim_end_matches('/')
-        .to_string();
-    if target_repo_root != source_repo_root {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                code: "worktree_repo_mismatch",
-                error: "Selected worktree belongs to a different repository".to_string(),
-            }),
-        ));
-    }
-
-    if !crate::domain::git::repo::worktree_exists_on_disk(&target_worktree.worktree_path).await {
-        return Err((
-            StatusCode::GONE,
-            Json(ApiErrorResponse {
-                code: "worktree_missing",
-                error: "Selected worktree no longer exists on disk".to_string(),
-            }),
-        ));
-    }
+    let target_worktree_path =
+        resolve_existing_fork_worktree_path(state.db_path(), &source_snapshot, &body.worktree_id)
+            .await
+            .map_err(|error| {
+                lifecycle_error(
+                    match error.code {
+                        "worktree_repo_mismatch" => StatusCode::BAD_REQUEST,
+                        "worktree_missing" => StatusCode::GONE,
+                        _ => StatusCode::NOT_FOUND,
+                    },
+                    error.code,
+                    error.message,
+                )
+            })?;
 
     fork_session(
         Path(source_session_id),
@@ -1621,7 +1502,7 @@ pub async fn fork_session_to_existing_worktree(
             model: None,
             approval_policy: None,
             sandbox_mode: None,
-            cwd: Some(target_worktree.worktree_path),
+            cwd: Some(target_worktree_path),
             permission_mode: None,
             allowed_tools: Vec::new(),
             disallowed_tools: Vec::new(),

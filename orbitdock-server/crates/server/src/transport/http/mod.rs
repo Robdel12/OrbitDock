@@ -102,10 +102,10 @@ mod tests {
     use serde_json::json;
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use std::sync::Once;
     use tokio::sync::mpsc;
 
     use crate::runtime::session_commands::SessionCommand;
+    use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
     use crate::transport::http::review_comments::{
         CreateReviewCommentRequest, ReviewCommentsQuery, UpdateReviewCommentRequest,
     };
@@ -113,24 +113,12 @@ mod tests {
         SendSessionMessageRequest, SteerTurnRequest, UploadImageAttachmentQuery,
     };
 
-    static INIT_TEST_DATA_DIR: Once = Once::new();
-
-    fn ensure_test_data_dir() {
-        INIT_TEST_DATA_DIR.call_once(|| {
-            let dir = std::env::temp_dir().join("orbitdock-server-test-data");
-            let _ = std::fs::remove_dir_all(&dir);
-            crate::infrastructure::paths::init_data_dir(Some(&dir));
-        });
-    }
-
     fn new_test_state(is_primary: bool) -> Arc<SessionRegistry> {
-        ensure_test_data_dir();
-        let (persist_tx, _persist_rx) = mpsc::channel(32);
-        Arc::new(SessionRegistry::new_with_primary(persist_tx, is_primary))
+        new_test_session_registry(is_primary)
     }
 
     fn ensure_test_db() -> PathBuf {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let db_path = crate::infrastructure::paths::db_path();
         let mut conn = rusqlite::Connection::open(&db_path).expect("open test db");
         crate::infrastructure::migration_runner::run_migrations(&mut conn)
@@ -298,7 +286,7 @@ mod tests {
 
     #[tokio::test]
     async fn review_comments_endpoint_returns_empty_when_none_exist() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let session_id = format!("od-{}", orbitdock_protocol::new_id());
 
         let Json(response) = list_review_comments_endpoint(
@@ -455,7 +443,7 @@ mod tests {
 
     #[tokio::test]
     async fn subagent_tools_endpoint_returns_empty_when_subagent_missing() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let session_id = format!("od-{}", orbitdock_protocol::new_id());
         let subagent_id = format!("sub-{}", orbitdock_protocol::new_id());
 
@@ -469,7 +457,7 @@ mod tests {
 
     #[tokio::test]
     async fn claude_models_endpoint_returns_cached_shape() {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let Json(response) = list_claude_models().await;
         assert!(response
             .models

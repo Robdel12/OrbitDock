@@ -230,3 +230,76 @@ pub(crate) async fn handle(
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::handle;
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::runtime::session_commands::SessionCommand;
+    use crate::transport::websocket::test_support::{new_test_state, recv_json};
+    use crate::transport::websocket::OutboundMessage;
+    use orbitdock_protocol::{ClientMessage, Message, MessageType, Provider, ServerMessage};
+    use tokio::sync::mpsc;
+
+    #[tokio::test]
+    async fn subscribe_session_can_stream_without_initial_snapshot() {
+        let state = new_test_state();
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let handle_state = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        state.add_session(handle_state);
+
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+        handle(
+            ClientMessage::SubscribeSession {
+                session_id: session_id.clone(),
+                since_revision: None,
+                include_snapshot: false,
+            },
+            &client_tx,
+            &state,
+            1001,
+        )
+        .await;
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should be available after subscribe");
+        let message = Message {
+            id: orbitdock_protocol::new_id(),
+            session_id: session_id.clone(),
+            sequence: None,
+            message_type: MessageType::Assistant,
+            content: "streamed update".to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            is_in_progress: false,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            duration_ms: None,
+            images: vec![],
+        };
+
+        actor
+            .send(SessionCommand::AddMessageAndBroadcast { message })
+            .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::MessageAppended {
+                session_id: sid,
+                message,
+            } => {
+                assert_eq!(sid, session_id);
+                assert_eq!(message.content, "streamed update");
+            }
+            other => panic!(
+                "expected first streamed event to be MessageAppended, got {:?}",
+                other
+            ),
+        }
+    }
+}

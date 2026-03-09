@@ -472,37 +472,25 @@ async fn hydrate_subagents(state: &mut SessionState, session_id: &str) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Once};
+    use std::sync::Arc;
 
     use rusqlite::{params, Connection};
-    use tokio::sync::mpsc;
 
     use orbitdock_protocol::{Message, MessageType, Provider};
 
     use crate::domain::sessions::session::SessionHandle;
     use crate::infrastructure::migration_runner;
     use crate::infrastructure::paths;
+    use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
 
     use super::*;
 
-    static INIT_TEST_DATA_DIR: Once = Once::new();
-
-    fn ensure_test_data_dir() {
-        INIT_TEST_DATA_DIR.call_once(|| {
-            let dir = std::env::temp_dir().join("orbitdock-server-test-data");
-            let _ = std::fs::remove_dir_all(&dir);
-            paths::init_data_dir(Some(&dir));
-        });
-    }
-
     fn new_test_state() -> Arc<SessionRegistry> {
-        ensure_test_data_dir();
-        let (persist_tx, _persist_rx) = mpsc::channel(32);
-        Arc::new(SessionRegistry::new_with_primary(persist_tx, true))
+        new_test_session_registry(true)
     }
 
     fn seed_message_history(session_id: &str, messages: &[Message]) {
-        ensure_test_data_dir();
+        ensure_server_test_data_dir();
         let db_path = paths::db_path();
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).expect("create session history test data dir");
