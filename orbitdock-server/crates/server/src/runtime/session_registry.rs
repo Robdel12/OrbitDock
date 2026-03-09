@@ -215,19 +215,27 @@ impl ConnectionState {
     }
 
     fn active_client_primary_claims(&self) -> Vec<ClientPrimaryClaim> {
-        let mut by_client: BTreeMap<String, String> = BTreeMap::new();
+        let mut by_client: BTreeMap<String, (u64, String)> = BTreeMap::new();
         for claim in self.client_primary_claims.iter() {
             if !claim.value().is_primary {
                 continue;
             }
+            let conn_id = *claim.key();
+            let client_id = claim.value().client_id.clone();
+            let device_name = claim.value().device_name.clone();
             by_client
-                .entry(claim.value().client_id.clone())
-                .or_insert_with(|| claim.value().device_name.clone());
+                .entry(client_id)
+                .and_modify(|existing| {
+                    if conn_id < existing.0 {
+                        *existing = (conn_id, device_name.clone());
+                    }
+                })
+                .or_insert((conn_id, device_name));
         }
 
         by_client
             .into_iter()
-            .map(|(client_id, device_name)| ClientPrimaryClaim {
+            .map(|(client_id, (_, device_name))| ClientPrimaryClaim {
                 client_id,
                 device_name,
             })

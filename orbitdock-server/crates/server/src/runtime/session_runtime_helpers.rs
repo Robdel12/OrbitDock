@@ -341,10 +341,12 @@ mod tests {
 
     #[test]
     fn transcript_usage_update_only_emits_when_usage_changes() {
-        assert_eq!(
-            transcript_usage_update(Provider::Codex, &usage(1, 2, 3, 4), Some(usage(1, 2, 3, 4)),),
-            None
-        );
+        assert!(transcript_usage_update(
+            Provider::Codex,
+            &usage(1, 2, 3, 4),
+            Some(usage(1, 2, 3, 4)),
+        )
+        .is_none());
 
         let update = transcript_usage_update(
             Provider::Claude,
@@ -370,7 +372,7 @@ mod tests {
         assert_eq!(plan.new_messages.len(), 1);
         assert_eq!(plan.new_messages[0].sequence, Some(2));
         assert_eq!(plan.new_messages[0].content, "c");
-        assert_eq!(plan.usage_update, None);
+        assert!(plan.usage_update.is_none());
     }
 
     #[test]
