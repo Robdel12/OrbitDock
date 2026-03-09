@@ -9,10 +9,10 @@ use orbitdock_protocol::{ReviewComment, ReviewCommentStatus, ReviewCommentTag, S
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::runtime::session_registry::SessionRegistry;
 use crate::infrastructure::persistence::{
     list_review_comments, load_review_comment_by_id, PersistCommand,
 };
+use crate::runtime::session_registry::SessionRegistry;
 
 use super::{revision_now, ApiErrorResponse, ApiResult};
 

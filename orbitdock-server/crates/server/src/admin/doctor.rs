@@ -624,10 +624,7 @@ fn check_disk_space(data_dir: &Path) -> Check {
     }
 }
 
-fn classify_auth_token(
-    env_token: Option<&str>,
-    active_db_tokens: Result<i64, String>,
-) -> Check {
+fn classify_auth_token(env_token: Option<&str>, active_db_tokens: Result<i64, String>) -> Check {
     match (env_token, active_db_tokens) {
         (Some(token), Ok(count)) if count > 0 => Check {
             name: "Auth token",

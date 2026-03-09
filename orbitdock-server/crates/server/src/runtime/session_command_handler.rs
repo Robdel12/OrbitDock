@@ -15,11 +15,11 @@ use tokio::task::JoinHandle;
 use tracing::warn;
 
 use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::transition;
+use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::{
     PendingApprovalResolution, PersistOp, SessionCommand, SubscribeResult,
 };
-use crate::domain::sessions::transition;
-use crate::infrastructure::persistence::PersistCommand;
 
 /// Inject approval_version into ApprovalRequested and SessionDelta messages.
 pub(crate) fn inject_approval_version(msg: &mut ServerMessage, version: u64) {

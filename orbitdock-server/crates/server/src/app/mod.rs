@@ -21,12 +21,12 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
-use crate::runtime::session_registry::SessionRegistry;
 use crate::infrastructure::logging::init_logging;
 use crate::infrastructure::persistence::{
     cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
     create_persistence_channel, load_sessions_for_startup, PersistCommand, PersistenceWriter,
 };
+use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::ws_handler;
 use crate::VERSION;
 
@@ -535,9 +535,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     });
 
     let git_state = state.clone();
-    tokio::spawn(crate::runtime::background::git_refresh::start_git_refresh_loop(
-        git_state,
-    ));
+    tokio::spawn(crate::runtime::background::git_refresh::start_git_refresh_loop(git_state));
 
     let shutdown_state = state.clone();
     let shutdown_persist = persist_tx.clone();

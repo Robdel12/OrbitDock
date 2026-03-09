@@ -3,8 +3,8 @@ use std::sync::Arc;
 use orbitdock_protocol::{WorktreeOrigin, WorktreeStatus, WorktreeSummary};
 use tracing::{info, warn};
 
-use crate::runtime::session_registry::SessionRegistry;
 use crate::infrastructure::persistence::PersistCommand;
+use crate::runtime::session_registry::SessionRegistry;
 
 pub async fn create_tracked_worktree(
     state: &Arc<SessionRegistry>,

@@ -8,8 +8,8 @@ use orbitdock_protocol::{
     new_id, ClientMessage, MessageType, ServerMessage, ShellExecutionOutcome,
 };
 
-use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_commands::SessionCommand;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::support::session_time::iso_timestamp;
 use crate::transport::websocket::{send_json, OutboundMessage};
 
