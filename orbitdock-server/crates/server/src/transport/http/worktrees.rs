@@ -9,7 +9,7 @@ use orbitdock_protocol::{ServerMessage, WorktreeOrigin, WorktreeStatus, Worktree
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::infrastructure::persistence::PersistCommand;
 
 use super::{revision_now, ApiErrorResponse, ApiResult};

@@ -11,13 +11,27 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
-use crate::connectors::hook_handler::PendingClaudeSession;
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::session_actor::SessionActorHandle;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::infrastructure::shell::ShellService;
 use crate::support::ai_naming::NamingGuard;
 use orbitdock_connector_codex::auth::CodexAuthService;
+
+/// Cached metadata from a `ClaudeSessionStart` hook, held in memory until the
+/// first actionable hook materializes the session (or `SessionEnd` discards it).
+pub struct PendingClaudeSession {
+    pub cwd: String,
+    pub model: Option<String>,
+    pub source: Option<String>,
+    pub context_label: Option<String>,
+    pub transcript_path: Option<String>,
+    pub permission_mode: Option<String>,
+    pub agent_type: Option<String>,
+    pub terminal_session_id: Option<String>,
+    pub terminal_app: Option<String>,
+    pub cached_at: Instant,
+}
 
 #[derive(Clone)]
 struct ClientPrimaryClaimState {

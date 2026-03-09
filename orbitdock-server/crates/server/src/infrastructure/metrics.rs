@@ -9,7 +9,7 @@ use axum::extract::State;
 use axum::http::header;
 use axum::response::IntoResponse;
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::infrastructure::paths;
 
 pub async fn metrics_handler(State(state): State<Arc<SessionRegistry>>) -> impl IntoResponse {

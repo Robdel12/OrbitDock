@@ -7,7 +7,7 @@ use tracing::debug;
 
 use orbitdock_protocol::ClientMessage;
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::OutboundMessage;
 
 /// Dispatch a single client WebSocket message.

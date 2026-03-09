@@ -19,33 +19,17 @@ use tracing::warn;
 
 use orbitdock_protocol::{ClientMessage, Provider, ServerMessage};
 
-use crate::domain::sessions::registry::SessionRegistry;
-use crate::domain::sessions::session::SessionHandle;
+use crate::runtime::session_registry::{PendingClaudeSession, SessionRegistry};
 use crate::domain::sessions::session_actor::SessionActorHandle;
 use crate::domain::sessions::session_command::SessionCommand;
-use crate::domain::sessions::session_utils::{
-    chrono_now, claude_transcript_path_from_cwd, is_stale_empty_claude_shell,
-    project_name_from_cwd, sync_transcript_messages,
-};
+use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::transition::{
     approval_preview, approval_question, approval_question_prompts,
 };
 use crate::infrastructure::persistence::PersistCommand;
-
-/// Cached metadata from a `ClaudeSessionStart` hook, held in memory until the
-/// first actionable hook materializes the session (or `SessionEnd` discards it).
-pub struct PendingClaudeSession {
-    pub cwd: String,
-    pub model: Option<String>,
-    pub source: Option<String>,
-    pub context_label: Option<String>,
-    pub transcript_path: Option<String>,
-    pub permission_mode: Option<String>,
-    pub agent_type: Option<String>,
-    pub terminal_session_id: Option<String>,
-    pub terminal_app: Option<String>,
-    pub cached_at: Instant,
-}
+use crate::runtime::session_runtime_helpers::{is_stale_empty_claude_shell, sync_transcript_messages};
+use crate::support::session_paths::{claude_transcript_path_from_cwd, project_name_from_cwd};
+use crate::support::session_time::chrono_now;
 
 /// HTTP POST handler for `/api/hook`.
 ///

@@ -7,12 +7,12 @@ use orbitdock_protocol::{
 use tokio::sync::oneshot;
 use tracing::warn;
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session_actor::SessionActorHandle;
 use crate::domain::sessions::session_command::{
     ConversationBootstrap, ConversationPage, SessionCommand,
 };
-use crate::domain::sessions::session_utils::hydrate_full_message_history;
+use crate::runtime::session_runtime_helpers::hydrate_full_message_history;
 use crate::infrastructure::persistence::{
     load_message_page_for_session, load_messages_for_session, load_messages_from_transcript_path,
     load_session_by_id, load_subagents_for_session, RestoredSession,

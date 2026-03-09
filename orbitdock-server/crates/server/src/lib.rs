@@ -9,6 +9,7 @@ mod app;
 pub(crate) mod connectors;
 pub(crate) mod domain;
 pub(crate) mod infrastructure;
+pub(crate) mod runtime;
 pub(crate) mod support;
 pub(crate) mod transport;
 

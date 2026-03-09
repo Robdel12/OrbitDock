@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::{send_rest_only_error, OutboundMessage};
 use orbitdock_protocol::ClientMessage;
 

@@ -20,7 +20,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::session_command::SessionCommand;
 use crate::domain::sessions::session_naming::name_from_first_prompt;

@@ -13,7 +13,7 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::session_actor::SessionActorHandle;
 use crate::domain::sessions::session_command::SessionCommand;

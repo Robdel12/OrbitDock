@@ -5,7 +5,7 @@ use axum::{
     Router,
 };
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 
 pub fn build_router() -> Router<Arc<SessionRegistry>> {
     Router::new()

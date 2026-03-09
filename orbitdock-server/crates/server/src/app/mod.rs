@@ -21,7 +21,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::infrastructure::logging::init_logging;
 use crate::infrastructure::persistence::{
     cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
@@ -535,7 +535,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     });
 
     let git_state = state.clone();
-    tokio::spawn(crate::domain::git::git_refresh::start_git_refresh_loop(
+    tokio::spawn(crate::runtime::background::git_refresh::start_git_refresh_loop(
         git_state,
     ));
 

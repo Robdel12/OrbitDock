@@ -266,7 +266,7 @@ pub async fn create_session(
             match codex_start {
                 Ok(codex_session) => {
                     let thread_id = codex_session.thread_id().to_string();
-                    crate::domain::sessions::session_utils::claim_codex_thread_for_direct_session(
+                    crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session(
                         &state2,
                         &persist_tx2,
                         &session_id,
@@ -597,7 +597,7 @@ pub async fn resume_session(
     let session_id_for_response = session_id.clone();
     if is_claude {
         let project = if let Some(ref tp) = restored.transcript_path {
-            crate::domain::sessions::session_utils::resolve_claude_resume_cwd(
+            crate::support::session_paths::resolve_claude_resume_cwd(
                 &restored.project_path,
                 tp,
             )
@@ -767,7 +767,7 @@ pub async fn resume_session(
             match codex_start {
                 Ok(codex_session) => {
                     let thread_id = codex_session.thread_id().to_string();
-                    crate::domain::sessions::session_utils::claim_codex_thread_for_direct_session(
+                    crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session(
                         &state2,
                         &persist_tx2,
                         &sid,
@@ -1004,7 +1004,7 @@ pub async fn takeover_session(
         match tokio::time::timeout(connector_timeout, &mut connector_task).await {
             Ok(Ok(Ok(codex))) => {
                 let new_thread_id = codex.thread_id().to_string();
-                crate::domain::sessions::session_utils::claim_codex_thread_for_direct_session(
+                crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session(
                     &state,
                     &persist_tx,
                     &session_id,
@@ -1041,7 +1041,7 @@ pub async fn takeover_session(
 
                 if let Some(actor) = state.get_session(&session_id) {
                     let mut changes =
-                        crate::domain::sessions::session_utils::direct_mode_activation_changes(
+                        crate::runtime::session_runtime_helpers::direct_mode_activation_changes(
                             Provider::Codex,
                         );
                     if let Some(ref effort_name) = effective_effort {
@@ -1084,7 +1084,7 @@ pub async fn takeover_session(
 
         let sid = session_id.clone();
         let project = if let Some(ref tp) = snap.transcript_path {
-            crate::domain::sessions::session_utils::resolve_claude_resume_cwd(
+            crate::support::session_paths::resolve_claude_resume_cwd(
                 &snap.project_path,
                 tp,
             )
@@ -1157,7 +1157,7 @@ pub async fn takeover_session(
                 if let Some(actor) = state.get_session(&session_id) {
                     actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: crate::domain::sessions::session_utils::direct_mode_activation_changes(
+                            changes: crate::runtime::session_runtime_helpers::direct_mode_activation_changes(
                                 Provider::Claude,
                             ),
                             persist_op: None,
@@ -1425,7 +1425,7 @@ pub async fn fork_session(
                 match state_rx.await {
                     Ok(source_state) => {
                         let full_source_messages =
-                            crate::domain::sessions::session_utils::hydrate_full_message_history(
+                            crate::runtime::session_runtime_helpers::hydrate_full_message_history(
                                 &source_session_id,
                                 source_state.messages,
                                 source_state.total_message_count,
@@ -1493,7 +1493,7 @@ pub async fn fork_session(
                     .await;
             }
 
-            crate::domain::sessions::session_utils::claim_codex_thread_for_direct_session(
+            crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session(
                 &state,
                 &persist_tx,
                 &new_id,

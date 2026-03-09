@@ -24,7 +24,7 @@ use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::{ClientMessage, ServerMessage};
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::support::snapshot_compaction::{
     sanitize_server_message_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
 };
@@ -210,17 +210,17 @@ mod tests {
     use super::{handle_client_message, send_replay_or_snapshot_fallback, OutboundMessage};
     use crate::connectors::claude_session::ClaudeAction;
     use crate::connectors::codex_session::CodexAction;
-    use crate::domain::sessions::registry::SessionRegistry;
+    use crate::runtime::session_registry::SessionRegistry;
     use crate::domain::sessions::session::SessionHandle;
     use crate::domain::sessions::session_command::SessionCommand;
     use crate::domain::sessions::session_naming::name_from_first_prompt;
-    use crate::domain::sessions::session_utils::{
-        claim_codex_thread_for_direct_session, claude_transcript_path_from_cwd,
-        direct_mode_activation_changes,
+    use crate::runtime::session_runtime_helpers::{
+        claim_codex_thread_for_direct_session, direct_mode_activation_changes,
     };
     use crate::domain::sessions::transition::Input;
     use crate::infrastructure::persistence::PersistCommand;
     use crate::support::normalization::work_status_for_approval_decision;
+    use crate::support::session_paths::claude_transcript_path_from_cwd;
     use crate::support::snapshot_compaction::{
         prepare_snapshot_for_transport, replay_has_oversize_event,
         sanitize_replay_event_for_transport, sanitize_server_message_for_transport,

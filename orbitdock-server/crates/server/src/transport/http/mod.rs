@@ -32,9 +32,9 @@ use tokio::sync::{broadcast, oneshot};
 use tracing::{error, info};
 
 use crate::connectors::codex_session::CodexAction;
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session_command::{SessionCommand, SubscribeResult};
-use crate::domain::sessions::session_history::{
+use crate::runtime::session_queries::{
     load_conversation_bootstrap, load_conversation_page, load_full_session_state, SessionLoadError,
 };
 use crate::infrastructure::persistence::{
@@ -808,7 +808,7 @@ pub async fn execute_shell_endpoint(
         tool_output: None,
         is_error: false,
         is_in_progress: true,
-        timestamp: crate::domain::sessions::session_utils::iso_timestamp(ts_millis),
+        timestamp: crate::support::session_time::iso_timestamp(ts_millis),
         duration_ms: None,
         images: vec![],
     };

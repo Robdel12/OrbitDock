@@ -9,7 +9,7 @@ use orbitdock_protocol::{ReviewComment, ReviewCommentStatus, ReviewCommentTag, S
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::infrastructure::persistence::{
     list_review_comments, load_review_comment_by_id, PersistCommand,
 };
@@ -149,7 +149,7 @@ pub async fn update_review_comment(
         tag: updated_tag.or_else(|| existing.tag.clone()),
         status: updated_status.unwrap_or_else(|| existing.status.clone()),
         created_at: existing.created_at.clone(),
-        updated_at: Some(crate::domain::sessions::session_utils::chrono_now()),
+        updated_at: Some(crate::support::session_time::chrono_now()),
     };
 
     let review_revision = revision_now();
@@ -261,7 +261,7 @@ pub async fn create_review_comment_endpoint(
         .to_string()
     });
 
-    let now = crate::domain::sessions::session_utils::chrono_now();
+    let now = crate::support::session_time::chrono_now();
     let review_revision = revision_now();
 
     let comment = ReviewComment {

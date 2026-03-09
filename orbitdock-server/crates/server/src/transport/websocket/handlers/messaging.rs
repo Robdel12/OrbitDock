@@ -11,14 +11,15 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session_command::SessionCommand;
 use crate::domain::sessions::session_naming::name_from_first_prompt;
-use crate::domain::sessions::session_utils::{iso_timestamp, mark_session_working_after_send};
 use crate::infrastructure::persistence::PersistCommand;
+use crate::runtime::session_runtime_helpers::mark_session_working_after_send;
 use crate::support::normalization::{
     normalize_model_override, normalize_non_empty, normalize_question_answers,
 };
+use crate::support::session_time::iso_timestamp;
 use crate::transport::websocket::{send_json, OutboundMessage};
 
 pub(crate) enum DispatchMessageError {

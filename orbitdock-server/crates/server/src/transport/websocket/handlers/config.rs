@@ -5,7 +5,7 @@ use tracing::info;
 
 use orbitdock_protocol::ClientMessage;
 
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::{send_json, server_info_message, OutboundMessage};
 
 pub(crate) async fn handle(

@@ -11,15 +11,14 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
-use crate::domain::sessions::registry::SessionRegistry;
 use crate::domain::sessions::session_command::{PersistOp, SessionCommand, SubscribeResult};
-use crate::domain::sessions::session_utils::{
-    chrono_now, claim_codex_thread_for_direct_session, parse_unix_z,
-};
 use crate::infrastructure::persistence::{
     load_messages_for_session, load_messages_from_transcript_path, load_session_by_id,
     PersistCommand,
 };
+use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
+use crate::support::session_time::{chrono_now, parse_unix_z};
 use crate::transport::websocket::{
     send_json, send_replay_or_snapshot_fallback, send_snapshot_if_requested,
     spawn_broadcast_forwarder, OutboundMessage,

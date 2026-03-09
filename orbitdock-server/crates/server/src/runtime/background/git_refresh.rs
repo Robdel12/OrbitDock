@@ -12,7 +12,7 @@ use orbitdock_protocol::{SessionStatus, StateChanges};
 use tracing::debug;
 
 use crate::domain::git::repo::resolve_git_info;
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session_command::SessionCommand;
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(1);

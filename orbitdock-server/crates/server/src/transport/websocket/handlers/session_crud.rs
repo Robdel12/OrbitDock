@@ -10,10 +10,10 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::{ClaudeAction, ClaudeSession};
 use crate::connectors::codex_session::{CodexAction, CodexSession};
-use crate::domain::sessions::registry::SessionRegistry;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::session_command::{PersistOp, SessionCommand};
-use crate::domain::sessions::session_utils::{
+use crate::runtime::session_runtime_helpers::{
     claim_codex_thread_for_direct_session, hydrate_full_message_history,
 };
 use crate::infrastructure::persistence::{
