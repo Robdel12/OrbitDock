@@ -686,10 +686,7 @@ fn remove_pid_file() {
     let _ = std::fs::remove_file(&pid_path);
 }
 
-async fn shutdown_signal(
-    _state: Arc<SessionRegistry>,
-    _persist_tx: mpsc::Sender<PersistCommand>,
-) {
+async fn shutdown_signal(_state: Arc<SessionRegistry>, _persist_tx: mpsc::Sender<PersistCommand>) {
     let _ = tokio::signal::ctrl_c().await;
     info!(
         component = "server",

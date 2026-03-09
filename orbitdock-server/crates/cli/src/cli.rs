@@ -126,9 +126,7 @@ pub enum BinaryCommand {
     ListTokens,
 
     /// Revoke an auth token by token id
-    RevokeToken {
-        token_id: String,
-    },
+    RevokeToken { token_id: String },
 
     /// Run diagnostics and check system health
     Doctor,
@@ -240,9 +238,7 @@ pub enum BinaryCommand {
     },
 
     /// Generate shell completions
-    Completions {
-        shell: clap_complete::Shell,
-    },
+    Completions { shell: clap_complete::Shell },
 }
 
 pub fn binary_to_client_command(command: &BinaryCommand) -> Option<Command> {

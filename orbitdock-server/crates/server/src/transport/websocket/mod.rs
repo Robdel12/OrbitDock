@@ -3,6 +3,7 @@
 //! Handler logic lives in `ws_handlers/`, compaction in `snapshot_compaction`,
 //! session utilities in `session_utils`, and normalization in `normalization`.
 
+pub(crate) mod handlers;
 mod router;
 mod server_info;
 mod transport;

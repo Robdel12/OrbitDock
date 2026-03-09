@@ -8,7 +8,9 @@ fn main() -> anyhow::Result<()> {
     let data_dir = orbitdock_server::init_data_dir(cli.data_dir.as_deref());
 
     match &cli.command {
-        Some(Command::Init { server_url }) => return orbitdock_server::admin::init(&data_dir, server_url),
+        Some(Command::Init { server_url }) => {
+            return orbitdock_server::admin::init(&data_dir, server_url)
+        }
         Some(Command::InstallHooks {
             settings_path,
             server_url,
@@ -108,7 +110,9 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(command) = cli.command.as_ref() {
         let runtime = tokio::runtime::Runtime::new()?;
-        if let Some(exit_code) = runtime.block_on(orbitdock_cli::dispatch_binary(command, &cli_config)) {
+        if let Some(exit_code) =
+            runtime.block_on(orbitdock_cli::dispatch_binary(command, &cli_config))
+        {
             std::process::exit(exit_code);
         }
     }
@@ -147,7 +151,8 @@ fn main() -> anyhow::Result<()> {
         };
 
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(orbitdock_server::run_server(orbitdock_server::ServerRunOptions {
+    runtime.block_on(orbitdock_server::run_server(
+        orbitdock_server::ServerRunOptions {
             bind_addr,
             auth_token,
             allow_insecure_no_auth,
@@ -155,5 +160,6 @@ fn main() -> anyhow::Result<()> {
             data_dir,
             tls_cert,
             tls_key,
-        }))
+        },
+    ))
 }
