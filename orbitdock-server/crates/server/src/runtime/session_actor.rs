@@ -7,12 +7,14 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tracing::warn;
 
+use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
 use crate::domain::sessions::session::{SessionHandle, SessionSnapshot};
-use crate::runtime::session_commands::SessionCommand;
 use crate::infrastructure::persistence::PersistCommand;
+use crate::runtime::session_commands::SessionCommand;
+use orbitdock_protocol::{SessionState, SessionSummary};
 
 /// Handle to a running session actor (cheap to Clone).
 #[derive(Clone)]
@@ -93,6 +95,90 @@ impl SessionActorHandle {
     #[allow(dead_code)]
     pub fn command_tx(&self) -> mpsc::Sender<SessionCommand> {
         self.command_tx.clone()
+    }
+
+    pub async fn retained_state(&self) -> Result<SessionState, String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionCommand::GetRetainedState { reply: reply_tx })
+            .await;
+        reply_rx.await.map_err(|error| error.to_string())
+    }
+
+    pub async fn summary(&self) -> Result<SessionSummary, String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionCommand::GetSummary { reply: reply_tx })
+            .await;
+        reply_rx.await.map_err(|error| error.to_string())
+    }
+
+    pub async fn last_tool(&self) -> Result<Option<String>, String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionCommand::GetLastTool { reply: reply_tx })
+            .await;
+        reply_rx.await.map_err(|error| error.to_string())
+    }
+
+    pub async fn conversation_bootstrap(
+        &self,
+        limit: usize,
+    ) -> Result<ConversationBootstrap, String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionCommand::GetConversationBootstrap {
+            limit,
+            reply: reply_tx,
+        })
+        .await;
+        reply_rx.await.map_err(|error| error.to_string())
+    }
+
+    pub async fn conversation_page(
+        &self,
+        before_sequence: Option<u64>,
+        limit: usize,
+    ) -> Result<ConversationPage, String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionCommand::GetConversationPage {
+            before_sequence,
+            limit,
+            reply: reply_tx,
+        })
+        .await;
+        reply_rx.await.map_err(|error| error.to_string())
+    }
+
+    pub async fn resolve_user_message_id(
+        &self,
+        num_turns_from_end: u32,
+    ) -> Result<Option<String>, String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionCommand::ResolveUserMessageId {
+            num_turns_from_end,
+            reply: reply_tx,
+        })
+        .await;
+        reply_rx.await.map_err(|error| error.to_string())
+    }
+
+    pub async fn mark_read(&self) -> Result<u64, String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionCommand::MarkRead { reply: reply_tx })
+            .await;
+        reply_rx.await.map_err(|error| error.to_string())
+    }
+
+    pub async fn load_transcript_and_sync(
+        &self,
+        path: String,
+        session_id: String,
+    ) -> Result<Option<SessionState>, String> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.send(SessionCommand::LoadTranscriptAndSync {
+            path,
+            session_id,
+            reply: reply_tx,
+        })
+        .await;
+        reply_rx.await.map_err(|error| error.to_string())
     }
 }
 
@@ -187,9 +273,7 @@ mod tests {
 
         let result = rx.await.unwrap();
         match result {
-            crate::runtime::session_commands::SubscribeResult::Snapshot {
-                state, ..
-            } => {
+            crate::runtime::session_commands::SubscribeResult::Snapshot { state, .. } => {
                 assert_eq!(state.as_ref().id, "test-session");
             }
             crate::runtime::session_commands::SubscribeResult::Replay { .. } => {

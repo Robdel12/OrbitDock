@@ -20,11 +20,11 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
-use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session::SessionHandle;
-use crate::runtime::session_commands::SessionCommand;
 use crate::domain::sessions::session_naming::name_from_first_prompt;
 use crate::infrastructure::persistence::{is_direct_thread_owned_async, PersistCommand};
+use crate::runtime::session_commands::SessionCommand;
+use crate::runtime::session_registry::SessionRegistry;
 use tokio::sync::oneshot;
 
 pub async fn start_rollout_watcher(
@@ -526,9 +526,7 @@ impl WatcherRuntime {
                 })
                 .await;
 
-            let (tx, rx) = oneshot::channel();
-            actor.send(SessionCommand::GetSummary { reply: tx }).await;
-            if let Ok(summary) = rx.await {
+            if let Ok(summary) = actor.summary().await {
                 self.app_state
                     .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
             }
@@ -1023,9 +1021,7 @@ impl WatcherRuntime {
                 }
             }
 
-            let (tx, rx) = oneshot::channel();
-            actor.send(SessionCommand::GetSummary { reply: tx }).await;
-            if let Ok(summary) = rx.await {
+            if let Ok(summary) = actor.summary().await {
                 self.app_state
                     .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
             }
@@ -1665,11 +1661,7 @@ mod tests {
 
         let state = {
             let actor = app_state.get_session(&session_id).expect("session exists");
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            actor
-                .send(SessionCommand::GetRetainedState { reply: tx })
-                .await;
-            rx.await.expect("get state")
+            actor.retained_state().await.expect("get state")
         };
         let has_user_message = state.messages.iter().any(|msg| {
             msg.message_type == MessageType::User && msg.content.contains("hello from passive")

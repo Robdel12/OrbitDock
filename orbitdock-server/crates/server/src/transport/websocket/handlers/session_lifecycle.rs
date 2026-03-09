@@ -10,15 +10,15 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
-use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session::SessionHandle;
-use crate::runtime::session_commands::{PersistOp, SessionCommand, SubscribeResult};
-use crate::runtime::session_runtime_helpers::{
-    claim_codex_thread_for_direct_session, direct_mode_activation_changes,
-};
 use crate::infrastructure::persistence::{
     load_latest_codex_turn_context_settings_from_transcript_path, load_session_by_id,
     load_session_permission_mode, PersistCommand,
+};
+use crate::runtime::session_commands::{PersistOp, SessionCommand, SubscribeResult};
+use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_runtime_helpers::{
+    claim_codex_thread_for_direct_session, direct_mode_activation_changes,
 };
 use crate::support::session_paths::resolve_claude_resume_cwd;
 use crate::support::snapshot_compaction::prepare_snapshot_for_transport;
@@ -1070,11 +1070,7 @@ pub(crate) async fn handle(
                     }
 
                     // Broadcast updated summary to list subscribers
-                    let (sum_tx, sum_rx) = oneshot::channel();
-                    new_actor
-                        .send(SessionCommand::GetSummary { reply: sum_tx })
-                        .await;
-                    if let Ok(summary) = sum_rx.await {
+                    if let Ok(summary) = new_actor.summary().await {
                         state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
                     }
                 }

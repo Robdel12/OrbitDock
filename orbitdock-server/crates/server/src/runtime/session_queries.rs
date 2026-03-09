@@ -4,7 +4,6 @@ use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionStatus, TokenUsage,
     TurnDiff, WorkStatus,
 };
-use tokio::sync::oneshot;
 use tracing::warn;
 
 use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
@@ -17,7 +16,6 @@ use crate::runtime::conversation_policy::{
     prepend_conversation_page, requires_coherent_history_page, COHERENT_HISTORY_MAX_MESSAGES,
 };
 use crate::runtime::session_actor::SessionActorHandle;
-use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::hydrate_full_message_history;
 
@@ -126,33 +124,20 @@ async fn load_raw_conversation_page(
     limit: usize,
 ) -> Result<ConversationPage, SessionLoadError> {
     if let Some(actor) = state.get_session(session_id) {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        actor
-            .send(SessionCommand::GetConversationPage {
-                before_sequence,
-                limit,
-                reply: reply_tx,
-            })
-            .await;
-
-        let page = reply_rx
+        let page = actor
+            .conversation_page(before_sequence, limit)
             .await
-            .map_err(|err| SessionLoadError::Runtime(err.to_string()))?;
+            .map_err(SessionLoadError::Runtime)?;
         if !page.messages.is_empty() || page.total_message_count > 0 {
             return top_up_runtime_page_from_db(session_id, page, before_sequence, limit).await;
         }
 
         let snapshot = actor.snapshot();
         if let Some(path) = snapshot.transcript_path.clone() {
-            let (reply_tx, reply_rx) = oneshot::channel();
-            actor
-                .send(SessionCommand::LoadTranscriptAndSync {
-                    path,
-                    session_id: session_id.to_string(),
-                    reply: reply_tx,
-                })
-                .await;
-            if let Ok(Some(loaded)) = reply_rx.await {
+            if let Ok(Some(loaded)) = actor
+                .load_transcript_and_sync(path, session_id.to_string())
+                .await
+            {
                 return Ok(conversation_page_from_messages(
                     loaded.messages,
                     before_sequence,
@@ -233,29 +218,17 @@ pub(crate) async fn load_conversation_bootstrap(
     limit: usize,
 ) -> Result<ConversationBootstrap, SessionLoadError> {
     if let Some(actor) = state.get_session(session_id) {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        actor
-            .send(SessionCommand::GetConversationBootstrap {
-                limit,
-                reply: reply_tx,
-            })
-            .await;
-
-        let mut bootstrap = reply_rx
+        let mut bootstrap = actor
+            .conversation_bootstrap(limit)
             .await
-            .map_err(|err| SessionLoadError::Runtime(err.to_string()))?;
+            .map_err(SessionLoadError::Runtime)?;
 
         if bootstrap.session.messages.is_empty() && bootstrap.total_message_count == 0 {
             if let Some(path) = bootstrap.session.transcript_path.clone() {
-                let (reply_tx, reply_rx) = oneshot::channel();
-                actor
-                    .send(SessionCommand::LoadTranscriptAndSync {
-                        path,
-                        session_id: session_id.to_string(),
-                        reply: reply_tx,
-                    })
-                    .await;
-                if let Ok(Some(loaded)) = reply_rx.await {
+                if let Ok(Some(loaded)) = actor
+                    .load_transcript_and_sync(path, session_id.to_string())
+                    .await
+                {
                     let page =
                         conversation_page_from_messages(loaded.messages.clone(), None, limit);
                     bootstrap.session = loaded;
@@ -365,14 +338,10 @@ pub(crate) async fn load_full_session_state(
     session_id: &str,
 ) -> Result<SessionState, SessionLoadError> {
     if let Some(actor) = state.get_session(session_id) {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        actor
-            .send(SessionCommand::GetRetainedState { reply: reply_tx })
-            .await;
-
-        let mut snapshot = reply_rx
+        let mut snapshot = actor
+            .retained_state()
             .await
-            .map_err(|err| SessionLoadError::Runtime(err.to_string()))?;
+            .map_err(SessionLoadError::Runtime)?;
 
         hydrate_runtime_messages(&actor, &mut snapshot, session_id).await;
         snapshot.messages = hydrate_full_message_history(
@@ -428,16 +397,10 @@ async fn hydrate_runtime_messages(
     }
 
     if let Some(path) = state.transcript_path.clone() {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        actor
-            .send(SessionCommand::LoadTranscriptAndSync {
-                path,
-                session_id: session_id.to_string(),
-                reply: reply_tx,
-            })
-            .await;
-
-        if let Ok(Some(loaded)) = reply_rx.await {
+        if let Ok(Some(loaded)) = actor
+            .load_transcript_and_sync(path, session_id.to_string())
+            .await
+        {
             *state = loaded;
         }
     }

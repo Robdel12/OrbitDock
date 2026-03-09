@@ -1182,11 +1182,7 @@ pub async fn takeover_session(
     }
 
     if let Some(actor) = state.get_session(&session_id) {
-        let (sum_tx, sum_rx) = tokio::sync::oneshot::channel();
-        actor
-            .send(SessionCommand::GetSummary { reply: sum_tx })
-            .await;
-        if let Ok(summary) = sum_rx.await {
+        if let Ok(summary) = actor.summary().await {
             state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
         }
     }
@@ -1411,12 +1407,7 @@ pub async fn fork_session(
             let source_fork_messages = if let Some(source_actor) =
                 state.get_session(&source_session_id)
             {
-                let (state_tx, state_rx) = tokio::sync::oneshot::channel();
-                source_actor
-                    .send(SessionCommand::GetRetainedState { reply: state_tx })
-                    .await;
-
-                match state_rx.await {
+                match source_actor.retained_state().await {
                     Ok(source_state) => {
                         let full_source_messages =
                             crate::runtime::session_runtime_helpers::hydrate_full_message_history(

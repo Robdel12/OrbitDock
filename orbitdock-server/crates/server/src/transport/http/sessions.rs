@@ -200,10 +200,7 @@ pub async fn mark_session_read(
         }
     };
 
-    let (tx, rx) = oneshot::channel();
-    actor.send(SessionCommand::MarkRead { reply: tx }).await;
-
-    let unread_count = rx.await.unwrap_or(0);
+    let unread_count = actor.mark_read().await.unwrap_or(0);
 
     let max_seq: i64 = match load_messages_for_session(&session_id).await {
         Ok(messages) => messages.len() as i64,

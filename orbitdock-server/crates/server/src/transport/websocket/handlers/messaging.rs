@@ -11,10 +11,10 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
-use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_commands::SessionCommand;
 use crate::domain::sessions::session_naming::name_from_first_prompt;
 use crate::infrastructure::persistence::PersistCommand;
+use crate::runtime::session_commands::SessionCommand;
+use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::mark_session_working_after_send;
 use crate::support::normalization::{
     normalize_model_override, normalize_non_empty, normalize_question_answers,
@@ -363,14 +363,7 @@ pub(crate) async fn dispatch_rollback(
         Ok(())
     } else if let Some(tx) = state.get_claude_action_tx(session_id) {
         let actor = state.get_session(session_id).ok_or("not_found")?;
-        let (reply_tx, reply_rx) = oneshot::channel();
-        actor
-            .send(SessionCommand::ResolveUserMessageId {
-                num_turns_from_end: num_turns,
-                reply: reply_tx,
-            })
-            .await;
-        match reply_rx.await {
+        match actor.resolve_user_message_id(num_turns).await {
             Ok(Some(user_message_id)) => {
                 let _ = tx.send(ClaudeAction::RewindFiles { user_message_id }).await;
                 Ok(())
@@ -914,14 +907,7 @@ pub(crate) async fn handle(
                 // Claude uses rewind_files which needs a user_message_id.
                 // Resolve the Nth user message from the end via session actor.
                 if let Some(actor) = state.get_session(&session_id) {
-                    let (reply_tx, reply_rx) = oneshot::channel();
-                    actor
-                        .send(SessionCommand::ResolveUserMessageId {
-                            num_turns_from_end: num_turns,
-                            reply: reply_tx,
-                        })
-                        .await;
-                    match reply_rx.await {
+                    match actor.resolve_user_message_id(num_turns).await {
                         Ok(Some(user_message_id)) => {
                             let _ = tx.send(ClaudeAction::RewindFiles { user_message_id }).await;
                         }

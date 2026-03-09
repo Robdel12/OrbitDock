@@ -617,13 +617,8 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     Some(Some("none".to_string())),
                 ),
                 "Stop" => {
-                    let is_question = {
-                        let (lt_tx, lt_rx) = oneshot::channel();
-                        actor
-                            .send(SessionCommand::GetLastTool { reply: lt_tx })
-                            .await;
-                        lt_rx.await.ok().flatten().as_deref() == Some("AskUserQuestion")
-                    };
+                    let is_question = actor.last_tool().await.ok().flatten().as_deref()
+                        == Some("AskUserQuestion");
                     if is_question {
                         (
                             Some(orbitdock_protocol::WorkStatus::Question),
@@ -642,13 +637,8 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     Some("permission_prompt") => (None, None),
                     Some("elicitation_dialog") => (None, None),
                     Some("idle_prompt") => {
-                        let is_question = {
-                            let (lt_tx, lt_rx) = oneshot::channel();
-                            actor
-                                .send(SessionCommand::GetLastTool { reply: lt_tx })
-                                .await;
-                            lt_rx.await.ok().flatten().as_deref() == Some("AskUserQuestion")
-                        };
+                        let is_question = actor.last_tool().await.ok().flatten().as_deref()
+                            == Some("AskUserQuestion");
                         if is_question {
                             (
                                 Some(orbitdock_protocol::WorkStatus::Question),
@@ -1612,11 +1602,7 @@ async fn materialize_claude_session(
     }
 
     // Broadcast creation
-    let (sum_tx, sum_rx) = oneshot::channel();
-    actor
-        .send(SessionCommand::GetSummary { reply: sum_tx })
-        .await;
-    if let Ok(summary) = sum_rx.await {
+    if let Ok(summary) = actor.summary().await {
         state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
     }
 

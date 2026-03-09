@@ -11,11 +11,11 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
-use crate::runtime::session_commands::{PersistOp, SessionCommand, SubscribeResult};
 use crate::infrastructure::persistence::{
     load_messages_for_session, load_messages_from_transcript_path, load_session_by_id,
     PersistCommand,
 };
+use crate::runtime::session_commands::{PersistOp, SessionCommand, SubscribeResult};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
 use crate::support::session_time::{chrono_now, parse_unix_z};
@@ -103,11 +103,7 @@ pub(crate) async fn handle(
                             })
                             .await;
 
-                        let (sum_tx, sum_rx) = oneshot::channel();
-                        actor
-                            .send(SessionCommand::GetSummary { reply: sum_tx })
-                            .await;
-                        if let Ok(summary) = sum_rx.await {
+                        if let Ok(summary) = actor.summary().await {
                             state.broadcast_to_list(ServerMessage::SessionCreated {
                                 session: summary,
                             });
@@ -512,15 +508,9 @@ pub(crate) async fn handle(
                             if snapshot.messages.is_empty() {
                                 // First try transcript (for Codex sessions)
                                 if let Some(path) = snapshot.transcript_path.clone() {
-                                    let (reply_tx, reply_rx) = oneshot::channel();
-                                    actor
-                                        .send(SessionCommand::LoadTranscriptAndSync {
-                                            path,
-                                            session_id: session_id.clone(),
-                                            reply: reply_tx,
-                                        })
-                                        .await;
-                                    if let Ok(Some(loaded_snapshot)) = reply_rx.await {
+                                    if let Ok(Some(loaded_snapshot)) =
+                                        actor.load_transcript_and_sync(path, session_id.clone()).await
+                                    {
                                         snapshot = loaded_snapshot;
                                     }
                                 }

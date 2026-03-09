@@ -10,14 +10,14 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::{ClaudeAction, ClaudeSession};
 use crate::connectors::codex_session::{CodexAction, CodexSession};
-use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session::SessionHandle;
-use crate::runtime::session_commands::{PersistOp, SessionCommand};
-use crate::runtime::session_runtime_helpers::{
-    claim_codex_thread_for_direct_session, hydrate_full_message_history,
-};
 use crate::infrastructure::persistence::{
     load_messages_from_transcript_path, load_worktree_by_id, PersistCommand,
+};
+use crate::runtime::session_commands::{PersistOp, SessionCommand};
+use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_runtime_helpers::{
+    claim_codex_thread_for_direct_session, hydrate_full_message_history,
 };
 use crate::transport::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
 
@@ -552,11 +552,7 @@ pub(crate) async fn handle(
                     })
                     .await;
 
-                let (sum_tx, sum_rx) = oneshot::channel();
-                actor
-                    .send(SessionCommand::GetSummary { reply: sum_tx })
-                    .await;
-                if let Ok(summary) = sum_rx.await {
+                if let Ok(summary) = actor.summary().await {
                     state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
                 }
             }
@@ -1070,12 +1066,7 @@ pub(crate) async fn handle(
 
                     let source_fork_messages =
                         if let Some(source_actor) = state.get_session(&source_session_id) {
-                            let (state_tx, state_rx) = oneshot::channel();
-                            source_actor
-                                .send(SessionCommand::GetRetainedState { reply: state_tx })
-                                .await;
-
-                            match state_rx.await {
+                            match source_actor.retained_state().await {
                                 Ok(source_state) => {
                                     let full_source_messages = hydrate_full_message_history(
                                         &source_session_id,
