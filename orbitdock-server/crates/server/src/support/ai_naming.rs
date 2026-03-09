@@ -10,8 +10,8 @@ use orbitdock_protocol::{ServerMessage, StateChanges};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 
-use crate::domain::sessions::session_actor::SessionActorHandle;
-use crate::domain::sessions::session_command::SessionCommand;
+use crate::runtime::session_actor::SessionActorHandle;
+use crate::runtime::session_commands::SessionCommand;
 use crate::infrastructure::persistence::PersistCommand;
 
 /// Dedup guard — ensures each session is only named once per server lifetime.

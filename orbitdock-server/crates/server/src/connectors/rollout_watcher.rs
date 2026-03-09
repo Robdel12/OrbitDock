@@ -22,7 +22,7 @@ use tracing::{info, warn};
 
 use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session::SessionHandle;
-use crate::domain::sessions::session_command::SessionCommand;
+use crate::runtime::session_commands::SessionCommand;
 use crate::domain::sessions::session_naming::name_from_first_prompt;
 use crate::infrastructure::persistence::{is_direct_thread_owned_async, PersistCommand};
 use tokio::sync::oneshot;

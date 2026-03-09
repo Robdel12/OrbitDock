@@ -15,9 +15,9 @@ use tracing::{error, info};
 
 use crate::runtime::session_registry::SessionRegistry;
 use crate::domain::sessions::session::SessionHandle;
-use crate::domain::sessions::session_actor::SessionActorHandle;
-use crate::domain::sessions::session_command::SessionCommand;
-use crate::domain::sessions::session_command_handler::{
+use crate::runtime::session_actor::SessionActorHandle;
+use crate::runtime::session_commands::SessionCommand;
+use crate::runtime::session_command_handler::{
     dispatch_connector_event, handle_session_command, is_turn_ending, spawn_interrupt_watchdog,
 };
 use crate::infrastructure::persistence::PersistCommand;
@@ -163,7 +163,7 @@ pub fn start_event_loop(
                                 ..Default::default()
                             };
                             let _ = actor_for_naming
-                                .send(crate::domain::sessions::session_command::SessionCommand::ApplyDelta {
+                                .send(crate::runtime::session_commands::SessionCommand::ApplyDelta {
                                     changes,
                                     persist_op: None,
                                 })

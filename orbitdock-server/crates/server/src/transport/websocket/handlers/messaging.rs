@@ -12,7 +12,7 @@ use orbitdock_protocol::{
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::domain::sessions::session_command::SessionCommand;
+use crate::runtime::session_commands::SessionCommand;
 use crate::domain::sessions::session_naming::name_from_first_prompt;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_runtime_helpers::mark_session_working_after_send;

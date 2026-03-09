@@ -15,7 +15,7 @@ use tracing::info;
 
 use orbitdock_protocol::ServerMessage;
 
-use crate::domain::sessions::session_command::{ConversationBootstrap, ConversationPage};
+use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
 use crate::domain::sessions::transition::{approval_preview, TransitionState, WorkPhase};
 
 /// Events that matter for the session list sidebar (status, mode, name changes).

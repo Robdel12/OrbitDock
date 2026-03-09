@@ -6,7 +6,7 @@ use tracing::info;
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::domain::sessions::session_command::SessionCommand;
+use crate::runtime::session_commands::SessionCommand;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::support::normalization::work_status_for_approval_decision;
 use crate::transport::websocket::{send_json, send_rest_only_error, OutboundMessage};

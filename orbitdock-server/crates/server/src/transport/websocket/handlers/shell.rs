@@ -9,7 +9,7 @@ use orbitdock_protocol::{
 };
 
 use crate::runtime::session_registry::SessionRegistry;
-use crate::domain::sessions::session_command::SessionCommand;
+use crate::runtime::session_commands::SessionCommand;
 use crate::support::session_time::iso_timestamp;
 use crate::transport::websocket::{send_json, OutboundMessage};
 

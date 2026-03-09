@@ -156,7 +156,7 @@ pub async fn update_review_comment(
     if let Some(actor) = state.get_session(&updated.session_id) {
         actor
             .send(
-                crate::domain::sessions::session_command::SessionCommand::Broadcast {
+                crate::runtime::session_commands::SessionCommand::Broadcast {
                     msg: ServerMessage::ReviewCommentUpdated {
                         session_id: updated.session_id.clone(),
                         review_revision,
@@ -214,7 +214,7 @@ pub async fn delete_review_comment_by_id(
     if let Some(actor) = state.get_session(&existing.session_id) {
         actor
             .send(
-                crate::domain::sessions::session_command::SessionCommand::Broadcast {
+                crate::runtime::session_commands::SessionCommand::Broadcast {
                     msg: ServerMessage::ReviewCommentDeleted {
                         session_id: existing.session_id.clone(),
                         review_revision,
@@ -295,7 +295,7 @@ pub async fn create_review_comment_endpoint(
     if let Some(actor) = state.get_session(&session_id) {
         actor
             .send(
-                crate::domain::sessions::session_command::SessionCommand::Broadcast {
+                crate::runtime::session_commands::SessionCommand::Broadcast {
                     msg: ServerMessage::ReviewCommentCreated {
                         session_id: session_id.clone(),
                         review_revision,

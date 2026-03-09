@@ -12,7 +12,7 @@ use tokio::sync::{broadcast, mpsc};
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::domain::sessions::session::SessionHandle;
-use crate::domain::sessions::session_actor::SessionActorHandle;
+use crate::runtime::session_actor::SessionActorHandle;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::infrastructure::shell::ShellService;
 use crate::support::ai_naming::NamingGuard;

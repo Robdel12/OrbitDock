@@ -33,7 +33,7 @@ use tracing::{error, info};
 
 use crate::connectors::codex_session::CodexAction;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::domain::sessions::session_command::{SessionCommand, SubscribeResult};
+use crate::runtime::session_commands::{SessionCommand, SubscribeResult};
 use crate::runtime::session_queries::{
     load_conversation_bootstrap, load_conversation_page, load_full_session_state, SessionLoadError,
 };

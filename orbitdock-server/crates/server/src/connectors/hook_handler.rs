@@ -20,8 +20,8 @@ use tracing::warn;
 use orbitdock_protocol::{ClientMessage, Provider, ServerMessage};
 
 use crate::runtime::session_registry::{PendingClaudeSession, SessionRegistry};
-use crate::domain::sessions::session_actor::SessionActorHandle;
-use crate::domain::sessions::session_command::SessionCommand;
+use crate::runtime::session_actor::SessionActorHandle;
+use crate::runtime::session_commands::SessionCommand;
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::transition::{
     approval_preview, approval_question, approval_question_prompts,

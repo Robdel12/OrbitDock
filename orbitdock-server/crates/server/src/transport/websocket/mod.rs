@@ -212,7 +212,7 @@ mod tests {
     use crate::connectors::codex_session::CodexAction;
     use crate::runtime::session_registry::SessionRegistry;
     use crate::domain::sessions::session::SessionHandle;
-    use crate::domain::sessions::session_command::SessionCommand;
+    use crate::runtime::session_commands::SessionCommand;
     use crate::domain::sessions::session_naming::name_from_first_prompt;
     use crate::runtime::session_runtime_helpers::{
         claim_codex_thread_for_direct_session, direct_mode_activation_changes,

@@ -13,7 +13,7 @@ use tracing::debug;
 
 use crate::domain::git::repo::resolve_git_info;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::domain::sessions::session_command::SessionCommand;
+use crate::runtime::session_commands::SessionCommand;
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
 

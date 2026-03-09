@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use tracing::warn;
 
 use crate::domain::sessions::session::SessionHandle;
-use crate::domain::sessions::session_command::{
+use crate::runtime::session_commands::{
     PendingApprovalResolution, PersistOp, SessionCommand, SubscribeResult,
 };
 use crate::domain::sessions::transition;

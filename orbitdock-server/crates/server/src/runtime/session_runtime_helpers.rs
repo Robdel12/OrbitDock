@@ -14,8 +14,8 @@ use orbitdock_protocol::{
 };
 
 use crate::runtime::session_registry::SessionRegistry;
-use crate::domain::sessions::session_actor::SessionActorHandle;
-use crate::domain::sessions::session_command::{PersistOp, SessionCommand};
+use crate::runtime::session_actor::SessionActorHandle;
+use crate::runtime::session_commands::{PersistOp, SessionCommand};
 use crate::infrastructure::persistence::{
     load_messages_for_session, load_messages_from_transcript_path,
     load_token_usage_from_transcript_path, PersistCommand,

@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 use crate::domain::sessions::session::{SessionHandle, SessionSnapshot};
-use crate::domain::sessions::session_command::SessionCommand;
+use crate::runtime::session_commands::SessionCommand;
 use crate::infrastructure::persistence::PersistCommand;
 
 /// Handle to a running session actor (cheap to Clone).
@@ -110,7 +110,7 @@ async fn passive_actor_loop(
             let _ = reply.send(handle);
             return; // Stop the passive loop — handle is now owned by the caller
         }
-        crate::domain::sessions::session_command_handler::handle_session_command(
+        crate::runtime::session_command_handler::handle_session_command(
             cmd,
             &mut handle,
             &persist_tx,
@@ -187,12 +187,12 @@ mod tests {
 
         let result = rx.await.unwrap();
         match result {
-            crate::domain::sessions::session_command::SubscribeResult::Snapshot {
+            crate::runtime::session_commands::SubscribeResult::Snapshot {
                 state, ..
             } => {
                 assert_eq!(state.as_ref().id, "test-session");
             }
-            crate::domain::sessions::session_command::SubscribeResult::Replay { .. } => {
+            crate::runtime::session_commands::SubscribeResult::Replay { .. } => {
                 panic!("expected snapshot, got replay")
             }
         }

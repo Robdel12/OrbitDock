@@ -11,7 +11,7 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
-use crate::domain::sessions::session_command::{PersistOp, SessionCommand, SubscribeResult};
+use crate::runtime::session_commands::{PersistOp, SessionCommand, SubscribeResult};
 use crate::infrastructure::persistence::{
     load_messages_for_session, load_messages_from_transcript_path, load_session_by_id,
     PersistCommand,

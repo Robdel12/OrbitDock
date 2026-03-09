@@ -435,7 +435,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                                 if let Some(actor) = backfill_state.get_session(&session_id) {
                                     actor
                                         .send(
-                                            crate::domain::sessions::session_command::SessionCommand::ReplaceMessages {
+                                            crate::runtime::session_commands::SessionCommand::ReplaceMessages {
                                                 messages,
                                             },
                                         )

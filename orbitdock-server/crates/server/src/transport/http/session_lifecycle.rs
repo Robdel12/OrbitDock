@@ -27,7 +27,7 @@ pub async fn rename_session(
         .ok_or_else(|| session_not_found_error(&session_id))?;
 
     let persist_op = Some(
-        crate::domain::sessions::session_command::PersistOp::SetCustomName {
+        crate::runtime::session_commands::PersistOp::SetCustomName {
             session_id: session_id.clone(),
             name: body.name.clone(),
         },
@@ -61,7 +61,7 @@ pub async fn update_session_config(
     };
 
     let persist_op = Some(
-        crate::domain::sessions::session_command::PersistOp::SetSessionConfig {
+        crate::runtime::session_commands::PersistOp::SetSessionConfig {
             session_id: session_id.clone(),
             approval_policy: body.approval_policy,
             sandbox_mode: body.sandbox_mode,
@@ -1140,7 +1140,7 @@ pub async fn takeover_session(
                                     ..Default::default()
                                 },
                                 persist_op: if requested_permission_mode.is_some() {
-                                    Some(crate::domain::sessions::session_command::PersistOp::SetSessionConfig {
+                                    Some(crate::runtime::session_commands::PersistOp::SetSessionConfig {
                                         session_id: session_id.clone(),
                                         approval_policy: None,
                                         sandbox_mode: None,
