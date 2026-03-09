@@ -489,7 +489,8 @@ mod tests {
 
     fn ensure_test_data_dir() {
         INIT_TEST_DATA_DIR.call_once(|| {
-            let dir = std::env::temp_dir().join("orbitdock-session-history-tests");
+            let dir = std::env::temp_dir().join("orbitdock-server-test-data");
+            let _ = std::fs::remove_dir_all(&dir);
             paths::init_data_dir(Some(&dir));
         });
     }
