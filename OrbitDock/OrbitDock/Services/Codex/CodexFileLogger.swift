@@ -29,7 +29,6 @@ final class CodexFileLogger: @unchecked Sendable {
     case event // Codex server events
     case connection // Connection lifecycle
     case message // Message store operations
-    case bridge // MCP bridge requests
     case decode // JSON decode operations
     case session // Session lifecycle
   }
@@ -134,36 +133,6 @@ final class CodexFileLogger: @unchecked Sendable {
       data["details"] = details
     }
     log(.info, category: .connection, message: "Connection: \(state)", data: data)
-  }
-
-  /// Log MCP bridge request/response
-  nonisolated func logBridgeRequest(
-    method: String,
-    path: String,
-    body: [String: Any]?,
-    responseStatus: Int?,
-    responseBody: [String: Any]?,
-    durationMs: Double?
-  ) {
-    var data: [String: Any] = [
-      "method": method,
-      "path": path,
-    ]
-    if let body, !body.isEmpty {
-      data["requestBodyKeys"] = Array(body.keys).sorted()
-    }
-    if let responseStatus {
-      data["responseStatus"] = responseStatus
-    }
-    if let responseBody, !responseBody.isEmpty {
-      data["responseBodyKeys"] = Array(responseBody.keys).sorted()
-    }
-    if let durationMs {
-      data["durationMs"] = String(format: "%.2f", durationMs)
-    }
-
-    let level: Level = (responseStatus ?? 200) >= 400 ? .warning : .debug
-    log(level, category: .bridge, message: "\(method) \(path)", data: data)
   }
 
   /// Log message store operation

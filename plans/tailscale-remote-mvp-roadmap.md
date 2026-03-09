@@ -16,7 +16,7 @@ Current state is local-only by design:
 - **No deployment story**: no systemd unit, no launchd plist, no Dockerfile — only runs as an embedded subprocess
 - **Client URL is hardcoded**: `OrbitDock/OrbitDock/Services/Server/ServerConnection.swift:37` points at `ws://127.0.0.1:4000/ws`
 - **App assumes one embedded server**: `OrbitDockApp.swift` starts `ServerManager.shared` on launch, waits for health check, then connects the singleton `ServerConnection.shared`
-- **Three coupled singletons**: `ServerManager.shared`, `ServerConnection.shared`, and `MCPBridge.shared` all assume a single local server
+- **Two coupled singletons**: `ServerManager.shared` and `ServerConnection.shared` both assume a single local server
 - **Health check assumes localhost**: `ServerManager.waitForReady()` probes `http://127.0.0.1:4000/health`
 - **Reconnection gives up fast**: 3 retries with short backoff — fine for local, bad for flaky remote networks
 
@@ -77,7 +77,7 @@ Get OrbitDock building and running in iOS Simulator before server work by introd
    - iOS defaults to `mock` so app can boot without `orbitdock-server`.
 
 4. **App bootstrap cleanup**:
-   - Route server startup/connection and MCP bridge startup through runtime mode + capabilities.
+   - Route server startup/connection through runtime mode + capabilities.
    - Leave macOS behavior unchanged in `live` mode.
 
 ### Acceptance criteria
@@ -228,7 +228,6 @@ Replace hardcoded localhost in the macOS app with a persisted endpoint config. M
 3. **Coordinated singleton teardown on switch**:
    - `ServerConnection` disconnects and resets callbacks.
    - `ServerAppState` clears all cached sessions/state and re-wires callbacks.
-   - `MCPBridge` resets (it proxies to Codex through the current server — for remote endpoints, MCP bridge may not apply; gate it behind `isLocalManaged`).
 
 4. **ServerManager gating**:
    - Only run `ServerManager.shared.start()` when active endpoint has `isLocalManaged = true`.
@@ -250,7 +249,6 @@ Replace hardcoded localhost in the macOS app with a persisted endpoint config. M
 - `ServerManager.swift` — gated by `isLocalManaged`
 - `OrbitDockApp.swift` — startup flow branches on endpoint type
 - `ServerAppState.swift` — teardown/re-wire on endpoint switch
-- `MCPBridge.swift` — gated behind local-only
 
 ### Acceptance criteria
 
@@ -259,7 +257,6 @@ Replace hardcoded localhost in the macOS app with a persisted endpoint config. M
 - Selecting a remote endpoint skips server startup and connects directly.
 - Switching endpoints tears down cleanly — no stale state, no leaked subscriptions.
 - Remote connections retry gracefully on transient failures.
-- MCPBridge only runs for local endpoints.
 
 ### How to validate
 
@@ -418,7 +415,6 @@ Make remote setup safe, repeatable, and documented for self-hosted users.
 | Remote misconfiguration gives poor UX | Test button + clear error messages + setup docs |
 | Accidental public exposure | Tailscale-only docs, local-first default, no `wss://` complexity |
 | Transient network failures feel broken | Remote-specific retry policy with unlimited backoff + visible reconnection state |
-| MCP bridge confusion on remote endpoints | Gate MCPBridge behind `isLocalManaged` — only runs for local server |
 | Protocol mismatch between app and remote server | Version handshake on connect catches this immediately |
 | clap dependency conflicts with existing setup | Server has no CLI framework today — clean addition |
 

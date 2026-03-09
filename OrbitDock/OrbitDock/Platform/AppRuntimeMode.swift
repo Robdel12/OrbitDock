@@ -55,19 +55,6 @@ enum AppRuntimeMode: String {
     self == .live || self == .remote
   }
 
-  var shouldStartMcpBridge: Bool {
-    #if os(macOS)
-      #if DEBUG
-        let enabledForDebug = ProcessInfo.processInfo.environment["ORBITDOCK_ENABLE_MCP_BRIDGE"] == "1"
-        return enabledForDebug && (self == .live || self == .remote)
-      #else
-        false
-      #endif
-    #else
-      false
-    #endif
-  }
-
   private static func isRunningTests(environment: [String: String]) -> Bool {
     environment["XCTestConfigurationFilePath"] != nil
       || environment["XCTestBundlePath"] != nil

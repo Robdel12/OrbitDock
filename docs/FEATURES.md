@@ -147,21 +147,6 @@ Side panel for direct sessions with multiple tabs:
 - **Toast notifications** — In-app alerts when sessions need attention
 - **System notifications** — macOS notifications for permission/question states
 
-## MCP Bridge
-
-Control sessions from Claude Code (or any MCP client):
-
-- **list_sessions** — List active sessions with provider filter and controllable-only flag
-- **get_session** — Get details for a specific session
-- **send_message** — Send prompts with optional model, effort, images, and file mentions
-- **steer_turn** — Inject mid-turn guidance without stopping it
-- **interrupt_turn** — Stop a running turn
-- **approve** — Approve/deny/abort pending tool executions and questions
-- **fork_session** — Fork a session's conversation, optionally from a specific message
-- **set_permission_mode** — Change Claude permission mode live
-- **list_models** — List available Codex models
-- **check_connection** — Verify bridge connectivity
-
 ## Keyboard Shortcuts
 
 | Shortcut | Action |

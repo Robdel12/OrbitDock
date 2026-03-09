@@ -70,7 +70,6 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock h
 │       └── Sources/
 │           ├── OrbitDockCore/   # Database, git ops, shared models
 │           └── OrbitDockCLI/    # CLI hook handlers
-├── orbitdock-debug-mcp/         # MCP server (Node.js)
 ├── migrations/                  # Database migrations (SQL)
 └── plans/                       # Design docs and roadmaps
 ```

@@ -24,13 +24,13 @@ struct OrbitDockApp: App {
   @State private var router = AppRouter()
   private let runtimeMode = AppRuntimeMode.current
 
-  private var serverAppState: SessionStore {
+  private var sessionStore: SessionStore {
     runtimeRegistry.activeSessionStore
   }
 
   private var mainRootView: some View {
     ContentView()
-      .environment(serverAppState)
+      .environment(sessionStore)
       .environment(runtimeRegistry)
       .environment(attentionService)
       .environment(router)
@@ -43,19 +43,9 @@ struct OrbitDockApp: App {
       }
     #endif
       .task {
-        let shouldPrepareRuntimes = runtimeMode.shouldConnectServer || runtimeMode.shouldStartMcpBridge
-        if shouldPrepareRuntimes {
-          runtimeRegistry.configureFromSettings(startEnabled: false)
-          #if os(macOS)
-            AppDelegate.serverAppState = runtimeRegistry.activeSessionStore
-          #endif
-        }
-
-        if runtimeMode.shouldStartMcpBridge {
-          MCPBridge.shared.start(serverAppState: runtimeRegistry.activeSessionStore)
-        }
-
         guard runtimeMode.shouldConnectServer else { return }
+
+        runtimeRegistry.configureFromSettings(startEnabled: false)
 
         // Check server install state before connecting
         await ServerManager.shared.refreshState()
@@ -99,7 +89,7 @@ struct OrbitDockApp: App {
       // Settings window (⌘,)
       Settings {
         SettingsView()
-          .environment(serverAppState)
+          .environment(sessionStore)
           .environment(runtimeRegistry)
           .environment(attentionService)
           .preferredColorScheme(.dark)
@@ -108,7 +98,7 @@ struct OrbitDockApp: App {
       // Menu bar
       MenuBarExtra {
         MenuBarView()
-          .environment(serverAppState)
+          .environment(sessionStore)
           .environment(runtimeRegistry)
           .environment(attentionService)
           .environment(\.colorScheme, .dark)
@@ -130,9 +120,6 @@ struct OrbitDockApp: App {
 
 #if os(macOS)
   class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
-
-    /// Shared server app state for MCP bridge
-    static var serverAppState: SessionStore?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -188,7 +175,6 @@ struct OrbitDockApp: App {
       memoryPressureSource = nil
 
       Task { @MainActor in
-        MCPBridge.shared.stop()
         ServerRuntimeRegistry.shared.stopAllRuntimes()
       }
     }

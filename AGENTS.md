@@ -292,7 +292,6 @@ tail -f ~/.orbitdock/logs/codex.log | jq 'select(.message | contains("item/"))'
 - `event` - Codex app-server events (turn/started, item/created, etc.)
 - `connection` - Connection lifecycle (connecting, connected, disconnected)
 - `message` - MessageStore operations (append, update, upsert)
-- `bridge` - MCP Bridge HTTP requests/responses
 - `decode` - JSON decode failures with raw payloads
 - `session` - Session lifecycle (create, send, approve)
 
@@ -631,28 +630,6 @@ Usage is fetched through the orbitdock server over REST endpoints and is scoped 
 Key UI files:
 - `Views/Usage/` - Provider usage gauges, bars, and badges
 
-## OrbitDock MCP
-
-An MCP for pair-debugging Codex sessions. Allows Claude to interact with the **same** Codex session visible in OrbitDock - sending messages and handling approvals.
-
-### Architecture
-
-```
-MCP (Node.js)  →  HTTP :19384  →  OrbitDock (MCPBridge)  →  Codex app-server
-```
-
-The MCP routes through OrbitDock's HTTP bridge to `CodexDirectSessionManager`. Same session, no state sync issues.
-
-### Available Tools
-
-| Tool | Description |
-|------|-------------|
-| `list_sessions` | List active Codex sessions that can be controlled |
-| `send_message` | Send a user prompt to a Codex session (starts a turn) |
-| `interrupt_turn` | Stop the current turn |
-| `approve` | Approve/reject pending tool executions |
-| `check_connection` | Verify OrbitDock bridge is running |
-
 ### Debugging via CLI
 
 For database queries and log inspection, use CLI tools directly:
@@ -667,19 +644,9 @@ tail -f ~/.orbitdock/logs/codex.log | jq .
 # Filter logs by error level
 tail -f ~/.orbitdock/logs/codex.log | jq 'select(.level == "error" or .level == "warning")'
 
-# See MCP bridge requests
-tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "bridge")'
+# See decode failures
+tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "decode")'
 ```
-
-### Key Files
-
-- `orbitdock-debug-mcp/` - Node.js MCP server
-- `MCPBridge.swift` - OrbitDock's HTTP server on port 19384
-- `.mcp.json` - Project MCP configuration
-
-### Requirements
-
-- **OrbitDock must be running** - MCPBridge starts automatically on port 19384
 
 ## Testing Changes
 

@@ -78,7 +78,6 @@
 3. **Server** (`crates/server`): `CodexAction::StartReview`, websocket handler, broadcast events
 4. **Swift**: Protocol types, `ServerAppState.startReview()`, UI trigger (review canvas or action bar)
 5. **Tests**: Protocol roundtrips, event sequence test
-6. **MCP bridge**: `POST /api/sessions/:id/review`
 
 **Done when**:
 - Can trigger a review of uncommitted changes from the UI
@@ -130,7 +129,6 @@ Three smaller features that improve daily quality of life. Can be shipped indepe
 These came up during previous phases but aren't blocking anything:
 
 - **Side-by-side diff view** — synced scrolling between old/new panes in review canvas
-- **MCP bridge endpoints** — HTTP routes for skills, context ops, MCP tools (server support exists)
 - **Remote skills download UI** — server support done, needs SwiftUI view
 - **Unit tests for Phase 0 models** — TurnSummary, DiffModel, ReviewComment parsers
 - **Draggable split divider** — review/conversation split is fixed 40/60 ratio currently
@@ -146,7 +144,6 @@ Protocol (crates/protocol)  →  types + roundtrip tests
 Connector (crates/connectors)  →  action + event handler
 Server (crates/server)  →  session action + websocket handler + broadcast
 Swift app  →  protocol types + ServerAppState + view
-MCP bridge  →  HTTP endpoint (optional)
 ```
 
 Build from the bottom up — protocol types first, UI last.
