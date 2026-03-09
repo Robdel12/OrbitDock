@@ -40,6 +40,201 @@ struct ClientPrimaryClaimState {
     is_primary: bool,
 }
 
+struct ConnectorRegistry {
+    codex_actions: DashMap<String, mpsc::Sender<CodexAction>>,
+    claude_actions: DashMap<String, mpsc::Sender<ClaudeAction>>,
+    codex_threads: DashMap<String, String>,
+    claude_threads: DashMap<String, String>,
+}
+
+impl ConnectorRegistry {
+    fn new() -> Self {
+        Self {
+            codex_actions: DashMap::new(),
+            claude_actions: DashMap::new(),
+            codex_threads: DashMap::new(),
+            claude_threads: DashMap::new(),
+        }
+    }
+
+    fn set_codex_action_tx(&self, session_id: &str, tx: mpsc::Sender<CodexAction>) {
+        self.codex_actions.insert(session_id.to_string(), tx);
+    }
+
+    fn get_codex_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<CodexAction>> {
+        self.codex_actions
+            .get(session_id)
+            .map(|entry| entry.clone())
+    }
+
+    fn set_claude_action_tx(&self, session_id: &str, tx: mpsc::Sender<ClaudeAction>) {
+        self.claude_actions.insert(session_id.to_string(), tx);
+    }
+
+    fn get_claude_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<ClaudeAction>> {
+        self.claude_actions
+            .get(session_id)
+            .map(|entry| entry.clone())
+    }
+
+    fn remove_action_txs(&self, session_id: &str) {
+        self.codex_actions.remove(session_id);
+        self.claude_actions.remove(session_id);
+    }
+
+    fn remove_codex_action_tx(&self, session_id: &str) {
+        self.codex_actions.remove(session_id);
+    }
+
+    fn remove_claude_action_tx(&self, session_id: &str) {
+        self.claude_actions.remove(session_id);
+    }
+
+    fn register_codex_thread(&self, session_id: &str, thread_id: &str) {
+        self.codex_threads
+            .insert(thread_id.to_string(), session_id.to_string());
+    }
+
+    fn register_claude_thread(&self, session_id: &str, sdk_session_id: &str) {
+        self.claude_threads
+            .insert(sdk_session_id.to_string(), session_id.to_string());
+    }
+
+    fn remove_session_threads(&self, session_id: &str) {
+        self.codex_threads
+            .retain(|_, mapped_session_id| mapped_session_id != session_id);
+        self.claude_threads
+            .retain(|_, mapped_session_id| mapped_session_id != session_id);
+    }
+
+    fn is_managed_codex_thread(&self, thread_id: &str) -> bool {
+        self.codex_threads.contains_key(thread_id)
+    }
+
+    fn is_managed_claude_thread(&self, sdk_session_id: &str) -> bool {
+        self.claude_threads.contains_key(sdk_session_id)
+    }
+
+    fn resolve_claude_thread(&self, sdk_session_id: &str) -> Option<String> {
+        self.claude_threads
+            .get(sdk_session_id)
+            .map(|entry| entry.clone())
+    }
+
+    fn registered_claude_session_ids(&self) -> HashSet<String> {
+        self.claude_threads
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    fn codex_thread_for_session(&self, session_id: &str) -> Option<String> {
+        self.codex_threads
+            .iter()
+            .find(|entry| entry.value() == session_id)
+            .map(|entry| entry.key().clone())
+    }
+
+    fn claude_sdk_id_for_session(&self, session_id: &str) -> Option<String> {
+        self.claude_threads
+            .iter()
+            .find(|entry| entry.value() == session_id)
+            .map(|entry| entry.key().clone())
+    }
+
+    fn has_codex_connector(&self, session_id: &str) -> bool {
+        self.codex_actions.contains_key(session_id)
+    }
+
+    fn has_claude_connector(&self, session_id: &str) -> bool {
+        self.claude_actions.contains_key(session_id)
+    }
+}
+
+struct ConnectionState {
+    is_primary: AtomicBool,
+    client_primary_claims: DashMap<u64, ClientPrimaryClaimState>,
+    ws_connections: AtomicU64,
+    started_at: Instant,
+}
+
+impl ConnectionState {
+    fn new(is_primary: bool) -> Self {
+        Self {
+            is_primary: AtomicBool::new(is_primary),
+            client_primary_claims: DashMap::new(),
+            ws_connections: AtomicU64::new(0),
+            started_at: Instant::now(),
+        }
+    }
+
+    fn is_primary(&self) -> bool {
+        self.is_primary.load(Ordering::Relaxed)
+    }
+
+    fn set_primary(&self, is_primary: bool) -> bool {
+        let previous = self.is_primary.swap(is_primary, Ordering::SeqCst);
+        previous != is_primary
+    }
+
+    fn ws_connect(&self) -> u64 {
+        self.ws_connections.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    fn ws_disconnect(&self) -> u64 {
+        self.ws_connections.fetch_sub(1, Ordering::Relaxed) - 1
+    }
+
+    fn ws_connection_count(&self) -> u64 {
+        self.ws_connections.load(Ordering::Relaxed)
+    }
+
+    fn uptime_seconds(&self) -> u64 {
+        self.started_at.elapsed().as_secs()
+    }
+
+    fn set_client_primary_claim(
+        &self,
+        conn_id: u64,
+        client_id: String,
+        device_name: String,
+        is_primary: bool,
+    ) {
+        self.client_primary_claims.insert(
+            conn_id,
+            ClientPrimaryClaimState {
+                client_id,
+                device_name,
+                is_primary,
+            },
+        );
+    }
+
+    fn clear_client_primary_claim(&self, conn_id: u64) -> bool {
+        self.client_primary_claims.remove(&conn_id).is_some()
+    }
+
+    fn active_client_primary_claims(&self) -> Vec<ClientPrimaryClaim> {
+        let mut by_client: BTreeMap<String, String> = BTreeMap::new();
+        for claim in self.client_primary_claims.iter() {
+            if !claim.value().is_primary {
+                continue;
+            }
+            by_client
+                .entry(claim.value().client_id.clone())
+                .or_insert_with(|| claim.value().device_name.clone());
+        }
+
+        by_client
+            .into_iter()
+            .map(|(client_id, device_name)| ClientPrimaryClaim {
+                client_id,
+                device_name,
+            })
+            .collect()
+    }
+}
+
 fn collect_recent_projects<I>(
     sessions: I,
     hidden_paths: &HashSet<String>,
@@ -87,14 +282,8 @@ pub struct SessionRegistry {
     /// Active sessions stored as actor handles
     sessions: DashMap<String, SessionActorHandle>,
 
-    /// Action channels for Codex sessions
-    codex_actions: DashMap<String, mpsc::Sender<CodexAction>>,
-    /// Action channels for Claude direct sessions
-    claude_actions: DashMap<String, mpsc::Sender<ClaudeAction>>,
-    /// Map codex-core thread_id -> session_id for direct sessions
-    codex_threads: DashMap<String, String>,
-    /// Map Claude SDK session_id -> OrbitDock session_id for direct sessions
-    claude_threads: DashMap<String, String>,
+    /// Connector channels and provider thread ownership maps.
+    connectors: ConnectorRegistry,
 
     /// Broadcast channel for session list updates
     list_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
@@ -118,17 +307,8 @@ pub struct SessionRegistry {
     /// Provider-agnostic shell runtime service for user-initiated commands.
     shell_service: Arc<ShellService>,
 
-    /// True when this server should act as the primary control-plane endpoint.
-    is_primary: AtomicBool,
-
-    /// Per-WebSocket-connection primary claim state from connected client devices.
-    client_primary_claims: DashMap<u64, ClientPrimaryClaimState>,
-
-    /// Active WebSocket connection count (for metrics).
-    ws_connections: AtomicU64,
-
-    /// Server start time (for uptime metrics).
-    started_at: Instant,
+    /// Primary claim and WebSocket connection state.
+    connections: ConnectionState,
 }
 
 impl SessionRegistry {
@@ -142,10 +322,7 @@ impl SessionRegistry {
         let codex_auth = Arc::new(CodexAuthService::new(list_tx.clone()));
         Self {
             sessions: DashMap::new(),
-            codex_actions: DashMap::new(),
-            claude_actions: DashMap::new(),
-            codex_threads: DashMap::new(),
-            claude_threads: DashMap::new(),
+            connectors: ConnectorRegistry::new(),
             list_tx,
             persist_tx,
             db_path: crate::infrastructure::paths::db_path(),
@@ -153,36 +330,32 @@ impl SessionRegistry {
             naming_guard: Arc::new(NamingGuard::new()),
             pending_claude_sessions: DashMap::new(),
             shell_service: Arc::new(ShellService::new()),
-            is_primary: AtomicBool::new(is_primary),
-            client_primary_claims: DashMap::new(),
-            ws_connections: AtomicU64::new(0),
-            started_at: Instant::now(),
+            connections: ConnectionState::new(is_primary),
         }
     }
 
     pub fn is_primary(&self) -> bool {
-        self.is_primary.load(Ordering::Relaxed)
+        self.connections.is_primary()
     }
 
     pub fn set_primary(&self, is_primary: bool) -> bool {
-        let previous = self.is_primary.swap(is_primary, Ordering::SeqCst);
-        previous != is_primary
+        self.connections.set_primary(is_primary)
     }
 
     pub fn ws_connect(&self) -> u64 {
-        self.ws_connections.fetch_add(1, Ordering::Relaxed) + 1
+        self.connections.ws_connect()
     }
 
     pub fn ws_disconnect(&self) -> u64 {
-        self.ws_connections.fetch_sub(1, Ordering::Relaxed) - 1
+        self.connections.ws_disconnect()
     }
 
     pub fn ws_connection_count(&self) -> u64 {
-        self.ws_connections.load(Ordering::Relaxed)
+        self.connections.ws_connection_count()
     }
 
     pub fn uptime_seconds(&self) -> u64 {
-        self.started_at.elapsed().as_secs()
+        self.connections.uptime_seconds()
     }
 
     pub fn set_client_primary_claim(
@@ -192,38 +365,16 @@ impl SessionRegistry {
         device_name: String,
         is_primary: bool,
     ) {
-        self.client_primary_claims.insert(
-            conn_id,
-            ClientPrimaryClaimState {
-                client_id,
-                device_name,
-                is_primary,
-            },
-        );
+        self.connections
+            .set_client_primary_claim(conn_id, client_id, device_name, is_primary);
     }
 
     pub fn clear_client_primary_claim(&self, conn_id: u64) -> bool {
-        self.client_primary_claims.remove(&conn_id).is_some()
+        self.connections.clear_client_primary_claim(conn_id)
     }
 
     pub fn active_client_primary_claims(&self) -> Vec<ClientPrimaryClaim> {
-        let mut by_client: BTreeMap<String, String> = BTreeMap::new();
-        for claim in self.client_primary_claims.iter() {
-            if !claim.value().is_primary {
-                continue;
-            }
-            by_client
-                .entry(claim.value().client_id.clone())
-                .or_insert_with(|| claim.value().device_name.clone());
-        }
-
-        by_client
-            .into_iter()
-            .map(|(client_id, device_name)| ClientPrimaryClaim {
-                client_id,
-                device_name,
-            })
-            .collect()
+        self.connections.active_client_primary_claims()
     }
 
     /// Get persistence sender
@@ -251,32 +402,32 @@ impl SessionRegistry {
 
     /// Store a Codex action sender
     pub fn set_codex_action_tx(&self, session_id: &str, tx: mpsc::Sender<CodexAction>) {
-        self.codex_actions.insert(session_id.to_string(), tx);
+        self.connectors.set_codex_action_tx(session_id, tx);
     }
 
     /// Get a Codex action sender (cloned — DashMap refs can't outlive the lookup)
     pub fn get_codex_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<CodexAction>> {
-        self.codex_actions.get(session_id).map(|r| r.clone())
+        self.connectors.get_codex_action_tx(session_id)
     }
 
     /// Store a Claude action sender
     pub fn set_claude_action_tx(&self, session_id: &str, tx: mpsc::Sender<ClaudeAction>) {
-        self.claude_actions.insert(session_id.to_string(), tx);
+        self.connectors.set_claude_action_tx(session_id, tx);
     }
 
     /// Remove a Codex action sender (stale channel cleanup)
     pub fn remove_codex_action_tx(&self, session_id: &str) {
-        self.codex_actions.remove(session_id);
+        self.connectors.remove_codex_action_tx(session_id);
     }
 
     /// Get a Claude action sender (cloned)
     pub fn get_claude_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<ClaudeAction>> {
-        self.claude_actions.get(session_id).map(|r| r.clone())
+        self.connectors.get_claude_action_tx(session_id)
     }
 
     /// Remove a Claude action sender (stale channel cleanup)
     pub fn remove_claude_action_tx(&self, session_id: &str) {
-        self.claude_actions.remove(session_id);
+        self.connectors.remove_claude_action_tx(session_id);
     }
 
     /// Get all session summaries (lock-free via snapshots)
@@ -353,10 +504,8 @@ impl SessionRegistry {
 
     /// Remove a session
     pub fn remove_session(&self, id: &str) -> Option<SessionActorHandle> {
-        self.codex_actions.remove(id);
-        self.claude_actions.remove(id);
-        self.codex_threads.retain(|_, session_id| session_id != id);
-        self.claude_threads.retain(|_, session_id| session_id != id);
+        self.connectors.remove_action_txs(id);
+        self.connectors.remove_session_threads(id);
         self.sessions.remove(id).map(|(_, v)| v)
     }
 
@@ -373,13 +522,12 @@ impl SessionRegistry {
             );
             return;
         }
-        self.codex_threads
-            .insert(thread_id.to_string(), session_id.to_string());
+        self.connectors.register_codex_thread(session_id, thread_id);
     }
 
     /// Check whether thread ID is managed by a direct server session
     pub fn is_managed_codex_thread(&self, thread_id: &str) -> bool {
-        self.codex_threads.contains_key(thread_id)
+        self.connectors.is_managed_codex_thread(thread_id)
     }
 
     /// Register Claude SDK session ID for a direct session.
@@ -395,19 +543,19 @@ impl SessionRegistry {
             );
             return;
         }
-        self.claude_threads
-            .insert(sdk_session_id.to_string(), session_id.to_string());
+        self.connectors
+            .register_claude_thread(session_id, sdk_session_id);
     }
 
     /// Check whether a Claude SDK session ID is managed by a direct session
     pub fn is_managed_claude_thread(&self, sdk_session_id: &str) -> bool {
-        self.claude_threads.contains_key(sdk_session_id)
+        self.connectors.is_managed_claude_thread(sdk_session_id)
     }
 
     /// Resolve a Claude SDK session ID to the owning OrbitDock session ID
     #[allow(dead_code)]
     pub fn resolve_claude_thread(&self, sdk_session_id: &str) -> Option<String> {
-        self.claude_threads.get(sdk_session_id).map(|r| r.clone())
+        self.connectors.resolve_claude_thread(sdk_session_id)
     }
 
     /// Find an active direct Claude session for a project that hasn't registered its SDK ID yet.
@@ -416,11 +564,7 @@ impl SessionRegistry {
         use orbitdock_protocol::{ClaudeIntegrationMode, Provider, SessionStatus};
 
         // Collect registered session IDs for quick lookup
-        let registered: std::collections::HashSet<String> = self
-            .claude_threads
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect();
+        let registered = self.connectors.registered_claude_session_ids();
 
         self.sessions
             .iter()
@@ -437,28 +581,22 @@ impl SessionRegistry {
 
     /// Look up the Codex thread ID for a given session ID (reverse lookup)
     pub fn codex_thread_for_session(&self, session_id: &str) -> Option<String> {
-        self.codex_threads
-            .iter()
-            .find(|entry| entry.value() == session_id)
-            .map(|entry| entry.key().clone())
+        self.connectors.codex_thread_for_session(session_id)
     }
 
     /// Look up the Claude SDK session ID for a given session ID (reverse lookup)
     pub fn claude_sdk_id_for_session(&self, session_id: &str) -> Option<String> {
-        self.claude_threads
-            .iter()
-            .find(|entry| entry.value() == session_id)
-            .map(|entry| entry.key().clone())
+        self.connectors.claude_sdk_id_for_session(session_id)
     }
 
     /// Check if a session already has a live connector (action channel registered)
     pub fn has_codex_connector(&self, session_id: &str) -> bool {
-        self.codex_actions.contains_key(session_id)
+        self.connectors.has_codex_connector(session_id)
     }
 
     /// Check if a session already has a live Claude connector
     pub fn has_claude_connector(&self, session_id: &str) -> bool {
-        self.claude_actions.contains_key(session_id)
+        self.connectors.has_claude_connector(session_id)
     }
 
     /// Subscribe to list updates
@@ -527,8 +665,9 @@ impl SessionRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::collect_recent_projects;
+    use super::{collect_recent_projects, SessionRegistry};
     use std::collections::HashSet;
+    use tokio::sync::mpsc;
 
     #[test]
     fn collect_recent_projects_hides_removed_worktree_paths() {
@@ -584,5 +723,21 @@ mod tests {
             Some("2026-03-08T12:00:00Z")
         );
         assert_eq!(projects[1].path, "/other");
+    }
+
+    #[test]
+    fn active_client_primary_claims_dedup_by_client_and_ignore_non_primary() {
+        let (persist_tx, _persist_rx) = mpsc::channel(8);
+        let registry = SessionRegistry::new_with_primary(persist_tx, true);
+
+        registry.set_client_primary_claim(1, "client-a".into(), "MacBook Pro".into(), true);
+        registry.set_client_primary_claim(2, "client-a".into(), "iPhone".into(), true);
+        registry.set_client_primary_claim(3, "client-b".into(), "Studio".into(), false);
+
+        let claims = registry.active_client_primary_claims();
+
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].client_id, "client-a");
+        assert_eq!(claims[0].device_name, "MacBook Pro");
     }
 }
