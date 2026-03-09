@@ -14,6 +14,7 @@ mod server_meta;
 mod session_actions;
 mod session_lifecycle;
 mod sessions;
+mod shell;
 mod worktrees;
 
 use axum::{
@@ -24,17 +25,15 @@ use axum::{
     Json,
 };
 use orbitdock_protocol::{
-    ApprovalHistoryItem, ImageInput, MentionInput, Message, ServerMessage, SessionState,
-    SessionSummary, SkillInput, UsageErrorInfo,
+    ApprovalHistoryItem, ImageInput, MentionInput, Message, SessionState, SessionSummary,
+    SkillInput, UsageErrorInfo,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::oneshot;
 use tracing::{error, info};
 
 use crate::infrastructure::persistence::{
     delete_approval, list_approvals, load_messages_for_session, PersistCommand,
 };
-use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_queries::{
     load_conversation_bootstrap, load_conversation_page, load_full_session_state, SessionLoadError,
 };
@@ -82,250 +81,8 @@ pub use sessions::{
     get_conversation_bootstrap, get_conversation_history, get_session, list_sessions,
     mark_session_read,
 };
+pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
 pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};
-
-#[derive(Debug, Deserialize)]
-pub struct ExecuteShellRequest {
-    pub command: String,
-    #[serde(default)]
-    pub cwd: Option<String>,
-    #[serde(default)]
-    pub timeout_secs: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ExecuteShellResponse {
-    pub request_id: String,
-    pub accepted: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CancelShellRequest {
-    pub request_id: String,
-}
-
-pub async fn execute_shell_endpoint(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<ExecuteShellRequest>,
-) -> Result<Json<ExecuteShellResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let resolved_cwd = if let Some(ref explicit) = body.cwd {
-        explicit.clone()
-    } else if let Some(actor) = state.get_session(&session_id) {
-        let snap = actor.snapshot();
-        snap.current_cwd
-            .clone()
-            .unwrap_or_else(|| snap.project_path.clone())
-    } else {
-        return Err(session_not_found_error(&session_id));
-    };
-
-    let request_id = orbitdock_protocol::new_id();
-    let actor = state
-        .get_session(&session_id)
-        .ok_or_else(|| session_not_found_error(&session_id))?;
-
-    // Broadcast shell started
-    actor
-        .send(SessionCommand::Broadcast {
-            msg: ServerMessage::ShellStarted {
-                session_id: session_id.clone(),
-                request_id: request_id.clone(),
-                command: body.command.clone(),
-            },
-        })
-        .await;
-
-    // Create shell message
-    let ts_millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let shell_msg = orbitdock_protocol::Message {
-        id: request_id.clone(),
-        session_id: session_id.clone(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Shell,
-        content: body.command.clone(),
-        tool_name: None,
-        tool_input: None,
-        tool_output: None,
-        is_error: false,
-        is_in_progress: true,
-        timestamp: crate::support::session_time::iso_timestamp(ts_millis),
-        duration_ms: None,
-        images: vec![],
-    };
-
-    actor
-        .send(SessionCommand::ProcessEvent {
-            event: crate::domain::sessions::transition::Input::MessageCreated(shell_msg),
-        })
-        .await;
-
-    // Start shell execution
-    let shell_execution = state
-        .shell_service()
-        .start(
-            request_id.clone(),
-            session_id.clone(),
-            body.command,
-            resolved_cwd,
-            body.timeout_secs.unwrap_or(120),
-        )
-        .map_err(|_| {
-            (
-                StatusCode::CONFLICT,
-                Json(ApiErrorResponse {
-                    code: "shell_duplicate_request_id",
-                    error: format!("Shell request {} is already active", request_id),
-                }),
-            )
-        })?;
-
-    // Spawn background task to stream output (same pattern as WS handler)
-    let state_ref = state.clone();
-    let sid = session_id.clone();
-    let rid = request_id.clone();
-    tokio::spawn(async move {
-        let mut chunk_rx = shell_execution.chunk_rx;
-        let completion_rx = shell_execution.completion_rx;
-        let mut streamed_output = String::new();
-        let mut last_stream_emit = std::time::Instant::now();
-        const SHELL_STREAM_THROTTLE_MS: u128 = 120;
-
-        while let Some(chunk) = chunk_rx.recv().await {
-            if !chunk.stdout.is_empty() {
-                streamed_output.push_str(&chunk.stdout);
-            }
-            if !chunk.stderr.is_empty() {
-                streamed_output.push_str(&chunk.stderr);
-            }
-            let now = std::time::Instant::now();
-            if now.duration_since(last_stream_emit).as_millis() < SHELL_STREAM_THROTTLE_MS {
-                continue;
-            }
-            last_stream_emit = now;
-            if let Some(actor) = state_ref.get_session(&sid) {
-                actor
-                    .send(SessionCommand::ProcessEvent {
-                        event: crate::domain::sessions::transition::Input::MessageUpdated {
-                            message_id: rid.clone(),
-                            content: None,
-                            tool_output: Some(streamed_output.clone()),
-                            is_error: None,
-                            is_in_progress: Some(true),
-                            duration_ms: None,
-                        },
-                    })
-                    .await;
-            }
-        }
-
-        let result = match completion_rx.await {
-            Ok(result) => result,
-            Err(recv_err) => crate::infrastructure::shell::ShellResult {
-                stdout: String::new(),
-                stderr: format!("Shell execution completion channel failed: {recv_err}"),
-                exit_code: None,
-                duration_ms: 0,
-                outcome: crate::infrastructure::shell::ShellOutcome::Failed,
-            },
-        };
-
-        let is_error = match result.outcome {
-            crate::infrastructure::shell::ShellOutcome::Completed => result.exit_code != Some(0),
-            crate::infrastructure::shell::ShellOutcome::Failed
-            | crate::infrastructure::shell::ShellOutcome::TimedOut => true,
-            crate::infrastructure::shell::ShellOutcome::Canceled => false,
-        };
-        let combined_output = if result.stderr.is_empty() {
-            result.stdout.clone()
-        } else if result.stdout.is_empty() {
-            result.stderr.clone()
-        } else {
-            format!("{}\n{}", result.stdout, result.stderr)
-        };
-        let final_output = if combined_output.is_empty() {
-            streamed_output
-        } else {
-            combined_output
-        };
-        let outcome = match result.outcome {
-            crate::infrastructure::shell::ShellOutcome::Completed => {
-                orbitdock_protocol::ShellExecutionOutcome::Completed
-            }
-            crate::infrastructure::shell::ShellOutcome::Failed => {
-                orbitdock_protocol::ShellExecutionOutcome::Failed
-            }
-            crate::infrastructure::shell::ShellOutcome::TimedOut => {
-                orbitdock_protocol::ShellExecutionOutcome::TimedOut
-            }
-            crate::infrastructure::shell::ShellOutcome::Canceled => {
-                orbitdock_protocol::ShellExecutionOutcome::Canceled
-            }
-        };
-
-        if let Some(actor) = state_ref.get_session(&sid) {
-            actor
-                .send(SessionCommand::ProcessEvent {
-                    event: crate::domain::sessions::transition::Input::MessageUpdated {
-                        message_id: rid.clone(),
-                        content: None,
-                        tool_output: Some(final_output),
-                        is_error: Some(is_error),
-                        is_in_progress: Some(false),
-                        duration_ms: Some(result.duration_ms),
-                    },
-                })
-                .await;
-            actor
-                .send(SessionCommand::Broadcast {
-                    msg: ServerMessage::ShellOutput {
-                        session_id: sid,
-                        request_id: rid,
-                        stdout: result.stdout,
-                        stderr: result.stderr,
-                        exit_code: result.exit_code,
-                        duration_ms: result.duration_ms,
-                        outcome,
-                    },
-                })
-                .await;
-        }
-    });
-
-    Ok(Json(ExecuteShellResponse {
-        request_id,
-        accepted: true,
-    }))
-}
-
-pub async fn cancel_shell_endpoint(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<CancelShellRequest>,
-) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    if state.get_session(&session_id).is_none() {
-        return Err(session_not_found_error(&session_id));
-    }
-
-    match state.shell_service().cancel(&session_id, &body.request_id) {
-        crate::infrastructure::shell::ShellCancelStatus::Canceled => {
-            Ok(Json(AcceptedResponse { accepted: true }))
-        }
-        crate::infrastructure::shell::ShellCancelStatus::NotFound => Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "shell_not_found",
-                error: format!(
-                    "No active shell request {} found for session {}",
-                    body.request_id, session_id
-                ),
-            }),
-        )),
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -339,8 +96,8 @@ mod tests {
     use axum::response::IntoResponse;
     use orbitdock_protocol::{
         McpAuthStatus, McpResource, McpResourceTemplate, McpTool, Message, MessageType, Provider,
-        RemoteSkillSummary, ReviewCommentStatus, ReviewCommentTag, SkillErrorInfo, SkillMetadata,
-        SkillScope, SkillsListEntry,
+        RemoteSkillSummary, ReviewCommentStatus, ReviewCommentTag, ServerMessage, SkillErrorInfo,
+        SkillMetadata, SkillScope, SkillsListEntry,
     };
     use serde_json::json;
     use std::collections::HashMap;
@@ -348,6 +105,7 @@ mod tests {
     use std::sync::Once;
     use tokio::sync::mpsc;
 
+    use crate::runtime::session_commands::SessionCommand;
     use crate::transport::http::review_comments::{
         CreateReviewCommentRequest, ReviewCommentsQuery, UpdateReviewCommentRequest,
     };

@@ -1,5 +1,5 @@
 use super::*;
-use orbitdock_protocol::CodexAccountStatus;
+use orbitdock_protocol::{CodexAccountStatus, ServerMessage};
 
 #[derive(Debug, Serialize)]
 pub struct CodexAccountResponse {

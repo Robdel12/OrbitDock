@@ -2,6 +2,7 @@ use super::*;
 use orbitdock_connector_claude::session::ClaudeAction;
 use orbitdock_connector_core::ConnectorError;
 use orbitdock_protocol::{PermissionRule, SessionPermissionRules};
+use tokio::sync::oneshot;
 use tracing::info;
 
 #[derive(Debug, Serialize)]
@@ -209,7 +210,7 @@ async fn try_get_settings_from_cli(
         .await
         .ok()?;
 
-    let val = tokio::time::timeout(std::time::Duration::from_secs(10), reply_rx)
+    let val: serde_json::Value = tokio::time::timeout(std::time::Duration::from_secs(10), reply_rx)
         .await
         .ok()?
         .ok()?

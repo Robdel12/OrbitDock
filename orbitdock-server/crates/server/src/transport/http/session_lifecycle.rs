@@ -1,12 +1,16 @@
 use super::*;
 use crate::connectors::codex_session::CodexAction;
+use crate::domain::sessions::session::SessionHandle;
 use crate::runtime::restored_sessions::{
     hydrate_restored_messages_if_missing, parse_provider, restored_session_to_handle,
 };
+use crate::runtime::session_commands::SessionCommand;
 use crate::support::session_modes::{
     is_passive_rollout_session, is_takeover_eligible_passive_session,
 };
 use orbitdock_connector_claude::session::ClaudeAction;
+use orbitdock_protocol::ServerMessage;
+use tokio::sync::oneshot;
 use tracing::{error, info, warn};
 
 #[derive(Debug, Deserialize)]
@@ -794,7 +798,7 @@ pub async fn takeover_session(
         .send(SessionCommand::TakeHandle { reply: take_tx })
         .await;
 
-    let mut handle = match take_rx.await {
+    let mut handle: SessionHandle = match take_rx.await {
         Ok(h) => h,
         Err(_) => {
             return Err((
