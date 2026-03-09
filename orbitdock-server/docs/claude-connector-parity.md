@@ -2,7 +2,7 @@
 
 Central checklist for what OrbitDock handles for Claude sessions — both **direct** (managed subprocess via stdin/stdout NDJSON) and **passive** (hook-based via HTTP POST).
 
-**Source of truth:** `docs/node_modules/@anthropic-ai/claude-agent-sdk/` (v0.2.62, Claude Code v2.1.62)
+**Source of truth for local SDK work:** `docs/node_modules/@anthropic-ai/claude-agent-sdk/` (v0.2.62, Claude Code v2.1.62)
 
 Last updated: 2026-03-02
 
@@ -501,13 +501,13 @@ Useful env vars we could set on the subprocess (all verified in SDK source):
 | `connector-claude/src/session.rs` | `ClaudeAction` enum + `handle_action()` dispatch |
 | `connector-core/src/event.rs` | `ConnectorEvent` enum (shared by Codex + Claude) |
 | `connector-core/src/transition.rs` | Pure state machine: Input → (State, Effects) |
-| `server/src/claude_session.rs` | Event loop: connector events + actions + session commands |
-| `server/src/hook_handler.rs` | HTTP POST hook handler (passive + managed thread routing) |
-| `server/src/session_command_handler.rs` | Shared session command processing (provider-agnostic) |
-| `server/src/http_api.rs` | REST endpoints (MCP, skills, etc.) with Claude fallback |
-| `server/src/ws_handlers/messaging.rs` | WS message handlers (sendMessage, approve, steer, undo) |
-| `server/src/ws_handlers/approvals.rs` | WS approval handlers (approveTool, answerQuestion) |
-| `server/src/ws_handlers/session_lifecycle.rs` | WS session CRUD (create, end, fork) |
+| `server/src/connectors/claude_session.rs` | Event loop: connector events, actions, and session command processing |
+| `server/src/connectors/hook_handler.rs` | HTTP POST hook entrypoint for passive sessions and managed-thread routing |
+| `server/src/runtime/session_command_handler.rs` | Provider-agnostic session command processing |
+| `server/src/transport/http/mod.rs` | REST surface for Claude-facing session capabilities and connector actions |
+| `server/src/transport/websocket/handlers/messaging.rs` | WebSocket conversation handlers (send, steer, undo, rollback, compact) |
+| `server/src/transport/websocket/handlers/approvals.rs` | WebSocket approval and question handlers |
+| `server/src/transport/websocket/handlers/session_lifecycle.rs` | WebSocket lifecycle handlers (resume, takeover, direct start) |
 | `docs/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts` | SDK type definitions (source of truth) |
 | `docs/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs` | SDK runtime (readMessages, processControlRequest, spawn args) |
 | `docs/node_modules/@anthropic-ai/claude-agent-sdk/cli.js` | Full CLI source (Zod schemas, message construction, flag parsing) |

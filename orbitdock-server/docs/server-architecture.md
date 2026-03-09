@@ -2,14 +2,14 @@
 
 This doc is the companion to `docs/API.md`.
 
-`API.md` is about routes and payloads. This file is about code shape, ownership, and how we want the server to keep evolving without sliding back into a giant crate root.
+`API.md` is the transport contract: routes, payloads, and wire behavior. This file is the architecture reference: code shape, ownership, and the boundaries we keep intact as the server grows.
 
 ## Goals
 
 - Keep `crates/server` focused on server behavior, not CLI command structure.
 - Keep side effects at the edges and push decisions into pure helpers where we can.
 - Make transport modules thin enough that they read as delivery layers, not second application layers.
-- Make refactors safe by giving each layer a clear job.
+- Give each layer a clear job so the codebase stays predictable.
 
 ## Layer Ownership
 
@@ -24,7 +24,7 @@ Owns HTTP and WebSocket delivery only.
 
 `transport` should not decide business policy. If a handler needs branching logic that is not about request parsing or response formatting, that logic probably belongs lower.
 
-Current examples:
+Examples:
 
 - `transport/http/router.rs` wires routes only
 - `transport/websocket/router.rs` classifies and dispatches messages only
@@ -149,7 +149,7 @@ Runtime operations should:
 - keep pure planning separate from side effects when practical
 - avoid pulling transport types into runtime APIs unless the transport concern is the actual output
 
-Recent examples in the current refactor:
+Examples:
 
 - `session_subscriptions.rs` owns subscribe reactivation and lazy connector startup preparation
 - `session_fork_policy.rs` owns fork config and history selection rules
@@ -318,15 +318,13 @@ That keeps policy and orchestration centralized, and it makes outcome-focused te
 
 ## WebSocket Structure
 
-The websocket layer now has a clearer shape than it started with:
+The websocket layer has a deliberately narrow shape:
 
 - `router.rs` is the single dispatch entrypoint
 - `message_groups.rs` owns top-level message classification
 - `rest_only_policy.rs` owns the mapping from websocket requests to REST routes
 - `handlers/subscribe.rs` is focused on routing subscribe requests, not rebuilding subscription state by hand
 - `transport.rs` owns replay/snapshot delivery behavior
-
-The remaining goal is to keep shrinking `transport/websocket/mod.rs` until it is mostly module wiring plus a small set of genuinely websocket-wide tests.
 
 ## Testing Rules
 
@@ -359,35 +357,3 @@ Keep transport tests for:
 - snapshot and replay delivery behavior
 - connector command dispatch
 - cross-layer integration outcomes
-
-## Concurrency-Friendly Work Splits
-
-This architecture is designed so multiple workers can make progress safely.
-
-Good parallel slices:
-
-- `admin/*` API shaping and planner extraction
-- `transport/http/*` facade thinning and router grouping
-- `runtime/*` command/query cleanup
-- docs and tests for the newly extracted pure helpers
-
-Avoid overlapping:
-
-- `session_lifecycle.rs` and deep runtime session command changes in the same pass
-- facade thinning and broad import rewrites in the same diff unless the write set is very small
-
-## Current Direction
-
-The current cleanup has already done the big structural work:
-
-- `crates/cli` owns the single binary
-- `crates/server` is library-first
-- root-level `cmd_*` is gone from the server crate
-- server modules are grouped by responsibility
-
-The next phase is about quality of seams:
-
-- make admin APIs read like a library
-- keep transport layers thin
-- move decision-heavy flows behind pure planners
-- keep documentation and tests close behind the code so the new structure sticks

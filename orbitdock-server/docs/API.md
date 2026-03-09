@@ -2,6 +2,8 @@
 
 This file is intentionally narrow: routes, payloads, and transport rules.
 
+This is the source of truth for the server's HTTP and WebSocket contract. For code organization, layer ownership, and design rules, see `docs/server-architecture.md`.
+
 ## Transport Rules
 
 - Use **HTTP REST** for reads, mutations, and fire-and-forget actions.
