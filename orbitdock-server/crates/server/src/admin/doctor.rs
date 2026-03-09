@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::infrastructure::{auth_tokens, crypto, paths};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Status {
     Pass,
     Warn,
@@ -33,6 +34,14 @@ struct DoctorReport {
     passed: u32,
     warned: u32,
     failed: u32,
+}
+
+struct HookTransportConfigStatus<'a> {
+    path: &'a Path,
+    server_url: Option<&'a str>,
+    encrypted_token_present: bool,
+    legacy_plaintext_token: bool,
+    encrypted_token_decryptable: bool,
 }
 
 pub fn print_diagnostics(data_dir: &Path) -> anyhow::Result<()> {
@@ -234,51 +243,10 @@ fn check_auth_token() -> Check {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
 
-    let active_db_tokens = auth_tokens::active_token_count();
-
-    match (env_token, active_db_tokens) {
-        (Some(token), Ok(count)) if count > 0 => Check {
-            name: "Auth token",
-            status: Status::Pass,
-            detail: format!(
-                "configured via ORBITDOCK_AUTH_TOKEN ({}...) and {} active database token(s)",
-                &token[..8.min(token.len())],
-                count
-            ),
-        },
-        (Some(token), Ok(_)) => Check {
-            name: "Auth token",
-            status: Status::Pass,
-            detail: format!(
-                "configured via ORBITDOCK_AUTH_TOKEN ({}...)",
-                &token[..8.min(token.len())]
-            ),
-        },
-        (Some(token), Err(e)) => Check {
-            name: "Auth token",
-            status: Status::Pass,
-            detail: format!(
-                "configured via ORBITDOCK_AUTH_TOKEN ({}...), database token check failed: {}",
-                &token[..8.min(token.len())],
-                e
-            ),
-        },
-        (None, Ok(count)) if count > 0 => Check {
-            name: "Auth token",
-            status: Status::Pass,
-            detail: format!("{} active database token(s)", count),
-        },
-        (None, Ok(_)) => Check {
-            name: "Auth token",
-            status: Status::Warn,
-            detail: "not configured (server accepts unauthenticated requests)".to_string(),
-        },
-        (None, Err(e)) => Check {
-            name: "Auth token",
-            status: Status::Warn,
-            detail: format!("not configured, and database token check failed: {}", e),
-        },
-    }
+    classify_auth_token(
+        env_token.as_deref(),
+        auth_tokens::active_token_count().map_err(|error| error.to_string()),
+    )
 }
 
 fn check_hook_transport_config() -> Check {
@@ -313,17 +281,6 @@ fn check_hook_transport_config() -> Check {
         }
     };
 
-    let Some(server_url) = parsed.get("server_url").and_then(|v| v.as_str()) else {
-        return Check {
-            name: "Hook transport",
-            status: Status::Fail,
-            detail: format!(
-                "{} missing required field `server_url`",
-                config_path.display()
-            ),
-        };
-    };
-
     let token_present = parsed
         .get("auth_token_enc")
         .and_then(|v| v.as_str())
@@ -335,46 +292,20 @@ fn check_hook_transport_config() -> Check {
         .map(|v| !v.trim().is_empty())
         .unwrap_or(false);
 
-    if legacy_plaintext_token && !token_present {
-        return Check {
-            name: "Hook transport",
-            status: Status::Warn,
-            detail: format!(
-                "{} uses legacy plaintext auth_token; rerun `orbitdock install-hooks`",
-                config_path.display()
-            ),
-        };
-    }
+    let encrypted_token_decryptable = parsed
+        .get("auth_token_enc")
+        .and_then(|v| v.as_str())
+        .and_then(crypto::decrypt)
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
 
-    if token_present {
-        let decryptable = parsed
-            .get("auth_token_enc")
-            .and_then(|v| v.as_str())
-            .and_then(crypto::decrypt)
-            .map(|v| !v.trim().is_empty())
-            .unwrap_or(false);
-        if !decryptable {
-            return Check {
-                name: "Hook transport",
-                status: Status::Warn,
-                detail: format!(
-                    "{} has encrypted auth token but decryption failed (check encryption key)",
-                    config_path.display()
-                ),
-            };
-        }
-    }
-
-    Check {
-        name: "Hook transport",
-        status: Status::Pass,
-        detail: format!(
-            "{} (server_url={}, auth_token={})",
-            config_path.display(),
-            server_url,
-            if token_present { "set" } else { "unset" }
-        ),
-    }
+    classify_hook_transport_config(HookTransportConfigStatus {
+        path: &config_path,
+        server_url: parsed.get("server_url").and_then(|v| v.as_str()),
+        encrypted_token_present: token_present,
+        legacy_plaintext_token,
+        encrypted_token_decryptable,
+    })
 }
 
 fn check_hooks_in_settings() -> Check {
@@ -419,40 +350,8 @@ fn check_hooks_in_settings() -> Check {
         "SubagentStop",
     ];
 
-    let mut found = 0;
-    for hook in &expected_hooks {
-        if content.contains(hook)
-            && (content.contains("orbitdock")
-                || content.contains("hook.sh")
-                || content.contains("hook-forward"))
-        {
-            found += 1;
-        }
-    }
-
-    if found == expected_hooks.len() {
-        Check {
-            name: "Claude hooks",
-            status: Status::Pass,
-            detail: format!("{}/{} hooks registered", found, expected_hooks.len()),
-        }
-    } else if found > 0 {
-        Check {
-            name: "Claude hooks",
-            status: Status::Warn,
-            detail: format!(
-                "{}/{} hooks registered (run install-hooks to fix)",
-                found,
-                expected_hooks.len()
-            ),
-        }
-    } else {
-        Check {
-            name: "Claude hooks",
-            status: Status::Fail,
-            detail: "no OrbitDock hooks found (run install-hooks)".to_string(),
-        }
-    }
+    let found = count_registered_hooks(&content, &expected_hooks);
+    classify_hook_registration(found, expected_hooks.len())
 }
 
 fn check_spool_queue() -> Check {
@@ -514,22 +413,7 @@ fn check_wal_size() -> Check {
     }
 
     match std::fs::metadata(&wal_path) {
-        Ok(meta) => {
-            let size_kb = meta.len() / 1024;
-            if size_kb > 50_000 {
-                Check {
-                    name: "WAL file",
-                    status: Status::Warn,
-                    detail: format!("{} KB (large — may indicate checkpoint issue)", size_kb),
-                }
-            } else {
-                Check {
-                    name: "WAL file",
-                    status: Status::Pass,
-                    detail: format!("{} KB", size_kb),
-                }
-            }
-        }
+        Ok(meta) => classify_wal_size(meta.len() / 1024),
         Err(e) => Check {
             name: "WAL file",
             status: Status::Warn,
@@ -540,8 +424,11 @@ fn check_wal_size() -> Check {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_doctor_report, Check, Status};
-
+    use super::{
+        build_doctor_report, classify_auth_token, classify_disk_space_gb,
+        classify_hook_registration, classify_hook_transport_config, classify_wal_size,
+        count_registered_hooks, Check, HookTransportConfigStatus, Status,
+    };
     #[test]
     fn doctor_report_counts_statuses() {
         let report = build_doctor_report(vec![
@@ -571,6 +458,90 @@ mod tests {
         assert_eq!(report.warned, 1);
         assert_eq!(report.failed, 1);
         assert_eq!(report.checks.len(), 4);
+    }
+
+    #[test]
+    fn classify_hook_registration_distinguishes_full_partial_and_missing() {
+        let pass = classify_hook_registration(15, 15);
+        let warn = classify_hook_registration(4, 15);
+        let fail = classify_hook_registration(0, 15);
+
+        assert_eq!(pass.status, Status::Pass);
+        assert_eq!(warn.status, Status::Warn);
+        assert_eq!(fail.status, Status::Fail);
+    }
+
+    #[test]
+    fn count_registered_hooks_requires_orbitdock_transport_markers() {
+        let expected = ["SessionStart", "SessionEnd", "Notification"];
+        let full = r#"{"hooks":{"SessionStart":"orbitdock hook-forward","SessionEnd":"orbitdock hook-forward","Notification":"orbitdock hook-forward"}}"#;
+        let unrelated =
+            r#"{"hooks":{"SessionStart":"python something","SessionEnd":"python something"}}"#;
+
+        assert_eq!(count_registered_hooks(full, &expected), 3);
+        assert_eq!(count_registered_hooks(unrelated, &expected), 0);
+    }
+
+    #[test]
+    fn classify_hook_transport_config_handles_warning_cases() {
+        let path = std::path::PathBuf::from("/tmp/hook-forward.json");
+
+        let missing_server_url = classify_hook_transport_config(HookTransportConfigStatus {
+            path: &path,
+            server_url: None,
+            encrypted_token_present: false,
+            legacy_plaintext_token: false,
+            encrypted_token_decryptable: false,
+        });
+        assert_eq!(missing_server_url.status, Status::Fail);
+
+        let legacy_token = classify_hook_transport_config(HookTransportConfigStatus {
+            path: &path,
+            server_url: Some("http://127.0.0.1:4000"),
+            encrypted_token_present: false,
+            legacy_plaintext_token: true,
+            encrypted_token_decryptable: false,
+        });
+        assert_eq!(legacy_token.status, Status::Warn);
+
+        let undecryptable_token = classify_hook_transport_config(HookTransportConfigStatus {
+            path: &path,
+            server_url: Some("http://127.0.0.1:4000"),
+            encrypted_token_present: true,
+            legacy_plaintext_token: false,
+            encrypted_token_decryptable: false,
+        });
+        assert_eq!(undecryptable_token.status, Status::Warn);
+
+        let healthy = classify_hook_transport_config(HookTransportConfigStatus {
+            path: &path,
+            server_url: Some("http://127.0.0.1:4000"),
+            encrypted_token_present: true,
+            legacy_plaintext_token: false,
+            encrypted_token_decryptable: true,
+        });
+        assert_eq!(healthy.status, Status::Pass);
+    }
+
+    #[test]
+    fn wal_and_disk_classifiers_apply_thresholds() {
+        assert_eq!(classify_wal_size(10).status, Status::Pass);
+        assert_eq!(classify_wal_size(60_000).status, Status::Warn);
+
+        assert_eq!(classify_disk_space_gb(0).status, Status::Fail);
+        assert_eq!(classify_disk_space_gb(3).status, Status::Warn);
+        assert_eq!(classify_disk_space_gb(12).status, Status::Pass);
+    }
+
+    #[test]
+    fn auth_token_classifier_matches_user_facing_states() {
+        let env_only = classify_auth_token(Some("abcd1234"), Ok(0));
+        let db_only = classify_auth_token(None, Ok(2));
+        let missing = classify_auth_token(None, Ok(0));
+
+        assert_eq!(env_only.status, Status::Pass);
+        assert_eq!(db_only.status, Status::Pass);
+        assert_eq!(missing.status, Status::Warn);
     }
 }
 
@@ -641,25 +612,7 @@ fn check_disk_space(data_dir: &Path) -> Check {
                 let free_bytes = stat.f_bavail as u64 * stat.f_frsize;
                 let free_gb = free_bytes / (1024 * 1024 * 1024);
 
-                if free_gb < 1 {
-                    return Check {
-                        name: "Disk space",
-                        status: Status::Fail,
-                        detail: format!("{} GB free (critically low)", free_gb),
-                    };
-                } else if free_gb < 5 {
-                    return Check {
-                        name: "Disk space",
-                        status: Status::Warn,
-                        detail: format!("{} GB free (low)", free_gb),
-                    };
-                } else {
-                    return Check {
-                        name: "Disk space",
-                        status: Status::Pass,
-                        detail: format!("{} GB free", free_gb),
-                    };
-                }
+                return classify_disk_space_gb(free_gb);
             }
         }
     }
@@ -668,5 +621,181 @@ fn check_disk_space(data_dir: &Path) -> Check {
         name: "Disk space",
         status: Status::Warn,
         detail: "cannot determine".to_string(),
+    }
+}
+
+fn classify_auth_token(
+    env_token: Option<&str>,
+    active_db_tokens: Result<i64, String>,
+) -> Check {
+    match (env_token, active_db_tokens) {
+        (Some(token), Ok(count)) if count > 0 => Check {
+            name: "Auth token",
+            status: Status::Pass,
+            detail: format!(
+                "configured via ORBITDOCK_AUTH_TOKEN ({}...) and {} active database token(s)",
+                &token[..8.min(token.len())],
+                count
+            ),
+        },
+        (Some(token), Ok(_)) => Check {
+            name: "Auth token",
+            status: Status::Pass,
+            detail: format!(
+                "configured via ORBITDOCK_AUTH_TOKEN ({}...)",
+                &token[..8.min(token.len())]
+            ),
+        },
+        (Some(token), Err(e)) => Check {
+            name: "Auth token",
+            status: Status::Pass,
+            detail: format!(
+                "configured via ORBITDOCK_AUTH_TOKEN ({}...), database token check failed: {}",
+                &token[..8.min(token.len())],
+                e
+            ),
+        },
+        (None, Ok(count)) if count > 0 => Check {
+            name: "Auth token",
+            status: Status::Pass,
+            detail: format!("{} active database token(s)", count),
+        },
+        (None, Ok(_)) => Check {
+            name: "Auth token",
+            status: Status::Warn,
+            detail: "not configured (server accepts unauthenticated requests)".to_string(),
+        },
+        (None, Err(e)) => Check {
+            name: "Auth token",
+            status: Status::Warn,
+            detail: format!("not configured, and database token check failed: {}", e),
+        },
+    }
+}
+
+fn classify_hook_transport_config(status: HookTransportConfigStatus<'_>) -> Check {
+    let Some(server_url) = status.server_url else {
+        return Check {
+            name: "Hook transport",
+            status: Status::Fail,
+            detail: format!(
+                "{} missing required field `server_url`",
+                status.path.display()
+            ),
+        };
+    };
+
+    if status.legacy_plaintext_token && !status.encrypted_token_present {
+        return Check {
+            name: "Hook transport",
+            status: Status::Warn,
+            detail: format!(
+                "{} uses legacy plaintext auth_token; rerun `orbitdock install-hooks`",
+                status.path.display()
+            ),
+        };
+    }
+
+    if status.encrypted_token_present && !status.encrypted_token_decryptable {
+        return Check {
+            name: "Hook transport",
+            status: Status::Warn,
+            detail: format!(
+                "{} has encrypted auth token but decryption failed (check encryption key)",
+                status.path.display()
+            ),
+        };
+    }
+
+    Check {
+        name: "Hook transport",
+        status: Status::Pass,
+        detail: format!(
+            "{} (server_url={}, auth_token={})",
+            status.path.display(),
+            server_url,
+            if status.encrypted_token_present {
+                "set"
+            } else {
+                "unset"
+            }
+        ),
+    }
+}
+
+fn count_registered_hooks(content: &str, expected_hooks: &[&str]) -> usize {
+    if !(content.contains("orbitdock")
+        || content.contains("hook.sh")
+        || content.contains("hook-forward"))
+    {
+        return 0;
+    }
+
+    expected_hooks
+        .iter()
+        .filter(|hook| content.contains(**hook))
+        .count()
+}
+
+fn classify_hook_registration(found: usize, expected_total: usize) -> Check {
+    if found == expected_total {
+        Check {
+            name: "Claude hooks",
+            status: Status::Pass,
+            detail: format!("{}/{} hooks registered", found, expected_total),
+        }
+    } else if found > 0 {
+        Check {
+            name: "Claude hooks",
+            status: Status::Warn,
+            detail: format!(
+                "{}/{} hooks registered (run install-hooks to fix)",
+                found, expected_total
+            ),
+        }
+    } else {
+        Check {
+            name: "Claude hooks",
+            status: Status::Fail,
+            detail: "no OrbitDock hooks found (run install-hooks)".to_string(),
+        }
+    }
+}
+
+fn classify_wal_size(size_kb: u64) -> Check {
+    if size_kb > 50_000 {
+        Check {
+            name: "WAL file",
+            status: Status::Warn,
+            detail: format!("{} KB (large — may indicate checkpoint issue)", size_kb),
+        }
+    } else {
+        Check {
+            name: "WAL file",
+            status: Status::Pass,
+            detail: format!("{} KB", size_kb),
+        }
+    }
+}
+
+fn classify_disk_space_gb(free_gb: u64) -> Check {
+    if free_gb < 1 {
+        Check {
+            name: "Disk space",
+            status: Status::Fail,
+            detail: format!("{} GB free (critically low)", free_gb),
+        }
+    } else if free_gb < 5 {
+        Check {
+            name: "Disk space",
+            status: Status::Warn,
+            detail: format!("{} GB free (low)", free_gb),
+        }
+    } else {
+        Check {
+            name: "Disk space",
+            status: Status::Pass,
+            detail: format!("{} GB free", free_gb),
+        }
     }
 }
