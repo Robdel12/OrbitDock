@@ -188,3 +188,66 @@ async fn load_subagent_tools(subagent_id: &str) -> Vec<SubagentTool> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{extract::Path, extract::Query, Json};
+
+    use crate::support::test_support::ensure_server_test_data_dir;
+
+    #[tokio::test]
+    async fn browse_directory_hides_dotfiles_and_returns_directories_first() {
+        let root = std::env::temp_dir().join(format!(
+            "orbitdock-api-browse-{}",
+            orbitdock_protocol::new_id()
+        ));
+        std::fs::create_dir_all(root.join("z-dir")).expect("create visible directory");
+        std::fs::write(root.join("a-file.txt"), "hello").expect("create visible file");
+        std::fs::write(root.join(".hidden.txt"), "secret").expect("create hidden file");
+
+        let Json(response) = browse_directory(Query(BrowseDirectoryQuery {
+            path: Some(root.to_string_lossy().to_string()),
+        }))
+        .await;
+
+        std::fs::remove_dir_all(&root).expect("remove browse test directory");
+
+        assert_eq!(response.path, root.to_string_lossy().to_string());
+        assert!(response
+            .entries
+            .iter()
+            .any(|entry| entry.name == "z-dir" && entry.is_dir));
+        assert!(response
+            .entries
+            .iter()
+            .any(|entry| entry.name == "a-file.txt" && !entry.is_dir));
+        assert!(!response
+            .entries
+            .iter()
+            .any(|entry| entry.name.starts_with('.')));
+
+        let first = response
+            .entries
+            .first()
+            .expect("expected at least one listing entry");
+        assert!(
+            first.is_dir,
+            "expected directories to be sorted before files"
+        );
+    }
+
+    #[tokio::test]
+    async fn subagent_tools_endpoint_returns_empty_when_subagent_missing() {
+        ensure_server_test_data_dir();
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let subagent_id = format!("sub-{}", orbitdock_protocol::new_id());
+
+        let Json(response) =
+            list_subagent_tools_endpoint(Path((session_id.clone(), subagent_id.clone()))).await;
+
+        assert_eq!(response.session_id, session_id);
+        assert_eq!(response.subagent_id, subagent_id);
+        assert!(response.tools.is_empty());
+    }
+}

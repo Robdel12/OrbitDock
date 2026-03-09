@@ -219,3 +219,72 @@ pub async fn mark_session_read(
         unread_count,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{extract::Path, extract::State, Json};
+    use orbitdock_protocol::{Message, MessageType, Provider};
+
+    use crate::domain::sessions::session::SessionHandle;
+    use crate::transport::http::test_support::new_test_state;
+
+    #[tokio::test]
+    async fn list_sessions_returns_runtime_summaries() {
+        let state = new_test_state(true);
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/orbitdock-api-test".to_string(),
+        );
+        state.add_session(handle);
+
+        let Json(response) = list_sessions(State(state)).await;
+        assert!(response
+            .sessions
+            .iter()
+            .any(|session| session.id == session_id));
+    }
+
+    #[tokio::test]
+    async fn get_session_returns_full_untruncated_message_content() {
+        let state = new_test_state(true);
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let mut handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/orbitdock-api-test".to_string(),
+        );
+        let large_content = "x".repeat(40_000);
+        handle.add_message(Message {
+            id: orbitdock_protocol::new_id(),
+            session_id: session_id.clone(),
+            sequence: None,
+            message_type: MessageType::Assistant,
+            content: large_content.clone(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            is_in_progress: false,
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            duration_ms: None,
+            images: vec![],
+        });
+        state.add_session(handle);
+
+        let response = get_session(Path(session_id), State(state)).await;
+        match response {
+            Ok(Json(payload)) => {
+                assert_eq!(payload.session.messages.len(), 1);
+                assert_eq!(payload.session.messages[0].content, large_content);
+                assert!(!payload.session.messages[0].content.contains("[truncated]"));
+            }
+            Err((status, body)) => panic!(
+                "expected successful session response, got status {:?} with error {:?}",
+                status, body.error
+            ),
+        }
+    }
+}
