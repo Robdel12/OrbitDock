@@ -1,19 +1,25 @@
 use std::sync::Arc;
 
-use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionStatus, TokenUsage,
-    TurnDiff, WorkStatus,
-};
+use orbitdock_protocol::SessionState;
 use tracing::warn;
 
 use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
 use crate::infrastructure::persistence::{
-    load_message_page_for_session, load_messages_for_session, load_messages_from_transcript_path,
-    load_session_by_id, load_subagents_for_session, RestoredSession,
+    load_message_page_for_session, load_messages_for_session, load_session_by_id,
+    load_subagents_for_session,
 };
 use crate::runtime::conversation_policy::{
     conversation_page_from_messages, conversation_page_with_total, expected_page_message_count,
     prepend_conversation_page, requires_coherent_history_page, COHERENT_HISTORY_MAX_MESSAGES,
+};
+use crate::runtime::query_fallback_policy::{
+    select_persisted_bootstrap_seed_source, select_persisted_raw_conversation_page_source,
+    select_restored_full_session_history_source, select_runtime_bootstrap_seed_source,
+    select_runtime_full_session_history_source, select_runtime_raw_conversation_page_source,
+    BootstrapSeedSource, FullSessionHistorySource, RawConversationPageSource,
+};
+use crate::runtime::restored_sessions::{
+    hydrate_restored_messages_if_missing, restored_session_to_state,
 };
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_registry::SessionRegistry;
@@ -117,6 +123,22 @@ async fn top_up_runtime_page_from_db(
     ))
 }
 
+fn conversation_page_from_db_page(
+    messages: Vec<orbitdock_protocol::Message>,
+    total_count: u64,
+) -> ConversationPage {
+    ConversationPage {
+        has_more_before: messages
+            .first()
+            .and_then(|message| message.sequence)
+            .is_some_and(|sequence| sequence > 0),
+        oldest_sequence: messages.first().and_then(|message| message.sequence),
+        newest_sequence: messages.last().and_then(|message| message.sequence),
+        total_message_count: total_count,
+        messages,
+    }
+}
+
 async fn load_raw_conversation_page(
     state: &Arc<SessionRegistry>,
     session_id: &str,
@@ -128,67 +150,64 @@ async fn load_raw_conversation_page(
             .conversation_page(before_sequence, limit)
             .await
             .map_err(SessionLoadError::Runtime)?;
-        if !page.messages.is_empty() || page.total_message_count > 0 {
-            return top_up_runtime_page_from_db(session_id, page, before_sequence, limit).await;
-        }
-
         let snapshot = actor.snapshot();
-        if let Some(path) = snapshot.transcript_path.clone() {
-            if let Ok(Some(loaded)) = actor
-                .load_transcript_and_sync(path, session_id.to_string())
-                .await
-            {
-                return Ok(conversation_page_from_messages(
-                    loaded.messages,
-                    before_sequence,
-                    limit,
-                ));
+        match select_runtime_raw_conversation_page_source(
+            !page.messages.is_empty() || page.total_message_count > 0,
+            snapshot.transcript_path.is_some(),
+        ) {
+            RawConversationPageSource::RuntimePage => {
+                return top_up_runtime_page_from_db(session_id, page, before_sequence, limit).await;
             }
+            RawConversationPageSource::RuntimeTranscript => {
+                if let Some(path) = snapshot.transcript_path.clone() {
+                    if let Ok(Some(loaded)) = actor
+                        .load_transcript_and_sync(path, session_id.to_string())
+                        .await
+                    {
+                        return Ok(conversation_page_from_messages(
+                            loaded.messages,
+                            before_sequence,
+                            limit,
+                        ));
+                    }
+                }
+            }
+            RawConversationPageSource::DatabasePage
+            | RawConversationPageSource::RestoredTranscript
+            | RawConversationPageSource::RestoredMessages => {}
         }
 
-        let page = load_message_page_for_session(session_id, before_sequence, limit)
+        let db_page = load_message_page_for_session(session_id, before_sequence, limit)
             .await
             .map_err(|err| SessionLoadError::Db(err.to_string()))?;
-        return Ok(ConversationPage {
-            has_more_before: page
-                .messages
-                .first()
-                .and_then(|message| message.sequence)
-                .is_some_and(|sequence| sequence > 0),
-            oldest_sequence: page.messages.first().and_then(|message| message.sequence),
-            newest_sequence: page.messages.last().and_then(|message| message.sequence),
-            total_message_count: page.total_count,
-            messages: page.messages,
-        });
+        return Ok(conversation_page_from_db_page(
+            db_page.messages,
+            db_page.total_count,
+        ));
     }
 
     match load_session_by_id(session_id).await {
         Ok(Some(mut restored)) => {
-            let page = load_message_page_for_session(session_id, before_sequence, limit)
+            let db_page = load_message_page_for_session(session_id, before_sequence, limit)
                 .await
                 .map_err(|err| SessionLoadError::Db(err.to_string()))?;
-            if !page.messages.is_empty() || page.total_count > 0 {
-                return Ok(ConversationPage {
-                    has_more_before: page
-                        .messages
-                        .first()
-                        .and_then(|message| message.sequence)
-                        .is_some_and(|sequence| sequence > 0),
-                    oldest_sequence: page.messages.first().and_then(|message| message.sequence),
-                    newest_sequence: page.messages.last().and_then(|message| message.sequence),
-                    total_message_count: page.total_count,
-                    messages: page.messages,
-                });
-            }
-
-            if restored.messages.is_empty() {
-                if let Some(ref transcript_path) = restored.transcript_path {
-                    if let Ok(messages) =
-                        load_messages_from_transcript_path(transcript_path, session_id).await
-                    {
-                        restored.messages = messages;
-                    }
+            match select_persisted_raw_conversation_page_source(
+                !db_page.messages.is_empty() || db_page.total_count > 0,
+                !restored.messages.is_empty(),
+                restored.transcript_path.is_some(),
+            ) {
+                RawConversationPageSource::DatabasePage => {
+                    return Ok(conversation_page_from_db_page(
+                        db_page.messages,
+                        db_page.total_count,
+                    ));
                 }
+                RawConversationPageSource::RestoredTranscript => {
+                    hydrate_restored_messages_if_missing(&mut restored, session_id).await;
+                }
+                RawConversationPageSource::RestoredMessages => {}
+                RawConversationPageSource::RuntimePage
+                | RawConversationPageSource::RuntimeTranscript => {}
             }
 
             Ok(conversation_page_from_messages(
@@ -223,46 +242,54 @@ pub(crate) async fn load_conversation_bootstrap(
             .await
             .map_err(SessionLoadError::Runtime)?;
 
-        if bootstrap.session.messages.is_empty() && bootstrap.total_message_count == 0 {
-            if let Some(path) = bootstrap.session.transcript_path.clone() {
-                if let Ok(Some(loaded)) = actor
-                    .load_transcript_and_sync(path, session_id.to_string())
-                    .await
-                {
-                    let page =
-                        conversation_page_from_messages(loaded.messages.clone(), None, limit);
-                    bootstrap.session = loaded;
-                    bootstrap.session.messages = page.messages.clone();
-                    bootstrap.total_message_count = page.total_message_count;
-                    bootstrap.has_more_before = page.has_more_before;
-                    bootstrap.oldest_sequence = page.oldest_sequence;
-                    bootstrap.newest_sequence = page.newest_sequence;
+        match select_runtime_bootstrap_seed_source(
+            !bootstrap.session.messages.is_empty() || bootstrap.total_message_count > 0,
+            bootstrap.session.transcript_path.is_some(),
+        ) {
+            BootstrapSeedSource::RuntimeBootstrap => {}
+            BootstrapSeedSource::RuntimeTranscript => {
+                if let Some(path) = bootstrap.session.transcript_path.clone() {
+                    if let Ok(Some(loaded)) = actor
+                        .load_transcript_and_sync(path, session_id.to_string())
+                        .await
+                    {
+                        let page =
+                            conversation_page_from_messages(loaded.messages.clone(), None, limit);
+                        bootstrap.session = loaded;
+                        bootstrap.session.messages = page.messages.clone();
+                        bootstrap.total_message_count = page.total_message_count;
+                        bootstrap.has_more_before = page.has_more_before;
+                        bootstrap.oldest_sequence = page.oldest_sequence;
+                        bootstrap.newest_sequence = page.newest_sequence;
+                    }
                 }
             }
-        }
-
-        if bootstrap.session.messages.is_empty() && bootstrap.total_message_count == 0 {
-            let page = load_message_page_for_session(session_id, None, limit)
-                .await
-                .map_err(|err| SessionLoadError::Db(err.to_string()))?;
-            bootstrap.session.messages = page.messages;
-            bootstrap.total_message_count = page.total_count;
-            bootstrap.has_more_before = bootstrap
-                .session
-                .messages
-                .first()
-                .and_then(|message| message.sequence)
-                .is_some_and(|sequence| sequence > 0);
-            bootstrap.oldest_sequence = bootstrap
-                .session
-                .messages
-                .first()
-                .and_then(|message| message.sequence);
-            bootstrap.newest_sequence = bootstrap
-                .session
-                .messages
-                .last()
-                .and_then(|message| message.sequence);
+            BootstrapSeedSource::DatabasePage => {
+                let db_page = load_message_page_for_session(session_id, None, limit)
+                    .await
+                    .map_err(|err| SessionLoadError::Db(err.to_string()))?;
+                bootstrap.session.messages = db_page.messages;
+                bootstrap.total_message_count = db_page.total_count;
+                bootstrap.has_more_before = bootstrap
+                    .session
+                    .messages
+                    .first()
+                    .and_then(|message| message.sequence)
+                    .is_some_and(|sequence| sequence > 0);
+                bootstrap.oldest_sequence = bootstrap
+                    .session
+                    .messages
+                    .first()
+                    .and_then(|message| message.sequence);
+                bootstrap.newest_sequence = bootstrap
+                    .session
+                    .messages
+                    .last()
+                    .and_then(|message| message.sequence);
+            }
+            BootstrapSeedSource::RawConversationPage
+            | BootstrapSeedSource::RestoredTranscript
+            | BootstrapSeedSource::RestoredMessages => {}
         }
 
         let page = expand_conversation_page(
@@ -300,20 +327,23 @@ pub(crate) async fn load_conversation_bootstrap(
 
     match load_session_by_id(session_id).await {
         Ok(Some(mut restored)) => {
-            let page = load_raw_conversation_page(state, session_id, None, limit).await?;
-            let page = if !page.messages.is_empty() || page.total_message_count > 0 {
-                page
-            } else {
-                if restored.messages.is_empty() {
-                    if let Some(ref transcript_path) = restored.transcript_path {
-                        if let Ok(messages) =
-                            load_messages_from_transcript_path(transcript_path, session_id).await
-                        {
-                            restored.messages = messages;
-                        }
-                    }
+            let raw_page = load_raw_conversation_page(state, session_id, None, limit).await?;
+            let page = match select_persisted_bootstrap_seed_source(
+                !raw_page.messages.is_empty() || raw_page.total_message_count > 0,
+                !restored.messages.is_empty(),
+                restored.transcript_path.is_some(),
+            ) {
+                BootstrapSeedSource::RawConversationPage => raw_page,
+                BootstrapSeedSource::RestoredTranscript => {
+                    hydrate_restored_messages_if_missing(&mut restored, session_id).await;
+                    conversation_page_from_messages(restored.messages.clone(), None, limit)
                 }
-                conversation_page_from_messages(restored.messages.clone(), None, limit)
+                BootstrapSeedSource::RestoredMessages => {
+                    conversation_page_from_messages(restored.messages.clone(), None, limit)
+                }
+                BootstrapSeedSource::RuntimeBootstrap
+                | BootstrapSeedSource::RuntimeTranscript
+                | BootstrapSeedSource::DatabasePage => raw_page,
             };
             let page = expand_conversation_page(state, session_id, page, limit).await?;
 
@@ -366,16 +396,14 @@ pub(crate) async fn load_full_session_state(
 
     match load_session_by_id(session_id).await {
         Ok(Some(mut restored)) => {
-            if restored.messages.is_empty() {
-                if let Some(ref transcript_path) = restored.transcript_path {
-                    if let Ok(messages) =
-                        load_messages_from_transcript_path(transcript_path, session_id).await
-                    {
-                        if !messages.is_empty() {
-                            restored.messages = messages;
-                        }
-                    }
-                }
+            if matches!(
+                select_restored_full_session_history_source(
+                    !restored.messages.is_empty(),
+                    restored.transcript_path.is_some(),
+                ),
+                FullSessionHistorySource::Transcript
+            ) {
+                hydrate_restored_messages_if_missing(&mut restored, session_id).await;
             }
 
             let mut state = restored_session_to_state(restored);
@@ -392,25 +420,32 @@ async fn hydrate_runtime_messages(
     state: &mut SessionState,
     session_id: &str,
 ) {
-    if !state.messages.is_empty() {
-        return;
-    }
-
-    if let Some(path) = state.transcript_path.clone() {
-        if let Ok(Some(loaded)) = actor
-            .load_transcript_and_sync(path, session_id.to_string())
-            .await
-        {
-            *state = loaded;
+    loop {
+        match select_runtime_full_session_history_source(
+            !state.messages.is_empty(),
+            state.transcript_path.is_some(),
+        ) {
+            FullSessionHistorySource::ExistingMessages => return,
+            FullSessionHistorySource::Transcript => {
+                if let Some(path) = state.transcript_path.clone() {
+                    if let Ok(Some(loaded)) = actor
+                        .load_transcript_and_sync(path, session_id.to_string())
+                        .await
+                    {
+                        *state = loaded;
+                        continue;
+                    }
+                }
+            }
+            FullSessionHistorySource::DatabaseMessages => {}
         }
-    }
 
-    if state.messages.is_empty() {
         if let Ok(messages) = load_messages_for_session(session_id).await {
             if !messages.is_empty() {
                 state.messages = messages;
             }
         }
+        return;
     }
 }
 
@@ -432,157 +467,6 @@ async fn hydrate_subagents(state: &mut SessionState, session_id: &str) {
                 "Failed to load session subagents"
             );
         }
-    }
-}
-
-fn restored_session_to_state(restored: RestoredSession) -> SessionState {
-    let provider = parse_provider(&restored.provider);
-    let status = parse_session_status(restored.end_reason.as_ref(), &restored.status);
-    let work_status = parse_work_status(status, &restored.work_status);
-    let total_message_count = restored.messages.len() as u64;
-    let oldest_sequence = restored
-        .messages
-        .first()
-        .and_then(|message| message.sequence);
-    let newest_sequence = restored
-        .messages
-        .last()
-        .and_then(|message| message.sequence);
-
-    SessionState {
-        id: restored.id,
-        provider,
-        project_path: restored.project_path,
-        transcript_path: restored.transcript_path,
-        project_name: restored.project_name,
-        model: restored.model,
-        custom_name: restored.custom_name,
-        summary: restored.summary,
-        first_prompt: restored.first_prompt,
-        last_message: restored.last_message,
-        status,
-        work_status,
-        messages: restored.messages,
-        total_message_count: Some(total_message_count),
-        has_more_before: Some(false),
-        oldest_sequence,
-        newest_sequence,
-        pending_approval: None,
-        permission_mode: restored.permission_mode,
-        pending_tool_name: restored.pending_tool_name,
-        pending_tool_input: restored.pending_tool_input,
-        pending_question: restored.pending_question,
-        pending_approval_id: restored.pending_approval_id,
-        token_usage: TokenUsage {
-            input_tokens: restored.input_tokens as u64,
-            output_tokens: restored.output_tokens as u64,
-            cached_tokens: restored.cached_tokens as u64,
-            context_window: restored.context_window as u64,
-        },
-        token_usage_snapshot_kind: restored.token_usage_snapshot_kind,
-        current_diff: restored.current_diff,
-        current_plan: restored.current_plan,
-        codex_integration_mode: parse_codex_integration_mode(restored.codex_integration_mode),
-        claude_integration_mode: parse_claude_integration_mode(restored.claude_integration_mode),
-        approval_policy: restored.approval_policy,
-        sandbox_mode: restored.sandbox_mode,
-        started_at: restored.started_at,
-        last_activity_at: restored.last_activity_at,
-        forked_from_session_id: restored.forked_from_session_id,
-        revision: Some(0),
-        current_turn_id: None,
-        turn_count: 0,
-        turn_diffs: restored
-            .turn_diffs
-            .into_iter()
-            .map(
-                |(
-                    turn_id,
-                    diff,
-                    input_tokens,
-                    output_tokens,
-                    cached_tokens,
-                    context_window,
-                    snapshot_kind,
-                )| {
-                    TurnDiff {
-                        turn_id,
-                        diff,
-                        token_usage: Some(TokenUsage {
-                            input_tokens: input_tokens as u64,
-                            output_tokens: output_tokens as u64,
-                            cached_tokens: cached_tokens as u64,
-                            context_window: context_window as u64,
-                        }),
-                        snapshot_kind: Some(snapshot_kind),
-                    }
-                },
-            )
-            .collect(),
-        git_branch: restored.git_branch,
-        git_sha: restored.git_sha,
-        current_cwd: restored.current_cwd,
-        subagents: Vec::new(),
-        effort: restored.effort,
-        terminal_session_id: restored.terminal_session_id,
-        terminal_app: restored.terminal_app,
-        approval_version: Some(restored.approval_version),
-        repository_root: None,
-        is_worktree: false,
-        worktree_id: None,
-        unread_count: restored.unread_count,
-    }
-}
-
-fn parse_provider(value: &str) -> Provider {
-    match value.to_ascii_lowercase().as_str() {
-        "claude" => Provider::Claude,
-        "codex" => Provider::Codex,
-        _ => Provider::Claude,
-    }
-}
-
-fn parse_session_status(end_reason: Option<&String>, value: &str) -> SessionStatus {
-    if end_reason.is_some() {
-        return SessionStatus::Ended;
-    }
-
-    if value.eq_ignore_ascii_case("ended") {
-        SessionStatus::Ended
-    } else {
-        SessionStatus::Active
-    }
-}
-
-fn parse_work_status(status: SessionStatus, value: &str) -> WorkStatus {
-    if status == SessionStatus::Ended {
-        return WorkStatus::Ended;
-    }
-
-    match value.to_ascii_lowercase().as_str() {
-        "working" => WorkStatus::Working,
-        "waiting" => WorkStatus::Waiting,
-        "permission" => WorkStatus::Permission,
-        "question" => WorkStatus::Question,
-        "reply" => WorkStatus::Reply,
-        "ended" => WorkStatus::Ended,
-        _ => WorkStatus::Waiting,
-    }
-}
-
-fn parse_codex_integration_mode(value: Option<String>) -> Option<CodexIntegrationMode> {
-    match value.as_deref() {
-        Some("direct") => Some(CodexIntegrationMode::Direct),
-        Some("passive") => Some(CodexIntegrationMode::Passive),
-        _ => None,
-    }
-}
-
-fn parse_claude_integration_mode(value: Option<String>) -> Option<ClaudeIntegrationMode> {
-    match value.as_deref() {
-        Some("direct") => Some(ClaudeIntegrationMode::Direct),
-        Some("passive") => Some(ClaudeIntegrationMode::Passive),
-        _ => None,
     }
 }
 

@@ -5,21 +5,24 @@ use tracing::{error, info, warn};
 
 use orbitdock_protocol::{
     ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
-    SessionStatus, StateChanges, TokenUsage, WorkStatus,
+    SessionStatus, StateChanges, WorkStatus,
 };
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
-use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{
     load_latest_codex_turn_context_settings_from_transcript_path, load_session_by_id,
     load_session_permission_mode, PersistCommand,
+};
+use crate::runtime::restored_sessions::{
+    hydrate_restored_messages_if_missing, parse_provider, restored_session_to_handle,
 };
 use crate::runtime::session_commands::{PersistOp, SessionCommand, SubscribeResult};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
     claim_codex_thread_for_direct_session, direct_mode_activation_changes,
 };
+use crate::support::session_modes::is_takeover_eligible_passive_session;
 use crate::support::session_paths::resolve_claude_resume_cwd;
 use crate::support::snapshot_compaction::prepare_snapshot_for_transport;
 use crate::transport::websocket::{
@@ -92,113 +95,34 @@ pub(crate) async fn handle(
                 }
             };
 
-            let is_claude = restored.provider == "claude";
-            let provider = if is_claude {
-                orbitdock_protocol::Provider::Claude
-            } else {
-                orbitdock_protocol::Provider::Codex
-            };
+            let is_claude =
+                parse_provider(&restored.provider) == orbitdock_protocol::Provider::Claude;
 
-            // If DB has no messages but we have a transcript file, load from it.
             // Passive sessions don't store full conversation in DB — the transcript
             // file has the complete history.
-            if restored.messages.is_empty() {
-                if let Some(ref tp) = restored.transcript_path {
-                    match crate::infrastructure::persistence::load_messages_from_transcript_path(
-                        tp,
-                        &session_id,
-                    )
-                    .await
-                    {
-                        Ok(msgs) if !msgs.is_empty() => {
-                            info!(
-                                component = "session",
-                                event = "session.resume.transcript_loaded",
-                                session_id = %session_id,
-                                message_count = msgs.len(),
-                                "Loaded messages from transcript for resume"
-                            );
-                            restored.messages = msgs;
-                        }
-                        _ => {}
-                    }
-                }
+            let initial_message_count = restored.messages.len();
+            hydrate_restored_messages_if_missing(&mut restored, &session_id).await;
+            if initial_message_count == 0 && !restored.messages.is_empty() {
+                info!(
+                    component = "session",
+                    event = "session.resume.transcript_loaded",
+                    session_id = %session_id,
+                    message_count = restored.messages.len(),
+                    "Loaded messages from transcript for resume"
+                );
             }
 
             let msg_count = restored.messages.len();
-            let mut handle = SessionHandle::restore(
-                restored.id.clone(),
-                provider,
-                restored.project_path.clone(),
-                restored.transcript_path.clone(),
-                restored.project_name,
-                restored.model.clone(),
-                restored.custom_name,
-                restored.summary,
+            let restored_model = restored.model.clone();
+            let restored_transcript_path = restored.transcript_path.clone();
+            let restored_project_path = restored.project_path.clone();
+            let restored_claude_sdk_session_id = restored.claude_sdk_session_id.clone();
+            let restored_approval_policy = restored.approval_policy.clone();
+            let restored_sandbox_mode = restored.sandbox_mode.clone();
+            let mut handle = restored_session_to_handle(
+                restored,
                 orbitdock_protocol::SessionStatus::Active,
                 orbitdock_protocol::WorkStatus::Waiting,
-                restored.approval_policy.clone(),
-                restored.sandbox_mode.clone(),
-                restored.permission_mode.clone(),
-                TokenUsage {
-                    input_tokens: restored.input_tokens.max(0) as u64,
-                    output_tokens: restored.output_tokens.max(0) as u64,
-                    cached_tokens: restored.cached_tokens.max(0) as u64,
-                    context_window: restored.context_window.max(0) as u64,
-                },
-                restored.token_usage_snapshot_kind,
-                restored.started_at,
-                restored.last_activity_at,
-                restored.messages,
-                restored.current_diff,
-                restored.current_plan,
-                restored
-                    .turn_diffs
-                    .into_iter()
-                    .map(
-                        |(
-                            turn_id,
-                            diff,
-                            input_tokens,
-                            output_tokens,
-                            cached_tokens,
-                            context_window,
-                            snapshot_kind,
-                        )| {
-                            let has_tokens =
-                                input_tokens > 0 || output_tokens > 0 || context_window > 0;
-                            orbitdock_protocol::TurnDiff {
-                                turn_id,
-                                diff,
-                                token_usage: if has_tokens {
-                                    Some(orbitdock_protocol::TokenUsage {
-                                        input_tokens: input_tokens as u64,
-                                        output_tokens: output_tokens as u64,
-                                        cached_tokens: cached_tokens as u64,
-                                        context_window: context_window as u64,
-                                    })
-                                } else {
-                                    None
-                                },
-                                snapshot_kind: Some(snapshot_kind),
-                            }
-                        },
-                    )
-                    .collect(),
-                restored.git_branch,
-                restored.git_sha,
-                restored.current_cwd,
-                restored.first_prompt,
-                restored.last_message,
-                restored.pending_tool_name,
-                restored.pending_tool_input,
-                restored.pending_question,
-                restored.pending_approval_id,
-                restored.effort,
-                restored.terminal_session_id,
-                restored.terminal_app,
-                restored.approval_version,
-                restored.unread_count,
             );
 
             // Set integration mode to direct BEFORE snapshot so the client sees it immediately
@@ -236,16 +160,15 @@ pub(crate) async fn handle(
 
             if is_claude {
                 // Resolve the correct cwd for --resume
-                let project = if let Some(ref tp) = restored.transcript_path {
-                    resolve_claude_resume_cwd(&restored.project_path, tp)
+                let project = if let Some(ref tp) = restored_transcript_path {
+                    resolve_claude_resume_cwd(&restored_project_path, tp)
                 } else {
-                    restored.project_path.clone()
+                    restored_project_path.clone()
                 };
 
                 let sid = session_id.clone();
                 // Validate through ProviderSessionId — refuse to resume with an OrbitDock ID
-                let provider_resume_id = restored
-                    .claude_sdk_session_id
+                let provider_resume_id = restored_claude_sdk_session_id
                     .clone()
                     .and_then(orbitdock_protocol::ProviderSessionId::new);
 
@@ -270,7 +193,7 @@ pub(crate) async fn handle(
                 let provider_resume_id = provider_resume_id.unwrap();
 
                 state.register_claude_thread(&session_id, provider_resume_id.as_str());
-                let m = restored.model.clone();
+                let m = restored_model.clone();
                 let restored_permission_mode = load_session_permission_mode(&session_id)
                     .await
                     .unwrap_or(None);
@@ -414,10 +337,10 @@ pub(crate) async fn handle(
                 // Codex connector
                 let connector_timeout = std::time::Duration::from_secs(15);
                 let task_session_id = session_id.clone();
-                let task_project_path = restored.project_path.clone();
-                let task_model = restored.model.clone();
-                let task_approval = restored.approval_policy.clone();
-                let task_sandbox = restored.sandbox_mode.clone();
+                let task_project_path = restored_project_path.clone();
+                let task_model = restored_model.clone();
+                let task_approval = restored_approval_policy.clone();
+                let task_sandbox = restored_sandbox_mode.clone();
 
                 let mut connector_task = tokio::spawn(async move {
                     CodexSession::new(
@@ -535,15 +458,12 @@ pub(crate) async fn handle(
 
             // Validate: must be passive (not already direct).
             // Hook-created Claude sessions have None integration mode — treat as passive.
-            let is_passive = match snap.provider {
-                Provider::Codex => {
-                    snap.codex_integration_mode == Some(CodexIntegrationMode::Passive)
-                        || (snap.codex_integration_mode.is_none() && snap.transcript_path.is_some())
-                }
-                Provider::Claude => {
-                    snap.claude_integration_mode != Some(ClaudeIntegrationMode::Direct)
-                }
-            };
+            let is_passive = is_takeover_eligible_passive_session(
+                snap.provider,
+                snap.codex_integration_mode,
+                snap.claude_integration_mode,
+                snap.transcript_path.is_some(),
+            );
 
             if !is_passive {
                 send_json(

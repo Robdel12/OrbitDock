@@ -7,9 +7,7 @@
 use std::time::Duration;
 
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::{
-    Message, MessageType, ServerMessage, SessionStatus, StateChanges, WorkStatus,
-};
+use orbitdock_protocol::{ServerMessage, SessionStatus, StateChanges, WorkStatus};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::warn;
@@ -17,26 +15,14 @@ use tracing::warn;
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::transition;
 use crate::infrastructure::persistence::PersistCommand;
+use crate::runtime::session_broadcasts::{
+    inject_approval_version, latest_completed_conversation_message, message_append_delta,
+    transition_delta,
+};
 use crate::runtime::session_commands::{
     PendingApprovalResolution, PersistOp, SessionCommand, SubscribeResult,
 };
-
-/// Inject approval_version into ApprovalRequested and SessionDelta messages.
-pub(crate) fn inject_approval_version(msg: &mut ServerMessage, version: u64) {
-    match msg {
-        ServerMessage::ApprovalRequested {
-            approval_version, ..
-        } => {
-            *approval_version = Some(version);
-        }
-        ServerMessage::SessionDelta { changes, .. } => {
-            if changes.pending_approval.is_some() && changes.approval_version.is_none() {
-                changes.approval_version = Some(version);
-            }
-        }
-        _ => {}
-    }
-}
+use crate::support::session_time::chrono_now;
 
 async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistCommand>) {
     let cmd = match op {
@@ -68,26 +54,6 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
         },
     };
     let _ = persist_tx.send(cmd).await;
-}
-
-fn completed_conversation_message_snippet(message: &Message) -> Option<String> {
-    if !matches!(
-        message.message_type,
-        MessageType::User | MessageType::Assistant
-    ) {
-        return None;
-    }
-    if message.is_in_progress {
-        return None;
-    }
-    Some(message.content.chars().take(200).collect())
-}
-
-fn latest_completed_conversation_message(messages: &[Message]) -> Option<String> {
-    messages
-        .iter()
-        .rev()
-        .find_map(completed_conversation_message_snippet)
 }
 
 /// Handle a SessionCommand on the owned SessionHandle.
@@ -272,32 +238,27 @@ pub async fn handle_session_command(
         }
         SessionCommand::AddMessageAndBroadcast { message } => {
             let session_id = handle.id().to_string();
-            let mut last_message_delta: Option<String> = None;
-            let should_broadcast_unread =
-                !matches!(message.message_type, MessageType::User | MessageType::Steer);
-
-            if let Some(snippet) = completed_conversation_message_snippet(&message) {
-                let previous = handle.to_snapshot().last_message.clone();
-                if previous.as_deref() != Some(snippet.as_str()) {
-                    handle.set_last_message(Some(snippet.clone()));
-                    last_message_delta = Some(snippet);
-                }
-            }
+            let previous_last_message = handle.to_snapshot().last_message.clone();
 
             let message = handle.add_message(message);
+            let observability_changes = message_append_delta(
+                previous_last_message.as_deref(),
+                &message,
+                handle.unread_count(),
+            );
+            if let Some(ref changes) = observability_changes {
+                if let Some(Some(ref snippet)) = changes.last_message {
+                    handle.set_last_message(Some(snippet.clone()));
+                }
+            }
             handle.broadcast(ServerMessage::MessageAppended {
                 session_id,
                 message,
             });
-
-            if last_message_delta.is_some() || should_broadcast_unread {
+            if let Some(changes) = observability_changes {
                 handle.broadcast(ServerMessage::SessionDelta {
                     session_id: handle.id().to_string(),
-                    changes: StateChanges {
-                        last_message: last_message_delta.map(Some),
-                        unread_count: should_broadcast_unread.then(|| handle.unread_count()),
-                        ..Default::default()
-                    },
+                    changes,
                 });
             }
         }
@@ -405,18 +366,6 @@ pub async fn handle_session_command(
     handle.refresh_snapshot();
 }
 
-/// Get current time as ISO 8601 string.
-pub(crate) fn chrono_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    format!("{}Z", secs)
-}
-
 /// Dispatch a `ConnectorEvent` through the transition state machine.
 ///
 /// Shared by both provider event loops (Claude, Codex). Converts the event
@@ -449,14 +398,12 @@ pub(crate) async fn dispatch_transition_input(
 
     // Update last_message from the latest completed user/assistant message.
     // In-progress assistant streaming deltas are intentionally ignored.
-    let mut last_message_delta: Option<String> = None;
     let mut unread_count_delta: Option<u64> = None;
     let previous_last_message = handle.to_snapshot().last_message.clone();
-    if let Some(snippet) = latest_completed_conversation_message(handle.messages()) {
-        if previous_last_message.as_deref() != Some(snippet.as_str()) {
-            handle.set_last_message(Some(snippet.clone()));
-            last_message_delta = Some(snippet);
-        }
+    if let Some(snippet) = latest_completed_conversation_message(handle.messages())
+        .filter(|snippet| previous_last_message.as_deref() != Some(snippet.as_str()))
+    {
+        handle.set_last_message(Some(snippet));
     }
 
     for effect in effects {
@@ -496,14 +443,14 @@ pub(crate) async fn dispatch_transition_input(
         }
     }
 
-    if last_message_delta.is_some() || unread_count_delta.is_some() {
+    if let Some(changes) = transition_delta(
+        previous_last_message.as_deref(),
+        handle.messages(),
+        unread_count_delta,
+    ) {
         handle.broadcast(ServerMessage::SessionDelta {
             session_id: handle.id().to_string(),
-            changes: StateChanges {
-                last_message: last_message_delta.map(Some),
-                unread_count: unread_count_delta,
-                ..Default::default()
-            },
+            changes,
         });
     }
 
@@ -547,7 +494,7 @@ pub(crate) fn spawn_interrupt_watchdog(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbitdock_protocol::{Provider, SessionStatus, StateChanges};
+    use orbitdock_protocol::{Message, MessageType, Provider, SessionStatus, StateChanges};
     use tokio::sync::oneshot;
 
     #[tokio::test]

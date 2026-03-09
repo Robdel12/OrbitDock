@@ -1,6 +1,9 @@
 pub(crate) mod background;
 pub(crate) mod conversation_policy;
+pub(crate) mod query_fallback_policy;
+pub(crate) mod restored_sessions;
 pub(crate) mod session_actor;
+pub(crate) mod session_broadcasts;
 pub(crate) mod session_command_handler;
 pub(crate) mod session_commands;
 pub(crate) mod session_queries;
