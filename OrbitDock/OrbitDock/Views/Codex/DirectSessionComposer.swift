@@ -18,8 +18,6 @@ struct DirectSessionComposer: View {
   @Binding var isPinned: Bool
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
-  var onOpenSkills: (() -> Void)?
-
   @Environment(ServerAppState.self) var serverState
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
   @Environment(AppRouter.self) var router

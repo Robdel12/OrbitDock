@@ -130,19 +130,6 @@ struct SessionDetailView: View {
       }
     }
     .background(Color.backgroundPrimary)
-    .sheet(
-      isPresented: Binding(
-        get: { obs.isDirect && isCompactLayout && showTurnSidebar },
-        set: { showTurnSidebar = $0 }
-      )
-    ) {
-      turnSidebar
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-      #if os(iOS)
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-      #endif
-    }
     .onAppear {
       if shouldSubscribeToServerSession {
         serverState.subscribeToSession(sessionId, forceRefresh: true)
@@ -161,42 +148,6 @@ struct SessionDetailView: View {
     .onChange(of: isPinned) { _, pinned in
       guard shouldSubscribeToServerSession else { return }
       serverState.setSessionAutoMarkRead(sessionId, enabled: pinned)
-    }
-    // Keyboard shortcuts for rail presets + rail toggle (Cmd+Option to avoid macOS screenshot conflicts)
-    .onKeyPress(phases: .down) { keyPress in
-      guard keyPress.modifiers == [.command, .option] else { return .ignored }
-
-      switch keyPress.key {
-        case KeyEquivalent("1"):
-          withAnimation(Motion.standard) {
-            railPreset = .planFocused
-            showTurnSidebar = true
-          }
-          return .handled
-
-        case KeyEquivalent("2"):
-          withAnimation(Motion.standard) {
-            railPreset = .reviewFocused
-            showTurnSidebar = true
-          }
-          return .handled
-
-        case KeyEquivalent("3"):
-          withAnimation(Motion.standard) {
-            railPreset = .triage
-            showTurnSidebar = true
-          }
-          return .handled
-
-        case KeyEquivalent("r"):
-          withAnimation(Motion.standard) {
-            showTurnSidebar.toggle()
-          }
-          return .handled
-
-        default:
-          return .ignored
-      }
     }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
@@ -241,49 +192,6 @@ struct SessionDetailView: View {
         }
       }
     }
-  }
-
-  private var turnSidebar: some View {
-    CodexTurnSidebar(
-      sessionId: sessionId,
-      sessionScopedId: obs.scopedID,
-      onClose: {
-        withAnimation(Motion.standard) {
-          showTurnSidebar = false
-        }
-      },
-      railPreset: $railPreset,
-      selectedSkills: $selectedSkills,
-      selectedCommentIds: $selectedCommentIds,
-      onOpenReview: {
-        withAnimation(Motion.gentle) {
-          layoutConfig = .split
-        }
-      },
-      onNavigateToSession: { id in
-        let normalizedID: String = if let scoped = SessionRef(scopedID: id)?.scopedID {
-          scoped
-        } else {
-          SessionRef(endpointId: endpointId, sessionId: id).scopedID
-        }
-        NotificationCenter.default.post(
-          name: .selectSession,
-          object: nil,
-          userInfo: ["sessionId": normalizedID]
-        )
-      },
-      onNavigateToComment: { comment in
-        navigateToComment = comment
-        withAnimation(Motion.gentle) {
-          if layoutConfig == .conversationOnly {
-            layoutConfig = .split
-          }
-        }
-      },
-      onSendReview: {
-        sendReviewToModel()
-      }
-    )
   }
 
   // MARK: - Action Bar
@@ -717,21 +625,6 @@ struct SessionDetailView: View {
       }
       isCleaningUpWorktree = false
     }
-  }
-
-  // MARK: - Turn Sidebar Helpers
-
-  /// Whether any sidebar tab has content (for header badge indicator)
-  private var hasSidebarContent: Bool {
-    guard obs.isDirect else { return false }
-    let hasPlan = obs.getPlanSteps() != nil
-    let hasDiff = obs.diff != nil
-    let hasMcp = obs.hasMcpData
-    let hasSkills = !obs.skills.isEmpty || !obs.claudeSkillNames.isEmpty
-    let hasComments = !obs.reviewComments.isEmpty
-    let hasTokens = obs.turnDiffs.contains { $0.tokenUsage != nil }
-      || obs.tokenUsage?.inputTokens ?? 0 > 0
-    return hasPlan || hasDiff || hasMcp || hasSkills || hasComments || hasTokens
   }
 
   private var currentTool: String? {

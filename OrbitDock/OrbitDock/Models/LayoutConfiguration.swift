@@ -39,51 +39,6 @@ enum LayoutConfiguration: String, CaseIterable {
   }
 }
 
-// MARK: - Rail Preset
-
-enum RailPreset: String, CaseIterable {
-  case planFocused
-  case reviewFocused
-  case triage
-
-  var label: String {
-    switch self {
-      case .planFocused: "Plan"
-      case .reviewFocused: "Review"
-      case .triage: "Triage"
-    }
-  }
-
-  var icon: String {
-    switch self {
-      case .planFocused: "list.bullet.clipboard"
-      case .reviewFocused: "doc.badge.plus"
-      case .triage: "square.stack"
-    }
-  }
-
-  var expandPlan: Bool {
-    self == .planFocused
-  }
-
-  var expandChanges: Bool {
-    self == .reviewFocused
-  }
-
-  var expandServers: Bool {
-    false
-  }
-
-  var expandSkills: Bool {
-    false
-  }
-
-  var expandComments: Bool {
-    self == .reviewFocused
-  }
-
-}
-
 // MARK: - Review Navigation (Environment)
 
 /// Environment action that lets any view request "open this file in the review canvas."

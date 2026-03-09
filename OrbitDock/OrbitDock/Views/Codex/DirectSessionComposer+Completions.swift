@@ -240,7 +240,7 @@ extension DirectSessionComposer {
         if hasSkillsPanel {
           serverState.listSkills(sessionId: sessionId)
         }
-        onOpenSkills?()
+        activateCommandDeck(prefill: "skill")
 
       case .toggleShellMode:
         clearCommandDeckState()

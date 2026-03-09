@@ -529,7 +529,7 @@ extension DirectSessionComposer {
         if hasSkillsPanel {
           Button {
             serverState.listSkills(sessionId: sessionId)
-            onOpenSkills?()
+            activateCommandDeck(prefill: "skill")
           } label: {
             Label("Attach Skills", systemImage: "bolt.fill")
           }
@@ -590,7 +590,7 @@ extension DirectSessionComposer {
         if hasSkillsPanel {
           Button {
             serverState.listSkills(sessionId: sessionId)
-            onOpenSkills?()
+            activateCommandDeck(prefill: "skill")
           } label: {
             Label("Attach Skills", systemImage: "bolt.fill")
           }

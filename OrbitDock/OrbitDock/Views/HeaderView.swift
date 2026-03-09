@@ -13,10 +13,11 @@ struct HeaderView: View {
   let sessionId: String
   let endpointId: UUID
   var onEndSession: (() -> Void)?
-  var showTurnSidebar: Binding<Bool>?
-  var hasSidebarContent: Bool = false
   var layoutConfig: Binding<LayoutConfiguration>?
   var chatViewMode: Binding<ChatViewMode>?
+  @Binding var selectedCommentIds: Set<String>
+  var onNavigateToComment: ((ServerReviewComment) -> Void)?
+  var onSendReview: (() -> Void)?
 
   @Environment(ServerAppState.self) private var serverState
   @State private var isHoveringBack = false
@@ -91,17 +92,26 @@ struct HeaderView: View {
 
       Spacer()
 
-      // Conversation mode toggle
+      // Zone 2: Session intelligence pills
+      if let layoutBinding = layoutConfig {
+        ContextualStatusStrip(
+          sessionId: sessionId,
+          layoutConfig: layoutBinding,
+          selectedCommentIds: $selectedCommentIds,
+          onNavigateToComment: onNavigateToComment,
+          onSendReview: onSendReview
+        )
+      }
+
+      // Zone 3: View controls + actions
       if let chatModeBinding = chatViewMode {
         ConversationViewModeToggle(chatViewMode: chatModeBinding)
       }
 
-      // Layout toggle (direct sessions only)
       if let layoutBinding = layoutConfig {
         layoutToggle(layoutBinding)
       }
 
-      // Action buttons
       HStack(spacing: Spacing.xxs) {
         navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
         overflowMenu
@@ -183,25 +193,7 @@ struct HeaderView: View {
 
   private var overflowMenu: some View {
     Menu {
-      if let sidebarBinding = showTurnSidebar {
-        Button {
-          withAnimation(Motion.standard) {
-            sidebarBinding.wrappedValue.toggle()
-          }
-          Platform.services.playHaptic(.selection)
-        } label: {
-          Label(
-            sidebarBinding.wrappedValue ? "Hide Sidebar" : "Show Sidebar",
-            systemImage: "sidebar.right"
-          )
-        }
-      }
-
       continueMenuSection
-
-      Divider()
-
-      debugContextMenu
 
       if obs.isDirect, obs.isActive, let onEnd = onEndSession {
         Divider()
@@ -433,16 +425,6 @@ struct HeaderView: View {
 
   private var compactOverflowMenu: some View {
     Menu {
-      if let sidebarBinding = showTurnSidebar {
-        Button {
-          withAnimation(Motion.standard) {
-            sidebarBinding.wrappedValue.toggle()
-          }
-        } label: {
-          Label(sidebarBinding.wrappedValue ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right")
-        }
-      }
-
       if let layoutBinding = layoutConfig {
         Section("Layout") {
           ForEach(LayoutConfiguration.allCases, id: \.self) { config in
@@ -458,10 +440,6 @@ struct HeaderView: View {
       }
 
       continueMenuSection
-
-      Divider()
-
-      debugContextMenu
 
       if obs.isDirect, obs.isActive, let onEnd = onEndSession {
         Divider()
@@ -832,10 +810,12 @@ struct CodexTokenBadge: View {
 // MARK: - Preview
 
 #Preview {
+  @Previewable @State var commentIds: Set<String> = []
   VStack(spacing: 0) {
     HeaderView(
       sessionId: "test-123",
-      endpointId: UUID()
+      endpointId: UUID(),
+      selectedCommentIds: $commentIds
     )
     .environment(AppRouter())
 
