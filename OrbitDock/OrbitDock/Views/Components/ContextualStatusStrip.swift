@@ -16,7 +16,7 @@ struct ContextualStatusStrip: View {
   var onNavigateToComment: ((ServerReviewComment) -> Void)?
   var onSendReview: (() -> Void)?
 
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   @State private var showPlanPopover = false
@@ -430,7 +430,7 @@ private struct ChangesPopoverContent: View {
 
 private struct ContextPopoverContent: View {
   let sessionId: String
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
 
   private var obs: SessionObservable {
     serverState.session(sessionId)

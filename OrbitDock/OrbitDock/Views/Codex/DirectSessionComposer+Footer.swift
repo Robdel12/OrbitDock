@@ -445,7 +445,7 @@ extension DirectSessionComposer {
   var turnActionsMenuContent: some View {
     if obs.isDirectCodex || serverState.session(sessionId).hasSlashCommand("undo") {
       Button {
-        serverState.undoLastTurn(sessionId: sessionId)
+        Task { try? await serverState.undoLastTurn(sessionId) }
       } label: {
         Label("Undo Last Turn", systemImage: "arrow.uturn.backward")
       }
@@ -455,7 +455,7 @@ extension DirectSessionComposer {
     if obs.isDirect, let lastUserMsg = obs.messages.last(where: \.isUser) {
       let hasRecentCheckpoint = obs.lastFilesPersistedAt.map { Date().timeIntervalSince($0) < 300 } ?? false
       Button {
-        serverState.rewindFiles(sessionId: sessionId, userMessageId: lastUserMsg.id)
+        Task { try? await serverState.rewindFiles(sessionId, userMessageId: lastUserMsg.id) }
       } label: {
         Label(
           hasRecentCheckpoint ? "Rewind Files (checkpoint saved)" : "Rewind Files",
@@ -466,7 +466,7 @@ extension DirectSessionComposer {
     }
 
     Button {
-      serverState.forkSession(sessionId: sessionId)
+      Task { try? await serverState.forkSession(sessionId: sessionId, nthUserMessage: nil) }
     } label: {
       Label("Fork Conversation", systemImage: "arrow.triangle.branch")
     }
@@ -505,7 +505,7 @@ extension DirectSessionComposer {
 
     if obs.hasTokenUsage {
       Button {
-        serverState.compactContext(sessionId: sessionId)
+        Task { try? await serverState.compactContext(sessionId) }
       } label: {
         Label("Compact Context", systemImage: "arrow.triangle.2.circlepath")
       }
@@ -514,7 +514,7 @@ extension DirectSessionComposer {
     if hasMcpData {
       Divider()
       Button {
-        serverState.refreshMcpServers(sessionId: sessionId)
+        Task { try? await serverState.refreshMcpServers(sessionId) }
       } label: {
         Label("Refresh MCP Servers", systemImage: "arrow.clockwise")
       }
@@ -528,7 +528,7 @@ extension DirectSessionComposer {
       Section("Compose") {
         if hasSkillsPanel {
           Button {
-            serverState.listSkills(sessionId: sessionId)
+            Task { try? await serverState.listSkills(sessionId: sessionId) }
             activateCommandDeck(prefill: "skill")
           } label: {
             Label("Attach Skills", systemImage: "bolt.fill")
@@ -589,7 +589,7 @@ extension DirectSessionComposer {
       Section("Compose") {
         if hasSkillsPanel {
           Button {
-            serverState.listSkills(sessionId: sessionId)
+            Task { try? await serverState.listSkills(sessionId: sessionId) }
             activateCommandDeck(prefill: "skill")
           } label: {
             Label("Attach Skills", systemImage: "bolt.fill")

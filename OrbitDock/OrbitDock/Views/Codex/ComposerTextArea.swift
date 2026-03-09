@@ -135,8 +135,9 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       textView.backgroundColor = .clear
       textView.font = .systemFont(ofSize: TypeScale.body)
       textView.textColor = .label
-      textView.autocorrectionType = .no
-      textView.spellCheckingType = .no
+      // iOS benefits from typo correction, but prompt text still needs literal punctuation.
+      textView.autocorrectionType = .default
+      textView.spellCheckingType = .default
       textView.smartQuotesType = .no
       textView.smartDashesType = .no
       textView.keyboardDismissMode = .interactive

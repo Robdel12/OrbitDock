@@ -126,10 +126,9 @@ extension DirectSessionComposer {
         )
       }
 
-      let queueCount = serverState.queuedApprovalCount(sessionId: model.sessionId)
-      if queueCount > 0 {
+      if false /* queuedApprovalCount removed — approvals are no longer queued client-side */ {
         pendingHeaderChip(
-          text: "+\(queueCount) queued",
+          text: "queued",
           tint: Color.textTertiary
         )
       }
@@ -949,13 +948,13 @@ extension DirectSessionComposer {
           let answer = (pendingPanelDrafts["default"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
           guard let requestId = model.approvalId, !answer.isEmpty else { return }
-          serverState.answerQuestion(
-            sessionId: model.sessionId,
-            requestId: requestId,
-            answer: answer,
-            questionId: nil,
-            answers: nil
-          )
+          Task {
+            try? await serverState.answerQuestion(
+              sessionId: model.sessionId,
+              requestId: requestId,
+              answer: answer
+            )
+          }
         } label: {
           Image(systemName: "arrow.up")
             .font(.system(
@@ -1047,7 +1046,7 @@ extension DirectSessionComposer {
   private func takeoverFooterActions(_ model: ApprovalCardModel) -> some View {
     Button {
       Platform.services.playHaptic(.success)
-      serverState.takeoverSession(model.sessionId)
+      Task { try? await serverState.takeoverSession(model.sessionId) }
     } label: {
       Text(ApprovalCardConfiguration.takeoverButtonTitle(for: model))
         .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -1155,18 +1154,19 @@ extension DirectSessionComposer {
     }()
     guard let primaryAnswer, !primaryAnswer.isEmpty else { return }
 
-    let result = serverState.answerQuestion(
-      sessionId: model.sessionId,
-      requestId: requestId,
-      answer: primaryAnswer,
-      questionId: primaryQuestionId,
-      answers: answers
-    )
-    switch result {
-      case .dispatched:
+    Task {
+      do {
+        try await serverState.answerQuestion(
+          sessionId: model.sessionId,
+          requestId: requestId,
+          answer: primaryAnswer,
+          questionId: primaryQuestionId,
+          answers: answers
+        )
         Platform.services.playHaptic(.success)
-      case .stale:
+      } catch {
         Platform.services.playHaptic(.warning)
+      }
     }
   }
 
@@ -1177,19 +1177,20 @@ extension DirectSessionComposer {
     interrupt: Bool?
   ) {
     guard let requestId = model.approvalId else { return }
-    let result = serverState.approveTool(
-      sessionId: model.sessionId,
-      requestId: requestId,
-      decision: decision,
-      message: message,
-      interrupt: interrupt
-    )
-    switch result {
-      case .dispatched:
+    Task {
+      do {
+        try await serverState.approveTool(
+          sessionId: model.sessionId,
+          requestId: requestId,
+          decision: decision,
+          message: message,
+          interrupt: interrupt
+        )
         Platform.services.playHaptic(hapticForPendingDecision(decision))
-      case .stale:
+      } catch {
         Platform.services.playHaptic(.warning)
         approvalLog.warning("[approval] decision returned stale for \(requestId)")
+      }
     }
   }
 

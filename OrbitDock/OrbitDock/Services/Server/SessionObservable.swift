@@ -8,6 +8,14 @@
 
 import Foundation
 
+struct McpStartupState {
+  var serverStatuses: [String: ServerMcpStartupStatus] = [:]
+  var isComplete = false
+  var readyServers: [String] = []
+  var failedServers: [ServerMcpStartupFailure] = []
+  var cancelledServers: [String] = []
+}
+
 @Observable
 @MainActor
 final class SessionObservable {

@@ -18,7 +18,7 @@ struct ConversationView: View {
   var chatViewMode: ChatViewMode = .focused
   var onNavigateToReviewFile: ((String, Int) -> Void)? // (filePath, lineNumber) deep link from review card
 
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
 
   @State private var currentPrompt: String?
   @State private var loadedSessionId: String?
@@ -145,7 +145,7 @@ struct ConversationView: View {
     unreadCount: $unreadCount,
     scrollToBottomTrigger: $scrollTrigger
   )
-  .environment(ServerAppState())
+  .environment(SessionStore())
   .frame(width: 700, height: 600)
   .background(Color.backgroundPrimary)
 }

@@ -523,6 +523,39 @@ struct ServerRuntimeRegistryTests {
     #expect(appState.endpointId == connection.endpointId)
   }
 
+  @Test func activeAccessorsSkipPersistedEndpointBootstrapWhenDisabled() throws {
+    let remoteEndpoint = try ServerEndpoint(
+      id: UUID(),
+      name: "Remote",
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
+      isLocalManaged: false,
+      isEnabled: true,
+      isDefault: true
+    )
+
+    var endpointsProviderCallCount = 0
+    var runtimeFactoryCallCount = 0
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: {
+        endpointsProviderCallCount += 1
+        return [remoteEndpoint]
+      },
+      runtimeFactory: { endpoint in
+        runtimeFactoryCallCount += 1
+        return ServerRuntime(endpoint: endpoint)
+      },
+      shouldBootstrapFromSettings: false
+    )
+
+    let appState = registry.activeAppState
+    let connection = registry.activeConnection
+
+    #expect(endpointsProviderCallCount == 0)
+    #expect(runtimeFactoryCallCount == 1)
+    #expect(registry.runtimesByEndpointId.count == 1)
+    #expect(appState.endpointId == connection.endpointId)
+  }
+
   private func makeMessage(id: String, content: String) -> TranscriptMessage {
     TranscriptMessage(
       id: id,

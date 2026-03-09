@@ -73,7 +73,7 @@ struct CodexModePill: View {
 
   let sessionId: String
   var size: PillSize = .regular
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @State private var showPopover = false
 
   private var currentMode: CodexCollaborationMode {
@@ -105,7 +105,7 @@ struct CodexModePill: View {
 
         ForEach(CodexCollaborationMode.allCases) { mode in
           Button {
-            serverState.updateCodexCollaborationMode(sessionId: sessionId, mode: mode)
+            Task { try? await serverState.updateClaudePermissionMode(sessionId, mode: mode.permissionMode) }
             showPopover = false
           } label: {
             HStack(spacing: 8) {

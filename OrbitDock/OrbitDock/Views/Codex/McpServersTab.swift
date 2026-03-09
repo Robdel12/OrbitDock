@@ -11,7 +11,7 @@ import SwiftUI
 struct McpServersTab: View {
   let sessionId: String
 
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @State private var expandedServers: Set<String> = []
 
   private var startupState: McpStartupState? {
@@ -70,7 +70,7 @@ struct McpServersTab: View {
         Spacer()
 
         Button {
-          serverState.refreshMcpServers(sessionId: sessionId)
+          Task { try? await serverState.refreshMcpServers(sessionId) }
         } label: {
           Image(systemName: "arrow.clockwise")
             .font(.system(size: TypeScale.meta, weight: .medium))

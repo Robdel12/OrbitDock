@@ -43,7 +43,7 @@ import SwiftUI
     let provider: Provider
     let model: String?
     let sessionId: String?
-    let serverState: ServerAppState
+    let serverState: SessionStore
     let hasMoreMessages: Bool
     let currentPrompt: String?
     let messageCount: Int
@@ -164,7 +164,7 @@ import SwiftUI
     UIScrollViewDelegate
   {
     var coordinator: ConversationCollectionView.Coordinator?
-    var serverState: ServerAppState?
+    var serverState: SessionStore?
     var openFileInReview: ((String) -> Void)?
     var provider: Provider = .claude
     var model: String?

@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 #if canImport(UIKit)
@@ -54,42 +53,50 @@ final class ServerRuntimeRegistry {
   private let endpointsProvider: () -> [ServerEndpoint]
   private let runtimeFactory: (ServerEndpoint) -> ServerRuntime
   private let clientIdentityProvider: () -> ServerClientIdentity
+  private let shouldBootstrapFromSettings: Bool
   private(set) var runtimesByEndpointId: [UUID: ServerRuntime] = [:]
-  private var statusSubscriptions: [UUID: AnyCancellable] = [:]
-  private var serverRoleSubscriptions: [UUID: AnyCancellable] = [:]
-  private var serverClaimSubscriptions: [UUID: AnyCancellable] = [:]
-  private(set) var connectionStatusByEndpointId: [UUID: ConnectionStatus] = [:]
-  private(set) var serverPrimaryByEndpointId: [UUID: Bool] = [:]
-  private(set) var serverPrimaryClaimsByEndpointId: [UUID: [ServerClientPrimaryClaim]] = [:]
   private(set) var activeEndpointId: UUID?
   private(set) var primaryEndpointId: UUID?
   private(set) var hasPrimaryEndpointConflict = false
   @ObservationIgnored
-  private lazy var fallbackAppState = ServerAppState()
+  private lazy var fallbackSessionStore: SessionStore = {
+    let apiClient = APIClient(serverURL: URL(string: "http://127.0.0.1:3000")!, authToken: nil)
+    let eventStream = EventStream(authToken: nil)
+    return SessionStore(
+      apiClient: apiClient, eventStream: eventStream,
+      endpointId: UUID()
+    )
+  }()
+  @ObservationIgnored private var statusObserverTasks: [UUID: Task<Void, Never>] = [:]
 
   init() {
     endpointsProvider = { ServerEndpointSettings.endpoints }
     runtimeFactory = { ServerRuntime(endpoint: $0) }
     clientIdentityProvider = { ServerClientIdentity.current() }
-  }
-
-  init(
-    endpointsProvider: @escaping () -> [ServerEndpoint],
-    runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime
-  ) {
-    self.endpointsProvider = endpointsProvider
-    self.runtimeFactory = runtimeFactory
-    self.clientIdentityProvider = { ServerClientIdentity.current() }
+    shouldBootstrapFromSettings = !AppRuntimeMode.isRunningTestsProcess
   }
 
   init(
     endpointsProvider: @escaping () -> [ServerEndpoint],
     runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime,
-    clientIdentityProvider: @escaping () -> ServerClientIdentity
+    shouldBootstrapFromSettings: Bool = true
+  ) {
+    self.endpointsProvider = endpointsProvider
+    self.runtimeFactory = runtimeFactory
+    self.clientIdentityProvider = { ServerClientIdentity.current() }
+    self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
+  }
+
+  init(
+    endpointsProvider: @escaping () -> [ServerEndpoint],
+    runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime,
+    clientIdentityProvider: @escaping () -> ServerClientIdentity,
+    shouldBootstrapFromSettings: Bool = true
   ) {
     self.endpointsProvider = endpointsProvider
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = clientIdentityProvider
+    self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
   }
 
   var runtimes: [ServerRuntime] {
@@ -114,40 +121,53 @@ final class ServerRuntimeRegistry {
     return runtimesByEndpointId[primaryEndpointId]
   }
 
-  var activeConnection: ServerConnection {
+  var activeSessionStore: SessionStore {
     ensureInitialized()
     if let runtime = resolvedActiveRuntime() {
-      return runtime.connection
+      return runtime.sessionStore
     }
-    return fallbackAppState.connection
+    return fallbackSessionStore
   }
 
-  var activeAppState: ServerAppState {
-    ensureInitialized()
-    if let runtime = resolvedActiveRuntime() {
-      return runtime.appState
+  var connectionStatusByEndpointId: [UUID: ConnectionStatus] {
+    var result: [UUID: ConnectionStatus] = [:]
+    for (id, runtime) in runtimesByEndpointId {
+      result[id] = runtime.eventStream.connectionStatus
     }
-    return fallbackAppState
+    return result
   }
 
-  var primaryConnection: ServerConnection? {
-    primaryRuntime?.connection
+  var serverPrimaryByEndpointId: [UUID: Bool] {
+    var result: [UUID: Bool] = [:]
+    for (id, runtime) in runtimesByEndpointId {
+      if let isPrimary = runtime.sessionStore.serverIsPrimary {
+        result[id] = isPrimary
+      }
+    }
+    return result
   }
 
-  var controlPlaneConnection: ServerConnection? {
-    primaryConnection ?? activeRuntime?.connection
+  var serverPrimaryClaimsByEndpointId: [UUID: [ServerClientPrimaryClaim]] {
+    var result: [UUID: [ServerClientPrimaryClaim]] = [:]
+    for (id, runtime) in runtimesByEndpointId {
+      let claims = runtime.sessionStore.serverPrimaryClaims
+      if !claims.isEmpty {
+        result[id] = claims
+      }
+    }
+    return result
   }
 
   var connectedRuntimeCount: Int {
     runtimes.filter {
-      if case .connected = connectionStatusByEndpointId[$0.endpoint.id] ?? $0.connection.status { return true }
+      if case .connected = $0.eventStream.connectionStatus { return true }
       return false
     }.count
   }
 
   var activeConnectionStatus: ConnectionStatus {
     guard let activeEndpointId else { return .disconnected }
-    return connectionStatusByEndpointId[activeEndpointId] ?? .disconnected
+    return runtimesByEndpointId[activeEndpointId]?.eventStream.connectionStatus ?? .disconnected
   }
 
   func configureFromSettings(startEnabled: Bool) {
@@ -157,38 +177,23 @@ final class ServerRuntimeRegistry {
     for (id, runtime) in runtimesByEndpointId where !configuredIds.contains(id) {
       runtime.stop()
       runtimesByEndpointId[id] = nil
-      statusSubscriptions[id]?.cancel()
-      statusSubscriptions[id] = nil
-      serverRoleSubscriptions[id]?.cancel()
-      serverRoleSubscriptions[id] = nil
-      serverClaimSubscriptions[id]?.cancel()
-      serverClaimSubscriptions[id] = nil
-      connectionStatusByEndpointId[id] = nil
-      serverPrimaryByEndpointId[id] = nil
-      serverPrimaryClaimsByEndpointId[id] = nil
+      statusObserverTasks[id]?.cancel()
+      statusObserverTasks[id] = nil
     }
 
     for endpoint in configuredEndpoints {
       if let existing = runtimesByEndpointId[endpoint.id] {
         if existing.endpoint != endpoint {
           existing.stop()
-          statusSubscriptions[endpoint.id]?.cancel()
-          statusSubscriptions[endpoint.id] = nil
-          serverRoleSubscriptions[endpoint.id]?.cancel()
-          serverRoleSubscriptions[endpoint.id] = nil
-          serverClaimSubscriptions[endpoint.id]?.cancel()
-          serverClaimSubscriptions[endpoint.id] = nil
-          serverPrimaryByEndpointId[endpoint.id] = nil
-          serverPrimaryClaimsByEndpointId[endpoint.id] = nil
+          statusObserverTasks[endpoint.id]?.cancel()
+          statusObserverTasks[endpoint.id] = nil
 
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
-          observeConnectionState(for: replacement)
         }
       } else {
         let runtime = runtimeFactory(endpoint)
         runtimesByEndpointId[endpoint.id] = runtime
-        observeConnectionState(for: runtime)
       }
     }
 
@@ -227,11 +232,11 @@ final class ServerRuntimeRegistry {
 
     if isPrimary {
       for runtime in runtimesByEndpointId.values where runtime.endpoint.id != endpointId && runtime.endpoint.isEnabled {
-        runtime.connection.setServerRole(isPrimary: false)
+        runtime.sessionStore.setServerRole(isPrimary: false)
       }
     }
 
-    targetRuntime.connection.setServerRole(isPrimary: isPrimary)
+    targetRuntime.sessionStore.setServerRole(isPrimary: isPrimary)
   }
 
   func stop(endpointId: UUID) {
@@ -244,7 +249,7 @@ final class ServerRuntimeRegistry {
 
   func handleMemoryPressure() {
     for runtime in runtimesByEndpointId.values {
-      runtime.appState.handleMemoryPressure()
+      runtime.sessionStore.handleMemoryPressure()
     }
   }
 
@@ -254,46 +259,41 @@ final class ServerRuntimeRegistry {
     }
   }
 
-  func appState(for session: Session, fallback: ServerAppState) -> ServerAppState {
+  func sessionStore(for session: Session, fallback: SessionStore) -> SessionStore {
     guard let endpointId = session.endpointId,
           let runtime = runtimesByEndpointId[endpointId]
     else {
       return fallback
     }
-    return runtime.appState
+    return runtime.sessionStore
   }
 
-  func sessionObservable(for session: Session, fallback: ServerAppState) -> SessionObservable {
-    appState(for: session, fallback: fallback).session(session.id)
+  func sessionObservable(for session: Session, fallback: SessionStore) -> SessionObservable {
+    sessionStore(for: session, fallback: fallback).session(session.id)
   }
 
-  func isForkedSession(_ session: Session, fallback: ServerAppState) -> Bool {
+  func isForkedSession(_ session: Session, fallback: SessionStore) -> Bool {
     sessionObservable(for: session, fallback: fallback).forkedFrom != nil
   }
 
-  func appState(for endpointId: UUID?, fallback: ServerAppState) -> ServerAppState {
+  func sessionStore(for endpointId: UUID?, fallback: SessionStore) -> SessionStore {
     guard let endpointId,
           let runtime = runtimesByEndpointId[endpointId]
     else {
       return fallback
     }
-    return runtime.appState
+    return runtime.sessionStore
   }
 
-  func primaryAppState(fallback: ServerAppState) -> ServerAppState {
+  func primarySessionStore(fallback: SessionStore) -> SessionStore {
     if let primaryRuntime {
-      return primaryRuntime.appState
+      return primaryRuntime.sessionStore
     }
     return fallback
   }
 
-  func connection(for endpointId: UUID?) -> ServerConnection? {
-    guard let endpointId else { return nil }
-    return runtimesByEndpointId[endpointId]?.connection
-  }
-
   private func ensureInitialized() {
-    if runtimesByEndpointId.isEmpty {
+    if shouldBootstrapFromSettings, runtimesByEndpointId.isEmpty {
       configureFromSettings(startEnabled: false)
     }
 
@@ -310,7 +310,6 @@ final class ServerRuntimeRegistry {
       let endpoint = ServerEndpoint.localDefault(defaultPort: ServerEndpointSettings.defaultPort)
       let runtime = runtimeFactory(endpoint)
       runtimesByEndpointId[endpoint.id] = runtime
-      observeConnectionState(for: runtime)
     }
 
     if activeEndpointId == nil {
@@ -333,56 +332,12 @@ final class ServerRuntimeRegistry {
     return nil
   }
 
-  private func observeConnectionState(for runtime: ServerRuntime) {
-    let endpointId = runtime.endpoint.id
-    connectionStatusByEndpointId[endpointId] = runtime.connection.status
-    if let isPrimary = runtime.connection.serverIsPrimary {
-      serverPrimaryByEndpointId[endpointId] = isPrimary
-    } else {
-      serverPrimaryByEndpointId[endpointId] = nil
-    }
-    serverPrimaryClaimsByEndpointId[endpointId] = runtime.connection.serverPrimaryClaims
-
-    if statusSubscriptions[endpointId] == nil {
-      statusSubscriptions[endpointId] = runtime.connection.$status.sink { [weak self] status in
-        guard let self else { return }
-        Task { @MainActor in
-          self.connectionStatusByEndpointId[endpointId] = status
-          self.syncClientPrimaryClaims()
-        }
-      }
-    }
-
-    if serverRoleSubscriptions[endpointId] == nil {
-      serverRoleSubscriptions[endpointId] = runtime.connection.$serverIsPrimary.sink { [weak self] isPrimary in
-        guard let self else { return }
-        Task { @MainActor in
-          if let isPrimary {
-            self.serverPrimaryByEndpointId[endpointId] = isPrimary
-          } else {
-            self.serverPrimaryByEndpointId[endpointId] = nil
-          }
-          self.recomputePrimaryEndpoint()
-        }
-      }
-    }
-
-    if serverClaimSubscriptions[endpointId] == nil {
-      serverClaimSubscriptions[endpointId] = runtime.connection.$serverPrimaryClaims.sink { [weak self] claims in
-        guard let self else { return }
-        Task { @MainActor in
-          self.serverPrimaryClaimsByEndpointId[endpointId] = claims
-        }
-      }
-    }
-  }
-
   private func recomputePrimaryEndpoint(from endpoints: [ServerEndpoint]? = nil) {
     let configuredEndpoints = endpoints ?? endpointsProvider()
     let enabledEndpoints = configuredEndpoints.filter(\.isEnabled)
     let previousPrimaryEndpointId = primaryEndpointId
     let declaredPrimaryCandidates = enabledEndpoints.filter { endpoint in
-      serverPrimaryByEndpointId[endpoint.id] == true
+      runtimesByEndpointId[endpoint.id]?.sessionStore.serverIsPrimary == true
     }
 
     hasPrimaryEndpointConflict = declaredPrimaryCandidates.count > 1
@@ -410,7 +365,7 @@ final class ServerRuntimeRegistry {
     guard let primaryEndpointId else { return }
 
     for runtime in runtimesByEndpointId.values where runtime.endpoint.isEnabled {
-      runtime.connection.setClientPrimaryClaim(
+      runtime.sessionStore.setClientPrimaryClaim(
         clientId: identity.clientId,
         deviceName: identity.deviceName,
         isPrimary: runtime.endpoint.id == primaryEndpointId

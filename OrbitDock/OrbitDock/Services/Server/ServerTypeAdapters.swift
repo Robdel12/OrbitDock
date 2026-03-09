@@ -12,7 +12,7 @@ import Foundation
 
 extension ServerSessionSummary {
   /// Convert to app Session model. Caller must stamp `endpointId` and `endpointName`
-  /// on the returned session before inserting into `ServerAppState.sessions`.
+  /// on the returned session before inserting into `SessionStore.sessions`.
   func toSession() -> Session {
     let codexMode: CodexIntegrationMode? = if provider == .codex {
       codexIntegrationMode?.toSessionMode() ?? .direct
@@ -72,7 +72,7 @@ extension ServerSessionSummary {
 
 extension ServerSessionState {
   /// Convert to app Session model. Caller must stamp `endpointId` and `endpointName`
-  /// on the returned session before inserting into `ServerAppState.sessions`.
+  /// on the returned session before inserting into `SessionStore.sessions`.
   func toSession() -> Session {
     let codexMode: CodexIntegrationMode? = if provider == .codex {
       codexIntegrationMode?.toSessionMode() ?? .direct

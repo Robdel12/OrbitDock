@@ -161,7 +161,7 @@ final class CodexUsageService {
   private var activeEndpointId: UUID?
 
   private var isTestMode: Bool {
-    ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] != nil
+    AppRuntimeMode.isRunningTestsProcess || ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] != nil
   }
 
   private init() {
@@ -194,7 +194,7 @@ final class CodexUsageService {
     logger.info("refresh: starting endpoint=\(context.endpointId.uuidString, privacy: .public)")
 
     do {
-      let response = try await context.connection.fetchCodexUsage()
+      let response = try await context.apiClient.fetchCodexUsage()
       if let errorInfo = response.errorInfo {
         error = mapServerError(errorInfo)
         logger.error("refresh: failed - \(errorInfo.message, privacy: .public)")
@@ -245,12 +245,12 @@ final class CodexUsageService {
     return Date().timeIntervalSince(fetchedAt) < cacheValidDuration
   }
 
-  private func controlPlaneContext() -> (endpointId: UUID, connection: ServerConnection)? {
+  private func controlPlaneContext() -> (endpointId: UUID, apiClient: APIClient)? {
     let runtimeRegistry = ServerRuntimeRegistry.shared
-    guard let connection = runtimeRegistry.controlPlaneConnection else {
+    guard let runtime = runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime else {
       return nil
     }
-    return (connection.endpointId, connection)
+    return (runtime.endpoint.id, runtime.apiClient)
   }
 
   private func switchActiveEndpointIfNeeded(_ endpointId: UUID) {

@@ -43,7 +43,7 @@ enum MissionControlNotificationSessions {
 }
 
 struct ContentView: View {
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AttentionService.self) private var attentionService
   @Environment(AppRouter.self) private var router
@@ -65,11 +65,11 @@ struct ContentView: View {
   }
 
   private var isAnyInitialLoading: Bool {
-    enabledRuntimes.contains { $0.appState.isLoadingInitialSessions }
+    enabledRuntimes.contains { !$0.sessionStore.hasReceivedInitialSessionsList }
   }
 
   private var isAnyRefreshingCachedSessions: Bool {
-    enabledRuntimes.contains { $0.appState.isRefreshingCachedSessions }
+    false
   }
 
   /// Show setup view when server is not configured and not connected
@@ -182,25 +182,27 @@ struct ContentView: View {
       QuickSwitcher(
         sessions: sessions,
         onQuickLaunchClaude: { path in
-          creationAppState().createClaudeSession(
-            cwd: path,
-            model: nil,
-            permissionMode: nil,
-            allowedTools: [],
-            disallowedTools: [],
-            effort: nil
-          )
+          Task {
+            try? await creationAppState().createSession(
+              APIClient.CreateSessionRequest(provider: "claude", cwd: path)
+            )
+          }
         },
         onQuickLaunchCodex: { path in
           let targetState = creationAppState()
           let defaultModel = targetState.codexModels.first(where: { $0.isDefault })?.model
             ?? targetState.codexModels.first?.model ?? ""
-          targetState.createSession(
-            cwd: path,
-            model: defaultModel,
-            approvalPolicy: "on-request",
-            sandboxMode: "workspace-write"
-          )
+          Task {
+            try? await targetState.createSession(
+              APIClient.CreateSessionRequest(
+                provider: "codex",
+                cwd: path,
+                model: defaultModel,
+                approvalPolicy: "on-request",
+                sandboxMode: "workspace-write"
+              )
+            )
+          }
         }
       )
     }
@@ -270,12 +272,12 @@ struct ContentView: View {
     attentionService.update(sessions: missionControlSessions) { session in
       guard let ref = session.sessionRef else { return nil }
       guard let runtime = runtimeRegistry.runtimesByEndpointId[ref.endpointId] else { return nil }
-      return runtime.appState.session(ref.sessionId)
+      return runtime.sessionStore.session(ref.sessionId)
     }
   }
 
-  private func creationAppState() -> ServerAppState {
-    runtimeRegistry.primaryAppState(fallback: serverState)
+  private func creationAppState() -> SessionStore {
+    runtimeRegistry.primarySessionStore(fallback: serverState)
   }
 
   private func updateToastSessionSelection(_: String?, _ newId: String?) {
@@ -331,7 +333,7 @@ struct ContentView: View {
 
 #Preview {
   ContentView()
-    .environment(ServerAppState())
+    .environment(SessionStore())
     .environment(ServerRuntimeRegistry.shared)
     .environment(AttentionService())
     .environment(AppRouter())

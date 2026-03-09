@@ -11,7 +11,7 @@ struct SkillsTab: View {
   let sessionId: String
   @Binding var selectedSkills: Set<String>
 
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
 
   private let scopeOrder: [ServerSkillScope] = [.repo, .user, .system, .admin]
 
@@ -101,7 +101,7 @@ struct SkillsTab: View {
         Spacer()
 
         Button {
-          serverState.listSkills(sessionId: sessionId)
+          Task { try? await serverState.listSkills(sessionId: sessionId) }
         } label: {
           Image(systemName: "arrow.clockwise")
             .font(.system(size: TypeScale.meta, weight: .medium))

@@ -24,6 +24,7 @@
       return urls.contains(where: { $0.isFileURL && isImageFileURL($0) })
     }
 
+    @MainActor
     func pickImages() {
       let panel = NSOpenPanel()
       panel.allowedContentTypes = [.image]
@@ -31,12 +32,31 @@
       panel.canChooseDirectories = false
       panel.message = "Select images to attach"
 
-      guard panel.runModal() == .OK else { return }
       let encodeAsDataURI = shouldEncodeLocalFileImagesAsDataURI
+      let applySelection: (NSApplication.ModalResponse) -> Void = { response in
+        guard response == .OK else { return }
 
-      for url in panel.urls {
-        guard let thumbnail = createThumbnail(from: url) else { continue }
-        _ = appendLocalFileImage(url: url, thumbnail: thumbnail, encodeAsDataURI: encodeAsDataURI)
+        var appendedAnyImage = false
+        for url in panel.urls {
+          guard let thumbnail = createThumbnail(from: url) else { continue }
+          let didAppend = appendLocalFileImage(
+            url: url,
+            thumbnail: thumbnail,
+            encodeAsDataURI: encodeAsDataURI
+          )
+          appendedAnyImage = appendedAnyImage || didAppend
+        }
+
+        if appendedAnyImage {
+          Platform.services.playHaptic(.action)
+          requestComposerFocus()
+        }
+      }
+
+      if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+        panel.beginSheetModal(for: window, completionHandler: applySelection)
+      } else {
+        applySelection(panel.runModal())
       }
     }
 

@@ -117,7 +117,7 @@ struct ReviewCanvas: View {
   @Binding var selectedCommentIds: Set<String>
   var navigateToComment: Binding<ServerReviewComment?>?
 
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
 
   @State private var cursorIndex: Int = 0
   @State private var collapsedFiles: Set<String> = []
@@ -273,7 +273,7 @@ struct ReviewCanvas: View {
       isCanvasFocused = true
       handlePendingNavigation()
       if obs.reviewComments.isEmpty {
-        serverState.listReviewComments(sessionId: sessionId)
+        Task { try? await serverState.listReviewComments(sessionId: sessionId, turnId: nil) }
       }
     }
   }
@@ -1313,15 +1313,19 @@ struct ReviewCanvas: View {
     // modified this file so the comment shows up on the correct edit turn.
     let turnId = selectedTurnDiffId ?? inferTurnId(forFile: ct.filePath)
 
-    serverState.createReviewComment(
-      sessionId: sessionId,
-      turnId: turnId,
-      filePath: ct.filePath,
-      lineStart: ct.lineStart,
-      lineEnd: ct.lineEnd,
-      body: trimmed,
-      tag: composerTag
-    )
+    Task {
+      _ = try? await serverState.apiClient.createReviewComment(
+        sessionId: sessionId,
+        request: APIClient.CreateReviewCommentRequest(
+          turnId: turnId,
+          filePath: ct.filePath,
+          lineStart: ct.lineStart,
+          lineEnd: ct.lineEnd,
+          body: trimmed,
+          tag: composerTag
+        )
+      )
+    }
 
     composerTarget = nil
     composerBody = ""
@@ -1331,12 +1335,12 @@ struct ReviewCanvas: View {
   /// Resolve/unresolve a comment.
   private func resolveComment(_ comment: ServerReviewComment) {
     let newStatus: ServerReviewCommentStatus = comment.status == .open ? .resolved : .open
-    serverState.updateReviewComment(
-      commentId: comment.id,
-      body: nil,
-      tag: nil,
-      status: newStatus
-    )
+    Task {
+      try? await serverState.apiClient.updateReviewComment(
+        commentId: comment.id,
+        body: APIClient.UpdateReviewCommentRequest(status: newStatus)
+      )
+    }
   }
 
   /// Toggle resolve on the first open comment at the current cursor line.
@@ -1599,16 +1603,18 @@ struct ReviewCanvas: View {
     )
     showReviewBanner = true
 
-    serverState.sendMessage(sessionId: sessionId, content: message)
+    Task {
+      try? await serverState.sendMessage(sessionId: sessionId, content: message)
+    }
 
     // Mark sent comments as resolved
     for comment in commentsToSend {
-      serverState.updateReviewComment(
-        commentId: comment.id,
-        body: nil,
-        tag: nil,
-        status: .resolved
-      )
+      Task {
+        try? await serverState.apiClient.updateReviewComment(
+          commentId: comment.id,
+          body: APIClient.UpdateReviewCommentRequest(status: .resolved)
+        )
+      }
     }
 
     // Clear selection after send

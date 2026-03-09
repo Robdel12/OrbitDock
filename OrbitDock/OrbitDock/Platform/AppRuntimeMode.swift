@@ -5,25 +5,50 @@ enum AppRuntimeMode: String {
   case mock
   case remote
 
+  enum Platform {
+    case macOS
+    case iOS
+  }
+
   static let environmentKey = "ORBITDOCK_RUNTIME_MODE"
 
   static var current: AppRuntimeMode {
-    if let raw = ProcessInfo.processInfo.environment[environmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let environment = ProcessInfo.processInfo.environment
+    return resolved(
+      environment: environment,
+      hasRemoteEndpoint: isRunningTests(environment: environment) ? false : ServerEndpointSettings.hasRemoteEndpoint,
+      isRunningTests: isRunningTests(environment: environment),
+      platform: currentPlatform
+    )
+  }
+
+  static var isRunningTestsProcess: Bool {
+    isRunningTests(environment: ProcessInfo.processInfo.environment)
+  }
+
+  static func resolved(
+    environment: [String: String],
+    hasRemoteEndpoint: Bool,
+    isRunningTests: Bool,
+    platform: Platform
+  ) -> AppRuntimeMode {
+    if let raw = environment[environmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines)
       .lowercased(),
       let mode = AppRuntimeMode(rawValue: raw)
     {
       return mode
     }
 
-    #if os(iOS)
-      // iOS uses remote mode when a remote endpoint is configured.
-      if ServerEndpointSettings.hasRemoteEndpoint {
-        return .remote
-      }
+    if isRunningTests {
       return .mock
-    #else
-      return .live
-    #endif
+    }
+
+    switch platform {
+      case .iOS:
+        return hasRemoteEndpoint ? .remote : .mock
+      case .macOS:
+        return .live
+    }
   }
 
   var shouldConnectServer: Bool {
@@ -40,6 +65,20 @@ enum AppRuntimeMode: String {
       #endif
     #else
       false
+    #endif
+  }
+
+  private static func isRunningTests(environment: [String: String]) -> Bool {
+    environment["XCTestConfigurationFilePath"] != nil
+      || environment["XCTestBundlePath"] != nil
+      || environment["XCTestSessionIdentifier"] != nil
+  }
+
+  private static var currentPlatform: Platform {
+    #if os(iOS)
+      .iOS
+    #else
+      .macOS
     #endif
   }
 }

@@ -125,7 +125,7 @@ struct ClaudePermissionPill: View {
   var size: PillSize = .regular
   var isActive: Bool = false
   var onTapOverride: (() -> Void)?
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @State private var showPopover = false
 
   private var currentMode: ClaudePermissionMode {
@@ -164,7 +164,7 @@ struct ClaudePermissionPill: View {
       ClaudePermissionPopover(selection: Binding(
         get: { currentMode },
         set: { newMode in
-          serverState.updateClaudePermissionMode(sessionId: sessionId, mode: newMode)
+          Task { try? await serverState.updateClaudePermissionMode(sessionId, mode: newMode) }
         }
       ))
     }
@@ -400,7 +400,7 @@ struct InlineClaudePermissionPicker: View {
   }
   .padding()
   .background(Color.backgroundPrimary)
-  .environment(ServerAppState())
+  .environment(SessionStore())
 }
 
 #Preview("Permission Popover") {

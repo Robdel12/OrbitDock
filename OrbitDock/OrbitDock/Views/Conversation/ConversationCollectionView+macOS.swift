@@ -43,7 +43,7 @@ import SwiftUI
     let provider: Provider
     let model: String?
     let sessionId: String?
-    let serverState: ServerAppState
+    let serverState: SessionStore
     let hasMoreMessages: Bool
     let currentPrompt: String?
     let messageCount: Int
@@ -168,7 +168,7 @@ import SwiftUI
 
   class ConversationCollectionViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     var coordinator: ConversationCollectionView.Coordinator?
-    var serverState: ServerAppState?
+    var serverState: SessionStore?
     var openFileInReview: ((String) -> Void)?
     var provider: Provider = .claude
     var model: String?
@@ -1218,11 +1218,13 @@ import SwiftUI
 
     private func cancelShellCommand(requestID: String) {
       guard let serverState, let sessionId else { return }
-      // Route to stopTask for task/subagent cards, cancelShell for bash
-      if let msg = messagesByID[requestID], msg.toolName?.lowercased() == "task" {
-        serverState.stopTask(sessionId: sessionId, taskId: requestID)
-      } else {
-        serverState.cancelShell(sessionId: sessionId, requestId: requestID)
+      Task {
+        // Route to stopTask for task/subagent cards, cancelShell for bash
+        if let msg = messagesByID[requestID], msg.toolName?.lowercased() == "task" {
+          try? await serverState.stopTask(sessionId, taskId: requestID)
+        } else {
+          try? await serverState.cancelShell(sessionId, requestId: requestID)
+        }
       }
     }
 

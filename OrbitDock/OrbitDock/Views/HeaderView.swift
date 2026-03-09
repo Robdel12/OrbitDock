@@ -19,7 +19,7 @@ struct HeaderView: View {
   var onNavigateToComment: ((ServerReviewComment) -> Void)?
   var onSendReview: (() -> Void)?
 
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @State private var isHoveringBack = false
   @State private var isHoveringProject = false
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
@@ -715,7 +715,7 @@ struct ContextGaugeCompact: View {
 
 struct CodexTokenBadge: View {
   let sessionId: String
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
 
   private var obs: SessionObservable {
     serverState.session(sessionId)
@@ -826,5 +826,5 @@ struct CodexTokenBadge: View {
   }
   .frame(width: 900)
   .background(Color.backgroundPrimary)
-  .environment(ServerAppState())
+  .environment(SessionStore())
 }

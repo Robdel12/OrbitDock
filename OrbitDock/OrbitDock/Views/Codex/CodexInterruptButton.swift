@@ -10,7 +10,7 @@ import SwiftUI
 struct CodexInterruptButton: View {
   let sessionId: String
   var isCompact: Bool = false
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
 
   @State private var isInterrupting = false
   @State private var isHovering = false
@@ -52,7 +52,7 @@ struct CodexInterruptButton: View {
   private func interrupt() {
     isInterrupting = true
     Platform.services.playHaptic(.destructive)
-    serverState.interruptSession(sessionId)
+    Task { try? await serverState.interruptSession(sessionId) }
   }
 
   private var workStatus: Session.WorkStatus {

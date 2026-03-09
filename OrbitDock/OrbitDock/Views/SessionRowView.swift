@@ -9,7 +9,7 @@ struct SessionRowView: View {
   let session: Session
   var isSelected: Bool = false
 
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
 
   private var displayStatus: SessionDisplayStatus {
     SessionDisplayStatus.from(session)

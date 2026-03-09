@@ -508,7 +508,7 @@ struct ServerSettingsSheet: View {
     }
 
     return runtimeRegistry.connectionStatusByEndpointId[endpoint.id]
-      ?? runtimeRegistry.runtimesByEndpointId[endpoint.id]?.connection.status
+      ?? runtimeRegistry.runtimesByEndpointId[endpoint.id]?.eventStream.connectionStatus
       ?? .disconnected
   }
 

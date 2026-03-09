@@ -18,7 +18,7 @@ struct DirectSessionComposer: View {
   @Binding var isPinned: Bool
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
-  @Environment(ServerAppState.self) var serverState
+  @Environment(SessionStore.self) var serverState
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
   @Environment(AppRouter.self) var router
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
@@ -100,7 +100,7 @@ struct DirectSessionComposer: View {
   }
 
   var canContinueInNewSession: Bool {
-    !serverState.connection.isRemoteConnection
+    !serverState.isRemoteConnection
   }
 
   var pendingApprovalModel: ApprovalCardModel? {
@@ -150,7 +150,7 @@ struct DirectSessionComposer: View {
   }
 
   var connectionStatus: ConnectionStatus {
-    runtimeRegistry.connectionStatusByEndpointId[serverState.endpointId] ?? serverState.connection.status
+    runtimeRegistry.connectionStatusByEndpointId[serverState.endpointId] ?? serverState.eventStream.connectionStatus
   }
 
   var isConnected: Bool {
@@ -827,8 +827,7 @@ struct DirectSessionComposer: View {
   }
 
   func sendSuggestion(_ suggestion: String) {
-    guard let conn = runtimeRegistry.connection(for: serverState.endpointId) else { return }
-    conn.sendMessage(sessionId: sessionId, content: suggestion)
+    Task { try? await serverState.sendMessage(sessionId: sessionId, content: suggestion) }
   }
 
   // MARK: - Composer Surface
@@ -963,7 +962,7 @@ struct DirectSessionComposer: View {
     HStack {
       Button {
         connLog(.info, category: .resume, "Resume button tapped", sessionId: sessionId)
-        serverState.resumeSession(sessionId)
+        Task { try? await serverState.resumeSession(sessionId) }
       } label: {
         HStack(spacing: Spacing.sm) {
           Image(systemName: "arrow.counterclockwise")
@@ -1039,7 +1038,7 @@ struct DirectSessionComposer: View {
     unreadCount: $unread,
     scrollToBottomTrigger: $scroll
   )
-  .environment(ServerAppState())
+  .environment(SessionStore())
   .environment(ServerRuntimeRegistry.shared)
   .frame(width: 600)
 }

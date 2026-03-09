@@ -37,10 +37,17 @@ struct ComposerImageAttachmentPolicyTests {
 
     #expect(
       result == .tooLarge(
-        maxBytes: ComposerImageAttachmentPolicy.maxTotalRawBytes,
-        remainingBytes: remainingBytes
+        maxBytes: ComposerImageAttachmentPolicy.maxTotalRawBytes
       )
     )
+  }
+
+  @Test func remainingBytesClampsToZeroWhenBudgetIsExceeded() {
+    let remaining = ComposerImageAttachmentPolicy.remainingBytes(
+      usedRawBytes: ComposerImageAttachmentPolicy.maxTotalRawBytes + 1
+    )
+
+    #expect(remaining == 0)
   }
 
   @Test func estimatedTransportBytesAccountsForBase64Expansion() {

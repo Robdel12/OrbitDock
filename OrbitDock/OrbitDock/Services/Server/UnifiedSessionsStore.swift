@@ -185,8 +185,8 @@ final class UnifiedSessionsStore {
     let inputs = runtimeRegistry.runtimes.map { runtime in
       UnifiedSessionsProjection.EndpointInput(
         endpoint: runtime.endpoint,
-        status: runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.connection.status,
-        sessions: runtime.appState.sessions
+        status: runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.eventStream.connectionStatus,
+        sessions: runtime.sessionStore.sessions
       )
     }
 

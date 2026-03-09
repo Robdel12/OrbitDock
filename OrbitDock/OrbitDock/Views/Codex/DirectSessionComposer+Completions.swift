@@ -31,7 +31,7 @@ extension DirectSessionComposer {
     }
 
     if availableSkills.isEmpty {
-      serverState.listSkills(sessionId: sessionId)
+      Task { try? await serverState.listSkills(sessionId: sessionId) }
     }
 
     completionQuery = query
@@ -174,10 +174,10 @@ extension DirectSessionComposer {
     commandDeckActive = true
 
     if hasSkillsPanel, availableSkills.isEmpty {
-      serverState.listSkills(sessionId: sessionId)
+      Task { try? await serverState.listSkills(sessionId: sessionId) }
     }
     if serverState.session(sessionId).mcpTools.isEmpty {
-      serverState.listMcpTools(sessionId: sessionId)
+      Task { try? await serverState.listMcpTools(sessionId: sessionId) }
     }
     loadProjectFilesIfNeeded()
   }
@@ -238,7 +238,7 @@ extension DirectSessionComposer {
         clearCommandDeckState()
         removeTrailingCommandDeckToken()
         if hasSkillsPanel {
-          serverState.listSkills(sessionId: sessionId)
+          Task { try? await serverState.listSkills(sessionId: sessionId) }
         }
         activateCommandDeck(prefill: "skill")
 
@@ -257,7 +257,7 @@ extension DirectSessionComposer {
       case .refreshMcp:
         clearCommandDeckState()
         removeTrailingCommandDeckToken()
-        serverState.refreshMcpServers(sessionId: sessionId)
+        Task { try? await serverState.refreshMcpServers(sessionId) }
 
       case let .attachFile(file):
         clearCommandDeckState()

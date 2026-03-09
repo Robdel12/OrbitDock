@@ -95,7 +95,7 @@ struct QuickCommand: Identifiable {
 
 struct QuickSwitcher: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
   let sessions: [Session]
@@ -197,7 +197,7 @@ struct QuickSwitcher: View {
         router.closeQuickSwitcher()
       },
       onClose: { [self] session in
-        appState(for: session).endSession(session.id)
+        Task { try? await appState(for: session).endSession(session.id) }
         router.closeQuickSwitcher()
       }
     )
@@ -316,7 +316,7 @@ struct QuickSwitcher: View {
           initialText: renameText,
           onSave: { newName in
             let name = newName.isEmpty ? nil : newName
-            appState(for: session).renameSession(sessionId: session.id, name: name)
+            Task { try? await appState(for: session).renameSession(session.id, name: name) }
             renamingSession = nil
           },
           onCancel: {
@@ -983,7 +983,7 @@ struct QuickSwitcher: View {
             }
             if session.showsInMissionControl {
               actionButton(icon: "xmark.circle", tooltip: "Close Session") {
-                appState(for: session).endSession(session.id)
+                Task { try? await appState(for: session).endSession(session.id) }
                 router.closeQuickSwitcher()
               }
             }
@@ -1036,7 +1036,7 @@ struct QuickSwitcher: View {
       if session.showsInMissionControl {
         Divider()
         Button(role: .destructive) {
-          appState(for: session).endSession(session.id)
+          Task { try? await appState(for: session).endSession(session.id) }
           router.closeQuickSwitcher()
         } label: {
           Label("Close Session", systemImage: "xmark.circle")
@@ -1213,8 +1213,8 @@ struct QuickSwitcher: View {
     session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown"
   }
 
-  private func appState(for session: Session) -> ServerAppState {
-    runtimeRegistry.appState(for: session, fallback: serverState)
+  private func appState(for session: Session) -> SessionStore {
+    runtimeRegistry.sessionStore(for: session, fallback: serverState)
   }
 
   private func sessionObservable(for session: Session) -> SessionObservable {
@@ -1284,14 +1284,14 @@ struct QuickSwitcher: View {
   // MARK: - Quick Launch
 
   private func loadRecentProjects() {
-    guard let connection = runtimeRegistry.controlPlaneConnection else {
+    guard let apiClient = runtimeRegistry.primaryRuntime?.apiClient ?? runtimeRegistry.activeRuntime?.apiClient else {
       recentProjects = []
       isLoadingProjects = false
       return
     }
 
     isLoadingProjects = true
-    let endpointId = connection.endpointId
+    let endpointId = currentControlPlaneEndpointID()
     let requestId = UUID()
     recentProjectsRequestId = requestId
 
@@ -1303,7 +1303,7 @@ struct QuickSwitcher: View {
       }
 
       do {
-        let projects = try await connection.listRecentProjects()
+        let projects = try await apiClient.listRecentProjects()
         guard recentProjectsRequestId == requestId, currentControlPlaneEndpointID() == endpointId else { return }
         recentProjects = projects
       } catch {
@@ -1422,7 +1422,7 @@ struct QuickSwitcher: View {
     .environment(AppRouter())
   }
   .frame(width: 800, height: 600)
-  .environment(ServerAppState())
+  .environment(SessionStore())
 }
 
 // MARK: - Compact Context Menu Modifier

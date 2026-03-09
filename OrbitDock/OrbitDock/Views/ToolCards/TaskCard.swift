@@ -13,7 +13,7 @@ struct TaskCard: View {
   @Binding var isExpanded: Bool
   var sessionId: String?
 
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
 
   // Subagent state
   @State private var matchedSubagentId: String?

@@ -193,7 +193,7 @@ struct AutonomyPill: View {
   var size: PillSize = .regular
   var isActive: Bool = false
   var onTapOverride: (() -> Void)?
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @State private var showPopover = false
 
   private var currentLevel: AutonomyLevel {
@@ -240,10 +240,10 @@ struct AutonomyPill: View {
       AutonomyPopover(selection: Binding(
         get: { currentLevel },
         set: { newLevel in
-          serverState.updateSessionConfig(sessionId: sessionId, autonomy: newLevel)
+          Task { try? await serverState.updateSessionConfig(sessionId, approvalPolicy: newLevel.rawValue) }
         }
       ), isConfiguredOnServer: isConfiguredOnServer) {
-        serverState.updateSessionConfig(sessionId: sessionId, autonomy: currentLevel)
+        Task { try? await serverState.updateSessionConfig(sessionId, approvalPolicy: currentLevel.rawValue) }
       }
     }
   }
@@ -543,7 +543,7 @@ struct InlineAutonomyPicker: View {
   }
   .padding()
   .background(Color.backgroundPrimary)
-  .environment(ServerAppState())
+  .environment(SessionStore())
 }
 
 #Preview("Autonomy Popover") {

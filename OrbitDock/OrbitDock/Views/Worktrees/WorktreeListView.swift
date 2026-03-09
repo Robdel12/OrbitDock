@@ -38,7 +38,7 @@ private enum WorktreeRemoveFeedbackAlert: Identifiable {
 }
 
 struct WorktreeListView: View {
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
@@ -80,7 +80,7 @@ struct WorktreeListView: View {
       #endif
     }
     .onAppear {
-      serverState.connection.listWorktrees(repoRoot: repoRoot)
+      Task { try? await serverState.apiClient.listWorktrees(repoRoot: repoRoot) }
     }
     .sheet(isPresented: $showCreateSheet) {
       CreateWorktreeSheet(
@@ -88,11 +88,13 @@ struct WorktreeListView: View {
         projectName: projectName,
         onCancel: { showCreateSheet = false },
         onCreate: { branchName, baseBranch in
-          serverState.connection.createWorktree(
-            repoPath: repoRoot,
-            branchName: branchName,
-            baseBranch: baseBranch
-          )
+          Task {
+            try? await serverState.apiClient.createWorktree(
+              repoPath: repoRoot,
+              branchName: branchName,
+              baseBranch: baseBranch
+            )
+          }
           showCreateSheet = false
         }
       )
@@ -117,13 +119,15 @@ struct WorktreeListView: View {
             archiveOnly: request.archiveOnly
           )
           lastRemoveAttempt = attempt
-          serverState.connection.removeWorktree(
-            worktreeId: wt.id,
-            force: request.force,
-            deleteBranch: request.deleteBranch,
-            deleteRemoteBranch: request.deleteRemoteBranch,
-            archiveOnly: request.archiveOnly
-          )
+          Task {
+            try? await serverState.apiClient.removeWorktree(
+              worktreeId: wt.id,
+              force: request.force,
+              deleteBranch: request.deleteBranch,
+              deleteRemoteBranch: request.deleteRemoteBranch,
+              archiveOnly: request.archiveOnly
+            )
+          }
           worktreeForCleanup = nil
         }
       )
@@ -215,7 +219,7 @@ struct WorktreeListView: View {
   private var panelActionBar: some View {
     HStack {
       Button {
-        serverState.connection.discoverWorktrees(repoPath: repoRoot)
+        Task { try? await serverState.apiClient.discoverWorktrees(repoPath: repoRoot) }
       } label: {
         Label("Discover", systemImage: "arrow.clockwise")
           .font(.system(size: TypeScale.meta, weight: .medium))
@@ -319,7 +323,7 @@ struct WorktreeListView: View {
     private var compactActionBar: some View {
       HStack(spacing: Spacing.sm) {
         Button {
-          serverState.connection.discoverWorktrees(repoPath: repoRoot)
+          Task { try? await serverState.apiClient.discoverWorktrees(repoPath: repoRoot) }
         } label: {
           Label("Discover", systemImage: "arrow.clockwise")
             .font(.system(size: TypeScale.body, weight: .semibold))
@@ -582,13 +586,15 @@ struct WorktreeListView: View {
                   archiveOnly: false
                 )
                 lastRemoveAttempt = forceAttempt
-                serverState.connection.removeWorktree(
-                  worktreeId: attempt.worktreeId,
-                  force: true,
-                  deleteBranch: attempt.deleteBranch,
-                  deleteRemoteBranch: attempt.deleteRemoteBranch,
-                  archiveOnly: false
-                )
+                Task {
+                  try? await serverState.apiClient.removeWorktree(
+                    worktreeId: attempt.worktreeId,
+                    force: true,
+                    deleteBranch: attempt.deleteBranch,
+                    deleteRemoteBranch: attempt.deleteRemoteBranch,
+                    archiveOnly: false
+                  )
+                }
               },
               secondaryButton: .cancel()
             )

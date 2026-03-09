@@ -7,7 +7,7 @@ import OSLog
 import SwiftUI
 
 struct SessionDetailView: View {
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(AppRouter.self) private var router
   let sessionId: String
@@ -123,7 +123,7 @@ struct SessionDetailView: View {
       } else {
         if obs.canTakeOver, !obs.needsApprovalOverlay {
           TakeOverInputBar {
-            serverState.takeoverSession(sessionId)
+            Task { try? await serverState.takeoverSession(sessionId) }
           }
         }
         actionBar
@@ -135,7 +135,11 @@ struct SessionDetailView: View {
         serverState.subscribeToSession(sessionId, forceRefresh: true)
         serverState.setSessionAutoMarkRead(sessionId, enabled: isPinned)
         if obs.isDirect {
-          serverState.loadApprovalHistory(sessionId: sessionId)
+          Task {
+            if let resp = try? await serverState.apiClient.listApprovals(sessionId: sessionId) {
+              serverState.session(sessionId).approvalHistory = resp.approvals
+            }
+          }
         }
       }
     }
@@ -612,7 +616,7 @@ struct SessionDetailView: View {
 
     Task {
       do {
-        try await serverState.connection.removeWorktreeAsync(
+        try await serverState.apiClient.removeWorktree(
           worktreeId: wt.id,
           force: true,
           deleteBranch: deleteBranchOnCleanup
@@ -691,7 +695,7 @@ struct SessionDetailView: View {
   }
 
   private func endDirectSession() {
-    serverState.endSession(sessionId)
+    Task { try? await serverState.endSession(sessionId) }
   }
 
   // MARK: - Send Review
@@ -790,16 +794,16 @@ struct SessionDetailView: View {
 
     let message = lines.joined(separator: "\n")
 
-    serverState.sendMessage(sessionId: sessionId, content: message)
+    Task {
+      try? await serverState.sendMessage(sessionId: sessionId, content: message)
 
-    // Resolve sent comments
-    for comment in commentsToSend {
-      serverState.updateReviewComment(
-        commentId: comment.id,
-        body: nil,
-        tag: nil,
-        status: .resolved
-      )
+      // Resolve sent comments
+      for comment in commentsToSend {
+        try? await serverState.apiClient.updateReviewComment(
+          commentId: comment.id,
+          body: APIClient.UpdateReviewCommentRequest(status: .resolved)
+        )
+      }
     }
 
     // Clear selection after send
@@ -812,7 +816,7 @@ struct SessionDetailView: View {
     sessionId: "preview-123",
     endpointId: UUID()
   )
-  .environment(ServerAppState())
+  .environment(SessionStore())
   .environment(AttentionService())
   .environment(AppRouter())
   .frame(width: 800, height: 600)

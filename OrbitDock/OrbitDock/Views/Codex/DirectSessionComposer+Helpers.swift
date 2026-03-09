@@ -115,7 +115,7 @@ extension DirectSessionComposer {
         Platform.services.playHaptic(.error)
         return
       }
-      serverState.executeShell(sessionId: sessionId, command: trimmed)
+      Task { try? await serverState.executeShell(sessionId, command: trimmed) }
       Platform.services.playHaptic(.action)
       message = ""
       manualShellMode = false
@@ -131,7 +131,7 @@ extension DirectSessionComposer {
         return
       }
       let shellCmd = String(trimmed.dropFirst())
-      serverState.executeShell(sessionId: sessionId, command: shellCmd)
+      Task { try? await serverState.executeShell(sessionId, command: shellCmd) }
       Platform.services.playHaptic(.action)
       message = ""
       requestComposerFocus()
@@ -147,45 +147,31 @@ extension DirectSessionComposer {
 
     if isSessionWorking {
       guard !expandedContent.isEmpty || hasAttachedImages || !mentionInputs.isEmpty else { return }
-      if hasAttachedImages {
-        sendSteerTurnViaHTTP(
-          content: expandedContent,
-          images: attachedImages,
-          mentions: mentionInputs
-        )
-        return
-      }
 
-      let disposition = serverState.steerTurn(
-        sessionId: sessionId,
-        content: expandedContent,
-        images: [],
-        mentions: mentionInputs
-      )
-
-      switch disposition {
-        case .sent:
-          Platform.services.playHaptic(.action)
-          errorMessage = nil
-          message = ""
-          withAnimation(Motion.gentle) {
-            attachedImages = []
-            attachedMentions = []
+      isSending = true
+      Task {
+        do {
+          let uploadedImages = hasAttachedImages
+            ? try await uploadAttachedImages(attachedImages)
+            : []
+          try await serverState.steerTurn(
+            sessionId: sessionId,
+            content: expandedContent,
+            images: uploadedImages,
+            mentions: mentionInputs
+          )
+          await MainActor.run {
+            isSending = false
+            completeSuccessfulComposerSend()
           }
-          requestComposerFocus()
-        case .queued:
-          Platform.services.playHaptic(.action)
-          errorMessage = "Offline: steering message queued and will send after reconnect."
-          message = ""
-          withAnimation(Motion.gentle) {
-            attachedImages = []
-            attachedMentions = []
+        } catch {
+          await MainActor.run {
+            isSending = false
+            Platform.services.playHaptic(.error)
+            errorMessage = "Couldn't send steer message. Your draft is still here."
+            requestComposerFocus()
           }
-          requestComposerFocus()
-        case .dropped:
-          Platform.services.playHaptic(.error)
-          errorMessage = "Couldn't send steer message. Your draft is still here."
-          requestComposerFocus()
+        }
       }
       return
     }
@@ -227,76 +213,21 @@ extension DirectSessionComposer {
       expandedContent = "\(shellContext)\n\n\(expandedContent)"
     }
 
-    if hasAttachedImages {
-      sendMessageViaHTTP(
-        content: expandedContent,
-        model: effectiveModel,
-        effort: effort,
-        skills: skillInputs,
-        images: attachedImages,
-        mentions: mentionInputs
-      )
-      return
-    }
-
-    let disposition = serverState.sendMessage(
-      sessionId: sessionId,
-      content: expandedContent,
-      model: effectiveModel,
-      effort: effort,
-      skills: skillInputs,
-      images: [],
-      mentions: mentionInputs
-    )
-
-    switch disposition {
-      case .sent:
-        Platform.services.playHaptic(.action)
-        errorMessage = nil
-        message = ""
-        withAnimation(Motion.gentle) {
-          attachedImages = []
-          attachedMentions = []
-        }
-        requestComposerFocus()
-      case .queued:
-        Platform.services.playHaptic(.action)
-        errorMessage = "Offline: message queued and will send after reconnect."
-        message = ""
-        withAnimation(Motion.gentle) {
-          attachedImages = []
-          attachedMentions = []
-        }
-        requestComposerFocus()
-      case .dropped:
-        Platform.services.playHaptic(.error)
-        errorMessage = "Couldn't send message. Your draft is still here."
-        requestComposerFocus()
-    }
-  }
-
-  private func sendMessageViaHTTP(
-    content: String,
-    model: String?,
-    effort: String?,
-    skills: [ServerSkillInput],
-    images: [AttachedImage],
-    mentions: [ServerMentionInput]
-  ) {
     isSending = true
     Task {
       do {
-        let uploadedImages = try await uploadAttachedImages(images)
-        try await serverState.sendMessageViaHTTP(
+        let uploadedImages = hasAttachedImages
+          ? try await uploadAttachedImages(attachedImages)
+          : []
+        try await serverState.sendMessage(
           sessionId: sessionId,
-          content: content,
-          model: model,
+          content: expandedContent,
+          model: effectiveModel,
           effort: effort,
-          skills: skills,
+          skills: skillInputs,
           images: uploadedImages,
-          mentions: mentions
+          mentions: mentionInputs
         )
-
         await MainActor.run {
           isSending = false
           completeSuccessfulComposerSend()
@@ -305,38 +236,7 @@ extension DirectSessionComposer {
         await MainActor.run {
           isSending = false
           Platform.services.playHaptic(.error)
-          errorMessage = "Couldn't send image message. Your draft is still here."
-          requestComposerFocus()
-        }
-      }
-    }
-  }
-
-  private func sendSteerTurnViaHTTP(
-    content: String,
-    images: [AttachedImage],
-    mentions: [ServerMentionInput]
-  ) {
-    isSending = true
-    Task {
-      do {
-        let uploadedImages = try await uploadAttachedImages(images)
-        try await serverState.steerTurnViaHTTP(
-          sessionId: sessionId,
-          content: content,
-          images: uploadedImages,
-          mentions: mentions
-        )
-
-        await MainActor.run {
-          isSending = false
-          completeSuccessfulComposerSend()
-        }
-      } catch {
-        await MainActor.run {
-          isSending = false
-          Platform.services.playHaptic(.error)
-          errorMessage = "Couldn't send steer message with images. Your draft is still here."
+          errorMessage = "Couldn't send message. Your draft is still here."
           requestComposerFocus()
         }
       }
@@ -352,9 +252,9 @@ extension DirectSessionComposer {
         sessionId: sessionId,
         data: image.uploadData,
         mimeType: image.uploadMimeType,
-        displayName: image.displayName,
-        pixelWidth: image.pixelWidth,
-        pixelHeight: image.pixelHeight
+        displayName: image.displayName ?? "image",
+        pixelWidth: image.pixelWidth ?? 0,
+        pixelHeight: image.pixelHeight ?? 0
       )
       uploaded.append(input)
     }
@@ -451,8 +351,8 @@ extension DirectSessionComposer {
   }
 
   func refreshForkExistingWorktrees() {
-    guard let repoPath = forkWorktreeDisplayRepoPath else { return }
-    serverState.connection.listWorktrees(repoRoot: repoPath)
+    guard forkWorktreeDisplayRepoPath != nil else { return }
+    serverState.refreshWorktreesForActiveSessions()
   }
 
   func statusColor(for status: ServerWorktreeStatus) -> Color {
@@ -512,11 +412,14 @@ extension DirectSessionComposer {
           showForkToWorktreeSheet = false
         },
         onCreate: { branchName, baseBranch in
-          serverState.forkSessionToWorktree(
-            sessionId: sessionId,
-            branchName: branchName,
-            baseBranch: baseBranch
-          )
+          Task {
+            try? await serverState.forkSessionToWorktree(
+              sessionId: sessionId,
+              branchName: branchName,
+              baseBranch: baseBranch,
+              nthUserMessage: nil
+            )
+          }
           showForkToWorktreeSheet = false
         }
       )
@@ -574,7 +477,11 @@ extension DirectSessionComposer {
             VStack(spacing: Spacing.xxs) {
               ForEach(forkToExistingCandidates) { wt in
                 Button {
-                  serverState.forkSessionToExistingWorktree(sessionId: sessionId, worktreeId: wt.id)
+                  Task {
+                    try? await serverState.forkSessionToExistingWorktree(
+                      sessionId: sessionId, worktreeId: wt.id, nthUserMessage: nil
+                    )
+                  }
                   showForkToExistingWorktreeSheet = false
                 } label: {
                   HStack(spacing: Spacing.sm) {

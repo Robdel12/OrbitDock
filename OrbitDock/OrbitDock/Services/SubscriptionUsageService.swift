@@ -188,7 +188,7 @@ final class SubscriptionUsageService {
   private var activeEndpointId: UUID?
 
   private var isTestMode: Bool {
-    ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] != nil
+    AppRuntimeMode.isRunningTestsProcess || ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] != nil
   }
 
   private init() {
@@ -217,7 +217,7 @@ final class SubscriptionUsageService {
     lastFetchAttempt = Date()
 
     do {
-      let response = try await context.connection.fetchClaudeUsage()
+      let response = try await context.apiClient.fetchClaudeUsage()
       if let errorInfo = response.errorInfo {
         error = mapServerError(errorInfo)
       } else if let snapshot = response.usage {
@@ -253,12 +253,12 @@ final class SubscriptionUsageService {
     }
   }
 
-  private func controlPlaneContext() -> (endpointId: UUID, connection: ServerConnection)? {
+  private func controlPlaneContext() -> (endpointId: UUID, apiClient: APIClient)? {
     let runtimeRegistry = ServerRuntimeRegistry.shared
-    guard let connection = runtimeRegistry.controlPlaneConnection else {
+    guard let runtime = runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime else {
       return nil
     }
-    return (connection.endpointId, connection)
+    return (runtime.endpoint.id, runtime.apiClient)
   }
 
   private func switchActiveEndpointIfNeeded(_ endpointId: UUID) {

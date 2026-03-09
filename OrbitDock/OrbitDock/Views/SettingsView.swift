@@ -85,7 +85,7 @@ struct SettingsView: View {
 
   private var connectedEndpointCount: Int {
     runtimeRegistry.runtimes.filter { runtime in
-      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.connection.status
+      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.eventStream.connectionStatus
       if case .connected = status {
         return true
       }
@@ -686,8 +686,10 @@ struct GeneralSettingsView: View {
   }
 
   private func saveOpenAiKey() {
-    guard let connection = runtimeRegistry.controlPlaneConnection else { return }
-    connection.setOpenAiKey(openAiKey)
+    guard let apiClient = runtimeRegistry.primaryRuntime?.apiClient ?? runtimeRegistry.activeRuntime?.apiClient else { return }
+    Task {
+      try? await apiClient.setOpenAiKey(openAiKey)
+    }
     openAiKeySaved = true
     openAiKey = ""
     isReplacingKey = false
@@ -695,26 +697,27 @@ struct GeneralSettingsView: View {
   }
 
   private func checkOpenAiKeyStatus() {
-    guard let connection = runtimeRegistry.controlPlaneConnection else {
+    guard let runtime = runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime else {
       openAiKeyStatus = .notConfigured
       return
     }
 
     openAiKeyStatus = .checking
-    let endpointId = connection.endpointId
+    let endpointId = runtime.endpoint.id
+    let apiClient = runtime.apiClient
     let requestId = UUID()
     openAiKeyStatusRequestId = requestId
 
     Task { @MainActor in
       do {
-        let configured = try await connection.checkOpenAiKeyStatus()
+        let configured = try await apiClient.checkOpenAiKeyStatus()
         guard openAiKeyStatusRequestId == requestId,
-              runtimeRegistry.controlPlaneConnection?.endpointId == endpointId
+              (runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime)?.endpoint.id == endpointId
         else { return }
         openAiKeyStatus = configured ? .configured : .notConfigured
       } catch {
         guard openAiKeyStatusRequestId == requestId,
-              runtimeRegistry.controlPlaneConnection?.endpointId == endpointId
+              (runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime)?.endpoint.id == endpointId
         else { return }
         openAiKeyStatus = .notConfigured
       }
@@ -934,7 +937,7 @@ struct NotificationSettingsView: View {
 // MARK: - Setup Settings
 
 struct SetupSettingsView: View {
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @State private var copied = false
   @State private var hooksConfigured: Bool? = nil
 
@@ -1036,17 +1039,17 @@ struct SetupSettingsView: View {
           VStack(alignment: .leading, spacing: Spacing.md) {
             HStack(spacing: Spacing.sm) {
               Image(systemName: serverState
-                .codexAccount == nil ? "person.crop.circle.badge.exclamationmark" :
+                .codexAccountStatus?.account == nil ? "person.crop.circle.badge.exclamationmark" :
                 "person.crop.circle.badge.checkmark")
                 .font(.system(size: TypeScale.body, weight: .semibold))
-                .foregroundStyle(serverState.codexAccount == nil ? Color.statusPermission : Color.feedbackPositive)
+                .foregroundStyle(serverState.codexAccountStatus?.account == nil ? Color.statusPermission : Color.feedbackPositive)
               Text("Account")
                 .font(.system(size: TypeScale.body, weight: .semibold))
               Spacer()
               codexAuthBadge
             }
 
-            switch serverState.codexAccount {
+            switch serverState.codexAccountStatus?.account {
               case .apiKey?:
                 Text("Connected with API key. Switch to ChatGPT sign-in for subscription-backed limits.")
                   .font(.system(size: TypeScale.caption))
@@ -1075,7 +1078,7 @@ struct SetupSettingsView: View {
             }
 
             HStack(spacing: Spacing.md_) {
-              if serverState.codexLoginInProgress {
+              if (serverState.codexAccountStatus?.loginInProgress == true) {
                 Button {
                   serverState.cancelCodexChatgptLogin()
                 } label: {
@@ -1083,7 +1086,7 @@ struct SetupSettingsView: View {
                     .font(.system(size: TypeScale.caption, weight: .semibold))
                 }
                 .buttonStyle(.bordered)
-              } else if serverState.codexAccount == nil {
+              } else if serverState.codexAccountStatus?.account == nil {
                 Button {
                   serverState.startCodexChatgptLogin()
                 } label: {
@@ -1094,7 +1097,7 @@ struct SetupSettingsView: View {
                 .tint(Color.accent)
               }
 
-              if serverState.codexAccount != nil {
+              if serverState.codexAccountStatus?.account != nil {
                 Button("Usage") {
                   openCodexUsagePage()
                 }
@@ -1135,14 +1138,14 @@ struct SetupSettingsView: View {
 
   @ViewBuilder
   private var codexAuthBadge: some View {
-    if serverState.codexLoginInProgress {
+    if (serverState.codexAccountStatus?.loginInProgress == true) {
       Label("Signing In", systemImage: "clock")
         .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, Spacing.xs)
         .background(Color.statusWorking.opacity(0.18), in: Capsule())
         .foregroundStyle(Color.statusWorking)
-    } else if serverState.codexAccount == nil {
+    } else if serverState.codexAccountStatus?.account == nil {
       Label("Not Connected", systemImage: "xmark")
         .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
         .padding(.horizontal, Spacing.sm)
@@ -1260,7 +1263,6 @@ struct SetupSettingsView: View {
 struct DebugSettingsView: View {
   @StateObject private var serverManager = ServerManager.shared
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  @State private var showServerTest = false
   @State private var showEndpointSettings = false
 
   private var activeConnectionStatus: ConnectionStatus {
@@ -1277,7 +1279,7 @@ struct DebugSettingsView: View {
 
   private var connectedEndpointCount: Int {
     runtimeRegistry.runtimes.filter { runtime in
-      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.connection.status
+      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.eventStream.connectionStatus
       if case .connected = status {
         return true
       }
@@ -1369,11 +1371,6 @@ struct DebugSettingsView: View {
               .font(.system(size: TypeScale.body))
 
             Spacer()
-
-            Button("Test View") {
-              showServerTest = true
-            }
-            .buttonStyle(.bordered)
           }
 
           HStack {
@@ -1395,9 +1392,6 @@ struct DebugSettingsView: View {
         }
       }
       .padding(Spacing.xl)
-    }
-    .sheet(isPresented: $showServerTest) {
-      ServerTestView()
     }
     .sheet(isPresented: $showEndpointSettings) {
       ServerSettingsSheet()

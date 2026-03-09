@@ -620,7 +620,7 @@ import SwiftUI
 
     private func loadRecentProjects() {
       guard let requestEndpointId = resolvedEndpointID(),
-            let connection = runtimeRegistry.connection(for: requestEndpointId)
+            let apiClient = runtimeRegistry.runtimesByEndpointId[requestEndpointId]?.apiClient
       else {
         recentProjects = []
         isLoadingRecent = false
@@ -639,7 +639,7 @@ import SwiftUI
         }
 
         do {
-          let projects = try await connection.listRecentProjects()
+          let projects = try await apiClient.listRecentProjects()
           guard recentProjectsRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }
           recentProjects = projects
         } catch {
@@ -652,7 +652,7 @@ import SwiftUI
 
     private func browseDirectory(_ path: String?) {
       guard let requestEndpointId = resolvedEndpointID(),
-            let connection = runtimeRegistry.connection(for: requestEndpointId)
+            let apiClient = runtimeRegistry.runtimesByEndpointId[requestEndpointId]?.apiClient
       else {
         directoryEntries = []
         isLoadingDirectory = false
@@ -672,14 +672,14 @@ import SwiftUI
         }
 
         do {
-          let listing = try await connection.browseDirectory(path: path)
+          let (browsedPath, entries) = try await apiClient.browseDirectory(path: path ?? "")
           guard browseRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }
 
           if let path, !path.isEmpty {
             browseHistory.append(historyEntry)
           }
-          currentBrowsePath = listing.path
-          directoryEntries = listing.entries
+          currentBrowsePath = browsedPath
+          directoryEntries = entries
         } catch {
           logger.error("Failed to browse directory: \(error.localizedDescription)")
           guard browseRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }
@@ -691,7 +691,7 @@ import SwiftUI
     private func navigateBack() {
       guard let previous = browseHistory.last else { return }
       guard let requestEndpointId = resolvedEndpointID(),
-            let connection = runtimeRegistry.connection(for: requestEndpointId)
+            let apiClient = runtimeRegistry.runtimesByEndpointId[requestEndpointId]?.apiClient
       else {
         directoryEntries = []
         isLoadingDirectory = false
@@ -710,12 +710,12 @@ import SwiftUI
         }
 
         do {
-          let listing = try await connection.browseDirectory(path: previous.isEmpty ? nil : previous)
+          let (browsedPath, entries) = try await apiClient.browseDirectory(path: previous.isEmpty ? "" : previous)
           guard browseRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }
 
           _ = browseHistory.popLast()
-          currentBrowsePath = listing.path
-          directoryEntries = listing.entries
+          currentBrowsePath = browsedPath
+          directoryEntries = entries
         } catch {
           logger.error("Failed to navigate back in directory browser: \(error.localizedDescription)")
           guard browseRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }

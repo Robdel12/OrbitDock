@@ -3,7 +3,7 @@
 //  OrbitDock
 //
 //  Simple HTTP server that exposes session actions to MCP clients.
-//  Routes through ServerAppState which forwards to the Rust server via WebSocket.
+//  Routes through SessionStore which forwards to the Rust server via WebSocket.
 //
 
 import Foundation
@@ -18,14 +18,14 @@ final class MCPBridge {
 
   private let logger = Logger(subsystem: "com.orbitdock", category: "MCPBridge")
   private var listener: NWListener?
-  private weak var serverAppState: ServerAppState?
+  private weak var serverAppState: SessionStore?
   private let port: UInt16 = 19_384 // ORBIT on phone keypad :)
 
   private init() {}
 
   // MARK: - Lifecycle
 
-  func start(serverAppState: ServerAppState) {
+  func start(serverAppState: SessionStore) {
     self.serverAppState = serverAppState
 
     do {
@@ -178,7 +178,7 @@ final class MCPBridge {
        pathParts[1] == "sessions",
        pathParts[3] == "approve"
     {
-      let response = handleApprove(sessionId: pathParts[2], body: request.body)
+      let response = await handleApprove(sessionId: pathParts[2], body: request.body)
       logResponse(start: start, request: request, response: response)
       return response
     }
@@ -312,14 +312,14 @@ final class MCPBridge {
       }
     }
 
-    state.sendMessage(
+    Task { try? await state.sendMessage(
       sessionId: sessionId,
       content: message,
       model: model,
       effort: effort,
       images: images,
       mentions: mentions
-    )
+    ) }
     return HTTPResponse(status: 200, body: ["status": "sent", "session_id": sessionId])
   }
 
@@ -328,7 +328,7 @@ final class MCPBridge {
       return HTTPResponse(status: 503, body: ["error": "Server state not available"])
     }
 
-    state.interruptSession(sessionId)
+    Task { try? await state.interruptSession(sessionId) }
     return HTTPResponse(status: 200, body: ["status": "interrupted", "session_id": sessionId])
   }
 
@@ -386,12 +386,12 @@ final class MCPBridge {
       )
     }
 
-    state.steerTurn(
+    Task { try? await state.steerTurn(
       sessionId: sessionId,
       content: content,
       images: images,
       mentions: mentions
-    )
+    ) }
     return HTTPResponse(status: 200, body: ["status": "steered", "session_id": sessionId])
   }
 
@@ -401,7 +401,7 @@ final class MCPBridge {
     }
 
     let nthUserMessage = (body["nth_user_message"] as? Int).map { UInt32($0) }
-    state.forkSession(sessionId: sessionId, nthUserMessage: nthUserMessage)
+    Task { try? await state.forkSession(sessionId: sessionId, nthUserMessage: nthUserMessage) }
     return HTTPResponse(status: 200, body: [
       "status": "fork_requested",
       "session_id": sessionId,
@@ -427,7 +427,7 @@ final class MCPBridge {
       return HTTPResponse(status: 400, body: ["error": "Session is not a Claude direct session"])
     }
 
-    state.updateClaudePermissionMode(sessionId: sessionId, mode: mode)
+    Task { try? await state.updateClaudePermissionMode(sessionId, mode: mode) }
     return HTTPResponse(status: 200, body: [
       "status": "updated",
       "session_id": sessionId,
@@ -435,7 +435,7 @@ final class MCPBridge {
     ])
   }
 
-  private func handleApprove(sessionId: String, body: [String: Any]) -> HTTPResponse {
+  private func handleApprove(sessionId: String, body: [String: Any]) async -> HTTPResponse {
     guard let state = serverAppState else {
       return HTTPResponse(status: 503, body: ["error": "Server state not available"])
     }
@@ -547,15 +547,15 @@ final class MCPBridge {
         ])
       }
 
-      let result = state.answerQuestion(
-        sessionId: sessionId,
-        requestId: requestId,
-        answer: primaryAnswer,
-        questionId: questionId,
-        answers: answers
-      )
-
-      guard case .dispatched = result else {
+      do {
+        try await state.answerQuestion(
+          sessionId: sessionId,
+          requestId: requestId,
+          answer: primaryAnswer,
+          questionId: questionId,
+          answers: answers
+        )
+      } catch {
         let nextPending = state.nextPendingApprovalRequestId(sessionId: sessionId)
         let message = if let nextPending {
           "Stale approval request '\(requestId)'. Next pending request is '\(nextPending)'."
@@ -582,15 +582,15 @@ final class MCPBridge {
         return HTTPResponse(status: 400, body: ["error": "Missing 'decision' field"])
       }
 
-      let result = state.approveTool(
-        sessionId: sessionId,
-        requestId: requestId,
-        decision: decision,
-        message: denyMessage,
-        interrupt: interrupt
-      )
-
-      guard case .dispatched = result else {
+      do {
+        try await state.approveTool(
+          sessionId: sessionId,
+          requestId: requestId,
+          decision: decision,
+          message: denyMessage,
+          interrupt: interrupt
+        )
+      } catch {
         let nextPending = state.nextPendingApprovalRequestId(sessionId: sessionId)
         let message = if let nextPending {
           "Stale approval request '\(requestId)'. Next pending request is '\(nextPending)'."

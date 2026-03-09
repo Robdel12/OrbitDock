@@ -15,10 +15,12 @@ class NotificationManager {
   private var isAuthorized = false
 
   private init() {
+    guard !AppRuntimeMode.isRunningTestsProcess else { return }
     requestAuthorization()
   }
 
   func requestAuthorization() {
+    guard !AppRuntimeMode.isRunningTestsProcess else { return }
     UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
       DispatchQueue.main.async {
         self.isAuthorized = granted
@@ -74,9 +76,7 @@ class NotificationManager {
     let content = UNMutableNotificationContent()
     content.title = "Session Needs Attention"
     content.subtitle = session.displayName
-    content.body = session.workStatus == .permission
-      ? "Waiting for permission approval"
-      : "Waiting for your input"
+    content.body = Self.attentionMessage(for: session)
     content.sound = configuredSound
     content.categoryIdentifier = "SESSION_ATTENTION"
 
@@ -114,7 +114,7 @@ class NotificationManager {
   func updateSessionWorkStatus(session: Session) {
     let scopedID = session.scopedID
     let wasWorking = workingSessionIds.contains(scopedID)
-    let isWorking = session.showsInMissionControl && session.workStatus == .working
+    let isWorking = Self.shouldTrackAsWorking(session)
 
     if isWorking {
       workingSessionIds.insert(scopedID)
@@ -134,9 +134,7 @@ class NotificationManager {
     let content = UNMutableNotificationContent()
     content.title = "\(session.provider.displayName) Finished"
     content.subtitle = session.displayName
-    content.body = session.workStatus == .permission
-      ? "Needs permission to continue"
-      : "Ready for your next prompt"
+    content.body = Self.completionMessage(for: session)
     content.sound = configuredSound
     content.categoryIdentifier = "SESSION_ATTENTION"
 
@@ -156,5 +154,31 @@ class NotificationManager {
         print("Failed to schedule notification: \(error)")
       }
     }
+  }
+
+  static func attentionMessage(for session: Session) -> String {
+    switch SessionDisplayStatus.from(session) {
+      case .permission:
+        return "Waiting for permission approval"
+      case .question:
+        return "Waiting for your answer"
+      case .reply, .working, .ended:
+        return "Waiting for your input"
+    }
+  }
+
+  static func completionMessage(for session: Session) -> String {
+    switch SessionDisplayStatus.from(session) {
+      case .permission:
+        return "Needs permission to continue"
+      case .question:
+        return "Asked a question"
+      case .reply, .working, .ended:
+        return "Ready for your next prompt"
+    }
+  }
+
+  static func shouldTrackAsWorking(_ session: Session) -> Bool {
+    session.showsInMissionControl && SessionDisplayStatus.from(session) == .working
   }
 }

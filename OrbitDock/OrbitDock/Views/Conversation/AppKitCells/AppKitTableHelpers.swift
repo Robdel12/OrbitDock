@@ -97,6 +97,19 @@
         height: bounds.height - cardTopInset - cardBottomInset
       )
       CATransaction.commit()
+
+      // Shrink cell views to the card content area so AutoLayout
+      // constraints don't extend into the card spacing zone.
+      let contentY = cardTopInset
+      let contentH = bounds.height - cardTopInset - cardBottomInset
+      for subview in subviews where subview is NSTableCellView {
+        var f = subview.frame
+        if f.origin.y != contentY || f.size.height != contentH {
+          f.origin.y = contentY
+          f.size.height = contentH
+          subview.frame = f
+        }
+      }
     }
 
     private func updateCorners() {

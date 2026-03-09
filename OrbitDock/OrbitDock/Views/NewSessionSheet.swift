@@ -98,7 +98,7 @@ private enum ClaudeEffortLevel: String, CaseIterable, Identifiable {
 
 struct NewSessionSheet: View {
   @Environment(\.dismiss) private var dismiss
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   /// Pre-selected provider (set by caller)
@@ -152,7 +152,8 @@ struct NewSessionSheet: View {
   }
 
   private var requiresCodexLogin: Bool {
-    endpointAppState.codexRequiresOpenAIAuth && endpointAppState.codexAccount == nil
+    endpointAppState.codexAccountStatus?.requiresOpenaiAuth == true
+      && endpointAppState.codexAccountStatus?.account == nil
   }
 
   private var claudeModels: [ServerClaudeModelOption] {
@@ -187,13 +188,13 @@ struct NewSessionSheet: View {
     return enabled.isEmpty ? ServerEndpointSettings.endpoints : enabled
   }
 
-  private var endpointAppState: ServerAppState {
-    runtimeRegistry.appState(for: selectedEndpointId, fallback: serverState)
+  private var endpointAppState: SessionStore {
+    runtimeRegistry.sessionStore(for: selectedEndpointId, fallback: serverState)
   }
 
   private var endpointStatus: ConnectionStatus {
     runtimeRegistry.connectionStatusByEndpointId[selectedEndpointId]
-      ?? runtimeRegistry.connection(for: selectedEndpointId)?.status
+      ?? runtimeRegistry.runtimesByEndpointId[selectedEndpointId]?.eventStream.connectionStatus
       ?? .disconnected
   }
 
@@ -208,7 +209,7 @@ struct NewSessionSheet: View {
     guard let continuation else { return true }
     return continuation.isSupported(
       on: selectedEndpointId,
-      isRemoteConnection: endpointAppState.connection.isRemoteConnection
+      isRemoteConnection: endpointAppState.isRemoteConnection
     )
   }
 
@@ -327,7 +328,7 @@ struct NewSessionSheet: View {
         continuationSection(continuation)
       }
 
-      if provider == .codex, endpointAppState.codexAccount == nil {
+      if provider == .codex, endpointAppState.codexAccountStatus?.account == nil {
         authGateSection
       }
 
@@ -420,7 +421,7 @@ struct NewSessionSheet: View {
 
           Spacer(minLength: Spacing.sm)
 
-          if provider == .codex, let account = endpointAppState.codexAccount {
+          if provider == .codex, let account = endpointAppState.codexAccountStatus?.account {
             connectedBadge(account)
           }
 
@@ -439,7 +440,7 @@ struct NewSessionSheet: View {
 
         Spacer()
 
-        if provider == .codex, let account = endpointAppState.codexAccount {
+        if provider == .codex, let account = endpointAppState.codexAccountStatus?.account {
           connectedBadge(account)
         }
 
@@ -538,7 +539,7 @@ struct NewSessionSheet: View {
       }
 
       HStack(spacing: Spacing.sm) {
-        if endpointAppState.codexLoginInProgress {
+        if endpointAppState.codexAccountStatus?.loginInProgress == true {
           Button {
             endpointAppState.cancelCodexChatgptLogin()
           } label: {
@@ -1012,7 +1013,7 @@ struct NewSessionSheet: View {
   private var footer: some View {
     #if os(iOS)
       VStack(alignment: .leading, spacing: Spacing.md) {
-        if provider == .codex, endpointAppState.codexAccount != nil {
+        if provider == .codex, endpointAppState.codexAccountStatus?.account != nil {
           signOutButton
         }
 
@@ -1028,7 +1029,7 @@ struct NewSessionSheet: View {
       .padding(.bottom, Spacing.lg)
     #else
       HStack(spacing: Spacing.md) {
-        if provider == .codex, endpointAppState.codexAccount != nil {
+        if provider == .codex, endpointAppState.codexAccountStatus?.account != nil {
           signOutButton
         }
 
@@ -1186,9 +1187,7 @@ struct NewSessionSheet: View {
   }
 
   private func refreshEndpointData() {
-    // Always refresh both providers so models are ready when switching
-    endpointAppState.refreshClaudeModels()
-    endpointAppState.refreshCodexModels()
+    // Models arrive via the event stream; only codex account needs an explicit refresh
     endpointAppState.refreshCodexAccount()
   }
 
@@ -1228,12 +1227,12 @@ struct NewSessionSheet: View {
   }
 
   private func initGitAndEnableWorktree() {
-    guard let connection = runtimeRegistry.connection(for: selectedEndpointId) else { return }
+    guard let runtime = runtimeRegistry.runtimesByEndpointId[selectedEndpointId] else { return }
     isCreating = true
     Task { @MainActor in
       defer { isCreating = false }
       do {
-        try await connection.gitInit(path: selectedPath)
+        _ = try await runtime.apiClient.gitInit(path: selectedPath)
         selectedPathIsGit = true
         useWorktree = true
       } catch {
@@ -1257,11 +1256,11 @@ struct NewSessionSheet: View {
   private func createSessionWithWorktree(branch: String) {
     isCreating = true
     worktreeError = nil
-    guard let connection = runtimeRegistry.connection(for: selectedEndpointId) else { return }
+    guard let runtime = runtimeRegistry.runtimesByEndpointId[selectedEndpointId] else { return }
     Task { @MainActor in
       do {
         let baseBranch = worktreeBaseBranch.trimmingCharacters(in: .whitespaces)
-        let worktree = try await connection.createWorktreeAsync(
+        let worktree = try await runtime.apiClient.createWorktree(
           repoPath: selectedPath,
           branchName: branch,
           baseBranch: baseBranch.isEmpty ? nil : baseBranch
@@ -1281,25 +1280,47 @@ struct NewSessionSheet: View {
   }
 
   private func launchSession(cwd: String) {
+    let store = endpointAppState
+    let prompt = continuationPrompt
+
     switch provider {
       case .claude:
-        endpointAppState.createClaudeSession(
+        let request = APIClient.CreateSessionRequest(
+          provider: "claude",
           cwd: cwd,
           model: resolvedClaudeModel,
           permissionMode: selectedPermissionMode == .default ? nil : selectedPermissionMode.rawValue,
           allowedTools: parseToolList(allowedToolsText),
           disallowedTools: parseToolList(disallowedToolsText),
-          effort: selectedEffort.serialized,
-          initialPrompt: continuationPrompt
+          effort: selectedEffort.serialized
         )
+        Task {
+          let response = try? await store.createSession(request)
+          if let prompt, let sessionId = response?.sessionId {
+            try? await store.apiClient.sendMessage(
+              sessionId,
+              request: APIClient.SendMessageRequest(content: prompt)
+            )
+          }
+        }
+
       case .codex:
-        endpointAppState.createSession(
+        let request = APIClient.CreateSessionRequest(
+          provider: "codex",
           cwd: cwd,
           model: codexModel,
           approvalPolicy: selectedAutonomy.approvalPolicy,
-          sandboxMode: selectedAutonomy.sandboxMode,
-          initialPrompt: continuationPrompt
+          sandboxMode: selectedAutonomy.sandboxMode
         )
+        Task {
+          let response = try? await store.createSession(request)
+          if let prompt, let sessionId = response?.sessionId {
+            try? await store.apiClient.sendMessage(
+              sessionId,
+              request: APIClient.SendMessageRequest(content: prompt)
+            )
+          }
+        }
     }
   }
 
@@ -1448,6 +1469,6 @@ private struct CompactModeButton: View {
 
 #Preview {
   NewSessionSheet()
-    .environment(ServerAppState())
+    .environment(SessionStore())
     .environment(ServerRuntimeRegistry.shared)
 }

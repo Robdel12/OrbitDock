@@ -8,7 +8,7 @@ import SwiftUI
 #if os(macOS)
 
   struct MenuBarView: View {
-    @Environment(ServerAppState.self) private var serverState
+    @Environment(SessionStore.self) private var serverState
     @Environment(\.colorScheme) private var colorScheme
 
     var activeSessions: [Session] {
@@ -266,7 +266,7 @@ import SwiftUI
 
   #Preview {
     MenuBarView()
-      .environment(ServerAppState())
+      .environment(SessionStore())
   }
 
 #else

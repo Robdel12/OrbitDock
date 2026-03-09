@@ -127,7 +127,7 @@ private struct ToolGroup: Identifiable {
 struct PermissionInlinePanel: View {
   let sessionId: String
   @Binding var isExpanded: Bool
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
 
   @State private var headerHovering = false
   @State private var expandedGroups: Set<String> = []
@@ -218,9 +218,9 @@ struct PermissionInlinePanel: View {
         .frame(height: 0.5)
         .padding(.horizontal, Spacing.sm)
     }
-    .onAppear { serverState.loadPermissionRules(sessionId: sessionId) }
+    .task { try? await serverState.loadPermissionRules(sessionId: sessionId) }
     .onChange(of: isExpanded) { _, on in
-      if on { serverState.loadPermissionRules(sessionId: sessionId) }
+      if on { Task { try? await serverState.loadPermissionRules(sessionId: sessionId) } }
     }
   }
 
@@ -341,9 +341,9 @@ struct PermissionInlinePanel: View {
 
   private func selectMode(_ mode: some PermissionModeRepresentable) {
     if let level = mode as? AutonomyLevel {
-      serverState.updateSessionConfig(sessionId: sessionId, autonomy: level)
+      Task { try? await serverState.updateSessionConfig(sessionId, approvalPolicy: level.rawValue) }
     } else if let mode = mode as? ClaudePermissionMode {
-      serverState.updateClaudePermissionMode(sessionId: sessionId, mode: mode)
+      Task { try? await serverState.updateClaudePermissionMode(sessionId, mode: mode) }
     }
   }
 
@@ -499,11 +499,12 @@ struct PermissionInlinePanel: View {
 
       // Remove button — sized for touch
       Button {
-        withAnimation(Motion.snappy) {
-          serverState.removePermissionRule(
+        Task {
+          try? await serverState.removePermissionRule(
             sessionId: sessionId,
             pattern: rule.rawPattern,
-            behavior: rule.behavior
+            behavior: rule.behavior,
+            scope: "session"
           )
         }
       } label: {

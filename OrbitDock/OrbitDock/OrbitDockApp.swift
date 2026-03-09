@@ -24,8 +24,8 @@ struct OrbitDockApp: App {
   @State private var router = AppRouter()
   private let runtimeMode = AppRuntimeMode.current
 
-  private var serverAppState: ServerAppState {
-    runtimeRegistry.activeAppState
+  private var serverAppState: SessionStore {
+    runtimeRegistry.activeSessionStore
   }
 
   private var mainRootView: some View {
@@ -43,13 +43,16 @@ struct OrbitDockApp: App {
       }
     #endif
       .task {
-        runtimeRegistry.configureFromSettings(startEnabled: false)
-        #if os(macOS)
-          AppDelegate.serverAppState = runtimeRegistry.activeAppState
-        #endif
+        let shouldPrepareRuntimes = runtimeMode.shouldConnectServer || runtimeMode.shouldStartMcpBridge
+        if shouldPrepareRuntimes {
+          runtimeRegistry.configureFromSettings(startEnabled: false)
+          #if os(macOS)
+            AppDelegate.serverAppState = runtimeRegistry.activeSessionStore
+          #endif
+        }
 
         if runtimeMode.shouldStartMcpBridge {
-          MCPBridge.shared.start(serverAppState: runtimeRegistry.activeAppState)
+          MCPBridge.shared.start(serverAppState: runtimeRegistry.activeSessionStore)
         }
 
         guard runtimeMode.shouldConnectServer else { return }
@@ -129,7 +132,7 @@ struct OrbitDockApp: App {
   class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 
     /// Shared server app state for MCP bridge
-    static var serverAppState: ServerAppState?
+    static var serverAppState: SessionStore?
     private var memoryPressureSource: DispatchSourceMemoryPressure?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -137,8 +140,10 @@ struct OrbitDockApp: App {
       // has sole authority over heightOfRow: values.
       UserDefaults.standard.set(false, forKey: "NSTableViewCanEstimateRowHeights")
 
-      AppFileLogger.shared.start()
       NSApp.appearance = NSAppearance(named: .darkAqua)
+      guard !AppRuntimeMode.isRunningTestsProcess else { return }
+
+      AppFileLogger.shared.start()
 
       // Set up notification delegate
       UNUserNotificationCenter.current().delegate = self

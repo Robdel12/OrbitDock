@@ -17,7 +17,7 @@ struct FlatSessionRow: View {
   var isAttentionPromoted: Bool = false
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var isHovering = false
 
@@ -121,7 +121,7 @@ struct FlatSessionRow: View {
       if session.isActive, session.isDirect {
         Divider()
         Button(role: .destructive) {
-          serverState.endSession(session.id)
+          Task { try? await serverState.endSession(session.id) }
         } label: {
           Label("End Session", systemImage: "stop.circle")
         }

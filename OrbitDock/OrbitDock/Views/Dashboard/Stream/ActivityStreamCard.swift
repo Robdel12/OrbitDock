@@ -22,7 +22,7 @@ struct AttentionCard: View {
   let session: Session
   let onSelect: () -> Void
 
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @State private var isHovering = false
 
   private var displayStatus: SessionDisplayStatus {
@@ -152,7 +152,7 @@ struct WorkingCard: View {
   let session: Session
   let onSelect: () -> Void
 
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
   @State private var isHovering = false
 
   private var agentLabel: String {
@@ -244,7 +244,7 @@ struct WorkingCard: View {
 
 struct CompactSessionRow: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(ServerAppState.self) private var serverState
+  @Environment(SessionStore.self) private var serverState
 
   let session: Session
   let onSelect: () -> Void
@@ -456,7 +456,7 @@ enum SessionCardHelpers {
   }
 
   @ViewBuilder
-  static func contextMenu(for session: Session, serverState: ServerAppState) -> some View {
+  static func contextMenu(for session: Session, serverState: SessionStore) -> some View {
     Button {
       _ = Platform.services.revealInFileBrowser(session.projectPath)
     } label: {
@@ -473,7 +473,7 @@ enum SessionCardHelpers {
     if session.isActive, session.isDirect {
       Divider()
       Button(role: .destructive) {
-        serverState.endSession(session.id)
+        Task { try? await serverState.endSession(session.id) }
       } label: {
         Label("End Session", systemImage: "stop.circle")
       }
