@@ -789,8 +789,8 @@ mod tests {
         );
         assert_eq!(
             session.total_message_count,
-            Some(session.messages.len() as u64),
-            "reported total should match the authoritative payload"
+            Some(260),
+            "reported total should preserve the authoritative history count"
         );
         assert_eq!(
             session

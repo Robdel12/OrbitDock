@@ -137,11 +137,23 @@ mod tests {
             orbitdock_protocol::WorkStatus::Working
         );
         assert_eq!(
+            work_status_for_approval_decision("approved_for_session"),
+            orbitdock_protocol::WorkStatus::Working
+        );
+        assert_eq!(
+            work_status_for_approval_decision("approved_always"),
+            orbitdock_protocol::WorkStatus::Working
+        );
+        assert_eq!(
             work_status_for_approval_decision("denied"),
             orbitdock_protocol::WorkStatus::Working
         );
         assert_eq!(
             work_status_for_approval_decision("abort"),
+            orbitdock_protocol::WorkStatus::Waiting
+        );
+        assert_eq!(
+            work_status_for_approval_decision("unknown_value"),
             orbitdock_protocol::WorkStatus::Waiting
         );
     }
