@@ -9,3 +9,4 @@ pub(crate) mod session_commands;
 pub(crate) mod session_queries;
 pub(crate) mod session_registry;
 pub(crate) mod session_runtime_helpers;
+pub(crate) mod transcript_sync_policy;
