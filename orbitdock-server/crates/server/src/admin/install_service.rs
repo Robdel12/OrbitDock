@@ -78,6 +78,15 @@ pub struct ServiceOptions {
     pub auth_token: Option<String>,
 }
 
+struct ServiceInstallPlan {
+    binary_path: String,
+    bind_addr: String,
+    data_dir: String,
+    extra_args: Vec<String>,
+    auth_token: Option<String>,
+    enable: bool,
+}
+
 pub fn install_background_service(
     data_dir: &Path,
     bind: SocketAddr,
@@ -100,55 +109,45 @@ pub fn install_background_service_with_options(
     data_dir: &Path,
     opts: ServiceOptions,
 ) -> anyhow::Result<()> {
-    let binary_path = std::env::current_exe()?.to_string_lossy().to_string();
-    let data_dir_str = data_dir.to_string_lossy().to_string();
-    let bind_str = opts.bind.to_string();
-
-    // Build extra args for TLS
-    let mut extra_args = Vec::new();
-    if let Some(ref cert) = opts.tls_cert {
-        extra_args.push(format!("--tls-cert {}", cert.display()));
-    }
-    if let Some(ref key) = opts.tls_key {
-        extra_args.push(format!("--tls-key {}", key.display()));
-    }
-    let extra = extra_args.join(" ");
-    let auth_token = opts
-        .auth_token
-        .as_deref()
-        .map(str::trim)
-        .filter(|token| !token.is_empty())
-        .map(ToString::to_string);
+    let plan = plan_service_install(data_dir, opts)?;
 
     if cfg!(target_os = "macos") {
-        install_launchd(
-            &binary_path,
-            &bind_str,
-            &data_dir_str,
-            &extra,
-            auth_token.as_deref(),
-            opts.enable,
-        )
+        install_launchd(&plan)
     } else {
-        install_systemd(
-            &binary_path,
-            &bind_str,
-            &data_dir_str,
-            &extra,
-            auth_token.as_deref(),
-            opts.enable,
-        )
+        install_systemd(&plan)
     }
 }
 
-fn install_launchd(
-    binary_path: &str,
-    bind: &str,
-    data_dir: &str,
-    extra_args: &str,
-    auth_token: Option<&str>,
-    enable: bool,
-) -> anyhow::Result<()> {
+fn plan_service_install(
+    data_dir: &Path,
+    opts: ServiceOptions,
+) -> anyhow::Result<ServiceInstallPlan> {
+    let mut extra_args = Vec::new();
+    if let Some(ref cert) = opts.tls_cert {
+        extra_args.push("--tls-cert".to_string());
+        extra_args.push(cert.display().to_string());
+    }
+    if let Some(ref key) = opts.tls_key {
+        extra_args.push("--tls-key".to_string());
+        extra_args.push(key.display().to_string());
+    }
+
+    Ok(ServiceInstallPlan {
+        binary_path: std::env::current_exe()?.to_string_lossy().to_string(),
+        bind_addr: opts.bind.to_string(),
+        data_dir: data_dir.to_string_lossy().to_string(),
+        extra_args,
+        auth_token: opts
+            .auth_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .map(ToString::to_string),
+        enable: opts.enable,
+    })
+}
+
+fn install_launchd(plan: &ServiceInstallPlan) -> anyhow::Result<()> {
     let service_environment = resolve_service_environment();
     let mut environment_variables = vec![("PATH".to_string(), service_environment.path)];
     if let Some(codex_bin) = service_environment.codex_bin {
@@ -157,32 +156,10 @@ fn install_launchd(
     if let Some(claude_bin) = service_environment.claude_bin {
         environment_variables.push(("CLAUDE_BIN".to_string(), claude_bin));
     }
-    if let Some(token) = auth_token {
+    if let Some(token) = plan.auth_token.as_deref() {
         environment_variables.push(("ORBITDOCK_AUTH_TOKEN".to_string(), token.to_string()));
     }
-    let environment_xml = render_launchd_environment_variables(&environment_variables);
-
-    let mut plist = LAUNCHD_TEMPLATE
-        .replace("{{BINARY_PATH}}", binary_path)
-        .replace("{{BIND_ADDR}}", bind)
-        .replace("{{DATA_DIR}}", data_dir)
-        .replace("{{ENVIRONMENT_VARIABLES}}", &environment_xml);
-
-    // Insert extra args (e.g. --tls-cert, --tls-key) into ProgramArguments
-    if !extra_args.is_empty() {
-        let extra_strings: String = extra_args
-            .split_whitespace()
-            .map(|arg| format!("        <string>{}</string>", arg))
-            .collect::<Vec<_>>()
-            .join("\n");
-        plist = plist.replace(
-            &format!("        <string>{}</string>\n    </array>", data_dir),
-            &format!(
-                "        <string>{}</string>\n{}\n    </array>",
-                data_dir, extra_strings
-            ),
-        );
-    }
+    let plist = render_launchd_plist(plan, &environment_variables);
 
     let agents_dir = dirs::home_dir()
         .expect("HOME not found")
@@ -193,7 +170,7 @@ fn install_launchd(
     write_service_file(&plist_path, &plist)?;
     println!("  Wrote {}", plist_path.display());
 
-    if enable {
+    if plan.enable {
         // Unload first in case it's already loaded (ignore errors)
         let _ = std::process::Command::new("launchctl")
             .args(["unload", &plist_path.to_string_lossy()])
@@ -223,6 +200,36 @@ struct ServiceEnvironment {
     path: String,
     codex_bin: Option<String>,
     claude_bin: Option<String>,
+}
+
+fn render_launchd_plist(
+    plan: &ServiceInstallPlan,
+    environment_variables: &[(String, String)],
+) -> String {
+    let environment_xml = render_launchd_environment_variables(environment_variables);
+    let mut plist = LAUNCHD_TEMPLATE
+        .replace("{{BINARY_PATH}}", &plan.binary_path)
+        .replace("{{BIND_ADDR}}", &plan.bind_addr)
+        .replace("{{DATA_DIR}}", &plan.data_dir)
+        .replace("{{ENVIRONMENT_VARIABLES}}", &environment_xml);
+
+    if !plan.extra_args.is_empty() {
+        let extra_strings = plan
+            .extra_args
+            .iter()
+            .map(|arg| format!("        <string>{}</string>", arg))
+            .collect::<Vec<_>>()
+            .join("\n");
+        plist = plist.replace(
+            &format!("        <string>{}</string>\n    </array>", plan.data_dir),
+            &format!(
+                "        <string>{}</string>\n{}\n    </array>",
+                plan.data_dir, extra_strings
+            ),
+        );
+    }
+
+    plist
 }
 
 fn resolve_service_environment() -> ServiceEnvironment {
@@ -446,36 +453,8 @@ fn is_executable_file(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn install_systemd(
-    binary_path: &str,
-    bind: &str,
-    data_dir: &str,
-    extra_args: &str,
-    auth_token: Option<&str>,
-    enable: bool,
-) -> anyhow::Result<()> {
-    let auth_env = auth_token
-        .map(|token| {
-            format!(
-                "Environment=\"ORBITDOCK_AUTH_TOKEN={}\"",
-                escape_systemd_env(token)
-            )
-        })
-        .unwrap_or_default();
-
-    let mut unit = SYSTEMD_TEMPLATE
-        .replace("{{BINARY_PATH}}", binary_path)
-        .replace("{{BIND_ADDR}}", bind)
-        .replace("{{DATA_DIR}}", data_dir)
-        .replace("{{AUTH_TOKEN_ENV}}", &auth_env);
-
-    // Append TLS flags to ExecStart line if present
-    if !extra_args.is_empty() {
-        unit = unit.replace(
-            &format!("--data-dir {}", data_dir),
-            &format!("--data-dir {} {}", data_dir, extra_args),
-        );
-    }
+fn install_systemd(plan: &ServiceInstallPlan) -> anyhow::Result<()> {
+    let unit = render_systemd_unit(plan);
 
     let systemd_dir = dirs::home_dir()
         .expect("HOME not found")
@@ -491,7 +470,7 @@ fn install_systemd(
         .args(["--user", "daemon-reload"])
         .output();
 
-    if enable {
+    if plan.enable {
         let output = std::process::Command::new("systemctl")
             .args(["--user", "enable", "--now", "orbitdock-server.service"])
             .output()?;
@@ -510,6 +489,34 @@ fn install_systemd(
 
     println!();
     Ok(())
+}
+
+fn render_systemd_unit(plan: &ServiceInstallPlan) -> String {
+    let auth_env = plan
+        .auth_token
+        .as_deref()
+        .map(|token| {
+            format!(
+                "Environment=\"ORBITDOCK_AUTH_TOKEN={}\"",
+                escape_systemd_env(token)
+            )
+        })
+        .unwrap_or_default();
+
+    let mut unit = SYSTEMD_TEMPLATE
+        .replace("{{BINARY_PATH}}", &plan.binary_path)
+        .replace("{{BIND_ADDR}}", &plan.bind_addr)
+        .replace("{{DATA_DIR}}", &plan.data_dir)
+        .replace("{{AUTH_TOKEN_ENV}}", &auth_env);
+
+    if !plan.extra_args.is_empty() {
+        unit = unit.replace(
+            &format!("--data-dir {}", plan.data_dir),
+            &format!("--data-dir {} {}", plan.data_dir, plan.extra_args.join(" ")),
+        );
+    }
+
+    unit
 }
 
 fn escape_systemd_env(value: &str) -> String {
@@ -586,5 +593,82 @@ mod tests {
         assert!(xml.contains("<string>/usr/bin:/bin</string>"));
         assert!(xml.contains("<key>CLAUDE_BIN</key>"));
         assert!(xml.contains("<string>/tmp/claude &amp; &quot;beta&quot;</string>"));
+    }
+
+    #[test]
+    fn service_install_plan_trims_auth_token_and_collects_tls_args() {
+        let plan = plan_service_install(
+            Path::new("/tmp/orbitdock"),
+            ServiceOptions {
+                bind: "127.0.0.1:4000".parse().expect("bind"),
+                enable: true,
+                tls_cert: Some(PathBuf::from("/tmp/server.crt")),
+                tls_key: Some(PathBuf::from("/tmp/server.key")),
+                auth_token: Some("  secret-token  ".to_string()),
+            },
+        )
+        .expect("plan service install");
+
+        assert_eq!(plan.bind_addr, "127.0.0.1:4000");
+        assert_eq!(plan.data_dir, "/tmp/orbitdock");
+        assert_eq!(plan.auth_token.as_deref(), Some("secret-token"));
+        assert_eq!(
+            plan.extra_args,
+            vec![
+                "--tls-cert".to_string(),
+                "/tmp/server.crt".to_string(),
+                "--tls-key".to_string(),
+                "/tmp/server.key".to_string()
+            ]
+        );
+        assert!(plan.enable);
+    }
+
+    #[test]
+    fn render_launchd_plist_includes_env_and_extra_args() {
+        let plan = ServiceInstallPlan {
+            binary_path: "/usr/local/bin/orbitdock".to_string(),
+            bind_addr: "127.0.0.1:4000".to_string(),
+            data_dir: "/tmp/orbitdock".to_string(),
+            extra_args: vec!["--tls-cert".to_string(), "/tmp/server.crt".to_string()],
+            auth_token: Some("secret-token".to_string()),
+            enable: true,
+        };
+
+        let plist = render_launchd_plist(
+            &plan,
+            &[
+                ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+                (
+                    "ORBITDOCK_AUTH_TOKEN".to_string(),
+                    "secret-token".to_string(),
+                ),
+            ],
+        );
+
+        assert!(plist.contains("<string>/usr/local/bin/orbitdock</string>"));
+        assert!(plist.contains("<string>127.0.0.1:4000</string>"));
+        assert!(plist.contains("<key>ORBITDOCK_AUTH_TOKEN</key>"));
+        assert!(plist.contains("<string>--tls-cert</string>"));
+        assert!(plist.contains("<string>/tmp/server.crt</string>"));
+    }
+
+    #[test]
+    fn render_systemd_unit_includes_auth_env_and_extra_args() {
+        let plan = ServiceInstallPlan {
+            binary_path: "/usr/local/bin/orbitdock".to_string(),
+            bind_addr: "0.0.0.0:4000".to_string(),
+            data_dir: "/tmp/orbitdock".to_string(),
+            extra_args: vec!["--tls-key".to_string(), "/tmp/server.key".to_string()],
+            auth_token: Some("secret-token".to_string()),
+            enable: false,
+        };
+
+        let unit = render_systemd_unit(&plan);
+
+        assert!(unit.contains("Environment=\"ORBITDOCK_AUTH_TOKEN=secret-token\""));
+        assert!(unit.contains(
+            "ExecStart=/usr/local/bin/orbitdock start --bind 0.0.0.0:4000 --data-dir /tmp/orbitdock --tls-key /tmp/server.key"
+        ));
     }
 }
