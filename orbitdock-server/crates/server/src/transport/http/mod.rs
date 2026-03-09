@@ -142,6 +142,17 @@ mod tests {
         )
     }
 
+    async fn flush_next_persist_command(
+        persist_rx: &mut mpsc::Receiver<PersistCommand>,
+        db_path: &PathBuf,
+    ) {
+        let command = persist_rx
+            .recv()
+            .await
+            .expect("endpoint should enqueue a persistence command");
+        flush_batch_for_test(db_path, vec![command]).expect("flush persisted command");
+    }
+
     async fn upload_test_attachment(
         state: Arc<SessionRegistry>,
         session_id: &str,
@@ -350,16 +361,7 @@ mod tests {
         assert_eq!(created_comment.body, "Initial review comment");
         assert_eq!(created_comment.tag, Some(ReviewCommentTag::Clarity));
 
-        let create_cmd = loop {
-            let command = persist_rx
-                .recv()
-                .await
-                .expect("create should enqueue persistence command");
-            if matches!(command, PersistCommand::ReviewCommentCreate { .. }) {
-                break command;
-            }
-        };
-        flush_batch_for_test(&db_path, vec![create_cmd]).expect("flush created comment");
+        flush_next_persist_command(&mut persist_rx, &db_path).await;
 
         let stored_after_create =
             crate::infrastructure::persistence::load_review_comment_by_id(&created.comment_id)
@@ -392,16 +394,7 @@ mod tests {
         assert_eq!(updated_comment.tag, Some(ReviewCommentTag::Risk));
         assert_eq!(updated_comment.status, ReviewCommentStatus::Resolved);
 
-        let update_cmd = loop {
-            let command = persist_rx
-                .recv()
-                .await
-                .expect("update should enqueue persistence command");
-            if matches!(command, PersistCommand::ReviewCommentUpdate { .. }) {
-                break command;
-            }
-        };
-        flush_batch_for_test(&db_path, vec![update_cmd]).expect("flush updated comment");
+        flush_next_persist_command(&mut persist_rx, &db_path).await;
 
         let stored_after_update =
             crate::infrastructure::persistence::load_review_comment_by_id(&created.comment_id)
@@ -423,16 +416,7 @@ mod tests {
         assert!(deleted.deleted);
         assert!(deleted.comment.is_none());
 
-        let delete_cmd = loop {
-            let command = persist_rx
-                .recv()
-                .await
-                .expect("delete should enqueue persistence command");
-            if matches!(command, PersistCommand::ReviewCommentDelete { .. }) {
-                break command;
-            }
-        };
-        flush_batch_for_test(&db_path, vec![delete_cmd]).expect("flush deleted comment");
+        flush_next_persist_command(&mut persist_rx, &db_path).await;
 
         let stored_after_delete =
             crate::infrastructure::persistence::load_review_comment_by_id(&created.comment_id)
