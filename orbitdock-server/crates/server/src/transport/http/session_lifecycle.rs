@@ -1,26 +1,31 @@
 use super::errors::{conflict, internal, unprocessable};
 use super::*;
 use crate::connectors::codex_session::CodexAction;
-use crate::domain::sessions::session::SessionHandle;
 use crate::runtime::restored_sessions::load_prepared_resume_session;
-use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_creation::{
     persist_direct_session_create, prepare_direct_session, DirectSessionCreationInputs,
 };
-use crate::runtime::session_fork_policy::{
-    remap_messages_for_fork, truncate_messages_before_nth_user_message,
+use crate::runtime::session_direct_start::{
+    start_direct_claude_session, start_direct_codex_session,
+};
+use crate::runtime::session_fork_policy::{plan_fork_config, ForkConfigInputs};
+use crate::runtime::session_fork_runtime::{
+    finalize_codex_fork_session, start_claude_fork_session,
 };
 use crate::runtime::session_fork_targets::{
     create_fork_target_worktree, resolve_existing_fork_worktree_path,
 };
-use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
-use crate::support::session_modes::{
-    is_passive_rollout_session, is_takeover_eligible_passive_session,
+use crate::runtime::session_mutations::{
+    end_failed_direct_session, end_session as end_runtime_session,
+    rename_session as rename_runtime_session,
+    update_session_config as update_runtime_session_config, SessionMutationError,
 };
-use orbitdock_connector_claude::session::ClaudeAction;
-use orbitdock_protocol::ServerMessage;
-use tokio::sync::oneshot;
-use tracing::{error, info, warn};
+use crate::runtime::session_resume::{launch_resumed_session, ResumeSessionError};
+use crate::runtime::session_takeover::{
+    takeover_passive_session, TakeoverSessionError, TakeoverSessionInputs,
+};
+use orbitdock_protocol::{Provider, ServerMessage};
+use tracing::error;
 
 fn lifecycle_error(
     status: StatusCode,
@@ -28,6 +33,31 @@ fn lifecycle_error(
     error: impl Into<String>,
 ) -> (StatusCode, Json<ApiErrorResponse>) {
     super::errors::api_error(status, code, error)
+}
+
+fn map_resume_error(error: ResumeSessionError) -> (StatusCode, Json<ApiErrorResponse>) {
+    match error {
+        ResumeSessionError::MissingClaudeResumeId => unprocessable(error.code(), error.message()),
+    }
+}
+
+fn map_takeover_error(error: TakeoverSessionError) -> (StatusCode, Json<ApiErrorResponse>) {
+    match error {
+        TakeoverSessionError::NotFound(_) => {
+            super::errors::api_error(StatusCode::NOT_FOUND, error.code(), error.message())
+        }
+        TakeoverSessionError::NotPassive(_) => conflict(error.code(), error.message()),
+        TakeoverSessionError::TakeHandleFailed => internal(error.code(), error.message()),
+        TakeoverSessionError::ConnectorFailed(_) => internal(error.code(), error.message()),
+    }
+}
+
+fn map_session_mutation_error(error: SessionMutationError) -> (StatusCode, Json<ApiErrorResponse>) {
+    match error {
+        SessionMutationError::NotFound(_) => {
+            super::errors::api_error(StatusCode::NOT_FOUND, error.code(), error.message())
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,22 +81,9 @@ pub async fn rename_session(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<RenameSessionRequest>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let actor = state
-        .get_session(&session_id)
-        .ok_or_else(|| session_not_found_error(&session_id))?;
-
-    let persist_op = Some(crate::runtime::session_commands::PersistOp::SetCustomName {
-        session_id: session_id.clone(),
-        name: body.name.clone(),
-    });
-    let (reply_tx, _reply_rx) = oneshot::channel();
-    actor
-        .send(SessionCommand::SetCustomNameAndNotify {
-            name: body.name,
-            persist_op,
-            reply: reply_tx,
-        })
-        .await;
+    rename_runtime_session(&state, &session_id, body.name)
+        .await
+        .map_err(map_session_mutation_error)?;
 
     Ok(Json(AcceptedResponse { accepted: true }))
 }
@@ -76,40 +93,15 @@ pub async fn update_session_config(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<UpdateSessionConfigRequest>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let actor = state
-        .get_session(&session_id)
-        .ok_or_else(|| session_not_found_error(&session_id))?;
-
-    let changes = orbitdock_protocol::StateChanges {
-        approval_policy: body.approval_policy.clone().map(Some),
-        sandbox_mode: body.sandbox_mode.clone().map(Some),
-        permission_mode: body.permission_mode.clone().map(Some),
-        ..Default::default()
-    };
-
-    let persist_op = Some(
-        crate::runtime::session_commands::PersistOp::SetSessionConfig {
-            session_id: session_id.clone(),
-            approval_policy: body.approval_policy,
-            sandbox_mode: body.sandbox_mode,
-            permission_mode: body.permission_mode.clone(),
-        },
-    );
-
-    actor
-        .send(SessionCommand::ApplyDelta {
-            changes,
-            persist_op,
-        })
-        .await;
-
-    if let Some(ref pm) = body.permission_mode {
-        if let Some(tx) = state.get_claude_action_tx(&session_id) {
-            let _ = tx
-                .send(ClaudeAction::SetPermissionMode { mode: pm.clone() })
-                .await;
-        }
-    }
+    update_runtime_session_config(
+        &state,
+        &session_id,
+        body.approval_policy,
+        body.sandbox_mode,
+        body.permission_mode,
+    )
+    .await
+    .map_err(map_session_mutation_error)?;
 
     Ok(Json(AcceptedResponse { accepted: true }))
 }
@@ -118,58 +110,14 @@ pub async fn end_session(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let actor = state.get_session(&session_id);
-
-    let is_passive_rollout = if let Some(ref actor) = actor {
-        let snap = actor.snapshot();
-        is_passive_rollout_session(
-            snap.provider,
-            snap.codex_integration_mode,
-            snap.transcript_path.is_some(),
-        )
-    } else {
-        false
-    };
-
-    state.shell_service().cancel_session(&session_id);
-
-    if !is_passive_rollout {
-        if let Some(tx) = state.get_codex_action_tx(&session_id) {
-            let _ = tx.send(CodexAction::EndSession).await;
-        } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
-            let _ = tx.send(ClaudeAction::EndSession).await;
-        }
-    }
-
-    let _ = state
-        .persist()
-        .send(PersistCommand::SessionEnd {
-            id: session_id.clone(),
-            reason: "user_requested".to_string(),
-        })
-        .await;
-
-    if is_passive_rollout {
-        if let Some(actor) = actor {
-            actor.send(SessionCommand::EndLocally).await;
-        }
-        state.broadcast_to_list(ServerMessage::SessionEnded {
-            session_id,
-            reason: "user_requested".to_string(),
-        });
-    } else if state.remove_session(&session_id).is_some() {
-        state.broadcast_to_list(ServerMessage::SessionEnded {
-            session_id,
-            reason: "user_requested".to_string(),
-        });
-    }
+    end_runtime_session(&state, &session_id).await;
 
     Ok(Json(AcceptedResponse { accepted: true }))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CreateSessionRequest {
-    pub provider: orbitdock_protocol::Provider,
+    pub provider: Provider,
     pub cwd: String,
     #[serde(default)]
     pub model: Option<String>,
@@ -197,12 +145,10 @@ pub async fn create_session(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<CreateSessionRequest>,
 ) -> Result<Json<CreateSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    use orbitdock_protocol::Provider;
-
-    let id = orbitdock_protocol::new_id();
+    let session_id = orbitdock_protocol::new_id();
     let git_branch = crate::domain::git::repo::resolve_git_branch(&body.cwd).await;
     let prepared = prepare_direct_session(DirectSessionCreationInputs {
-        id: id.clone(),
+        id: session_id.clone(),
         provider: body.provider,
         cwd: body.cwd.clone(),
         git_branch: git_branch.clone(),
@@ -212,12 +158,12 @@ pub async fn create_session(
         effort: body.effort.clone(),
     });
     let summary = prepared.summary.clone();
-    let mut handle = prepared.handle;
+    let handle = prepared.handle;
 
     let persist_tx = state.persist().clone();
     persist_direct_session_create(
         &persist_tx,
-        id.clone(),
+        session_id.clone(),
         body.provider,
         body.cwd.clone(),
         prepared.project_name,
@@ -230,205 +176,53 @@ pub async fn create_session(
     )
     .await;
 
-    if body.provider == Provider::Codex {
-        let session_id = id.clone();
-        let cwd = body.cwd.clone();
-        let model = body.model.clone();
-        let approval = body.approval_policy.clone();
-        let sandbox = body.sandbox_mode.clone();
-        let state2 = state.clone();
-        let persist_tx2 = persist_tx.clone();
-
-        tokio::spawn(async move {
-            let connector_timeout = std::time::Duration::from_secs(15);
-            let task_sid = session_id.clone();
-            let task_cwd = cwd.clone();
-            let task_model = model.clone();
-            let task_approval = approval.clone();
-            let task_sandbox = sandbox.clone();
-
-            let mut connector_task = tokio::spawn(async move {
-                crate::connectors::codex_session::CodexSession::new(
-                    task_sid,
-                    &task_cwd,
-                    task_model.as_deref(),
-                    task_approval.as_deref(),
-                    task_sandbox.as_deref(),
-                )
-                .await
-            });
-
-            let codex_start =
-                match tokio::time::timeout(connector_timeout, &mut connector_task).await {
-                    Ok(Ok(Ok(s))) => Ok(s),
-                    Ok(Ok(Err(e))) => Err(e.to_string()),
-                    Ok(Err(e)) => Err(format!("Connector task panicked: {}", e)),
-                    Err(_) => {
-                        connector_task.abort();
-                        Err("Connector creation timed out".to_string())
-                    }
-                };
-
-            match codex_start {
-                Ok(codex_session) => {
-                    let thread_id = codex_session.thread_id().to_string();
-                    crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session(
-                        &state2,
-                        &persist_tx2,
-                        &session_id,
-                        &thread_id,
-                        "http_create_thread_cleanup",
-                    )
-                    .await;
-
-                    handle.set_list_tx(state2.list_tx());
-                    let (actor_handle, action_tx) =
-                        crate::connectors::codex_session::start_event_loop(
-                            codex_session,
-                            handle,
-                            persist_tx2,
-                            state2.clone(),
-                        );
-                    state2.add_session_actor(actor_handle);
-                    state2.set_codex_action_tx(&session_id, action_tx);
-                    info!(
-                        component = "session",
-                        event = "session.create.http.codex_connected",
-                        session_id = %session_id,
-                        "HTTP: Codex connector started"
-                    );
-                }
-                Err(error_message) => {
-                    let _ = persist_tx2
-                        .send(PersistCommand::SessionEnd {
-                            id: session_id.clone(),
-                            reason: "connector_failed".to_string(),
-                        })
-                        .await;
-                    state2.broadcast_to_list(ServerMessage::SessionEnded {
-                        session_id: session_id.clone(),
-                        reason: "connector_failed".into(),
-                    });
-                    error!(
-                        component = "session",
-                        event = "session.create.http.codex_failed",
-                        session_id = %session_id,
-                        error = %error_message,
-                        "HTTP: Failed to start Codex session"
-                    );
-                }
-            }
-        });
-    } else if body.provider == Provider::Claude {
-        let session_id = id.clone();
-        let cwd = body.cwd.clone();
-        let model = body.model.clone();
-        let permission_mode = body.permission_mode.clone();
-        let allowed_tools = body.allowed_tools.clone();
-        let disallowed_tools = body.disallowed_tools.clone();
-        let effort = body.effort.clone();
-        let state2 = state.clone();
-        let persist_tx2 = persist_tx.clone();
-
-        tokio::spawn(async move {
-            match crate::connectors::claude_session::ClaudeSession::new(
-                session_id.clone(),
-                &cwd,
-                model.as_deref(),
-                None,
-                permission_mode.as_deref(),
-                &allowed_tools,
-                &disallowed_tools,
-                effort.as_deref(),
+    match body.provider {
+        Provider::Codex => {
+            if let Err(error_message) = start_direct_codex_session(
+                &state,
+                handle,
+                &session_id,
+                &body.cwd,
+                body.model.as_deref(),
+                body.approval_policy.as_deref(),
+                body.sandbox_mode.as_deref(),
             )
             .await
             {
-                Ok(claude_session) => {
-                    handle.set_list_tx(state2.list_tx());
-                    let (actor_handle, action_tx) =
-                        crate::connectors::claude_session::start_event_loop(
-                            claude_session,
-                            handle,
-                            persist_tx2,
-                            state2.list_tx(),
-                            state2.clone(),
-                        );
-
-                    if let Some(ref mode) = permission_mode {
-                        let _ = actor_handle
-                            .send(SessionCommand::ApplyDelta {
-                                changes: orbitdock_protocol::StateChanges {
-                                    permission_mode: Some(Some(mode.clone())),
-                                    ..Default::default()
-                                },
-                                persist_op: None,
-                            })
-                            .await;
-                    }
-
-                    state2.add_session_actor(actor_handle);
-                    state2.set_claude_action_tx(&session_id, action_tx.clone());
-                    info!(
-                        component = "session",
-                        event = "session.create.http.claude_connected",
-                        session_id = %session_id,
-                        "HTTP: Claude connector started"
-                    );
-
-                    let watchdog_state = state2.clone();
-                    let watchdog_sid = session_id.clone();
-                    let watchdog_tx = action_tx;
-                    let watchdog_persist = state2.persist().clone();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(std::time::Duration::from_secs(45)).await;
-                        if watchdog_state
-                            .claude_sdk_id_for_session(&watchdog_sid)
-                            .is_none()
-                        {
-                            warn!(
-                                component = "session",
-                                event = "session.init_timeout",
-                                session_id = %watchdog_sid,
-                                "Claude session never initialized after 45s — ending ghost"
-                            );
-                            let _ = watchdog_tx.send(ClaudeAction::EndSession).await;
-                            let _ = watchdog_persist
-                                .send(PersistCommand::SessionEnd {
-                                    id: watchdog_sid.clone(),
-                                    reason: "init_timeout".to_string(),
-                                })
-                                .await;
-                            watchdog_state.remove_session(&watchdog_sid);
-                            watchdog_state.broadcast_to_list(ServerMessage::SessionEnded {
-                                session_id: watchdog_sid,
-                                reason: "init_timeout".into(),
-                            });
-                        }
-                    });
-                }
-                Err(e) => {
-                    let _ = persist_tx2
-                        .send(PersistCommand::SessionEnd {
-                            id: session_id.clone(),
-                            reason: "connector_failed".to_string(),
-                        })
-                        .await;
-                    state2.broadcast_to_list(ServerMessage::SessionEnded {
-                        session_id: session_id.clone(),
-                        reason: "connector_failed".into(),
-                    });
-                    error!(
-                        component = "session",
-                        event = "session.create.http.claude_failed",
-                        session_id = %session_id,
-                        error = %e,
-                        "HTTP: Failed to start Claude session"
-                    );
-                }
+                end_failed_direct_session(&state, &session_id).await;
+                error!(
+                    component = "session",
+                    event = "session.create.http.codex_failed",
+                    session_id = %session_id,
+                    error = %error_message,
+                    "HTTP: Failed to start Codex session"
+                );
             }
-        });
-    } else {
-        state.add_session(handle);
+        }
+        Provider::Claude => {
+            if let Err(error_message) = start_direct_claude_session(
+                &state,
+                handle,
+                &session_id,
+                &body.cwd,
+                body.model.as_deref(),
+                body.permission_mode.as_deref(),
+                &body.allowed_tools,
+                &body.disallowed_tools,
+                body.effort.as_deref(),
+            )
+            .await
+            {
+                end_failed_direct_session(&state, &session_id).await;
+                error!(
+                    component = "session",
+                    event = "session.create.http.claude_failed",
+                    session_id = %session_id,
+                    error = %error_message,
+                    "HTTP: Failed to start Claude session"
+                );
+            }
+        }
     }
 
     state.broadcast_to_list(ServerMessage::SessionCreated {
@@ -436,7 +230,7 @@ pub async fn create_session(
     });
 
     Ok(Json(CreateSessionResponse {
-        session_id: id,
+        session_id,
         session: summary,
     }))
 }
@@ -451,7 +245,7 @@ pub async fn resume_session(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<ResumeSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    use orbitdock_protocol::{Provider, SessionStatus};
+    use orbitdock_protocol::SessionStatus;
 
     if let Some(handle) = state.get_session(&session_id) {
         let snap = handle.snapshot();
@@ -467,238 +261,16 @@ pub async fn resume_session(
     let prepared = match load_prepared_resume_session(&session_id).await {
         Ok(Some(prepared)) => prepared,
         Ok(None) => return Err(session_not_found_error(&session_id)),
-        Err(e) => return Err(internal("db_error", e.to_string())),
+        Err(error) => return Err(internal("db_error", error.to_string())),
     };
 
-    let is_claude = prepared.provider == Provider::Claude;
-    let restored_project_path = prepared.project_path.clone();
-    let restored_transcript_path = prepared.transcript_path.clone();
-    let restored_model = prepared.model.clone();
-    let restored_approval_policy = prepared.approval_policy.clone();
-    let restored_sandbox_mode = prepared.sandbox_mode.clone();
-    let restored_claude_sdk_session_id = prepared.claude_sdk_session_id.clone();
-    let summary = prepared.summary.clone();
-    let mut handle = prepared.handle;
-
-    state.broadcast_to_list(ServerMessage::SessionCreated {
-        session: summary.clone(),
-    });
-
-    let persist_tx = state.persist().clone();
-    let _ = persist_tx
-        .send(PersistCommand::ReactivateSession {
-            id: session_id.clone(),
-        })
-        .await;
-
-    let session_id_for_response = session_id.clone();
-    if is_claude {
-        let project = if let Some(ref tp) = restored_transcript_path {
-            crate::support::session_paths::resolve_claude_resume_cwd(&restored_project_path, tp)
-        } else {
-            restored_project_path.clone()
-        };
-
-        let provider_resume_id = restored_claude_sdk_session_id
-            .clone()
-            .and_then(orbitdock_protocol::ProviderSessionId::new);
-
-        if provider_resume_id.is_none() {
-            state.add_session(handle);
-            return Err(unprocessable(
-                "resume_failed",
-                "Cannot resume — no valid Claude SDK session ID was saved",
-            ));
-        }
-        let provider_resume_id = provider_resume_id.unwrap();
-        state.register_claude_thread(&session_id, provider_resume_id.as_str());
-
-        let sid = session_id.clone();
-        let m = restored_model.clone();
-        let restored_permission_mode =
-            crate::infrastructure::persistence::load_session_permission_mode(&session_id)
-                .await
-                .unwrap_or(None);
-        let pm = restored_permission_mode.clone();
-        let resume_id = provider_resume_id.clone();
-        let state2 = state.clone();
-        let persist_tx2 = persist_tx.clone();
-
-        tokio::spawn(async move {
-            let connector_timeout = std::time::Duration::from_secs(15);
-            let connector_task = tokio::spawn(async move {
-                crate::connectors::claude_session::ClaudeSession::new(
-                    sid.clone(),
-                    &project,
-                    m.as_deref(),
-                    Some(&resume_id),
-                    pm.as_deref(),
-                    &[],
-                    &[],
-                    None,
-                )
-                .await
-            });
-
-            match tokio::time::timeout(connector_timeout, connector_task).await {
-                Ok(Ok(Ok(claude_session))) => {
-                    state2.register_claude_thread(&session_id, provider_resume_id.as_str());
-                    handle.set_list_tx(state2.list_tx());
-                    let (actor_handle, action_tx) =
-                        crate::connectors::claude_session::start_event_loop(
-                            claude_session,
-                            handle,
-                            persist_tx2.clone(),
-                            state2.list_tx(),
-                            state2.clone(),
-                        );
-                    state2.add_session_actor(actor_handle);
-                    state2.set_claude_action_tx(&session_id, action_tx);
-
-                    if let Some(ref mode) = restored_permission_mode {
-                        if let Some(actor) = state2.get_session(&session_id) {
-                            actor
-                                .send(SessionCommand::ApplyDelta {
-                                    changes: orbitdock_protocol::StateChanges {
-                                        permission_mode: Some(Some(mode.clone())),
-                                        ..Default::default()
-                                    },
-                                    persist_op: None,
-                                })
-                                .await;
-                        }
-                    }
-
-                    let _ = persist_tx2
-                        .send(PersistCommand::SetIntegrationMode {
-                            session_id: session_id.clone(),
-                            codex_mode: None,
-                            claude_mode: Some("direct".into()),
-                        })
-                        .await;
-
-                    info!(
-                        component = "session",
-                        event = "session.resume.http.claude_connected",
-                        session_id = %session_id,
-                        "HTTP: Resumed Claude session"
-                    );
-                }
-                Ok(Ok(Err(e))) => {
-                    state2.add_session(handle);
-                    error!(
-                        component = "session",
-                        event = "session.resume.http.claude_failed",
-                        session_id = %session_id,
-                        error = %e,
-                        "HTTP: Failed to resume Claude connector"
-                    );
-                }
-                Ok(Err(e)) => {
-                    state2.add_session(handle);
-                    error!(
-                        component = "session",
-                        event = "session.resume.http.claude_panicked",
-                        session_id = %session_id,
-                        error = %e,
-                        "HTTP: Claude connector panicked"
-                    );
-                }
-                Err(_) => {
-                    state2.add_session(handle);
-                    error!(
-                        component = "session",
-                        event = "session.resume.http.claude_timeout",
-                        session_id = %session_id,
-                        "HTTP: Claude connector timed out"
-                    );
-                }
-            }
-        });
-    } else {
-        let sid = session_id.clone();
-        let project_path = restored_project_path.clone();
-        let model = restored_model.clone();
-        let approval = restored_approval_policy.clone();
-        let sandbox = restored_sandbox_mode.clone();
-        let state2 = state.clone();
-        let persist_tx2 = persist_tx.clone();
-
-        tokio::spawn(async move {
-            let connector_timeout = std::time::Duration::from_secs(15);
-            let task_sid = sid.clone();
-            let task_pp = project_path.clone();
-            let task_m = model.clone();
-            let task_a = approval.clone();
-            let task_s = sandbox.clone();
-
-            let mut connector_task = tokio::spawn(async move {
-                crate::connectors::codex_session::CodexSession::new(
-                    task_sid,
-                    &task_pp,
-                    task_m.as_deref(),
-                    task_a.as_deref(),
-                    task_s.as_deref(),
-                )
-                .await
-            });
-
-            let codex_start =
-                match tokio::time::timeout(connector_timeout, &mut connector_task).await {
-                    Ok(Ok(Ok(s))) => Ok(s),
-                    Ok(Ok(Err(e))) => Err(e.to_string()),
-                    Ok(Err(e)) => Err(format!("Connector task panicked: {}", e)),
-                    Err(_) => {
-                        connector_task.abort();
-                        Err("Connector creation timed out".to_string())
-                    }
-                };
-
-            match codex_start {
-                Ok(codex_session) => {
-                    let thread_id = codex_session.thread_id().to_string();
-                    crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session(
-                        &state2,
-                        &persist_tx2,
-                        &sid,
-                        &thread_id,
-                        "http_resume_thread_cleanup",
-                    )
-                    .await;
-
-                    handle.set_list_tx(state2.list_tx());
-                    let (actor_handle, action_tx) =
-                        crate::connectors::codex_session::start_event_loop(
-                            codex_session,
-                            handle,
-                            persist_tx2,
-                            state2.clone(),
-                        );
-                    state2.add_session_actor(actor_handle);
-                    state2.set_codex_action_tx(&sid, action_tx);
-                    info!(
-                        component = "session",
-                        event = "session.resume.http.codex_connected",
-                        session_id = %sid,
-                        "HTTP: Resumed Codex session"
-                    );
-                }
-                Err(e) => {
-                    state2.add_session(handle);
-                    error!(
-                        component = "session",
-                        event = "session.resume.http.codex_failed",
-                        session_id = %sid,
-                        error = %e,
-                        "HTTP: Failed to resume Codex connector"
-                    );
-                }
-            }
-        });
-    }
+    let summary = launch_resumed_session(&state, &session_id, prepared)
+        .await
+        .map_err(map_resume_error)?
+        .summary;
 
     Ok(Json(ResumeSessionResponse {
-        session_id: session_id_for_response,
+        session_id,
         session: summary,
     }))
 }
@@ -730,354 +302,20 @@ pub async fn takeover_session(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<TakeoverSessionRequest>,
 ) -> Result<Json<TakeoverSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
-
-    let actor = match state.get_session(&session_id) {
-        Some(a) => a,
-        None => return Err(session_not_found_error(&session_id)),
-    };
-
-    let snap = actor.snapshot();
-
-    let is_passive = is_takeover_eligible_passive_session(
-        snap.provider,
-        snap.codex_integration_mode,
-        snap.claude_integration_mode,
-        snap.transcript_path.is_some(),
-    );
-
-    if !is_passive {
-        return Err(conflict(
-            "not_passive",
-            format!(
-                "Session {} is not a passive session — cannot take over",
-                session_id
-            ),
-        ));
-    }
-
-    let (take_tx, take_rx) = tokio::sync::oneshot::channel();
-    actor
-        .send(SessionCommand::TakeHandle { reply: take_tx })
-        .await;
-
-    let mut handle: SessionHandle = match take_rx.await {
-        Ok(h) => h,
-        Err(_) => {
-            return Err(internal(
-                "take_failed",
-                "Failed to take handle from passive session actor",
-            ))
-        }
-    };
-
-    handle.set_list_tx(state.list_tx());
-
-    if handle.messages().is_empty() {
-        if let Some(ref tp) = snap.transcript_path {
-            if let Ok(msgs) =
-                crate::infrastructure::persistence::load_messages_from_transcript_path(
-                    tp,
-                    &session_id,
-                )
-                .await
-            {
-                if !msgs.is_empty() {
-                    for msg in msgs {
-                        handle.add_message(msg);
-                    }
-                }
-            }
-        }
-    }
-
-    if snap.status == orbitdock_protocol::SessionStatus::Ended {
-        let _ = state
-            .persist()
-            .send(PersistCommand::ReactivateSession {
-                id: session_id.clone(),
-            })
-            .await;
-    }
-
-    let persist_tx = state.persist().clone();
-    let (turn_context_model, turn_context_effort) = if snap.provider == Provider::Codex {
-        if let Some(ref transcript_path) = snap.transcript_path {
-            crate::infrastructure::persistence::load_latest_codex_turn_context_settings_from_transcript_path(
-                transcript_path,
-            )
-            .await
-            .unwrap_or((None, None))
-        } else {
-            (None, None)
-        }
-    } else {
-        (None, None)
-    };
-
-    let requested_permission_mode = body.permission_mode.clone();
-    let stored_permission_mode =
-        if snap.provider == Provider::Claude && requested_permission_mode.is_none() {
-            crate::infrastructure::persistence::load_session_permission_mode(&session_id)
-                .await
-                .unwrap_or(None)
-        } else {
-            None
-        };
-    let takeover_plan = plan_takeover_config(TakeoverConfigInputs {
-        provider: snap.provider,
-        session_model: snap.model.clone(),
-        session_effort: snap.effort.clone(),
-        session_approval_policy: snap.approval_policy.clone(),
-        session_sandbox_mode: snap.sandbox_mode.clone(),
-        requested_model: body.model,
-        requested_approval_policy: body.approval_policy,
-        requested_sandbox_mode: body.sandbox_mode,
-        requested_permission_mode,
-        turn_context_model,
-        turn_context_effort,
-        stored_permission_mode,
-    });
-    let effective_model = takeover_plan.effective_model.clone();
-    let effective_effort = takeover_plan.effective_effort.clone();
-    let effective_approval = takeover_plan.effective_approval_policy.clone();
-    let effective_sandbox = takeover_plan.effective_sandbox_mode.clone();
-    let requested_permission_mode = takeover_plan.requested_permission_mode.clone();
-    let effective_permission = takeover_plan.effective_permission_mode.clone();
-    let connector_timeout = std::time::Duration::from_secs(15);
-
-    if snap.provider == Provider::Codex {
-        handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-        if let Some(ref m) = effective_model {
-            handle.set_model(Some(m.clone()));
-        }
-        handle.set_config(effective_approval.clone(), effective_sandbox.clone());
-
-        let thread_id = state.codex_thread_for_session(&session_id);
-        let sid = session_id.clone();
-        let project = snap.project_path.clone();
-        let m = effective_model.clone();
-        let ap = effective_approval.clone();
-        let sb = effective_sandbox.clone();
-
-        let mut connector_task = tokio::spawn(async move {
-            if let Some(ref tid) = thread_id {
-                match crate::connectors::codex_session::CodexSession::resume(
-                    sid.clone(),
-                    &project,
-                    tid,
-                    m.as_deref(),
-                    ap.as_deref(),
-                    sb.as_deref(),
-                )
-                .await
-                {
-                    Ok(codex) => Ok(codex),
-                    Err(_) => {
-                        crate::connectors::codex_session::CodexSession::new(
-                            sid.clone(),
-                            &project,
-                            m.as_deref(),
-                            ap.as_deref(),
-                            sb.as_deref(),
-                        )
-                        .await
-                    }
-                }
-            } else {
-                crate::connectors::codex_session::CodexSession::new(
-                    sid.clone(),
-                    &project,
-                    m.as_deref(),
-                    ap.as_deref(),
-                    sb.as_deref(),
-                )
-                .await
-            }
-        });
-
-        match tokio::time::timeout(connector_timeout, &mut connector_task).await {
-            Ok(Ok(Ok(codex))) => {
-                let new_thread_id = codex.thread_id().to_string();
-                crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session(
-                    &state,
-                    &persist_tx,
-                    &session_id,
-                    &new_thread_id,
-                    "http_takeover_thread_cleanup",
-                )
-                .await;
-
-                let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
-                    codex,
-                    handle,
-                    persist_tx.clone(),
-                    state.clone(),
-                );
-                state.add_session_actor(actor_handle);
-                state.set_codex_action_tx(&session_id, action_tx);
-
-                if let Some(ref model_name) = effective_model {
-                    let _ = persist_tx
-                        .send(PersistCommand::ModelUpdate {
-                            session_id: session_id.clone(),
-                            model: model_name.clone(),
-                        })
-                        .await;
-                }
-                if let Some(ref effort_name) = effective_effort {
-                    let _ = persist_tx
-                        .send(PersistCommand::EffortUpdate {
-                            session_id: session_id.clone(),
-                            effort: Some(effort_name.clone()),
-                        })
-                        .await;
-                }
-
-                if let Some(actor) = state.get_session(&session_id) {
-                    let mut changes =
-                        crate::runtime::session_runtime_helpers::direct_mode_activation_changes(
-                            Provider::Codex,
-                        );
-                    if let Some(ref effort_name) = effective_effort {
-                        changes.effort = Some(Some(effort_name.clone()));
-                    }
-                    actor
-                        .send(SessionCommand::ApplyDelta {
-                            changes,
-                            persist_op: None,
-                        })
-                        .await;
-                }
-
-                let _ = persist_tx
-                    .send(PersistCommand::SetIntegrationMode {
-                        session_id: session_id.clone(),
-                        codex_mode: Some("direct".into()),
-                        claude_mode: None,
-                    })
-                    .await;
-            }
-            _ => {
-                connector_task.abort();
-                handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-                state.add_session(handle);
-                return Err(internal(
-                    "connector_failed",
-                    "Codex takeover connector failed or timed out",
-                ));
-            }
-        }
-    } else {
-        handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
-        if let Some(ref m) = effective_model {
-            handle.set_model(Some(m.clone()));
-        }
-
-        let sid = session_id.clone();
-        let project = if let Some(ref tp) = snap.transcript_path {
-            crate::support::session_paths::resolve_claude_resume_cwd(&snap.project_path, tp)
-        } else {
-            snap.project_path.clone()
-        };
-        let m = effective_model.clone();
-        let pm = effective_permission.clone();
-        let at = body.allowed_tools.clone();
-        let dt = body.disallowed_tools.clone();
-
-        let takeover_sdk_id = state
-            .claude_sdk_id_for_session(&session_id)
-            .and_then(orbitdock_protocol::ProviderSessionId::new);
-
-        let takeover_sdk_id_for_spawn = takeover_sdk_id.clone();
-        let connector_task = tokio::spawn(async move {
-            crate::connectors::claude_session::ClaudeSession::new(
-                sid.clone(),
-                &project,
-                m.as_deref(),
-                takeover_sdk_id_for_spawn.as_ref(),
-                pm.as_deref(),
-                &at,
-                &dt,
-                None,
-            )
-            .await
-        });
-
-        match tokio::time::timeout(connector_timeout, connector_task).await {
-            Ok(Ok(Ok(claude_session))) => {
-                if let Some(ref sdk_id) = takeover_sdk_id {
-                    state.register_claude_thread(&session_id, sdk_id.as_str());
-                }
-
-                let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
-                    claude_session,
-                    handle,
-                    persist_tx.clone(),
-                    state.list_tx(),
-                    state.clone(),
-                );
-                state.add_session_actor(actor_handle);
-                state.set_claude_action_tx(&session_id, action_tx);
-
-                if let Some(ref mode) = effective_permission {
-                    if let Some(actor) = state.get_session(&session_id) {
-                        actor
-                            .send(SessionCommand::ApplyDelta {
-                                changes: orbitdock_protocol::StateChanges {
-                                    permission_mode: Some(Some(mode.clone())),
-                                    ..Default::default()
-                                },
-                                persist_op: if requested_permission_mode.is_some() {
-                                    Some(crate::runtime::session_commands::PersistOp::SetSessionConfig {
-                                        session_id: session_id.clone(),
-                                        approval_policy: None,
-                                        sandbox_mode: None,
-                                        permission_mode: Some(mode.clone()),
-                                    })
-                                } else {
-                                    None
-                                },
-                            })
-                            .await;
-                    }
-                }
-
-                if let Some(actor) = state.get_session(&session_id) {
-                    actor
-                        .send(SessionCommand::ApplyDelta {
-                            changes: crate::runtime::session_runtime_helpers::direct_mode_activation_changes(
-                                Provider::Claude,
-                            ),
-                            persist_op: None,
-                        })
-                        .await;
-                }
-
-                let _ = persist_tx
-                    .send(PersistCommand::SetIntegrationMode {
-                        session_id: session_id.clone(),
-                        codex_mode: None,
-                        claude_mode: Some("direct".into()),
-                    })
-                    .await;
-            }
-            _ => {
-                handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Passive));
-                state.add_session(handle);
-                return Err(internal(
-                    "connector_failed",
-                    "Claude takeover connector failed or timed out",
-                ));
-            }
-        }
-    }
-
-    if let Some(actor) = state.get_session(&session_id) {
-        if let Ok(summary) = actor.summary().await {
-            state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
-        }
-    }
+    takeover_passive_session(
+        &state,
+        &session_id,
+        TakeoverSessionInputs {
+            model: body.model,
+            approval_policy: body.approval_policy,
+            sandbox_mode: body.sandbox_mode,
+            permission_mode: body.permission_mode,
+            allowed_tools: body.allowed_tools,
+            disallowed_tools: body.disallowed_tools,
+        },
+    )
+    .await
+    .map_err(map_takeover_error)?;
 
     Ok(Json(TakeoverSessionResponse {
         session_id,
@@ -1117,127 +355,73 @@ pub async fn fork_session(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<ForkSessionRequest>,
 ) -> Result<Json<ForkSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
+    let source_snapshot = state
+        .get_session(&source_session_id)
+        .map(|session| session.snapshot())
+        .ok_or_else(|| session_not_found_error(&source_session_id))?;
 
-    let source_snapshot = match state.get_session(&source_session_id) {
-        Some(s) => s.snapshot(),
-        None => return Err(session_not_found_error(&source_session_id)),
-    };
+    let fork_plan = plan_fork_config(ForkConfigInputs {
+        requested_model: body.model.clone(),
+        requested_approval_policy: body.approval_policy.clone(),
+        requested_sandbox_mode: body.sandbox_mode.clone(),
+        requested_cwd: body.cwd.clone(),
+        source_cwd: Some(source_snapshot.project_path.clone()),
+        source_model: source_snapshot.model.clone(),
+        source_approval_policy: source_snapshot.approval_policy.clone(),
+        source_sandbox_mode: source_snapshot.sandbox_mode.clone(),
+    });
+    let effective_cwd = fork_plan
+        .effective_cwd
+        .clone()
+        .unwrap_or_else(|| source_snapshot.project_path.clone());
 
-    let source_provider = source_snapshot.provider;
-    let source_cwd = source_snapshot.project_path.clone();
-    let source_model = body.model.clone().or_else(|| source_snapshot.model.clone());
-    let source_approval = source_snapshot.approval_policy.clone();
-    let source_sandbox = source_snapshot.sandbox_mode.clone();
-    let effective_approval = body.approval_policy.clone().or(source_approval);
-    let effective_sandbox = body.sandbox_mode.clone().or(source_sandbox);
-    let effective_cwd = body.cwd.clone().unwrap_or_else(|| source_cwd.clone());
-    let project_name = effective_cwd.split('/').next_back().map(String::from);
-    let fork_branch = crate::domain::git::repo::resolve_git_branch(&effective_cwd).await;
-
-    match source_provider {
+    match source_snapshot.provider {
         Provider::Claude => {
-            let new_id = orbitdock_protocol::new_id();
-            match crate::connectors::claude_session::ClaudeSession::new(
-                new_id.clone(),
+            let started = start_claude_fork_session(
+                &state,
+                &source_session_id,
                 &effective_cwd,
-                source_model.as_deref(),
-                None,
+                fork_plan.effective_model.as_deref(),
                 body.permission_mode.as_deref(),
                 &body.allowed_tools,
                 &body.disallowed_tools,
-                None,
             )
             .await
-            {
-                Ok(claude_session) => {
-                    let mut handle = crate::domain::sessions::session::SessionHandle::new(
-                        new_id.clone(),
-                        Provider::Claude,
-                        effective_cwd.clone(),
-                    );
-                    handle.set_git_branch(fork_branch.clone());
-                    handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
-                    handle.set_forked_from(source_session_id.clone());
-                    if let Some(ref m) = source_model {
-                        handle.set_model(Some(m.clone()));
-                    }
+            .map_err(|error| internal("fork_failed", error))?;
 
-                    let summary = handle.summary();
+            state.broadcast_to_list(ServerMessage::SessionCreated {
+                session: started.summary.clone(),
+            });
 
-                    let persist_tx = state.persist().clone();
-                    let _ = persist_tx
-                        .send(PersistCommand::SessionCreate {
-                            id: new_id.clone(),
-                            provider: Provider::Claude,
-                            project_path: effective_cwd,
-                            project_name,
-                            branch: fork_branch,
-                            model: source_model,
-                            approval_policy: None,
-                            sandbox_mode: None,
-                            permission_mode: body.permission_mode.clone(),
-                            forked_from_session_id: Some(source_session_id.clone()),
-                        })
-                        .await;
-
-                    handle.set_list_tx(state.list_tx());
-                    let (actor_handle, action_tx) =
-                        crate::connectors::claude_session::start_event_loop(
-                            claude_session,
-                            handle,
-                            persist_tx,
-                            state.list_tx(),
-                            state.clone(),
-                        );
-                    state.add_session_actor(actor_handle);
-                    state.set_claude_action_tx(&new_id, action_tx);
-
-                    state.broadcast_to_list(ServerMessage::SessionCreated {
-                        session: summary.clone(),
-                    });
-
-                    Ok(Json(ForkSessionResponse {
-                        source_session_id,
-                        new_session_id: new_id,
-                        session: summary,
-                    }))
-                }
-                Err(e) => Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ApiErrorResponse {
-                        code: "fork_failed",
-                        error: e.to_string(),
-                    }),
-                )),
-            }
+            Ok(Json(ForkSessionResponse {
+                source_session_id,
+                new_session_id: started.new_session_id,
+                session: started.summary,
+            }))
         }
-
         Provider::Codex => {
-            let source_action_tx = match state.get_codex_action_tx(&source_session_id) {
-                Some(tx) => tx,
-                None => {
-                    return Err(unprocessable(
-                        "not_found",
-                        format!(
-                            "Source session {} has no active Codex connector",
-                            source_session_id
-                        ),
-                    ))
-                }
-            };
+            let source_action_tx =
+                state
+                    .get_codex_action_tx(&source_session_id)
+                    .ok_or_else(|| {
+                        unprocessable(
+                            "not_found",
+                            format!(
+                                "Source session {} has no active Codex connector",
+                                source_session_id
+                            ),
+                        )
+                    })?;
 
             let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-            let cwd_for_fork = body.cwd.clone().or_else(|| Some(source_cwd.clone()));
-
             if source_action_tx
-                .send(crate::connectors::codex_session::CodexAction::ForkSession {
+                .send(CodexAction::ForkSession {
                     source_session_id: source_session_id.clone(),
                     nth_user_message: body.nth_user_message,
-                    model: body.model.clone(),
-                    approval_policy: effective_approval.clone(),
-                    sandbox_mode: effective_sandbox.clone(),
-                    cwd: cwd_for_fork.clone(),
+                    model: fork_plan.effective_model.clone(),
+                    approval_policy: fork_plan.effective_approval_policy.clone(),
+                    sandbox_mode: fork_plan.effective_sandbox_mode.clone(),
+                    cwd: Some(effective_cwd.clone()),
                     reply_tx,
                 })
                 .await
@@ -1253,131 +437,31 @@ pub async fn fork_session(
                 Ok(result) => result,
                 Err(_) => return Err(internal("fork_failed", "Fork operation was cancelled")),
             };
+            let (new_connector, new_thread_id) =
+                fork_result.map_err(|error| internal("fork_failed", error.to_string()))?;
 
-            let (new_connector, new_thread_id) = match fork_result {
-                Ok(result) => result,
-                Err(e) => return Err(internal("fork_failed", e.to_string())),
-            };
-
-            let new_id = orbitdock_protocol::new_id();
-            let fork_cwd = cwd_for_fork.unwrap_or_else(|| ".".to_string());
-            let fork_project_name = fork_cwd.split('/').next_back().map(String::from);
-            let fork_branch2 = crate::domain::git::repo::resolve_git_branch(&fork_cwd).await;
-
-            let mut handle = crate::domain::sessions::session::SessionHandle::new(
-                new_id.clone(),
-                Provider::Codex,
-                fork_cwd.clone(),
-            );
-            handle.set_git_branch(fork_branch2.clone());
-            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-            handle.set_config(effective_approval.clone(), effective_sandbox.clone());
-            handle.set_forked_from(source_session_id.clone());
-
-            let source_fork_messages =
-                if let Some(source_actor) = state.get_session(&source_session_id) {
-                    match source_actor.retained_state().await {
-                        Ok(source_state) => {
-                            let full_source_messages =
-                            crate::runtime::session_runtime_helpers::hydrate_full_message_history(
-                                &source_session_id,
-                                source_state.messages,
-                                source_state.total_message_count,
-                            )
-                            .await;
-                            remap_messages_for_fork(
-                                truncate_messages_before_nth_user_message(
-                                    &full_source_messages,
-                                    body.nth_user_message,
-                                ),
-                                &new_id,
-                            )
-                        }
-                        Err(_) => Vec::new(),
-                    }
-                } else {
-                    Vec::new()
-                };
-
-            let rollout_messages = if let Some(rollout_path) = new_connector.rollout_path().await {
-                crate::infrastructure::persistence::load_messages_from_transcript_path(
-                    &rollout_path,
-                    &new_id,
-                )
-                .await
-                .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-
-            let forked_messages = if source_fork_messages.len() >= rollout_messages.len() {
-                source_fork_messages
-            } else {
-                rollout_messages
-            };
-
-            if !forked_messages.is_empty() {
-                handle.replace_messages(forked_messages.clone());
-            }
-
-            let summary = handle.summary();
-            let persist_tx = state.persist().clone();
-
-            let _ = persist_tx
-                .send(PersistCommand::SessionCreate {
-                    id: new_id.clone(),
-                    provider: Provider::Codex,
-                    project_path: fork_cwd,
-                    project_name: fork_project_name,
-                    branch: fork_branch2,
-                    model: body.model,
-                    approval_policy: effective_approval,
-                    sandbox_mode: effective_sandbox,
-                    permission_mode: None,
-                    forked_from_session_id: Some(source_session_id.clone()),
-                })
-                .await;
-
-            for msg in forked_messages {
-                let _ = persist_tx
-                    .send(PersistCommand::MessageAppend {
-                        session_id: new_id.clone(),
-                        message: msg,
-                    })
-                    .await;
-            }
-
-            crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session(
+            let started = finalize_codex_fork_session(
                 &state,
-                &persist_tx,
-                &new_id,
-                &new_thread_id,
-                "http_fork_thread_cleanup",
+                &source_session_id,
+                body.nth_user_message,
+                &effective_cwd,
+                fork_plan.effective_model.as_deref(),
+                fork_plan.effective_approval_policy.as_deref(),
+                fork_plan.effective_sandbox_mode.as_deref(),
+                new_connector,
+                new_thread_id,
             )
-            .await;
-
-            let codex_session = crate::connectors::codex_session::CodexSession {
-                session_id: new_id.clone(),
-                connector: new_connector,
-            };
-            handle.set_list_tx(state.list_tx());
-            let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
-                codex_session,
-                handle,
-                persist_tx,
-                state.clone(),
-            );
-            state.add_session_actor(actor_handle);
-            state.set_codex_action_tx(&new_id, action_tx);
+            .await
+            .map_err(|error| internal("fork_failed", error))?;
 
             state.broadcast_to_list(ServerMessage::SessionCreated {
-                session: summary.clone(),
+                session: started.summary.clone(),
             });
 
             Ok(Json(ForkSessionResponse {
                 source_session_id,
-                new_session_id: new_id,
-                session: summary,
+                new_session_id: started.new_session_id,
+                session: started.summary,
             }))
         }
     }
@@ -1405,10 +489,10 @@ pub async fn fork_session_to_worktree(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<ForkToWorktreeRequest>,
 ) -> Result<Json<ForkToWorktreeResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let source_snapshot = match state.get_session(&source_session_id) {
-        Some(s) => s.snapshot(),
-        None => return Err(session_not_found_error(&source_session_id)),
-    };
+    let source_snapshot = state
+        .get_session(&source_session_id)
+        .map(|session| session.snapshot())
+        .ok_or_else(|| session_not_found_error(&source_session_id))?;
 
     let worktree_summary = create_fork_target_worktree(
         &state,
@@ -1429,8 +513,6 @@ pub async fn fork_session_to_worktree(
         )
     })?;
 
-    let fork_worktree_path = worktree_summary.worktree_path.clone();
-
     state.broadcast_to_list(ServerMessage::WorktreeCreated {
         request_id: String::new(),
         repo_root: worktree_summary.repo_root.clone(),
@@ -1446,7 +528,7 @@ pub async fn fork_session_to_worktree(
             model: None,
             approval_policy: None,
             sandbox_mode: None,
-            cwd: Some(fork_worktree_path),
+            cwd: Some(worktree_summary.worktree_path.clone()),
             permission_mode: None,
             allowed_tools: Vec::new(),
             disallowed_tools: Vec::new(),
@@ -1474,10 +556,10 @@ pub async fn fork_session_to_existing_worktree(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<ForkToExistingWorktreeRequest>,
 ) -> Result<Json<ForkSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    let source_snapshot = match state.get_session(&source_session_id) {
-        Some(s) => s.snapshot(),
-        None => return Err(session_not_found_error(&source_session_id)),
-    };
+    let source_snapshot = state
+        .get_session(&source_session_id)
+        .map(|session| session.snapshot())
+        .ok_or_else(|| session_not_found_error(&source_session_id))?;
 
     let target_worktree_path =
         resolve_existing_fork_worktree_path(state.db_path(), &source_snapshot, &body.worktree_id)

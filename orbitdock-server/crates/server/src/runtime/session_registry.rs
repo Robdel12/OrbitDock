@@ -1,10 +1,12 @@
 //! Application state
 
+mod connection_state;
+mod connector_registry;
+mod recent_projects;
+
 use dashmap::DashMap;
 use orbitdock_protocol::{ClientPrimaryClaim, SessionSummary};
-use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
@@ -17,6 +19,10 @@ use crate::infrastructure::shell::ShellService;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::support::ai_naming::NamingGuard;
 use orbitdock_connector_codex::auth::CodexAuthService;
+
+use self::connection_state::ConnectionState;
+use self::connector_registry::ConnectorRegistry;
+use self::recent_projects::collect_recent_projects;
 
 /// Cached metadata from a `ClaudeSessionStart` hook, held in memory until the
 /// first actionable hook materializes the session (or `SessionEnd` discards it).
@@ -31,257 +37,6 @@ pub struct PendingClaudeSession {
     pub terminal_session_id: Option<String>,
     pub terminal_app: Option<String>,
     pub cached_at: Instant,
-}
-
-#[derive(Clone)]
-struct ClientPrimaryClaimState {
-    client_id: String,
-    device_name: String,
-    is_primary: bool,
-}
-
-struct ConnectorRegistry {
-    codex_actions: DashMap<String, mpsc::Sender<CodexAction>>,
-    claude_actions: DashMap<String, mpsc::Sender<ClaudeAction>>,
-    codex_threads: DashMap<String, String>,
-    claude_threads: DashMap<String, String>,
-}
-
-impl ConnectorRegistry {
-    fn new() -> Self {
-        Self {
-            codex_actions: DashMap::new(),
-            claude_actions: DashMap::new(),
-            codex_threads: DashMap::new(),
-            claude_threads: DashMap::new(),
-        }
-    }
-
-    fn set_codex_action_tx(&self, session_id: &str, tx: mpsc::Sender<CodexAction>) {
-        self.codex_actions.insert(session_id.to_string(), tx);
-    }
-
-    fn get_codex_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<CodexAction>> {
-        self.codex_actions
-            .get(session_id)
-            .map(|entry| entry.clone())
-    }
-
-    fn set_claude_action_tx(&self, session_id: &str, tx: mpsc::Sender<ClaudeAction>) {
-        self.claude_actions.insert(session_id.to_string(), tx);
-    }
-
-    fn get_claude_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<ClaudeAction>> {
-        self.claude_actions
-            .get(session_id)
-            .map(|entry| entry.clone())
-    }
-
-    fn remove_action_txs(&self, session_id: &str) {
-        self.codex_actions.remove(session_id);
-        self.claude_actions.remove(session_id);
-    }
-
-    fn remove_codex_action_tx(&self, session_id: &str) {
-        self.codex_actions.remove(session_id);
-    }
-
-    fn remove_claude_action_tx(&self, session_id: &str) {
-        self.claude_actions.remove(session_id);
-    }
-
-    fn register_codex_thread(&self, session_id: &str, thread_id: &str) {
-        self.codex_threads
-            .insert(thread_id.to_string(), session_id.to_string());
-    }
-
-    fn register_claude_thread(&self, session_id: &str, sdk_session_id: &str) {
-        self.claude_threads
-            .insert(sdk_session_id.to_string(), session_id.to_string());
-    }
-
-    fn remove_session_threads(&self, session_id: &str) {
-        self.codex_threads
-            .retain(|_, mapped_session_id| mapped_session_id != session_id);
-        self.claude_threads
-            .retain(|_, mapped_session_id| mapped_session_id != session_id);
-    }
-
-    fn is_managed_codex_thread(&self, thread_id: &str) -> bool {
-        self.codex_threads.contains_key(thread_id)
-    }
-
-    fn is_managed_claude_thread(&self, sdk_session_id: &str) -> bool {
-        self.claude_threads.contains_key(sdk_session_id)
-    }
-
-    fn resolve_claude_thread(&self, sdk_session_id: &str) -> Option<String> {
-        self.claude_threads
-            .get(sdk_session_id)
-            .map(|entry| entry.clone())
-    }
-
-    fn registered_claude_session_ids(&self) -> HashSet<String> {
-        self.claude_threads
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect()
-    }
-
-    fn codex_thread_for_session(&self, session_id: &str) -> Option<String> {
-        self.codex_threads
-            .iter()
-            .find(|entry| entry.value() == session_id)
-            .map(|entry| entry.key().clone())
-    }
-
-    fn claude_sdk_id_for_session(&self, session_id: &str) -> Option<String> {
-        self.claude_threads
-            .iter()
-            .find(|entry| entry.value() == session_id)
-            .map(|entry| entry.key().clone())
-    }
-
-    fn has_codex_connector(&self, session_id: &str) -> bool {
-        self.codex_actions.contains_key(session_id)
-    }
-
-    fn has_claude_connector(&self, session_id: &str) -> bool {
-        self.claude_actions.contains_key(session_id)
-    }
-}
-
-struct ConnectionState {
-    is_primary: AtomicBool,
-    client_primary_claims: DashMap<u64, ClientPrimaryClaimState>,
-    ws_connections: AtomicU64,
-    started_at: Instant,
-}
-
-impl ConnectionState {
-    fn new(is_primary: bool) -> Self {
-        Self {
-            is_primary: AtomicBool::new(is_primary),
-            client_primary_claims: DashMap::new(),
-            ws_connections: AtomicU64::new(0),
-            started_at: Instant::now(),
-        }
-    }
-
-    fn is_primary(&self) -> bool {
-        self.is_primary.load(Ordering::Relaxed)
-    }
-
-    fn set_primary(&self, is_primary: bool) -> bool {
-        let previous = self.is_primary.swap(is_primary, Ordering::SeqCst);
-        previous != is_primary
-    }
-
-    fn ws_connect(&self) -> u64 {
-        self.ws_connections.fetch_add(1, Ordering::Relaxed) + 1
-    }
-
-    fn ws_disconnect(&self) -> u64 {
-        self.ws_connections.fetch_sub(1, Ordering::Relaxed) - 1
-    }
-
-    fn ws_connection_count(&self) -> u64 {
-        self.ws_connections.load(Ordering::Relaxed)
-    }
-
-    fn uptime_seconds(&self) -> u64 {
-        self.started_at.elapsed().as_secs()
-    }
-
-    fn set_client_primary_claim(
-        &self,
-        conn_id: u64,
-        client_id: String,
-        device_name: String,
-        is_primary: bool,
-    ) {
-        self.client_primary_claims.insert(
-            conn_id,
-            ClientPrimaryClaimState {
-                client_id,
-                device_name,
-                is_primary,
-            },
-        );
-    }
-
-    fn clear_client_primary_claim(&self, conn_id: u64) -> bool {
-        self.client_primary_claims.remove(&conn_id).is_some()
-    }
-
-    fn active_client_primary_claims(&self) -> Vec<ClientPrimaryClaim> {
-        let mut by_client: BTreeMap<String, (u64, String)> = BTreeMap::new();
-        for claim in self.client_primary_claims.iter() {
-            if !claim.value().is_primary {
-                continue;
-            }
-            let conn_id = *claim.key();
-            let client_id = claim.value().client_id.clone();
-            let device_name = claim.value().device_name.clone();
-            by_client
-                .entry(client_id)
-                .and_modify(|existing| {
-                    if conn_id < existing.0 {
-                        *existing = (conn_id, device_name.clone());
-                    }
-                })
-                .or_insert((conn_id, device_name));
-        }
-
-        by_client
-            .into_iter()
-            .map(|(client_id, (_, device_name))| ClientPrimaryClaim {
-                client_id,
-                device_name,
-            })
-            .collect()
-    }
-}
-
-fn collect_recent_projects<I>(
-    sessions: I,
-    hidden_paths: &HashSet<String>,
-) -> Vec<orbitdock_protocol::RecentProject>
-where
-    I: IntoIterator<Item = (String, Option<String>)>,
-{
-    let mut project_map: HashMap<String, (u32, Option<String>)> = HashMap::new();
-    for (path, last_activity) in sessions {
-        if hidden_paths.contains(&path) {
-            continue;
-        }
-
-        let counter = project_map.entry(path).or_insert((0, None));
-        counter.0 += 1;
-        if let Some(ref activity) = last_activity {
-            if counter
-                .1
-                .as_ref()
-                .is_none_or(|existing| activity > existing)
-            {
-                counter.1 = last_activity;
-            }
-        }
-    }
-
-    let mut projects: Vec<orbitdock_protocol::RecentProject> = project_map
-        .into_iter()
-        .map(
-            |(path, (session_count, last_active))| orbitdock_protocol::RecentProject {
-                path,
-                session_count,
-                last_active,
-            },
-        )
-        .collect();
-
-    projects.sort_by(|a, b| b.last_active.cmp(&a.last_active));
-    projects
 }
 
 /// Shared application state backed by lock-free concurrent maps.
@@ -673,81 +428,19 @@ impl SessionRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_recent_projects, SessionRegistry};
+    use super::SessionRegistry;
     use crate::support::test_support::ensure_server_test_data_dir;
-    use std::collections::HashSet;
     use tokio::sync::mpsc;
 
     #[test]
-    fn collect_recent_projects_hides_removed_worktree_paths() {
-        let removed_paths = HashSet::from([String::from("/repo/.orbitdock-worktrees/feature-a")]);
-        let projects = collect_recent_projects(
-            vec![
-                (
-                    String::from("/repo/.orbitdock-worktrees/feature-a"),
-                    Some(String::from("2026-03-08T12:00:00Z")),
-                ),
-                (
-                    String::from("/repo/.orbitdock-worktrees/feature-b"),
-                    Some(String::from("2026-03-08T11:00:00Z")),
-                ),
-                (
-                    String::from("/repo"),
-                    Some(String::from("2026-03-08T10:00:00Z")),
-                ),
-            ],
-            &removed_paths,
-        );
-
-        assert_eq!(projects.len(), 2);
-        assert_eq!(projects[0].path, "/repo/.orbitdock-worktrees/feature-b");
-        assert_eq!(projects[1].path, "/repo");
-    }
-
-    #[test]
-    fn collect_recent_projects_aggregates_counts_and_latest_activity_for_visible_paths() {
-        let projects = collect_recent_projects(
-            vec![
-                (
-                    String::from("/repo"),
-                    Some(String::from("2026-03-08T09:00:00Z")),
-                ),
-                (
-                    String::from("/other"),
-                    Some(String::from("2026-03-08T08:00:00Z")),
-                ),
-                (
-                    String::from("/repo"),
-                    Some(String::from("2026-03-08T12:00:00Z")),
-                ),
-            ],
-            &HashSet::new(),
-        );
-
-        assert_eq!(projects.len(), 2);
-        assert_eq!(projects[0].path, "/repo");
-        assert_eq!(projects[0].session_count, 2);
-        assert_eq!(
-            projects[0].last_active.as_deref(),
-            Some("2026-03-08T12:00:00Z")
-        );
-        assert_eq!(projects[1].path, "/other");
-    }
-
-    #[test]
-    fn active_client_primary_claims_dedup_by_client_and_ignore_non_primary() {
+    fn registry_clears_primary_claims_by_connection() {
         ensure_server_test_data_dir();
         let (persist_tx, _persist_rx) = mpsc::channel(8);
         let registry = SessionRegistry::new_with_primary(persist_tx, true);
 
         registry.set_client_primary_claim(1, "client-a".into(), "MacBook Pro".into(), true);
-        registry.set_client_primary_claim(2, "client-a".into(), "iPhone".into(), true);
-        registry.set_client_primary_claim(3, "client-b".into(), "Studio".into(), false);
-
-        let claims = registry.active_client_primary_claims();
-
-        assert_eq!(claims.len(), 1);
-        assert_eq!(claims[0].client_id, "client-a");
-        assert_eq!(claims[0].device_name, "MacBook Pro");
+        assert!(registry.clear_client_primary_claim(1));
+        assert!(registry.active_client_primary_claims().is_empty());
+        assert!(!registry.clear_client_primary_claim(1));
     }
 }

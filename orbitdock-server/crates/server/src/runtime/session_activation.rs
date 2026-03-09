@@ -1,0 +1,348 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use tracing::{info, warn};
+
+use orbitdock_protocol::{Provider, ServerMessage, SessionStatus, StateChanges, WorkStatus};
+
+use crate::connectors::claude_session::ClaudeSession;
+use crate::connectors::codex_session::CodexSession;
+use crate::infrastructure::persistence::{load_session_by_id, PersistCommand};
+use crate::runtime::session_actor::SessionActorHandle;
+use crate::runtime::session_commands::{PersistOp, SessionCommand};
+use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
+use crate::runtime::session_subscriptions::{
+    prepare_subscribe_result, request_subscribe, PreparedSubscribeResult,
+};
+use crate::support::session_time::chrono_now;
+
+pub(crate) async fn reactivate_passive_and_prepare_subscribe(
+    state: &Arc<SessionRegistry>,
+    actor: &SessionActorHandle,
+    session_id: &str,
+) -> Result<PreparedSubscribeResult, String> {
+    let now = chrono_now();
+    actor
+        .send(SessionCommand::ApplyDelta {
+            changes: StateChanges {
+                status: Some(SessionStatus::Active),
+                work_status: Some(WorkStatus::Waiting),
+                last_activity_at: Some(now),
+                ..Default::default()
+            },
+            persist_op: Some(PersistOp::SessionUpdate {
+                id: session_id.to_string(),
+                status: Some(SessionStatus::Active),
+                work_status: Some(WorkStatus::Waiting),
+                last_activity_at: Some(chrono_now()),
+            }),
+        })
+        .await;
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::RolloutSessionUpdate {
+            id: session_id.to_string(),
+            project_path: None,
+            model: None,
+            status: Some(SessionStatus::Active),
+            work_status: Some(WorkStatus::Waiting),
+            attention_reason: Some(Some("awaitingReply".to_string())),
+            pending_tool_name: Some(None),
+            pending_tool_input: Some(None),
+            pending_question: Some(None),
+            total_tokens: None,
+            last_tool: None,
+            last_tool_at: None,
+            custom_name: None,
+        })
+        .await;
+
+    if let Ok(summary) = actor.summary().await {
+        state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+    }
+
+    let result = request_subscribe(actor, None).await?;
+    Ok(prepare_subscribe_result(actor, session_id, result).await)
+}
+
+pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
+    state: &Arc<SessionRegistry>,
+    actor: &SessionActorHandle,
+    session_id: &str,
+    provider: Provider,
+    project_path: &str,
+    model: Option<&str>,
+    approval_policy: Option<&str>,
+    sandbox_mode: Option<&str>,
+) -> Result<Option<PreparedSubscribeResult>, String> {
+    let (take_tx, take_rx) = tokio::sync::oneshot::channel();
+    actor
+        .send(SessionCommand::TakeHandle { reply: take_tx })
+        .await;
+
+    let Ok(mut handle) = take_rx.await else {
+        return Ok(None);
+    };
+
+    handle.set_list_tx(state.list_tx());
+    let persist_tx = state.persist().clone();
+    let connector_timeout = Duration::from_secs(10);
+
+    let connector_connected = match provider {
+        Provider::Codex => {
+            start_lazy_codex_connector(
+                state,
+                session_id,
+                project_path,
+                model,
+                approval_policy,
+                sandbox_mode,
+                handle,
+                persist_tx.clone(),
+                connector_timeout,
+            )
+            .await
+        }
+        Provider::Claude => {
+            start_lazy_claude_connector(
+                state,
+                session_id,
+                project_path,
+                model,
+                handle,
+                persist_tx.clone(),
+                connector_timeout,
+            )
+            .await
+        }
+    };
+
+    if let Some(new_actor) = state.get_session(session_id) {
+        let result = request_subscribe(&new_actor, None).await?;
+        return Ok(Some(
+            prepare_subscribe_result(&new_actor, session_id, result).await,
+        ));
+    }
+
+    if connector_connected {
+        return Err(format!(
+            "session {} missing after lazy connector startup",
+            session_id
+        ));
+    }
+
+    Ok(None)
+}
+
+async fn start_lazy_codex_connector(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    project_path: &str,
+    model: Option<&str>,
+    approval_policy: Option<&str>,
+    sandbox_mode: Option<&str>,
+    handle: crate::domain::sessions::session::SessionHandle,
+    persist_tx: tokio::sync::mpsc::Sender<PersistCommand>,
+    connector_timeout: Duration,
+) -> bool {
+    let thread_id = state.codex_thread_for_session(session_id);
+    let sid = session_id.to_string();
+    let project = project_path.to_string();
+    let model = model.map(ToOwned::to_owned);
+    let approval = approval_policy.map(ToOwned::to_owned);
+    let sandbox = sandbox_mode.map(ToOwned::to_owned);
+
+    let mut connector_task = tokio::spawn(async move {
+        if let Some(ref tid) = thread_id {
+            match CodexSession::resume(
+                sid.clone(),
+                &project,
+                tid,
+                model.as_deref(),
+                approval.as_deref(),
+                sandbox.as_deref(),
+            )
+            .await
+            {
+                Ok(codex) => Ok(codex),
+                Err(_) => {
+                    CodexSession::new(
+                        sid.clone(),
+                        &project,
+                        model.as_deref(),
+                        approval.as_deref(),
+                        sandbox.as_deref(),
+                    )
+                    .await
+                }
+            }
+        } else {
+            CodexSession::new(
+                sid.clone(),
+                &project,
+                model.as_deref(),
+                approval.as_deref(),
+                sandbox.as_deref(),
+            )
+            .await
+        }
+    });
+
+    match tokio::time::timeout(connector_timeout, &mut connector_task).await {
+        Ok(Ok(Ok(codex))) => {
+            let new_thread_id = codex.thread_id().to_string();
+            claim_codex_thread_for_direct_session(
+                state,
+                &persist_tx,
+                session_id,
+                &new_thread_id,
+                "legacy_codex_thread_row_cleanup",
+            )
+            .await;
+            let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
+                codex,
+                handle,
+                persist_tx,
+                state.clone(),
+            );
+            state.add_session_actor(actor_handle);
+            state.set_codex_action_tx(session_id, action_tx);
+            info!(
+                component = "runtime",
+                event = "session.lazy_connector.codex_connected",
+                session_id = %session_id,
+                "Lazy Codex connector created"
+            );
+            true
+        }
+        Ok(Ok(Err(error))) => {
+            warn!(
+                component = "runtime",
+                event = "session.lazy_connector.codex_failed",
+                session_id = %session_id,
+                error = %error,
+                "Failed to create lazy Codex connector, re-registering passive"
+            );
+            state.add_session(handle);
+            false
+        }
+        Ok(Err(join_error)) => {
+            warn!(
+                component = "runtime",
+                event = "session.lazy_connector.codex_panicked",
+                session_id = %session_id,
+                error = %join_error,
+                "Codex connector task panicked, re-registering passive"
+            );
+            state.add_session(handle);
+            false
+        }
+        Err(_) => {
+            connector_task.abort();
+            warn!(
+                component = "runtime",
+                event = "session.lazy_connector.codex_timeout",
+                session_id = %session_id,
+                "Codex connector creation timed out, re-registering passive"
+            );
+            state.add_session(handle);
+            false
+        }
+    }
+}
+
+async fn start_lazy_claude_connector(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    project_path: &str,
+    model: Option<&str>,
+    handle: crate::domain::sessions::session::SessionHandle,
+    persist_tx: tokio::sync::mpsc::Sender<PersistCommand>,
+    connector_timeout: Duration,
+) -> bool {
+    let mut sdk_id = state.claude_sdk_id_for_session(session_id);
+    if sdk_id.is_none() {
+        if let Ok(Some(restored_session)) = load_session_by_id(session_id).await {
+            sdk_id = restored_session.claude_sdk_session_id;
+        }
+    }
+
+    let provider_id = sdk_id
+        .as_deref()
+        .and_then(orbitdock_protocol::ProviderSessionId::new);
+    if let Some(ref id) = provider_id {
+        state.register_claude_thread(session_id, id.as_str());
+    }
+
+    let sid = session_id.to_string();
+    let project = project_path.to_string();
+    let model = model.map(ToOwned::to_owned);
+    let connector_task = tokio::spawn(async move {
+        ClaudeSession::new(
+            sid,
+            &project,
+            model.as_deref(),
+            provider_id.as_ref(),
+            None,
+            &[],
+            &[],
+            None,
+        )
+        .await
+    });
+
+    match tokio::time::timeout(connector_timeout, connector_task).await {
+        Ok(Ok(Ok(claude_session))) => {
+            let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
+                claude_session,
+                handle,
+                persist_tx,
+                state.list_tx(),
+                state.clone(),
+            );
+            state.add_session_actor(actor_handle);
+            state.set_claude_action_tx(session_id, action_tx);
+            info!(
+                component = "runtime",
+                event = "session.lazy_connector.claude_connected",
+                session_id = %session_id,
+                "Lazy Claude connector created"
+            );
+            true
+        }
+        Ok(Ok(Err(error))) => {
+            warn!(
+                component = "runtime",
+                event = "session.lazy_connector.claude_failed",
+                session_id = %session_id,
+                error = %error,
+                "Failed to create lazy Claude connector, re-registering passive"
+            );
+            state.add_session(handle);
+            false
+        }
+        Ok(Err(join_error)) => {
+            warn!(
+                component = "runtime",
+                event = "session.lazy_connector.claude_panicked",
+                session_id = %session_id,
+                error = %join_error,
+                "Claude connector task panicked, re-registering passive"
+            );
+            state.add_session(handle);
+            false
+        }
+        Err(_) => {
+            warn!(
+                component = "runtime",
+                event = "session.lazy_connector.claude_timeout",
+                session_id = %session_id,
+                "Claude connector creation timed out, re-registering passive"
+            );
+            state.add_session(handle);
+            false
+        }
+    }
+}

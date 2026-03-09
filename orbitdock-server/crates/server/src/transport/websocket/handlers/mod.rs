@@ -4,6 +4,8 @@ pub(crate) mod config;
 pub(crate) mod messaging;
 pub(crate) mod rest_only;
 pub(crate) mod session_crud;
+pub(crate) mod session_forks;
 pub(crate) mod session_lifecycle;
+pub(crate) mod session_management;
 pub(crate) mod shell;
 pub(crate) mod subscribe;

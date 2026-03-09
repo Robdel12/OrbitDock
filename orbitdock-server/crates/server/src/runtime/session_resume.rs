@@ -1,0 +1,307 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use tracing::{error, info};
+
+use orbitdock_protocol::{Provider, ServerMessage, SessionSummary};
+
+use crate::connectors::claude_session::ClaudeSession;
+use crate::connectors::codex_session::CodexSession;
+use crate::infrastructure::persistence::{load_session_permission_mode, PersistCommand};
+use crate::runtime::restored_sessions::PreparedResumeSession;
+use crate::runtime::session_commands::SessionCommand;
+use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
+use crate::support::session_paths::resolve_claude_resume_cwd;
+
+pub(crate) struct ResumeSessionLaunch {
+    pub summary: SessionSummary,
+}
+
+pub(crate) enum ResumeSessionError {
+    MissingClaudeResumeId,
+}
+
+impl ResumeSessionError {
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::MissingClaudeResumeId => "resume_failed",
+        }
+    }
+
+    pub(crate) fn message(&self) -> String {
+        match self {
+            Self::MissingClaudeResumeId => {
+                "Cannot resume — no valid Claude SDK session ID was saved".to_string()
+            }
+        }
+    }
+}
+
+pub(crate) async fn launch_resumed_session(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    prepared: PreparedResumeSession,
+) -> Result<ResumeSessionLaunch, ResumeSessionError> {
+    if prepared.transcript_loaded {
+        info!(
+            component = "session",
+            event = "session.resume.transcript_loaded",
+            session_id = %session_id,
+            message_count = prepared.message_count,
+            "Loaded messages from transcript for resume"
+        );
+    }
+
+    let session_id = session_id.to_string();
+    let summary = prepared.summary.clone();
+    state.broadcast_to_list(ServerMessage::SessionCreated {
+        session: summary.clone(),
+    });
+
+    let persist_tx = state.persist().clone();
+    let _ = persist_tx
+        .send(PersistCommand::ReactivateSession {
+            id: session_id.clone(),
+        })
+        .await;
+
+    match prepared.provider {
+        Provider::Claude => {
+            let project = if let Some(ref transcript_path) = prepared.transcript_path {
+                resolve_claude_resume_cwd(&prepared.project_path, transcript_path)
+            } else {
+                prepared.project_path.clone()
+            };
+
+            let Some(provider_resume_id) = prepared
+                .claude_sdk_session_id
+                .clone()
+                .and_then(orbitdock_protocol::ProviderSessionId::new)
+            else {
+                state.add_session(prepared.handle);
+                return Err(ResumeSessionError::MissingClaudeResumeId);
+            };
+
+            state.register_claude_thread(&session_id, provider_resume_id.as_str());
+            spawn_claude_resume(
+                state,
+                &session_id,
+                project,
+                prepared.model,
+                provider_resume_id,
+                prepared.handle,
+                prepared.message_count,
+            )
+            .await;
+        }
+        Provider::Codex => {
+            spawn_codex_resume(
+                state,
+                &session_id,
+                prepared.project_path,
+                prepared.model,
+                prepared.approval_policy,
+                prepared.sandbox_mode,
+                prepared.handle,
+                prepared.message_count,
+            )
+            .await;
+        }
+    }
+
+    Ok(ResumeSessionLaunch { summary })
+}
+
+async fn spawn_claude_resume(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    project: String,
+    model: Option<String>,
+    provider_resume_id: orbitdock_protocol::ProviderSessionId,
+    mut handle: crate::domain::sessions::session::SessionHandle,
+    message_count: usize,
+) {
+    let session_id = session_id.to_string();
+    let persist_tx = state.persist().clone();
+    let restored_permission_mode = load_session_permission_mode(&session_id)
+        .await
+        .unwrap_or(None);
+    let state = state.clone();
+
+    tokio::spawn(async move {
+        let connector_timeout = Duration::from_secs(15);
+        let sid = session_id.clone();
+        let resume_id = provider_resume_id.clone();
+        let permission_mode = restored_permission_mode.clone();
+        let connector_task = tokio::spawn(async move {
+            ClaudeSession::new(
+                sid.clone(),
+                &project,
+                model.as_deref(),
+                Some(&resume_id),
+                permission_mode.as_deref(),
+                &[],
+                &[],
+                None,
+            )
+            .await
+        });
+
+        match tokio::time::timeout(connector_timeout, connector_task).await {
+            Ok(Ok(Ok(claude_session))) => {
+                state.register_claude_thread(&session_id, provider_resume_id.as_str());
+                handle.set_list_tx(state.list_tx());
+                let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
+                    claude_session,
+                    handle,
+                    persist_tx.clone(),
+                    state.list_tx(),
+                    state.clone(),
+                );
+                state.add_session_actor(actor_handle);
+                state.set_claude_action_tx(&session_id, action_tx);
+
+                if let Some(ref mode) = restored_permission_mode {
+                    if let Some(actor) = state.get_session(&session_id) {
+                        actor
+                            .send(SessionCommand::ApplyDelta {
+                                changes: orbitdock_protocol::StateChanges {
+                                    permission_mode: Some(Some(mode.clone())),
+                                    ..Default::default()
+                                },
+                                persist_op: None,
+                            })
+                            .await;
+                    }
+                }
+
+                let _ = persist_tx
+                    .send(PersistCommand::SetIntegrationMode {
+                        session_id: session_id.clone(),
+                        codex_mode: None,
+                        claude_mode: Some("direct".into()),
+                    })
+                    .await;
+
+                info!(
+                    component = "session",
+                    event = "session.resume.http.claude_connected",
+                    session_id = %session_id,
+                    messages = message_count,
+                    "HTTP: Resumed Claude session"
+                );
+            }
+            Ok(Ok(Err(error))) => {
+                state.add_session(handle);
+                error!(
+                    component = "session",
+                    event = "session.resume.http.claude_failed",
+                    session_id = %session_id,
+                    error = %error,
+                    "HTTP: Failed to resume Claude connector"
+                );
+            }
+            Ok(Err(join_error)) => {
+                state.add_session(handle);
+                error!(
+                    component = "session",
+                    event = "session.resume.http.claude_panicked",
+                    session_id = %session_id,
+                    error = %join_error,
+                    "HTTP: Claude connector panicked"
+                );
+            }
+            Err(_) => {
+                state.add_session(handle);
+                error!(
+                    component = "session",
+                    event = "session.resume.http.claude_timeout",
+                    session_id = %session_id,
+                    "HTTP: Claude connector timed out"
+                );
+            }
+        }
+    });
+}
+
+async fn spawn_codex_resume(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    project_path: String,
+    model: Option<String>,
+    approval_policy: Option<String>,
+    sandbox_mode: Option<String>,
+    mut handle: crate::domain::sessions::session::SessionHandle,
+    message_count: usize,
+) {
+    let session_id = session_id.to_string();
+    let persist_tx = state.persist().clone();
+    let state = state.clone();
+
+    tokio::spawn(async move {
+        let connector_timeout = Duration::from_secs(15);
+        let task_session_id = session_id.clone();
+        let mut connector_task = tokio::spawn(async move {
+            CodexSession::new(
+                task_session_id,
+                &project_path,
+                model.as_deref(),
+                approval_policy.as_deref(),
+                sandbox_mode.as_deref(),
+            )
+            .await
+        });
+
+        let codex_start = match tokio::time::timeout(connector_timeout, &mut connector_task).await {
+            Ok(Ok(Ok(session))) => Ok(session),
+            Ok(Ok(Err(error))) => Err(error.to_string()),
+            Ok(Err(join_error)) => Err(format!("Connector task panicked: {join_error}")),
+            Err(_) => {
+                connector_task.abort();
+                Err("Connector creation timed out".to_string())
+            }
+        };
+
+        match codex_start {
+            Ok(codex_session) => {
+                let thread_id = codex_session.thread_id().to_string();
+                claim_codex_thread_for_direct_session(
+                    &state,
+                    &persist_tx,
+                    &session_id,
+                    &thread_id,
+                    "http_resume_thread_cleanup",
+                )
+                .await;
+
+                handle.set_list_tx(state.list_tx());
+                let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
+                    codex_session,
+                    handle,
+                    persist_tx,
+                    state.clone(),
+                );
+                state.add_session_actor(actor_handle);
+                state.set_codex_action_tx(&session_id, action_tx);
+                info!(
+                    component = "session",
+                    event = "session.resume.http.codex_connected",
+                    session_id = %session_id,
+                    messages = message_count,
+                    "HTTP: Resumed Codex session"
+                );
+            }
+            Err(error) => {
+                state.add_session(handle);
+                error!(
+                    component = "session",
+                    event = "session.resume.http.codex_failed",
+                    session_id = %session_id,
+                    error = %error,
+                    "HTTP: Failed to resume Codex connector"
+                );
+            }
+        }
+    });
+}

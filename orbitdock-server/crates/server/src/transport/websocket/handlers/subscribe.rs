@@ -6,11 +6,14 @@ use tracing::{error, info, warn};
 
 use orbitdock_protocol::{ClientMessage, ServerMessage};
 
+use crate::runtime::session_activation::{
+    reactivate_passive_and_prepare_subscribe, start_lazy_connector_and_prepare_subscribe,
+};
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_subscription_queries::load_persisted_subscribe_state;
 use crate::runtime::session_subscriptions::{
-    load_persisted_subscribe_state, plan_session_subscribe, prepare_subscribe_result,
-    reactivate_passive_and_prepare_subscribe, request_subscribe,
-    start_lazy_connector_and_prepare_subscribe, PreparedSubscribeResult, SessionSubscribeInputs,
+    plan_session_subscribe, prepare_subscribe_result, request_subscribe, PreparedSubscribeResult,
+    SessionSubscribeInputs,
 };
 use crate::transport::websocket::{
     send_json, send_replay_or_snapshot_fallback, send_snapshot_if_requested,
