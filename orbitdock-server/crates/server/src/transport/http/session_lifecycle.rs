@@ -3,6 +3,9 @@ use crate::connectors::codex_session::CodexAction;
 use crate::domain::sessions::session::SessionHandle;
 use crate::runtime::restored_sessions::load_prepared_resume_session;
 use crate::runtime::session_commands::SessionCommand;
+use crate::runtime::session_creation::{
+    persist_direct_session_create, prepare_direct_session, DirectSessionCreationInputs,
+};
 use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::support::session_modes::{
     is_passive_rollout_session, is_takeover_eligible_passive_session,
@@ -179,58 +182,38 @@ pub async fn create_session(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<CreateSessionRequest>,
 ) -> Result<Json<CreateSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
+    use orbitdock_protocol::Provider;
 
     let id = orbitdock_protocol::new_id();
-    let project_name = body.cwd.split('/').next_back().map(String::from);
     let git_branch = crate::domain::git::repo::resolve_git_branch(&body.cwd).await;
+    let prepared = prepare_direct_session(DirectSessionCreationInputs {
+        id: id.clone(),
+        provider: body.provider,
+        cwd: body.cwd.clone(),
+        git_branch: git_branch.clone(),
+        model: body.model.clone(),
+        approval_policy: body.approval_policy.clone(),
+        sandbox_mode: body.sandbox_mode.clone(),
+        effort: body.effort.clone(),
+    });
+    let summary = prepared.summary.clone();
+    let mut handle = prepared.handle;
 
-    let mut handle = crate::domain::sessions::session::SessionHandle::new(
+    let persist_tx = state.persist().clone();
+    persist_direct_session_create(
+        &persist_tx,
         id.clone(),
         body.provider,
         body.cwd.clone(),
-    );
-    handle.set_git_branch(git_branch.clone());
-
-    if let Some(ref m) = body.model {
-        handle.set_model(Some(m.clone()));
-    }
-    if let Some(ref effort_level) = body.effort {
-        handle.set_effort(Some(effort_level.clone()));
-    }
-
-    if body.provider == Provider::Codex {
-        handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-        handle.set_config(body.approval_policy.clone(), body.sandbox_mode.clone());
-    } else if body.provider == Provider::Claude {
-        handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
-    }
-
-    let summary = handle.summary();
-
-    let persist_tx = state.persist().clone();
-    let _ = persist_tx
-        .send(PersistCommand::SessionCreate {
-            id: id.clone(),
-            provider: body.provider,
-            project_path: body.cwd.clone(),
-            project_name,
-            branch: git_branch,
-            model: body.model.clone(),
-            approval_policy: body.approval_policy.clone(),
-            sandbox_mode: body.sandbox_mode.clone(),
-            permission_mode: body.permission_mode.clone(),
-            forked_from_session_id: None,
-        })
-        .await;
-    if let Some(ref effort_name) = body.effort {
-        let _ = persist_tx
-            .send(PersistCommand::EffortUpdate {
-                session_id: id.clone(),
-                effort: Some(effort_name.clone()),
-            })
-            .await;
-    }
+        prepared.project_name,
+        git_branch,
+        body.model.clone(),
+        body.approval_policy.clone(),
+        body.sandbox_mode.clone(),
+        body.permission_mode.clone(),
+        body.effort.clone(),
+    )
+    .await;
 
     if body.provider == Provider::Codex {
         let session_id = id.clone();

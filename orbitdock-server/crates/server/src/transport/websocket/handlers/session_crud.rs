@@ -15,6 +15,9 @@ use crate::infrastructure::persistence::{
     load_messages_from_transcript_path, load_worktree_by_id, PersistCommand,
 };
 use crate::runtime::session_commands::{PersistOp, SessionCommand};
+use crate::runtime::session_creation::{
+    persist_direct_session_create, prepare_direct_session, DirectSessionCreationInputs,
+};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
     claim_codex_thread_for_direct_session, hydrate_full_message_history,
@@ -101,62 +104,42 @@ pub(crate) async fn handle(
             );
 
             let id = orbitdock_protocol::new_id();
-            let project_name = cwd.split('/').next_back().map(String::from);
             let git_branch = crate::domain::git::repo::resolve_git_branch(&cwd).await;
-
-            let mut handle = crate::domain::sessions::session::SessionHandle::new(
-                id.clone(),
+            let prepared = prepare_direct_session(DirectSessionCreationInputs {
+                id: id.clone(),
                 provider,
-                cwd.clone(),
-            );
-            handle.set_git_branch(git_branch.clone());
-
-            if let Some(ref m) = model {
-                handle.set_model(Some(m.clone()));
-            }
-
-            if let Some(ref effort_level) = effort {
-                handle.set_effort(Some(effort_level.clone()));
-            }
-
-            if provider == Provider::Codex {
-                handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-                handle.set_config(approval_policy.clone(), sandbox_mode.clone());
-            } else if provider == Provider::Claude {
-                handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
-            }
+                cwd: cwd.clone(),
+                git_branch: git_branch.clone(),
+                model: model.clone(),
+                approval_policy: approval_policy.clone(),
+                sandbox_mode: sandbox_mode.clone(),
+                effort: effort.clone(),
+            });
+            let mut handle = prepared.handle;
 
             // Subscribe the creator before handing off handle
             let rx = handle.subscribe();
             spawn_broadcast_forwarder(rx, client_tx.clone(), Some(id.clone()));
 
-            let summary = handle.summary();
-            let snapshot = handle.retained_state();
+            let summary = prepared.summary;
+            let snapshot = prepared.snapshot;
 
             // Persist session creation
             let persist_tx = state.persist().clone();
-            let _ = persist_tx
-                .send(PersistCommand::SessionCreate {
-                    id: id.clone(),
-                    provider,
-                    project_path: cwd.clone(),
-                    project_name,
-                    branch: git_branch,
-                    model: model.clone(),
-                    approval_policy: approval_policy.clone(),
-                    sandbox_mode: sandbox_mode.clone(),
-                    permission_mode: permission_mode.clone(),
-                    forked_from_session_id: None,
-                })
-                .await;
-            if let Some(ref effort_name) = effort {
-                let _ = persist_tx
-                    .send(PersistCommand::EffortUpdate {
-                        session_id: id.clone(),
-                        effort: Some(effort_name.clone()),
-                    })
-                    .await;
-            }
+            persist_direct_session_create(
+                &persist_tx,
+                id.clone(),
+                provider,
+                cwd.clone(),
+                prepared.project_name,
+                git_branch,
+                model.clone(),
+                approval_policy.clone(),
+                sandbox_mode.clone(),
+                permission_mode.clone(),
+                effort.clone(),
+            )
+            .await;
 
             // Notify creator
             send_json(
