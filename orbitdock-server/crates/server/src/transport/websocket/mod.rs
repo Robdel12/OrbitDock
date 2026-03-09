@@ -1,7 +1,7 @@
 //! WebSocket handling — connection lifecycle, message routing, and send helpers.
 //!
-//! Handler logic lives in `ws_handlers/`, compaction in `snapshot_compaction`,
-//! session utilities in `session_utils`, and normalization in `normalization`.
+//! Handler logic lives in `handlers/`, compaction in `support::snapshot_compaction`,
+//! and transport-specific helpers in the sibling modules declared here.
 
 mod connection;
 pub(crate) mod handlers;

@@ -200,7 +200,7 @@ orbitdock --bind 127.0.0.1:4000   # same as: orbitdock start --bind ...
 
 ## Architecture
 
-This section is the quick mental model after the refactor. If you're trying to decide where a change belongs, start with the crate split: `crates/cli` owns the binary surface, and `crates/server` owns the runtime, transport, persistence, and admin capabilities.
+This section is the quick mental model for the server. If you're trying to decide where a change belongs, start with the crate split: `crates/cli` owns the binary surface, and `crates/server` owns the runtime, transport, persistence, and admin capabilities.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -295,7 +295,7 @@ Current module groups:
 - `infrastructure/` — SQLite persistence, paths, auth, crypto, metrics, shell, logging
 - `support/` — small shared pure helpers
 
-For the why behind that split, read `docs/server-architecture.md`. That file is the source of truth for how the layers are meant to evolve.
+For the layer rules, dependency boundaries, and do/don't guidance, read `docs/server-architecture.md`. That is the architecture reference doc.
 
 ## Where New Server Code Goes
 
@@ -375,8 +375,8 @@ Each session maintains a monotonic `approval_version` counter that increments on
 
 JSON over WebSocket at `ws://127.0.0.1:4000/ws`.
 
-For the HTTP contract (endpoints + payloads), see `docs/API.md`.
-For transport rationale and migration notes, see `docs/api-transport-split.md`.
+For the HTTP and WebSocket contract (endpoints + payloads), see `docs/API.md`.
+For the rationale behind the REST/WS split, see `docs/api-transport-split.md`.
 
 WebSocket is reserved for:
 

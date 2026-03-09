@@ -1,7 +1,8 @@
 //! HTTP hook handler for Claude Code hooks.
 //!
 //! Replaces the Swift CLI — hooks now POST JSON directly to the Rust server.
-//! The 5 Claude hook message types are handled here, extracted from websocket.rs.
+//! The 5 Claude hook message types are handled here, grouped behind the
+//! Claude hook transport module instead of the WebSocket transport layer.
 //!
 //! **Deferred session creation:** `ClaudeSessionStart` no longer creates a DB row
 //! or broadcasts `SessionCreated`. Instead it caches metadata in memory. The session
@@ -35,7 +36,7 @@ use super::session_materialization::{
     emit_capabilities_from_transcript, is_codex_rollout_payload, materialize_claude_session,
 };
 
-/// Process a Claude hook message. Extracted from `handle_client_message` in websocket.rs.
+/// Process a Claude hook message.
 /// These handlers never need `client_tx` or `conn_id` — only `state`.
 pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry>) {
     match msg {

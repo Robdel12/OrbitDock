@@ -14,7 +14,7 @@ use super::message_groups::{classify_client_message, MessageGroup};
 
 /// Dispatch a single client WebSocket message.
 ///
-/// Each handler group lives in its own module under `ws_handlers/`, so each
+/// Each handler group lives in its own module under `handlers/`, so each
 /// `.await` site produces an independently-sized future. This keeps the
 /// parent future small enough for the default 2 MiB thread stack in debug
 /// builds.
