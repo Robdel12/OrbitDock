@@ -5,15 +5,12 @@ use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::{
     ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
-    WorktreeOrigin,
 };
 
 use crate::connectors::claude_session::{ClaudeAction, ClaudeSession};
 use crate::connectors::codex_session::{CodexAction, CodexSession};
 use crate::domain::sessions::session::SessionHandle;
-use crate::infrastructure::persistence::{
-    load_messages_from_transcript_path, load_worktree_by_id, PersistCommand,
-};
+use crate::infrastructure::persistence::{load_messages_from_transcript_path, PersistCommand};
 use crate::runtime::session_commands::{PersistOp, SessionCommand};
 use crate::runtime::session_creation::{
     persist_direct_session_create, prepare_direct_session, DirectSessionCreationInputs,
@@ -22,12 +19,31 @@ use crate::runtime::session_fork_policy::{
     plan_fork_config, remap_messages_for_fork, select_fork_messages,
     truncate_messages_before_nth_user_message, ForkConfigInputs,
 };
+use crate::runtime::session_fork_targets::{
+    create_fork_target_worktree, resolve_existing_fork_worktree_path, ForkTargetError,
+};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
     claim_codex_thread_for_direct_session, hydrate_full_message_history,
 };
 use crate::support::session_modes::is_passive_rollout_session;
 use crate::transport::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
+
+async fn send_fork_target_error(
+    client_tx: &mpsc::Sender<OutboundMessage>,
+    session_id: String,
+    error: ForkTargetError,
+) {
+    send_json(
+        client_tx,
+        ServerMessage::Error {
+            code: error.code.into(),
+            message: error.message,
+            session_id: Some(session_id),
+        },
+    )
+    .await;
+}
 
 pub(crate) async fn handle(
     msg: ClientMessage,
@@ -526,20 +542,6 @@ pub(crate) async fn handle(
             base_branch,
             nth_user_message,
         } => {
-            let trimmed_branch = branch_name.trim().to_string();
-            if trimmed_branch.is_empty() {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "worktree_create_invalid_input".into(),
-                        message: "Branch name is required".into(),
-                        session_id: Some(source_session_id),
-                    },
-                )
-                .await;
-                return;
-            }
-
             let source_snapshot = match state.get_session(&source_session_id) {
                 Some(session) => session.snapshot(),
                 None => {
@@ -556,41 +558,17 @@ pub(crate) async fn handle(
                 }
             };
 
-            let repo_root = if let Some(root) = source_snapshot
-                .repository_root
-                .clone()
-                .map(|r| r.trim().to_string())
-                .filter(|r| !r.is_empty())
-            {
-                root
-            } else if let Some(git_info) =
-                crate::domain::git::repo::resolve_git_info(&source_snapshot.project_path).await
-            {
-                git_info.common_dir_root
-            } else {
-                source_snapshot.project_path.clone()
-            };
-
-            let worktree_summary = match crate::domain::worktrees::service::create_tracked_worktree(
+            let worktree_summary = match create_fork_target_worktree(
                 state,
-                &repo_root,
-                &trimmed_branch,
+                &source_snapshot,
+                &branch_name,
                 base_branch.as_deref(),
-                WorktreeOrigin::User,
             )
             .await
             {
                 Ok(summary) => summary,
-                Err(err) => {
-                    send_json(
-                        client_tx,
-                        ServerMessage::Error {
-                            code: "worktree_create_failed".into(),
-                            message: err,
-                            session_id: Some(source_session_id),
-                        },
-                    )
-                    .await;
+                Err(error) => {
+                    send_fork_target_error(client_tx, source_session_id.clone(), error).await;
                     return;
                 }
             };
@@ -643,86 +621,19 @@ pub(crate) async fn handle(
                 }
             };
 
-            let source_repo_root = if let Some(root) = source_snapshot
-                .repository_root
-                .clone()
-                .map(|r| r.trim().trim_end_matches('/').to_string())
-                .filter(|r| !r.is_empty())
+            let target_worktree_path = match resolve_existing_fork_worktree_path(
+                state.db_path(),
+                &source_snapshot,
+                &worktree_id,
+            )
+            .await
             {
-                root
-            } else if let Some(git_info) =
-                crate::domain::git::repo::resolve_git_info(&source_snapshot.project_path).await
-            {
-                git_info.common_dir_root.trim_end_matches('/').to_string()
-            } else {
-                source_snapshot
-                    .project_path
-                    .trim()
-                    .trim_end_matches('/')
-                    .to_string()
-            };
-
-            let target_worktree = match load_worktree_by_id(state.db_path(), &worktree_id) {
-                Some(row) => row,
-                None => {
-                    send_json(
-                        client_tx,
-                        ServerMessage::Error {
-                            code: "worktree_not_found".into(),
-                            message: format!("Worktree {} not found", worktree_id),
-                            session_id: Some(source_session_id),
-                        },
-                    )
-                    .await;
+                Ok(path) => path,
+                Err(error) => {
+                    send_fork_target_error(client_tx, source_session_id.clone(), error).await;
                     return;
                 }
             };
-
-            if target_worktree.status == "removed" {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "worktree_not_found".into(),
-                        message: "Selected worktree has been removed".into(),
-                        session_id: Some(source_session_id),
-                    },
-                )
-                .await;
-                return;
-            }
-
-            let target_repo_root = target_worktree
-                .repo_root
-                .trim()
-                .trim_end_matches('/')
-                .to_string();
-            if target_repo_root != source_repo_root {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "worktree_repo_mismatch".into(),
-                        message: "Selected worktree belongs to a different repository".into(),
-                        session_id: Some(source_session_id),
-                    },
-                )
-                .await;
-                return;
-            }
-
-            if !crate::domain::git::repo::worktree_exists_on_disk(&target_worktree.worktree_path)
-                .await
-            {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "worktree_missing".into(),
-                        message: "Selected worktree no longer exists on disk".into(),
-                        session_id: Some(source_session_id),
-                    },
-                )
-                .await;
-                return;
-            }
 
             Box::pin(handle(
                 ClientMessage::ForkSession {
@@ -731,7 +642,7 @@ pub(crate) async fn handle(
                     model: None,
                     approval_policy: None,
                     sandbox_mode: None,
-                    cwd: Some(target_worktree.worktree_path),
+                    cwd: Some(target_worktree_path),
                     permission_mode: None,
                     allowed_tools: Vec::new(),
                     disallowed_tools: Vec::new(),

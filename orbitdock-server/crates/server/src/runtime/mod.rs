@@ -10,6 +10,7 @@ pub(crate) mod session_command_handler;
 pub(crate) mod session_commands;
 pub(crate) mod session_creation;
 pub(crate) mod session_fork_policy;
+pub(crate) mod session_fork_targets;
 pub(crate) mod session_lifecycle_policy;
 pub(crate) mod session_queries;
 pub(crate) mod session_registry;
