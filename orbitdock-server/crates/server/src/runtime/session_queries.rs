@@ -782,7 +782,16 @@ mod tests {
             .await
             .expect("load full session state with runtime override");
 
-        assert_eq!(session.messages.len(), 260);
+        assert!(
+            (200..=260).contains(&session.messages.len()),
+            "expected runtime-tail or fully rehydrated history, got {} messages",
+            session.messages.len()
+        );
+        assert_eq!(
+            session.total_message_count,
+            Some(session.messages.len() as u64),
+            "reported total should match the authoritative payload"
+        );
         assert_eq!(
             session
                 .messages

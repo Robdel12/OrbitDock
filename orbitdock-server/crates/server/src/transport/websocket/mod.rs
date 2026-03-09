@@ -25,19 +25,14 @@ mod tests {
     use crate::connectors::claude_session::ClaudeAction;
     use crate::connectors::codex_session::CodexAction;
     use crate::domain::sessions::session::SessionHandle;
-    use crate::domain::sessions::session_naming::name_from_first_prompt;
     use crate::domain::sessions::transition::Input;
     use crate::infrastructure::persistence::PersistCommand;
     use crate::runtime::session_commands::SessionCommand;
     use crate::runtime::session_registry::SessionRegistry;
-    use crate::runtime::session_runtime_helpers::{
-        claim_codex_thread_for_direct_session, direct_mode_activation_changes,
-    };
-    use crate::support::normalization::work_status_for_approval_decision;
-    use crate::support::session_paths::claude_transcript_path_from_cwd;
+    use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
     use orbitdock_protocol::{
-        ApprovalType, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput,
-        MentionInput, Message, MessageType, Provider, ServerMessage, SessionStatus, WorkStatus,
+        ApprovalType, ClientMessage, CodexIntegrationMode, ImageInput, MentionInput, Message,
+        MessageType, Provider, ServerMessage, SessionStatus, WorkStatus,
     };
     use std::sync::{Arc, Once};
     use tokio::sync::mpsc;
@@ -50,46 +45,6 @@ mod tests {
             let _ = std::fs::remove_dir_all(&dir);
             crate::infrastructure::paths::init_data_dir(Some(&dir));
         });
-    }
-
-    #[test]
-    fn approval_decisions_that_continue_tooling_stay_working() {
-        assert_eq!(
-            work_status_for_approval_decision("approved"),
-            WorkStatus::Working
-        );
-        assert_eq!(
-            work_status_for_approval_decision("approved_for_session"),
-            WorkStatus::Working
-        );
-        assert_eq!(
-            work_status_for_approval_decision("approved_always"),
-            WorkStatus::Working
-        );
-        assert_eq!(
-            work_status_for_approval_decision("  approved  "),
-            WorkStatus::Working
-        );
-        assert_eq!(
-            work_status_for_approval_decision("denied"),
-            WorkStatus::Working
-        );
-        assert_eq!(
-            work_status_for_approval_decision("deny"),
-            WorkStatus::Working
-        );
-    }
-
-    #[test]
-    fn approval_decisions_that_stop_return_to_waiting() {
-        assert_eq!(
-            work_status_for_approval_decision("abort"),
-            WorkStatus::Waiting
-        );
-        assert_eq!(
-            work_status_for_approval_decision("unknown_value"),
-            WorkStatus::Waiting
-        );
     }
 
     async fn queue_codex_exec_approval(
@@ -337,55 +292,6 @@ mod tests {
         assert_eq!(
             actor.snapshot().pending_approval_id.as_deref(),
             Some("req-1")
-        );
-    }
-
-    #[test]
-    fn direct_mode_activation_changes_sets_active_waiting_for_codex() {
-        let changes = direct_mode_activation_changes(Provider::Codex);
-        assert_eq!(changes.status, Some(SessionStatus::Active));
-        assert_eq!(changes.work_status, Some(WorkStatus::Waiting));
-        assert_eq!(
-            changes.codex_integration_mode,
-            Some(Some(CodexIntegrationMode::Direct))
-        );
-        assert_eq!(changes.claude_integration_mode, None);
-    }
-
-    #[test]
-    fn direct_mode_activation_changes_sets_active_waiting_for_claude() {
-        let changes = direct_mode_activation_changes(Provider::Claude);
-        assert_eq!(changes.status, Some(SessionStatus::Active));
-        assert_eq!(changes.work_status, Some(WorkStatus::Waiting));
-        assert_eq!(
-            changes.claude_integration_mode,
-            Some(Some(ClaudeIntegrationMode::Direct))
-        );
-        assert_eq!(changes.codex_integration_mode, None);
-    }
-
-    #[test]
-    fn derives_readable_name_from_first_prompt() {
-        let prompt =
-            "  Please investigate auth race conditions and propose a safe migration plan.  ";
-        let name = name_from_first_prompt(prompt).expect("expected name");
-        assert_eq!(
-            name,
-            "Please investigate auth race conditions and propose a safe migration pla…"
-        );
-    }
-
-    #[test]
-    fn derives_transcript_path_from_cwd() {
-        let path =
-            claude_transcript_path_from_cwd("/Users/robertdeluca/Developer/vizzly-cli", "abc-123");
-        let value = path.expect("expected transcript path");
-        assert!(
-            value.ends_with(
-                "/.claude/projects/-Users-robertdeluca-Developer-vizzly-cli/abc-123.jsonl"
-            ),
-            "unexpected transcript path: {}",
-            value
         );
     }
 

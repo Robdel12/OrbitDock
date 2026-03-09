@@ -150,6 +150,38 @@ pub(crate) fn direct_mode_activation_changes(provider: Provider) -> StateChanges
     changes
 }
 
+#[cfg(test)]
+mod tests {
+    use super::direct_mode_activation_changes;
+    use orbitdock_protocol::{
+        ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionStatus, WorkStatus,
+    };
+
+    #[test]
+    fn direct_mode_activation_changes_sets_active_waiting_for_codex() {
+        let changes = direct_mode_activation_changes(Provider::Codex);
+        assert_eq!(changes.status, Some(SessionStatus::Active));
+        assert_eq!(changes.work_status, Some(WorkStatus::Waiting));
+        assert_eq!(
+            changes.codex_integration_mode,
+            Some(Some(CodexIntegrationMode::Direct))
+        );
+        assert_eq!(changes.claude_integration_mode, None);
+    }
+
+    #[test]
+    fn direct_mode_activation_changes_sets_active_waiting_for_claude() {
+        let changes = direct_mode_activation_changes(Provider::Claude);
+        assert_eq!(changes.status, Some(SessionStatus::Active));
+        assert_eq!(changes.work_status, Some(WorkStatus::Waiting));
+        assert_eq!(
+            changes.claude_integration_mode,
+            Some(Some(ClaudeIntegrationMode::Direct))
+        );
+        assert_eq!(changes.codex_integration_mode, None);
+    }
+}
+
 pub(crate) fn is_stale_empty_claude_shell(
     summary: &orbitdock_protocol::SessionSummary,
     current_session_id: &str,
