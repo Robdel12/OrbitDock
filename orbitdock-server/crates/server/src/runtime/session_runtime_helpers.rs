@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, ServerMessage, SessionStatus,
-    StateChanges, TokenUsageSnapshotKind, WorkStatus,
+    StateChanges, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
 };
 
 use crate::infrastructure::persistence::{
@@ -23,6 +23,67 @@ use crate::runtime::session_registry::SessionRegistry;
 use crate::support::session_time::{chrono_now, parse_unix_z};
 
 pub(crate) const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
+
+#[derive(Debug, Clone)]
+struct TranscriptUsageUpdate {
+    usage: TokenUsage,
+    snapshot_kind: TokenUsageSnapshotKind,
+}
+
+#[derive(Debug, Clone)]
+struct TranscriptSyncPlan {
+    usage_update: Option<TranscriptUsageUpdate>,
+    new_messages: Vec<Message>,
+}
+
+fn transcript_usage_update(
+    provider: Provider,
+    current_usage: &TokenUsage,
+    transcript_usage: Option<TokenUsage>,
+) -> Option<TranscriptUsageUpdate> {
+    let usage = transcript_usage?;
+    if usage.input_tokens == current_usage.input_tokens
+        && usage.output_tokens == current_usage.output_tokens
+        && usage.cached_tokens == current_usage.cached_tokens
+        && usage.context_window == current_usage.context_window
+    {
+        return None;
+    }
+
+    let snapshot_kind = match provider {
+        Provider::Codex => TokenUsageSnapshotKind::ContextTurn,
+        Provider::Claude => TokenUsageSnapshotKind::MixedLegacy,
+    };
+
+    Some(TranscriptUsageUpdate {
+        usage,
+        snapshot_kind,
+    })
+}
+
+fn plan_transcript_sync(
+    provider: Provider,
+    current_usage: &TokenUsage,
+    transcript_usage: Option<TokenUsage>,
+    transcript_messages: Vec<Message>,
+    existing_count: usize,
+    confirmed_count: Option<usize>,
+) -> TranscriptSyncPlan {
+    let usage_update = transcript_usage_update(provider, current_usage, transcript_usage);
+
+    let new_messages = if confirmed_count.is_some_and(|count| count != existing_count)
+        || transcript_messages.len() <= existing_count
+    {
+        vec![]
+    } else {
+        transcript_messages[existing_count..].to_vec()
+    };
+
+    TranscriptSyncPlan {
+        usage_update,
+        new_messages,
+    }
+}
 
 fn normalize_message_sequences(messages: &mut [Message]) {
     let mut next_sequence = 0_u64;
@@ -201,45 +262,37 @@ pub(crate) async fn sync_transcript_messages(
         Err(_) => return,
     };
 
-    if let Ok(Some(usage)) = load_token_usage_from_transcript_path(&transcript_path).await {
-        let current_usage = &snap.token_usage;
-        if usage.input_tokens != current_usage.input_tokens
-            || usage.output_tokens != current_usage.output_tokens
-            || usage.cached_tokens != current_usage.cached_tokens
-            || usage.context_window != current_usage.context_window
-        {
-            actor
-                .send(SessionCommand::ProcessEvent {
-                    event: crate::domain::sessions::transition::Input::TokensUpdated {
-                        usage,
-                        snapshot_kind: match snap.provider {
-                            Provider::Codex => TokenUsageSnapshotKind::ContextTurn,
-                            Provider::Claude => TokenUsageSnapshotKind::MixedLegacy,
-                        },
-                    },
-                })
-                .await;
-        }
-    }
-
-    if all_messages.len() <= existing_count {
-        return;
-    }
-
-    let new_messages = all_messages[existing_count..].to_vec();
-
     // Double-check count hasn't changed while we were reading
     let (count_tx, count_rx) = oneshot::channel();
     actor
         .send(SessionCommand::GetMessageCount { reply: count_tx })
         .await;
-    if let Ok(current_count) = count_rx.await {
-        if current_count != existing_count {
-            return;
-        }
+    let confirmed_count = count_rx.await.ok();
+
+    let plan = plan_transcript_sync(
+        snap.provider,
+        &snap.token_usage,
+        load_token_usage_from_transcript_path(&transcript_path)
+            .await
+            .ok()
+            .flatten(),
+        all_messages,
+        existing_count,
+        confirmed_count,
+    );
+
+    if let Some(usage_update) = plan.usage_update {
+        actor
+            .send(SessionCommand::ProcessEvent {
+                event: crate::domain::sessions::transition::Input::TokensUpdated {
+                    usage: usage_update.usage,
+                    snapshot_kind: usage_update.snapshot_kind,
+                },
+            })
+            .await;
     }
 
-    for msg in new_messages {
+    for msg in plan.new_messages {
         let _ = persist_tx
             .send(
                 crate::infrastructure::persistence::PersistCommand::MessageAppend {
@@ -251,5 +304,87 @@ pub(crate) async fn sync_transcript_messages(
         actor
             .send(SessionCommand::AddMessageAndBroadcast { message: msg })
             .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{plan_transcript_sync, transcript_usage_update};
+    use orbitdock_protocol::{Message, MessageType, Provider, TokenUsage, TokenUsageSnapshotKind};
+
+    fn usage(input: u64, output: u64, cached: u64, window: u64) -> TokenUsage {
+        TokenUsage {
+            input_tokens: input,
+            output_tokens: output,
+            cached_tokens: cached,
+            context_window: window,
+        }
+    }
+
+    fn message(sequence: u64, content: &str) -> Message {
+        Message {
+            id: format!("message-{sequence}"),
+            session_id: "session-1".to_string(),
+            sequence: Some(sequence),
+            message_type: MessageType::Assistant,
+            content: content.to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            is_in_progress: false,
+            timestamp: "123Z".to_string(),
+            duration_ms: None,
+            images: vec![],
+        }
+    }
+
+    #[test]
+    fn transcript_usage_update_only_emits_when_usage_changes() {
+        assert_eq!(
+            transcript_usage_update(Provider::Codex, &usage(1, 2, 3, 4), Some(usage(1, 2, 3, 4)),),
+            None
+        );
+
+        let update = transcript_usage_update(
+            Provider::Claude,
+            &usage(1, 2, 3, 4),
+            Some(usage(2, 2, 3, 4)),
+        )
+        .expect("expected usage update");
+        assert_eq!(update.usage.input_tokens, 2);
+        assert_eq!(update.snapshot_kind, TokenUsageSnapshotKind::MixedLegacy);
+    }
+
+    #[test]
+    fn transcript_sync_plan_appends_only_new_messages_after_confirmed_count() {
+        let plan = plan_transcript_sync(
+            Provider::Codex,
+            &usage(1, 2, 3, 4),
+            None,
+            vec![message(0, "a"), message(1, "b"), message(2, "c")],
+            2,
+            Some(2),
+        );
+
+        assert_eq!(plan.new_messages.len(), 1);
+        assert_eq!(plan.new_messages[0].sequence, Some(2));
+        assert_eq!(plan.new_messages[0].content, "c");
+        assert_eq!(plan.usage_update, None);
+    }
+
+    #[test]
+    fn transcript_sync_plan_drops_message_append_when_runtime_count_changed_mid_read() {
+        let plan = plan_transcript_sync(
+            Provider::Codex,
+            &usage(1, 2, 3, 4),
+            Some(usage(9, 2, 3, 4)),
+            vec![message(0, "a"), message(1, "b")],
+            1,
+            Some(2),
+        );
+
+        assert!(plan.new_messages.is_empty());
+        assert!(plan.usage_update.is_some());
     }
 }
