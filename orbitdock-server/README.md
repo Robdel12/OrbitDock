@@ -1,8 +1,8 @@
 # OrbitDock Server
 
-The Rust backend behind OrbitDock. Handles realtime session management over WebSocket, serves REST APIs for reads, mutations, and async actions, runs Codex sessions directly via codex-core, and keeps business logic in a pure state machine.
+The Rust backend behind OrbitDock. It handles realtime session management over WebSocket, serves REST APIs for reads, mutations, and async actions, runs Codex sessions directly via codex-core, and keeps business logic in a pure state machine.
 
-Runs as a **standalone binary** you can drop on any macOS or Linux box. OrbitDock macOS and iOS clients use HTTP + WebSocket and may connect to multiple servers at once.
+`orbitdock` is still a standalone binary you can drop on any macOS or Linux box. The ownership is just cleaner now: `crates/cli` owns the binary entrypoint and command dispatch, while `crates/server` is the library-first runtime behind it. OrbitDock macOS and iOS clients use HTTP + WebSocket and may connect to multiple servers at once.
 
 ## Getting Started
 
@@ -200,6 +200,8 @@ orbitdock --bind 127.0.0.1:4000   # same as: orbitdock start --bind ...
 
 ## Architecture
 
+This section is the quick mental model after the refactor. If you're trying to decide where a change belongs, start with the crate split: `crates/cli` owns the binary surface, and `crates/server` owns the runtime, transport, persistence, and admin capabilities.
+
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │                       orbitdock                                 │
@@ -258,40 +260,56 @@ orbitdock --bind 127.0.0.1:4000   # same as: orbitdock start --bind ...
 
 ## Crates
 
-```
+```text
 orbitdock-server/crates/
-├── server/            # Binary — orchestration, persistence, WebSocket, CLI
+├── cli/               # Binary entrypoint, argument parsing, command dispatch, output
+├── server/            # Library-first runtime, transport, admin capabilities
 ├── protocol/          # Shared types for client ↔ server messages
 ├── connector-core/    # Provider-agnostic event types + transition state machine
 ├── connector-codex/   # Codex provider — auth, session types, rollout parser
 └── connector-claude/  # Claude provider — session types, CLI protocol parsing
 ```
 
+### cli
+
+The single binary entrypoint lives in `crates/cli/src/main.rs`.
+
+- Parses the `orbitdock` command tree
+- Resolves config for server-connected client commands
+- Dispatches admin commands into `orbitdock_server::admin::*`
+- Dispatches client commands through the CLI client layer
+
 ### server
 
-The main binary. Provider-agnostic orchestration — it doesn't import codex-core or Claude SDK directly.
+`crates/server` is library-first. It exposes reusable admin/setup capabilities plus the runtime that actually runs the server.
 
-| Module | What it does |
-|--------|---------|
-| `main.rs` | CLI subcommands, startup, session restoration, Axum routing |
-| `paths.rs` | Central data dir resolution (`--data-dir` / env / default) |
-| `auth.rs` | Optional Bearer token middleware for `/ws` and `/api/hook` |
-| `http_api.rs` | REST API endpoints — reads, mutations, async actions |
-| `websocket.rs` | WebSocket message handling — subscriptions, session commands, routing |
-| `ws_handlers/` | Domain-scoped WS handlers (config, rest_only rejections) |
-| `session_actor.rs` | Per-session actor (passive sessions, command dispatch) |
-| `session_command_handler.rs` | Shared command + event dispatch (used by both providers) |
-| `codex_session.rs` | Codex event loop (thin — delegates to shared dispatch) |
-| `claude_session.rs` | Claude event loop (thin — delegates to shared dispatch) |
-| `transition.rs` | Re-exports connector-core's state machine + `PersistOp` mapping |
-| `session_command.rs` | Actor command enum + persistence ops |
-| `session.rs` | `SessionHandle` — owned state within an actor task |
-| `state.rs` | `SessionRegistry` — DashMap + list broadcast |
-| `persistence.rs` | Async SQLite writer (batched channel) |
-| `migration_runner.rs` | `refinery` migration bootstrap + legacy history import |
-| `rollout_watcher.rs` | FSEvents driver for Codex rollout files (dispatches parsed events) |
-| `cmd_*.rs` | CLI subcommands (`init`, `install-hooks`, `setup`, `doctor`, etc.) |
-| `metrics.rs` | `/metrics` — Prometheus text format endpoint |
+Current module groups:
+
+- `app/` — server bootstrap, startup wiring, restore flow, top-level runtime assembly
+- `admin/` — install/setup/status/token/service/tunnel/pair operations exposed through the binary
+- `connectors/` — Claude/Codex session integration, hook intake, rollout watching
+- `runtime/` — orchestration, registries, actor command routing, background coordination
+- `transport/http/` — REST endpoints and router assembly
+- `transport/websocket/` — WS connection handling, routing, subscriptions, outbound delivery
+- `domain/` — session state, transitions, git/worktree behavior
+- `infrastructure/` — SQLite persistence, paths, auth, crypto, metrics, shell, logging
+- `support/` — small shared pure helpers
+
+For the why behind that split, read `docs/server-architecture.md`. That file is the source of truth for how the layers are meant to evolve.
+
+## Where New Server Code Goes
+
+Use this as the quick gut-check:
+
+- Add CLI flags, command parsing, or user-facing dispatch in `crates/cli/`
+- Add daemon startup or top-level server wiring in `crates/server/src/app/`
+- Add REST or WebSocket delivery code in `crates/server/src/transport/`
+- Add orchestration, registries, or actor coordination in `crates/server/src/runtime/`
+- Add business rules or state transitions in `crates/server/src/domain/`
+- Add filesystem, SQLite, auth, crypto, logging, or other side effects in `crates/server/src/infrastructure/`
+- Add Claude/Codex-specific integration code in `crates/server/src/connectors/`
+- Add tiny shared pure helpers in `crates/server/src/support/`
+- Add reusable install/setup/admin capabilities in `crates/server/src/admin/`
 
 ### protocol
 

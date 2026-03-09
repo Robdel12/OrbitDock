@@ -1,0 +1,341 @@
+use serde_json::Value;
+
+use orbitdock_protocol::{
+    ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Message, Provider, SessionStatus,
+    TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+};
+
+/// Commands that can be persisted.
+#[derive(Debug, Clone)]
+pub enum PersistCommand {
+    /// Create a new session
+    SessionCreate {
+        id: String,
+        provider: Provider,
+        project_path: String,
+        project_name: Option<String>,
+        branch: Option<String>,
+        model: Option<String>,
+        approval_policy: Option<String>,
+        sandbox_mode: Option<String>,
+        permission_mode: Option<String>,
+        forked_from_session_id: Option<String>,
+    },
+
+    /// Update session status/work_status
+    SessionUpdate {
+        id: String,
+        status: Option<SessionStatus>,
+        work_status: Option<WorkStatus>,
+        last_activity_at: Option<String>,
+    },
+
+    /// End a session
+    SessionEnd { id: String, reason: String },
+
+    /// Append a message
+    MessageAppend {
+        session_id: String,
+        message: Message,
+    },
+
+    /// Update a message (tool output, completion, etc.)
+    MessageUpdate {
+        session_id: String,
+        message_id: String,
+        content: Option<String>,
+        tool_output: Option<String>,
+        duration_ms: Option<u64>,
+        is_error: Option<bool>,
+        is_in_progress: Option<bool>,
+    },
+
+    /// Update token usage
+    TokensUpdate {
+        session_id: String,
+        usage: TokenUsage,
+        snapshot_kind: TokenUsageSnapshotKind,
+    },
+
+    /// Update diff/plan for session
+    TurnStateUpdate {
+        session_id: String,
+        diff: Option<String>,
+        plan: Option<String>,
+    },
+
+    /// Persist a per-turn diff snapshot
+    TurnDiffInsert {
+        session_id: String,
+        turn_id: String,
+        turn_seq: u64,
+        diff: String,
+        input_tokens: u64,
+        output_tokens: u64,
+        cached_tokens: u64,
+        context_window: u64,
+        snapshot_kind: TokenUsageSnapshotKind,
+    },
+
+    /// Store codex-core thread ID for a session
+    SetThreadId {
+        session_id: String,
+        thread_id: String,
+    },
+
+    /// End any non-direct session row that accidentally uses a direct thread id as session id
+    CleanupThreadShadowSession { thread_id: String, reason: String },
+
+    /// Store Claude SDK session ID for a direct Claude session
+    SetClaudeSdkSessionId {
+        session_id: String,
+        claude_sdk_session_id: String,
+    },
+
+    /// End the hook-created shadow row for a managed Claude direct session
+    CleanupClaudeShadowSession {
+        claude_sdk_session_id: String,
+        reason: String,
+    },
+
+    /// Set custom name for a session
+    SetCustomName {
+        session_id: String,
+        custom_name: Option<String>,
+    },
+
+    /// Set AI-generated summary for a session
+    SetSummary { session_id: String, summary: String },
+
+    /// Persist session autonomy configuration
+    SetSessionConfig {
+        session_id: String,
+        approval_policy: Option<String>,
+        sandbox_mode: Option<String>,
+        permission_mode: Option<String>,
+    },
+
+    /// Mark messages as read up to a given sequence number
+    MarkSessionRead {
+        session_id: String,
+        up_to_sequence: i64,
+    },
+
+    /// Reactivate an ended session (for resume)
+    ReactivateSession { id: String },
+
+    /// Upsert a Claude hook-backed session
+    ClaudeSessionUpsert {
+        id: String,
+        project_path: String,
+        project_name: Option<String>,
+        branch: Option<String>,
+        model: Option<String>,
+        context_label: Option<String>,
+        transcript_path: Option<String>,
+        source: Option<String>,
+        agent_type: Option<String>,
+        permission_mode: Option<String>,
+        terminal_session_id: Option<String>,
+        terminal_app: Option<String>,
+        forked_from_session_id: Option<String>,
+        repository_root: Option<String>,
+        is_worktree: bool,
+        git_sha: Option<String>,
+    },
+
+    /// Update Claude session state/metadata from hook events
+    ClaudeSessionUpdate {
+        id: String,
+        work_status: Option<String>,
+        attention_reason: Option<Option<String>>,
+        last_tool: Option<Option<String>>,
+        last_tool_at: Option<Option<String>>,
+        pending_tool_name: Option<Option<String>>,
+        pending_tool_input: Option<Option<String>>,
+        pending_question: Option<Option<String>>,
+        source: Option<Option<String>>,
+        agent_type: Option<Option<String>>,
+        permission_mode: Option<Option<String>>,
+        active_subagent_id: Option<Option<String>>,
+        active_subagent_type: Option<Option<String>>,
+        first_prompt: Option<String>,
+        compact_count_increment: bool,
+    },
+
+    /// End Claude session
+    ClaudeSessionEnd { id: String, reason: Option<String> },
+
+    /// Increment prompt counter for Claude hook session
+    ClaudePromptIncrement {
+        id: String,
+        first_prompt: Option<String>,
+    },
+
+    /// Increment tool counter for Claude hook session
+    ClaudeToolIncrement { id: String },
+
+    /// Increment tool counter for any direct session (transition-driven)
+    ToolCountIncrement { session_id: String },
+
+    /// Update model name for a session
+    ModelUpdate { session_id: String, model: String },
+
+    /// Update effort level for a session
+    EffortUpdate {
+        session_id: String,
+        effort: Option<String>,
+    },
+
+    /// Create/refresh subagent row
+    ClaudeSubagentStart {
+        id: String,
+        session_id: String,
+        agent_type: String,
+    },
+
+    /// End subagent row
+    ClaudeSubagentEnd {
+        id: String,
+        transcript_path: Option<String>,
+    },
+
+    /// Upsert a passive rollout-backed Codex session
+    RolloutSessionUpsert {
+        id: String,
+        thread_id: String,
+        project_path: String,
+        project_name: Option<String>,
+        branch: Option<String>,
+        model: Option<String>,
+        context_label: Option<String>,
+        transcript_path: String,
+        started_at: String,
+    },
+
+    /// Update rollout-backed session state
+    RolloutSessionUpdate {
+        id: String,
+        project_path: Option<String>,
+        model: Option<String>,
+        status: Option<SessionStatus>,
+        work_status: Option<WorkStatus>,
+        attention_reason: Option<Option<String>>,
+        pending_tool_name: Option<Option<String>>,
+        pending_tool_input: Option<Option<String>>,
+        pending_question: Option<Option<String>>,
+        total_tokens: Option<i64>,
+        last_tool: Option<Option<String>>,
+        last_tool_at: Option<Option<String>>,
+        custom_name: Option<Option<String>>,
+    },
+
+    /// Increment rollout prompt counter and set first prompt if missing
+    RolloutPromptIncrement {
+        id: String,
+        first_prompt: Option<String>,
+    },
+
+    /// Increment direct Codex prompt counter and set first prompt if missing
+    CodexPromptIncrement {
+        id: String,
+        first_prompt: Option<String>,
+    },
+
+    /// Increment rollout tool counter
+    RolloutToolIncrement { id: String },
+
+    /// Persist an approval request event
+    ApprovalRequested {
+        session_id: String,
+        request_id: String,
+        approval_type: ApprovalType,
+        tool_name: Option<String>,
+        tool_input: Option<String>,
+        command: Option<String>,
+        file_path: Option<String>,
+        diff: Option<String>,
+        question: Option<String>,
+        question_prompts: Vec<ApprovalQuestionPrompt>,
+        preview: Option<ApprovalPreview>,
+        cwd: Option<String>,
+        proposed_amendment: Option<Vec<String>>,
+        permission_suggestions: Option<Value>,
+    },
+
+    /// Persist the user decision for an approval request
+    ApprovalDecision {
+        session_id: String,
+        request_id: String,
+        decision: String,
+    },
+
+    /// Create a review comment
+    ReviewCommentCreate {
+        id: String,
+        session_id: String,
+        turn_id: Option<String>,
+        file_path: String,
+        line_start: u32,
+        line_end: Option<u32>,
+        body: String,
+        tag: Option<String>,
+    },
+
+    /// Update a review comment
+    ReviewCommentUpdate {
+        id: String,
+        body: Option<String>,
+        tag: Option<String>,
+        status: Option<String>,
+    },
+
+    /// Delete a review comment
+    ReviewCommentDelete { id: String },
+
+    /// Update integration mode for a session (takeover: passive → direct)
+    SetIntegrationMode {
+        session_id: String,
+        codex_mode: Option<String>,
+        claude_mode: Option<String>,
+    },
+
+    /// Update environment info (cwd, git branch, git sha, worktree)
+    EnvironmentUpdate {
+        session_id: String,
+        cwd: Option<String>,
+        git_branch: Option<String>,
+        git_sha: Option<String>,
+        repository_root: Option<String>,
+        is_worktree: Option<bool>,
+    },
+
+    /// Upsert a key-value config entry
+    SetConfig { key: String, value: String },
+
+    /// Replace all cached Claude models
+    SaveClaudeModels {
+        models: Vec<orbitdock_protocol::ClaudeModelOption>,
+    },
+
+    /// Insert a single Claude model if it doesn't already exist.
+    /// Preserves richer metadata from direct connector sessions.
+    UpsertClaudeModelIfAbsent { value: String, display_name: String },
+
+    /// Persist a new worktree row
+    WorktreeCreate {
+        id: String,
+        repo_root: String,
+        worktree_path: String,
+        branch: String,
+        base_branch: Option<String>,
+        created_by: String,
+    },
+
+    /// Update worktree lifecycle status
+    WorktreeUpdateStatus {
+        id: String,
+        status: String,
+        last_session_ended_at: Option<String>,
+    },
+}

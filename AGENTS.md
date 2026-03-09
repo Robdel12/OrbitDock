@@ -10,7 +10,8 @@ OrbitDock is a native SwiftUI app for macOS and iOS — mission control for AI c
 
 - `OrbitDock/OrbitDock/` is the macOS and iOS SwiftUI app
 - `OrbitDock/OrbitDockCore/` is the shared Swift package for hook transport and shared models
-- `orbitdock-server/crates/server/` is the Rust server
+- `orbitdock-server/crates/cli/` owns the `orbitdock` binary entrypoint and command dispatch
+- `orbitdock-server/crates/server/` is the library-first Rust server runtime
 - `migrations/` contains Rust-server schema migrations using the `VNNN__description.sql` convention
 - `docs/` holds project documentation
 - `files/` holds screenshots, zips, and other local artifacts
@@ -125,7 +126,7 @@ The Swift client uses a **hybrid networking model**: REST for client-initiated o
 - Always guard async callbacks with `guard currentId == targetId else { return }`
 
 ### Database Concurrency
-- The Rust server (`persistence.rs`) is the sole SQLite writer
+- The Rust server persistence layer (`infrastructure/persistence/`) is the sole SQLite writer
 - All connections use WAL mode (`journal_mode = WAL`), `busy_timeout = 5000`, `synchronous = NORMAL`
 - The migration runner sets these pragmas at startup
 
@@ -154,7 +155,18 @@ The Swift client uses a **hybrid networking model**: REST for client-initiated o
 - `Session.groupingPath` (`repositoryRoot ?? projectPath`) is used for dashboard grouping — worktree sessions automatically group with their parent repo
 - Git info (branch, SHA, repository_root, is_worktree) is re-resolved on every `UserPromptSubmit` hook for branch freshness (~10ms)
 - `assess_worktree_health` is a pure function for lifecycle management (Active → Orphaned → Stale → Removed)
-- Key files: `git.rs` (detection + CRUD), `worktree.rs` (health assessment), `hook_handler.rs` (enrichment)
+- Key files: `domain/git/repo.rs` (git detection + repo helpers), `domain/worktrees/service.rs` (worktree behavior), `connectors/hook_handler.rs` (hook enrichment)
+
+### Where New Server Code Goes
+- Put CLI parsing and user-facing command dispatch in `orbitdock-server/crates/cli/`
+- Put daemon startup and top-level server wiring in `orbitdock-server/crates/server/src/app/`
+- Put transport delivery in `orbitdock-server/crates/server/src/transport/http/` and `orbitdock-server/crates/server/src/transport/websocket/`
+- Put live orchestration, registries, and actor coordination in `orbitdock-server/crates/server/src/runtime/`
+- Put business concepts and pure state transitions in `orbitdock-server/crates/server/src/domain/`
+- Put SQLite, filesystem, auth, crypto, metrics, and other side effects in `orbitdock-server/crates/server/src/infrastructure/`
+- Put provider-specific glue in `orbitdock-server/crates/server/src/connectors/`
+- Put small shared pure helpers in `orbitdock-server/crates/server/src/support/`
+- Put server-admin capabilities exposed through the binary in `orbitdock-server/crates/server/src/admin/`
 
 ### Cosmic Harbor Theme & Design System
 - Design tokens in `Theme.swift`, `DesignTokens.swift`, `ComponentStyles.swift`
@@ -219,7 +231,7 @@ In dev, run `make rust-run` — the app detects it via health check and skips se
 
 ## File Locations
 
-All server paths are resolved via `paths.rs` from a single data directory (`--data-dir` / `ORBITDOCK_DATA_DIR` / `~/.orbitdock`).
+All server paths are resolved via `infrastructure/paths.rs` from a single data directory (`--data-dir` / `ORBITDOCK_DATA_DIR` / `~/.orbitdock`).
 
 - **Server Binary**: `~/.orbitdock/bin/orbitdock` (installed by app) or on PATH
 - **Database**: `<data_dir>/orbitdock.db` (separate from CLIs to survive reinstalls)
@@ -362,11 +374,11 @@ Core event fields are stable for filtering:
 - `event`, `component`, `session_id`, `request_id`, `connection_id`, `error`
 
 ### Key Log Sources
-- `crates/server/src/main.rs` - Startup, session restoration
-- `crates/server/src/websocket.rs` - WebSocket messages, session creation
-- `crates/server/src/persistence.rs` - SQLite writes, batch flushes
-- `crates/server/src/codex_session.rs` - Codex event handling, approvals
-- `crates/connectors/src/codex.rs` - codex-core events, message translation
+- `crates/cli/src/main.rs` - Binary entrypoint and command handoff
+- `crates/server/src/app/mod.rs` - Server startup, restore flow, router/bootstrap wiring
+- `crates/server/src/transport/websocket/` - WebSocket messages, routing, subscriptions
+- `crates/server/src/infrastructure/persistence/` - SQLite writes, batching, read/write helpers
+- `crates/server/src/connectors/codex_session.rs` - Codex event handling and approval flow
 
 ## Debugging Conversation Timeline
 
@@ -450,7 +462,7 @@ orbitdock approval list           # List pending approvals
 orbitdock completions <shell>     # Generate shell completions
 ```
 
-Global `--data-dir` overrides all paths. All data paths resolved via `paths.rs` module.
+Global `--data-dir` overrides all paths. All data paths resolve through `infrastructure/paths.rs`.
 
 ```bash
 # Server
@@ -511,17 +523,17 @@ Fresh installs write migration history to `refinery_schema_history`. Upgraded in
 ### Adding a new migration
 1. Create `migrations/VNNN__description.sql` using the next version number
 2. Write the SQL change
-3. Update `persistence.rs` if the new schema needs new read/write behavior
+3. Update `infrastructure/persistence/` if the new schema needs new read/write behavior
 4. Update restore/load queries if the new field affects startup hydration
 5. Update `orbitdock-protocol` types if the field needs to reach clients
 6. Run `make rust-test`
 
-Migrations run when: the Rust server starts (`migration_runner::run_migrations` in `main.rs`)
+Migrations run when: the Rust server starts through `crates/server/src/app/mod.rs`, which calls the migration runner in `infrastructure/migration_runner.rs`.
 
 ### Message Storage Architecture
 
 - Rust server receives events via HTTP hooks (CLI) or codex-core (Codex)
-- `persistence.rs` batches writes through PersistCommand channel
+- `infrastructure/persistence/` batches writes through the `PersistCommand` channel
 - Messages stored in SQLite `messages` table
 - Swift app receives messages in real-time via WebSocket push — does NOT read SQLite directly
 - Client-initiated reads (session snapshot, approvals, etc.) use REST endpoints
@@ -557,17 +569,18 @@ Follow the migration steps above. The extra rule here is simple: keep schema cha
 | `refinery_schema_history` | Active migration tracking (`schema_versions` may remain on upgraded installs as legacy history) |
 
 ### Key files
-- `orbitdock-server/crates/server/src/paths.rs` — Central path resolution (data dir, db, logs, spool, etc.)
-- `orbitdock-server/crates/server/src/persistence.rs` — All CRUD operations
-- `orbitdock-server/crates/server/src/migration_runner.rs` — `refinery` migration bootstrap + legacy history import
-- `orbitdock-server/crates/server/src/http_api.rs` — REST API endpoints (queries, mutations, fire-and-forget actions)
-- `orbitdock-server/crates/server/src/websocket.rs` — WebSocket protocol (subscriptions, real-time session interaction)
-- `orbitdock-server/crates/server/src/ws_handlers/` — Domain-scoped WS message handlers (config, rest_only rejections)
-- `orbitdock-server/crates/server/src/hook_handler.rs` — HTTP POST `/api/hook` endpoint for Claude Code hooks
-- `orbitdock-server/crates/server/src/git.rs` — Git detection (GitInfo, classify_common_dir, worktree CRUD)
-- `orbitdock-server/crates/server/src/worktree.rs` — Pure worktree health assessment + lifecycle
-- `orbitdock-server/crates/server/src/crypto.rs` — AES-256-GCM encryption for config secrets
-- `orbitdock-server/crates/server/src/auth.rs` — Optional Bearer token middleware
+- `orbitdock-server/crates/cli/src/main.rs` — Single binary entrypoint and command routing
+- `orbitdock-server/crates/server/src/app/mod.rs` — Server bootstrap and runtime startup
+- `orbitdock-server/crates/server/src/infrastructure/paths.rs` — Central path resolution (data dir, db, logs, spool, etc.)
+- `orbitdock-server/crates/server/src/infrastructure/persistence/` — SQLite CRUD operations
+- `orbitdock-server/crates/server/src/infrastructure/migration_runner.rs` — `refinery` migration bootstrap + legacy history import
+- `orbitdock-server/crates/server/src/transport/http/` — REST API endpoints (queries, mutations, fire-and-forget actions)
+- `orbitdock-server/crates/server/src/transport/websocket/` — WebSocket protocol (subscriptions, real-time session interaction)
+- `orbitdock-server/crates/server/src/connectors/hook_handler.rs` — HTTP POST `/api/hook` endpoint for Claude Code hooks
+- `orbitdock-server/crates/server/src/domain/git/` — Git detection and repo-root helpers
+- `orbitdock-server/crates/server/src/domain/worktrees/` — Worktree lifecycle and behavior
+- `orbitdock-server/crates/server/src/infrastructure/crypto.rs` — AES-256-GCM encryption for config secrets
+- `orbitdock-server/crates/server/src/infrastructure/auth.rs` — Optional Bearer token middleware
 - `orbitdock-server/crates/protocol/` — Shared types between server components
 - `migrations/V001__baseline.sql` — Complete schema definition
 - `migrations/V008__approval_version.sql` — Adds `approval_version` column to `sessions`
@@ -578,7 +591,7 @@ Follow the migration steps above. The extra rule here is simple: keep schema cha
 
 Sensitive values in the `config` table (like the OpenAI API key) are encrypted at rest with AES-256-GCM via the `ring` crate.
 
-**How it works:** `persistence.rs` calls `crypto::encrypt()` before writing to the `config` table. `load_config_value()` calls `crypto::decrypt()` on read. Encrypted values get an `enc:` prefix — plaintext values without the prefix pass through unchanged, so no migration is needed for existing data.
+**How it works:** the persistence layer in `infrastructure/persistence/` calls `crypto::encrypt()` before writing to the `config` table. `load_config_value()` calls `crypto::decrypt()` on read. Encrypted values get an `enc:` prefix — plaintext values without the prefix pass through unchanged, so no migration is needed for existing data.
 
 **Key resolution order:**
 1. `ORBITDOCK_ENCRYPTION_KEY` env var (base64-encoded 32 bytes)
@@ -587,7 +600,7 @@ Sensitive values in the `config` table (like the OpenAI API key) are encrypted a
 
 **If the key is lost**, any `enc:` prefixed values become unrecoverable. The server logs an ERROR when it can't decrypt.
 
-**Key files:** `crypto.rs` (encrypt/decrypt + key management), `paths.rs` (`encryption_key_path()`), `persistence.rs` (transparent encrypt on write, decrypt on read)
+**Key files:** `infrastructure/crypto.rs` (encrypt/decrypt + key management), `infrastructure/paths.rs` (`encryption_key_path()`), `infrastructure/persistence/config.rs` (transparent encrypt on write, decrypt on read)
 
 ### AppleScript for iTerm2
 - Requires `NSAppleEventsUsageDescription` in Info.plist
@@ -608,7 +621,7 @@ Usage is fetched through the orbitdock server over REST endpoints and is scoped 
 - Tracks primary and secondary rate-limit windows
 
 **Server-side usage endpoints**:
-- Implemented in `orbitdock-server/crates/server/src/http_api.rs`
+- Implemented in `orbitdock-server/crates/server/src/transport/http/`
 - `GET /api/usage/codex` and `GET /api/usage/claude`
 - Non-primary endpoints return `error_info` with `not_control_plane_for_client`
 
