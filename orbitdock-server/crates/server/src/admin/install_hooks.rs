@@ -37,6 +37,21 @@ const HOOK_TYPES: &[(&str, &str)] = &[
     // - WorktreeRemove: companion cleanup hook for custom worktree providers.
 ];
 
+#[derive(Debug, Eq, PartialEq)]
+struct HookInstallPlan {
+    target_url: String,
+    hook_binary: String,
+    explicit_auth_token: Option<String>,
+    auth_token_required: bool,
+}
+
+#[derive(Debug)]
+struct HookMergeOutcome {
+    settings: serde_json::Value,
+    added: Vec<String>,
+    updated: Vec<String>,
+}
+
 pub fn install_claude_hooks(
     settings_path: Option<&Path>,
     server_url: Option<&str>,
@@ -49,11 +64,16 @@ pub fn install_claude_hooks(
             .join(".claude/settings.json")
     });
 
-    let target_url = server_url.unwrap_or("http://127.0.0.1:4000");
-    let resolved_auth_token = resolve_auth_token(target_url, auth_token)?;
-    let transport_config_path =
-        hook_forward::write_transport_config(target_url, resolved_auth_token.as_deref())?;
-    let hook_binary = quote_for_shell(&resolve_hook_binary_path());
+    let install_plan = plan_hook_install(
+        server_url,
+        auth_token,
+        &quote_for_shell(&resolve_hook_binary_path()),
+    );
+    let resolved_auth_token = resolve_auth_token(&install_plan)?;
+    let transport_config_path = hook_forward::write_transport_config(
+        &install_plan.target_url,
+        resolved_auth_token.as_deref(),
+    )?;
 
     // Read existing settings or start with empty object
     let existing = if settings_file.exists() {
@@ -63,85 +83,7 @@ pub fn install_claude_hooks(
         serde_json::json!({})
     };
 
-    let mut settings = existing.clone();
-    let obj = settings
-        .as_object_mut()
-        .ok_or_else(|| anyhow::anyhow!("settings.json is not a JSON object"))?;
-
-    let mut added = Vec::new();
-    let mut updated = Vec::new();
-
-    for &(hook_key, hook_type) in HOOK_TYPES {
-        let command = format!("{hook_binary} hook-forward {hook_type}");
-
-        // Navigate to the nested key (e.g. hooks.SessionStart)
-        let parts: Vec<&str> = hook_key.split('.').collect();
-        let parent_key = parts[0];
-        let child_key = parts[1];
-
-        let hooks_obj = obj
-            .entry(parent_key)
-            .or_insert_with(|| serde_json::json!({}));
-        let hooks_map = hooks_obj
-            .as_object_mut()
-            .ok_or_else(|| anyhow::anyhow!("settings.json '{}' is not an object", parent_key))?;
-
-        // Claude Code hook format: each array entry wraps hooks in a `hooks` array
-        let hook_entry = serde_json::json!({
-            "hooks": [{
-                "type": "command",
-                "command": command,
-                "async": true
-            }]
-        });
-
-        if let Some(existing_hooks) = hooks_map.get_mut(child_key) {
-            if !existing_hooks.is_array() {
-                // Normalize legacy/object forms (e.g. Notification object) to array form.
-                let normalized = existing_hooks.take();
-                *existing_hooks = serde_json::json!([normalized]);
-            }
-            if let Some(arr) = existing_hooks.as_array_mut() {
-                // Check if we already have an OrbitDock hook (could be nested or bare)
-                let orbitdock_idx = arr.iter().position(|entry| {
-                    // Check nested format: entry.hooks[].command
-                    if let Some(hooks_arr) = entry.get("hooks").and_then(|h| h.as_array()) {
-                        return hooks_arr.iter().any(|h| {
-                            h.get("command")
-                                .and_then(|c| c.as_str())
-                                .map(|c| {
-                                    c.contains("orbitdock")
-                                        || c.contains("hook.sh")
-                                        || c.contains("hook-forward")
-                                })
-                                .unwrap_or(false)
-                        });
-                    }
-                    // Check bare format (legacy/broken): entry.command
-                    entry
-                        .get("command")
-                        .and_then(|c| c.as_str())
-                        .map(|c| {
-                            c.contains("orbitdock")
-                                || c.contains("hook.sh")
-                                || c.contains("hook-forward")
-                        })
-                        .unwrap_or(false)
-                });
-
-                if let Some(idx) = orbitdock_idx {
-                    arr[idx] = hook_entry;
-                    updated.push(hook_key);
-                } else {
-                    arr.push(hook_entry);
-                    added.push(hook_key);
-                }
-            }
-        } else {
-            hooks_map.insert(child_key.to_string(), serde_json::json!([hook_entry]));
-            added.push(hook_key);
-        }
-    }
+    let merge = merge_orbitdock_hooks(existing, &install_plan)?;
 
     // Back up original
     if settings_file.exists() {
@@ -162,48 +104,17 @@ pub fn install_claude_hooks(
     }
 
     // Write updated settings
-    let formatted = serde_json::to_string_pretty(&settings)?;
+    let formatted = serde_json::to_string_pretty(&merge.settings)?;
     std::fs::write(&settings_file, formatted)?;
 
-    println!();
-    if installer_mode {
-        println!("  Claude Code hooks ready in {}", settings_file.display());
-    } else {
-        if !added.is_empty() {
-            println!("  Added {} hook(s):", added.len());
-            for h in &added {
-                println!("    + {}", h);
-            }
-        }
-        if !updated.is_empty() {
-            println!("  Updated {} hook(s):", updated.len());
-            for h in &updated {
-                println!("    ~ {}", h);
-            }
-        }
-        println!();
-        println!("  Settings written to {}", settings_file.display());
-    }
-    println!(
-        "  Hook transport config: {}",
-        transport_config_path.display()
+    print_install_summary(
+        installer_mode,
+        &settings_file,
+        &merge,
+        &transport_config_path,
+        &install_plan,
+        resolved_auth_token.as_deref(),
     );
-    match resolved_auth_token.as_deref() {
-        Some(_) => println!("  Hook auth token: configured"),
-        None if should_prompt_for_auth_token(target_url) => {
-            println!("  Hook auth token: not configured");
-            println!(
-                "  Remote requests may be rejected until you rerun `orbitdock install-hooks` with a token."
-            );
-        }
-        None if !installer_mode => println!("  Hook auth token: not configured"),
-        None => {}
-    }
-    if !installer_mode {
-        println!("  Hook forward binary: {}", resolve_hook_binary_path());
-        println!("  Spool directory: {}", paths::spool_dir().display());
-    }
-    println!();
 
     Ok(())
 }
@@ -212,17 +123,38 @@ fn installer_mode() -> bool {
     std::env::var_os("ORBITDOCK_INSTALLER_MODE").is_some()
 }
 
-fn resolve_auth_token(
-    server_url: &str,
+fn plan_hook_install(
+    server_url: Option<&str>,
     auth_token: Option<&str>,
-) -> anyhow::Result<Option<String>> {
-    let explicit_token = normalized_non_empty(auth_token);
-    if explicit_token.is_some() || !should_prompt_for_auth_token(server_url) {
-        return Ok(explicit_token);
+    hook_binary: &str,
+) -> HookInstallPlan {
+    let target_url = server_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("http://127.0.0.1:4000")
+        .to_string();
+    let explicit_auth_token = normalized_non_empty(auth_token);
+    let auth_token_required =
+        explicit_auth_token.is_none() && should_prompt_for_auth_token(&target_url);
+
+    HookInstallPlan {
+        target_url,
+        hook_binary: hook_binary.to_string(),
+        explicit_auth_token,
+        auth_token_required,
+    }
+}
+
+fn resolve_auth_token(plan: &HookInstallPlan) -> anyhow::Result<Option<String>> {
+    if let Some(token) = plan.explicit_auth_token.as_ref() {
+        return Ok(Some(token.clone()));
     }
 
-    let prompted_token = prompt_auth_token(server_url)?;
-    Ok(prompted_token)
+    if !plan.auth_token_required {
+        return Ok(None);
+    }
+
+    prompt_auth_token(&plan.target_url)
 }
 
 fn should_prompt_for_auth_token(server_url: &str) -> bool {
@@ -257,6 +189,146 @@ fn normalized_non_empty(value: Option<&str>) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
+}
+
+fn merge_orbitdock_hooks(
+    existing: serde_json::Value,
+    plan: &HookInstallPlan,
+) -> anyhow::Result<HookMergeOutcome> {
+    let mut settings = existing;
+    let obj = settings
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("settings.json is not a JSON object"))?;
+
+    let mut added = Vec::new();
+    let mut updated = Vec::new();
+
+    for &(hook_key, hook_type) in HOOK_TYPES {
+        let command = format!("{} hook-forward {hook_type}", plan.hook_binary);
+
+        let Some((parent_key, child_key)) = hook_key.split_once('.') else {
+            return Err(anyhow::anyhow!("invalid hook key '{hook_key}'"));
+        };
+
+        let hooks_obj = obj
+            .entry(parent_key)
+            .or_insert_with(|| serde_json::json!({}));
+        let hooks_map = hooks_obj
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("settings.json '{}' is not an object", parent_key))?;
+
+        let hook_entry = orbitdock_hook_entry(&command);
+
+        if let Some(existing_hooks) = hooks_map.get_mut(child_key) {
+            if !existing_hooks.is_array() {
+                let normalized = existing_hooks.take();
+                *existing_hooks = serde_json::json!([normalized]);
+            }
+            if let Some(arr) = existing_hooks.as_array_mut() {
+                if let Some(idx) = orbitdock_hook_index(arr) {
+                    arr[idx] = hook_entry;
+                    updated.push(hook_key.to_string());
+                } else {
+                    arr.push(hook_entry);
+                    added.push(hook_key.to_string());
+                }
+            }
+        } else {
+            hooks_map.insert(child_key.to_string(), serde_json::json!([hook_entry]));
+            added.push(hook_key.to_string());
+        }
+    }
+
+    Ok(HookMergeOutcome {
+        settings,
+        added,
+        updated,
+    })
+}
+
+fn orbitdock_hook_entry(command: &str) -> serde_json::Value {
+    serde_json::json!({
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "async": true
+        }]
+    })
+}
+
+fn orbitdock_hook_index(entries: &[serde_json::Value]) -> Option<usize> {
+    entries
+        .iter()
+        .position(|entry| entry_contains_orbitdock_command(entry))
+}
+
+fn entry_contains_orbitdock_command(entry: &serde_json::Value) -> bool {
+    if let Some(hooks_arr) = entry.get("hooks").and_then(|hooks| hooks.as_array()) {
+        return hooks_arr.iter().any(command_value_is_orbitdock);
+    }
+
+    command_value_is_orbitdock(entry)
+}
+
+fn command_value_is_orbitdock(value: &serde_json::Value) -> bool {
+    value
+        .get("command")
+        .and_then(|command| command.as_str())
+        .map(|command| {
+            command.contains("orbitdock")
+                || command.contains("hook.sh")
+                || command.contains("hook-forward")
+        })
+        .unwrap_or(false)
+}
+
+fn print_install_summary(
+    installer_mode: bool,
+    settings_file: &Path,
+    merge: &HookMergeOutcome,
+    transport_config_path: &Path,
+    plan: &HookInstallPlan,
+    resolved_auth_token: Option<&str>,
+) {
+    println!();
+    if installer_mode {
+        println!("  Claude Code hooks ready in {}", settings_file.display());
+    } else {
+        if !merge.added.is_empty() {
+            println!("  Added {} hook(s):", merge.added.len());
+            for hook in &merge.added {
+                println!("    + {}", hook);
+            }
+        }
+        if !merge.updated.is_empty() {
+            println!("  Updated {} hook(s):", merge.updated.len());
+            for hook in &merge.updated {
+                println!("    ~ {}", hook);
+            }
+        }
+        println!();
+        println!("  Settings written to {}", settings_file.display());
+    }
+    println!(
+        "  Hook transport config: {}",
+        transport_config_path.display()
+    );
+    match resolved_auth_token {
+        Some(_) => println!("  Hook auth token: configured"),
+        None if plan.auth_token_required => {
+            println!("  Hook auth token: not configured");
+            println!(
+                "  Remote requests may be rejected until you rerun `orbitdock install-hooks` with a token."
+            );
+        }
+        None if !installer_mode => println!("  Hook auth token: not configured"),
+        None => {}
+    }
+    if !installer_mode {
+        println!("  Hook forward binary: {}", resolve_hook_binary_path());
+        println!("  Spool directory: {}", paths::spool_dir().display());
+    }
+    println!();
 }
 
 #[cfg(unix)]
@@ -347,4 +419,137 @@ fn resolve_hook_binary_path() -> String {
 
 fn quote_for_shell(path: &str) -> String {
     format!("\"{}\"", path.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        command_value_is_orbitdock, entry_contains_orbitdock_command, merge_orbitdock_hooks,
+        orbitdock_hook_index, plan_hook_install, HookInstallPlan,
+    };
+
+    fn test_plan() -> HookInstallPlan {
+        plan_hook_install(
+            Some("http://127.0.0.1:4000"),
+            Some("token-123"),
+            "\"/usr/local/bin/orbitdock\"",
+        )
+    }
+
+    #[test]
+    fn hook_install_plan_only_requires_token_for_remote_servers() {
+        let local = plan_hook_install(
+            Some("http://127.0.0.1:4000"),
+            None,
+            "\"/usr/local/bin/orbitdock\"",
+        );
+        let remote = plan_hook_install(
+            Some("https://orbitdock.example.com"),
+            None,
+            "\"/usr/local/bin/orbitdock\"",
+        );
+        let remote_with_explicit_token = plan_hook_install(
+            Some("https://orbitdock.example.com"),
+            Some("secret"),
+            "\"/usr/local/bin/orbitdock\"",
+        );
+
+        assert!(!local.auth_token_required);
+        assert!(remote.auth_token_required);
+        assert!(!remote_with_explicit_token.auth_token_required);
+        assert_eq!(
+            remote_with_explicit_token.explicit_auth_token.as_deref(),
+            Some("secret")
+        );
+    }
+
+    #[test]
+    fn merge_orbitdock_hooks_adds_missing_hook_entries() {
+        let merge = merge_orbitdock_hooks(serde_json::json!({}), &test_plan()).unwrap();
+        let hooks = merge
+            .settings
+            .get("hooks")
+            .and_then(|value| value.as_object())
+            .unwrap();
+
+        assert_eq!(merge.added.len(), super::HOOK_TYPES.len());
+        assert!(merge.updated.is_empty());
+        assert!(hooks.contains_key("SessionStart"));
+        assert!(hooks.contains_key("PermissionRequest"));
+    }
+
+    #[test]
+    fn merge_orbitdock_hooks_replaces_legacy_entry_without_duplication() {
+        let existing = serde_json::json!({
+            "hooks": {
+                "Notification": {
+                    "command": "hook.sh claude_status_event"
+                }
+            }
+        });
+
+        let merge = merge_orbitdock_hooks(existing, &test_plan()).unwrap();
+        let notification = merge
+            .settings
+            .get("hooks")
+            .and_then(|value| value.get("Notification"))
+            .and_then(|value| value.as_array())
+            .unwrap();
+
+        assert!(merge
+            .updated
+            .iter()
+            .any(|hook| hook == "hooks.Notification"));
+        assert_eq!(notification.len(), 1);
+        assert!(entry_contains_orbitdock_command(&notification[0]));
+    }
+
+    #[test]
+    fn merge_orbitdock_hooks_preserves_non_orbitdock_entries_when_adding_new_one() {
+        let existing = serde_json::json!({
+            "hooks": {
+                "Notification": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "python notify.py",
+                        "async": true
+                    }]
+                }]
+            }
+        });
+
+        let merge = merge_orbitdock_hooks(existing, &test_plan()).unwrap();
+        let notification = merge
+            .settings
+            .get("hooks")
+            .and_then(|value| value.get("Notification"))
+            .and_then(|value| value.as_array())
+            .unwrap();
+
+        assert!(merge.added.iter().any(|hook| hook == "hooks.Notification"));
+        assert_eq!(notification.len(), 2);
+        assert!(!entry_contains_orbitdock_command(&notification[0]));
+        assert!(entry_contains_orbitdock_command(&notification[1]));
+    }
+
+    #[test]
+    fn orbitdock_command_detection_handles_nested_and_bare_entries() {
+        let nested = serde_json::json!({
+            "hooks": [{
+                "command": "\"/usr/local/bin/orbitdock\" hook-forward claude_status_event"
+            }]
+        });
+        let bare = serde_json::json!({
+            "command": "hook.sh claude_status_event"
+        });
+        let unrelated = serde_json::json!({
+            "command": "python notify.py"
+        });
+
+        assert!(entry_contains_orbitdock_command(&nested));
+        assert!(entry_contains_orbitdock_command(&bare));
+        assert!(command_value_is_orbitdock(&bare));
+        assert!(!entry_contains_orbitdock_command(&unrelated));
+        assert_eq!(orbitdock_hook_index(&[unrelated.clone(), nested]), Some(1));
+    }
 }
