@@ -6,6 +6,9 @@ use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_creation::{
     persist_direct_session_create, prepare_direct_session, DirectSessionCreationInputs,
 };
+use crate::runtime::session_fork_policy::{
+    remap_messages_for_fork, truncate_messages_before_nth_user_message,
+};
 use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::support::session_modes::{
     is_passive_rollout_session, is_takeover_eligible_passive_session,
@@ -1307,31 +1310,30 @@ pub async fn fork_session(
             handle.set_config(effective_approval.clone(), effective_sandbox.clone());
             handle.set_forked_from(source_session_id.clone());
 
-            let source_fork_messages = if let Some(source_actor) =
-                state.get_session(&source_session_id)
-            {
-                match source_actor.retained_state().await {
-                    Ok(source_state) => {
-                        let full_source_messages =
+            let source_fork_messages =
+                if let Some(source_actor) = state.get_session(&source_session_id) {
+                    match source_actor.retained_state().await {
+                        Ok(source_state) => {
+                            let full_source_messages =
                             crate::runtime::session_runtime_helpers::hydrate_full_message_history(
                                 &source_session_id,
                                 source_state.messages,
                                 source_state.total_message_count,
                             )
                             .await;
-                        crate::transport::websocket::handlers::session_crud::remap_messages_for_fork(
-                            crate::transport::websocket::handlers::session_crud::truncate_messages_before_nth_user_message(
-                                &full_source_messages,
-                                body.nth_user_message,
-                            ),
-                            &new_id,
-                        )
+                            remap_messages_for_fork(
+                                truncate_messages_before_nth_user_message(
+                                    &full_source_messages,
+                                    body.nth_user_message,
+                                ),
+                                &new_id,
+                            )
+                        }
+                        Err(_) => Vec::new(),
                     }
-                    Err(_) => Vec::new(),
-                }
-            } else {
-                Vec::new()
-            };
+                } else {
+                    Vec::new()
+                };
 
             let rollout_messages = if let Some(rollout_path) = new_connector.rollout_path().await {
                 crate::infrastructure::persistence::load_messages_from_transcript_path(

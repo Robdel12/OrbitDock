@@ -4,8 +4,8 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Message, MessageType, Provider,
-    ServerMessage, WorktreeOrigin,
+    ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
+    WorktreeOrigin,
 };
 
 use crate::connectors::claude_session::{ClaudeAction, ClaudeSession};
@@ -18,58 +18,16 @@ use crate::runtime::session_commands::{PersistOp, SessionCommand};
 use crate::runtime::session_creation::{
     persist_direct_session_create, prepare_direct_session, DirectSessionCreationInputs,
 };
+use crate::runtime::session_fork_policy::{
+    plan_fork_config, remap_messages_for_fork, select_fork_messages,
+    truncate_messages_before_nth_user_message, ForkConfigInputs,
+};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
     claim_codex_thread_for_direct_session, hydrate_full_message_history,
 };
 use crate::support::session_modes::is_passive_rollout_session;
 use crate::transport::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
-
-pub(crate) fn truncate_messages_before_nth_user_message(
-    messages: &[Message],
-    nth_user_message: Option<u32>,
-) -> Vec<Message> {
-    let Some(nth_user_message) = nth_user_message else {
-        return messages.to_vec();
-    };
-
-    let mut user_count = 0usize;
-    let mut cut_idx: Option<usize> = None;
-
-    for (idx, msg) in messages.iter().enumerate() {
-        if msg.message_type == MessageType::User {
-            if user_count == nth_user_message as usize {
-                cut_idx = Some(idx);
-                break;
-            }
-            user_count += 1;
-        }
-    }
-
-    match cut_idx {
-        Some(idx) => messages[..idx].to_vec(),
-        None => Vec::new(),
-    }
-}
-
-pub(crate) fn remap_messages_for_fork(
-    messages: Vec<Message>,
-    new_session_id: &str,
-) -> Vec<Message> {
-    let new_session_id = new_session_id.to_string();
-
-    messages
-        .into_iter()
-        .filter(|msg| !msg.is_in_progress)
-        .enumerate()
-        .map(|(idx, mut msg)| {
-            msg.id = format!("{new_session_id}:fork:{idx}");
-            msg.session_id = new_session_id.clone();
-            msg.is_in_progress = false;
-            msg
-        })
-        .collect()
-}
 
 pub(crate) async fn handle(
     msg: ClientMessage,
@@ -810,26 +768,27 @@ pub(crate) async fn handle(
             // Determine source session's provider
             let source_provider = source_snapshot.as_ref().map(|s| s.provider);
 
-            let source_cwd = source_snapshot.as_ref().map(|s| s.project_path.clone());
-
-            let source_model = model
-                .clone()
-                .or_else(|| source_snapshot.as_ref().and_then(|s| s.model.clone()));
-            let source_approval_policy = source_snapshot
-                .as_ref()
-                .and_then(|s| s.approval_policy.clone());
-            let source_sandbox_mode = source_snapshot
-                .as_ref()
-                .and_then(|s| s.sandbox_mode.clone());
-            let effective_approval_policy = approval_policy.clone().or(source_approval_policy);
-            let effective_sandbox_mode = sandbox_mode.clone().or(source_sandbox_mode);
+            let fork_plan = plan_fork_config(ForkConfigInputs {
+                requested_model: model.clone(),
+                requested_approval_policy: approval_policy.clone(),
+                requested_sandbox_mode: sandbox_mode.clone(),
+                requested_cwd: cwd.clone(),
+                source_cwd: source_snapshot.as_ref().map(|s| s.project_path.clone()),
+                source_model: source_snapshot.as_ref().and_then(|s| s.model.clone()),
+                source_approval_policy: source_snapshot
+                    .as_ref()
+                    .and_then(|s| s.approval_policy.clone()),
+                source_sandbox_mode: source_snapshot
+                    .as_ref()
+                    .and_then(|s| s.sandbox_mode.clone()),
+            });
 
             match source_provider {
                 Some(Provider::Claude) => {
                     // ── Claude fork: spawn a new CLI, copy messages ──
-                    let effective_cwd = cwd
+                    let effective_cwd = fork_plan
+                        .effective_cwd
                         .clone()
-                        .or(source_cwd)
                         .unwrap_or_else(|| ".".to_string());
                     let project_name = effective_cwd.split('/').next_back().map(String::from);
                     let fork_branch =
@@ -840,7 +799,7 @@ pub(crate) async fn handle(
                     match ClaudeSession::new(
                         new_id.clone(),
                         &effective_cwd,
-                        source_model.as_deref(),
+                        fork_plan.effective_model.as_deref(),
                         None,
                         permission_mode.as_deref(),
                         &allowed_tools,
@@ -858,7 +817,7 @@ pub(crate) async fn handle(
                             handle.set_git_branch(fork_branch.clone());
                             handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
                             handle.set_forked_from(source_session_id.clone());
-                            if let Some(ref m) = source_model {
+                            if let Some(ref m) = fork_plan.effective_model {
                                 handle.set_model(Some(m.clone()));
                             }
 
@@ -876,7 +835,7 @@ pub(crate) async fn handle(
                                     project_path: effective_cwd,
                                     project_name,
                                     branch: fork_branch,
-                                    model: source_model,
+                                    model: fork_plan.effective_model.clone(),
                                     approval_policy: None,
                                     sandbox_mode: None,
                                     permission_mode: permission_mode.clone(),
@@ -967,15 +926,15 @@ pub(crate) async fn handle(
                     };
 
                     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
-                    let effective_cwd = cwd.clone().or(source_cwd);
+                    let effective_cwd = fork_plan.effective_cwd.clone();
 
                     if source_action_tx
                         .send(CodexAction::ForkSession {
                             source_session_id: source_session_id.clone(),
                             nth_user_message,
-                            model: model.clone(),
-                            approval_policy: effective_approval_policy.clone(),
-                            sandbox_mode: effective_sandbox_mode.clone(),
+                            model: fork_plan.effective_model.clone(),
+                            approval_policy: fork_plan.effective_approval_policy.clone(),
+                            sandbox_mode: fork_plan.effective_sandbox_mode.clone(),
                             cwd: effective_cwd.clone(),
                             reply_tx,
                         })
@@ -1044,8 +1003,8 @@ pub(crate) async fn handle(
                     handle.set_git_branch(fork_branch.clone());
                     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
                     handle.set_config(
-                        effective_approval_policy.clone(),
-                        effective_sandbox_mode.clone(),
+                        fork_plan.effective_approval_policy.clone(),
+                        fork_plan.effective_sandbox_mode.clone(),
                     );
                     handle.set_forked_from(source_session_id.clone());
 
@@ -1119,23 +1078,20 @@ pub(crate) async fn handle(
                             Vec::new()
                         };
 
-                    let forked_messages = if source_fork_messages.len() >= rollout_messages.len() {
-                        if !source_fork_messages.is_empty()
-                            && rollout_messages.len() < source_fork_messages.len()
-                        {
-                            info!(
-                                component = "session",
-                                event = "session.fork.messages_source_selected",
-                                new_session_id = %new_id,
-                                source_message_count = source_fork_messages.len(),
-                                rollout_message_count = rollout_messages.len(),
-                                "Selected source session messages for fork hydration"
-                            );
-                        }
-                        source_fork_messages
-                    } else {
-                        rollout_messages
-                    };
+                    if !source_fork_messages.is_empty()
+                        && rollout_messages.len() < source_fork_messages.len()
+                    {
+                        info!(
+                            component = "session",
+                            event = "session.fork.messages_source_selected",
+                            new_session_id = %new_id,
+                            source_message_count = source_fork_messages.len(),
+                            rollout_message_count = rollout_messages.len(),
+                            "Selected source session messages for fork hydration"
+                        );
+                    }
+                    let forked_messages =
+                        select_fork_messages(source_fork_messages, rollout_messages);
 
                     if !forked_messages.is_empty() {
                         handle.replace_messages(forked_messages.clone());
@@ -1156,9 +1112,9 @@ pub(crate) async fn handle(
                             project_path: fork_cwd,
                             project_name,
                             branch: fork_branch,
-                            model,
-                            approval_policy: effective_approval_policy,
-                            sandbox_mode: effective_sandbox_mode,
+                            model: fork_plan.effective_model.clone(),
+                            approval_policy: fork_plan.effective_approval_policy.clone(),
+                            sandbox_mode: fork_plan.effective_sandbox_mode.clone(),
                             permission_mode: None,
                             forked_from_session_id: Some(source_session_id.clone()),
                         })
@@ -1237,6 +1193,7 @@ pub(crate) async fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orbitdock_protocol::{Message, MessageType};
 
     fn mk_msg(id: &str, message_type: MessageType, content: &str) -> Message {
         Message {
