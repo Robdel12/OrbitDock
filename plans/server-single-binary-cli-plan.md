@@ -576,3 +576,258 @@ Before editing code, produce a narrow implementation checklist that covers:
 - compatibility verification after each phase
 
 That will make the refactor mechanical and lower-risk instead of exploratory.
+
+## Phase 2: API and Runtime Design Cleanup
+
+The crate and file structure cleanup is only the first half of the job.
+
+If the real goal is for the OrbitDock server API and runtime surface to feel
+well-structured, well-designed, and well-documented, then this plan needs an
+explicit second phase after the ownership refactor lands.
+
+This phase is about making the code easier to understand and the public and
+internal APIs easier to trust.
+
+### Goal
+
+Refactor the server-side API surface so it is:
+
+- structurally coherent
+- explicit about boundaries and ownership
+- more functional where practical
+- easier to document
+- easier to test at the right level
+
+This includes:
+
+- runtime module boundaries
+- internal command/query APIs
+- HTTP and WebSocket handler structure
+- reusable server library APIs called from `crates/cli`
+- documentation of what each layer owns and how data moves through it
+
+### Desired End State
+
+By the end of this phase:
+
+- the server runtime layers are obvious from code layout alone
+- domain code is mostly free of transport and actor orchestration details
+- runtime orchestration code is clearly separate from domain transforms
+- pure helper logic lives in support or domain modules, not inside effectful flows
+- reusable server APIs have stable names and clear call patterns
+- key architectural decisions are documented in repo markdown
+- tests reflect API contracts and user-visible behavior instead of legacy glue
+
+## API Design Targets
+
+### 1. Clear Layer Ownership
+
+The code should read cleanly in this direction:
+
+- `transport/` handles protocol concerns
+- `runtime/` handles actor orchestration, registries, command routing, and background loops
+- `domain/` handles session, worktree, and git domain rules
+- `infrastructure/` handles persistence, filesystem, crypto, auth, shell, and metrics
+- `support/` handles pure shared helpers and data shaping
+
+Important rule:
+
+- transport can depend on runtime, domain, infrastructure, and support
+- runtime can depend on domain, infrastructure, and support
+- domain should not depend on transport
+- support should stay pure where practical
+
+### 2. Query and Command Separation
+
+The runtime layer should keep clear boundaries between:
+
+- actor commands and mutation flows
+- read/query helpers
+- background loops
+- state registries
+
+Examples of the intended direction:
+
+- `runtime/session_commands.rs`
+- `runtime/session_command_handler.rs`
+- `runtime/session_queries.rs`
+- `runtime/session_registry.rs`
+- `runtime/background/*`
+
+The point is not to explode the file count. The point is to stop mixing
+commands, read models, state registries, and helper utilities in the same file.
+
+### 3. Domain API Cleanup
+
+The session domain should expose focused types and behaviors, not runtime glue.
+
+Targets:
+
+- keep `SessionHandle` focused on session state and state transitions
+- keep conversation DTOs in their own module
+- avoid domain code importing transport or runtime-specific protocol helpers
+- move general-purpose pure helpers out of orchestration files
+
+Likely remaining follow-ups:
+
+- evaluate whether `SessionHandle` should be split into state plus methods
+- reduce direct knowledge of actor command plumbing inside domain-oriented code
+- reduce duplicate timestamp and sequence helpers
+
+### 4. Server Library API Cleanup
+
+The reusable APIs exposed from `crates/server` should be intentionally shaped,
+not just whatever happened to be pulled out of `main.rs`.
+
+The desired style is:
+
+- explicit input structs for non-trivial operations
+- explicit result structs when an operation returns meaningful state
+- no hidden global reads when parameters can be passed in
+- small, named entrypoints grouped by capability
+
+Examples:
+
+- `app::run_server(ServerRunOptions)`
+- `admin::init(...)`
+- `admin::install_hooks(...)`
+- `admin::status(...)`
+
+If a server API has become a grab bag of side effects, split it into:
+
+1. pure planning
+2. effect execution
+3. presentation or CLI rendering
+
+### 5. Transport API Cleanup
+
+The HTTP and WebSocket layers should be readable as protocol adapters, not as
+places where business logic gets invented.
+
+Targets:
+
+- thin handlers that validate input, call focused operations, and map results
+- shared runtime or domain helpers for repeated mutation logic
+- fewer transport files reaching deep into persistence directly unless they are
+  truly query adapters
+- clearer naming for protocol-only helpers versus business operations
+
+### 6. Documentation
+
+This phase should leave the repo easier to navigate for a new contributor.
+
+Add or update documentation for:
+
+- server module ownership and layering
+- the single-binary architecture
+- runtime data flow:
+  - CLI -> server library
+  - HTTP/WS -> runtime -> domain -> infrastructure
+- session lifecycle flow
+- approval flow
+- passive versus direct session behavior
+
+Suggested deliverables:
+
+- update this plan with completion notes
+- add a short server architecture doc under `docs/`
+- add module-level comments where ownership is non-obvious
+
+Documentation should explain:
+
+- what a layer owns
+- what it should not own
+- where to put new code
+
+### 7. Testing for the API Phase
+
+This phase should keep following the testing philosophy:
+
+- test user outcomes and API contracts
+- do not add tests that only pin file layout
+- prefer pure tests for extracted transforms
+- use integration tests for server library boundaries and transport behavior
+
+Add tests when:
+
+- a boundary becomes clearer and can now be tested directly
+- a pure helper is extracted
+- a command/query split creates a clearer contract
+
+Delete or rewrite tests when:
+
+- they only validate old glue behavior
+- they depend on internal module placement
+- they make future restructuring harder
+
+## Phase 2 Execution Plan
+
+### Step 1. Finish runtime extraction
+
+Complete the split between:
+
+- domain session code
+- runtime actor code
+- runtime queries
+- runtime background jobs
+
+Good enough means:
+
+- the remaining responsibilities are clear
+- the file names reflect those responsibilities
+- new code has an obvious home
+
+### Step 2. Normalize server library APIs
+
+Audit `crates/server` exports and internal admin APIs for:
+
+- inconsistent naming
+- hidden input resolution
+- command-shaped logic mixed with rendering
+- missing result types
+
+Refactor toward explicit operation boundaries.
+
+### Step 3. Simplify transport handlers
+
+Audit `transport/http` and `transport/websocket` for:
+
+- duplicated flow logic
+- persistence-heavy handlers that should call runtime/query helpers
+- overly stateful handlers
+- protocol mapping that belongs in small helpers
+
+### Step 4. Extract and centralize pure helpers
+
+Continue moving pure logic into `support/` or domain modules:
+
+- path derivation
+- timestamp formatting/parsing
+- message normalization
+- state classification
+- setup/status planning
+
+This should reduce duplicate logic across runtime, infrastructure, and transport.
+
+### Step 5. Add architecture documentation
+
+Document the final structure once it is stable enough to describe without
+immediate churn.
+
+Minimum output:
+
+- one architecture doc under `docs/`
+- updated plan notes here
+- module comments where the ownership boundary is subtle
+
+## Phase 2 Success Criteria
+
+This second phase is successful when:
+
+- `crates/server` reads like a deliberately layered runtime library
+- runtime orchestration is distinct from domain logic
+- the internal server APIs have clearer names and ownership
+- the most reused pure helpers live outside effectful orchestration code
+- the transport layer is thinner and easier to reason about
+- the repo contains documentation that explains the architecture clearly
+- tests continue to verify behavior at the right level
