@@ -83,10 +83,10 @@ enum ServerEvent: Sendable {
     contextWindow: UInt64?, snapshotKind: ServerTokenUsageSnapshotKind)
 
   // Review comments
-  case reviewCommentCreated(sessionId: String, comment: ServerReviewComment)
-  case reviewCommentUpdated(sessionId: String, comment: ServerReviewComment)
-  case reviewCommentDeleted(sessionId: String, commentId: String)
-  case reviewCommentsList(sessionId: String, comments: [ServerReviewComment])
+  case reviewCommentCreated(sessionId: String, reviewRevision: UInt64, comment: ServerReviewComment)
+  case reviewCommentUpdated(sessionId: String, reviewRevision: UInt64, comment: ServerReviewComment)
+  case reviewCommentDeleted(sessionId: String, reviewRevision: UInt64, commentId: String)
+  case reviewCommentsList(sessionId: String, reviewRevision: UInt64, comments: [ServerReviewComment])
 
   // Subagent
   case subagentToolsList(sessionId: String, subagentId: String, tools: [ServerSubagentTool])
@@ -98,9 +98,9 @@ enum ServerEvent: Sendable {
     exitCode: Int32?, durationMs: UInt64, outcome: ServerShellExecutionOutcome)
 
   // Worktrees
-  case worktreesList(requestId: String, repoRoot: String?, worktrees: [ServerWorktreeSummary])
-  case worktreeCreated(requestId: String, worktree: ServerWorktreeSummary)
-  case worktreeRemoved(requestId: String, worktreeId: String)
+  case worktreesList(requestId: String, repoRoot: String?, worktreeRevision: UInt64, worktrees: [ServerWorktreeSummary])
+  case worktreeCreated(requestId: String, repoRoot: String, worktreeRevision: UInt64, worktree: ServerWorktreeSummary)
+  case worktreeRemoved(requestId: String, repoRoot: String, worktreeRevision: UInt64, worktreeId: String)
   case worktreeStatusChanged(worktreeId: String, status: ServerWorktreeStatus, repoRoot: String)
   case worktreeError(requestId: String, code: String, message: String)
 
@@ -114,6 +114,9 @@ enum ServerEvent: Sendable {
 
   // Error
   case error(code: String, message: String, sessionId: String?)
+
+  // Permission rules
+  case permissionRules(sessionId: String, rules: ServerSessionPermissionRules)
 
   // Connection lifecycle
   case connectionStatusChanged(ConnectionStatus)
@@ -437,14 +440,14 @@ final class EventStream {
         inputTokens: inputTokens, outputTokens: outputTokens,
         cachedTokens: cachedTokens, contextWindow: contextWindow,
         snapshotKind: snapshotKind))
-    case let .reviewCommentCreated(sessionId, comment):
-      emit(.reviewCommentCreated(sessionId: sessionId, comment: comment))
-    case let .reviewCommentUpdated(sessionId, comment):
-      emit(.reviewCommentUpdated(sessionId: sessionId, comment: comment))
-    case let .reviewCommentDeleted(sessionId, commentId):
-      emit(.reviewCommentDeleted(sessionId: sessionId, commentId: commentId))
-    case let .reviewCommentsList(sessionId, comments):
-      emit(.reviewCommentsList(sessionId: sessionId, comments: comments))
+    case let .reviewCommentCreated(sessionId, reviewRevision, comment):
+      emit(.reviewCommentCreated(sessionId: sessionId, reviewRevision: reviewRevision, comment: comment))
+    case let .reviewCommentUpdated(sessionId, reviewRevision, comment):
+      emit(.reviewCommentUpdated(sessionId: sessionId, reviewRevision: reviewRevision, comment: comment))
+    case let .reviewCommentDeleted(sessionId, reviewRevision, commentId):
+      emit(.reviewCommentDeleted(sessionId: sessionId, reviewRevision: reviewRevision, commentId: commentId))
+    case let .reviewCommentsList(sessionId, reviewRevision, comments):
+      emit(.reviewCommentsList(sessionId: sessionId, reviewRevision: reviewRevision, comments: comments))
     case let .subagentToolsList(sessionId, subagentId, tools):
       emit(.subagentToolsList(sessionId: sessionId, subagentId: subagentId, tools: tools))
     case let .shellStarted(sessionId, requestId, command):
@@ -453,12 +456,15 @@ final class EventStream {
       emit(.shellOutput(
         sessionId: sessionId, requestId: requestId, stdout: stdout, stderr: stderr,
         exitCode: exitCode, durationMs: durationMs, outcome: outcome))
-    case let .worktreesList(requestId, repoRoot, worktrees):
-      emit(.worktreesList(requestId: requestId, repoRoot: repoRoot, worktrees: worktrees))
-    case let .worktreeCreated(requestId, worktree):
-      emit(.worktreeCreated(requestId: requestId, worktree: worktree))
-    case let .worktreeRemoved(requestId, worktreeId):
-      emit(.worktreeRemoved(requestId: requestId, worktreeId: worktreeId))
+    case let .worktreesList(requestId, repoRoot, worktreeRevision, worktrees):
+      emit(.worktreesList(
+        requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktrees: worktrees))
+    case let .worktreeCreated(requestId, repoRoot, worktreeRevision, worktree):
+      emit(.worktreeCreated(
+        requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktree: worktree))
+    case let .worktreeRemoved(requestId, repoRoot, worktreeRevision, worktreeId):
+      emit(.worktreeRemoved(
+        requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktreeId: worktreeId))
     case let .worktreeStatusChanged(worktreeId, status, repoRoot):
       emit(.worktreeStatusChanged(
         worktreeId: worktreeId, status: status, repoRoot: repoRoot))
@@ -472,6 +478,8 @@ final class EventStream {
       emit(.filesPersisted(sessionId: sessionId, files: files))
     case let .serverInfo(isPrimary, claims):
       emit(.serverInfo(isPrimary: isPrimary, claims: claims))
+    case let .permissionRules(sessionId, rules):
+      emit(.permissionRules(sessionId: sessionId, rules: rules))
     case let .error(code, message, sessionId):
       emit(.error(code: code, message: message, sessionId: sessionId))
     // Silently ignore WS-only response types that are now fetched via HTTP

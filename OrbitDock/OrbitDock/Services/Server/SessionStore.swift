@@ -689,18 +689,18 @@ final class SessionStore {
       }
 
     // Review comments
-    case .reviewCommentCreated(let sessionId, let comment):
+    case .reviewCommentCreated(let sessionId, _, let comment):
       let obs = session(sessionId)
       obs.reviewComments.append(comment)
-    case .reviewCommentUpdated(let sessionId, let comment):
+    case .reviewCommentUpdated(let sessionId, _, let comment):
       let obs = session(sessionId)
       if let idx = obs.reviewComments.firstIndex(where: { $0.id == comment.id }) {
         obs.reviewComments[idx] = comment
       }
-    case .reviewCommentDeleted(let sessionId, let commentId):
+    case .reviewCommentDeleted(let sessionId, _, let commentId):
       let obs = session(sessionId)
       obs.reviewComments.removeAll { $0.id == commentId }
-    case .reviewCommentsList(let sessionId, let comments):
+    case .reviewCommentsList(let sessionId, _, let comments):
       session(sessionId).reviewComments = comments
 
     // Subagent
@@ -716,21 +716,19 @@ final class SessionStore {
       _ = session(sessionId)
 
     // Worktrees
-    case .worktreesList(_, let repoRoot, let worktrees):
+    case .worktreesList(_, let repoRoot, _, let worktrees):
       if let root = repoRoot {
         worktreesByRepo[root] = worktrees
       }
-    case .worktreeCreated(_, let worktree):
+    case .worktreeCreated(_, _, _, let worktree):
       let root = worktree.repoRoot
       if worktreesByRepo[root] != nil {
         worktreesByRepo[root]?.append(worktree)
       } else {
         worktreesByRepo[root] = [worktree]
       }
-    case .worktreeRemoved(_, let worktreeId):
-      for (root, wts) in worktreesByRepo {
-        worktreesByRepo[root] = wts.filter { $0.id != worktreeId }
-      }
+    case .worktreeRemoved(_, let repoRoot, _, let worktreeId):
+      worktreesByRepo[repoRoot]?.removeAll { $0.id == worktreeId }
     case .worktreeStatusChanged(let worktreeId, let status, let repoRoot):
       if var wts = worktreesByRepo[repoRoot],
          let idx = wts.firstIndex(where: { $0.id == worktreeId }) {
@@ -752,6 +750,10 @@ final class SessionStore {
     case .serverInfo(let isPrimary, let claims):
       serverIsPrimary = isPrimary
       serverPrimaryClaims = claims
+
+    // Permission rules
+    case .permissionRules(let sessionId, let rules):
+      session(sessionId).permissionRules = rules
 
     // Error
     case .error(let code, let message, let sessionId):

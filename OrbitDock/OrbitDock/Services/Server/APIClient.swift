@@ -540,7 +540,7 @@ final class APIClient: Sendable {
 
   func setOpenAiKey(_ key: String) async throws {
     struct Body: Encodable { let key: String }
-    struct Resp: Decodable { let ok: Bool }
+    struct Resp: Decodable { let configured: Bool }
     let _: Resp = try await post("/api/server/openai-key", body: Body(key: key))
   }
 

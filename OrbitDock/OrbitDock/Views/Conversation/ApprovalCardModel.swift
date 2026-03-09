@@ -164,7 +164,8 @@ enum ApprovalCardModelBuilder {
       question: normalizedText(historyItem.question),
       questionPrompts: historyItem.questionPrompts,
       preview: historyItem.preview,
-      proposedAmendment: historyItem.proposedAmendment
+      proposedAmendment: historyItem.proposedAmendment,
+      permissionSuggestions: historyItem.permissionSuggestions
     )
   }
 
@@ -185,6 +186,7 @@ enum ApprovalCardModelBuilder {
       : request.questionPrompts
     let mergedPreview = request.preview ?? historyItem.preview
     let mergedProposedAmendment = request.proposedAmendment ?? historyItem.proposedAmendment
+    let mergedPermissionSuggestions = request.permissionSuggestions ?? historyItem.permissionSuggestions
 
     if mergedToolName == request.toolName,
        mergedToolInput == request.toolInput,
@@ -211,7 +213,8 @@ enum ApprovalCardModelBuilder {
       question: mergedQuestion,
       questionPrompts: mergedQuestionPrompts,
       preview: mergedPreview,
-      proposedAmendment: mergedProposedAmendment
+      proposedAmendment: mergedProposedAmendment,
+      permissionSuggestions: mergedPermissionSuggestions
     )
   }
 

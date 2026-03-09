@@ -377,6 +377,7 @@ struct ServerApprovalRequest: Codable, Identifiable {
   let questionPrompts: [ServerApprovalQuestionPrompt]
   let preview: ServerApprovalPreview?
   let proposedAmendment: [String]?
+  let permissionSuggestions: AnyCodable?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -391,6 +392,7 @@ struct ServerApprovalRequest: Codable, Identifiable {
     case questionPrompts = "question_prompts"
     case preview
     case proposedAmendment = "proposed_amendment"
+    case permissionSuggestions = "permission_suggestions"
   }
 
   init(
@@ -405,7 +407,8 @@ struct ServerApprovalRequest: Codable, Identifiable {
     question: String? = nil,
     questionPrompts: [ServerApprovalQuestionPrompt] = [],
     preview: ServerApprovalPreview? = nil,
-    proposedAmendment: [String]? = nil
+    proposedAmendment: [String]? = nil,
+    permissionSuggestions: AnyCodable? = nil
   ) {
     self.id = id
     self.sessionId = sessionId
@@ -419,6 +422,7 @@ struct ServerApprovalRequest: Codable, Identifiable {
     self.questionPrompts = questionPrompts
     self.preview = preview
     self.proposedAmendment = proposedAmendment
+    self.permissionSuggestions = permissionSuggestions
   }
 
   init(from decoder: Decoder) throws {
@@ -436,6 +440,7 @@ struct ServerApprovalRequest: Codable, Identifiable {
       try container.decodeIfPresent([ServerApprovalQuestionPrompt].self, forKey: .questionPrompts) ?? []
     preview = try container.decodeIfPresent(ServerApprovalPreview.self, forKey: .preview)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
+    permissionSuggestions = try container.decodeIfPresent(AnyCodable.self, forKey: .permissionSuggestions)
   }
 
   func encode(to encoder: Encoder) throws {
@@ -454,6 +459,7 @@ struct ServerApprovalRequest: Codable, Identifiable {
     }
     try container.encodeIfPresent(preview, forKey: .preview)
     try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
+    try container.encodeIfPresent(permissionSuggestions, forKey: .permissionSuggestions)
   }
 }
 
@@ -479,6 +485,7 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
   let cwd: String?
   let decision: String?
   let proposedAmendment: [String]?
+  let permissionSuggestions: AnyCodable?
   let createdAt: String
   let decidedAt: String?
 
@@ -498,6 +505,7 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     case cwd
     case decision
     case proposedAmendment = "proposed_amendment"
+    case permissionSuggestions = "permission_suggestions"
     case createdAt = "created_at"
     case decidedAt = "decided_at"
   }
@@ -518,6 +526,7 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     cwd: String? = nil,
     decision: String? = nil,
     proposedAmendment: [String]? = nil,
+    permissionSuggestions: AnyCodable? = nil,
     createdAt: String,
     decidedAt: String? = nil
   ) {
@@ -536,6 +545,7 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     self.cwd = cwd
     self.decision = decision
     self.proposedAmendment = proposedAmendment
+    self.permissionSuggestions = permissionSuggestions
     self.createdAt = createdAt
     self.decidedAt = decidedAt
   }
@@ -558,6 +568,7 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
     decision = try container.decodeIfPresent(String.self, forKey: .decision)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
+    permissionSuggestions = try container.decodeIfPresent(AnyCodable.self, forKey: .permissionSuggestions)
     createdAt = try container.decode(String.self, forKey: .createdAt)
     decidedAt = try container.decodeIfPresent(String.self, forKey: .decidedAt)
   }
@@ -581,6 +592,7 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     try container.encodeIfPresent(cwd, forKey: .cwd)
     try container.encodeIfPresent(decision, forKey: .decision)
     try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
+    try container.encodeIfPresent(permissionSuggestions, forKey: .permissionSuggestions)
     try container.encode(createdAt, forKey: .createdAt)
     try container.encodeIfPresent(decidedAt, forKey: .decidedAt)
   }
@@ -1773,10 +1785,10 @@ enum ServerToClientMessage: Codable {
     contextWindow: UInt64?,
     snapshotKind: ServerTokenUsageSnapshotKind
   )
-  case reviewCommentCreated(sessionId: String, comment: ServerReviewComment)
-  case reviewCommentUpdated(sessionId: String, comment: ServerReviewComment)
-  case reviewCommentDeleted(sessionId: String, commentId: String)
-  case reviewCommentsList(sessionId: String, comments: [ServerReviewComment])
+  case reviewCommentCreated(sessionId: String, reviewRevision: UInt64, comment: ServerReviewComment)
+  case reviewCommentUpdated(sessionId: String, reviewRevision: UInt64, comment: ServerReviewComment)
+  case reviewCommentDeleted(sessionId: String, reviewRevision: UInt64, commentId: String)
+  case reviewCommentsList(sessionId: String, reviewRevision: UInt64, comments: [ServerReviewComment])
   case subagentToolsList(sessionId: String, subagentId: String, tools: [ServerSubagentTool])
   case shellStarted(sessionId: String, requestId: String, command: String)
   case shellOutput(
@@ -1801,14 +1813,15 @@ enum ServerToClientMessage: Codable {
     activeRequestId: String?,
     approvalVersion: UInt64
   )
-  case worktreesList(requestId: String, repoRoot: String?, worktrees: [ServerWorktreeSummary])
-  case worktreeCreated(requestId: String, worktree: ServerWorktreeSummary)
-  case worktreeRemoved(requestId: String, worktreeId: String)
+  case worktreesList(requestId: String, repoRoot: String?, worktreeRevision: UInt64, worktrees: [ServerWorktreeSummary])
+  case worktreeCreated(requestId: String, repoRoot: String, worktreeRevision: UInt64, worktree: ServerWorktreeSummary)
+  case worktreeRemoved(requestId: String, repoRoot: String, worktreeRevision: UInt64, worktreeId: String)
   case worktreeStatusChanged(worktreeId: String, status: ServerWorktreeStatus, repoRoot: String)
   case worktreeError(requestId: String, code: String, message: String)
   case rateLimitEvent(sessionId: String, info: ServerRateLimitInfo)
   case promptSuggestion(sessionId: String, suggestion: String)
   case filesPersisted(sessionId: String, files: [String])
+  case permissionRules(sessionId: String, rules: ServerSessionPermissionRules)
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -1883,6 +1896,9 @@ enum ServerToClientMessage: Codable {
     case info
     case suggestion
     case files
+    case worktreeRevision = "worktree_revision"
+    case reviewRevision = "review_revision"
+    case rules
   }
 
   init(from decoder: Decoder) throws {
@@ -2096,23 +2112,27 @@ enum ServerToClientMessage: Codable {
 
       case "review_comment_created":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let reviewRevision = try container.decode(UInt64.self, forKey: .reviewRevision)
         let comment = try container.decode(ServerReviewComment.self, forKey: .comment)
-        self = .reviewCommentCreated(sessionId: sessionId, comment: comment)
+        self = .reviewCommentCreated(sessionId: sessionId, reviewRevision: reviewRevision, comment: comment)
 
       case "review_comment_updated":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let reviewRevision = try container.decode(UInt64.self, forKey: .reviewRevision)
         let comment = try container.decode(ServerReviewComment.self, forKey: .comment)
-        self = .reviewCommentUpdated(sessionId: sessionId, comment: comment)
+        self = .reviewCommentUpdated(sessionId: sessionId, reviewRevision: reviewRevision, comment: comment)
 
       case "review_comment_deleted":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let reviewRevision = try container.decode(UInt64.self, forKey: .reviewRevision)
         let commentId = try container.decode(String.self, forKey: .commentId)
-        self = .reviewCommentDeleted(sessionId: sessionId, commentId: commentId)
+        self = .reviewCommentDeleted(sessionId: sessionId, reviewRevision: reviewRevision, commentId: commentId)
 
       case "review_comments_list":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let reviewRevision = try container.decode(UInt64.self, forKey: .reviewRevision)
         let comments = try container.decode([ServerReviewComment].self, forKey: .comments)
-        self = .reviewCommentsList(sessionId: sessionId, comments: comments)
+        self = .reviewCommentsList(sessionId: sessionId, reviewRevision: reviewRevision, comments: comments)
 
       case "subagent_tools_list":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -2191,18 +2211,26 @@ enum ServerToClientMessage: Codable {
       case "worktrees_list":
         let requestId = try container.decode(String.self, forKey: .requestId)
         let repoRoot = try container.decodeIfPresent(String.self, forKey: .repoRoot)
+        let worktreeRevision = try container.decode(UInt64.self, forKey: .worktreeRevision)
         let worktrees = try container.decode([ServerWorktreeSummary].self, forKey: .worktrees)
-        self = .worktreesList(requestId: requestId, repoRoot: repoRoot, worktrees: worktrees)
+        self = .worktreesList(
+          requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktrees: worktrees)
 
       case "worktree_created":
         let requestId = try container.decode(String.self, forKey: .requestId)
+        let repoRoot = try container.decode(String.self, forKey: .repoRoot)
+        let worktreeRevision = try container.decode(UInt64.self, forKey: .worktreeRevision)
         let worktree = try container.decode(ServerWorktreeSummary.self, forKey: .worktree)
-        self = .worktreeCreated(requestId: requestId, worktree: worktree)
+        self = .worktreeCreated(
+          requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktree: worktree)
 
       case "worktree_removed":
         let requestId = try container.decode(String.self, forKey: .requestId)
+        let repoRoot = try container.decode(String.self, forKey: .repoRoot)
+        let worktreeRevision = try container.decode(UInt64.self, forKey: .worktreeRevision)
         let worktreeId = try container.decode(String.self, forKey: .worktreeId)
-        self = .worktreeRemoved(requestId: requestId, worktreeId: worktreeId)
+        self = .worktreeRemoved(
+          requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktreeId: worktreeId)
 
       case "worktree_status_changed":
         let worktreeId = try container.decode(String.self, forKey: .worktreeId)
@@ -2230,6 +2258,11 @@ enum ServerToClientMessage: Codable {
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let files = try container.decodeIfPresent([String].self, forKey: .files) ?? []
         self = .filesPersisted(sessionId: sessionId, files: files)
+
+      case "permission_rules":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let rules = try container.decode(ServerSessionPermissionRules.self, forKey: .rules)
+        self = .permissionRules(sessionId: sessionId, rules: rules)
 
       case "error":
         let code = try container.decode(String.self, forKey: .code)
@@ -2434,24 +2467,28 @@ enum ServerToClientMessage: Codable {
         try container.encodeIfPresent(contextWindow, forKey: .contextWindow)
         try container.encode(snapshotKind, forKey: .snapshotKind)
 
-      case let .reviewCommentCreated(sessionId, comment):
+      case let .reviewCommentCreated(sessionId, reviewRevision, comment):
         try container.encode("review_comment_created", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(reviewRevision, forKey: .reviewRevision)
         try container.encode(comment, forKey: .comment)
 
-      case let .reviewCommentUpdated(sessionId, comment):
+      case let .reviewCommentUpdated(sessionId, reviewRevision, comment):
         try container.encode("review_comment_updated", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(reviewRevision, forKey: .reviewRevision)
         try container.encode(comment, forKey: .comment)
 
-      case let .reviewCommentDeleted(sessionId, commentId):
+      case let .reviewCommentDeleted(sessionId, reviewRevision, commentId):
         try container.encode("review_comment_deleted", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(reviewRevision, forKey: .reviewRevision)
         try container.encode(commentId, forKey: .commentId)
 
-      case let .reviewCommentsList(sessionId, comments):
+      case let .reviewCommentsList(sessionId, reviewRevision, comments):
         try container.encode("review_comments_list", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(reviewRevision, forKey: .reviewRevision)
         try container.encode(comments, forKey: .comments)
 
       case let .subagentToolsList(sessionId, subagentId, tools):
@@ -2519,20 +2556,25 @@ enum ServerToClientMessage: Codable {
         try container.encodeIfPresent(activeRequestId, forKey: .activeRequestId)
         try container.encode(approvalVersion, forKey: .approvalVersion)
 
-      case let .worktreesList(requestId, repoRoot, worktrees):
+      case let .worktreesList(requestId, repoRoot, worktreeRevision, worktrees):
         try container.encode("worktrees_list", forKey: .type)
         try container.encode(requestId, forKey: .requestId)
         try container.encodeIfPresent(repoRoot, forKey: .repoRoot)
+        try container.encode(worktreeRevision, forKey: .worktreeRevision)
         try container.encode(worktrees, forKey: .worktrees)
 
-      case let .worktreeCreated(requestId, worktree):
+      case let .worktreeCreated(requestId, repoRoot, worktreeRevision, worktree):
         try container.encode("worktree_created", forKey: .type)
         try container.encode(requestId, forKey: .requestId)
+        try container.encode(repoRoot, forKey: .repoRoot)
+        try container.encode(worktreeRevision, forKey: .worktreeRevision)
         try container.encode(worktree, forKey: .worktree)
 
-      case let .worktreeRemoved(requestId, worktreeId):
+      case let .worktreeRemoved(requestId, repoRoot, worktreeRevision, worktreeId):
         try container.encode("worktree_removed", forKey: .type)
         try container.encode(requestId, forKey: .requestId)
+        try container.encode(repoRoot, forKey: .repoRoot)
+        try container.encode(worktreeRevision, forKey: .worktreeRevision)
         try container.encode(worktreeId, forKey: .worktreeId)
 
       case let .worktreeStatusChanged(worktreeId, status, repoRoot):
@@ -2562,6 +2604,11 @@ enum ServerToClientMessage: Codable {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(files, forKey: .files)
 
+      case let .permissionRules(sessionId, rules):
+        try container.encode("permission_rules", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(rules, forKey: .rules)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -2573,833 +2620,64 @@ enum ServerToClientMessage: Codable {
 
 // MARK: - Client → Server Messages
 
+/// WebSocket-only outbound messages.
+/// All reads and mutations go via HTTP (APIClient). Only subscription management uses WS.
 enum ClientToServerMessage: Codable {
   case subscribeList
   case subscribeSession(sessionId: String, sinceRevision: UInt64? = nil, includeSnapshot: Bool = true)
   case unsubscribeSession(sessionId: String)
-  case createSession(
-    provider: ServerProvider,
-    cwd: String,
-    model: String?,
-    approvalPolicy: String?,
-    sandboxMode: String?,
-    permissionMode: String? = nil,
-    allowedTools: [String] = [],
-    disallowedTools: [String] = [],
-    effort: String? = nil
-  )
-  case sendMessage(
-    sessionId: String,
-    content: String,
-    model: String? = nil,
-    effort: String? = nil,
-    skills: [ServerSkillInput] = [],
-    images: [ServerImageInput] = [],
-    mentions: [ServerMentionInput] = []
-  )
-  case approveTool(
-    sessionId: String,
-    requestId: String,
-    decision: String,
-    message: String? = nil,
-    interrupt: Bool? = nil
-  )
-  case answerQuestion(
-    sessionId: String,
-    requestId: String,
-    answer: String,
-    questionId: String? = nil,
-    answers: [String: [String]]? = nil
-  )
-  case interruptSession(sessionId: String)
-  case endSession(sessionId: String)
-  case updateSessionConfig(
-    sessionId: String,
-    approvalPolicy: String?,
-    sandboxMode: String?,
-    permissionMode: String? = nil
-  )
-  case renameSession(sessionId: String, name: String?)
-  case resumeSession(sessionId: String)
-  case takeoverSession(
-    sessionId: String,
-    model: String? = nil,
-    approvalPolicy: String? = nil,
-    sandboxMode: String? = nil,
-    permissionMode: String? = nil,
-    allowedTools: [String] = [],
-    disallowedTools: [String] = []
-  )
-  case listApprovals(sessionId: String?, limit: Int?)
-  case deleteApproval(approvalId: Int64)
-  case listModels
-  case listClaudeModels
-  case codexAccountRead(refreshToken: Bool = false)
-  case codexLoginChatgptStart
-  case codexLoginChatgptCancel(loginId: String)
-  case codexAccountLogout
-  case listSkills(sessionId: String, cwds: [String] = [], forceReload: Bool = false)
-  case listRemoteSkills(sessionId: String)
-  case downloadRemoteSkill(sessionId: String, hazelnutId: String)
-  case listMcpTools(sessionId: String)
-  case refreshMcpServers(sessionId: String)
-  case steerTurn(
-    sessionId: String,
-    content: String,
-    images: [ServerImageInput] = [],
-    mentions: [ServerMentionInput] = []
-  )
-  case compactContext(sessionId: String)
-  case undoLastTurn(sessionId: String)
-  case rollbackTurns(sessionId: String, numTurns: UInt32)
-  case stopTask(sessionId: String, taskId: String)
-  case rewindFiles(sessionId: String, userMessageId: String)
-  case forkSession(
-    sourceSessionId: String,
-    nthUserMessage: UInt32? = nil,
-    model: String? = nil,
-    approvalPolicy: String? = nil,
-    sandboxMode: String? = nil,
-    cwd: String? = nil,
-    permissionMode: String? = nil,
-    allowedTools: [String] = [],
-    disallowedTools: [String] = []
-  )
-  case forkSessionToWorktree(
-    sourceSessionId: String,
-    branchName: String,
-    baseBranch: String? = nil,
-    nthUserMessage: UInt32? = nil
-  )
-  case forkSessionToExistingWorktree(
-    sourceSessionId: String,
-    worktreeId: String,
-    nthUserMessage: UInt32? = nil
-  )
-  case createReviewComment(
-    sessionId: String,
-    turnId: String?,
-    filePath: String,
-    lineStart: UInt32,
-    lineEnd: UInt32?,
-    body: String,
-    tag: ServerReviewCommentTag?
-  )
-  case updateReviewComment(
-    commentId: String,
-    body: String?,
-    tag: ServerReviewCommentTag?,
-    status: ServerReviewCommentStatus?
-  )
-  case deleteReviewComment(commentId: String)
-  case listReviewComments(sessionId: String, turnId: String? = nil)
-  case getSubagentTools(sessionId: String, subagentId: String)
-  case setServerRole(isPrimary: Bool)
-  case setClientPrimaryClaim(clientId: String, deviceName: String, isPrimary: Bool)
-  case setOpenAiKey(key: String)
-  case checkOpenAiKey(requestId: String)
-  case fetchCodexUsage(requestId: String)
-  case fetchClaudeUsage(requestId: String)
-  case executeShell(sessionId: String, command: String, cwd: String? = nil, timeoutSecs: UInt64 = 30)
-  case cancelShell(sessionId: String, requestId: String)
-  case browseDirectory(path: String? = nil, requestId: String)
-  case listRecentProjects(requestId: String)
-  case listWorktrees(requestId: String, repoRoot: String? = nil)
-  case createWorktree(requestId: String, repoPath: String, branchName: String, baseBranch: String? = nil)
-  case removeWorktree(requestId: String, worktreeId: String, force: Bool = false)
-  case discoverWorktrees(requestId: String, repoPath: String)
 
   enum CodingKeys: String, CodingKey {
     case type
     case sessionId = "session_id"
-    case sourceSessionId = "source_session_id"
-    case provider
-    case cwd
-    case model
-    case approvalPolicy = "approval_policy"
-    case sandboxMode = "sandbox_mode"
-    case content
-    case requestId = "request_id"
-    case questionId = "question_id"
-    case decision
-    case answer
-    case answers
-    case name
-    case effort
-    case limit
-    case approvalId = "approval_id"
-    case refreshToken = "refresh_token"
-    case loginId = "login_id"
-    case skills
-    case images
-    case mentions
-    case cwds
-    case forceReload = "force_reload"
-    case hazelnutId = "hazelnut_id"
-    case numTurns = "num_turns"
-    case nthUserMessage = "nth_user_message"
     case sinceRevision = "since_revision"
     case includeSnapshot = "include_snapshot"
-    case turnId = "turn_id"
-    case filePath = "file_path"
-    case lineStart = "line_start"
-    case lineEnd = "line_end"
-    case body
-    case tag
-    case commentId = "comment_id"
-    case status
-    case key
-    case subagentId = "subagent_id"
-    case command
-    case timeoutSecs = "timeout_secs"
-    case permissionMode = "permission_mode"
-    case allowedTools = "allowed_tools"
-    case disallowedTools = "disallowed_tools"
-    case message
-    case interrupt
-    case path
-    case isPrimary = "is_primary"
-    case clientId = "client_id"
-    case deviceName = "device_name"
-    case repoRoot = "repo_root"
-    case repoPath = "repo_path"
-    case branchName = "branch_name"
-    case baseBranch = "base_branch"
-    case worktreeId = "worktree_id"
-    case force
-    case taskId = "task_id"
-    case userMessageId = "user_message_id"
   }
 
   func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
 
     switch self {
-      case .subscribeList:
-        try container.encode("subscribe_list", forKey: .type)
+    case .subscribeList:
+      try container.encode("subscribe_list", forKey: .type)
 
-      case let .subscribeSession(sessionId, sinceRevision, includeSnapshot):
-        try container.encode("subscribe_session", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encodeIfPresent(sinceRevision, forKey: .sinceRevision)
-        if !includeSnapshot {
-          try container.encode(false, forKey: .includeSnapshot)
-        }
+    case let .subscribeSession(sessionId, sinceRevision, includeSnapshot):
+      try container.encode("subscribe_session", forKey: .type)
+      try container.encode(sessionId, forKey: .sessionId)
+      try container.encodeIfPresent(sinceRevision, forKey: .sinceRevision)
+      if !includeSnapshot {
+        try container.encode(false, forKey: .includeSnapshot)
+      }
 
-      case let .unsubscribeSession(sessionId):
-        try container.encode("unsubscribe_session", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-
-      case let .createSession(
-      provider,
-      cwd,
-      model,
-      approvalPolicy,
-      sandboxMode,
-      permissionMode,
-      allowedTools,
-      disallowedTools,
-      effort
-    ):
-        try container.encode("create_session", forKey: .type)
-        try container.encode(provider, forKey: .provider)
-        try container.encode(cwd, forKey: .cwd)
-        try container.encodeIfPresent(model, forKey: .model)
-        try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
-        try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
-        try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
-        if !allowedTools.isEmpty {
-          try container.encode(allowedTools, forKey: .allowedTools)
-        }
-        if !disallowedTools.isEmpty {
-          try container.encode(disallowedTools, forKey: .disallowedTools)
-        }
-        try container.encodeIfPresent(effort, forKey: .effort)
-
-      case let .sendMessage(sessionId, content, model, effort, skills, images, mentions):
-        try container.encode("send_message", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(content, forKey: .content)
-        try container.encodeIfPresent(model, forKey: .model)
-        try container.encodeIfPresent(effort, forKey: .effort)
-        if !skills.isEmpty {
-          try container.encode(skills, forKey: .skills)
-        }
-        if !images.isEmpty {
-          try container.encode(images, forKey: .images)
-        }
-        if !mentions.isEmpty {
-          try container.encode(mentions, forKey: .mentions)
-        }
-
-      case let .approveTool(sessionId, requestId, decision, message, interrupt):
-        try container.encode("approve_tool", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(decision, forKey: .decision)
-        try container.encodeIfPresent(message, forKey: .message)
-        try container.encodeIfPresent(interrupt, forKey: .interrupt)
-
-      case let .answerQuestion(sessionId, requestId, answer, questionId, answers):
-        try container.encode("answer_question", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(answer, forKey: .answer)
-        try container.encodeIfPresent(questionId, forKey: .questionId)
-        try container.encodeIfPresent(answers, forKey: .answers)
-
-      case let .interruptSession(sessionId):
-        try container.encode("interrupt_session", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-
-      case let .endSession(sessionId):
-        try container.encode("end_session", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-
-      case let .updateSessionConfig(sessionId, approvalPolicy, sandboxMode, permissionMode):
-        try container.encode("update_session_config", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
-        try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
-        try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
-
-      case let .renameSession(sessionId, name):
-        try container.encode("rename_session", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encodeIfPresent(name, forKey: .name)
-
-      case let .resumeSession(sessionId):
-        try container.encode("resume_session", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-
-      case let .takeoverSession(
-      sessionId,
-      model,
-      approvalPolicy,
-      sandboxMode,
-      permissionMode,
-      allowedTools,
-      disallowedTools
-    ):
-        try container.encode("takeover_session", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encodeIfPresent(model, forKey: .model)
-        try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
-        try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
-        try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
-        if !allowedTools.isEmpty {
-          try container.encode(allowedTools, forKey: .allowedTools)
-        }
-        if !disallowedTools.isEmpty {
-          try container.encode(disallowedTools, forKey: .disallowedTools)
-        }
-
-      case let .listApprovals(sessionId, limit):
-        try container.encode("list_approvals", forKey: .type)
-        try container.encodeIfPresent(sessionId, forKey: .sessionId)
-        try container.encodeIfPresent(limit, forKey: .limit)
-
-      case let .deleteApproval(approvalId):
-        try container.encode("delete_approval", forKey: .type)
-        try container.encode(approvalId, forKey: .approvalId)
-
-      case .listModels:
-        try container.encode("list_models", forKey: .type)
-
-      case .listClaudeModels:
-        try container.encode("list_claude_models", forKey: .type)
-
-      case let .codexAccountRead(refreshToken):
-        try container.encode("codex_account_read", forKey: .type)
-        if refreshToken {
-          try container.encode(refreshToken, forKey: .refreshToken)
-        }
-
-      case .codexLoginChatgptStart:
-        try container.encode("codex_login_chatgpt_start", forKey: .type)
-
-      case let .codexLoginChatgptCancel(loginId):
-        try container.encode("codex_login_chatgpt_cancel", forKey: .type)
-        try container.encode(loginId, forKey: .loginId)
-
-      case .codexAccountLogout:
-        try container.encode("codex_account_logout", forKey: .type)
-
-      case let .listSkills(sessionId, cwds, forceReload):
-        try container.encode("list_skills", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        if !cwds.isEmpty {
-          try container.encode(cwds, forKey: .cwds)
-        }
-        if forceReload {
-          try container.encode(forceReload, forKey: .forceReload)
-        }
-
-      case let .listRemoteSkills(sessionId):
-        try container.encode("list_remote_skills", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-
-      case let .downloadRemoteSkill(sessionId, hazelnutId):
-        try container.encode("download_remote_skill", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(hazelnutId, forKey: .hazelnutId)
-
-      case let .listMcpTools(sessionId):
-        try container.encode("list_mcp_tools", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-
-      case let .refreshMcpServers(sessionId):
-        try container.encode("refresh_mcp_servers", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-
-      case let .steerTurn(sessionId, content, images, mentions):
-        try container.encode("steer_turn", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(content, forKey: .content)
-        if !images.isEmpty {
-          try container.encode(images, forKey: .images)
-        }
-        if !mentions.isEmpty {
-          try container.encode(mentions, forKey: .mentions)
-        }
-
-      case let .compactContext(sessionId):
-        try container.encode("compact_context", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-
-      case let .undoLastTurn(sessionId):
-        try container.encode("undo_last_turn", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-
-      case let .rollbackTurns(sessionId, numTurns):
-        try container.encode("rollback_turns", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(numTurns, forKey: .numTurns)
-
-      case let .stopTask(sessionId, taskId):
-        try container.encode("stop_task", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(taskId, forKey: .taskId)
-
-      case let .rewindFiles(sessionId, userMessageId):
-        try container.encode("rewind_files", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(userMessageId, forKey: .userMessageId)
-
-      case let .forkSession(
-      sourceSessionId,
-      nthUserMessage,
-      model,
-      approvalPolicy,
-      sandboxMode,
-      cwd,
-      permissionMode,
-      allowedTools,
-      disallowedTools
-    ):
-        try container.encode("fork_session", forKey: .type)
-        try container.encode(sourceSessionId, forKey: .sourceSessionId)
-        try container.encodeIfPresent(nthUserMessage, forKey: .nthUserMessage)
-        try container.encodeIfPresent(model, forKey: .model)
-        try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
-        try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
-        try container.encodeIfPresent(cwd, forKey: .cwd)
-        try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
-        if !allowedTools.isEmpty {
-          try container.encode(allowedTools, forKey: .allowedTools)
-        }
-        if !disallowedTools.isEmpty {
-          try container.encode(disallowedTools, forKey: .disallowedTools)
-        }
-
-      case let .forkSessionToWorktree(sourceSessionId, branchName, baseBranch, nthUserMessage):
-        try container.encode("fork_session_to_worktree", forKey: .type)
-        try container.encode(sourceSessionId, forKey: .sourceSessionId)
-        try container.encode(branchName, forKey: .branchName)
-        try container.encodeIfPresent(baseBranch, forKey: .baseBranch)
-        try container.encodeIfPresent(nthUserMessage, forKey: .nthUserMessage)
-
-      case let .forkSessionToExistingWorktree(sourceSessionId, worktreeId, nthUserMessage):
-        try container.encode("fork_session_to_existing_worktree", forKey: .type)
-        try container.encode(sourceSessionId, forKey: .sourceSessionId)
-        try container.encode(worktreeId, forKey: .worktreeId)
-        try container.encodeIfPresent(nthUserMessage, forKey: .nthUserMessage)
-
-      case let .createReviewComment(sessionId, turnId, filePath, lineStart, lineEnd, body, tag):
-        try container.encode("create_review_comment", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encodeIfPresent(turnId, forKey: .turnId)
-        try container.encode(filePath, forKey: .filePath)
-        try container.encode(lineStart, forKey: .lineStart)
-        try container.encodeIfPresent(lineEnd, forKey: .lineEnd)
-        try container.encode(body, forKey: .body)
-        try container.encodeIfPresent(tag, forKey: .tag)
-
-      case let .updateReviewComment(commentId, body, tag, status):
-        try container.encode("update_review_comment", forKey: .type)
-        try container.encode(commentId, forKey: .commentId)
-        try container.encodeIfPresent(body, forKey: .body)
-        try container.encodeIfPresent(tag, forKey: .tag)
-        try container.encodeIfPresent(status, forKey: .status)
-
-      case let .deleteReviewComment(commentId):
-        try container.encode("delete_review_comment", forKey: .type)
-        try container.encode(commentId, forKey: .commentId)
-
-      case let .listReviewComments(sessionId, turnId):
-        try container.encode("list_review_comments", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encodeIfPresent(turnId, forKey: .turnId)
-
-      case let .getSubagentTools(sessionId, subagentId):
-        try container.encode("get_subagent_tools", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(subagentId, forKey: .subagentId)
-
-      case let .setServerRole(isPrimary):
-        try container.encode("set_server_role", forKey: .type)
-        try container.encode(isPrimary, forKey: .isPrimary)
-
-      case let .setClientPrimaryClaim(clientId, deviceName, isPrimary):
-        try container.encode("set_client_primary_claim", forKey: .type)
-        try container.encode(clientId, forKey: .clientId)
-        try container.encode(deviceName, forKey: .deviceName)
-        try container.encode(isPrimary, forKey: .isPrimary)
-
-      case let .setOpenAiKey(key):
-        try container.encode("set_open_ai_key", forKey: .type)
-        try container.encode(key, forKey: .key)
-
-      case let .checkOpenAiKey(requestId):
-        try container.encode("check_open_ai_key", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-
-      case let .fetchCodexUsage(requestId):
-        try container.encode("fetch_codex_usage", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-
-      case let .fetchClaudeUsage(requestId):
-        try container.encode("fetch_claude_usage", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-
-      case let .executeShell(sessionId, command, cwd, timeoutSecs):
-        try container.encode("execute_shell", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(command, forKey: .command)
-        try container.encodeIfPresent(cwd, forKey: .cwd)
-        if timeoutSecs != 30 {
-          try container.encode(timeoutSecs, forKey: .timeoutSecs)
-        }
-
-      case let .cancelShell(sessionId, requestId):
-        try container.encode("cancel_shell", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(requestId, forKey: .requestId)
-
-      case let .browseDirectory(path, requestId):
-        try container.encode("browse_directory", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encodeIfPresent(path, forKey: .path)
-
-      case let .listRecentProjects(requestId):
-        try container.encode("list_recent_projects", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-
-      case let .listWorktrees(requestId, repoRoot):
-        try container.encode("list_worktrees", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encodeIfPresent(repoRoot, forKey: .repoRoot)
-
-      case let .createWorktree(requestId, repoPath, branchName, baseBranch):
-        try container.encode("create_worktree", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(repoPath, forKey: .repoPath)
-        try container.encode(branchName, forKey: .branchName)
-        try container.encodeIfPresent(baseBranch, forKey: .baseBranch)
-
-      case let .removeWorktree(requestId, worktreeId, force):
-        try container.encode("remove_worktree", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(worktreeId, forKey: .worktreeId)
-        if force {
-          try container.encode(force, forKey: .force)
-        }
-
-      case let .discoverWorktrees(requestId, repoPath):
-        try container.encode("discover_worktrees", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(repoPath, forKey: .repoPath)
+    case let .unsubscribeSession(sessionId):
+      try container.encode("unsubscribe_session", forKey: .type)
+      try container.encode(sessionId, forKey: .sessionId)
     }
   }
+
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     let type = try container.decode(String.self, forKey: .type)
 
     switch type {
-      case "subscribe_list":
-        self = .subscribeList
-      case "subscribe_session":
-        self = try .subscribeSession(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision),
-          includeSnapshot: container.decodeIfPresent(Bool.self, forKey: .includeSnapshot) ?? true
+    case "subscribe_list":
+      self = .subscribeList
+    case "subscribe_session":
+      self = try .subscribeSession(
+        sessionId: container.decode(String.self, forKey: .sessionId),
+        sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision),
+        includeSnapshot: container.decodeIfPresent(Bool.self, forKey: .includeSnapshot) ?? true
+      )
+    case "unsubscribe_session":
+      self = try .unsubscribeSession(sessionId: container.decode(String.self, forKey: .sessionId))
+    default:
+      throw DecodingError.dataCorrupted(
+        DecodingError.Context(
+          codingPath: container.codingPath,
+          debugDescription: "Unknown message type: \(type)"
         )
-      case "unsubscribe_session":
-        self = try .unsubscribeSession(sessionId: container.decode(String.self, forKey: .sessionId))
-      case "create_session":
-        self = try .createSession(
-          provider: container.decode(ServerProvider.self, forKey: .provider),
-          cwd: container.decode(String.self, forKey: .cwd),
-          model: container.decodeIfPresent(String.self, forKey: .model),
-          approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
-          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
-          permissionMode: container.decodeIfPresent(String.self, forKey: .permissionMode),
-          allowedTools: container.decodeIfPresent([String].self, forKey: .allowedTools) ?? [],
-          disallowedTools: container.decodeIfPresent([String].self, forKey: .disallowedTools) ?? [],
-          effort: container.decodeIfPresent(String.self, forKey: .effort)
-        )
-      case "send_message":
-        self = try .sendMessage(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          content: container.decode(String.self, forKey: .content),
-          model: container.decodeIfPresent(String.self, forKey: .model),
-          effort: container.decodeIfPresent(String.self, forKey: .effort),
-          skills: container.decodeIfPresent([ServerSkillInput].self, forKey: .skills) ?? [],
-          images: container.decodeIfPresent([ServerImageInput].self, forKey: .images) ?? [],
-          mentions: container.decodeIfPresent([ServerMentionInput].self, forKey: .mentions) ?? []
-        )
-      case "approve_tool":
-        self = try .approveTool(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          requestId: container.decode(String.self, forKey: .requestId),
-          decision: container.decode(String.self, forKey: .decision),
-          message: container.decodeIfPresent(String.self, forKey: .message),
-          interrupt: container.decodeIfPresent(Bool.self, forKey: .interrupt)
-        )
-      case "answer_question":
-        self = try .answerQuestion(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          requestId: container.decode(String.self, forKey: .requestId),
-          answer: container.decode(String.self, forKey: .answer),
-          questionId: container.decodeIfPresent(String.self, forKey: .questionId),
-          answers: container.decodeIfPresent([String: [String]].self, forKey: .answers)
-        )
-      case "interrupt_session":
-        self = try .interruptSession(sessionId: container.decode(String.self, forKey: .sessionId))
-      case "end_session":
-        self = try .endSession(sessionId: container.decode(String.self, forKey: .sessionId))
-      case "update_session_config":
-        self = try .updateSessionConfig(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
-          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
-          permissionMode: container.decodeIfPresent(String.self, forKey: .permissionMode)
-        )
-      case "rename_session":
-        self = try .renameSession(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          name: container.decodeIfPresent(String.self, forKey: .name)
-        )
-      case "resume_session":
-        self = try .resumeSession(sessionId: container.decode(String.self, forKey: .sessionId))
-      case "takeover_session":
-        self = try .takeoverSession(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          model: container.decodeIfPresent(String.self, forKey: .model),
-          approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
-          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
-          permissionMode: container.decodeIfPresent(String.self, forKey: .permissionMode),
-          allowedTools: (try? container.decode([String].self, forKey: .allowedTools)) ?? [],
-          disallowedTools: (try? container.decode([String].self, forKey: .disallowedTools)) ?? []
-        )
-      case "list_approvals":
-        self = try .listApprovals(
-          sessionId: container.decodeIfPresent(String.self, forKey: .sessionId),
-          limit: container.decodeIfPresent(Int.self, forKey: .limit)
-        )
-      case "delete_approval":
-        self = try .deleteApproval(approvalId: container.decode(Int64.self, forKey: .approvalId))
-      case "list_models":
-        self = .listModels
-      case "list_claude_models":
-        self = .listClaudeModels
-      case "codex_account_read":
-        self = try .codexAccountRead(
-          refreshToken: container.decodeIfPresent(Bool.self, forKey: .refreshToken) ?? false
-        )
-      case "codex_login_chatgpt_start":
-        self = .codexLoginChatgptStart
-      case "codex_login_chatgpt_cancel":
-        self = try .codexLoginChatgptCancel(
-          loginId: container.decode(String.self, forKey: .loginId)
-        )
-      case "codex_account_logout":
-        self = .codexAccountLogout
-      case "list_skills":
-        self = try .listSkills(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          cwds: container.decodeIfPresent([String].self, forKey: .cwds) ?? [],
-          forceReload: container.decodeIfPresent(Bool.self, forKey: .forceReload) ?? false
-        )
-      case "list_remote_skills":
-        self = try .listRemoteSkills(sessionId: container.decode(String.self, forKey: .sessionId))
-      case "download_remote_skill":
-        self = try .downloadRemoteSkill(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          hazelnutId: container.decode(String.self, forKey: .hazelnutId)
-        )
-      case "list_mcp_tools":
-        self = try .listMcpTools(sessionId: container.decode(String.self, forKey: .sessionId))
-      case "refresh_mcp_servers":
-        self = try .refreshMcpServers(sessionId: container.decode(String.self, forKey: .sessionId))
-      case "steer_turn":
-        self = try .steerTurn(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          content: container.decode(String.self, forKey: .content),
-          images: container.decodeIfPresent([ServerImageInput].self, forKey: .images) ?? [],
-          mentions: container.decodeIfPresent([ServerMentionInput].self, forKey: .mentions) ?? []
-        )
-      case "compact_context":
-        self = try .compactContext(sessionId: container.decode(String.self, forKey: .sessionId))
-      case "undo_last_turn":
-        self = try .undoLastTurn(sessionId: container.decode(String.self, forKey: .sessionId))
-      case "rollback_turns":
-        self = try .rollbackTurns(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          numTurns: container.decode(UInt32.self, forKey: .numTurns)
-        )
-      case "fork_session":
-        self = try .forkSession(
-          sourceSessionId: container.decode(String.self, forKey: .sourceSessionId),
-          nthUserMessage: container.decodeIfPresent(UInt32.self, forKey: .nthUserMessage),
-          model: container.decodeIfPresent(String.self, forKey: .model),
-          approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
-          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
-          cwd: container.decodeIfPresent(String.self, forKey: .cwd),
-          permissionMode: container.decodeIfPresent(String.self, forKey: .permissionMode),
-          allowedTools: container.decodeIfPresent([String].self, forKey: .allowedTools) ?? [],
-          disallowedTools: container.decodeIfPresent([String].self, forKey: .disallowedTools) ?? []
-        )
-      case "fork_session_to_worktree":
-        self = try .forkSessionToWorktree(
-          sourceSessionId: container.decode(String.self, forKey: .sourceSessionId),
-          branchName: container.decode(String.self, forKey: .branchName),
-          baseBranch: container.decodeIfPresent(String.self, forKey: .baseBranch),
-          nthUserMessage: container.decodeIfPresent(UInt32.self, forKey: .nthUserMessage)
-        )
-      case "fork_session_to_existing_worktree":
-        self = try .forkSessionToExistingWorktree(
-          sourceSessionId: container.decode(String.self, forKey: .sourceSessionId),
-          worktreeId: container.decode(String.self, forKey: .worktreeId),
-          nthUserMessage: container.decodeIfPresent(UInt32.self, forKey: .nthUserMessage)
-        )
-      case "create_review_comment":
-        self = try .createReviewComment(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          turnId: container.decodeIfPresent(String.self, forKey: .turnId),
-          filePath: container.decode(String.self, forKey: .filePath),
-          lineStart: container.decode(UInt32.self, forKey: .lineStart),
-          lineEnd: container.decodeIfPresent(UInt32.self, forKey: .lineEnd),
-          body: container.decode(String.self, forKey: .body),
-          tag: container.decodeIfPresent(ServerReviewCommentTag.self, forKey: .tag)
-        )
-      case "update_review_comment":
-        self = try .updateReviewComment(
-          commentId: container.decode(String.self, forKey: .commentId),
-          body: container.decodeIfPresent(String.self, forKey: .body),
-          tag: container.decodeIfPresent(ServerReviewCommentTag.self, forKey: .tag),
-          status: container.decodeIfPresent(ServerReviewCommentStatus.self, forKey: .status)
-        )
-      case "delete_review_comment":
-        self = try .deleteReviewComment(commentId: container.decode(String.self, forKey: .commentId))
-      case "list_review_comments":
-        self = try .listReviewComments(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          turnId: container.decodeIfPresent(String.self, forKey: .turnId)
-        )
-      case "get_subagent_tools":
-        self = try .getSubagentTools(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          subagentId: container.decode(String.self, forKey: .subagentId)
-        )
-      case "set_server_role":
-        self = try .setServerRole(
-          isPrimary: container.decode(Bool.self, forKey: .isPrimary)
-        )
-      case "set_client_primary_claim":
-        self = try .setClientPrimaryClaim(
-          clientId: container.decode(String.self, forKey: .clientId),
-          deviceName: container.decode(String.self, forKey: .deviceName),
-          isPrimary: container.decode(Bool.self, forKey: .isPrimary)
-        )
-      case "set_open_ai_key":
-        self = try .setOpenAiKey(
-          key: container.decode(String.self, forKey: .key)
-        )
-      case "check_open_ai_key":
-        self = try .checkOpenAiKey(
-          requestId: container.decode(String.self, forKey: .requestId)
-        )
-      case "fetch_codex_usage":
-        self = try .fetchCodexUsage(
-          requestId: container.decode(String.self, forKey: .requestId)
-        )
-      case "fetch_claude_usage":
-        self = try .fetchClaudeUsage(
-          requestId: container.decode(String.self, forKey: .requestId)
-        )
-      case "execute_shell":
-        self = try .executeShell(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          command: container.decode(String.self, forKey: .command),
-          cwd: container.decodeIfPresent(String.self, forKey: .cwd),
-          timeoutSecs: container.decodeIfPresent(UInt64.self, forKey: .timeoutSecs) ?? 30
-        )
-      case "cancel_shell":
-        self = try .cancelShell(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          requestId: container.decode(String.self, forKey: .requestId)
-        )
-      case "browse_directory":
-        self = try .browseDirectory(
-          path: container.decodeIfPresent(String.self, forKey: .path),
-          requestId: container.decode(String.self, forKey: .requestId)
-        )
-      case "list_recent_projects":
-        self = try .listRecentProjects(
-          requestId: container.decode(String.self, forKey: .requestId)
-        )
-      case "list_worktrees":
-        self = try .listWorktrees(
-          requestId: container.decode(String.self, forKey: .requestId),
-          repoRoot: container.decodeIfPresent(String.self, forKey: .repoRoot)
-        )
-      case "create_worktree":
-        self = try .createWorktree(
-          requestId: container.decode(String.self, forKey: .requestId),
-          repoPath: container.decode(String.self, forKey: .repoPath),
-          branchName: container.decode(String.self, forKey: .branchName),
-          baseBranch: container.decodeIfPresent(String.self, forKey: .baseBranch)
-        )
-      case "remove_worktree":
-        self = try .removeWorktree(
-          requestId: container.decode(String.self, forKey: .requestId),
-          worktreeId: container.decode(String.self, forKey: .worktreeId),
-          force: container.decodeIfPresent(Bool.self, forKey: .force) ?? false
-        )
-      case "discover_worktrees":
-        self = try .discoverWorktrees(
-          requestId: container.decode(String.self, forKey: .requestId),
-          repoPath: container.decode(String.self, forKey: .repoPath)
-        )
-      default:
-        throw DecodingError.dataCorrupted(
-          DecodingError.Context(
-            codingPath: container.codingPath,
-            debugDescription: "Unknown message type: \(type)"
-          )
-        )
+      )
     }
   }
 }
