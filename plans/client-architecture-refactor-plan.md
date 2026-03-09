@@ -1,0 +1,623 @@
+# Client Architecture Refactor Plan
+
+This is the client-side version of the server cleanup we just finished.
+
+The goal is not to chase line counts or move files around for the sake of it. The goal is to give the Swift client a structure that scales:
+
+- clear ownership boundaries
+- one obvious place for new code to go
+- less duplicated state
+- less transport logic leaking into views
+- smaller feature surfaces that are easier to reason about and test
+
+This plan is intentionally phased. We want real progress with low-risk checkpoints, not one giant rewrite.
+
+---
+
+## What is wrong today
+
+The biggest issues are architectural, not cosmetic.
+
+### 1. Protocol and transport surfaces are too centralized
+
+These files are doing too much:
+
+- `OrbitDock/OrbitDock/Services/Server/ServerProtocol.swift`
+- `OrbitDock/OrbitDock/Services/Server/APIClient.swift`
+
+`ServerProtocol.swift` has turned into a giant shared schema bucket. `APIClient.swift` is clean in style, but it still concentrates most of the REST surface in one file.
+
+That makes review blast radius large and encourages every new transport feature to land in the same place.
+
+### 2. Session state ownership is too blurry
+
+These files are the main hotspot:
+
+- `OrbitDock/OrbitDock/Services/Server/SessionStore.swift`
+- `OrbitDock/OrbitDock/Services/Server/SessionObservable.swift`
+- `OrbitDock/OrbitDock/Models/Session.swift`
+- `OrbitDock/OrbitDock/Services/Server/ConversationStore.swift`
+
+Right now the app is mutating overlapping session state in multiple models and manually keeping them in sync. That is a drift trap.
+
+### 3. Runtime state leaks too far upward
+
+These files are telling the story:
+
+- `OrbitDock/OrbitDock/Services/Server/ServerRuntimeRegistry.swift`
+- `OrbitDock/OrbitDock/ContentView.swift`
+- `OrbitDock/OrbitDock/Services/Server/UnifiedSessionsStore.swift`
+
+Connection state, runtime lifecycle, and store refresh logic are still coordinated too often from view code or app-shell code.
+
+### 4. Views are carrying too much workflow logic
+
+The largest offenders today are:
+
+- `OrbitDock/OrbitDock/Views/Codex/DirectSessionComposer.swift`
+- `OrbitDock/OrbitDock/Views/Review/ReviewCanvas.swift`
+- `OrbitDock/OrbitDock/Views/SessionDetailView.swift`
+- `OrbitDock/OrbitDock/Views/SettingsView.swift`
+- `OrbitDock/OrbitDock/Views/NewSessionSheet.swift`
+- `OrbitDock/OrbitDock/Views/QuickSwitcher.swift`
+
+These are feature modules in disguise. They work, but they are too easy to grow in the wrong direction.
+
+### 5. NotificationCenter is doing app-internal coordination
+
+That is acceptable for OS integration. It is not a good long-term app architecture.
+
+We should not keep using global notifications as a substitute for typed runtime or navigation actions.
+
+---
+
+## Target Architecture
+
+The client should follow a structure that is close in spirit to the server:
+
+- transport code owns wire formats and request/response mechanics
+- runtime/store code owns orchestration and app-facing state
+- models own durable domain concepts
+- views render feature state and send intents
+- side effects live behind feature models, stores, or runtime services
+
+### Layer rules
+
+#### Transport
+
+Files under `Services/Server` that deal with HTTP, WebSocket, and wire DTOs should stay transport-focused.
+
+They should:
+
+- encode and decode wire payloads
+- expose typed request/response functions
+- avoid app-shell behavior
+- avoid view logic
+
+They should not:
+
+- own navigation
+- mutate multiple app-level stores directly
+- contain feature workflow logic
+
+#### Runtime and Stores
+
+Runtime/store code should:
+
+- own endpoint lifecycle
+- own connection state
+- own event routing
+- own authoritative mutable session state
+- expose feature-friendly intents to the UI
+
+Runtime/store code should not:
+
+- reach into SwiftUI views
+- use NotificationCenter for normal app coordination
+- duplicate state across multiple mutable models unless there is a very clear projection boundary
+
+#### Views
+
+Views should:
+
+- render state
+- hold ephemeral presentation state
+- emit user intents
+
+Views should not:
+
+- orchestrate multi-step async flows
+- manually reconcile transport/runtime state
+- hide large feature modules in one file unless the feature is genuinely tiny
+
+---
+
+## Target File Shape
+
+This is not a hard final tree, but it is the direction we want.
+
+```text
+OrbitDock/OrbitDock/
+  Models/
+    Session/
+    Conversation/
+    Review/
+    Worktrees/
+
+  Services/
+    Server/
+      Transport/
+        API/
+          Sessions.swift
+          Conversation.swift
+          Approvals.swift
+          Worktrees.swift
+          Usage.swift
+          Settings.swift
+        Protocol/
+          Sessions.swift
+          Conversation.swift
+          Approvals.swift
+          Worktrees.swift
+          Usage.swift
+          Auth.swift
+        EventStream.swift
+      Runtime/
+        ServerRuntimeRegistry.swift
+        ServerRuntime.swift
+        ConnectionState.swift
+      Stores/
+        SessionListStore.swift
+        SessionDetailStore.swift
+        ConversationStore.swift
+        ApprovalStore.swift
+        WorktreeStore.swift
+        UnifiedSessionsStore.swift
+
+  Views/
+    App/
+      ContentView.swift
+      AppShell.swift
+    Codex/
+      Composer/
+      SessionActions/
+    Review/
+      Canvas/
+      Comments/
+      Navigation/
+    Settings/
+      General/
+      Notifications/
+      Setup/
+      Diagnostics/
+    Sessions/
+    Worktrees/
+```
+
+The exact names can change. The important part is the ownership model.
+
+---
+
+## Refactor Principles
+
+### 1. One mutable owner per piece of state
+
+If session detail state changes, there should be one authoritative mutable owner.
+
+If the app also needs a lighter list model, that should be projected from the authoritative state instead of being manually dual-written.
+
+### 2. Views emit intents, stores handle workflows
+
+Async flows like:
+
+- create session
+- continue in new session
+- subscribe/unsubscribe
+- refresh approvals
+- fork to worktree
+- send review comments
+
+should be owned by a feature store/coordinator, not spread across views.
+
+### 3. Transport is a boundary, not the center of the app
+
+`ServerProtocol` and `APIClient` should be easy to grep and easy to change, but they should not be the place where feature behavior accumulates.
+
+### 4. Split by responsibility, not just by size
+
+We should not split files only because they are long.
+
+We should split when they mix concerns like:
+
+- DTOs + app logic
+- rendering + workflow orchestration
+- caching + event routing + action dispatch
+- multiple independent settings panes in one file
+
+### 5. Prefer functional state transforms where possible
+
+For reducers, projectors, and patch application:
+
+- explicit inputs
+- explicit outputs
+- minimal hidden state
+- deterministic transforms
+
+This will make the client easier to test and easier to reason about.
+
+---
+
+## Phases
+
+## Phase 0: Guardrails and Architecture Notes
+
+Before touching code, write down the rules the refactor is trying to enforce.
+
+### Deliverables
+
+- a short client architecture doc
+- a short “where new code goes” section
+- state ownership rules for session data
+- a rule about NotificationCenter only being used for true cross-system integration
+
+### Done when
+
+- contributors can tell where a new transport type, runtime concern, or feature view belongs
+- the rules are short enough to use in code review
+
+---
+
+## Phase 1: Split Transport Contracts
+
+This is the safest high-value starting point.
+
+### Scope
+
+- split `ServerProtocol.swift` into smaller protocol/domain files
+- split `APIClient.swift` by server capability
+- keep behavior the same
+
+### Why first
+
+This reduces blast radius fast without forcing a state rewrite immediately.
+
+### Expected output
+
+- smaller protocol files with clearer ownership
+- smaller API client files that are easy to grep by feature
+- fewer unrelated changes touching the same transport file
+
+### Testing
+
+- codec roundtrip tests stay green
+- no user-facing behavior change
+- existing integration tests still pass
+
+---
+
+## Phase 2: Fix Session State Ownership
+
+This is the most important architectural phase.
+
+### Scope
+
+- reduce or remove duplicated mutable ownership across:
+  - `Session`
+  - `SessionObservable`
+  - `ConversationStore`
+  - `SessionStore`
+- introduce explicit projection or reducer helpers
+- make token/approval/message/session fields update from one authoritative path
+
+### Recommended direction
+
+Use one authoritative mutable detail owner per session, then project:
+
+- lightweight list/session summary state
+- conversation state
+- derived UI-friendly values
+
+### Expected output
+
+- fewer `sess.foo = ...; obs.foo = ...` update pairs
+- fewer drift bugs
+- cleaner event application logic
+
+### Testing
+
+- state reducer/unit tests for session patches and token updates
+- outcome tests for event application
+- regression test for list/detail token consistency
+
+---
+
+## Phase 3: Make Runtime State Explicit
+
+### Scope
+
+- move connection state ownership into runtime
+- reduce view-led refresh orchestration
+- make unified session state derive from runtime/store signals instead of ad hoc shell hooks
+
+### Files
+
+- `ServerRuntimeRegistry.swift`
+- `ServerRuntime.swift`
+- `UnifiedSessionsStore.swift`
+- `ContentView.swift`
+
+### Expected output
+
+- connection state becomes observable and explicit
+- fewer shell-level `onAppear` / `onChange` coordination hacks
+- runtime setup becomes more testable
+
+### Testing
+
+- runtime status tests
+- reconnect/disconnect UI state tests
+- endpoint switching tests
+
+---
+
+## Phase 4: Thin the App Shell
+
+### Scope
+
+- turn `ContentView.swift` into a composition root
+- move quick-launch/session-creation orchestration out of the root view
+- reduce global NotificationCenter usage for app-internal flow
+
+### Expected output
+
+- shell becomes easier to reason about
+- fewer invisible dependencies between services and views
+- less singleton-driven behavior hidden in the UI layer
+
+### Testing
+
+- app-shell composition tests where useful
+- navigation and selection outcome tests
+
+---
+
+## Phase 5: Refactor the Composer Feature
+
+### Scope
+
+- reorganize `DirectSessionComposer` into a real feature module
+- extract state/actions from the root view
+- split pending approval, attachments, completions, and continuation/fork flows into focused files
+
+### Expected output
+
+- root composer view becomes much smaller
+- state is easier to reason about
+- provider-specific behavior becomes easier to isolate
+
+### Testing
+
+- feature tests around:
+  - send/steer behavior
+  - approval handling
+  - mention/attachment behavior
+  - connection-status presentation
+
+---
+
+## Phase 6: Refactor the Review Feature
+
+### Scope
+
+- split `ReviewCanvas` into review state, navigation/cursor helpers, comment composition, and render sections
+- reduce side effects directly in the giant view file
+
+### Expected output
+
+- clearer review feature boundaries
+- easier keyboard/navigation maintenance
+- less fear when touching review UX
+
+### Testing
+
+- pure cursor/navigation tests
+- review selection/composition state tests
+- integration tests for comment workflows
+
+---
+
+## Phase 7: Decompose Large Screens
+
+### Scope
+
+- `SettingsView`
+- `QuickSwitcher`
+- `NewSessionSheet`
+- `SessionDetailView`
+- `LibraryView` if still warranted after earlier phases
+
+### Expected output
+
+- screens become feature folders
+- sections/panes live in their own files
+- transport/workflow logic moves into local feature models
+
+### Testing
+
+- behavior tests at the feature level
+- avoid tests that inspect internal section decomposition
+
+---
+
+## Phase 8: Conversation Rendering Architecture Pass
+
+This should happen after the store/runtime work, not before.
+
+### Scope
+
+- tighten boundaries across:
+  - timeline projection
+  - tool-cell models
+  - platform-specific cell/view wrappers
+  - height/layout helpers
+
+### Why later
+
+This area is large and important, but it is also already more structured than the store/runtime side. The biggest risk today is state ownership and orchestration, not rendering correctness.
+
+### Expected output
+
+- cleaner platform-neutral render model
+- less duplication between AppKit/UIKit wrappers
+- easier future performance work
+
+---
+
+## Testing Philosophy for the Client Refactor
+
+Use the same testing philosophy we used on the server.
+
+### Test outcomes, not structure
+
+Prefer tests like:
+
+- when this event arrives, the session list and detail state agree
+- when the socket disconnects, the UI shows reconnecting/failed state
+- when a session is launched, the correct screen state appears
+
+Avoid tests like:
+
+- store A called helper B then helper C
+- view X toggled internal local boolean Y before calling method Z
+
+### Prefer pure reducers and projectors
+
+If we extract:
+
+- event reducers
+- state projectors
+- patch application helpers
+- selection/navigation helpers
+
+those should get direct unit tests.
+
+### Use feature-level tests for workflows
+
+Examples:
+
+- session creation
+- session continuation
+- approval handling
+- review comment creation
+- connection-state transitions
+
+### Avoid test duplication across layers
+
+Do not test the same behavior at:
+
+- protocol codec level
+- store reducer level
+- view model level
+- view snapshot level
+
+unless each layer is catching a genuinely different failure mode.
+
+---
+
+## Worker Lanes
+
+This refactor splits well if we are disciplined about ownership.
+
+### Lane A: Transport split
+
+- `ServerProtocol`
+- `APIClient`
+
+### Lane B: Runtime/store ownership
+
+- `SessionStore`
+- `SessionObservable`
+- `ConversationStore`
+- `ServerRuntimeRegistry`
+- `UnifiedSessionsStore`
+
+### Lane C: App shell and coordination
+
+- `ContentView`
+- `OrbitDockApp`
+- app-level navigation/runtime coordination
+- NotificationCenter cleanup where it touches shell concerns
+
+### Lane D: Composer feature
+
+- `DirectSessionComposer`
+- composer subviews/helpers
+
+### Lane E: Review feature
+
+- `ReviewCanvas`
+- review subviews/helpers
+
+### Lane F: Large screen decomposition
+
+- `SettingsView`
+- `QuickSwitcher`
+- `NewSessionSheet`
+- `SessionDetailView`
+
+### Lane G: Conversation rendering
+
+- conversation projector/model stack
+- AppKit/UIKit wrappers
+- height/layout helpers
+
+Important rule:
+
+Do not run all lanes at once.
+
+Start with:
+
+1. Lane A
+2. Lane B
+3. Lane C
+
+Then do feature lanes once the state/runtime boundaries are cleaner.
+
+---
+
+## Recommended Execution Order
+
+1. Phase 0
+2. Phase 1
+3. Phase 2
+4. Phase 3
+5. Phase 4
+6. Phase 5 and Phase 6 in parallel if write sets are clean
+7. Phase 7
+8. Phase 8
+
+---
+
+## Success Criteria
+
+We should call this refactor successful when:
+
+- `ServerProtocol` is no longer a mega-file
+- `APIClient` is split by capability
+- session detail state has one authoritative mutable owner
+- runtime connection state is explicit and observable
+- `ContentView` is a thin shell
+- `DirectSessionComposer` and `ReviewCanvas` are feature modules, not giant root views
+- NotificationCenter is no longer a normal app-internal coordination mechanism
+- large screens are organized by feature section
+- new contributors can tell where code belongs without guessing
+
+---
+
+## Bottom Line
+
+The client does not need a rescue. But it does need the same kind of architectural thought we just gave the server.
+
+That is the opportunity here.
+
+If we do this now, we get a codebase that is easier to extend, easier to test, and much less likely to drift into duplicated state and giant SwiftUI files that nobody wants to touch.
