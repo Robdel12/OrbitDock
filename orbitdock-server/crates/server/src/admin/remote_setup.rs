@@ -66,6 +66,28 @@ struct ServiceState {
     bind: Option<SocketAddr>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ServiceStateSnapshot {
+    installed: bool,
+    bind: Option<SocketAddr>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ServiceChange {
+    InstallOrUpdate { bind: SocketAddr },
+    KeepExisting,
+    NoService,
+}
+
+#[derive(Debug, PartialEq)]
+struct RemoteSetupPlan {
+    desired_bind: SocketAddr,
+    effective_public_url: Option<String>,
+    should_issue_token: bool,
+    should_configure_local_hooks: bool,
+    service_change: ServiceChange,
+}
+
 pub fn guide_remote_setup(data_dir: &Path) -> anyhow::Result<()> {
     println!();
     println!("  OrbitDock Remote Setup");
@@ -101,6 +123,16 @@ pub fn guide_remote_setup(data_dir: &Path) -> anyhow::Result<()> {
     let configure_service = prompt_service_choice(&service_state, desired_bind)?;
     let configure_local_hooks =
         prompt_yes_no("Will Claude Code run on this machine too? [y/N]", false)?;
+    let plan = plan_remote_setup(
+        exposure,
+        ServiceStateSnapshot {
+            installed: service_state.installed,
+            bind: service_state.bind,
+        },
+        configure_service,
+        configure_local_hooks,
+        public_url.clone(),
+    );
 
     println!();
     println!("  Generating a fresh auth token for this remote setup...");
@@ -109,23 +141,27 @@ pub fn guide_remote_setup(data_dir: &Path) -> anyhow::Result<()> {
     println!("  Copy it now and store it somewhere secure.");
     println!("  (Stored hashed in the database; OrbitDock will not print it again.)");
 
-    if configure_service {
-        println!();
-        println!(
-            "  Configuring background service for {} (bind {})...",
-            exposure.label(),
-            desired_bind
-        );
-        install_service::install_background_service(data_dir, desired_bind, true, None)?;
-    } else if service_state.installed {
-        println!();
-        println!("  Leaving the existing background service unchanged.");
-    } else {
-        println!();
-        println!("  Background service not installed.");
+    match plan.service_change {
+        ServiceChange::InstallOrUpdate { bind } => {
+            println!();
+            println!(
+                "  Configuring background service for {} (bind {})...",
+                exposure.label(),
+                bind
+            );
+            install_service::install_background_service(data_dir, bind, true, None)?;
+        }
+        ServiceChange::KeepExisting => {
+            println!();
+            println!("  Leaving the existing background service unchanged.");
+        }
+        ServiceChange::NoService => {
+            println!();
+            println!("  Background service not installed.");
+        }
     }
 
-    if configure_local_hooks {
+    if plan.should_configure_local_hooks {
         println!();
         println!("  Configuring local Claude Code hooks for http://127.0.0.1:4000...");
         std::env::set_var("ORBITDOCK_INSTALLER_MODE", "1");
@@ -143,14 +179,49 @@ pub fn guide_remote_setup(data_dir: &Path) -> anyhow::Result<()> {
 
     print_summary(
         exposure,
-        desired_bind,
+        plan.desired_bind,
         service_state,
-        configure_service,
-        configure_local_hooks,
-        public_url.as_deref(),
+        matches!(plan.service_change, ServiceChange::InstallOrUpdate { .. }),
+        plan.should_configure_local_hooks,
+        plan.effective_public_url.as_deref(),
     );
 
     Ok(())
+}
+
+fn plan_remote_setup(
+    exposure: ExposureMode,
+    existing_service: ServiceStateSnapshot,
+    configure_service: bool,
+    configure_local_hooks: bool,
+    public_url: Option<String>,
+) -> RemoteSetupPlan {
+    let desired_bind = exposure.desired_bind();
+    let service_change = service_change_for(existing_service, configure_service, desired_bind);
+
+    RemoteSetupPlan {
+        desired_bind,
+        effective_public_url: public_url.or_else(|| exposure.default_public_url()),
+        should_issue_token: true,
+        should_configure_local_hooks: configure_local_hooks,
+        service_change,
+    }
+}
+
+fn service_change_for(
+    existing_service: ServiceStateSnapshot,
+    configure_service: bool,
+    desired_bind: SocketAddr,
+) -> ServiceChange {
+    if configure_service {
+        return ServiceChange::InstallOrUpdate { bind: desired_bind };
+    }
+
+    if existing_service.installed {
+        ServiceChange::KeepExisting
+    } else {
+        ServiceChange::NoService
+    }
 }
 
 fn prompt_exposure_mode() -> anyhow::Result<ExposureMode> {
@@ -437,7 +508,10 @@ fn print_summary(
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_public_url, parse_launchd_bind, parse_systemd_bind};
+    use super::{
+        normalize_public_url, parse_launchd_bind, parse_systemd_bind, plan_remote_setup,
+        service_change_for, ExposureMode, ServiceChange, ServiceStateSnapshot,
+    };
 
     #[test]
     fn normalize_public_url_adds_https_scheme() {
@@ -463,5 +537,80 @@ mod tests {
         let content = r#"ExecStart=/Users/test/.orbitdock/bin/orbitdock start --bind 0.0.0.0:4000 --data-dir /Users/test/.orbitdock"#;
         let bind = parse_systemd_bind(content).expect("bind");
         assert_eq!(bind.to_string(), "0.0.0.0:4000");
+    }
+
+    #[test]
+    fn remote_setup_plan_prefers_localhost_bind_for_cloudflare() {
+        let plan = plan_remote_setup(
+            ExposureMode::Cloudflare,
+            ServiceStateSnapshot {
+                installed: false,
+                bind: None,
+            },
+            true,
+            false,
+            None,
+        );
+
+        assert_eq!(plan.desired_bind.to_string(), "127.0.0.1:4000");
+        assert_eq!(
+            plan.service_change,
+            ServiceChange::InstallOrUpdate {
+                bind: "127.0.0.1:4000".parse().unwrap()
+            }
+        );
+        assert!(plan.should_issue_token);
+    }
+
+    #[test]
+    fn remote_setup_plan_prefers_remote_bind_for_tailscale() {
+        let plan = plan_remote_setup(
+            ExposureMode::Tailscale,
+            ServiceStateSnapshot {
+                installed: false,
+                bind: None,
+            },
+            false,
+            true,
+            None,
+        );
+
+        assert_eq!(plan.desired_bind.to_string(), "0.0.0.0:4000");
+        assert_eq!(plan.service_change, ServiceChange::NoService);
+        assert!(plan.should_configure_local_hooks);
+    }
+
+    #[test]
+    fn explicit_public_url_wins_over_mode_default() {
+        let plan = plan_remote_setup(
+            ExposureMode::Direct,
+            ServiceStateSnapshot {
+                installed: true,
+                bind: Some("127.0.0.1:4000".parse().unwrap()),
+            },
+            false,
+            false,
+            Some("https://dock.example.com".to_string()),
+        );
+
+        assert_eq!(
+            plan.effective_public_url.as_deref(),
+            Some("https://dock.example.com")
+        );
+        assert_eq!(plan.service_change, ServiceChange::KeepExisting);
+    }
+
+    #[test]
+    fn service_change_keeps_existing_when_not_reconfiguring() {
+        let change = service_change_for(
+            ServiceStateSnapshot {
+                installed: true,
+                bind: Some("127.0.0.1:4000".parse().unwrap()),
+            },
+            false,
+            "0.0.0.0:4000".parse().unwrap(),
+        );
+
+        assert_eq!(change, ServiceChange::KeepExisting);
     }
 }

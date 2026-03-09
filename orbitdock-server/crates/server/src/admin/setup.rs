@@ -15,6 +15,7 @@ pub enum Mode {
     Remote,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct SetupOptions {
     pub mode: Option<Mode>,
     pub bind: Option<SocketAddr>,
@@ -23,25 +24,31 @@ pub struct SetupOptions {
     pub skip_hooks: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct SetupPlan {
+    mode: Mode,
+    bind: SocketAddr,
+    init_url: String,
+    hook_url: Option<String>,
+    should_issue_token: bool,
+    should_install_hooks: bool,
+    should_install_service: bool,
+    warn_missing_remote_server_url: bool,
+}
+
 pub fn run_setup_wizard(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<()> {
     println!();
     println!("  OrbitDock Server Setup");
     println!("  =====================");
     println!();
 
-    // 1. Determine mode
     let mode = match opts.mode {
         Some(m) => m,
         None => prompt_mode()?,
     };
+    let plan = plan_setup(mode, &opts);
 
-    let bind = opts.bind.unwrap_or_else(|| match mode {
-        Mode::Local => "127.0.0.1:4000".parse().unwrap(),
-        Mode::Remote => "0.0.0.0:4000".parse().unwrap(),
-    });
-
-    // 2. For remote mode, generate auth token
-    let auth_token = if mode == Mode::Remote {
+    let auth_token = if plan.should_issue_token {
         println!("  Generating auth token...");
         let token = status::issue_auth_token(data_dir)?;
         println!("  Auth token: {}", token);
@@ -53,84 +60,100 @@ pub fn run_setup_wizard(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<(
         None
     };
 
-    // 3. Resolve server URL for hooks / sharing.
-    let resolved_server_url = opts.server_url.clone();
-    if mode == Mode::Remote && resolved_server_url.is_none() {
-        println!("  \x1b[33m[WARN]\x1b[0m No --server-url provided for remote mode.");
-        println!("         Hooks on this machine will keep pointing to localhost.");
-        println!("         For remote machines, use a public HTTPS URL when running:");
-        println!(
-            "         orbitdock install-hooks --server-url https://your-server.example.com:4000"
-        );
-        println!();
-    }
+    render_setup_warnings(&plan);
 
-    let init_url = if mode == Mode::Local {
-        format!("http://{}", bind)
-    } else {
-        "http://127.0.0.1:4000".to_string()
-    };
-
-    // 4. Run init
     println!("  Running init...");
-    init::initialize_data_dir(data_dir, &init_url)?;
+    init::initialize_data_dir(data_dir, &plan.init_url)?;
 
-    // 5. Install hooks
-    if !opts.skip_hooks {
+    if plan.should_install_hooks {
         println!("  Installing Claude Code hooks...");
-        let hook_auth = auth_token.as_deref();
-        let hook_url = if mode == Mode::Remote {
-            resolved_server_url.as_deref()
-        } else {
-            None
-        };
-        install_hooks::install_claude_hooks(None, hook_url, hook_auth)?;
+        install_hooks::install_claude_hooks(None, plan.hook_url.as_deref(), auth_token.as_deref())?;
     } else {
         println!("  Skipping hook installation.");
     }
 
-    // 6. Install service
-    if !opts.skip_service {
+    if plan.should_install_service {
         println!("  Installing system service...");
-        install_service::install_background_service(data_dir, bind, true, None)?;
+        install_service::install_background_service(data_dir, plan.bind, true, None)?;
     } else {
         println!("  Skipping service installation.");
     }
 
-    // 7. Print summary
+    render_setup_summary(&plan, auth_token.is_some());
+
+    Ok(())
+}
+
+fn plan_setup(mode: Mode, opts: &SetupOptions) -> SetupPlan {
+    let bind = opts.bind.unwrap_or_else(|| match mode {
+        Mode::Local => "127.0.0.1:4000".parse().unwrap(),
+        Mode::Remote => "0.0.0.0:4000".parse().unwrap(),
+    });
+
+    SetupPlan {
+        mode,
+        bind,
+        init_url: match mode {
+            Mode::Local => format!("http://{}", bind),
+            Mode::Remote => "http://127.0.0.1:4000".to_string(),
+        },
+        hook_url: match mode {
+            Mode::Local => None,
+            Mode::Remote => opts.server_url.clone(),
+        },
+        should_issue_token: mode == Mode::Remote,
+        should_install_hooks: !opts.skip_hooks,
+        should_install_service: !opts.skip_service,
+        warn_missing_remote_server_url: mode == Mode::Remote && opts.server_url.is_none(),
+    }
+}
+
+fn render_setup_warnings(plan: &SetupPlan) {
+    if !plan.warn_missing_remote_server_url {
+        return;
+    }
+
+    println!("  \x1b[33m[WARN]\x1b[0m No --server-url provided for remote mode.");
+    println!("         Hooks on this machine will keep pointing to localhost.");
+    println!("         For remote machines, use a public HTTPS URL when running:");
+    println!("         orbitdock install-hooks --server-url https://your-server.example.com:4000");
+    println!();
+}
+
+fn render_setup_summary(plan: &SetupPlan, auth_token_issued: bool) {
     println!();
     println!("  Setup complete!");
     println!("  ──────────────");
     println!();
-    match mode {
+
+    match plan.mode {
         Mode::Local => {
             println!("  Mode:    Local");
-            println!("  Bind:    {}", bind);
-            println!("  Health:  http://{}/health", bind);
+            println!("  Bind:    {}", plan.bind);
+            println!("  Health:  http://{}/health", plan.bind);
             println!();
             println!("  Your Claude Code sessions will auto-report to this server.");
         }
         Mode::Remote => {
             println!("  Mode:    Remote");
-            println!("  Bind:    {}", bind);
+            println!("  Bind:    {}", plan.bind);
             println!();
             println!("  Start the server:");
-            println!("    orbitdock start --bind {}", bind);
+            println!("    orbitdock start --bind {}", plan.bind);
             println!();
             println!("  Connect a remote developer machine (hooks only):");
-            let remote_url = resolved_server_url
+            let remote_url = plan
+                .hook_url
                 .clone()
                 .unwrap_or_else(|| "https://your-server.example.com:4000".to_string());
             println!("    orbitdock install-hooks --server-url {}", remote_url);
-            if auth_token.is_some() {
+            if auth_token_issued {
                 println!("  The installer will prompt for the auth token.");
                 println!("  You can also set ORBITDOCK_AUTH_TOKEN before running it.");
             }
         }
     }
     println!();
-
-    Ok(())
 }
 
 fn prompt_mode() -> anyhow::Result<Mode> {
@@ -153,5 +176,75 @@ fn prompt_mode() -> anyhow::Result<Mode> {
             println!("  Invalid choice, defaulting to local.");
             Ok(Mode::Local)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{plan_setup, Mode, SetupOptions};
+
+    #[test]
+    fn local_setup_plan_defaults_to_localhost() {
+        let plan = plan_setup(
+            Mode::Local,
+            &SetupOptions {
+                mode: Some(Mode::Local),
+                bind: None,
+                server_url: None,
+                skip_service: false,
+                skip_hooks: false,
+            },
+        );
+
+        assert_eq!(plan.bind.to_string(), "127.0.0.1:4000");
+        assert_eq!(plan.init_url, "http://127.0.0.1:4000");
+        assert_eq!(plan.hook_url, None);
+        assert!(!plan.should_issue_token);
+        assert!(plan.should_install_hooks);
+        assert!(plan.should_install_service);
+        assert!(!plan.warn_missing_remote_server_url);
+    }
+
+    #[test]
+    fn remote_setup_plan_defaults_to_remote_bind_and_warns_without_public_url() {
+        let plan = plan_setup(
+            Mode::Remote,
+            &SetupOptions {
+                mode: Some(Mode::Remote),
+                bind: None,
+                server_url: None,
+                skip_service: false,
+                skip_hooks: false,
+            },
+        );
+
+        assert_eq!(plan.bind.to_string(), "0.0.0.0:4000");
+        assert_eq!(plan.init_url, "http://127.0.0.1:4000");
+        assert_eq!(plan.hook_url, None);
+        assert!(plan.should_issue_token);
+        assert!(plan.warn_missing_remote_server_url);
+    }
+
+    #[test]
+    fn setup_plan_respects_skip_flags_and_explicit_remote_url() {
+        let plan = plan_setup(
+            Mode::Remote,
+            &SetupOptions {
+                mode: Some(Mode::Remote),
+                bind: Some("10.0.0.5:4000".parse().unwrap()),
+                server_url: Some("https://dock.example.com:4000".to_string()),
+                skip_service: true,
+                skip_hooks: true,
+            },
+        );
+
+        assert_eq!(plan.bind.to_string(), "10.0.0.5:4000");
+        assert_eq!(
+            plan.hook_url.as_deref(),
+            Some("https://dock.example.com:4000")
+        );
+        assert!(!plan.should_install_hooks);
+        assert!(!plan.should_install_service);
+        assert!(!plan.warn_missing_remote_server_url);
     }
 }

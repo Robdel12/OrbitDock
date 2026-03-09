@@ -28,13 +28,20 @@ struct Check {
     detail: String,
 }
 
+struct DoctorReport {
+    checks: Vec<Check>,
+    passed: u32,
+    warned: u32,
+    failed: u32,
+}
+
 pub fn print_diagnostics(data_dir: &Path) -> anyhow::Result<()> {
     println!();
     println!("  OrbitDock Doctor");
     println!("  ───────────────");
     println!();
 
-    let checks = vec![
+    let report = build_doctor_report(vec![
         check_data_dir(data_dir),
         check_database(),
         check_encryption_key(),
@@ -47,33 +54,44 @@ pub fn print_diagnostics(data_dir: &Path) -> anyhow::Result<()> {
         check_port(),
         check_health(),
         check_disk_space(data_dir),
-    ];
+    ]);
 
-    // Print results
-    let mut pass = 0u32;
-    let mut warn = 0u32;
-    let mut fail = 0u32;
-
-    for check in &checks {
-        match check.status {
-            Status::Pass => pass += 1,
-            Status::Warn => warn += 1,
-            Status::Fail => fail += 1,
-        }
+    for check in &report.checks {
         println!("  {} {}: {}", check.status, check.name, check.detail);
     }
 
     println!();
     println!(
         "  Summary: {} passed, {} warnings, {} failed ({} total)",
-        pass,
-        warn,
-        fail,
-        checks.len()
+        report.passed,
+        report.warned,
+        report.failed,
+        report.checks.len()
     );
     println!();
 
     Ok(())
+}
+
+fn build_doctor_report(checks: Vec<Check>) -> DoctorReport {
+    let mut passed = 0u32;
+    let mut warned = 0u32;
+    let mut failed = 0u32;
+
+    for check in &checks {
+        match check.status {
+            Status::Pass => passed += 1,
+            Status::Warn => warned += 1,
+            Status::Fail => failed += 1,
+        }
+    }
+
+    DoctorReport {
+        checks,
+        passed,
+        warned,
+        failed,
+    }
 }
 
 fn check_data_dir(data_dir: &Path) -> Check {
@@ -517,6 +535,42 @@ fn check_wal_size() -> Check {
             status: Status::Warn,
             detail: format!("cannot stat: {}", e),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_doctor_report, Check, Status};
+
+    #[test]
+    fn doctor_report_counts_statuses() {
+        let report = build_doctor_report(vec![
+            Check {
+                name: "one",
+                status: Status::Pass,
+                detail: "ok".to_string(),
+            },
+            Check {
+                name: "two",
+                status: Status::Warn,
+                detail: "warn".to_string(),
+            },
+            Check {
+                name: "three",
+                status: Status::Fail,
+                detail: "fail".to_string(),
+            },
+            Check {
+                name: "four",
+                status: Status::Pass,
+                detail: "ok".to_string(),
+            },
+        ]);
+
+        assert_eq!(report.passed, 2);
+        assert_eq!(report.warned, 1);
+        assert_eq!(report.failed, 1);
+        assert_eq!(report.checks.len(), 4);
     }
 }
 
