@@ -14,4 +14,5 @@ pub(crate) mod session_lifecycle_policy;
 pub(crate) mod session_queries;
 pub(crate) mod session_registry;
 pub(crate) mod session_runtime_helpers;
+pub(crate) mod session_subscriptions;
 pub(crate) mod transcript_sync_policy;
