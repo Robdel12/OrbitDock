@@ -1,5 +1,7 @@
 use orbitdock_protocol::ClientMessage;
 
+use super::rest_only_policy::rest_only_route;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MessageGroup {
     Subscribe,
@@ -14,6 +16,10 @@ pub(crate) enum MessageGroup {
 }
 
 pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
+    if rest_only_route(message).is_some() {
+        return MessageGroup::RestOnly;
+    }
+
     match message {
         ClientMessage::SubscribeList
         | ClientMessage::SubscribeSession { .. }
@@ -58,32 +64,7 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
             MessageGroup::Shell
         }
 
-        ClientMessage::BrowseDirectory { .. }
-        | ClientMessage::ListRecentProjects { .. }
-        | ClientMessage::CheckOpenAiKey { .. }
-        | ClientMessage::FetchCodexUsage { .. }
-        | ClientMessage::FetchClaudeUsage { .. }
-        | ClientMessage::SetServerRole { .. }
-        | ClientMessage::SetOpenAiKey { .. }
-        | ClientMessage::ListModels
-        | ClientMessage::ListClaudeModels
-        | ClientMessage::CodexAccountRead { .. }
-        | ClientMessage::CodexLoginChatgptStart
-        | ClientMessage::CodexLoginChatgptCancel { .. }
-        | ClientMessage::CodexAccountLogout
-        | ClientMessage::ListSkills { .. }
-        | ClientMessage::ListRemoteSkills { .. }
-        | ClientMessage::DownloadRemoteSkill { .. }
-        | ClientMessage::ListMcpTools { .. }
-        | ClientMessage::RefreshMcpServers { .. }
-        | ClientMessage::ListWorktrees { .. }
-        | ClientMessage::CreateWorktree { .. }
-        | ClientMessage::RemoveWorktree { .. }
-        | ClientMessage::DiscoverWorktrees { .. }
-        | ClientMessage::CreateReviewComment { .. }
-        | ClientMessage::UpdateReviewComment { .. }
-        | ClientMessage::DeleteReviewComment { .. }
-        | ClientMessage::ListReviewComments { .. } => MessageGroup::RestOnly,
+        _ => unreachable!("rest-only messages should be handled before classification"),
     }
 }
 

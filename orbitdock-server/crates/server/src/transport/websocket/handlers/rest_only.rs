@@ -1,5 +1,6 @@
 use tokio::sync::mpsc;
 
+use crate::transport::websocket::rest_only_policy::rest_only_route;
 use crate::transport::websocket::{send_rest_only_error, OutboundMessage};
 use orbitdock_protocol::ClientMessage;
 
@@ -8,171 +9,86 @@ use orbitdock_protocol::ClientMessage;
 /// Each arm simply returns an error directing the client to the corresponding
 /// HTTP endpoint. No shared state is needed — only `client_tx` for the reply.
 pub(crate) async fn handle(msg: ClientMessage, client_tx: &mpsc::Sender<OutboundMessage>) {
-    match msg {
-        // ── Filesystem / browsing ─────────────────────────────────
-        ClientMessage::BrowseDirectory { .. } => {
-            send_rest_only_error(client_tx, "GET /api/fs/browse", None).await;
-        }
-        ClientMessage::ListRecentProjects { .. } => {
-            send_rest_only_error(client_tx, "GET /api/fs/recent-projects", None).await;
-        }
+    if let Some(route) = rest_only_route(&msg) {
+        send_rest_only_error(client_tx, route.endpoint, route.session_id).await;
+    } else {
+        tracing::warn!(?msg, "rest_only::handle called with unexpected variant");
+    }
+}
 
-        // ── Config reads ──────────────────────────────────────────
-        ClientMessage::CheckOpenAiKey { .. } => {
-            send_rest_only_error(client_tx, "GET /api/server/openai-key", None).await;
-        }
-        ClientMessage::ListModels => {
-            send_rest_only_error(client_tx, "GET /api/models/codex", None).await;
-        }
-        ClientMessage::ListClaudeModels => {
-            send_rest_only_error(client_tx, "GET /api/models/claude", None).await;
-        }
+#[cfg(test)]
+mod tests {
+    use super::handle;
+    use crate::transport::websocket::OutboundMessage;
+    use orbitdock_protocol::{ClientMessage, ServerMessage};
+    use tokio::sync::mpsc;
 
-        // ── Usage ─────────────────────────────────────────────────
-        ClientMessage::FetchCodexUsage { .. } => {
-            send_rest_only_error(client_tx, "GET /api/usage/codex", None).await;
+    async fn recv_json(client_rx: &mut mpsc::Receiver<OutboundMessage>) -> ServerMessage {
+        match client_rx.recv().await.expect("expected outbound message") {
+            OutboundMessage::Json(message) => message,
+            other => panic!("expected JSON outbound message, got {:?}", other),
         }
-        ClientMessage::FetchClaudeUsage { .. } => {
-            send_rest_only_error(client_tx, "GET /api/usage/claude", None).await;
-        }
+    }
 
-        // ── Config mutations ──────────────────────────────────────
-        ClientMessage::SetOpenAiKey { .. } => {
-            send_rest_only_error(client_tx, "POST /api/server/openai-key", None).await;
-        }
-        ClientMessage::SetServerRole { .. } => {
-            send_rest_only_error(client_tx, "PUT /api/server/role", None).await;
-        }
+    #[tokio::test]
+    async fn browse_directory_returns_rest_only_error() {
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(4);
 
-        // ── Worktree management ───────────────────────────────────
-        ClientMessage::ListWorktrees {
-            request_id: _,
-            repo_root,
-        } => {
-            send_rest_only_error(client_tx, "GET /api/worktrees?repo_root=...", repo_root).await;
-        }
-        ClientMessage::CreateWorktree { .. } => {
-            send_rest_only_error(client_tx, "POST /api/worktrees", None).await;
-        }
-        ClientMessage::RemoveWorktree { .. } => {
-            send_rest_only_error(client_tx, "DELETE /api/worktrees/{worktree_id}", None).await;
-        }
-        ClientMessage::DiscoverWorktrees { .. } => {
-            send_rest_only_error(client_tx, "POST /api/worktrees/discover", None).await;
-        }
-        ClientMessage::ForkSessionToWorktree {
-            source_session_id, ..
-        } => {
-            send_rest_only_error(
-                client_tx,
-                "WS action: fork_session_to_worktree",
-                Some(source_session_id),
-            )
-            .await;
-        }
-        ClientMessage::ForkSessionToExistingWorktree {
-            source_session_id, ..
-        } => {
-            send_rest_only_error(
-                client_tx,
-                "WS action: fork_session_to_existing_worktree",
-                Some(source_session_id),
-            )
-            .await;
-        }
+        handle(
+            ClientMessage::BrowseDirectory {
+                path: Some("/tmp".to_string()),
+                request_id: "req-1".to_string(),
+            },
+            &client_tx,
+        )
+        .await;
 
-        // ── Review comments ───────────────────────────────────────
-        ClientMessage::ListReviewComments { session_id, .. } => {
-            send_rest_only_error(
-                client_tx,
-                "GET /api/sessions/{session_id}/review-comments",
-                Some(session_id),
-            )
-            .await;
+        match recv_json(&mut client_rx).await {
+            ServerMessage::Error {
+                code,
+                message,
+                session_id,
+            } => {
+                assert_eq!(code, "http_only_endpoint");
+                assert_eq!(
+                    message,
+                    "Use REST endpoint GET /api/fs/browse for this request"
+                );
+                assert_eq!(session_id, None);
+            }
+            other => panic!("expected rest-only Error, got {:?}", other),
         }
-        ClientMessage::CreateReviewComment { session_id, .. } => {
-            send_rest_only_error(
-                client_tx,
-                "POST /api/sessions/{session_id}/review-comments",
-                Some(session_id),
-            )
-            .await;
-        }
-        ClientMessage::UpdateReviewComment { comment_id, .. } => {
-            send_rest_only_error(
-                client_tx,
-                "PATCH /api/review-comments/{comment_id}",
-                Some(comment_id),
-            )
-            .await;
-        }
-        ClientMessage::DeleteReviewComment { comment_id } => {
-            send_rest_only_error(
-                client_tx,
-                "DELETE /api/review-comments/{comment_id}",
-                Some(comment_id),
-            )
-            .await;
-        }
+    }
 
-        // ── Codex account ─────────────────────────────────────────
-        ClientMessage::CodexAccountRead { .. } => {
-            send_rest_only_error(client_tx, "GET /api/codex/account", None).await;
-        }
-        ClientMessage::CodexLoginChatgptStart => {
-            send_rest_only_error(client_tx, "POST /api/codex/login/start", None).await;
-        }
-        ClientMessage::CodexLoginChatgptCancel { .. } => {
-            send_rest_only_error(client_tx, "POST /api/codex/login/cancel", None).await;
-        }
-        ClientMessage::CodexAccountLogout => {
-            send_rest_only_error(client_tx, "POST /api/codex/logout", None).await;
-        }
+    #[tokio::test]
+    async fn review_comment_routes_include_authoritative_id() {
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(4);
 
-        // ── Skills / MCP ──────────────────────────────────────────
-        ClientMessage::ListSkills { session_id, .. } => {
-            send_rest_only_error(
-                client_tx,
-                "GET /api/sessions/{session_id}/skills",
-                Some(session_id),
-            )
-            .await;
-        }
-        ClientMessage::ListRemoteSkills { session_id } => {
-            send_rest_only_error(
-                client_tx,
-                "GET /api/sessions/{session_id}/skills/remote",
-                Some(session_id),
-            )
-            .await;
-        }
-        ClientMessage::DownloadRemoteSkill { session_id, .. } => {
-            send_rest_only_error(
-                client_tx,
-                "POST /api/sessions/{session_id}/skills/download",
-                Some(session_id),
-            )
-            .await;
-        }
-        ClientMessage::ListMcpTools { session_id } => {
-            send_rest_only_error(
-                client_tx,
-                "GET /api/sessions/{session_id}/mcp/tools",
-                Some(session_id),
-            )
-            .await;
-        }
-        ClientMessage::RefreshMcpServers { session_id } => {
-            send_rest_only_error(
-                client_tx,
-                "POST /api/sessions/{session_id}/mcp/refresh",
-                Some(session_id),
-            )
-            .await;
-        }
+        handle(
+            ClientMessage::UpdateReviewComment {
+                comment_id: "comment-1".to_string(),
+                body: Some("updated".to_string()),
+                tag: None,
+                status: None,
+            },
+            &client_tx,
+        )
+        .await;
 
-        _ => {
-            tracing::warn!(?msg, "rest_only::handle called with unexpected variant");
+        match recv_json(&mut client_rx).await {
+            ServerMessage::Error {
+                code,
+                message,
+                session_id,
+            } => {
+                assert_eq!(code, "http_only_endpoint");
+                assert_eq!(
+                    message,
+                    "Use REST endpoint PATCH /api/review-comments/{comment_id} for this request"
+                );
+                assert_eq!(session_id.as_deref(), Some("comment-1"));
+            }
+            other => panic!("expected rest-only Error, got {:?}", other),
         }
     }
 }
