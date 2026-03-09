@@ -831,3 +831,235 @@ This second phase is successful when:
 - the transport layer is thinner and easier to reason about
 - the repo contains documentation that explains the architecture clearly
 - tests continue to verify behavior at the right level
+
+## Phase 3: Foundation Polish
+
+At this point the server has a real architecture. The final phase is about
+making that architecture durable so future work lands in the right place by
+default.
+
+This phase is not another broad reorg. It is a focused cleanup pass on the
+remaining hotspots, plus a small amount of shared infrastructure to keep tests
+and error handling consistent.
+
+### Goal
+
+Leave the server in a place where:
+
+- the remaining large transport files are mostly adapters, not policy centers
+- runtime operations are the obvious home for orchestration
+- transport and runtime errors have a more consistent shape
+- test setup is shared and deterministic
+- naming and documentation make it easy to place new code correctly
+
+### Main Targets
+
+#### 1. Finish thinning `session_crud.rs`
+
+The biggest remaining hotspot is:
+
+- `crates/server/src/transport/websocket/handlers/session_crud.rs`
+
+What still belongs lower:
+
+- direct session startup orchestration
+- Claude fork orchestration
+- Codex fork orchestration
+- shared result shaping where HTTP and WebSocket can use the same runtime work
+
+The desired end state is that `session_crud.rs` mostly:
+
+1. parses websocket requests
+2. calls focused runtime operations
+3. translates outcomes into websocket messages
+
+#### 2. Keep shrinking `transport/websocket/mod.rs`
+
+`transport/websocket/mod.rs` is much better than it was, but it should keep
+losing tests and helper logic that belong elsewhere.
+
+Keep only:
+
+- facade wiring
+- truly websocket-wide integration tests
+- shared websocket-wide exports that are actually transport concerns
+
+Move out:
+
+- helper-specific pure tests
+- behavior that belongs in `transport.rs`, `message_groups.rs`, `rest_only_policy.rs`, or runtime helpers
+
+#### 3. Tighten HTTP lifecycle seams
+
+`crates/server/src/transport/http/session_lifecycle.rs` is in much better shape,
+but it still deserves another pass so transport does less inline assembly for:
+
+- resume
+- takeover
+- fork-related responses
+
+The target is the same as websocket:
+
+- parse input
+- call runtime operation
+- map result
+
+#### 4. Normalize transport/runtime error shaping
+
+There is still repeated assembly of:
+
+- `ServerMessage::Error { code, message, session_id }`
+- similar HTTP error mapping branches
+
+We should introduce a small shared error-shaping layer so transport code
+does not keep rebuilding the same user-visible error payloads by hand.
+
+This should improve:
+
+- consistency of error codes
+- readability of handlers
+- reuse between HTTP and WebSocket where appropriate
+
+#### 5. Add shared server test helpers
+
+We fixed the shared data-dir flake, but the next step is to make server test
+setup reusable instead of hand-rolled across modules.
+
+Targets:
+
+- one shared helper for test data dir initialization
+- one shared helper for `SessionRegistry` test state creation where appropriate
+- fewer copy-pasted websocket/http test setup blocks
+
+This follows the testing philosophy:
+
+- test user-visible outcomes
+- keep setup deterministic
+- remove incidental brittleness caused by test environment duplication
+
+#### 6. Naming and docs polish
+
+We have better naming now, but there is still a mix of:
+
+- `*_policy`
+- `*_targets`
+- `*_helpers`
+- `*_queries`
+- `*_subscriptions`
+
+Do a final pass to make naming more self-explanatory and consistent where it
+buys clarity.
+
+Also add a short “where new code should go” section to the architecture docs,
+with concrete examples for:
+
+- a new runtime operation
+- a new pure helper
+- a new websocket handler
+- a new HTTP endpoint
+
+## Phase 3 Execution Plan
+
+### Step 1. Extract the remaining `session_crud` orchestration
+
+Prioritize:
+
+- direct session startup
+- Claude fork orchestration
+- Codex fork orchestration
+
+Success means `session_crud.rs` is materially smaller and mostly transport glue.
+
+### Step 2. Reduce websocket facade bulk
+
+Keep moving tests and helper behavior out of `transport/websocket/mod.rs` until
+only websocket-wide integration concerns remain there.
+
+### Step 3. Clean up HTTP lifecycle shaping
+
+Apply the same transport-thinning standard to `session_lifecycle.rs` and any
+other HTTP lifecycle handlers still doing too much inline work.
+
+### Step 4. Introduce shared error shaping
+
+Create a focused error layer for user-visible transport/runtime errors and adopt
+it in the highest-repetition handlers first.
+
+### Step 5. Introduce shared server test helpers
+
+Replace repeated test-environment setup with shared helpers, then simplify the
+most duplicated websocket/http/runtime tests onto those helpers.
+
+### Step 6. Final naming and documentation polish
+
+Once the code stops moving, finish the naming pass and update docs so the
+architecture explains both the layering and the expected landing spot for new code.
+
+## Phase 3 Parallel Work Plan
+
+This phase is intentionally split into worker-friendly lanes.
+
+### Lane A: `session_crud` runtime extraction
+
+Focus:
+
+- direct session startup
+- Claude fork orchestration
+- Codex fork orchestration
+
+Primary files:
+
+- `transport/websocket/handlers/session_crud.rs`
+- `runtime/session_creation.rs`
+- new focused runtime modules as needed
+
+### Lane B: websocket facade and test rehoming
+
+Focus:
+
+- shrink `transport/websocket/mod.rs`
+- move tests beside helpers/modules they actually verify
+
+Primary files:
+
+- `transport/websocket/mod.rs`
+- `transport/websocket/transport.rs`
+- `transport/websocket/message_groups.rs`
+- relevant runtime/support modules
+
+### Lane C: HTTP lifecycle thinning and error shaping
+
+Focus:
+
+- reduce inline lifecycle assembly in HTTP
+- establish shared transport/runtime error helpers
+
+Primary files:
+
+- `transport/http/session_lifecycle.rs`
+- shared transport/runtime error modules
+
+### Lane D: shared test harness and naming/docs polish
+
+Focus:
+
+- reusable server test helpers
+- deterministic setup
+- naming cleanup that does not overlap deeper runtime changes
+- architecture-doc completion
+
+Primary files:
+
+- shared test helper modules
+- `docs/server-architecture.md`
+
+## Phase 3 Success Criteria
+
+This phase is successful when:
+
+- `session_crud.rs` is no longer a policy-heavy hotspot
+- `transport/websocket/mod.rs` reads like a facade, not a test warehouse
+- HTTP lifecycle handlers mostly map requests to runtime operations
+- shared transport/runtime error shaping reduces repeated error construction
+- server tests use shared deterministic setup helpers
+- the architecture docs tell contributors where new code should go

@@ -156,6 +156,63 @@ Recent examples in the current refactor:
 - `session_fork_targets.rs` owns worktree fork target validation and repo-root resolution
 - `message_dispatch.rs` owns send/steer/interrupt orchestration that used to sit in WebSocket handlers
 
+## Where New Code Goes
+
+When adding new behavior, use these rules of thumb.
+
+### A new runtime operation
+
+If the code coordinates actors, connectors, persistence, or background state, it belongs in `runtime/`.
+
+Examples:
+
+- resume or takeover preparation
+- subscribe-time reactivation
+- fork target resolution
+- direct session startup orchestration
+
+Good homes:
+
+- `*_policy.rs` for pure decisions
+- `*_queries.rs` for authoritative reads
+- `*_subscriptions.rs` for replay/snapshot/reactivation prep
+- `*_creation.rs` or `*_ops.rs` for focused effectful orchestration
+
+### A new pure helper
+
+If the code is mostly classification, normalization, shaping, or path/time logic, it belongs in `support/` or occasionally `domain/`.
+
+Examples:
+
+- model override normalization
+- approval decision classification
+- transcript-path derivation
+- repo-root normalization
+
+Rule:
+
+- if it can be tested without runtime state or I/O, start by asking whether it belongs in `support/`
+
+### A new WebSocket handler
+
+If you are touching `transport/websocket/handlers/*`, keep the handler narrow:
+
+1. parse the `ClientMessage`
+2. call a runtime operation
+3. map the result to websocket output
+
+If the handler starts deciding policy inline, stop and move that logic lower.
+
+### A new HTTP endpoint
+
+HTTP endpoints follow the same rule as websocket handlers:
+
+1. validate request shape
+2. call a runtime/domain/infrastructure operation
+3. map the result to JSON or an HTTP error
+
+If a handler needs to read from SQLite directly, that should be because it is an authoritative query boundary, not because runtime orchestration was skipped.
+
 ### Prefer capability-shaped exports
 
 Good:
