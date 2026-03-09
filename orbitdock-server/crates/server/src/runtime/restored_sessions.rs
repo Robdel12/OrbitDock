@@ -359,7 +359,7 @@ mod tests {
     }
 
     #[test]
-    fn restored_handle_uses_requested_runtime_status() {
+    fn restored_handle_preserves_pending_approval_visibility() {
         let handle = restored_session_to_handle(
             restored_session(),
             SessionStatus::Active,
@@ -369,7 +369,7 @@ mod tests {
 
         assert_eq!(snapshot.provider, Provider::Codex);
         assert_eq!(snapshot.status, SessionStatus::Active);
-        assert_eq!(snapshot.work_status, WorkStatus::Waiting);
+        assert_eq!(snapshot.work_status, WorkStatus::Question);
         assert_eq!(snapshot.messages.len(), 1);
         assert_eq!(snapshot.effort.as_deref(), Some("high"));
         assert_eq!(snapshot.permission_mode.as_deref(), Some("acceptEdits"));

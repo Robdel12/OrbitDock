@@ -19,6 +19,7 @@ use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
     claim_codex_thread_for_direct_session, hydrate_full_message_history,
 };
+use crate::support::session_modes::is_passive_rollout_session;
 use crate::transport::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
 
 pub(crate) fn truncate_messages_before_nth_user_message(
@@ -410,10 +411,11 @@ pub(crate) async fn handle(
             let actor = state.get_session(&session_id);
             let is_passive_rollout = if let Some(ref actor) = actor {
                 let snap = actor.snapshot();
-                snap.provider == Provider::Codex
-                    && (snap.codex_integration_mode == Some(CodexIntegrationMode::Passive)
-                        || (snap.codex_integration_mode != Some(CodexIntegrationMode::Direct)
-                            && snap.transcript_path.is_some()))
+                is_passive_rollout_session(
+                    snap.provider,
+                    snap.codex_integration_mode,
+                    snap.transcript_path.is_some(),
+                )
             } else {
                 false
             };
