@@ -1,7 +1,7 @@
 # What's Next
 
 > Consolidated from the feature parity roadmap and UX plan after a big weekend push.
-> Previous plans archived in `plans/completed/`.
+> This file is the active backlog, not an archive.
 >
 > Everything below is genuinely open work — no status markers to maintain, no completed phases to scroll past.
 

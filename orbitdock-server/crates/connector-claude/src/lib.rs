@@ -2,8 +2,6 @@
 //!
 //! Spawns the `claude` CLI as a subprocess and communicates via stdin/stdout
 //! using the NDJSON stream-json protocol. No Node.js bridge needed.
-//!
-//! Protocol reference: docs/claude-agent-sdk-protocol.md
 
 pub mod session;
 
