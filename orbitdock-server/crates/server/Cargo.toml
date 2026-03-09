@@ -1,21 +1,16 @@
 [package]
-name = "orbitdock"
+name = "orbitdock-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 description = "OrbitDock — mission control for AI coding agents"
 
-[[bin]]
-name = "orbitdock"
-path = "src/main.rs"
-
 [dependencies]
 orbitdock-protocol = { workspace = true }
 orbitdock-connector-core = { workspace = true }
 orbitdock-connector-claude = { workspace = true }
 orbitdock-connector-codex = { workspace = true }
-orbitdock-cli = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 axum-server = { workspace = true }

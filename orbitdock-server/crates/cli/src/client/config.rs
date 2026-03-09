@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde::Deserialize;
 
-use crate::cli::Cli;
+use crate::cli::{BinaryCli, Cli};
 
 const DEFAULT_SERVER: &str = "http://127.0.0.1:4000";
 
@@ -31,6 +31,15 @@ impl ClientConfig {
     /// 3. Config file (~/.orbitdock/cli.toml)
     /// 4. Defaults
     pub fn resolve(cli: &Cli) -> Result<Self> {
+        Ok(Self::from_sources(
+            cli.server.as_deref(),
+            cli.token.as_deref(),
+            cli.json,
+            cli.config.as_deref(),
+        ))
+    }
+
+    pub fn resolve_binary(cli: &BinaryCli) -> Result<Self> {
         Ok(Self::from_sources(
             cli.server.as_deref(),
             cli.token.as_deref(),

@@ -11,7 +11,7 @@ mod shell;
 mod usage;
 mod worktree;
 
-use crate::cli::Command;
+use crate::cli::{binary_to_client_command, BinaryCommand, Command};
 use crate::client::config::ClientConfig;
 use crate::client::rest::RestClient;
 use crate::output::Output;
@@ -40,4 +40,13 @@ pub async fn dispatch(command: &Command, config: &ClientConfig) -> i32 {
             crate::error::EXIT_SUCCESS
         }
     }
+}
+
+/// Dispatch the client-owned subset of the merged binary command tree.
+///
+/// Returns `None` for server-admin and startup commands that still need the
+/// outer binary to hand off to server-side APIs.
+pub async fn dispatch_binary(command: &BinaryCommand, config: &ClientConfig) -> Option<i32> {
+    let command = binary_to_client_command(command)?;
+    Some(dispatch(&command, config).await)
 }

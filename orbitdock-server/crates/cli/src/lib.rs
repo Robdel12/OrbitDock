@@ -5,3 +5,4 @@ pub mod error;
 pub mod output;
 
 pub use commands::dispatch;
+pub use commands::dispatch_binary;

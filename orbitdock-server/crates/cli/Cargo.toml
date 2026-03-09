@@ -1,5 +1,5 @@
 [package]
-name = "orbitdock-cli"
+name = "orbitdock"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,9 @@ description = "OrbitDock CLI - interact with AI coding sessions from the termina
 name = "orbitdock_cli"
 
 [dependencies]
+orbitdock-server = { workspace = true }
 orbitdock-protocol = { workspace = true }
+orbitdock-connector-codex = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
