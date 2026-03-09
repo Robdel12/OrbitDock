@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use codex_core::auth::AuthCredentialsStoreMode;
@@ -30,6 +30,10 @@ struct ActiveLogin {
 }
 
 enum ServiceState {
+    Deferred {
+        codex_home: PathBuf,
+        credentials_store_mode: AuthCredentialsStoreMode,
+    },
     Ready {
         auth_manager: Arc<AuthManager>,
         codex_home: PathBuf,
@@ -41,7 +45,7 @@ enum ServiceState {
 }
 
 pub struct CodexAuthService {
-    state: ServiceState,
+    state: StdMutex<ServiceState>,
     list_tx: broadcast::Sender<ServerMessage>,
     active_login: Arc<Mutex<Option<ActiveLogin>>>,
 }
@@ -51,22 +55,19 @@ impl CodexAuthService {
         match find_codex_home() {
             Ok(codex_home) => {
                 let credentials_store_mode = AuthCredentialsStoreMode::Auto;
-                let auth_manager =
-                    AuthManager::shared(codex_home.clone(), true, credentials_store_mode);
                 Self {
-                    state: ServiceState::Ready {
-                        auth_manager,
+                    state: StdMutex::new(ServiceState::Deferred {
                         codex_home,
                         credentials_store_mode,
-                    },
+                    }),
                     list_tx,
                     active_login: Arc::new(Mutex::new(None)),
                 }
             }
             Err(err) => Self {
-                state: ServiceState::Disabled {
+                state: StdMutex::new(ServiceState::Disabled {
                     reason: format!("Failed to find codex home: {err}"),
-                },
+                }),
                 list_tx,
                 active_login: Arc::new(Mutex::new(None)),
             },
@@ -202,24 +203,49 @@ impl CodexAuthService {
     }
 
     fn auth_manager(&self) -> Result<Arc<AuthManager>, String> {
-        match &self.state {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "Codex auth service state lock poisoned".to_string())?;
+
+        match &*state {
             ServiceState::Ready { auth_manager, .. } => Ok(auth_manager.clone()),
             ServiceState::Disabled { reason } => Err(reason.clone()),
+            ServiceState::Deferred {
+                codex_home,
+                credentials_store_mode,
+            } => {
+                let codex_home = codex_home.clone();
+                let credentials_store_mode = *credentials_store_mode;
+                let auth_manager =
+                    AuthManager::shared(codex_home.clone(), true, credentials_store_mode);
+                *state = ServiceState::Ready {
+                    auth_manager: auth_manager.clone(),
+                    codex_home,
+                    credentials_store_mode,
+                };
+                Ok(auth_manager)
+            }
         }
     }
 
     fn ready_parts(&self) -> Result<(Arc<AuthManager>, PathBuf, AuthCredentialsStoreMode), String> {
-        match &self.state {
+        let auth_manager = self.auth_manager()?;
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| "Codex auth service state lock poisoned".to_string())?;
+
+        match &*state {
             ServiceState::Ready {
-                auth_manager,
                 codex_home,
                 credentials_store_mode,
-            } => Ok((
-                auth_manager.clone(),
-                codex_home.clone(),
-                *credentials_store_mode,
-            )),
+                ..
+            } => Ok((auth_manager, codex_home.clone(), *credentials_store_mode)),
             ServiceState::Disabled { reason } => Err(reason.clone()),
+            ServiceState::Deferred { .. } => {
+                Err("Codex auth service failed to initialize".to_string())
+            }
         }
     }
 
@@ -267,5 +293,26 @@ impl CodexAuthService {
                     .map(|value| format!("{value:?}").to_lowercase()),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_service_can_start_deferred_without_auth_manager() {
+        let (list_tx, _) = broadcast::channel(1);
+        let service = CodexAuthService {
+            state: StdMutex::new(ServiceState::Deferred {
+                codex_home: PathBuf::from("/tmp/orbitdock-codex-auth-tests"),
+                credentials_store_mode: AuthCredentialsStoreMode::Auto,
+            }),
+            list_tx,
+            active_login: Arc::new(Mutex::new(None)),
+        };
+
+        let state = service.state.lock().expect("state lock");
+        assert!(matches!(&*state, ServiceState::Deferred { .. }));
     }
 }
