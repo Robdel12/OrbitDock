@@ -259,8 +259,7 @@ All server paths are resolved via `infrastructure/paths.rs` from a single data d
 - Do not rely on hand-maintained protocol snapshots or source-audit notes here. If we need durable docs, we should regenerate them properly from the current shipped source instead of keeping stale reverse-engineered writeups around.
 - Keep the local SDK current so reverse-engineering stays accurate:
   - `make claude-sdk-update CLAUDE_SDK_VERSION=<version>`
-- Track current installed/versioned metadata in:
-  - `orbitdock-server/docs/claude-agent-sdk-version.json`
+- Any generated SDK metadata or audit notes should stay local and ignored unless we deliberately replace them with a proper maintained doc pass.
 
 ## Debugging Codex Integration
 

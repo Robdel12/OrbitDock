@@ -15,9 +15,6 @@
 # Docker Buildx local cache (Linux release builds)
 .cache/docker-buildx/
 
-# Internal protocol docs (keep locally, don't publish)
-orbitdock-server/docs/claude-agent-sdk-protocol.md
-
 # Xcode
 *.xcworkspace/
 buildServer.json
@@ -34,6 +31,8 @@ node_modules/
 
 # Claude Agent SDK local install (source-of-truth, but generated)
 orbitdock-server/docs/node_modules/
+orbitdock-server/docs/claude-agent-sdk-version.json
+orbitdock-server/docs/claude-agent-sdk-*.md
 
 # Vizzly
 .vizzly/
