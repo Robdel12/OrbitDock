@@ -24,11 +24,8 @@ struct SessionDetailView: View {
   @State private var unreadCount = 0
   @State private var scrollToBottomTrigger = 0
 
-  // Turn sidebar state - starts closed, user must trigger it
-  @State private var showTurnSidebar = false
   @AppStorage("chatViewMode") private var chatViewMode: ChatViewMode = .focused
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "session-detail")
-  @State private var railPreset: RailPreset = .planFocused
   @State private var selectedSkills: Set<String> = []
 
   // Layout state for review canvas
@@ -55,10 +52,18 @@ struct SessionDetailView: View {
         sessionId: sessionId,
         endpointId: endpointId,
         onEndSession: obs.isDirect ? { endDirectSession() } : nil,
-        showTurnSidebar: obs.isDirect ? $showTurnSidebar : nil,
-        hasSidebarContent: hasSidebarContent,
         layoutConfig: obs.isDirect ? $layoutConfig : nil,
-        chatViewMode: $chatViewMode
+        chatViewMode: $chatViewMode,
+        selectedCommentIds: $selectedCommentIds,
+        onNavigateToComment: { comment in
+          navigateToComment = comment
+          withAnimation(Motion.gentle) {
+            if layoutConfig == .conversationOnly {
+              layoutConfig = .split
+            }
+          }
+        },
+        onSendReview: { sendReviewToModel() }
       )
 
       Divider()
@@ -104,17 +109,7 @@ struct SessionDetailView: View {
           .frame(maxWidth: .infinity)
         }
 
-        // Turn sidebar - plan + diff + servers + skills (Codex direct only)
-        if obs.isDirect, showTurnSidebar, !isCompactLayout {
-          Divider()
-            .foregroundStyle(Color.panelBorder)
-
-          turnSidebar
-            .frame(width: 320)
-            .transition(.move(edge: .trailing).combined(with: .opacity))
-        }
       }
-      .animation(Motion.standard, value: showTurnSidebar)
 
       // Action bar (unified composer for direct sessions, simpler bar for passive sessions)
       if obs.isDirect {
@@ -123,12 +118,7 @@ struct SessionDetailView: View {
           selectedSkills: $selectedSkills,
           isPinned: $isPinned,
           unreadCount: $unreadCount,
-          scrollToBottomTrigger: $scrollToBottomTrigger,
-          onOpenSkills: {
-            withAnimation(Motion.standard) {
-              showTurnSidebar = true
-            }
-          }
+          scrollToBottomTrigger: $scrollToBottomTrigger
         )
       } else {
         if obs.canTakeOver, !obs.needsApprovalOverlay {

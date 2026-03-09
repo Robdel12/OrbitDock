@@ -88,6 +88,8 @@ final class ServerAppState {
   private var _sessionObservables: [String: SessionObservable] = [:]
   @ObservationIgnored
   private var conversationBootstrapBackfillTasks: [String: Task<Void, Never>] = [:]
+  @ObservationIgnored
+  private var conversationCache: [String: CachedConversation] = [:]
 
   /// Get or create per-session observable. Does NOT trigger observation on ServerAppState.
   func session(_ id: String) -> SessionObservable {
@@ -226,7 +228,21 @@ final class ServerAppState {
   private enum ConversationSubscriptionSeedStrategy: String {
     case bootstrap
     case retainedSnapshot
+    case cachedMessages
   }
+
+  /// Snapshot of a session's conversation state for instant re-display.
+  private struct CachedConversation {
+    let messages: [TranscriptMessage]
+    let totalMessageCount: Int
+    let oldestSequence: UInt64?
+    let newestSequence: UInt64?
+    let hasMoreHistoryBefore: Bool
+    let turnDiffs: [ServerTurnDiff]
+    var cachedAt: Date
+  }
+
+  private static let conversationCacheMaxEntries = 8
 
   init(connection: ServerConnection, endpointId: UUID) {
     self.connection = connection
@@ -1236,6 +1252,41 @@ final class ServerAppState {
         return
       }
 
+      if seedStrategy == .cachedMessages, let cached = conversationCache.removeValue(forKey: sessionId) {
+        // Restore cached messages for instant display
+        let obs = session(sessionId)
+        obs.restoreFromCache(
+          messages: cached.messages,
+          totalMessageCount: cached.totalMessageCount,
+          oldestSequence: cached.oldestSequence,
+          newestSequence: cached.newestSequence,
+          hasMoreHistoryBefore: cached.hasMoreHistoryBefore,
+          turnDiffs: cached.turnDiffs
+        )
+        logger.debug("Restored \(cached.messages.count) cached messages for session \(sessionId)")
+
+        // Subscribe for live updates from where the cache left off
+        connection.subscribeSession(
+          sessionId,
+          sinceRevision: lastRevision[sessionId],
+          includeSnapshot: false
+        )
+        connection.listApprovals(sessionId: sessionId, limit: 200)
+
+        // Background bootstrap to reconcile with server-authoritative state
+        Task { @MainActor in
+          do {
+            let bootstrap = try await connection.fetchConversationBootstrap(sessionId, limit: conversationPageSize)
+            guard subscribedSessions.contains(sessionId) else { return }
+            handleConversationBootstrap(bootstrap)
+          } catch {
+            logger.warning("Cache reconciliation bootstrap failed for \(sessionId): \(error.localizedDescription)")
+          }
+          scheduleConversationBootstrapBackfill(sessionId: sessionId)
+        }
+        return
+      }
+
       var sinceRev = lastRevision[sessionId]
       var includeSnapshot = !session(sessionId).hasReceivedSnapshot && sinceRev == nil
 
@@ -1365,6 +1416,7 @@ final class ServerAppState {
     autoMarkReadSessions.remove(sessionId)
     cancelConversationBootstrapBackfill(sessionId: sessionId)
     connection.unsubscribeSession(sessionId)
+    cacheConversationBeforeTrim(sessionId: sessionId)
     trimInactiveSessionPayload(sessionId, reason: "unsubscribe")
     logger.debug("Unsubscribed from session \(sessionId)")
   }
@@ -1372,6 +1424,7 @@ final class ServerAppState {
   /// Called by app lifecycle when memory pressure is signaled.
   /// Trims heavy payloads for sessions that are not currently subscribed.
   func handleMemoryPressure() {
+    conversationCache.removeAll()
     let inactiveSessionIds = _sessionObservables.keys.filter { !subscribedSessions.contains($0) }
     for sessionId in inactiveSessionIds {
       trimInactiveSessionPayload(sessionId, reason: "memory-pressure")
@@ -3243,6 +3296,29 @@ final class ServerAppState {
     true
   }
 
+  /// Snapshot a session's messages into the LRU cache before trimming.
+  private func cacheConversationBeforeTrim(sessionId: String) {
+    guard let obs = _sessionObservables[sessionId], !obs.messages.isEmpty else { return }
+
+    // LRU eviction: remove oldest entry if at capacity
+    if conversationCache.count >= Self.conversationCacheMaxEntries {
+      if let oldest = conversationCache.min(by: { $0.value.cachedAt < $1.value.cachedAt }) {
+        conversationCache.removeValue(forKey: oldest.key)
+      }
+    }
+
+    conversationCache[sessionId] = CachedConversation(
+      messages: obs.messages,
+      totalMessageCount: obs.totalMessageCount,
+      oldestSequence: obs.oldestLoadedSequence,
+      newestSequence: obs.newestLoadedSequence,
+      hasMoreHistoryBefore: obs.hasMoreHistoryBefore,
+      turnDiffs: obs.turnDiffs,
+      cachedAt: Date()
+    )
+    logger.debug("Cached \(obs.messages.count) messages for session \(sessionId)")
+  }
+
   private func trimInactiveSessionPayload(_ sessionId: String, reason: String) {
     guard !subscribedSessions.contains(sessionId) else { return }
     guard let obs = _sessionObservables[sessionId] else { return }
@@ -3252,7 +3328,13 @@ final class ServerAppState {
     guard messageCount > 0 || turnDiffCount > 0 || obs.diff != nil || obs.plan != nil else { return }
 
     obs.clearConversationPayloads()
-    lastRevision.removeValue(forKey: sessionId)
+    // Preserve lastRevision when we have a cache entry — the WS subscribe
+    // can use it to replay events missed between unsubscribe and re-subscribe.
+    // If the server's event log has rolled past this revision, it falls back
+    // to a full snapshot automatically.
+    if conversationCache[sessionId] == nil {
+      lastRevision.removeValue(forKey: sessionId)
+    }
 
     logger.info(
       "Trimmed inactive session payload \(sessionId, privacy: .public) reason=\(reason, privacy: .public) messages=\(messageCount, privacy: .public) turnDiffs=\(turnDiffCount, privacy: .public)"
@@ -3263,7 +3345,23 @@ final class ServerAppState {
     sessionId: String,
     forceRefresh: Bool
   ) -> ConversationSubscriptionSeedStrategy {
-    guard forceRefresh else { return .bootstrap }
+    let obs = _sessionObservables[sessionId]
+    let hasRetainedMessages = obs.map { !$0.messages.isEmpty } ?? false
+
+    guard forceRefresh else {
+      // Non-refresh subscribe: prefer cache for instant display
+      if conversationCache[sessionId] != nil { return .cachedMessages }
+      return .bootstrap
+    }
+
+    // Only use retainedSnapshot if the observable actually has messages in memory.
+    // After unsubscribe, messages are cleared — falling through to bootstrap
+    // ensures we fetch via HTTP first for instant display instead of waiting
+    // for the async WS snapshot.
+    guard hasRetainedMessages else {
+      if conversationCache[sessionId] != nil { return .cachedMessages }
+      return .bootstrap
+    }
 
     if let summary = sessions.first(where: { $0.id == sessionId }) {
       return summary.isActive ? .retainedSnapshot : .bootstrap

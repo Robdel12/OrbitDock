@@ -375,6 +375,27 @@ final class SessionObservable {
     attentionReason = .none
   }
 
+  /// Restore messages from a local cache snapshot for instant session switching.
+  /// Sets `hasReceivedSnapshot = true` so ConversationView renders immediately
+  /// instead of showing a loading spinner.
+  func restoreFromCache(
+    messages cached: [TranscriptMessage],
+    totalMessageCount: Int,
+    oldestSequence: UInt64?,
+    newestSequence: UInt64?,
+    hasMoreHistoryBefore: Bool,
+    turnDiffs cached_turnDiffs: [ServerTurnDiff]
+  ) {
+    messages = cached
+    self.totalMessageCount = totalMessageCount
+    oldestLoadedSequence = oldestSequence
+    newestLoadedSequence = newestSequence
+    self.hasMoreHistoryBefore = hasMoreHistoryBefore
+    turnDiffs = cached_turnDiffs
+    hasReceivedSnapshot = true
+    bumpMessagesRevision()
+  }
+
   /// Drop heavy conversation payloads when a session is no longer observed.
   /// Keep lightweight identity/config fields so list UI remains stable.
   func clearConversationPayloads() {
