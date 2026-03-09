@@ -1,4 +1,5 @@
 pub(crate) mod background;
+pub(crate) mod conversation_policy;
 pub(crate) mod session_actor;
 pub(crate) mod session_command_handler;
 pub(crate) mod session_commands;

@@ -1,134 +1,31 @@
 use std::sync::Arc;
 
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexIntegrationMode, Message, MessageType, Provider, SessionState,
-    SessionStatus, TokenUsage, TurnDiff, WorkStatus,
+    ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionStatus, TokenUsage,
+    TurnDiff, WorkStatus,
 };
 use tokio::sync::oneshot;
 use tracing::warn;
 
 use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
-use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_actor::SessionActorHandle;
-use crate::runtime::session_commands::SessionCommand;
-use crate::runtime::session_runtime_helpers::hydrate_full_message_history;
 use crate::infrastructure::persistence::{
     load_message_page_for_session, load_messages_for_session, load_messages_from_transcript_path,
     load_session_by_id, load_subagents_for_session, RestoredSession,
 };
-
-const COHERENT_HISTORY_MIN_TURNS: usize = 4;
-const COHERENT_HISTORY_MAX_MESSAGES: usize = 200;
+use crate::runtime::conversation_policy::{
+    conversation_page_from_messages, conversation_page_with_total, expected_page_message_count,
+    prepend_conversation_page, requires_coherent_history_page, COHERENT_HISTORY_MAX_MESSAGES,
+};
+use crate::runtime::session_actor::SessionActorHandle;
+use crate::runtime::session_commands::SessionCommand;
+use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_runtime_helpers::hydrate_full_message_history;
 
 #[derive(Debug)]
 pub(crate) enum SessionLoadError {
     NotFound,
     Db(String),
     Runtime(String),
-}
-
-fn normalize_message_sequences(messages: &mut [Message]) {
-    let mut next_sequence = 0_u64;
-    for message in messages {
-        let sequence = message.sequence.unwrap_or(next_sequence);
-        message.sequence = Some(sequence);
-        next_sequence = sequence + 1;
-    }
-}
-
-fn conversation_page_from_messages(
-    mut messages: Vec<Message>,
-    before_sequence: Option<u64>,
-    limit: usize,
-) -> ConversationPage {
-    normalize_message_sequences(&mut messages);
-    let total_message_count = messages.len() as u64;
-    if messages.is_empty() || limit == 0 {
-        return ConversationPage {
-            messages: vec![],
-            total_message_count,
-            has_more_before: false,
-            oldest_sequence: None,
-            newest_sequence: None,
-        };
-    }
-
-    let upper_bound = before_sequence.unwrap_or(u64::MAX);
-    let mut page: Vec<Message> = messages
-        .into_iter()
-        .filter(|message| message.sequence.unwrap_or(u64::MAX) < upper_bound)
-        .rev()
-        .take(limit)
-        .collect();
-    page.reverse();
-
-    let oldest_sequence = page.first().and_then(|message| message.sequence);
-    let newest_sequence = page.last().and_then(|message| message.sequence);
-    let has_more_before = oldest_sequence.is_some_and(|sequence| sequence > 0);
-
-    ConversationPage {
-        messages: page,
-        total_message_count,
-        has_more_before,
-        oldest_sequence,
-        newest_sequence,
-    }
-}
-
-fn conversation_page_with_total(
-    messages: Vec<Message>,
-    total_message_count: u64,
-) -> ConversationPage {
-    let oldest_sequence = messages.first().and_then(|message| message.sequence);
-    let newest_sequence = messages.last().and_then(|message| message.sequence);
-    let has_more_before = oldest_sequence.is_some_and(|sequence| sequence > 0);
-    ConversationPage {
-        messages,
-        total_message_count,
-        has_more_before,
-        oldest_sequence,
-        newest_sequence,
-    }
-}
-
-fn message_starts_turn(message: &Message) -> bool {
-    matches!(message.message_type, MessageType::User | MessageType::Steer)
-}
-
-fn requires_coherent_history_page(messages: &[Message], has_more_before: bool) -> bool {
-    if !has_more_before || messages.is_empty() {
-        return false;
-    }
-
-    if !messages.first().is_some_and(message_starts_turn) {
-        return true;
-    }
-
-    let turn_count = messages
-        .iter()
-        .filter(|message| message_starts_turn(message))
-        .count();
-    turn_count < COHERENT_HISTORY_MIN_TURNS
-}
-
-fn prepend_conversation_page(
-    current: ConversationPage,
-    older: ConversationPage,
-) -> ConversationPage {
-    if older.messages.is_empty() {
-        return current;
-    }
-
-    let mut messages = older.messages;
-    messages.extend(current.messages);
-
-    ConversationPage {
-        total_message_count: current.total_message_count.max(older.total_message_count),
-        has_more_before: older.has_more_before,
-        oldest_sequence: messages.first().and_then(|message| message.sequence),
-        newest_sequence: messages.last().and_then(|message| message.sequence),
-        messages,
-    }
 }
 
 async fn expand_conversation_page(
@@ -181,12 +78,8 @@ async fn top_up_runtime_page_from_db(
         return Ok(page);
     }
 
-    let max_available = before_sequence
-        .and_then(|sequence| usize::try_from(sequence).ok())
-        .unwrap_or(usize::MAX);
-    let expected_count = limit
-        .min(max_available)
-        .min(page.total_message_count as usize);
+    let expected_count =
+        expected_page_message_count(page.total_message_count, before_sequence, limit);
     if page.messages.len() >= expected_count {
         return Ok(page);
     }
@@ -737,7 +630,7 @@ mod tests {
     use rusqlite::{params, Connection};
     use tokio::sync::mpsc;
 
-    use orbitdock_protocol::{MessageType, Provider};
+    use orbitdock_protocol::{Message, MessageType, Provider};
 
     use crate::domain::sessions::session::SessionHandle;
     use crate::infrastructure::migration_runner;
