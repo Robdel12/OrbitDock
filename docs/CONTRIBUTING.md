@@ -24,6 +24,8 @@ open OrbitDock/OrbitDock.xcodeproj
 
 Select your team in **Signing & Capabilities** (or "Sign to Run Locally" for a personal team), then run either the `OrbitDock` macOS scheme or `OrbitDock iOS`. The clients can connect to one or many `orbitdock` server endpoints.
 
+For durable client-side guardrails, read [SWIFT_CLIENT_ARCHITECTURE.md](SWIFT_CLIENT_ARCHITECTURE.md) before adding new shared state, routing, or cross-feature coordination.
+
 ### Rust Server
 
 ```bash
