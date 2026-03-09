@@ -62,7 +62,7 @@ use axum::{
         HeaderValue, Method,
     },
     response::IntoResponse,
-    routing::{delete, get, patch, post, put},
+    routing::get,
     Router,
 };
 use clap::{Parser, Subcommand};
@@ -1043,133 +1043,7 @@ async fn async_main(
     let mut app = Router::new()
         .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
         .route("/ws", get(ws_handler))
-        .route("/api/hook", post(hook_handler::hook_handler))
-        .route("/api/sessions", get(http_api::list_sessions))
-        .route("/api/sessions/{session_id}", get(http_api::get_session))
-        .route(
-            "/api/sessions/{session_id}/conversation",
-            get(http_api::get_conversation_bootstrap),
-        )
-        .route(
-            "/api/sessions/{session_id}/messages",
-            get(http_api::get_conversation_history).post(http_api::post_session_message),
-        )
-        .route(
-            "/api/sessions/{session_id}/steer",
-            post(http_api::post_steer_turn),
-        )
-        .route(
-            "/api/sessions/{session_id}/attachments/images",
-            post(http_api::upload_session_image_attachment),
-        )
-        .route(
-            "/api/sessions/{session_id}/attachments/images/{attachment_id}",
-            get(http_api::get_session_image_attachment),
-        )
-        .route("/api/approvals", get(http_api::list_approvals_endpoint))
-        .route(
-            "/api/approvals/{approval_id}",
-            delete(http_api::delete_approval_endpoint),
-        )
-        .route(
-            "/api/server/openai-key",
-            get(http_api::check_open_ai_key).post(http_api::set_open_ai_key),
-        )
-        .route("/api/server/role", put(http_api::set_server_role))
-        .route("/api/usage/codex", get(http_api::fetch_codex_usage))
-        .route("/api/usage/claude", get(http_api::fetch_claude_usage))
-        .route("/api/models/codex", get(http_api::list_codex_models))
-        .route("/api/models/claude", get(http_api::list_claude_models))
-        .route("/api/codex/account", get(http_api::read_codex_account))
-        .route("/api/codex/login/start", post(http_api::codex_login_start))
-        .route(
-            "/api/codex/login/cancel",
-            post(http_api::codex_login_cancel),
-        )
-        .route("/api/codex/logout", post(http_api::codex_logout))
-        .route(
-            "/api/sessions/{session_id}/mark-read",
-            post(http_api::mark_session_read),
-        )
-        .route(
-            "/api/sessions/{session_id}/review-comments",
-            get(http_api::list_review_comments_endpoint)
-                .post(http_api::create_review_comment_endpoint),
-        )
-        .route(
-            "/api/review-comments/{comment_id}",
-            patch(http_api::update_review_comment).delete(http_api::delete_review_comment_by_id),
-        )
-        .route(
-            "/api/sessions/{session_id}/subagents/{subagent_id}/tools",
-            get(http_api::list_subagent_tools_endpoint),
-        )
-        .route(
-            "/api/sessions/{session_id}/skills",
-            get(http_api::list_skills_endpoint),
-        )
-        .route(
-            "/api/sessions/{session_id}/skills/remote",
-            get(http_api::list_remote_skills_endpoint),
-        )
-        .route(
-            "/api/sessions/{session_id}/mcp/tools",
-            get(http_api::list_mcp_tools_endpoint),
-        )
-        .route(
-            "/api/worktrees",
-            get(http_api::list_worktrees).post(http_api::create_worktree),
-        )
-        .route(
-            "/api/worktrees/discover",
-            post(http_api::discover_worktrees),
-        )
-        .route(
-            "/api/worktrees/{worktree_id}",
-            delete(http_api::remove_worktree),
-        )
-        .route(
-            "/api/sessions/{session_id}/skills/download",
-            post(http_api::download_remote_skill),
-        )
-        .route(
-            "/api/sessions/{session_id}/mcp/refresh",
-            post(http_api::refresh_mcp_servers),
-        )
-        .route(
-            "/api/sessions/{session_id}/mcp/toggle",
-            post(http_api::toggle_mcp_server),
-        )
-        .route(
-            "/api/sessions/{session_id}/mcp/authenticate",
-            post(http_api::mcp_authenticate),
-        )
-        .route(
-            "/api/sessions/{session_id}/mcp/clear-auth",
-            post(http_api::mcp_clear_auth),
-        )
-        .route(
-            "/api/sessions/{session_id}/mcp/servers",
-            post(http_api::mcp_set_servers),
-        )
-        .route(
-            "/api/sessions/{session_id}/flags",
-            post(http_api::apply_flag_settings),
-        )
-        .route(
-            "/api/sessions/{session_id}/permissions",
-            get(http_api::get_permission_rules),
-        )
-        .route(
-            "/api/sessions/{session_id}/permissions/rules",
-            post(http_api::add_permission_rule).delete(http_api::remove_permission_rule),
-        )
-        .route("/api/git/init", post(http_api::git_init_endpoint))
-        .route("/api/fs/browse", get(http_api::browse_directory))
-        .route(
-            "/api/fs/recent-projects",
-            get(http_api::list_recent_projects),
-        )
+        .merge(http_api::build_router())
         .route("/health", get(health_handler))
         .route("/metrics", get(metrics::metrics_handler));
 

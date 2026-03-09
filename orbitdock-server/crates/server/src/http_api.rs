@@ -1,6 +1,17 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
+
+mod approvals;
+mod codex_auth;
+mod files;
+mod permissions;
+mod review_comments;
+mod router;
+mod server_info;
+mod session_actions;
+mod session_lifecycle;
+mod sessions;
+mod worktrees;
 
 use axum::{
     body::Bytes,
@@ -11,22 +22,18 @@ use axum::{
 };
 use orbitdock_connector_codex::discover_models;
 use orbitdock_protocol::{
-    ApprovalHistoryItem, ClaudeModelOption, ClaudeUsageSnapshot, CodexAccountStatus,
-    CodexModelOption, CodexUsageSnapshot, DirectoryEntry, ImageInput, McpAuthStatus, McpResource,
-    McpResourceTemplate, McpTool, MentionInput, Message, PermissionRule, RecentProject,
-    RemoteSkillSummary, ReviewComment, ReviewCommentStatus, ReviewCommentTag, ServerMessage,
-    SessionPermissionRules, SessionState, SessionSummary, SkillErrorInfo, SkillInput,
-    SkillsListEntry, SubagentTool, UsageErrorInfo, WorktreeOrigin, WorktreeStatus,
-    WorktreeSummary,
+    ApprovalHistoryItem, ClaudeModelOption, ClaudeUsageSnapshot, CodexModelOption,
+    CodexUsageSnapshot, ImageInput, McpAuthStatus, McpResource, McpResourceTemplate, McpTool,
+    MentionInput, Message, RemoteSkillSummary, ServerMessage, SessionState, SessionSummary,
+    SkillErrorInfo, SkillInput, SkillsListEntry, UsageErrorInfo,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::codex_session::CodexAction;
 use crate::persistence::{
-    delete_approval, list_approvals, list_review_comments as load_review_comments,
-    load_cached_claude_models, load_messages_for_session, load_subagent_transcript_path,
+    delete_approval, list_approvals, load_cached_claude_models, load_messages_for_session,
     PersistCommand,
 };
 use crate::session_command::{SessionCommand, SubscribeResult};
@@ -36,51 +43,38 @@ use crate::session_history::{
 use crate::state::SessionRegistry;
 use orbitdock_connector_claude::session::ClaudeAction;
 
-#[derive(Debug, Serialize)]
-pub struct SessionsResponse {
-    pub sessions: Vec<SessionSummary>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SessionResponse {
-    pub session: SessionState,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConversationBootstrapResponse {
-    pub session: SessionState,
-    pub total_message_count: u64,
-    pub has_more_before: bool,
-    pub oldest_sequence: Option<u64>,
-    pub newest_sequence: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ConversationHistoryResponse {
-    pub session_id: String,
-    pub messages: Vec<Message>,
-    pub total_message_count: u64,
-    pub has_more_before: bool,
-    pub oldest_sequence: Option<u64>,
-    pub newest_sequence: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ApprovalsResponse {
-    pub session_id: Option<String>,
-    pub approvals: Vec<ApprovalHistoryItem>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct DeleteApprovalResponse {
-    pub approval_id: i64,
-    pub deleted: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct OpenAiKeyStatusResponse {
-    pub configured: bool,
-}
+pub use approvals::{
+    answer_question, approve_tool, delete_approval_endpoint, list_approvals_endpoint,
+};
+pub use codex_auth::{codex_login_cancel, codex_login_start, codex_logout, read_codex_account};
+pub use files::{
+    browse_directory, git_init_endpoint, list_recent_projects, list_subagent_tools_endpoint,
+};
+pub use permissions::{add_permission_rule, get_permission_rules, remove_permission_rule};
+pub use review_comments::{
+    create_review_comment_endpoint, delete_review_comment_by_id, list_review_comments_endpoint,
+    update_review_comment,
+};
+pub use router::build_router;
+pub use server_info::{
+    check_open_ai_key, not_control_plane_endpoint_error, set_client_primary_claim, set_open_ai_key,
+    set_server_role,
+};
+pub use session_actions::{
+    compact_context, get_session_image_attachment, interrupt_session, post_session_message,
+    post_steer_turn, rewind_files, rollback_turns, stop_task, undo_last_turn,
+    upload_session_image_attachment, AcceptedResponse,
+};
+pub use session_lifecycle::{
+    create_session, end_session, fork_session, fork_session_to_existing_worktree,
+    fork_session_to_worktree, rename_session, resume_session, takeover_session,
+    update_session_config,
+};
+pub use sessions::{
+    get_conversation_bootstrap, get_conversation_history, get_session, list_sessions,
+    mark_session_read,
+};
+pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};
 
 #[derive(Debug, Serialize)]
 pub struct CodexUsageResponse {
@@ -95,17 +89,6 @@ pub struct ClaudeUsageResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub struct DirectoryListingResponse {
-    pub path: String,
-    pub entries: Vec<DirectoryEntry>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct RecentProjectsResponse {
-    pub projects: Vec<RecentProject>,
-}
-
-#[derive(Debug, Serialize)]
 pub struct CodexModelsResponse {
     pub models: Vec<CodexModelOption>,
 }
@@ -113,24 +96,6 @@ pub struct CodexModelsResponse {
 #[derive(Debug, Serialize)]
 pub struct ClaudeModelsResponse {
     pub models: Vec<ClaudeModelOption>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CodexAccountResponse {
-    pub status: CodexAccountStatus,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ReviewCommentsResponse {
-    pub session_id: String,
-    pub comments: Vec<ReviewComment>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SubagentToolsResponse {
-    pub session_id: String,
-    pub subagent_id: String,
-    pub tools: Vec<SubagentTool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -153,136 +118,6 @@ pub struct McpToolsResponse {
     pub resources: HashMap<String, Vec<McpResource>>,
     pub resource_templates: HashMap<String, Vec<McpResourceTemplate>>,
     pub auth_statuses: HashMap<String, McpAuthStatus>,
-}
-
-// ── Worktree types ────────────────────────────────────────────
-
-#[derive(Debug, Serialize)]
-pub struct WorktreesListResponse {
-    pub repo_root: Option<String>,
-    pub worktrees: Vec<WorktreeSummary>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WorktreeCreatedResponse {
-    pub worktree: WorktreeSummary,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct WorktreesQuery {
-    #[serde(default)]
-    pub repo_root: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CreateWorktreeRequest {
-    pub repo_path: String,
-    pub branch_name: String,
-    #[serde(default)]
-    pub base_branch: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DiscoverWorktreesRequest {
-    pub repo_path: String,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct RemoveWorktreeQuery {
-    #[serde(default)]
-    pub force: bool,
-    #[serde(default)]
-    pub delete_branch: bool,
-    #[serde(default)]
-    pub delete_remote_branch: bool,
-    #[serde(default)]
-    pub archive_only: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WorktreeRemovedResponse {
-    pub worktree_id: String,
-    pub ok: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct GitInitRequest {
-    pub path: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct GitInitResponse {
-    ok: bool,
-}
-
-// ── Review comment mutation types ─────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct CreateReviewCommentRequest {
-    pub turn_id: Option<String>,
-    pub file_path: String,
-    pub line_start: u32,
-    pub line_end: Option<u32>,
-    pub body: String,
-    #[serde(default)]
-    pub tag: Option<ReviewCommentTag>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UpdateReviewCommentRequest {
-    #[serde(default)]
-    pub body: Option<String>,
-    #[serde(default)]
-    pub tag: Option<ReviewCommentTag>,
-    #[serde(default)]
-    pub status: Option<ReviewCommentStatus>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ReviewCommentMutationResponse {
-    pub comment_id: String,
-    pub ok: bool,
-}
-
-// ── Config mutation types ─────────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct SetOpenAiKeyRequest {
-    pub key: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SetServerRoleRequest {
-    pub is_primary: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ServerRoleResponse {
-    pub is_primary: bool,
-}
-
-// ── Codex auth types ──────────────────────────────────────────
-
-#[derive(Debug, Serialize)]
-pub struct CodexLoginStartedResponse {
-    pub login_id: String,
-    pub auth_url: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CodexLoginCancelRequest {
-    pub login_id: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CodexLoginCanceledResponse {
-    pub login_id: String,
-    pub status: orbitdock_protocol::CodexLoginCancelStatus,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CodexLogoutResponse {
-    pub status: CodexAccountStatus,
 }
 
 // ── Async action types ────────────────────────────────────────
@@ -318,85 +153,6 @@ pub struct ApplyFlagSettingsRequest {
     pub settings: serde_json::Value,
 }
 
-#[derive(Debug, Serialize)]
-pub struct AcceptedResponse {
-    pub accepted: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UploadedImageAttachmentResponse {
-    pub image: ImageInput,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SendSessionMessageRequest {
-    pub content: String,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub effort: Option<String>,
-    #[serde(default)]
-    pub skills: Vec<SkillInput>,
-    #[serde(default)]
-    pub images: Vec<ImageInput>,
-    #[serde(default)]
-    pub mentions: Vec<MentionInput>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SteerTurnRequest {
-    #[serde(default)]
-    pub content: String,
-    #[serde(default)]
-    pub images: Vec<ImageInput>,
-    #[serde(default)]
-    pub mentions: Vec<MentionInput>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct UploadImageAttachmentQuery {
-    #[serde(default)]
-    pub display_name: Option<String>,
-    #[serde(default)]
-    pub pixel_width: Option<u32>,
-    #[serde(default)]
-    pub pixel_height: Option<u32>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct ApprovalsQuery {
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default)]
-    pub limit: Option<u32>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct BrowseDirectoryQuery {
-    #[serde(default)]
-    pub path: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct CodexAccountQuery {
-    #[serde(default)]
-    pub refresh_token: Option<bool>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct ReviewCommentsQuery {
-    #[serde(default)]
-    pub turn_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct ConversationPageQuery {
-    #[serde(default)]
-    pub limit: Option<usize>,
-    #[serde(default)]
-    pub before_sequence: Option<u64>,
-}
-
 #[derive(Debug, Deserialize, Default)]
 pub struct SkillsQuery {
     #[serde(default)]
@@ -409,6 +165,15 @@ pub struct SkillsQuery {
 pub(crate) struct ApiErrorResponse {
     code: &'static str,
     error: String,
+}
+
+pub(crate) fn revision_now() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros() as u64
 }
 
 #[derive(Debug)]
@@ -447,346 +212,6 @@ fn messaging_dispatch_error_response(
     }
 }
 
-pub async fn list_sessions(State(state): State<Arc<SessionRegistry>>) -> Json<SessionsResponse> {
-    Json(SessionsResponse {
-        sessions: state.get_session_summaries(),
-    })
-}
-
-pub async fn get_session(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<SessionResponse> {
-    match load_full_session_state(&state, &session_id).await {
-        Ok(session) => Ok(Json(SessionResponse { session })),
-        Err(SessionLoadError::NotFound) => Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "not_found",
-                error: format!("Session {} not found", session_id),
-            }),
-        )),
-        Err(SessionLoadError::Db(err)) => {
-            error!(
-                component = "api",
-                event = "api.get_session.db_error",
-                session_id = %session_id,
-                error = %err,
-                "Failed to load session from database"
-            );
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ApiErrorResponse {
-                    code: "db_error",
-                    error: err,
-                }),
-            ))
-        }
-        Err(SessionLoadError::Runtime(err)) => {
-            error!(
-                component = "api",
-                event = "api.get_session.runtime_error",
-                session_id = %session_id,
-                error = %err,
-                "Failed to load runtime session state"
-            );
-            Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(ApiErrorResponse {
-                    code: "runtime_error",
-                    error: err,
-                }),
-            ))
-        }
-    }
-}
-
-pub async fn get_conversation_bootstrap(
-    Path(session_id): Path<String>,
-    Query(query): Query<ConversationPageQuery>,
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<ConversationBootstrapResponse> {
-    let limit = clamp_conversation_limit(query.limit);
-    match load_conversation_bootstrap(&state, &session_id, limit).await {
-        Ok(bootstrap) => Ok(Json(ConversationBootstrapResponse {
-            session: bootstrap.session,
-            total_message_count: bootstrap.total_message_count,
-            has_more_before: bootstrap.has_more_before,
-            oldest_sequence: bootstrap.oldest_sequence,
-            newest_sequence: bootstrap.newest_sequence,
-        })),
-        Err(SessionLoadError::NotFound) => Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "not_found",
-                error: format!("Session {} not found", session_id),
-            }),
-        )),
-        Err(SessionLoadError::Db(err)) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code: "db_error",
-                error: err,
-            }),
-        )),
-        Err(SessionLoadError::Runtime(err)) => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiErrorResponse {
-                code: "runtime_error",
-                error: err,
-            }),
-        )),
-    }
-}
-
-pub async fn get_conversation_history(
-    Path(session_id): Path<String>,
-    Query(query): Query<ConversationPageQuery>,
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<ConversationHistoryResponse> {
-    let limit = clamp_conversation_limit(query.limit);
-    match load_conversation_page(&state, &session_id, query.before_sequence, limit).await {
-        Ok(page) => Ok(Json(ConversationHistoryResponse {
-            session_id,
-            messages: page.messages,
-            total_message_count: page.total_message_count,
-            has_more_before: page.has_more_before,
-            oldest_sequence: page.oldest_sequence,
-            newest_sequence: page.newest_sequence,
-        })),
-        Err(SessionLoadError::NotFound) => Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "not_found",
-                error: format!("Session {} not found", session_id),
-            }),
-        )),
-        Err(SessionLoadError::Db(err)) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code: "db_error",
-                error: err,
-            }),
-        )),
-        Err(SessionLoadError::Runtime(err)) => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiErrorResponse {
-                code: "runtime_error",
-                error: err,
-            }),
-        )),
-    }
-}
-
-pub async fn post_session_message(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<SendSessionMessageRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    if body.content.is_empty()
-        && body.images.is_empty()
-        && body.mentions.is_empty()
-        && body.skills.is_empty()
-    {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                code: "invalid_request",
-                error: "Provide content, images, mentions, or skills to send a turn".to_string(),
-            }),
-        ));
-    }
-
-    let message_id = next_http_message_id("user-http");
-
-    crate::ws_handlers::messaging::dispatch_send_message(
-        &state,
-        session_id.clone(),
-        body.content,
-        body.model,
-        body.effort,
-        body.skills,
-        body.images,
-        body.mentions,
-        message_id,
-    )
-    .await
-    .map_err(|error| messaging_dispatch_error_response(error, &session_id))?;
-
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
-    ))
-}
-
-pub async fn upload_session_image_attachment(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Query(query): Query<UploadImageAttachmentQuery>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Result<Json<UploadedImageAttachmentResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-    if state.get_session(&session_id).is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "not_found",
-                error: format!("Session {} not found", session_id),
-            }),
-        ));
-    }
-
-    if body.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                code: "invalid_request",
-                error: "Provide image bytes in the request body".to_string(),
-            }),
-        ));
-    }
-
-    let mime_type = headers
-        .get(CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ApiErrorResponse {
-                    code: "invalid_request",
-                    error: "Set the image MIME type in the Content-Type header".to_string(),
-                }),
-            )
-        })?;
-
-    let image = crate::images::store_uploaded_attachment(
-        &session_id,
-        body.as_ref(),
-        mime_type,
-        query.display_name.as_deref(),
-        query.pixel_width,
-        query.pixel_height,
-    )
-    .map_err(|error| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code: "attachment_store_failed",
-                error,
-            }),
-        )
-    })?;
-
-    Ok(Json(UploadedImageAttachmentResponse { image }))
-}
-
-pub async fn get_session_image_attachment(
-    Path((session_id, attachment_id)): Path<(String, String)>,
-) -> Result<impl IntoResponse, (StatusCode, Json<ApiErrorResponse>)> {
-    let (bytes, mime_type) =
-        crate::images::read_attachment_bytes(&session_id, &attachment_id).map_err(|error| {
-            let status = if error.contains("invalid attachment id") || error.contains("read attachment") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            };
-            (
-                status,
-                Json(ApiErrorResponse {
-                    code: "attachment_read_failed",
-                    error,
-                }),
-            )
-        })?;
-
-    Ok(([(CONTENT_TYPE, mime_type)], bytes))
-}
-
-pub async fn post_steer_turn(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<SteerTurnRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    if body.content.is_empty() && body.images.is_empty() && body.mentions.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                code: "invalid_request",
-                error: "Provide content, images, or mentions to steer the active turn".to_string(),
-            }),
-        ));
-    }
-
-    let message_id = next_http_message_id("steer-http");
-
-    crate::ws_handlers::messaging::dispatch_steer_turn(
-        &state,
-        session_id.clone(),
-        body.content,
-        body.images,
-        body.mentions,
-        message_id,
-    )
-    .await
-    .map_err(|error| messaging_dispatch_error_response(error, &session_id))?;
-
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
-    ))
-}
-
-pub async fn list_approvals_endpoint(
-    Query(query): Query<ApprovalsQuery>,
-) -> ApiResult<ApprovalsResponse> {
-    match list_approvals(query.session_id.clone(), query.limit).await {
-        Ok(approvals) => Ok(Json(ApprovalsResponse {
-            session_id: query.session_id,
-            approvals,
-        })),
-        Err(err) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code: "approval_list_failed",
-                error: format!("Failed to list approvals: {err}"),
-            }),
-        )),
-    }
-}
-
-pub async fn delete_approval_endpoint(
-    Path(approval_id): Path<i64>,
-) -> ApiResult<DeleteApprovalResponse> {
-    match delete_approval(approval_id).await {
-        Ok(true) => Ok(Json(DeleteApprovalResponse {
-            approval_id,
-            deleted: true,
-        })),
-        Ok(false) => Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "not_found",
-                error: format!("Approval {} not found", approval_id),
-            }),
-        )),
-        Err(err) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code: "approval_delete_failed",
-                error: format!("Failed to delete approval {}: {}", approval_id, err),
-            }),
-        )),
-    }
-}
-
-pub async fn check_open_ai_key() -> Json<OpenAiKeyStatusResponse> {
-    Json(OpenAiKeyStatusResponse {
-        configured: crate::ai_naming::resolve_api_key().is_some(),
-    })
-}
-
 pub async fn fetch_codex_usage(
     State(state): State<Arc<SessionRegistry>>,
 ) -> Json<CodexUsageResponse> {
@@ -822,40 +247,6 @@ pub async fn fetch_claude_usage(
 
     Json(ClaudeUsageResponse { usage, error_info })
 }
-
-pub async fn browse_directory(
-    Query(query): Query<BrowseDirectoryQuery>,
-) -> Json<DirectoryListingResponse> {
-    let target = resolve_browse_target(query.path.as_deref());
-
-    let entries = match read_directory_entries(&target) {
-        Ok(entries) => entries,
-        Err(err) => {
-            warn!(
-                component = "api",
-                event = "api.browse_directory.read_error",
-                path = %target.display(),
-                error = %err,
-                "Cannot read directory"
-            );
-            vec![]
-        }
-    };
-
-    Json(DirectoryListingResponse {
-        path: target.to_string_lossy().to_string(),
-        entries,
-    })
-}
-
-pub async fn list_recent_projects(
-    State(state): State<Arc<SessionRegistry>>,
-) -> Json<RecentProjectsResponse> {
-    Json(RecentProjectsResponse {
-        projects: state.list_recent_projects().await,
-    })
-}
-
 pub async fn list_codex_models() -> ApiResult<CodexModelsResponse> {
     match discover_models().await {
         Ok(models) => Ok(Json(CodexModelsResponse { models })),
@@ -874,62 +265,6 @@ pub async fn list_claude_models() -> Json<ClaudeModelsResponse> {
         models: load_cached_claude_models(),
     })
 }
-
-pub async fn read_codex_account(
-    State(state): State<Arc<SessionRegistry>>,
-    Query(query): Query<CodexAccountQuery>,
-) -> ApiResult<CodexAccountResponse> {
-    let auth = state.codex_auth();
-    match auth
-        .read_account(query.refresh_token.unwrap_or(false))
-        .await
-    {
-        Ok(status) => Ok(Json(CodexAccountResponse { status })),
-        Err(err) => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ApiErrorResponse {
-                code: "codex_auth_error",
-                error: err,
-            }),
-        )),
-    }
-}
-
-pub async fn list_review_comments_endpoint(
-    Path(session_id): Path<String>,
-    Query(query): Query<ReviewCommentsQuery>,
-) -> Json<ReviewCommentsResponse> {
-    let comments = match load_review_comments(&session_id, query.turn_id.as_deref()).await {
-        Ok(comments) => comments,
-        Err(err) => {
-            warn!(
-                component = "api",
-                event = "api.review_comments.list_error",
-                session_id = %session_id,
-                error = %err,
-                "Failed to list review comments"
-            );
-            vec![]
-        }
-    };
-
-    Json(ReviewCommentsResponse {
-        session_id,
-        comments,
-    })
-}
-
-pub async fn list_subagent_tools_endpoint(
-    Path((session_id, subagent_id)): Path<(String, String)>,
-) -> Json<SubagentToolsResponse> {
-    let tools = load_subagent_tools(&subagent_id).await;
-    Json(SubagentToolsResponse {
-        session_id,
-        subagent_id,
-        tools,
-    })
-}
-
 pub async fn list_skills_endpoint(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
@@ -991,494 +326,6 @@ pub async fn list_mcp_tools_endpoint(
         resource_templates,
         auth_statuses,
     }))
-}
-
-// ── Group A: Pure operations ──────────────────────────────────
-
-pub async fn set_open_ai_key(
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<SetOpenAiKeyRequest>,
-) -> ApiResult<OpenAiKeyStatusResponse> {
-    info!(
-        component = "api",
-        event = "api.openai_key.set",
-        "OpenAI API key set via REST"
-    );
-
-    let _ = state
-        .persist()
-        .send(PersistCommand::SetConfig {
-            key: "openai_api_key".into(),
-            value: body.key,
-        })
-        .await;
-
-    Ok(Json(OpenAiKeyStatusResponse { configured: true }))
-}
-
-pub async fn list_worktrees(
-    Query(query): Query<WorktreesQuery>,
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<WorktreesListResponse> {
-    let worktrees = if let Some(ref root) = query.repo_root {
-        let db_rows = crate::persistence::load_worktrees_by_repo(state.db_path(), root);
-
-        if db_rows.is_empty() {
-            // Fallback: discover from git for repos not yet tracked
-            match crate::git::discover_worktrees(root).await {
-                Ok(discovered) => discovered
-                    .into_iter()
-                    .map(|w| WorktreeSummary {
-                        id: orbitdock_protocol::new_id(),
-                        repo_root: root.clone(),
-                        worktree_path: w.path,
-                        branch: w.branch.unwrap_or_else(|| "HEAD".to_string()),
-                        base_branch: None,
-                        status: WorktreeStatus::Active,
-                        active_session_count: 0,
-                        total_session_count: 0,
-                        created_at: String::new(),
-                        last_session_ended_at: None,
-                        disk_present: true,
-                        auto_prune: true,
-                        custom_name: None,
-                        created_by: WorktreeOrigin::Discovered,
-                    })
-                    .collect(),
-                Err(_) => Vec::new(),
-            }
-        } else {
-            // Enrich DB rows with disk presence check
-            let mut summaries = Vec::with_capacity(db_rows.len());
-            for row in db_rows {
-                let disk_present = crate::git::worktree_exists_on_disk(&row.worktree_path).await;
-                summaries.push(WorktreeSummary {
-                    id: row.id,
-                    repo_root: row.repo_root,
-                    worktree_path: row.worktree_path,
-                    branch: row.branch,
-                    base_branch: row.base_branch,
-                    status: WorktreeStatus::from_str_opt(&row.status)
-                        .unwrap_or(WorktreeStatus::Active),
-                    active_session_count: 0,
-                    total_session_count: 0,
-                    created_at: String::new(),
-                    last_session_ended_at: None,
-                    disk_present,
-                    auto_prune: true,
-                    custom_name: None,
-                    created_by: WorktreeOrigin::User,
-                });
-            }
-            summaries
-        }
-    } else {
-        Vec::new()
-    };
-
-    Ok(Json(WorktreesListResponse {
-        repo_root: query.repo_root,
-        worktrees,
-    }))
-}
-
-pub async fn discover_worktrees(
-    Json(body): Json<DiscoverWorktreesRequest>,
-) -> ApiResult<WorktreesListResponse> {
-    let worktrees = match crate::git::discover_worktrees(&body.repo_path).await {
-        Ok(discovered) => discovered
-            .into_iter()
-            .map(|w| WorktreeSummary {
-                id: orbitdock_protocol::new_id(),
-                repo_root: body.repo_path.clone(),
-                worktree_path: w.path,
-                branch: w.branch.unwrap_or_else(|| "HEAD".to_string()),
-                base_branch: None,
-                status: WorktreeStatus::Active,
-                active_session_count: 0,
-                total_session_count: 0,
-                created_at: String::new(),
-                last_session_ended_at: None,
-                disk_present: true,
-                auto_prune: true,
-                custom_name: None,
-                created_by: WorktreeOrigin::Discovered,
-            })
-            .collect(),
-        Err(_) => Vec::new(),
-    };
-
-    Ok(Json(WorktreesListResponse {
-        repo_root: Some(body.repo_path),
-        worktrees,
-    }))
-}
-
-pub async fn create_worktree(
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<CreateWorktreeRequest>,
-) -> ApiResult<WorktreeCreatedResponse> {
-    match crate::worktree_service::create_tracked_worktree(
-        &state,
-        &body.repo_path,
-        &body.branch_name,
-        body.base_branch.as_deref(),
-        WorktreeOrigin::User,
-    )
-    .await
-    {
-        Ok(summary) => Ok(Json(WorktreeCreatedResponse { worktree: summary })),
-        Err(e) => Err((
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                code: "create_failed",
-                error: e,
-            }),
-        )),
-    }
-}
-
-pub async fn remove_worktree(
-    Path(worktree_id): Path<String>,
-    Query(query): Query<RemoveWorktreeQuery>,
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<WorktreeRemovedResponse> {
-    let row = crate::persistence::load_worktree_by_id(state.db_path(), &worktree_id).ok_or_else(
-        || {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    code: "not_found",
-                    error: format!("worktree {worktree_id} not found"),
-                }),
-            )
-        },
-    )?;
-
-    if !query.archive_only {
-        if let Err(e) =
-            crate::git::remove_worktree(&row.repo_root, &row.worktree_path, query.force).await
-        {
-            if !query.force {
-                warn!(
-                    component = "worktree",
-                    event = "worktree.remove.failed",
-                    worktree_id = %worktree_id,
-                    repo_root = %row.repo_root,
-                    worktree_path = %row.worktree_path,
-                    error = %e,
-                    "Failed to remove worktree"
-                );
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(ApiErrorResponse {
-                        code: "remove_failed",
-                        error: e,
-                    }),
-                ));
-            }
-            // Force mode: log and continue even if git removal fails
-            warn!(
-                component = "worktree",
-                event = "worktree.remove.force_fallthrough",
-                worktree_id = %worktree_id,
-                error = %e,
-                "git worktree remove failed in force mode, continuing"
-            );
-        }
-    }
-
-    if !query.archive_only && query.delete_branch {
-        if let Err(e) = crate::git::delete_branch(&row.repo_root, &row.branch).await {
-            warn!(
-                component = "worktree",
-                event = "worktree.delete_branch.failed",
-                worktree_id = %worktree_id,
-                repo_root = %row.repo_root,
-                branch = %row.branch,
-                error = %e,
-                "Failed to delete branch after worktree removal"
-            );
-        }
-    }
-
-    if !query.archive_only && query.delete_remote_branch {
-        if let Err(e) = crate::git::delete_remote_branch(&row.repo_root, &row.branch).await {
-            warn!(
-                component = "worktree",
-                event = "worktree.delete_remote_branch.failed",
-                worktree_id = %worktree_id,
-                repo_root = %row.repo_root,
-                branch = %row.branch,
-                error = %e,
-                "Failed to delete remote branch after worktree removal"
-            );
-        }
-    }
-
-    let _ = state
-        .persist()
-        .send(PersistCommand::WorktreeUpdateStatus {
-            id: worktree_id.clone(),
-            status: "removed".into(),
-            last_session_ended_at: None,
-        })
-        .await;
-
-    state.broadcast_to_list(ServerMessage::WorktreeRemoved {
-        request_id: String::new(),
-        worktree_id: worktree_id.clone(),
-    });
-
-    Ok(Json(WorktreeRemovedResponse {
-        worktree_id,
-        ok: true,
-    }))
-}
-
-pub async fn git_init_endpoint(Json(body): Json<GitInitRequest>) -> ApiResult<GitInitResponse> {
-    // Verify the directory exists
-    if tokio::fs::metadata(&body.path).await.is_err() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ApiErrorResponse {
-                code: "path_not_found",
-                error: format!("directory does not exist: {}", body.path),
-            }),
-        ));
-    }
-
-    crate::git::git_init(&body.path)
-        .await
-        .map(|_| Json(GitInitResponse { ok: true }))
-        .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ApiErrorResponse {
-                    code: "git_init_failed",
-                    error: e,
-                }),
-            )
-        })
-}
-
-pub async fn update_review_comment(
-    Path(comment_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<UpdateReviewCommentRequest>,
-) -> ApiResult<ReviewCommentMutationResponse> {
-    let tag_str = body.tag.map(|t| match t {
-        ReviewCommentTag::Clarity => "clarity".to_string(),
-        ReviewCommentTag::Scope => "scope".to_string(),
-        ReviewCommentTag::Risk => "risk".to_string(),
-        ReviewCommentTag::Nit => "nit".to_string(),
-    });
-    let status_str = body.status.map(|s| match s {
-        ReviewCommentStatus::Open => "open".to_string(),
-        ReviewCommentStatus::Resolved => "resolved".to_string(),
-    });
-
-    let _ = state
-        .persist()
-        .send(PersistCommand::ReviewCommentUpdate {
-            id: comment_id.clone(),
-            body: body.body,
-            tag: tag_str,
-            status: status_str,
-        })
-        .await;
-
-    Ok(Json(ReviewCommentMutationResponse {
-        comment_id,
-        ok: true,
-    }))
-}
-
-pub async fn delete_review_comment_by_id(
-    Path(comment_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<ReviewCommentMutationResponse> {
-    let _ = state
-        .persist()
-        .send(PersistCommand::ReviewCommentDelete {
-            id: comment_id.clone(),
-        })
-        .await;
-
-    Ok(Json(ReviewCommentMutationResponse {
-        comment_id,
-        ok: true,
-    }))
-}
-
-// ── Group B: Operations with broadcast ────────────────────────
-
-pub async fn set_server_role(
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<SetServerRoleRequest>,
-) -> ApiResult<ServerRoleResponse> {
-    info!(
-        component = "api",
-        event = "api.server_role.set",
-        is_primary = body.is_primary,
-        "Server role updated via REST"
-    );
-
-    let _changed = state.set_primary(body.is_primary);
-
-    let role_value = if body.is_primary {
-        "primary".to_string()
-    } else {
-        "secondary".to_string()
-    };
-    let _ = state
-        .persist()
-        .send(PersistCommand::SetConfig {
-            key: "server_role".into(),
-            value: role_value,
-        })
-        .await;
-
-    let update = crate::websocket::server_info_message(&state);
-    state.broadcast_to_list(update);
-
-    Ok(Json(ServerRoleResponse {
-        is_primary: body.is_primary,
-    }))
-}
-
-pub async fn create_review_comment_endpoint(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<CreateReviewCommentRequest>,
-) -> ApiResult<ReviewCommentMutationResponse> {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let comment_id = format!(
-        "rc-{}-{}",
-        &session_id[..8.min(session_id.len())],
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    );
-
-    let tag_str = body.tag.map(|t| {
-        match t {
-            ReviewCommentTag::Clarity => "clarity",
-            ReviewCommentTag::Scope => "scope",
-            ReviewCommentTag::Risk => "risk",
-            ReviewCommentTag::Nit => "nit",
-        }
-        .to_string()
-    });
-
-    let now = crate::session_utils::chrono_now();
-
-    let comment = ReviewComment {
-        id: comment_id.clone(),
-        session_id: session_id.clone(),
-        turn_id: body.turn_id.clone(),
-        file_path: body.file_path.clone(),
-        line_start: body.line_start,
-        line_end: body.line_end,
-        body: body.body.clone(),
-        tag: body.tag,
-        status: ReviewCommentStatus::Open,
-        created_at: now,
-        updated_at: None,
-    };
-
-    let _ = state
-        .persist()
-        .send(PersistCommand::ReviewCommentCreate {
-            id: comment_id.clone(),
-            session_id: session_id.clone(),
-            turn_id: body.turn_id,
-            file_path: body.file_path,
-            line_start: body.line_start,
-            line_end: body.line_end,
-            body: body.body,
-            tag: tag_str,
-        })
-        .await;
-
-    // Broadcast to session subscribers
-    if let Some(actor) = state.get_session(&session_id) {
-        actor
-            .send(crate::session_command::SessionCommand::Broadcast {
-                msg: ServerMessage::ReviewCommentCreated {
-                    session_id,
-                    comment,
-                },
-            })
-            .await;
-    }
-
-    Ok(Json(ReviewCommentMutationResponse {
-        comment_id,
-        ok: true,
-    }))
-}
-
-pub async fn codex_login_start(
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<CodexLoginStartedResponse> {
-    let auth = state.codex_auth();
-    match auth.start_chatgpt_login().await {
-        Ok((login_id, auth_url)) => {
-            if let Ok(status) = auth.read_account(false).await {
-                state.broadcast_to_list(ServerMessage::CodexAccountStatus { status });
-            }
-            Ok(Json(CodexLoginStartedResponse { login_id, auth_url }))
-        }
-        Err(err) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code: "codex_auth_login_start_failed",
-                error: err,
-            }),
-        )),
-    }
-}
-
-pub async fn codex_login_cancel(
-    State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<CodexLoginCancelRequest>,
-) -> Json<CodexLoginCanceledResponse> {
-    let auth = state.codex_auth();
-    let status = auth.cancel_chatgpt_login(body.login_id.clone()).await;
-    if let Ok(account_status) = auth.read_account(false).await {
-        state.broadcast_to_list(ServerMessage::CodexAccountStatus {
-            status: account_status,
-        });
-    }
-    Json(CodexLoginCanceledResponse {
-        login_id: body.login_id,
-        status,
-    })
-}
-
-pub async fn codex_logout(
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<CodexLogoutResponse> {
-    let auth = state.codex_auth();
-    match auth.logout().await {
-        Ok(status) => {
-            let updated = ServerMessage::CodexAccountUpdated {
-                status: status.clone(),
-            };
-            state.broadcast_to_list(updated);
-            Ok(Json(CodexLogoutResponse { status }))
-        }
-        Err(err) => Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code: "codex_auth_logout_failed",
-                error: err,
-            }),
-        )),
-    }
 }
 
 // ── Group C: Async fire-and-forget (202 Accepted) ─────────────
@@ -1624,508 +471,12 @@ pub async fn apply_flag_settings(
     ))
 }
 
-// ── Permission Rules ─────────────────────────────────────────
-
-#[derive(Debug, Serialize)]
-pub struct PermissionRulesResponse {
-    pub session_id: String,
-    pub rules: SessionPermissionRules,
-}
-
-pub async fn get_permission_rules(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<PermissionRulesResponse> {
-    // Try Claude first
-    if state.get_claude_action_tx(&session_id).is_some() {
-        // Try get_settings control request first (requires CLI support)
-        let rules = try_get_settings_from_cli(&session_id, &state)
-            .await
-            .unwrap_or_else(|| {
-                // Fallback: read settings files from disk
-                let project_path = state
-                    .get_session(&session_id)
-                    .map(|a| a.snapshot().project_path.clone());
-                read_claude_settings_from_disk(project_path.as_deref())
-            });
-
-        return Ok(Json(PermissionRulesResponse { session_id, rules }));
-    }
-
-    // Try Codex — read config from session state directly
-    if state.get_codex_action_tx(&session_id).is_some() {
-        if let Some(actor) = state.get_session(&session_id) {
-            let snap = actor.snapshot();
-            let rules = SessionPermissionRules::Codex {
-                approval_policy: snap.approval_policy.clone(),
-                sandbox_mode: snap.sandbox_mode.clone(),
-            };
-            return Ok(Json(PermissionRulesResponse { session_id, rules }));
-        }
-    }
-
-    Err((
-        StatusCode::NOT_FOUND,
-        Json(ApiErrorResponse {
-            code: "not_found",
-            error: format!("No active direct session found for {}", session_id),
-        }),
-    ))
-}
-
-// ── Permission Rule Mutations ────────────────────────────────
-
-#[derive(Debug, Deserialize)]
-pub struct ModifyPermissionRuleRequest {
-    pub pattern: String,
-    pub behavior: String,
-    /// "project" (default) or "global"
-    #[serde(default = "default_scope")]
-    pub scope: String,
-}
-
-fn default_scope() -> String {
-    "project".into()
-}
-
-#[derive(Debug, Serialize)]
-pub struct ModifyPermissionRuleResponse {
-    pub ok: bool,
-}
-
-/// POST /api/sessions/{session_id}/permissions/rules — add a permission rule
-pub async fn add_permission_rule(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(req): Json<ModifyPermissionRuleRequest>,
-) -> ApiResult<ModifyPermissionRuleResponse> {
-    let project_path = resolve_project_path_for_claude(&session_id, &state)?;
-
-    let settings_path = if req.scope == "global" {
-        let home = std::env::var("HOME").unwrap_or_default();
-        format!("{}/.claude/settings.local.json", home)
-    } else {
-        format!("{}/.claude/settings.local.json", project_path)
-    };
-
-    modify_settings_file(&settings_path, |perms| {
-        let arr = perms
-            .entry(&req.behavior)
-            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
-        if let Some(list) = arr.as_array_mut() {
-            let pattern_val = serde_json::Value::String(req.pattern.clone());
-            if !list.contains(&pattern_val) {
-                list.push(pattern_val);
-            }
-        }
-    })?;
-
-    Ok(Json(ModifyPermissionRuleResponse { ok: true }))
-}
-
-/// DELETE /api/sessions/{session_id}/permissions/rules — remove a permission rule
-pub async fn remove_permission_rule(
-    Path(session_id): Path<String>,
-    State(state): State<Arc<SessionRegistry>>,
-    Json(req): Json<ModifyPermissionRuleRequest>,
-) -> ApiResult<ModifyPermissionRuleResponse> {
-    let project_path = resolve_project_path_for_claude(&session_id, &state)?;
-
-    let settings_path = if req.scope == "global" {
-        let home = std::env::var("HOME").unwrap_or_default();
-        format!("{}/.claude/settings.local.json", home)
-    } else {
-        format!("{}/.claude/settings.local.json", project_path)
-    };
-
-    modify_settings_file(&settings_path, |perms| {
-        if let Some(arr) = perms.get_mut(&req.behavior).and_then(|v| v.as_array_mut()) {
-            let pattern_val = serde_json::Value::String(req.pattern.clone());
-            arr.retain(|v| v != &pattern_val);
-        }
-    })?;
-
-    Ok(Json(ModifyPermissionRuleResponse { ok: true }))
-}
-
-/// Resolve the project path for a Claude session.
-fn resolve_project_path_for_claude(
-    session_id: &str,
-    state: &Arc<SessionRegistry>,
-) -> Result<String, (StatusCode, Json<ApiErrorResponse>)> {
-    if state.get_claude_action_tx(session_id).is_none() {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(ApiErrorResponse {
-                code: "not_found",
-                error: format!("No active Claude session found for {}", session_id),
-            }),
-        ));
-    }
-
-    state
-        .get_session(session_id)
-        .map(|a| a.snapshot().project_path.clone())
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    code: "not_found",
-                    error: format!("Session not found: {}", session_id),
-                }),
-            )
-        })
-}
-
-/// Read-modify-write a `.claude/settings.local.json` file.
-fn modify_settings_file(
-    path: &str,
-    mutate: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
-) -> Result<(), (StatusCode, Json<ApiErrorResponse>)> {
-    // Read existing or start empty
-    let mut root: serde_json::Value = if let Ok(contents) = std::fs::read_to_string(path) {
-        serde_json::from_str(&contents).unwrap_or_else(|_| serde_json::json!({}))
-    } else {
-        serde_json::json!({})
-    };
-
-    // Ensure permissions object exists
-    if root.get("permissions").is_none() {
-        root.as_object_mut()
-            .unwrap()
-            .insert("permissions".into(), serde_json::json!({}));
-    }
-
-    let perms = root
-        .get_mut("permissions")
-        .and_then(|v| v.as_object_mut())
-        .unwrap();
-
-    mutate(perms);
-
-    // Ensure parent directory exists
-    if let Some(parent) = std::path::Path::new(path).parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-
-    // Write back
-    let json_str = serde_json::to_string_pretty(&root).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code: "serialize_error",
-                error: format!("Failed to serialize settings: {}", e),
-            }),
-        )
-    })?;
-
-    std::fs::write(path, json_str).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiErrorResponse {
-                code: "write_error",
-                error: format!("Failed to write settings file: {}", e),
-            }),
-        )
-    })?;
-
-    Ok(())
-}
-
-/// Try the `get_settings` control request. Returns `None` if unsupported or error.
-async fn try_get_settings_from_cli(
-    session_id: &str,
-    state: &Arc<SessionRegistry>,
-) -> Option<SessionPermissionRules> {
-    let tx = state.get_claude_action_tx(session_id)?;
-    let (reply_tx, reply_rx) = oneshot::channel();
-
-    tx.send(ClaudeAction::GetSettings { reply: reply_tx })
-        .await
-        .ok()?;
-
-    let val = tokio::time::timeout(std::time::Duration::from_secs(10), reply_rx)
-        .await
-        .ok()?
-        .ok()?
-        .ok()?;
-
-    // Check if the CLI returned an error (unsupported subtype)
-    if val.get("subtype").and_then(|s| s.as_str()) == Some("error") {
-        info!(session_id = %session_id, "get_settings unsupported by CLI, falling back to disk");
-        return None;
-    }
-
-    Some(parse_permissions_from_value(&val))
-}
-
-/// Parse permission rules from a get_settings response or a raw settings JSON object.
-fn parse_permissions_from_value(data: &serde_json::Value) -> SessionPermissionRules {
-    // get_settings response: { subtype: "success", response: { effective: { permissions: {...} } } }
-    // Or raw settings file: { permissions: { allow: [...], deny: [...] } }
-    let permissions = data
-        .get("response")
-        .and_then(|r| r.get("effective"))
-        .and_then(|e| e.get("permissions"))
-        .or_else(|| data.get("effective").and_then(|e| e.get("permissions")))
-        .or_else(|| data.get("permissions"));
-
-    let mut rules = Vec::new();
-
-    if let Some(perms) = permissions {
-        for (behavior, key) in [("allow", "allow"), ("deny", "deny"), ("ask", "ask")] {
-            if let Some(arr) = perms.get(key).and_then(|v| v.as_array()) {
-                for rule_val in arr {
-                    if let Some(pattern) = rule_val.as_str() {
-                        rules.push(PermissionRule {
-                            pattern: pattern.to_string(),
-                            behavior: behavior.to_string(),
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    let additional_directories = permissions
-        .and_then(|p| {
-            p.get("additionalDirectories")
-                .or_else(|| p.get("additional_directories"))
-        })
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        });
-
-    let permission_mode = permissions
-        .and_then(|p| p.get("defaultMode").or_else(|| p.get("default_mode")))
-        .and_then(|v| v.as_str())
-        .map(String::from);
-
-    SessionPermissionRules::Claude {
-        permission_mode,
-        rules,
-        additional_directories,
-    }
-}
-
-/// Read Claude settings from disk (global + project) and merge permissions.
-fn read_claude_settings_from_disk(project_path: Option<&str>) -> SessionPermissionRules {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let global_path = format!("{}/.claude/settings.local.json", home);
-
-    let mut all_allow: Vec<String> = Vec::new();
-    let mut all_deny: Vec<String> = Vec::new();
-    let mut all_ask: Vec<String> = Vec::new();
-    let mut additional_dirs: Vec<String> = Vec::new();
-    let mut permission_mode: Option<String> = None;
-
-    // Read global settings
-    if let Ok(contents) = std::fs::read_to_string(&global_path) {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&contents) {
-            collect_permissions(
-                &val,
-                &mut all_allow,
-                &mut all_deny,
-                &mut all_ask,
-                &mut additional_dirs,
-                &mut permission_mode,
-            );
-        }
-    }
-
-    // Read project-level settings (overrides/extends global)
-    if let Some(project) = project_path {
-        let project_settings = format!("{}/.claude/settings.local.json", project);
-        if let Ok(contents) = std::fs::read_to_string(&project_settings) {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&contents) {
-                collect_permissions(
-                    &val,
-                    &mut all_allow,
-                    &mut all_deny,
-                    &mut all_ask,
-                    &mut additional_dirs,
-                    &mut permission_mode,
-                );
-            }
-        }
-    }
-
-    let mut rules = Vec::new();
-    // Dedup while preserving order
-    let mut seen = std::collections::HashSet::new();
-    for pattern in all_allow {
-        if seen.insert(format!("allow:{}", pattern)) {
-            rules.push(PermissionRule {
-                pattern,
-                behavior: "allow".into(),
-            });
-        }
-    }
-    for pattern in all_deny {
-        if seen.insert(format!("deny:{}", pattern)) {
-            rules.push(PermissionRule {
-                pattern,
-                behavior: "deny".into(),
-            });
-        }
-    }
-    for pattern in all_ask {
-        if seen.insert(format!("ask:{}", pattern)) {
-            rules.push(PermissionRule {
-                pattern,
-                behavior: "ask".into(),
-            });
-        }
-    }
-
-    SessionPermissionRules::Claude {
-        permission_mode,
-        rules,
-        additional_directories: if additional_dirs.is_empty() {
-            None
-        } else {
-            Some(additional_dirs)
-        },
-    }
-}
-
-/// Extract permission arrays from a settings JSON object.
-fn collect_permissions(
-    val: &serde_json::Value,
-    allow: &mut Vec<String>,
-    deny: &mut Vec<String>,
-    ask: &mut Vec<String>,
-    dirs: &mut Vec<String>,
-    mode: &mut Option<String>,
-) {
-    let perms = val
-        .get("permissions")
-        .or_else(|| val.get("allow").map(|_| val));
-    let perms = match perms {
-        Some(p) => p,
-        None => return,
-    };
-
-    for (target, key) in [(allow, "allow"), (deny, "deny"), (ask, "ask")] {
-        if let Some(arr) = perms.get(key).and_then(|v| v.as_array()) {
-            for item in arr {
-                if let Some(s) = item.as_str() {
-                    target.push(s.to_string());
-                }
-            }
-        }
-    }
-
-    if let Some(arr) = perms
-        .get("additionalDirectories")
-        .or_else(|| perms.get("additional_directories"))
-        .and_then(|v| v.as_array())
-    {
-        for item in arr {
-            if let Some(s) = item.as_str() {
-                dirs.push(s.to_string());
-            }
-        }
-    }
-
-    if let Some(m) = perms
-        .get("defaultMode")
-        .or_else(|| perms.get("default_mode"))
-        .and_then(|v| v.as_str())
-    {
-        *mode = Some(m.to_string());
-    }
-}
-
 // ── Private helpers ───────────────────────────────────────────
 
 fn clamp_conversation_limit(limit: Option<usize>) -> usize {
     limit
         .unwrap_or(DEFAULT_CONVERSATION_PAGE_SIZE)
         .clamp(1, MAX_CONVERSATION_PAGE_SIZE)
-}
-
-fn resolve_browse_target(path: Option<&str>) -> PathBuf {
-    match path {
-        Some(path) if !path.is_empty() => {
-            if let Some(stripped) = path.strip_prefix('~') {
-                if let Some(home) = dirs::home_dir() {
-                    return home.join(stripped.trim_start_matches('/'));
-                }
-            }
-            PathBuf::from(path)
-        }
-        _ => dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")),
-    }
-}
-
-fn read_directory_entries(target: &PathBuf) -> Result<Vec<DirectoryEntry>, std::io::Error> {
-    let mut listing: Vec<DirectoryEntry> = Vec::new();
-
-    for entry in std::fs::read_dir(target)? {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(_) => continue,
-        };
-
-        let meta = match entry.metadata() {
-            Ok(meta) => meta,
-            Err(_) => continue,
-        };
-
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') {
-            continue;
-        }
-
-        let is_dir = meta.is_dir();
-        let is_git = if is_dir {
-            entry.path().join(".git").exists()
-        } else {
-            false
-        };
-
-        listing.push(DirectoryEntry {
-            name,
-            is_dir,
-            is_git,
-        });
-    }
-
-    listing.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-
-    Ok(listing)
-}
-
-async fn load_subagent_tools(subagent_id: &str) -> Vec<SubagentTool> {
-    match load_subagent_transcript_path(subagent_id).await {
-        Ok(Some(path)) => {
-            let parse_path = path.clone();
-            tokio::task::spawn_blocking(move || {
-                crate::subagent_parser::parse_tools(std::path::Path::new(&parse_path))
-            })
-            .await
-            .unwrap_or_default()
-        }
-        Ok(None) => vec![],
-        Err(err) => {
-            warn!(
-                component = "api",
-                event = "api.subagent_tools.load_error",
-                subagent_id = %subagent_id,
-                error = %err,
-                "Failed to load subagent transcript path"
-            );
-            vec![]
-        }
-    }
 }
 
 async fn subscribe_session_events(
@@ -2344,78 +695,314 @@ fn codex_action_error_response(
     }
 }
 
-fn not_control_plane_endpoint_error() -> UsageErrorInfo {
-    UsageErrorInfo {
-        code: "not_control_plane_endpoint".to_string(),
-        message: "This endpoint is not primary for control-plane usage reads.".to_string(),
+// ── New REST endpoints (Phase 0: HTTP-first migration) ───────
+
+#[derive(Debug, Deserialize)]
+pub struct ExecuteShellRequest {
+    pub command: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExecuteShellResponse {
+    pub request_id: String,
+    pub accepted: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CancelShellRequest {
+    pub request_id: String,
+}
+
+fn session_not_found_error(session_id: &str) -> (StatusCode, Json<ApiErrorResponse>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(ApiErrorResponse {
+            code: "not_found",
+            error: format!(
+                "Session {} not found or has no active connector",
+                session_id
+            ),
+        }),
+    )
+}
+
+fn dispatch_error_response(
+    code: &'static str,
+    session_id: &str,
+) -> (StatusCode, Json<ApiErrorResponse>) {
+    match code {
+        "not_found" => session_not_found_error(session_id),
+        "invalid_answer_payload" => (
+            StatusCode::BAD_REQUEST,
+            Json(ApiErrorResponse {
+                code: "invalid_answer_payload",
+                error: "Question approvals require a non-empty answer or answers map".to_string(),
+            }),
+        ),
+        "rollback_failed" => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiErrorResponse {
+                code: "rollback_failed",
+                error: "Could not find user message for rollback".to_string(),
+            }),
+        ),
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse {
+                code,
+                error: format!("Operation failed for session {}", session_id),
+            }),
+        ),
     }
 }
 
-// -- Mark read --
-
-#[derive(Debug, Serialize)]
-pub struct MarkReadResponse {
-    pub session_id: String,
-    pub unread_count: u64,
-}
-
-pub async fn mark_session_read(
+pub async fn execute_shell_endpoint(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<MarkReadResponse> {
-    let actor = match state.get_session(&session_id) {
-        Some(a) => a,
-        None => {
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(ApiErrorResponse {
-                    code: "session_not_found",
-                    error: format!("Session {} not found", session_id),
-                }),
-            ))
-        }
+    Json(body): Json<ExecuteShellRequest>,
+) -> Result<Json<ExecuteShellResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+    let resolved_cwd = if let Some(ref explicit) = body.cwd {
+        explicit.clone()
+    } else if let Some(actor) = state.get_session(&session_id) {
+        let snap = actor.snapshot();
+        snap.current_cwd
+            .clone()
+            .unwrap_or_else(|| snap.project_path.clone())
+    } else {
+        return Err(session_not_found_error(&session_id));
     };
 
-    let (tx, rx) = oneshot::channel();
-    actor.send(SessionCommand::MarkRead { reply: tx }).await;
+    let request_id = orbitdock_protocol::new_id();
+    let actor = state
+        .get_session(&session_id)
+        .ok_or_else(|| session_not_found_error(&session_id))?;
 
-    let unread_count = rx.await.unwrap_or(0);
-
-    // Persist the read watermark
-    let max_seq: i64 = match load_messages_for_session(&session_id).await {
-        Ok(msgs) => msgs.len() as i64,
-        Err(_) => 0,
-    };
-    let _ = state
-        .persist()
-        .send(PersistCommand::MarkSessionRead {
-            session_id: session_id.clone(),
-            up_to_sequence: max_seq,
+    // Broadcast shell started
+    actor
+        .send(SessionCommand::Broadcast {
+            msg: ServerMessage::ShellStarted {
+                session_id: session_id.clone(),
+                request_id: request_id.clone(),
+                command: body.command.clone(),
+            },
         })
         .await;
 
-    Ok(Json(MarkReadResponse {
-        session_id,
-        unread_count,
+    // Create shell message
+    let ts_millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let shell_msg = orbitdock_protocol::Message {
+        id: request_id.clone(),
+        session_id: session_id.clone(),
+        sequence: None,
+        message_type: orbitdock_protocol::MessageType::Shell,
+        content: body.command.clone(),
+        tool_name: None,
+        tool_input: None,
+        tool_output: None,
+        is_error: false,
+        is_in_progress: true,
+        timestamp: crate::session_utils::iso_timestamp(ts_millis),
+        duration_ms: None,
+        images: vec![],
+    };
+
+    actor
+        .send(SessionCommand::ProcessEvent {
+            event: crate::transition::Input::MessageCreated(shell_msg),
+        })
+        .await;
+
+    // Start shell execution
+    let shell_execution = state
+        .shell_service()
+        .start(
+            request_id.clone(),
+            session_id.clone(),
+            body.command,
+            resolved_cwd,
+            body.timeout_secs.unwrap_or(120),
+        )
+        .map_err(|_| {
+            (
+                StatusCode::CONFLICT,
+                Json(ApiErrorResponse {
+                    code: "shell_duplicate_request_id",
+                    error: format!("Shell request {} is already active", request_id),
+                }),
+            )
+        })?;
+
+    // Spawn background task to stream output (same pattern as WS handler)
+    let state_ref = state.clone();
+    let sid = session_id.clone();
+    let rid = request_id.clone();
+    tokio::spawn(async move {
+        let mut chunk_rx = shell_execution.chunk_rx;
+        let completion_rx = shell_execution.completion_rx;
+        let mut streamed_output = String::new();
+        let mut last_stream_emit = std::time::Instant::now();
+        const SHELL_STREAM_THROTTLE_MS: u128 = 120;
+
+        while let Some(chunk) = chunk_rx.recv().await {
+            if !chunk.stdout.is_empty() {
+                streamed_output.push_str(&chunk.stdout);
+            }
+            if !chunk.stderr.is_empty() {
+                streamed_output.push_str(&chunk.stderr);
+            }
+            let now = std::time::Instant::now();
+            if now.duration_since(last_stream_emit).as_millis() < SHELL_STREAM_THROTTLE_MS {
+                continue;
+            }
+            last_stream_emit = now;
+            if let Some(actor) = state_ref.get_session(&sid) {
+                actor
+                    .send(SessionCommand::ProcessEvent {
+                        event: crate::transition::Input::MessageUpdated {
+                            message_id: rid.clone(),
+                            content: None,
+                            tool_output: Some(streamed_output.clone()),
+                            is_error: None,
+                            is_in_progress: Some(true),
+                            duration_ms: None,
+                        },
+                    })
+                    .await;
+            }
+        }
+
+        let result = match completion_rx.await {
+            Ok(result) => result,
+            Err(recv_err) => crate::shell::ShellResult {
+                stdout: String::new(),
+                stderr: format!("Shell execution completion channel failed: {recv_err}"),
+                exit_code: None,
+                duration_ms: 0,
+                outcome: crate::shell::ShellOutcome::Failed,
+            },
+        };
+
+        let is_error = match result.outcome {
+            crate::shell::ShellOutcome::Completed => result.exit_code != Some(0),
+            crate::shell::ShellOutcome::Failed | crate::shell::ShellOutcome::TimedOut => true,
+            crate::shell::ShellOutcome::Canceled => false,
+        };
+        let combined_output = if result.stderr.is_empty() {
+            result.stdout.clone()
+        } else if result.stdout.is_empty() {
+            result.stderr.clone()
+        } else {
+            format!("{}\n{}", result.stdout, result.stderr)
+        };
+        let final_output = if combined_output.is_empty() {
+            streamed_output
+        } else {
+            combined_output
+        };
+        let outcome = match result.outcome {
+            crate::shell::ShellOutcome::Completed => {
+                orbitdock_protocol::ShellExecutionOutcome::Completed
+            }
+            crate::shell::ShellOutcome::Failed => orbitdock_protocol::ShellExecutionOutcome::Failed,
+            crate::shell::ShellOutcome::TimedOut => {
+                orbitdock_protocol::ShellExecutionOutcome::TimedOut
+            }
+            crate::shell::ShellOutcome::Canceled => {
+                orbitdock_protocol::ShellExecutionOutcome::Canceled
+            }
+        };
+
+        if let Some(actor) = state_ref.get_session(&sid) {
+            actor
+                .send(SessionCommand::ProcessEvent {
+                    event: crate::transition::Input::MessageUpdated {
+                        message_id: rid.clone(),
+                        content: None,
+                        tool_output: Some(final_output),
+                        is_error: Some(is_error),
+                        is_in_progress: Some(false),
+                        duration_ms: Some(result.duration_ms),
+                    },
+                })
+                .await;
+            actor
+                .send(SessionCommand::Broadcast {
+                    msg: ServerMessage::ShellOutput {
+                        session_id: sid,
+                        request_id: rid,
+                        stdout: result.stdout,
+                        stderr: result.stderr,
+                        exit_code: result.exit_code,
+                        duration_ms: result.duration_ms,
+                        outcome,
+                    },
+                })
+                .await;
+        }
+    });
+
+    Ok(Json(ExecuteShellResponse {
+        request_id,
+        accepted: true,
     }))
+}
+
+pub async fn cancel_shell_endpoint(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<CancelShellRequest>,
+) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+    if state.get_session(&session_id).is_none() {
+        return Err(session_not_found_error(&session_id));
+    }
+
+    match state.shell_service().cancel(&session_id, &body.request_id) {
+        crate::shell::ShellCancelStatus::Canceled => Ok(Json(AcceptedResponse { accepted: true })),
+        crate::shell::ShellCancelStatus::NotFound => Err((
+            StatusCode::NOT_FOUND,
+            Json(ApiErrorResponse {
+                code: "shell_not_found",
+                error: format!(
+                    "No active shell request {} found for session {}",
+                    body.request_id, session_id
+                ),
+            }),
+        )),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codex_session::CodexAction;
+    use crate::persistence::{flush_batch_for_test, PersistCommand};
+    use crate::session::SessionHandle;
     use axum::body::{to_bytes, Bytes};
     use axum::http::HeaderValue;
     use axum::response::IntoResponse;
-    use crate::codex_session::CodexAction;
-    use crate::session::SessionHandle;
     use orbitdock_protocol::{
         McpResource, McpResourceTemplate, Message, MessageType, Provider, RemoteSkillSummary,
-        SkillMetadata, SkillScope,
+        ReviewCommentStatus, ReviewCommentTag, SkillMetadata, SkillScope,
     };
     use serde_json::json;
     use std::collections::HashMap;
+    use std::path::PathBuf;
     use std::sync::Once;
     use tokio::sync::mpsc;
+
+    use crate::http_api::review_comments::{
+        CreateReviewCommentRequest, ReviewCommentsQuery, UpdateReviewCommentRequest,
+    };
+    use crate::http_api::session_actions::{
+        SendSessionMessageRequest, SteerTurnRequest, UploadImageAttachmentQuery,
+    };
 
     static INIT_TEST_DATA_DIR: Once = Once::new();
 
@@ -2430,6 +1017,30 @@ mod tests {
         ensure_test_data_dir();
         let (persist_tx, _persist_rx) = mpsc::channel(32);
         Arc::new(SessionRegistry::new_with_primary(persist_tx, is_primary))
+    }
+
+    fn ensure_test_db() -> PathBuf {
+        ensure_test_data_dir();
+        let db_path = crate::paths::db_path();
+        let mut conn = rusqlite::Connection::open(&db_path).expect("open test db");
+        crate::migration_runner::run_migrations(&mut conn).expect("run test migrations");
+        db_path
+    }
+
+    fn new_persist_test_state(
+        is_primary: bool,
+    ) -> (
+        Arc<SessionRegistry>,
+        mpsc::Receiver<PersistCommand>,
+        PathBuf,
+    ) {
+        let db_path = ensure_test_db();
+        let (persist_tx, persist_rx) = mpsc::channel(32);
+        (
+            Arc::new(SessionRegistry::new_with_primary(persist_tx, is_primary)),
+            persist_rx,
+            db_path,
+        )
     }
 
     async fn upload_test_attachment(
@@ -2524,7 +1135,7 @@ mod tests {
         std::fs::write(root.join("a-file.txt"), "hello").expect("create visible file");
         std::fs::write(root.join(".hidden.txt"), "secret").expect("create hidden file");
 
-        let Json(response) = browse_directory(Query(BrowseDirectoryQuery {
+        let Json(response) = browse_directory(Query(files::BrowseDirectoryQuery {
             path: Some(root.to_string_lossy().to_string()),
         }))
         .await;
@@ -2587,6 +1198,148 @@ mod tests {
 
         assert_eq!(response.session_id, session_id);
         assert!(response.comments.is_empty());
+    }
+
+    #[tokio::test]
+    async fn review_comment_mutations_return_authoritative_payloads_and_persist() {
+        let (state, mut persist_rx, db_path) = new_persist_test_state(true);
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/orbitdock-review-contract".to_string(),
+        ));
+        flush_batch_for_test(
+            &db_path,
+            vec![PersistCommand::SessionCreate {
+                id: session_id.clone(),
+                provider: Provider::Codex,
+                project_path: "/tmp/orbitdock-review-contract".to_string(),
+                project_name: Some("orbitdock-review-contract".to_string()),
+                branch: Some("main".to_string()),
+                model: Some("gpt-5".to_string()),
+                approval_policy: None,
+                sandbox_mode: None,
+                permission_mode: None,
+                forked_from_session_id: None,
+            }],
+        )
+        .expect("persist session row for review comment contract test");
+
+        let Json(created) = create_review_comment_endpoint(
+            Path(session_id.clone()),
+            State(state.clone()),
+            Json(CreateReviewCommentRequest {
+                turn_id: Some("turn-1".to_string()),
+                file_path: "src/main.rs".to_string(),
+                line_start: 12,
+                line_end: Some(14),
+                body: "Initial review comment".to_string(),
+                tag: Some(ReviewCommentTag::Clarity),
+            }),
+        )
+        .await
+        .expect("create review comment should succeed");
+
+        assert_eq!(created.session_id, session_id);
+        assert!(created.review_revision > 0);
+        assert!(!created.deleted);
+        let created_comment = created
+            .comment
+            .clone()
+            .expect("create response should include comment");
+        assert_eq!(created_comment.body, "Initial review comment");
+        assert_eq!(created_comment.tag, Some(ReviewCommentTag::Clarity));
+
+        let create_cmd = loop {
+            let command = persist_rx
+                .recv()
+                .await
+                .expect("create should enqueue persistence command");
+            if matches!(command, PersistCommand::ReviewCommentCreate { .. }) {
+                break command;
+            }
+        };
+        flush_batch_for_test(&db_path, vec![create_cmd]).expect("flush created comment");
+
+        let stored_after_create =
+            crate::persistence::load_review_comment_by_id(&created.comment_id)
+                .await
+                .expect("load created comment")
+                .expect("created comment should exist");
+        assert_eq!(stored_after_create.body, "Initial review comment");
+
+        let Json(updated) = update_review_comment(
+            Path(created.comment_id.clone()),
+            State(state.clone()),
+            Json(UpdateReviewCommentRequest {
+                body: Some("Updated review comment".to_string()),
+                tag: Some(ReviewCommentTag::Risk),
+                status: Some(ReviewCommentStatus::Resolved),
+            }),
+        )
+        .await
+        .expect("update review comment should succeed");
+
+        assert_eq!(updated.comment_id, created.comment_id);
+        assert_eq!(updated.session_id, session_id);
+        assert!(updated.review_revision > 0);
+        assert!(!updated.deleted);
+        let updated_comment = updated
+            .comment
+            .clone()
+            .expect("update response should include comment");
+        assert_eq!(updated_comment.body, "Updated review comment");
+        assert_eq!(updated_comment.tag, Some(ReviewCommentTag::Risk));
+        assert_eq!(updated_comment.status, ReviewCommentStatus::Resolved);
+
+        let update_cmd = loop {
+            let command = persist_rx
+                .recv()
+                .await
+                .expect("update should enqueue persistence command");
+            if matches!(command, PersistCommand::ReviewCommentUpdate { .. }) {
+                break command;
+            }
+        };
+        flush_batch_for_test(&db_path, vec![update_cmd]).expect("flush updated comment");
+
+        let stored_after_update =
+            crate::persistence::load_review_comment_by_id(&created.comment_id)
+                .await
+                .expect("load updated comment")
+                .expect("updated comment should exist");
+        assert_eq!(stored_after_update.body, "Updated review comment");
+        assert_eq!(stored_after_update.tag, Some(ReviewCommentTag::Risk));
+        assert_eq!(stored_after_update.status, ReviewCommentStatus::Resolved);
+
+        let Json(deleted) =
+            delete_review_comment_by_id(Path(created.comment_id.clone()), State(state.clone()))
+                .await
+                .expect("delete review comment should succeed");
+
+        assert_eq!(deleted.comment_id, created.comment_id);
+        assert_eq!(deleted.session_id, session_id);
+        assert!(deleted.review_revision > 0);
+        assert!(deleted.deleted);
+        assert!(deleted.comment.is_none());
+
+        let delete_cmd = loop {
+            let command = persist_rx
+                .recv()
+                .await
+                .expect("delete should enqueue persistence command");
+            if matches!(command, PersistCommand::ReviewCommentDelete { .. }) {
+                break command;
+            }
+        };
+        flush_batch_for_test(&db_path, vec![delete_cmd]).expect("flush deleted comment");
+
+        let stored_after_delete =
+            crate::persistence::load_review_comment_by_id(&created.comment_id)
+                .await
+                .expect("load deleted comment");
+        assert!(stored_after_delete.is_none());
     }
 
     #[tokio::test]
@@ -2959,7 +1712,8 @@ mod tests {
         let (action_tx, mut action_rx) = mpsc::channel(8);
         state.set_codex_action_tx(&session_id, action_tx);
 
-        let uploaded = upload_test_attachment(state.clone(), &session_id, b"send-message-image").await;
+        let uploaded =
+            upload_test_attachment(state.clone(), &session_id, b"send-message-image").await;
 
         let _ = post_session_message(
             Path(session_id.clone()),

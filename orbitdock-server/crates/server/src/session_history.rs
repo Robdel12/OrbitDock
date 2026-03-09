@@ -103,11 +103,17 @@ fn requires_coherent_history_page(messages: &[Message], has_more_before: bool) -
         return true;
     }
 
-    let turn_count = messages.iter().filter(|message| message_starts_turn(message)).count();
+    let turn_count = messages
+        .iter()
+        .filter(|message| message_starts_turn(message))
+        .count();
     turn_count < COHERENT_HISTORY_MIN_TURNS
 }
 
-fn prepend_conversation_page(current: ConversationPage, older: ConversationPage) -> ConversationPage {
+fn prepend_conversation_page(
+    current: ConversationPage,
+    older: ConversationPage,
+) -> ConversationPage {
     if older.messages.is_empty() {
         return current;
     }
@@ -1003,11 +1009,14 @@ mod tests {
             let content = if sequence == 259 {
                 "runtime-updated-259".to_string()
             } else {
-                format!("db-{}", if sequence % 2 == 0 {
-                    format!("user-{}", sequence / 2)
-                } else {
-                    format!("assistant-{}", sequence / 2)
-                })
+                format!(
+                    "db-{}",
+                    if sequence % 2 == 0 {
+                        format!("user-{}", sequence / 2)
+                    } else {
+                        format!("assistant-{}", sequence / 2)
+                    }
+                )
             };
             handle.add_message(test_message(
                 &session_id,

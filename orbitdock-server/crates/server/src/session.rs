@@ -315,8 +315,15 @@ struct PendingApprovalEntry {
 }
 
 const EVENT_LOG_CAPACITY: usize = 1000;
-const BROADCAST_CAPACITY: usize = 512;
+const DEFAULT_BROADCAST_CAPACITY: usize = 512;
 const RETAINED_FINALIZED_MESSAGE_LIMIT: usize = 200;
+
+fn broadcast_capacity() -> usize {
+    std::env::var("ORBITDOCK_BROADCAST_CAPACITY")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_BROADCAST_CAPACITY)
+}
 
 /// Handle to a running session
 pub struct SessionHandle {
@@ -497,7 +504,7 @@ impl SessionHandle {
     /// Create a new session handle
     pub fn new(id: String, provider: Provider, project_path: String) -> Self {
         let now = chrono_now();
-        let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let (broadcast_tx, _) = broadcast::channel(broadcast_capacity());
         let snapshot = SessionSnapshot {
             id: id.clone(),
             provider,
@@ -636,7 +643,7 @@ impl SessionHandle {
         approval_version: u64,
         unread_count: u64,
     ) -> Self {
-        let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let (broadcast_tx, _) = broadcast::channel(broadcast_capacity());
         let snapshot = SessionSnapshot {
             id: id.clone(),
             provider,

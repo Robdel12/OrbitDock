@@ -81,7 +81,13 @@ pub fn store_uploaded_attachment(
             .map_err(|error| format!("create image dir: {error}"))?;
         fs::write(&path, bytes).map_err(|error| format!("write attachment: {error}"))?;
         // Populate metadata cache for the new file
-        metadata_cache().insert(path, (bytes.len() as u64, mime_type_for_path(Path::new(&attachment_id))));
+        metadata_cache().insert(
+            path,
+            (
+                bytes.len() as u64,
+                mime_type_for_path(Path::new(&attachment_id)),
+            ),
+        );
     }
 
     Ok(ImageInput {
@@ -98,10 +104,7 @@ pub fn store_uploaded_attachment(
     })
 }
 
-pub fn materialize_images_for_message(
-    session_id: &str,
-    images: &[ImageInput],
-) -> Vec<ImageInput> {
+pub fn materialize_images_for_message(session_id: &str, images: &[ImageInput]) -> Vec<ImageInput> {
     images
         .iter()
         .map(|image| materialize_image_for_message(session_id, image))
@@ -137,16 +140,16 @@ pub fn read_attachment_bytes(
 ) -> Result<(Vec<u8>, String), String> {
     let path = attachment_path(session_id, attachment_id)?;
     let bytes = fs::read(&path).map_err(|error| format!("read attachment: {error}"))?;
-    let mime_type = mime_type_for_path(&path)
-        .unwrap_or("image/png")
-        .to_string();
+    let mime_type = mime_type_for_path(&path).unwrap_or("image/png").to_string();
     Ok((bytes, mime_type))
 }
 
 fn materialize_image_for_message(session_id: &str, image: &ImageInput) -> ImageInput {
     match image.input_type.as_str() {
         "attachment" => enrich_attachment_metadata(session_id, image),
-        "path" => managed_attachment_ref_from_path(session_id, image).unwrap_or_else(|| image.clone()),
+        "path" => {
+            managed_attachment_ref_from_path(session_id, image).unwrap_or_else(|| image.clone())
+        }
         "url" if image.value.starts_with("data:") => match decode_data_uri_bytes(&image.value) {
             Ok((mime_type, bytes)) => match store_uploaded_attachment(
                 session_id,
@@ -189,12 +192,11 @@ fn resolve_image_for_connector(session_id: &str, image: &ImageInput) -> ImageInp
                 ImageInput {
                     input_type: "path".to_string(),
                     value: path.to_string_lossy().to_string(),
-                    mime_type: image.mime_type.clone().or_else(|| {
-                        meta.and_then(|(_, mime)| mime).map(ToOwned::to_owned)
-                    }),
-                    byte_count: image.byte_count.or_else(|| {
-                        meta.map(|(size, _)| size)
-                    }),
+                    mime_type: image
+                        .mime_type
+                        .clone()
+                        .or_else(|| meta.and_then(|(_, mime)| mime).map(ToOwned::to_owned)),
+                    byte_count: image.byte_count.or_else(|| meta.map(|(size, _)| size)),
                     display_name: image.display_name.clone(),
                     pixel_width: image.pixel_width,
                     pixel_height: image.pixel_height,
@@ -218,7 +220,9 @@ fn resolve_image_for_connector(session_id: &str, image: &ImageInput) -> ImageInp
 fn normalize_image_for_transport(session_id: &str, image: &ImageInput) -> ImageInput {
     match image.input_type.as_str() {
         "attachment" => enrich_attachment_metadata(session_id, image),
-        "path" => managed_attachment_ref_from_path(session_id, image).unwrap_or_else(|| image.clone()),
+        "path" => {
+            managed_attachment_ref_from_path(session_id, image).unwrap_or_else(|| image.clone())
+        }
         _ => image.clone(),
     }
 }

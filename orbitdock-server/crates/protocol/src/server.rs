@@ -188,18 +188,22 @@ pub enum ServerMessage {
     // Review comments
     ReviewCommentCreated {
         session_id: String,
+        review_revision: u64,
         comment: ReviewComment,
     },
     ReviewCommentUpdated {
         session_id: String,
+        review_revision: u64,
         comment: ReviewComment,
     },
     ReviewCommentDeleted {
         session_id: String,
+        review_revision: u64,
         comment_id: String,
     },
     ReviewCommentsList {
         session_id: String,
+        review_revision: u64,
         comments: Vec<ReviewComment>,
     },
 
@@ -277,14 +281,19 @@ pub enum ServerMessage {
         request_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         repo_root: Option<String>,
+        worktree_revision: u64,
         worktrees: Vec<crate::WorktreeSummary>,
     },
     WorktreeCreated {
         request_id: String,
+        repo_root: String,
+        worktree_revision: u64,
         worktree: crate::WorktreeSummary,
     },
     WorktreeRemoved {
         request_id: String,
+        repo_root: String,
+        worktree_revision: u64,
         worktree_id: String,
     },
     WorktreeStatusChanged {
@@ -676,6 +685,7 @@ mod tests {
 
         let msg = ServerMessage::ReviewCommentCreated {
             session_id: "sess-1".to_string(),
+            review_revision: 42,
             comment,
         };
 
@@ -684,9 +694,11 @@ mod tests {
         match reparsed {
             ServerMessage::ReviewCommentCreated {
                 session_id,
+                review_revision,
                 comment,
             } => {
                 assert_eq!(session_id, "sess-1");
+                assert_eq!(review_revision, 42);
                 assert_eq!(comment.id, "rc-abc-123");
                 assert_eq!(comment.file_path, "src/main.rs");
                 assert_eq!(comment.line_start, 42);

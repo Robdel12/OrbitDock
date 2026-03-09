@@ -1,10 +1,13 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
 
-use orbitdock_protocol::{ClientMessage, ImageInput, MentionInput, ServerMessage, SkillInput, WorkStatus};
+use orbitdock_protocol::{
+    ClientMessage, ImageInput, MentionInput, ServerMessage, SkillInput, WorkStatus,
+};
 
 use crate::claude_session::ClaudeAction;
 use crate::codex_session::CodexAction;
@@ -43,8 +46,7 @@ pub(crate) async fn dispatch_send_message(
         return Err(DispatchMessageError::NotFound);
     }
 
-    let session_is_claude =
-        actor.snapshot().provider == orbitdock_protocol::Provider::Claude;
+    let session_is_claude = actor.snapshot().provider == orbitdock_protocol::Provider::Claude;
     let first_prompt = name_from_first_prompt(&content);
 
     let _ = state
@@ -141,7 +143,8 @@ pub(crate) async fn dispatch_send_message(
         .unwrap_or_default()
         .as_millis();
     let persisted_images = crate::images::materialize_images_for_message(&session_id, &images);
-    let connector_images = crate::images::resolve_images_for_connector(&session_id, &persisted_images);
+    let connector_images =
+        crate::images::resolve_images_for_connector(&session_id, &persisted_images);
     let user_msg = orbitdock_protocol::Message {
         id: message_id,
         session_id: session_id.clone(),
@@ -241,7 +244,8 @@ pub(crate) async fn dispatch_steer_turn(
         .unwrap_or_default()
         .as_millis();
     let persisted_images = crate::images::materialize_images_for_message(&session_id, &images);
-    let connector_images = crate::images::resolve_images_for_connector(&session_id, &persisted_images);
+    let connector_images =
+        crate::images::resolve_images_for_connector(&session_id, &persisted_images);
     let steer_msg = orbitdock_protocol::Message {
         id: message_id.clone(),
         session_id: session_id.clone(),
@@ -289,6 +293,222 @@ pub(crate) async fn dispatch_steer_turn(
     }
 
     Ok(())
+}
+
+/// Dispatch an interrupt to the active connector for a session.
+/// Returns Ok(()) on success, Err with an error code on failure.
+pub(crate) async fn dispatch_interrupt(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+) -> Result<(), &'static str> {
+    if let Some(tx) = state.get_codex_action_tx(session_id) {
+        tx.send(CodexAction::Interrupt).await.map_err(|_| {
+            state.remove_codex_action_tx(session_id);
+            "interrupt_failed"
+        })
+    } else if let Some(tx) = state.get_claude_action_tx(session_id) {
+        tx.send(ClaudeAction::Interrupt).await.map_err(|_| {
+            state.remove_claude_action_tx(session_id);
+            "interrupt_failed"
+        })
+    } else {
+        Err("not_found")
+    }
+}
+
+/// Dispatch compact context to the active connector.
+pub(crate) async fn dispatch_compact(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+) -> Result<(), &'static str> {
+    if let Some(tx) = state.get_codex_action_tx(session_id) {
+        let _ = tx.send(CodexAction::Compact).await;
+        Ok(())
+    } else if let Some(tx) = state.get_claude_action_tx(session_id) {
+        let _ = tx.send(ClaudeAction::Compact).await;
+        Ok(())
+    } else {
+        Err("not_found")
+    }
+}
+
+/// Dispatch undo last turn to the active connector.
+pub(crate) async fn dispatch_undo(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+) -> Result<(), &'static str> {
+    if let Some(tx) = state.get_codex_action_tx(session_id) {
+        let _ = tx.send(CodexAction::Undo).await;
+        Ok(())
+    } else if let Some(tx) = state.get_claude_action_tx(session_id) {
+        let _ = tx.send(ClaudeAction::Undo).await;
+        Ok(())
+    } else {
+        Err("not_found")
+    }
+}
+
+/// Dispatch rollback N turns to the active connector.
+/// For Claude sessions, resolves the Nth user message from the end.
+pub(crate) async fn dispatch_rollback(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    num_turns: u32,
+) -> Result<(), &'static str> {
+    if let Some(tx) = state.get_codex_action_tx(session_id) {
+        let _ = tx.send(CodexAction::ThreadRollback { num_turns }).await;
+        Ok(())
+    } else if let Some(tx) = state.get_claude_action_tx(session_id) {
+        let actor = state.get_session(session_id).ok_or("not_found")?;
+        let (reply_tx, reply_rx) = oneshot::channel();
+        actor
+            .send(SessionCommand::ResolveUserMessageId {
+                num_turns_from_end: num_turns,
+                reply: reply_tx,
+            })
+            .await;
+        match reply_rx.await {
+            Ok(Some(user_message_id)) => {
+                let _ = tx.send(ClaudeAction::RewindFiles { user_message_id }).await;
+                Ok(())
+            }
+            Ok(None) => Err("rollback_failed"),
+            Err(_) => Err("actor_closed"),
+        }
+    } else {
+        Err("not_found")
+    }
+}
+
+/// Dispatch stop task to the active Claude connector.
+pub(crate) async fn dispatch_stop_task(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    task_id: String,
+) -> Result<(), &'static str> {
+    if let Some(tx) = state.get_claude_action_tx(session_id) {
+        let _ = tx.send(ClaudeAction::StopTask { task_id }).await;
+        Ok(())
+    } else {
+        Err("not_found")
+    }
+}
+
+/// Dispatch rewind files to the active Claude connector.
+pub(crate) async fn dispatch_rewind_files(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    user_message_id: String,
+) -> Result<(), &'static str> {
+    if let Some(tx) = state.get_claude_action_tx(session_id) {
+        let _ = tx.send(ClaudeAction::RewindFiles { user_message_id }).await;
+        Ok(())
+    } else {
+        Err("not_found")
+    }
+}
+
+/// Dispatch an answer to a question approval.
+pub(crate) async fn dispatch_answer_question(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    request_id: String,
+    answer: String,
+    question_id: Option<String>,
+    answers: HashMap<String, Vec<String>>,
+) -> Result<AnswerQuestionResult, &'static str> {
+    let mut normalized_answers = normalize_question_answers(Some(answers));
+    let trimmed_answer = answer.trim().to_string();
+    if normalized_answers.is_empty() && !trimmed_answer.is_empty() {
+        let key = question_id.clone().unwrap_or_else(|| "0".to_string());
+        normalized_answers.insert(key, vec![trimmed_answer.clone()]);
+    }
+    if normalized_answers.is_empty() {
+        return Err("invalid_answer_payload");
+    }
+
+    let fallback_work_status = WorkStatus::Working;
+    let mut resolved_work_status = fallback_work_status;
+    let mut next_pending_request_id: Option<String> = None;
+    let mut approval_version: u64 = 0;
+    if let Some(actor) = state.get_session(session_id) {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        actor
+            .send(SessionCommand::ResolvePendingApproval {
+                request_id: request_id.clone(),
+                fallback_work_status,
+                reply: reply_tx,
+            })
+            .await;
+        if let Ok(resolution) = reply_rx.await {
+            let resolved = resolution.approval_type.is_some();
+            resolved_work_status = resolution.work_status;
+            next_pending_request_id = resolution.next_pending_approval.map(|a| a.id);
+            approval_version = resolution.approval_version;
+
+            if !resolved {
+                return Ok(AnswerQuestionResult {
+                    outcome: "stale".to_string(),
+                    active_request_id: next_pending_request_id,
+                    approval_version,
+                });
+            }
+        }
+    } else {
+        return Err("not_found");
+    }
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::ApprovalDecision {
+            session_id: session_id.to_string(),
+            request_id: request_id.clone(),
+            decision: "approved".to_string(),
+        })
+        .await;
+
+    if let Some(tx) = state.get_codex_action_tx(session_id) {
+        let _ = tx
+            .send(CodexAction::AnswerQuestion {
+                request_id,
+                answers: normalized_answers,
+            })
+            .await;
+    } else if let Some(tx) = state.get_claude_action_tx(session_id) {
+        let mut claude_answers = normalized_answers;
+        if claude_answers.is_empty() && !trimmed_answer.is_empty() {
+            let key = question_id.unwrap_or_else(|| "0".to_string());
+            claude_answers.insert(key, vec![trimmed_answer]);
+        }
+        let _ = tx
+            .send(ClaudeAction::AnswerQuestion {
+                request_id,
+                answers: claude_answers,
+            })
+            .await;
+    }
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::SessionUpdate {
+            id: session_id.to_string(),
+            status: None,
+            work_status: Some(resolved_work_status),
+            last_activity_at: None,
+        })
+        .await;
+
+    Ok(AnswerQuestionResult {
+        outcome: "applied".to_string(),
+        active_request_id: next_pending_request_id,
+        approval_version,
+    })
+}
+
+pub(crate) struct AnswerQuestionResult {
+    pub outcome: String,
+    pub active_request_id: Option<String>,
+    pub approval_version: u64,
 }
 
 pub(crate) async fn handle(

@@ -17,7 +17,7 @@ use crate::session_utils::{claim_codex_thread_for_direct_session, hydrate_full_m
 use crate::state::SessionRegistry;
 use crate::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
 
-fn truncate_messages_before_nth_user_message(
+pub(crate) fn truncate_messages_before_nth_user_message(
     messages: &[Message],
     nth_user_message: Option<u32>,
 ) -> Vec<Message> {
@@ -44,7 +44,10 @@ fn truncate_messages_before_nth_user_message(
     }
 }
 
-fn remap_messages_for_fork(messages: Vec<Message>, new_session_id: &str) -> Vec<Message> {
+pub(crate) fn remap_messages_for_fork(
+    messages: Vec<Message>,
+    new_session_id: &str,
+) -> Vec<Message> {
     let new_session_id = new_session_id.to_string();
 
     messages
@@ -646,6 +649,8 @@ pub(crate) async fn handle(
 
             state.broadcast_to_list(ServerMessage::WorktreeCreated {
                 request_id: String::new(),
+                repo_root: worktree_summary.repo_root.clone(),
+                worktree_revision: crate::http_api::revision_now(),
                 worktree: worktree_summary,
             });
 

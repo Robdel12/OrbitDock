@@ -3,6 +3,10 @@
 //! Handler logic lives in `ws_handlers/`, compaction in `snapshot_compaction`,
 //! session utilities in `session_utils`, and normalization in `normalization`.
 
+mod router;
+mod server_info;
+mod transport;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -13,31 +17,25 @@ use axum::{
     },
     response::IntoResponse,
 };
-use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use orbitdock_protocol::{ClientMessage, ServerMessage, SessionState};
+use orbitdock_protocol::{ClientMessage, ServerMessage};
 
 use crate::snapshot_compaction::{
-    prepare_snapshot_for_transport, replay_has_oversize_event, sanitize_replay_event_for_transport,
     sanitize_server_message_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
 };
 use crate::state::SessionRegistry;
 
-static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
+pub(crate) use router::handle_client_message;
+pub(crate) use server_info::server_info_message;
+pub(crate) use transport::{
+    send_json, send_replay_or_snapshot_fallback, send_rest_only_error, send_snapshot_if_requested,
+    spawn_broadcast_forwarder, OutboundMessage,
+};
 
-/// Messages that can be sent through the WebSocket
-#[allow(clippy::large_enum_variant)]
-pub(crate) enum OutboundMessage {
-    /// JSON-serialized ServerMessage
-    Json(ServerMessage),
-    /// Pre-serialized JSON string (for replay)
-    Raw(String),
-    /// Raw pong response
-    Pong(Bytes),
-}
+static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
 
 /// WebSocket upgrade handler
 pub async fn ws_handler(
@@ -204,277 +202,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
 
 fn truncate_for_log(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
-}
-
-/// Send a ServerMessage through the outbound channel
-pub(crate) async fn send_json(tx: &mpsc::Sender<OutboundMessage>, msg: ServerMessage) {
-    let _ = tx.send(OutboundMessage::Json(msg)).await;
-}
-
-pub(crate) async fn send_rest_only_error(
-    tx: &mpsc::Sender<OutboundMessage>,
-    endpoint: &str,
-    session_id: Option<String>,
-) {
-    send_json(
-        tx,
-        ServerMessage::Error {
-            code: "http_only_endpoint".into(),
-            message: format!("Use REST endpoint {endpoint} for this request"),
-            session_id,
-        },
-    )
-    .await;
-}
-
-pub(crate) fn server_info_message(state: &SessionRegistry) -> ServerMessage {
-    ServerMessage::ServerInfo {
-        is_primary: state.is_primary(),
-        client_primary_claims: state.active_client_primary_claims(),
-    }
-}
-
-pub(crate) async fn send_replay_or_snapshot_fallback(
-    tx: &mpsc::Sender<OutboundMessage>,
-    session_id: &str,
-    events: Vec<String>,
-    conn_id: u64,
-) {
-    let sanitized_events: Vec<String> = events
-        .into_iter()
-        .map(|event| {
-            sanitize_replay_event_for_transport(&event).unwrap_or_else(|| {
-                warn!(
-                    component = "websocket",
-                    event = "ws.subscribe.replay_sanitize_failed",
-                    connection_id = conn_id,
-                    session_id = %session_id,
-                    "Failed to sanitize replay event, using original payload"
-                );
-                event
-            })
-        })
-        .collect();
-
-    if let Some(max_bytes) = replay_has_oversize_event(&sanitized_events) {
-        warn!(
-            component = "websocket",
-            event = "ws.subscribe.replay_fallback_snapshot",
-            connection_id = conn_id,
-            session_id = %session_id,
-            replay_count = sanitized_events.len(),
-            largest_event_bytes = max_bytes,
-            max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
-            "Replay payload exceeded transport limit, requesting client re-bootstrap"
-        );
-        send_json(
-            tx,
-            ServerMessage::Error {
-                code: "replay_oversized".to_string(),
-                message: "Replay payload exceeded transport limit; re-bootstrap the conversation"
-                    .to_string(),
-                session_id: Some(session_id.to_string()),
-            },
-        )
-        .await;
-        return;
-    }
-
-    for json in sanitized_events {
-        send_raw(tx, json).await;
-    }
-}
-
-pub(crate) async fn send_snapshot_if_requested(
-    tx: &mpsc::Sender<OutboundMessage>,
-    session_id: &str,
-    snapshot: SessionState,
-    include_snapshot: bool,
-    conn_id: u64,
-) {
-    if include_snapshot {
-        send_json(
-            tx,
-            ServerMessage::SessionSnapshot {
-                session: prepare_snapshot_for_transport(snapshot),
-            },
-        )
-        .await;
-        return;
-    }
-
-    info!(
-        component = "websocket",
-        event = "ws.subscribe.snapshot_suppressed",
-        connection_id = conn_id,
-        session_id = %session_id,
-        "Session snapshot suppressed (client requested replay-only subscribe)"
-    );
-}
-
-/// Send a pre-serialized JSON string through the outbound channel (for replay)
-pub(crate) async fn send_raw(tx: &mpsc::Sender<OutboundMessage>, json: String) {
-    let _ = tx.send(OutboundMessage::Raw(json)).await;
-}
-
-/// Spawn a task that drains a broadcast receiver and forwards messages to an outbound channel.
-/// When the outbound channel closes (client disconnects), the task exits and the
-/// broadcast::Receiver is dropped — automatic cleanup, no manual unsubscribe needed.
-///
-/// If `session_id` is provided and the subscriber lags behind the broadcast buffer,
-/// a `lagged` error is sent to the client so it can re-bootstrap the conversation.
-pub(crate) fn spawn_broadcast_forwarder(
-    mut rx: tokio::sync::broadcast::Receiver<ServerMessage>,
-    outbound_tx: mpsc::Sender<OutboundMessage>,
-    session_id: Option<String>,
-) {
-    tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(msg) => {
-                    if outbound_tx.send(OutboundMessage::Json(msg)).await.is_err() {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    warn!(
-                        component = "websocket",
-                        event = "ws.broadcast.lagged",
-                        session_id = ?session_id,
-                        skipped = n,
-                        "Broadcast subscriber lagged, skipped {n} messages"
-                    );
-                    // Notify the client so it can re-bootstrap over the paged HTTP path.
-                    let _ = outbound_tx
-                        .send(OutboundMessage::Json(ServerMessage::Error {
-                            code: "lagged".to_string(),
-                            message: format!("Subscriber lagged, skipped {n} messages"),
-                            session_id: session_id.clone(),
-                        }))
-                        .await;
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
-}
-
-/// Dispatch a single client WebSocket message.
-///
-/// Each handler group lives in its own module under , so each
-/// `.await` site produces an independently-sized future. This keeps the
-/// parent future small enough for the default 2 MiB thread stack in debug
-/// builds.
-fn handle_client_message<'a>(
-    msg: ClientMessage,
-    client_tx: &'a mpsc::Sender<OutboundMessage>,
-    state: &'a Arc<SessionRegistry>,
-    conn_id: u64,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
-    Box::pin(async move {
-        debug!(
-            component = "websocket",
-            event = "ws.message.received",
-            connection_id = conn_id,
-            message = ?msg,
-            "Received client message"
-        );
-
-        match msg {
-            // ── Subscribe ────────────────────────────────────────────
-            ClientMessage::SubscribeList
-            | ClientMessage::SubscribeSession { .. }
-            | ClientMessage::UnsubscribeSession { .. } => {
-                crate::ws_handlers::subscribe::handle(msg, client_tx, state, conn_id).await;
-            }
-
-            // ── Session CRUD ─────────────────────────────────────────
-            ClientMessage::CreateSession { .. }
-            | ClientMessage::EndSession { .. }
-            | ClientMessage::RenameSession { .. }
-            | ClientMessage::UpdateSessionConfig { .. }
-            | ClientMessage::ForkSession { .. }
-            | ClientMessage::ForkSessionToWorktree { .. }
-            | ClientMessage::ForkSessionToExistingWorktree { .. } => {
-                crate::ws_handlers::session_crud::handle(msg, client_tx, state, conn_id).await;
-            }
-
-            // ── Session lifecycle (resume / takeover) ────────────────
-            ClientMessage::ResumeSession { .. } | ClientMessage::TakeoverSession { .. } => {
-                crate::ws_handlers::session_lifecycle::handle(msg, client_tx, state, conn_id).await;
-            }
-
-            // ── Messaging ────────────────────────────────────────────
-            ClientMessage::SendMessage { .. }
-            | ClientMessage::SteerTurn { .. }
-            | ClientMessage::AnswerQuestion { .. }
-            | ClientMessage::InterruptSession { .. }
-            | ClientMessage::CompactContext { .. }
-            | ClientMessage::UndoLastTurn { .. }
-            | ClientMessage::RollbackTurns { .. }
-            | ClientMessage::StopTask { .. }
-            | ClientMessage::RewindFiles { .. } => {
-                crate::ws_handlers::messaging::handle(msg, client_tx, state, conn_id).await;
-            }
-
-            // ── Approvals ────────────────────────────────────────────
-            ClientMessage::ApproveTool { .. }
-            | ClientMessage::ListApprovals { .. }
-            | ClientMessage::DeleteApproval { .. } => {
-                crate::ws_handlers::approvals::handle(msg, client_tx, state, conn_id).await;
-            }
-
-            // ── Config (WS-only: SetClientPrimaryClaim) ────────────
-            ClientMessage::SetClientPrimaryClaim { .. } => {
-                crate::ws_handlers::config::handle(msg, client_tx, state, conn_id).await;
-            }
-
-            // ── Claude hooks ─────────────────────────────────────────
-            ClientMessage::ClaudeSessionStart { .. }
-            | ClientMessage::ClaudeSessionEnd { .. }
-            | ClientMessage::ClaudeStatusEvent { .. }
-            | ClientMessage::ClaudeToolEvent { .. }
-            | ClientMessage::ClaudeSubagentEvent { .. }
-            | ClientMessage::GetSubagentTools { .. } => {
-                crate::ws_handlers::claude_hooks::handle(msg, client_tx, state).await;
-            }
-
-            // ── Shell execution ──────────────────────────────────────
-            ClientMessage::ExecuteShell { .. } | ClientMessage::CancelShell { .. } => {
-                crate::ws_handlers::shell::handle(msg, client_tx, state, conn_id).await;
-            }
-
-            // ── REST-only stubs ──────────────────────────────────────
-            ClientMessage::BrowseDirectory { .. }
-            | ClientMessage::ListRecentProjects { .. }
-            | ClientMessage::CheckOpenAiKey { .. }
-            | ClientMessage::FetchCodexUsage { .. }
-            | ClientMessage::FetchClaudeUsage { .. }
-            | ClientMessage::SetServerRole { .. }
-            | ClientMessage::SetOpenAiKey { .. }
-            | ClientMessage::ListModels
-            | ClientMessage::ListClaudeModels
-            | ClientMessage::CodexAccountRead { .. }
-            | ClientMessage::CodexLoginChatgptStart
-            | ClientMessage::CodexLoginChatgptCancel { .. }
-            | ClientMessage::CodexAccountLogout
-            | ClientMessage::ListSkills { .. }
-            | ClientMessage::ListRemoteSkills { .. }
-            | ClientMessage::DownloadRemoteSkill { .. }
-            | ClientMessage::ListMcpTools { .. }
-            | ClientMessage::RefreshMcpServers { .. }
-            | ClientMessage::ListWorktrees { .. }
-            | ClientMessage::CreateWorktree { .. }
-            | ClientMessage::RemoveWorktree { .. }
-            | ClientMessage::DiscoverWorktrees { .. }
-            | ClientMessage::CreateReviewComment { .. }
-            | ClientMessage::UpdateReviewComment { .. }
-            | ClientMessage::DeleteReviewComment { .. }
-            | ClientMessage::ListReviewComments { .. } => {
-                crate::ws_handlers::rest_only::handle(msg, client_tx).await;
-            }
-        }
-    })
 }
 
 #[cfg(test)]
@@ -1013,7 +740,9 @@ mod tests {
             ServerMessage::MessageAppended { message, .. } => {
                 assert_eq!(message.images.len(), 1);
                 assert_eq!(message.images[0].input_type, "url");
-                assert!(message.images[0].value.starts_with("data:image/png;base64,"));
+                assert!(message.images[0]
+                    .value
+                    .starts_with("data:image/png;base64,"));
             }
             other => panic!("expected MessageAppended, got {:?}", other),
         }
