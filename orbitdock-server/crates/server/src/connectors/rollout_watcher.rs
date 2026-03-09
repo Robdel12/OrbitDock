@@ -1094,7 +1094,8 @@ mod tests {
 
     fn ensure_test_data_dir() {
         INIT_TEST_DATA_DIR.call_once(|| {
-            let dir = std::env::temp_dir().join("orbitdock-rollout-tests");
+            let dir = std::env::temp_dir().join("orbitdock-server-test-data");
+            let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).expect("create rollout test data dir");
             crate::infrastructure::paths::init_data_dir(Some(&dir));
         });
