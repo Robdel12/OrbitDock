@@ -14,29 +14,94 @@ This plan is intentionally phased. We want real progress with low-risk checkpoin
 
 ---
 
+## Current Status
+
+This plan is now an active execution document, not just a roadmap.
+
+### Done
+
+- **Phase 0: Guardrails and Architecture Notes**
+  - the client now has a real architecture doc and README surface
+- **Phase 1: Split Transport Contracts**
+  - `ServerProtocol.swift` has been split into focused transport/domain contract files
+  - the old `APIClient` center has been deleted
+  - typed client surfaces now own API behavior by capability
+- **Core conversation recovery outcome from Phase 3**
+  - reopening a previously broken Claude session now loads the real conversation instead of a sparse subset
+  - the server conversation bootstrap contract is now authoritative and covered by regression tests
+- **Testing baseline**
+  - `make build` is green
+  - `make test-unit` is green
+  - the conversation timeline image-row regression is now covered at the projection boundary
+
+### In Progress
+
+- **Phase 2: Fix Session State Ownership**
+  - session/detail mirroring is much better than before
+  - shared session-delta projection helpers now own a real chunk of list/detail state application
+  - `SessionStore` still has more responsibility to peel away
+- **Phase 4: Make Runtime State Explicit**
+  - runtime readiness and connection state are now much more explicit, but the app shell still owns too much coordination
+- **Phase 5: Fix Control-Plane Reconciliation**
+  - the coordinator exists and the worst duplicate-write behavior is gone
+  - we still want to keep simplifying the surrounding runtime ownership
+- **Phase 5B: Rebuild the Networking Boundary and Startup Phases**
+  - this is the current architectural focus
+  - the old generic networking center is gone, readiness is explicit, and startup is improving
+  - we still need to keep simplifying boot, query readiness, and background service startup
+- **Phase 6 / Phase 7**
+  - service lifecycles and window-local state are moving in the right direction
+  - app-internal session refresh now uses typed per-store update streams instead of a global `serverSessionsDidChange` notification
+  - internal fork navigation is starting to move onto window-local typed paths instead of broadcast notifications
+  - these phases are not finished yet
+
+### Next
+
+- finish the remaining window-local routing cleanup and remove the last app-internal notification paths
+- keep thinning `SessionStore` and related store/runtime ownership
+- then land complete feature phases in this order:
+  - composer input + command engine extraction
+  - review projection + workflow extraction
+  - larger screen decomposition
+
+### Next complete phases
+
+- **Composer phase 1: Extract the input + command engine**
+  - move input/completion/attachment state out of `DirectSessionComposer.swift`
+  - introduce a dedicated composer model and action/coordinator layer
+  - keep pending approval and dictation as follow-up slices
+  - add deterministic unit tests around input transitions, completion behavior, and send-mode decisions
+- **Review phase 1: Extract projection + workflow**
+  - move review projection/state out of `ReviewCanvas.swift`
+  - introduce a workflow/coordinator for comment CRUD and “send review” side effects
+  - keep the current rendering surface, but stop letting the view own the feature’s state machine
+  - add unit tests around projection, review status derivation, and workflow behavior
+
+---
+
 ## What is wrong today
 
 The biggest issues are architectural, not cosmetic.
 
-### 1. Protocol and transport surfaces are too centralized
+### 1. Protocol and transport surfaces were too centralized, and the remaining work is cleanup
 
-These files are doing too much:
+The old hotspots were:
 
-- `OrbitDock/OrbitDock/Services/Server/ServerProtocol.swift`
-- `OrbitDock/OrbitDock/Services/Server/APIClient.swift`
+- `OrbitDockNative/OrbitDock/Services/Server/ServerProtocol.swift`
+- `OrbitDockNative/OrbitDock/Services/Server/APIClient.swift`
 
-`ServerProtocol.swift` has turned into a giant shared schema bucket. `APIClient.swift` is clean in style, but it still concentrates most of the REST surface in one file.
+That old structure concentrated too much transport logic in too few files.
 
-That makes review blast radius large and encourages every new transport feature to land in the same place.
+We have already broken that center apart. The remaining work now is making sure the typed client surfaces and protocol files stay clean, narrow, and easy to extend without growing a new giant transport hub.
 
 ### 2. Session state ownership is too blurry
 
 These files are the main hotspot:
 
-- `OrbitDock/OrbitDock/Services/Server/SessionStore.swift`
-- `OrbitDock/OrbitDock/Services/Server/SessionObservable.swift`
-- `OrbitDock/OrbitDock/Models/Session.swift`
-- `OrbitDock/OrbitDock/Services/Server/ConversationStore.swift`
+- `OrbitDockNative/OrbitDock/Services/Server/SessionStore.swift`
+- `OrbitDockNative/OrbitDock/Services/Server/SessionObservable.swift`
+- `OrbitDockNative/OrbitDock/Models/Session.swift`
+- `OrbitDockNative/OrbitDock/Services/Server/ConversationStore.swift`
 
 Right now the app is mutating overlapping session state in multiple models and manually keeping them in sync. That is a drift trap.
 
@@ -44,9 +109,9 @@ Right now the app is mutating overlapping session state in multiple models and m
 
 These files are telling the story:
 
-- `OrbitDock/OrbitDock/Services/Server/ServerRuntimeRegistry.swift`
-- `OrbitDock/OrbitDock/ContentView.swift`
-- `OrbitDock/OrbitDock/Services/Server/UnifiedSessionsStore.swift`
+- `OrbitDockNative/OrbitDock/Services/Server/ServerRuntimeRegistry.swift`
+- `OrbitDockNative/OrbitDock/ContentView.swift`
+- `OrbitDockNative/OrbitDock/Services/Server/UnifiedSessionsStore.swift`
 
 Connection state, runtime lifecycle, and store refresh logic are still coordinated too often from view code or app-shell code.
 
@@ -54,12 +119,12 @@ Connection state, runtime lifecycle, and store refresh logic are still coordinat
 
 The largest offenders today are:
 
-- `OrbitDock/OrbitDock/Views/Codex/DirectSessionComposer.swift`
-- `OrbitDock/OrbitDock/Views/Review/ReviewCanvas.swift`
-- `OrbitDock/OrbitDock/Views/SessionDetailView.swift`
-- `OrbitDock/OrbitDock/Views/SettingsView.swift`
-- `OrbitDock/OrbitDock/Views/NewSessionSheet.swift`
-- `OrbitDock/OrbitDock/Views/QuickSwitcher.swift`
+- `OrbitDockNative/OrbitDock/Views/Codex/DirectSessionComposer.swift`
+- `OrbitDockNative/OrbitDock/Views/Review/ReviewCanvas.swift`
+- `OrbitDockNative/OrbitDock/Views/SessionDetailView.swift`
+- `OrbitDockNative/OrbitDock/Views/SettingsView.swift`
+- `OrbitDockNative/OrbitDock/Views/NewSessionSheet.swift`
+- `OrbitDockNative/OrbitDock/Views/QuickSwitcher.swift`
 
 These are feature modules in disguise. They work, but they are too easy to grow in the wrong direction.
 
@@ -137,7 +202,7 @@ Views should not:
 This is not a hard final tree, but it is the direction we want.
 
 ```text
-OrbitDock/OrbitDock/
+OrbitDockNative/OrbitDock/
   Models/
     Session/
     Conversation/
@@ -274,8 +339,8 @@ This is the safest high-value starting point.
 ### Scope
 
 - split `ServerProtocol.swift` into smaller protocol/domain files
-- split `APIClient.swift` by server capability
-- keep behavior the same
+- replace the old generic API center with typed clients by server capability
+- keep behavior the same while changing structure aggressively
 
 ### Why first
 
@@ -284,7 +349,7 @@ This reduces blast radius fast without forcing a state rewrite immediately.
 ### Expected output
 
 - smaller protocol files with clearer ownership
-- smaller API client files that are easy to grep by feature
+- typed client files that are easy to grep by feature
 - fewer unrelated changes touching the same transport file
 
 ### Testing
@@ -328,6 +393,7 @@ Use one authoritative mutable detail owner per session, then project:
 - state reducer/unit tests for session patches and token updates
 - outcome tests for event application
 - regression test for list/detail token consistency
+- projection tests for shared list/detail state application
 
 ---
 
@@ -338,6 +404,10 @@ This is the user-visible reliability phase.
 The bug we are explicitly trying to kill here is:
 
 - if the user is not sitting in the conversation view watching events stream live,
+- then comes back later,
+- the client still needs to load the complete conversation state it should show,
+- including missed messages, tools, and tool outputs
+- without depending on having watched those events in real time
 
 ### Progress
 
@@ -345,9 +415,7 @@ The bug we are explicitly trying to kill here is:
 - the server conversation bootstrap contract was tightened so reopened Claude sessions now return authoritative full history instead of sparse runtime subsets
 - the client has been verified against a real previously-broken Claude session (`od-9fab8463-c640-432f-9bfa-bdd3dd5d78db`) and now renders the full conversation correctly
 - regression coverage now exists both at the runtime query seam and the HTTP endpoint seam on the server side
-- then comes back later,
-- the client still needs to load the complete conversation state it should show,
-- including missed messages, tools, and tool outputs.
+- the remaining work here is cleanup and simplification, not proving the core recovery design
 
 The app should not depend on having watched events in real time to reconstruct the conversation correctly.
 
@@ -433,6 +501,7 @@ That store should expose an intentional loading model, for example:
 - runtime status tests
 - reconnect/disconnect UI state tests
 - endpoint switching tests
+- window-local session update tests that do not rely on global notifications
 
 ---
 
@@ -464,8 +533,8 @@ This should be solved as an architecture problem, not a request-transport patch.
 - `ServerRuntimeRegistry.swift`
 - `ServerRuntime.swift`
 - `SessionStore.swift`
-- `API/APIClient.swift`
-- `API/APIClient+Settings.swift`
+- `API/ControlPlaneClient.swift`
+- `API/ServerClients.swift`
 
 ### Recommended direction
 
@@ -523,6 +592,7 @@ At this point we should assume we are free to replace the current client network
 - the old `APIClient` center of gravity has been removed in favor of narrower typed client surfaces
 - control-plane reconciliation now has an explicit owner instead of ad hoc mutation tasks
 - runtime readiness is modeled explicitly enough to gate startup work and background reads
+- the server bootstrap contract bug for sparse Claude conversations is fixed, which gives this client phase a trustworthy query foundation
 - the remaining work in this phase is cleanup and simplification, not proving the architecture direction
 
 ### Scope
@@ -542,8 +612,14 @@ At this point we should assume we are free to replace the current client network
 
 ### Files
 
-- `API/APIClient.swift`
-- `API/APIClient+Settings.swift`
+- `API/ServerClients.swift`
+- `API/ControlPlaneClient.swift`
+- `API/ServerAPICommon.swift`
+- `API/SessionsClient.swift`
+- `API/ConversationClient.swift`
+- `API/ApprovalsClient.swift`
+- `API/UsageClient.swift`
+- `API/WorktreesClient.swift`
 - `ServerRuntime.swift`
 - `ServerRuntimeRegistry.swift`
 - `ServerControlPlaneCoordinator.swift`

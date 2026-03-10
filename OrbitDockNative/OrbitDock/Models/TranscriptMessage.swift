@@ -1,0 +1,534 @@
+//
+//  TranscriptMessage.swift
+//  OrbitDock
+//
+
+import Foundation
+
+// MARK: - Message Image
+
+nonisolated struct ServerAttachmentImageReference: Hashable {
+  let endpointId: UUID?
+  let sessionId: String
+  let attachmentId: String
+}
+
+/// Lightweight image reference — stores only path/URI + metadata, never raw bytes.
+/// Actual Data/NSImage loading is deferred to `ImageCache`.
+nonisolated struct MessageImage: Identifiable, Hashable {
+  /// How the image is referenced
+  enum Source: Hashable {
+    case filePath(String)
+    case dataURI(String)
+    case inlineData(Data)
+    case serverAttachment(ServerAttachmentImageReference)
+  }
+
+  let id: String
+  let source: Source
+  let mimeType: String
+  /// Pre-computed byte count for display (avoids loading data just to show size)
+  let byteCount: Int
+  let pixelWidth: Int?
+  let pixelHeight: Int?
+
+  init(
+    id: String = UUID().uuidString,
+    source: Source,
+    mimeType: String,
+    byteCount: Int,
+    pixelWidth: Int? = nil,
+    pixelHeight: Int? = nil
+  ) {
+    self.id = id
+    self.source = source
+    self.mimeType = mimeType
+    self.byteCount = byteCount
+    self.pixelWidth = pixelWidth
+    self.pixelHeight = pixelHeight
+  }
+}
+
+// MARK: - Transcript Message
+
+nonisolated struct TranscriptMessage: Identifiable, Hashable {
+  let id: String
+  let sequence: UInt64?
+  let type: MessageType
+  let content: String
+  let timestamp: Date
+  let toolName: String?
+  let toolInput: [String: Any]?
+  let rawToolInput: String?
+  var toolOutput: String? { didSet { recomputeContentSignature() } }
+  var toolDuration: TimeInterval? { didSet { recomputeContentSignature() } }
+  let inputTokens: Int?
+  let outputTokens: Int?
+  var isError: Bool = false
+  var isInProgress: Bool = false { didSet { recomputeContentSignature() } }
+  var images: [MessageImage] = [] { didSet { recomputeContentSignature() } }
+  var thinking: String? { didSet { recomputeContentSignature() } }
+
+  var imageMimeType: String? {
+    images.first?.mimeType
+  }
+
+  enum MessageType: String {
+    case user
+    case assistant
+    case tool // Tool call from assistant
+    case toolResult // Result of tool call
+    case thinking // Claude's internal reasoning
+    case system
+    case steer // User guidance injected mid-turn
+    case shell // User-initiated shell command
+  }
+
+  var isUser: Bool {
+    type == .user
+  }
+
+  var isAssistant: Bool {
+    type == .assistant
+  }
+
+  var isTool: Bool {
+    type == .tool
+  }
+
+  var isToolLike: Bool {
+    type == .tool || type == .shell
+  }
+
+  var isThinking: Bool {
+    type == .thinking
+  }
+
+  var isSteer: Bool {
+    type == .steer
+  }
+
+  var isShell: Bool {
+    type == .shell
+  }
+
+  /// Precomputed hash of all renderable content fields.
+  /// The projector combines this single Int instead of re-scanning text on every pass.
+  private(set) var contentSignature: Int = 0
+
+  init(
+    id: String,
+    sequence: UInt64? = nil,
+    type: MessageType,
+    content: String,
+    timestamp: Date,
+    toolName: String? = nil,
+    toolInput: [String: Any]? = nil,
+    rawToolInput: String? = nil,
+    toolOutput: String? = nil,
+    toolDuration: TimeInterval? = nil,
+    inputTokens: Int? = nil,
+    outputTokens: Int? = nil,
+    isError: Bool = false,
+    isInProgress: Bool = false,
+    images: [MessageImage] = [],
+    thinking: String? = nil
+  ) {
+    self.id = id
+    self.sequence = sequence
+    self.type = type
+    self.content = content
+    self.timestamp = timestamp
+    self.toolName = toolName
+    self.toolInput = toolInput
+    self.rawToolInput = rawToolInput
+    self.toolOutput = toolOutput
+    self.toolDuration = toolDuration
+    self.inputTokens = inputTokens
+    self.outputTokens = outputTokens
+    self.isError = isError
+    self.isInProgress = isInProgress
+    self.images = images
+    self.thinking = thinking
+    self.contentSignature = Self.computeContentSignature(
+      content: content, rawToolInput: rawToolInput,
+      toolOutput: toolOutput, thinking: thinking,
+      toolName: toolName, toolDuration: toolDuration,
+      inputTokens: inputTokens, outputTokens: outputTokens,
+      isInProgress: isInProgress, images: images
+    )
+  }
+
+  private mutating func recomputeContentSignature() {
+    contentSignature = Self.computeContentSignature(
+      content: content, rawToolInput: rawToolInput,
+      toolOutput: toolOutput, thinking: thinking,
+      toolName: toolName, toolDuration: toolDuration,
+      inputTokens: inputTokens, outputTokens: outputTokens,
+      isInProgress: isInProgress, images: images
+    )
+  }
+
+  private static func computeContentSignature(
+    content: String, rawToolInput: String?,
+    toolOutput: String?, thinking: String?,
+    toolName: String?, toolDuration: TimeInterval?,
+    inputTokens: Int?, outputTokens: Int?,
+    isInProgress: Bool, images: [MessageImage]
+  ) -> Int {
+    var h = Hasher()
+    h.combine(content)
+    h.combine(rawToolInput)
+    h.combine(toolOutput)
+    h.combine(thinking)
+    h.combine(toolName)
+    h.combine(toolDuration)
+    h.combine(inputTokens)
+    h.combine(outputTokens)
+    h.combine(isInProgress)
+    h.combine(images.count)
+    for img in images {
+      h.combine(img.id)
+      h.combine(img.source)
+      h.combine(img.mimeType)
+      h.combine(img.byteCount)
+      h.combine(img.pixelWidth)
+      h.combine(img.pixelHeight)
+    }
+    return h.finalize()
+  }
+
+  var isBashLikeCommand: Bool {
+    isShell || toolName?.lowercased() == "bash"
+  }
+
+  /// Hashable conformance - exclude toolInput since [String: Any] isn't Hashable
+  func hash(into hasher: inout Hasher) {
+    hasher.combine(id)
+    hasher.combine(sequence)
+    hasher.combine(type)
+    hasher.combine(content)
+    hasher.combine(timestamp)
+    hasher.combine(toolName)
+    hasher.combine(images)
+  }
+
+  var hasImage: Bool {
+    !images.isEmpty
+  }
+
+  var hasThinking: Bool {
+    thinking != nil && !thinking!.isEmpty
+  }
+
+  static func == (lhs: TranscriptMessage, rhs: TranscriptMessage) -> Bool {
+    lhs.id == rhs.id
+      && lhs.sequence == rhs.sequence
+      && lhs.content == rhs.content
+      && lhs.toolOutput == rhs.toolOutput
+      && lhs.isError == rhs.isError
+      && lhs.isInProgress == rhs.isInProgress
+      && lhs.images == rhs.images
+      && lhs.thinking == rhs.thinking
+  }
+
+  var preview: String {
+    let cleaned = content
+      .replacingOccurrences(of: "\n", with: " ")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    if cleaned.count > 200 {
+      return String(cleaned.prefix(200)) + "..."
+    }
+    return cleaned
+  }
+
+  /// Helper for tool display
+  var toolIcon: String {
+    guard let tool = toolName?.lowercased() else { return "gearshape" }
+    switch tool {
+      case "read": return "doc.text"
+      case "edit": return "pencil"
+      case "write": return "square.and.pencil"
+      case "bash": return "terminal"
+      case "glob": return "folder.badge.gearshape"
+      case "grep": return "magnifyingglass"
+      case "task": return "person.2"
+      case "webfetch": return "globe"
+      case "websearch": return "magnifyingglass.circle"
+      default: return "gearshape"
+    }
+  }
+
+  var toolColor: String {
+    guard let tool = toolName?.lowercased() else { return "secondary" }
+    switch tool {
+      case "read": return "blue"
+      case "edit", "write": return "orange"
+      case "bash": return "green"
+      case "glob", "grep": return "purple"
+      case "task": return "indigo"
+      case "webfetch", "websearch": return "teal"
+      default: return "secondary"
+    }
+  }
+
+  /// Extract file path from tool input if present
+  var filePath: String? {
+    guard let input = toolInput else { return nil }
+    return input["file_path"] as? String ?? input["path"] as? String
+  }
+
+  /// Extract command from Bash tool
+  var bashCommand: String? {
+    guard isBashLikeCommand else { return nil }
+    if let input = toolInput {
+      return String.shellCommandDisplay(from: input["command"])
+        ?? String.shellCommandDisplay(from: input["cmd"])
+        ?? String.shellCommandDisplay(from: content)
+        ?? content
+    }
+    return String.shellCommandDisplay(from: content) ?? content
+  }
+
+  var bashMetadataInput: String? {
+    guard isBashLikeCommand else { return nil }
+    guard var input = toolInput else {
+      return trimmedRawToolInput
+    }
+
+    input.removeValue(forKey: "command")
+    input.removeValue(forKey: "cmd")
+    if input.isEmpty {
+      return nil
+    }
+
+    guard JSONSerialization.isValidJSONObject(input),
+          let data = try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys, .prettyPrinted]),
+          let text = String(data: data, encoding: .utf8)
+    else {
+      return trimmedRawToolInput
+    }
+    return text
+  }
+
+  /// Extract edit details
+  var editOldString: String? {
+    guard toolName?.lowercased() == "edit", let input = toolInput else { return nil }
+    return input["old_string"] as? String
+  }
+
+  var editNewString: String? {
+    guard toolName?.lowercased() == "edit", let input = toolInput else { return nil }
+    return input["new_string"] as? String
+  }
+
+  /// Extract write content
+  var writeContent: String? {
+    guard toolName?.lowercased() == "write", let input = toolInput else { return nil }
+    return input["content"] as? String
+  }
+
+  /// Extract unified diff (from Codex fileChange)
+  var unifiedDiff: String? {
+    guard let input = toolInput else { return nil }
+    return input["unified_diff"] as? String
+  }
+
+  /// Check if this is a Codex file change with diff
+  var hasUnifiedDiff: Bool {
+    unifiedDiff != nil && !(unifiedDiff?.isEmpty ?? true)
+  }
+
+  /// Extract glob pattern
+  var globPattern: String? {
+    guard toolName?.lowercased() == "glob", let input = toolInput else { return nil }
+    return input["pattern"] as? String
+  }
+
+  /// Extract grep pattern
+  var grepPattern: String? {
+    guard toolName?.lowercased() == "grep", let input = toolInput else { return nil }
+    return input["pattern"] as? String
+  }
+
+  /// Task/subagent details
+  var taskPrompt: String? {
+    guard toolName?.lowercased() == "task", let input = toolInput else { return nil }
+    return input["prompt"] as? String
+  }
+
+  var taskDescription: String? {
+    guard toolName?.lowercased() == "task", let input = toolInput else { return nil }
+    return input["description"] as? String
+  }
+
+  private var trimmedRawToolInput: String? {
+    guard let raw = rawToolInput?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+      return nil
+    }
+    return raw
+  }
+
+  private func truncateToolText(_ value: String, maxLength: Int?) -> String {
+    guard let maxLength else { return value }
+    if value.count > maxLength {
+      return String(value.prefix(maxLength)) + "..."
+    }
+    return value
+  }
+
+  private func formatToolInput(maxLength: Int?) -> String? {
+    guard let input = toolInput else {
+      guard let raw = trimmedRawToolInput else { return nil }
+      return truncateToolText(raw, maxLength: maxLength)
+    }
+
+    switch toolName?.lowercased() {
+      case "bash":
+        guard let command = bashCommand else { return nil }
+        return truncateToolText(command, maxLength: maxLength)
+      case "read":
+        guard let path = filePath else { return nil }
+        return truncateToolText(path, maxLength: maxLength)
+      case "edit":
+        if let old = editOldString, let new = editNewString {
+          let oldPreview = old.count > 200 ? String(old.prefix(200)) + "..." : old
+          let newPreview = new.count > 200 ? String(new.prefix(200)) + "..." : new
+          return "- \(oldPreview)\n+ \(newPreview)"
+        }
+        if let path = filePath {
+          return truncateToolText(path, maxLength: maxLength)
+        }
+        return nil
+      case "write":
+        if let content = writeContent {
+          return truncateToolText(content, maxLength: maxLength)
+        }
+        if let path = filePath {
+          return truncateToolText(path, maxLength: maxLength)
+        }
+        return nil
+      case "glob":
+        guard let pattern = globPattern else { return nil }
+        return truncateToolText(pattern, maxLength: maxLength)
+      case "grep":
+        guard let pattern = grepPattern else { return nil }
+        return truncateToolText(pattern, maxLength: maxLength)
+      case "task":
+        if let description = taskDescription {
+          return truncateToolText(description, maxLength: maxLength)
+        }
+        if let prompt = taskPrompt {
+          return truncateToolText(prompt, maxLength: maxLength)
+        }
+        return nil
+      default:
+        if let data = try? JSONSerialization.data(withJSONObject: input, options: .prettyPrinted),
+           let str = String(data: data, encoding: .utf8)
+        {
+          return truncateToolText(str, maxLength: maxLength)
+        }
+        if let raw = trimmedRawToolInput {
+          return truncateToolText(raw, maxLength: maxLength)
+        }
+        return nil
+    }
+  }
+
+  var fullFormattedToolInput: String? {
+    formatToolInput(maxLength: nil)
+  }
+
+  var toolInputRenderSignature: String? {
+    if let raw = trimmedRawToolInput {
+      return raw
+    }
+
+    guard let input = toolInput,
+          JSONSerialization.isValidJSONObject(input),
+          let data = try? JSONSerialization.data(withJSONObject: input, options: .sortedKeys),
+          let canonical = String(data: data, encoding: .utf8)
+    else {
+      return nil
+    }
+    return canonical
+  }
+
+  /// Format tool input as displayable text
+  var formattedToolInput: String? {
+    formatToolInput(maxLength: 500)
+  }
+
+  /// Truncated output for preview
+  var toolOutputPreview: String? {
+    guard let output = toolOutput else { return nil }
+    if output.count > 300 {
+      return String(output.prefix(300)) + "..."
+    }
+    return output
+  }
+
+  /// Tool output with ANSI escape codes stripped for clean display
+  var sanitizedToolOutput: String? {
+    guard let output = toolOutput else { return nil }
+    // Match ANSI escape sequences: ESC[ followed by params and command letter
+    let pattern = "\u{1b}\\[[0-9;?]*[a-zA-Z]"
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+      return output
+    }
+    let range = NSRange(output.startIndex..., in: output)
+    return regex.stringByReplacingMatches(in: output, range: range, withTemplate: "")
+  }
+
+  // MARK: - Duration & Statistics
+
+  /// Format duration for display (e.g., "245ms", "1.2s", "2m 15s")
+  var formattedDuration: String? {
+    guard let duration = toolDuration, duration > 0 else { return nil }
+
+    if duration < 1.0 {
+      // Under 1 second: show milliseconds
+      let ms = Int(duration * 1_000)
+      return "\(ms)ms"
+    } else if duration < 60 {
+      // Under 1 minute: show seconds with 1 decimal
+      return String(format: "%.1fs", duration)
+    } else {
+      // Over 1 minute: show minutes and seconds
+      let minutes = Int(duration / 60)
+      let seconds = Int(duration.truncatingRemainder(dividingBy: 60))
+      return "\(minutes)m \(seconds)s"
+    }
+  }
+
+  /// Output statistics
+  var outputLineCount: Int? {
+    guard let output = toolOutput, !output.isEmpty else { return nil }
+    return output.components(separatedBy: "\n").count
+  }
+
+  /// For Glob: count matched files
+  var globMatchCount: Int? {
+    guard toolName?.lowercased() == "glob", let output = toolOutput else { return nil }
+    return output.components(separatedBy: "\n").filter { !$0.isEmpty }.count
+  }
+
+  /// For Grep: count matches
+  var grepMatchCount: Int? {
+    guard toolName?.lowercased() == "grep", let output = toolOutput else { return nil }
+    return output.components(separatedBy: "\n").filter { !$0.isEmpty }.count
+  }
+
+  /// Detect if bash command likely errored
+  var bashHasError: Bool {
+    guard isBashLikeCommand, let output = toolOutput else { return false }
+    let lowerOutput = output.lowercased()
+    return lowerOutput.contains("error:") ||
+      lowerOutput.contains("error[") ||
+      lowerOutput.contains("command not found") ||
+      lowerOutput.contains("permission denied") ||
+      lowerOutput.contains("no such file or directory") ||
+      lowerOutput.contains("fatal:") ||
+      lowerOutput.contains("failed to")
+  }
+}

@@ -1,0 +1,315 @@
+import Foundation
+@testable import OrbitDock
+import Testing
+
+@MainActor
+struct SessionStateProjectionTests {
+  @Test func sessionApplyPendingApprovalSummarySetsPermissionFieldsFromServerRequest() {
+    var session = Session(
+      id: "session-1",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .working,
+      attentionReason: .none,
+      provider: .codex,
+      codexIntegrationMode: .direct
+    )
+
+    session.applyPendingApprovalSummary(execApprovalRequest())
+
+    #expect(session.pendingApprovalId == "req-1")
+    #expect(session.pendingToolName == "Bash")
+    #expect(session.pendingToolInput == #"{"command":"git status"}"#)
+    #expect(session.pendingPermissionDetail == "git status")
+    #expect(session.pendingQuestion == nil)
+    #expect(session.attentionReason == .awaitingPermission)
+    #expect(session.workStatus == .permission)
+  }
+
+  @Test func sessionClearPendingApprovalSummaryClearsFieldsAndResetsAttentionWhenRequested() {
+    var session = Session(
+      id: "session-1",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .permission,
+      attentionReason: .awaitingQuestion,
+      pendingToolName: "AskUserQuestion",
+      pendingPermissionDetail: "Need input",
+      pendingQuestion: "Ship it?",
+      provider: .codex,
+      codexIntegrationMode: .direct,
+      pendingApprovalId: "req-q"
+    )
+
+    session.clearPendingApprovalSummary(resetAttention: true)
+
+    #expect(session.pendingApprovalId == nil)
+    #expect(session.pendingToolName == nil)
+    #expect(session.pendingPermissionDetail == nil)
+    #expect(session.pendingQuestion == nil)
+    #expect(session.attentionReason == .none)
+    #expect(session.workStatus == .working)
+  }
+
+  @Test func sessionObservableApplySessionMirrorsListSummaryFields() {
+    let observable = SessionObservable(id: "session-1")
+    let session = Session(
+      id: "session-1",
+      endpointId: UUID(uuidString: "11111111-1111-1111-1111-111111111111"),
+      endpointName: "Primary",
+      projectPath: "/tmp/project",
+      projectName: "project",
+      branch: "main",
+      model: "gpt-5",
+      summary: "Refactor session store",
+      customName: "Important Session",
+      firstPrompt: "Please refactor this",
+      transcriptPath: "/tmp/transcript.jsonl",
+      status: .active,
+      workStatus: .waiting,
+      startedAt: Date(timeIntervalSince1970: 100),
+      totalTokens: 321,
+      lastActivityAt: Date(timeIntervalSince1970: 200),
+      attentionReason: .awaitingReply,
+      pendingToolName: "Bash",
+      pendingToolInput: #"{"command":"pwd"}"#,
+      pendingPermissionDetail: "pwd",
+      pendingQuestion: "Continue?",
+      provider: .claude,
+      claudeIntegrationMode: .direct,
+      pendingApprovalId: "req-42",
+      inputTokens: 120,
+      outputTokens: 201,
+      cachedTokens: 12,
+      contextWindow: 200_000
+    )
+
+    observable.applySession(session)
+
+    #expect(observable.endpointName == "Primary")
+    #expect(observable.projectPath == "/tmp/project")
+    #expect(observable.branch == "main")
+    #expect(observable.summary == "Refactor session store")
+    #expect(observable.customName == "Important Session")
+    #expect(observable.status == .active)
+    #expect(observable.workStatus == .waiting)
+    #expect(observable.attentionReason == .awaitingReply)
+    #expect(observable.pendingApprovalId == "req-42")
+    #expect(observable.pendingPermissionDetail == "pwd")
+    #expect(observable.provider == .claude)
+    #expect(observable.claudeIntegrationMode == .direct)
+    #expect(observable.totalTokens == 321)
+    #expect(observable.contextWindow == 200_000)
+  }
+
+  @Test func sessionObservableApprovalProjectionUsesQuestionTextAndClearsWithoutResettingAttentionByDefault() {
+    let observable = SessionObservable(id: "session-1")
+    let request = questionApprovalRequest()
+
+    observable.applyPendingApproval(request)
+
+    #expect(observable.pendingApproval?.id == "req-q")
+    #expect(observable.pendingApprovalId == "req-q")
+    #expect(observable.pendingToolName == "AskUserQuestion")
+    #expect(observable.pendingQuestion == "Ship it?")
+    #expect(observable.attentionReason == .awaitingQuestion)
+    #expect(observable.workStatus == .permission)
+
+    observable.clearPendingApprovalDetails(resetAttention: false)
+
+    #expect(observable.pendingApproval == nil)
+    #expect(observable.pendingApprovalId == nil)
+    #expect(observable.pendingToolName == nil)
+    #expect(observable.pendingQuestion == nil)
+    #expect(observable.attentionReason == .awaitingQuestion)
+    #expect(observable.workStatus == .permission)
+  }
+
+  @Test func sessionObservableTrimInactiveDetailPayloadsClearsHeavyNonConversationState() {
+    let observable = SessionObservable(id: "session-1")
+    observable.turnDiffs = [ServerTurnDiff(turnId: "turn-1", diff: "diff")]
+    observable.diff = "working tree diff"
+    observable.plan = "[]"
+    observable.currentTurnId = "turn-1"
+    observable.reviewComments = [
+      ServerReviewComment(
+        id: "comment-1",
+        sessionId: "session-1",
+        turnId: nil,
+        filePath: "/tmp/file.swift",
+        lineStart: 12,
+        lineEnd: nil,
+        body: "Please fix",
+        tag: nil,
+        status: .open,
+        createdAt: "2026-03-09T10:00:00Z",
+        updatedAt: nil
+      )
+    ]
+    observable.pendingShellContext = [
+      ShellContextEntry(command: "pwd", output: "/tmp/project", exitCode: 0, timestamp: Date())
+    ]
+
+    observable.trimInactiveDetailPayloads()
+
+    #expect(observable.turnDiffs.isEmpty)
+    #expect(observable.diff == nil)
+    #expect(observable.plan == nil)
+    #expect(observable.currentTurnId == nil)
+    #expect(observable.reviewComments.isEmpty)
+    #expect(observable.pendingShellContext.isEmpty)
+  }
+
+  @Test func sessionStateProjectionAppliesSharedDeltaFieldsToListAndDetail() throws {
+    let changes = try decodeChanges(
+      """
+      {
+        "status": "active",
+        "work_status": "working",
+        "token_usage": {
+          "input_tokens": 120,
+          "output_tokens": 45,
+          "cached_tokens": 12,
+          "context_window": 200000
+        },
+        "token_usage_snapshot_kind": "context_turn",
+        "current_diff": "diff --git a/file.swift b/file.swift",
+        "current_plan": "[{\\"step\\":\\"Refactor\\",\\"status\\":\\"inProgress\\"}]",
+        "custom_name": "Pinned Session",
+        "summary": "Refactor the client runtime",
+        "first_prompt": "Please fix the store",
+        "last_message": "Latest assistant message",
+        "codex_integration_mode": "direct",
+        "git_branch": "main",
+        "git_sha": "abc123",
+        "current_cwd": "/tmp/project",
+        "model": "gpt-5",
+        "effort": "high",
+        "current_turn_id": "turn-123",
+        "turn_count": 8,
+        "last_activity_at": "1234",
+        "repository_root": "/tmp/repo",
+        "is_worktree": true,
+        "unread_count": 7
+      }
+      """
+    )
+    let projection = SessionStateProjection.from(changes)
+
+    var session = Session(
+      id: "session-1",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .waiting,
+      attentionReason: .awaitingReply,
+      provider: .codex,
+      codexIntegrationMode: .direct
+    )
+    let observable = SessionObservable(id: "session-1")
+    observable.promptSuggestions = ["keep me?"]
+
+    session.applyProjection(projection)
+    observable.applyProjection(projection)
+
+    #expect(session.workStatus == .working)
+    #expect(session.attentionReason == .none)
+    #expect(session.totalTokens == 165)
+    #expect(session.tokenUsageSnapshotKind == .contextTurn)
+    #expect(session.currentDiff == "diff --git a/file.swift b/file.swift")
+    #expect(session.customName == "Pinned Session")
+    #expect(session.summary == "Refactor the client runtime")
+    #expect(session.branch == "main")
+    #expect(session.currentCwd == "/tmp/project")
+    #expect(session.repositoryRoot == "/tmp/repo")
+    #expect(session.isWorktree)
+    #expect(session.unreadCount == 7)
+    #expect(session.lastActivityAt == Date(timeIntervalSince1970: 1234))
+
+    #expect(observable.workStatus == .working)
+    #expect(observable.attentionReason == .none)
+    #expect(observable.totalTokens == 165)
+    #expect(observable.tokenUsageSnapshotKind == .contextTurn)
+    #expect(observable.diff == "diff --git a/file.swift b/file.swift")
+    #expect(observable.plan == #"[{"step":"Refactor","status":"inProgress"}]"#)
+    #expect(observable.customName == "Pinned Session")
+    #expect(observable.turnCount == 8)
+    #expect(observable.currentTurnId == "turn-123")
+    #expect(observable.promptSuggestions.isEmpty)
+    #expect(observable.unreadCount == 7)
+  }
+
+  @Test func sessionAndObservableApplyTokenUsageKeepSnapshotKindInSync() {
+    let usage = ServerTokenUsage(
+      inputTokens: 50,
+      outputTokens: 25,
+      cachedTokens: 10,
+      contextWindow: 1000
+    )
+
+    var session = Session(
+      id: "session-1",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .working,
+      attentionReason: .none,
+      provider: .claude,
+      claudeIntegrationMode: .direct
+    )
+    let observable = SessionObservable(id: "session-1")
+
+    session.applyTokenUsage(usage, snapshotKind: .lifetimeTotals)
+    observable.applyTokenUsage(usage, snapshotKind: .lifetimeTotals)
+
+    #expect(session.inputTokens == 50)
+    #expect(session.outputTokens == 25)
+    #expect(session.cachedTokens == 10)
+    #expect(session.contextWindow == 1000)
+    #expect(session.totalTokens == 75)
+    #expect(session.tokenUsageSnapshotKind == .lifetimeTotals)
+
+    #expect(observable.inputTokens == 50)
+    #expect(observable.outputTokens == 25)
+    #expect(observable.cachedTokens == 10)
+    #expect(observable.contextWindow == 1000)
+    #expect(observable.totalTokens == 75)
+    #expect(observable.tokenUsageSnapshotKind == .lifetimeTotals)
+    #expect(observable.tokenUsage?.inputTokens == 50)
+  }
+
+  private func execApprovalRequest() -> ServerApprovalRequest {
+    ServerApprovalRequest(
+      id: "req-1",
+      sessionId: "session-1",
+      type: .exec,
+      toolName: "Bash",
+      toolInput: #"{"command":"git status"}"#,
+      command: "git status",
+      preview: ServerApprovalPreview(
+        type: .shellCommand,
+        value: "git status",
+        compact: "git status"
+      )
+    )
+  }
+
+  private func questionApprovalRequest() -> ServerApprovalRequest {
+    ServerApprovalRequest(
+      id: "req-q",
+      sessionId: "session-1",
+      type: .question,
+      toolName: "AskUserQuestion",
+      question: "Fallback question",
+      questionPrompts: [
+        ServerApprovalQuestionPrompt(
+          id: "q1",
+          header: "Question",
+          question: "Ship it?"
+        )
+      ]
+    )
+  }
+
+  private func decodeChanges(_ json: String) throws -> ServerStateChanges {
+    try JSONDecoder().decode(ServerStateChanges.self, from: Data(json.utf8))
+  }
+}

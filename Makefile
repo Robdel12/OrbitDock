@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-XCODE_PROJECT ?= OrbitDock/OrbitDock.xcodeproj
+XCODE_PROJECT ?= OrbitDockNative/OrbitDock.xcodeproj
 XCODE_SCHEME ?= OrbitDock
 XCODE_DESTINATION ?= platform=macOS,arch=arm64
 XCODE_UNIT_TEST_SCHEME ?= OrbitDock Unit Tests

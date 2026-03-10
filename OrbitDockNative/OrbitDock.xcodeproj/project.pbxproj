@@ -52,6 +52,23 @@
 		80BCD0D72F2C834F00D91F91 /* OrbitDockUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrbitDockUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8014A0022F46D50007CADF5 /* Exceptions for "OrbitDock" folder in "OrbitDock iOS" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 800E7CB52F46B778007CADF5 /* OrbitDock iOS */;
+		};
+		80BCDAFF2F3200000D91F91 /* Exceptions for "OrbitDock" folder in "OrbitDock" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 80BCD0BF2F2C834F00D91F91 /* OrbitDock */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		800E7CB72F46B778007CADF5 /* OrbitDock iOS */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -70,6 +87,10 @@
 		};
 		80BCD0C22F2C834F00D91F91 /* OrbitDock */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				80BCDAFF2F3200000D91F91 /* Exceptions for "OrbitDock" folder in "OrbitDock" target */,
+				8014A0022F46D50007CADF5 /* Exceptions for "OrbitDock" folder in "OrbitDock iOS" target */,
+			);
 			path = OrbitDock;
 			sourceTree = "<group>";
 		};
