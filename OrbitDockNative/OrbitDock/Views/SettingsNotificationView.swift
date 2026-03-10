@@ -2,6 +2,7 @@ import SwiftUI
 import UserNotifications
 
 struct NotificationSettingsView: View {
+  @Environment(NotificationManager.self) private var notificationManager
   @AppStorage("notificationsEnabled") private var notificationsEnabled = true
   @AppStorage("notifyOnWorkComplete") private var notifyOnWorkComplete = true
   @AppStorage("notificationSound") private var notificationSound = "default"
@@ -181,27 +182,6 @@ struct NotificationSettingsView: View {
   }
 
   private func sendTestNotification() {
-    let content = UNMutableNotificationContent()
-    content.title = "Test Notification"
-    content.subtitle = "OrbitDock"
-    content.body = "This is a test notification. Your settings are working!"
-    content.categoryIdentifier = "SESSION_ATTENTION"
-
-    switch notificationSound {
-      case "none":
-        content.sound = nil
-      case "default":
-        content.sound = .default
-      default:
-        content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: notificationSound))
-    }
-
-    let request = UNNotificationRequest(
-      identifier: "test-notification-\(UUID().uuidString)",
-      content: content,
-      trigger: nil
-    )
-
-    UNUserNotificationCenter.current().add(request)
+    notificationManager.sendTestNotification(soundID: notificationSound)
   }
 }

@@ -33,6 +33,28 @@ struct NotificationManagerTests {
     #expect(category?.identifier == "SESSION_ATTENTION")
     #expect(category?.actions.map(\.identifier) == ["VIEW_SESSION"])
   }
+
+  @Test func sendTestNotificationUsesInjectedNotificationCenter() {
+    var addedRequest: UNNotificationRequest?
+
+    let manager = NotificationManager(
+      isAuthorized: true,
+      requestsAuthorizationOnInit: false,
+      notificationCenter: NotificationCenterClient(
+        requestAuthorization: { _ in },
+        setDelegate: { _ in },
+        setNotificationCategories: { _ in },
+        addRequest: { request, _ in addedRequest = request },
+        removeDeliveredNotifications: { _ in }
+      )
+    )
+
+    manager.sendTestNotification(soundID: "default")
+
+    #expect(addedRequest?.content.title == "Test Notification")
+    #expect(addedRequest?.content.subtitle == "OrbitDock")
+    #expect(addedRequest?.content.categoryIdentifier == "SESSION_ATTENTION")
+  }
 }
 
 private final class TestNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {}

@@ -37,6 +37,7 @@ struct OrbitDockWindowRoot: View {
       .environment(appRuntime.runtimeRegistry.activeSessionStore)
       .environment(appRuntime.runtimeRegistry)
       .environment(appRuntime.usageServiceRegistry)
+      .environment(appRuntime.notificationManager)
       .environment(attentionService)
       .environment(router)
       .environment(windowSessionCoordinator)

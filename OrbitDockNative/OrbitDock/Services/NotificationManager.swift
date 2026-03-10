@@ -174,6 +174,29 @@ class NotificationManager {
     notificationCenter.removeDeliveredNotifications(["attention-\(sessionId)"])
   }
 
+  func sendTestNotification(soundID: String) {
+    guard notificationsEnabled else { return }
+
+    let content = UNMutableNotificationContent()
+    content.title = "Test Notification"
+    content.subtitle = "OrbitDock"
+    content.body = "This is a test notification. Your settings are working!"
+    content.categoryIdentifier = "SESSION_ATTENTION"
+    content.sound = sound(for: soundID)
+
+    let request = UNNotificationRequest(
+      identifier: "test-notification-\(UUID().uuidString)",
+      content: content,
+      trigger: nil
+    )
+
+    notificationCenter.addRequest(request) { error in
+      if let error {
+        print("Failed to schedule notification: \(error)")
+      }
+    }
+  }
+
   func resetNotificationState(for sessionId: String) {
     // Call this when a session is no longer needing attention
     // so we can notify again if it needs attention later
@@ -223,6 +246,17 @@ class NotificationManager {
       if let error {
         print("Failed to schedule notification: \(error)")
       }
+    }
+  }
+
+  private func sound(for soundID: String) -> UNNotificationSound? {
+    switch soundID {
+      case "none":
+        return nil
+      case "default":
+        return .default
+      default:
+        return UNNotificationSound(named: UNNotificationSoundName(rawValue: soundID))
     }
   }
 
