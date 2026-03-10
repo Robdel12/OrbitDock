@@ -129,6 +129,68 @@ struct ExpandedToolLayoutTests {
     }
   }
 
+  @Test func payloadSectionRenderPlanBuildsDeterministicQuestionItems() {
+    let payload = """
+    {
+      "questions": [
+        {
+          "header": "Choice",
+          "question": "How should we continue?",
+          "options": [
+            { "label": "Keep going", "description": "Continue the current plan" },
+            { "label": "Pause" }
+          ]
+        }
+      ]
+    }
+    """
+
+    let plan = ExpandedToolRenderPlanning.payloadSectionRenderPlan(
+      title: "INPUT",
+      payload: payload,
+      toolName: "question"
+    )
+
+    #expect(plan?.title == "INPUT")
+    #expect(plan?.items == [
+      .questionHeader("CHOICE"),
+      .questionPrompt("How should we continue?"),
+      .spacer(6),
+      .questionOption(label: "Keep going", description: "Continue the current plan"),
+      .spacer(5),
+      .questionOption(label: "Pause", description: nil),
+    ])
+  }
+
+  @Test func payloadSectionRenderPlanBuildsStructuredAndTextItems() {
+    let jsonPayload = """
+    {
+      "command": "bash",
+      "options": { "cwd": "/tmp/demo" }
+    }
+    """
+
+    let jsonPlan = ExpandedToolRenderPlanning.payloadSectionRenderPlan(
+      title: "OUTPUT",
+      payload: jsonPayload
+    )
+
+    #expect(jsonPlan?.items == [
+      .structuredEntry(key: "command", value: "\"bash\""),
+      .structuredEntry(key: "options.cwd", value: "\"/tmp/demo\""),
+    ])
+
+    let textPlan = ExpandedToolRenderPlanning.payloadSectionRenderPlan(
+      title: "OUTPUT",
+      payload: "line one\nline two"
+    )
+
+    #expect(textPlan?.items == [
+      .textLine("line one"),
+      .textLine("line two"),
+    ])
+  }
+
   @Test func todoRowMetricsProduceStableBadgeAndRowSizing() {
     let item = NativeTodoItem(
       content: "Write the integration tests",

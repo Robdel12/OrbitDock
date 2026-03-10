@@ -1035,7 +1035,7 @@ import SwiftUI
       width: CGFloat,
       y: inout CGFloat
     ) {
-      guard let section = ExpandedToolRenderPlanning.payloadSectionPlan(
+      guard let section = ExpandedToolRenderPlanning.payloadSectionRenderPlan(
         title: title,
         payload: payload,
         toolName: toolName
@@ -1053,11 +1053,10 @@ import SwiftUI
       y += Self.sectionHeaderHeight + Self.sectionPadding
 
       let textWidth = width - Self.headerHPad * 2
-      switch section.content {
-        case let .askUserQuestions(questions):
-          for (index, question) in questions.enumerated() {
-          if let headerText = question.header, !headerText.isEmpty {
-            let headerLabel = NSTextField(labelWithString: headerText.uppercased())
+      for item in section.items {
+        switch item {
+          case let .questionHeader(headerText):
+            let headerLabel = NSTextField(labelWithString: headerText)
             headerLabel.font = NSFont.systemFont(ofSize: TypeScale.mini, weight: .bold)
             headerLabel.textColor = Self.textQuaternary
             headerLabel.frame = NSRect(
@@ -1072,43 +1071,41 @@ import SwiftUI
             )
             contentContainer.addSubview(headerLabel)
             y += headerLabel.frame.height + 3
-          }
 
-          let promptLabel = NSTextField(labelWithString: question.question)
-          promptLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
-          promptLabel.textColor = Self.textPrimary
-          promptLabel.lineBreakMode = .byWordWrapping
-          promptLabel.maximumNumberOfLines = 0
-          promptLabel.isSelectable = true
-          let promptHeight = ExpandedToolLayout.measuredTextHeight(
-            question.question,
-            font: NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
-            maxWidth: textWidth
-          )
-          promptLabel.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: promptHeight)
-          contentContainer.addSubview(promptLabel)
-          y += promptHeight
+          case let .questionPrompt(prompt):
+            let promptLabel = NSTextField(labelWithString: prompt)
+            promptLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+            promptLabel.textColor = Self.textPrimary
+            promptLabel.lineBreakMode = .byWordWrapping
+            promptLabel.maximumNumberOfLines = 0
+            promptLabel.isSelectable = true
+            let promptHeight = ExpandedToolLayout.measuredTextHeight(
+              prompt,
+              font: NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
+              maxWidth: textWidth
+            )
+            promptLabel.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: promptHeight)
+            contentContainer.addSubview(promptLabel)
+            y += promptHeight
 
-          if !question.options.isEmpty {
-            y += 6
-            for option in question.options {
-              let optionLabel = NSTextField(labelWithString: "• \(option.label)")
-              optionLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
-              optionLabel.textColor = Self.textSecondary
-              optionLabel.lineBreakMode = .byWordWrapping
-              optionLabel.maximumNumberOfLines = 0
-              optionLabel.isSelectable = true
-              let optionText = "• \(option.label)"
-              let optionHeight = ExpandedToolLayout.measuredTextHeight(
-                optionText,
-                font: NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
-                maxWidth: textWidth
-              )
-              optionLabel.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: optionHeight)
-              contentContainer.addSubview(optionLabel)
-              y += optionHeight
+          case let .questionOption(label, description):
+            let optionText = "• \(label)"
+            let optionLabel = NSTextField(labelWithString: optionText)
+            optionLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+            optionLabel.textColor = Self.textSecondary
+            optionLabel.lineBreakMode = .byWordWrapping
+            optionLabel.maximumNumberOfLines = 0
+            optionLabel.isSelectable = true
+            let optionHeight = ExpandedToolLayout.measuredTextHeight(
+              optionText,
+              font: NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
+              maxWidth: textWidth
+            )
+            optionLabel.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: optionHeight)
+            contentContainer.addSubview(optionLabel)
+            y += optionHeight
 
-              if let detail = option.description, !detail.isEmpty {
+            if let detail = description, !detail.isEmpty {
                 let detailLabel = NSTextField(labelWithString: detail)
                 detailLabel.font = NSFont.systemFont(ofSize: TypeScale.meta, weight: .regular)
                 detailLabel.textColor = Self.textTertiary
@@ -1128,45 +1125,37 @@ import SwiftUI
                 )
                 contentContainer.addSubview(detailLabel)
                 y += detailHeight + 2
-              }
-
-              y += 5
             }
-            y -= 5
-          }
 
-          if index < questions.count - 1 {
-            y += 8
-          }
-        }
-        case let .structuredEntries(entries):
-          for entry in entries {
-          let label = NSTextField(labelWithAttributedString: payloadAttributedLine(
-            key: entry.keyPath,
-            value: entry.value
-          ))
-          label.lineBreakMode = .byCharWrapping
-          label.maximumNumberOfLines = 0
-          label.isSelectable = true
-          let text = "\(entry.keyPath): \(entry.value)"
-          let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textWidth)
-          label.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: lineH)
-          contentContainer.addSubview(label)
-          y += lineH
-        }
-        case let .textLines(lines):
-          for line in lines {
-          let text = line.isEmpty ? " " : line
-          let label = NSTextField(labelWithString: text)
-          label.font = Self.codeFont
-          label.textColor = Self.textSecondary
-          label.lineBreakMode = .byCharWrapping
-          label.maximumNumberOfLines = 0
-          label.isSelectable = true
-          let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textWidth)
-          label.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: lineH)
-          contentContainer.addSubview(label)
-          y += lineH
+          case let .structuredEntry(key, value):
+            let label = NSTextField(labelWithAttributedString: payloadAttributedLine(
+              key: key,
+              value: value
+            ))
+            label.lineBreakMode = .byCharWrapping
+            label.maximumNumberOfLines = 0
+            label.isSelectable = true
+            let text = "\(key): \(value)"
+            let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textWidth)
+            label.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: lineH)
+            contentContainer.addSubview(label)
+            y += lineH
+
+          case let .textLine(line):
+            let text = line.isEmpty ? " " : line
+            let label = NSTextField(labelWithString: text)
+            label.font = Self.codeFont
+            label.textColor = Self.textSecondary
+            label.lineBreakMode = .byCharWrapping
+            label.maximumNumberOfLines = 0
+            label.isSelectable = true
+            let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textWidth)
+            label.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: lineH)
+            contentContainer.addSubview(label)
+            y += lineH
+
+          case let .spacer(spacing):
+            y += spacing
         }
       }
 

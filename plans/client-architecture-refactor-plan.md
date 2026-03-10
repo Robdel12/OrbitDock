@@ -332,7 +332,7 @@ Connection state, runtime lifecycle, and store refresh logic are still coordinat
 
 The largest offenders today are:
 
-- `OrbitDockNative/OrbitDock/Views/Codex/DirectSessionComposer.swift`
+- `OrbitDockNative/OrbitDock/Views/Sessions/Composer/DirectSessionComposer.swift`
 - `OrbitDockNative/OrbitDock/Views/Review/ReviewCanvas.swift`
 - `OrbitDockNative/OrbitDock/Views/SessionDetailView.swift`
 - `OrbitDockNative/OrbitDock/Views/SettingsView.swift`

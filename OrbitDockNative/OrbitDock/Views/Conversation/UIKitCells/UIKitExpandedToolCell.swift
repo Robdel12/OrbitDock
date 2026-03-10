@@ -960,22 +960,24 @@
       textWidth: CGFloat,
       y: inout CGFloat
     ) {
-      guard let payload, !payload.isEmpty else { return }
+      guard let section = ExpandedToolRenderPlanning.payloadSectionRenderPlan(
+        title: title,
+        payload: payload,
+        toolName: toolName
+      ) else { return }
 
-      let header = makeSectionHeader(title)
+      let header = makeSectionHeader(section.title)
       header.frame = CGRect(x: EL.headerHPad, y: y + EL.sectionPadding, width: 80, height: 14)
       contentContainer.addSubview(header)
       y += EL.sectionHeaderHeight + EL.sectionPadding
 
-      if toolName?.lowercased() == "question",
-         let questions = EL.askUserQuestionItems(from: payload)
-      {
-        for (index, question) in questions.enumerated() {
-          if let headerText = question.header, !headerText.isEmpty {
+      for item in section.items {
+        switch item {
+          case let .questionHeader(headerText):
             let headerLabel = UILabel()
             headerLabel.font = UIFont.systemFont(ofSize: TypeScale.mini, weight: .bold)
             headerLabel.textColor = EL.textQuaternary
-            headerLabel.text = headerText.uppercased()
+            headerLabel.text = headerText
             headerLabel.numberOfLines = 0
             let headerHeight = EL.measuredTextHeight(
               headerText,
@@ -985,41 +987,40 @@
             headerLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: headerHeight)
             contentContainer.addSubview(headerLabel)
             y += headerHeight + 3
-          }
 
-          let promptLabel = UILabel()
-          promptLabel.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
-          promptLabel.textColor = EL.textPrimary
-          promptLabel.lineBreakMode = .byWordWrapping
-          promptLabel.numberOfLines = 0
-          promptLabel.text = question.question
-          let promptHeight = EL.measuredTextHeight(
-            question.question,
-            font: UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
-            maxWidth: textWidth
-          )
-          promptLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: promptHeight)
-          contentContainer.addSubview(promptLabel)
-          y += promptHeight
+          case let .questionPrompt(prompt):
+            let promptLabel = UILabel()
+            promptLabel.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+            promptLabel.textColor = EL.textPrimary
+            promptLabel.lineBreakMode = .byWordWrapping
+            promptLabel.numberOfLines = 0
+            promptLabel.text = prompt
+            let promptHeight = EL.measuredTextHeight(
+              prompt,
+              font: UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
+              maxWidth: textWidth
+            )
+            promptLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: promptHeight)
+            contentContainer.addSubview(promptLabel)
+            y += promptHeight
 
-          if !question.options.isEmpty {
-            y += 6
-            for option in question.options {
-              let optionLabel = UILabel()
-              optionLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
-              optionLabel.textColor = EL.textSecondary
-              optionLabel.numberOfLines = 0
-              optionLabel.text = "• \(option.label)"
-              let optionHeight = EL.measuredTextHeight(
-                "• \(option.label)",
-                font: UIFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
-                maxWidth: textWidth
-              )
-              optionLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: optionHeight)
-              contentContainer.addSubview(optionLabel)
-              y += optionHeight
+          case let .questionOption(label, description):
+            let optionText = "• \(label)"
+            let optionLabel = UILabel()
+            optionLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+            optionLabel.textColor = EL.textSecondary
+            optionLabel.numberOfLines = 0
+            optionLabel.text = optionText
+            let optionHeight = EL.measuredTextHeight(
+              optionText,
+              font: UIFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
+              maxWidth: textWidth
+            )
+            optionLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: optionHeight)
+            contentContainer.addSubview(optionLabel)
+            y += optionHeight
 
-              if let detail = option.description, !detail.isEmpty {
+            if let detail = description, !detail.isEmpty {
                 let detailLabel = UILabel()
                 detailLabel.font = UIFont.systemFont(ofSize: TypeScale.meta, weight: .regular)
                 detailLabel.textColor = EL.textTertiary
@@ -1034,34 +1035,26 @@
                 detailLabel.frame = CGRect(x: EL.headerHPad + 14, y: y + 2, width: textWidth - 14, height: detailHeight)
                 contentContainer.addSubview(detailLabel)
                 y += detailHeight + 2
-              }
-              y += 5
             }
-            y -= 5
-          }
 
-          if index < questions.count - 1 {
-            y += 8
-          }
-        }
-      } else if let entries = EL.structuredPayloadEntries(from: payload) {
-        for entry in entries {
-          let label = makePayloadLabel(key: entry.keyPath, value: entry.value)
-          let display = "\(entry.keyPath): \(entry.value)"
+          case let .structuredEntry(key, value):
+            let label = makePayloadLabel(key: key, value: value)
+          let display = "\(key): \(value)"
           let labelH = EL.measuredTextHeight(display, font: EL.codeFont, maxWidth: textWidth)
           label.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: labelH)
           contentContainer.addSubview(label)
           y += labelH
-        }
-      } else {
-        let lines = EL.payloadDisplayLines(from: payload)
-        for line in lines {
+
+          case let .textLine(line):
           let text = line.isEmpty ? " " : line
           let label = makeCodeLabel(text, color: EL.textSecondary)
           let labelH = EL.measuredTextHeight(text, font: EL.codeFont, maxWidth: textWidth)
           label.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: labelH)
           contentContainer.addSubview(label)
           y += labelH
+
+          case let .spacer(spacing):
+            y += spacing
         }
       }
 

@@ -60,7 +60,9 @@ If a new rule can be expressed as a pure function, prefer that. If a new feature
 - Add reusable app models under `OrbitDockNative/OrbitDock/Models/`.
 - Add navigation state or routing rules under `OrbitDockNative/OrbitDock/Navigation/`.
 - Add OS-specific adapters under `OrbitDockNative/OrbitDock/Platform/`.
-- Add UI under the matching feature area in `OrbitDockNative/OrbitDock/Views/`.
+- Add shared session UI under `OrbitDockNative/OrbitDock/Views/Sessions/`.
+- Add provider-only controls under `OrbitDockNative/OrbitDock/Views/Providers/<Provider>/`.
+- Add other UI under the matching feature area in `OrbitDockNative/OrbitDock/Views/`.
 
 If you're adding a new feature, default to this split: model or protocol type first, store logic second, view last.
 

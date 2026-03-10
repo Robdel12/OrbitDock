@@ -18,6 +18,20 @@ struct ExpandedToolPayloadSectionPlan: Equatable {
   let content: ExpandedToolPayloadSectionContentPlan
 }
 
+enum ExpandedToolPayloadRenderItem: Equatable {
+  case questionHeader(String)
+  case questionPrompt(String)
+  case questionOption(label: String, description: String?)
+  case structuredEntry(key: String, value: String)
+  case textLine(String)
+  case spacer(CGFloat)
+}
+
+struct ExpandedToolPayloadSectionRenderPlan: Equatable {
+  let title: String
+  let items: [ExpandedToolPayloadRenderItem]
+}
+
 struct ExpandedToolTodoRowMetrics: Equatable {
   let statusText: String
   let iconName: String
@@ -56,6 +70,52 @@ enum ExpandedToolRenderPlanning {
       title: title,
       content: .textLines(ExpandedToolLayout.payloadDisplayLines(from: payload))
     )
+  }
+
+  static func payloadSectionRenderPlan(
+    title: String,
+    payload: String?,
+    toolName: String? = nil
+  ) -> ExpandedToolPayloadSectionRenderPlan? {
+    guard let section = payloadSectionPlan(title: title, payload: payload, toolName: toolName) else {
+      return nil
+    }
+
+    var items: [ExpandedToolPayloadRenderItem] = []
+
+    switch section.content {
+      case let .askUserQuestions(questions):
+        for (index, question) in questions.enumerated() {
+          if let header = question.header?.trimmingCharacters(in: .whitespacesAndNewlines), !header.isEmpty {
+            items.append(.questionHeader(header.uppercased()))
+          }
+
+          items.append(.questionPrompt(question.question))
+
+          if !question.options.isEmpty {
+            items.append(.spacer(6))
+
+            for option in question.options {
+              items.append(.questionOption(label: option.label, description: option.description))
+              items.append(.spacer(5))
+            }
+
+            items.removeLast()
+          }
+
+          if index < questions.count - 1 {
+            items.append(.spacer(8))
+          }
+        }
+
+      case let .structuredEntries(entries):
+        items.append(contentsOf: entries.map { .structuredEntry(key: $0.keyPath, value: $0.value) })
+
+      case let .textLines(lines):
+        items.append(contentsOf: lines.map(ExpandedToolPayloadRenderItem.textLine))
+    }
+
+    return ExpandedToolPayloadSectionRenderPlan(title: section.title, items: items)
   }
 
   static func todoRowMetrics(

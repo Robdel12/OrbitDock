@@ -115,15 +115,15 @@ The previous highest-confidence desktop-first hotspots were migrated:
 Path: `OrbitDock/OrbitDock/Views/Worktrees/CreateWorktreeSheet.swift`.
 2. `WorktreeListView` now has a compact iPhone layout with pinned bottom actions and mobile-safe row cards.
 Path: `OrbitDock/OrbitDock/Views/Worktrees/WorktreeListView.swift`.
-3. `NewClaudeSessionSheet` now has iOS scroll-based form content and compact-friendly framing.
-Path: `OrbitDock/OrbitDock/Views/Claude/NewClaudeSessionSheet.swift`.
+3. `NewSessionSheet` now has iOS scroll-based form content and compact-friendly framing.
+Path: `OrbitDockNative/OrbitDock/Views/NewSessionSheet.swift`.
 4. `DirectSessionComposer` fork-worktree sheets now avoid unguarded fixed-width layouts and include iOS detents.
-Path: `OrbitDock/OrbitDock/Views/Codex/DirectSessionComposer.swift`.
+Path: `OrbitDockNative/OrbitDock/Views/Sessions/Composer/DirectSessionComposer.swift`.
 5. `RenameSessionSheet` now has a compact iPhone navigation layout.
 Path: `OrbitDock/OrbitDock/Views/Components/RenameSessionSheet.swift`.
 6. `ClaudePermissionPicker` now uses `platformPopover` with iOS-friendly container behavior.
-Path: `OrbitDock/OrbitDock/Views/Claude/ClaudePermissionPicker.swift`.
+Path: `OrbitDockNative/OrbitDock/Views/Providers/Claude/ClaudePermissionPicker.swift`.
 7. `SessionDetailView` turn sidebar now presents as a sheet on compact layouts.
-Path: `OrbitDock/OrbitDock/Views/SessionDetailView.swift`.
+Path: `OrbitDockNative/OrbitDock/Views/SessionDetailView.swift`.
 
 Continue auditing new UI work against the PR checklist above to prevent desktop-first regressions.
