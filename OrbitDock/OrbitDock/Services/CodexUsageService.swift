@@ -147,8 +147,7 @@ enum CodexUsageError: LocalizedError {
 @Observable
 @MainActor
 final class CodexUsageService {
-  static let shared = CodexUsageService()
-
+  private let runtimeContext: UsageRuntimeContext
   private(set) var usage: CodexUsage?
   private(set) var error: CodexUsageError?
   private(set) var isLoading = false
@@ -159,12 +158,24 @@ final class CodexUsageService {
   private var refreshTask: Task<Void, Never>?
   private var endpointObserverTask: Task<Void, Never>?
   private var activeEndpointId: UUID?
+  private(set) var isStarted = false
 
   private var isTestMode: Bool {
     AppRuntimeMode.isRunningTestsProcess || ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] != nil
   }
 
-  private init() {
+  init(runtimeContext: UsageRuntimeContext) {
+    self.runtimeContext = runtimeContext
+  }
+
+  var isStale: Bool {
+    guard let fetched = usage?.fetchedAt else { return true }
+    return Date().timeIntervalSince(fetched) > staleThreshold
+  }
+
+  func start() {
+    guard !isStarted else { return }
+    isStarted = true
     observeControlPlaneEndpointChanges()
 
     if let context = controlPlaneContext() {
@@ -175,9 +186,13 @@ final class CodexUsageService {
     startAutoRefresh()
   }
 
-  var isStale: Bool {
-    guard let fetched = usage?.fetchedAt else { return true }
-    return Date().timeIntervalSince(fetched) > staleThreshold
+  func stop() {
+    guard isStarted else { return }
+    isStarted = false
+    refreshTask?.cancel()
+    refreshTask = nil
+    endpointObserverTask?.cancel()
+    endpointObserverTask = nil
   }
 
   func refresh() async {
@@ -217,7 +232,7 @@ final class CodexUsageService {
 
   private func observeControlPlaneEndpointChanges() {
     endpointObserverTask?.cancel()
-    let primaryEndpointUpdates = ServerRuntimeRegistry.shared.primaryEndpointUpdates
+    let primaryEndpointUpdates = runtimeContext.primaryEndpointUpdates
     endpointObserverTask = Task { [weak self] in
       guard let self else { return }
       for await _ in primaryEndpointUpdates {
@@ -228,6 +243,7 @@ final class CodexUsageService {
   }
 
   private func startAutoRefresh() {
+    refreshTask?.cancel()
     refreshTask = Task { [weak self] in
       guard let self else { return }
       if self.isCacheValid != true {
@@ -246,11 +262,7 @@ final class CodexUsageService {
   }
 
   private func controlPlaneContext() -> (endpointId: UUID, apiClient: APIClient)? {
-    let runtimeRegistry = ServerRuntimeRegistry.shared
-    guard let runtime = runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime else {
-      return nil
-    }
-    return (runtime.endpoint.id, runtime.apiClient)
+    runtimeContext.controlPlaneContext()
   }
 
   private func switchActiveEndpointIfNeeded(_ endpointId: UUID) {

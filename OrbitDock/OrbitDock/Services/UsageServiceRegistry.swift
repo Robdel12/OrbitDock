@@ -11,12 +11,40 @@ import Foundation
 @Observable
 @MainActor
 final class UsageServiceRegistry {
-  static let shared = UsageServiceRegistry()
+  let claude: SubscriptionUsageService
+  let codex: CodexUsageService
 
-  let claude = SubscriptionUsageService.shared
-  let codex = CodexUsageService.shared
+  init(runtimeContext: UsageRuntimeContext) {
+    claude = SubscriptionUsageService(runtimeContext: runtimeContext)
+    codex = CodexUsageService(runtimeContext: runtimeContext)
+  }
 
-  private init() {}
+  convenience init(runtimeRegistry: ServerRuntimeRegistry) {
+    self.init(runtimeContext: .live(runtimeRegistry: runtimeRegistry))
+  }
+
+  func start() {
+    claude.start()
+    codex.start()
+  }
+
+  func stop() {
+    claude.stop()
+    codex.stop()
+  }
+
+  nonisolated static func shouldStartServices(
+    shouldConnectServer: Bool,
+    installState: ServerInstallState
+  ) -> Bool {
+    guard shouldConnectServer else { return false }
+    switch installState {
+      case .running, .installed, .remote:
+        return true
+      case .unknown, .notConfigured:
+        return false
+    }
+  }
 
   /// Returns providers that have valid data (not errored or loading)
   var activeProviders: [Provider] {

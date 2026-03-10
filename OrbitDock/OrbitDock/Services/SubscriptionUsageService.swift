@@ -171,8 +171,7 @@ enum SubscriptionUsageError: LocalizedError {
 @Observable
 @MainActor
 final class SubscriptionUsageService {
-  static let shared = SubscriptionUsageService()
-
+  private let runtimeContext: UsageRuntimeContext
   private(set) var usage: SubscriptionUsage?
   private(set) var error: SubscriptionUsageError?
   private(set) var isLoading = false
@@ -186,20 +185,14 @@ final class SubscriptionUsageService {
   private var refreshTask: Task<Void, Never>?
   private var endpointObserverTask: Task<Void, Never>?
   private var activeEndpointId: UUID?
+  private(set) var isStarted = false
 
   private var isTestMode: Bool {
     AppRuntimeMode.isRunningTestsProcess || ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] != nil
   }
 
-  private init() {
-    observeControlPlaneEndpointChanges()
-
-    if let context = controlPlaneContext() {
-      switchActiveEndpointIfNeeded(context.endpointId)
-    }
-
-    guard !isTestMode else { return }
-    startAutoRefresh()
+  init(runtimeContext: UsageRuntimeContext) {
+    self.runtimeContext = runtimeContext
   }
 
   // MARK: - Public API
@@ -239,11 +232,33 @@ final class SubscriptionUsageService {
     return Date().timeIntervalSince(fetched) > staleThreshold
   }
 
+  func start() {
+    guard !isStarted else { return }
+    isStarted = true
+    observeControlPlaneEndpointChanges()
+
+    if let context = controlPlaneContext() {
+      switchActiveEndpointIfNeeded(context.endpointId)
+    }
+
+    guard !isTestMode else { return }
+    startAutoRefresh()
+  }
+
+  func stop() {
+    guard isStarted else { return }
+    isStarted = false
+    refreshTask?.cancel()
+    refreshTask = nil
+    endpointObserverTask?.cancel()
+    endpointObserverTask = nil
+  }
+
   // MARK: - Control Plane Endpoint
 
   private func observeControlPlaneEndpointChanges() {
     endpointObserverTask?.cancel()
-    let primaryEndpointUpdates = ServerRuntimeRegistry.shared.primaryEndpointUpdates
+    let primaryEndpointUpdates = runtimeContext.primaryEndpointUpdates
     endpointObserverTask = Task { [weak self] in
       guard let self else { return }
       for await _ in primaryEndpointUpdates {
@@ -254,11 +269,7 @@ final class SubscriptionUsageService {
   }
 
   private func controlPlaneContext() -> (endpointId: UUID, apiClient: APIClient)? {
-    let runtimeRegistry = ServerRuntimeRegistry.shared
-    guard let runtime = runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime else {
-      return nil
-    }
-    return (runtime.endpoint.id, runtime.apiClient)
+    runtimeContext.controlPlaneContext()
   }
 
   private func switchActiveEndpointIfNeeded(_ endpointId: UUID) {
@@ -344,6 +355,7 @@ final class SubscriptionUsageService {
   // MARK: - Auto Refresh
 
   private func startAutoRefresh() {
+    refreshTask?.cancel()
     refreshTask = Task { [weak self] in
       guard let self else { return }
       if self.isCacheValid != true {

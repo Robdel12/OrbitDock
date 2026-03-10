@@ -65,6 +65,7 @@ struct SessionContinuation: Hashable, Sendable {
 @Observable
 final class AppRouter {
   var selectedSessionRef: SessionRef?
+  var selectedEndpointId: UUID?
   var dashboardTab: DashboardTab = .missionControl
   var dashboardScrollAnchorID: String?
   var showQuickSwitcher = false
@@ -72,23 +73,23 @@ final class AppRouter {
   var newSessionProvider: SessionProvider = .claude
   var newSessionContinuation: SessionContinuation?
 
-  func selectSession(_ ref: SessionRef, runtimeRegistry: ServerRuntimeRegistry) {
-    runtimeRegistry.setActiveEndpoint(id: ref.endpointId)
+  func selectSession(_ ref: SessionRef) {
     selectedSessionRef = ref
+    selectedEndpointId = ref.endpointId
   }
 
-  func selectSession(scopedID: String, store: UnifiedSessionsStore, runtimeRegistry: ServerRuntimeRegistry) {
+  func selectSession(scopedID: String, store: UnifiedSessionsStore) {
     guard let ref = store.sessionRef(for: scopedID) else {
       selectedSessionRef = nil
       return
     }
-    selectSession(ref, runtimeRegistry: runtimeRegistry)
+    selectSession(ref)
   }
 
   /// Navigate to a session by scopedID. Resolves via SessionRef parsing.
-  func navigateToSession(scopedID: String, runtimeRegistry: ServerRuntimeRegistry) {
+  func navigateToSession(scopedID: String) {
     guard let ref = SessionRef(scopedID: scopedID) else { return }
-    selectSession(ref, runtimeRegistry: runtimeRegistry)
+    selectSession(ref)
   }
 
   func goToDashboard() {
@@ -125,25 +126,25 @@ final class AppRouter {
     sessionID: String,
     endpointId: UUID?,
     store: UnifiedSessionsStore,
-    runtimeRegistry: ServerRuntimeRegistry
+    fallbackEndpointId: UUID?
   ) {
     // Strategy 1: Look up by scopedID in the unified store
     if let ref = store.sessionRef(for: sessionID) {
-      selectSession(ref, runtimeRegistry: runtimeRegistry)
+      selectSession(ref)
       return
     }
 
     // Strategy 2: Build ref from explicit endpointId
     if let endpointId {
       let ref = SessionRef(endpointId: endpointId, sessionId: sessionID)
-      selectSession(ref, runtimeRegistry: runtimeRegistry)
+      selectSession(ref)
       return
     }
 
-    // Strategy 3: Fall back to active endpoint
-    if let activeEndpointId = runtimeRegistry.activeEndpointId {
-      let ref = SessionRef(endpointId: activeEndpointId, sessionId: sessionID)
-      selectSession(ref, runtimeRegistry: runtimeRegistry)
+    // Strategy 3: Fall back to the window's endpoint context.
+    if let fallbackEndpointId = selectedEndpointId ?? fallbackEndpointId {
+      let ref = SessionRef(endpointId: fallbackEndpointId, sessionId: sessionID)
+      selectSession(ref)
     }
   }
 

@@ -26,7 +26,7 @@ class ToastManager: ObservableObject {
   private var dismissTasks: [UUID: Task<Void, Never>] = [:]
   private var lastAttentionHapticAt = Date.distantPast
 
-  private init() {}
+  init() {}
 
   /// Show a toast for a session that needs attention
   func showToast(for session: Session) {

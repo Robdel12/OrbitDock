@@ -12,10 +12,10 @@ import SwiftUI
 
 struct StatsPopoverContent: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(UsageServiceRegistry.self) private var registry
 
   let todayStats: StatusBarStats
   let allStats: StatusBarStats
-  let registry = UsageServiceRegistry.shared
 
   private var activeProviders: [(provider: Provider, windows: [RateLimitWindow], isLoading: Bool)] {
     registry.allProviders.map { provider in

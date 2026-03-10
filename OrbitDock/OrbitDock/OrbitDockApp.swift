@@ -19,29 +19,18 @@ struct OrbitDockApp: App {
   #if os(macOS)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   #endif
-  @State private var runtimeRegistry = ServerRuntimeRegistry.shared
-  @State private var attentionService = AttentionService()
-  @State private var router = AppRouter()
+  @State private var runtimeRegistry: ServerRuntimeRegistry
+  @State private var usageServiceRegistry: UsageServiceRegistry
   private let runtimeMode = AppRuntimeMode.current
 
-  private var sessionStore: SessionStore {
-    runtimeRegistry.activeSessionStore
+  init() {
+    let runtimeRegistry = ServerRuntimeRegistry.shared
+    _runtimeRegistry = State(initialValue: runtimeRegistry)
+    _usageServiceRegistry = State(initialValue: UsageServiceRegistry(runtimeRegistry: runtimeRegistry))
   }
 
   private var mainRootView: some View {
-    ContentView()
-      .environment(sessionStore)
-      .environment(runtimeRegistry)
-      .environment(attentionService)
-      .environment(router)
-      .preferredColorScheme(.dark)
-    #if os(iOS)
-      .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
-        runtimeRegistry.handleMemoryPressure()
-        MarkdownSystemParser.clearCache()
-        SyntaxHighlighter.clearCache()
-      }
-    #endif
+    OrbitDockWindowRoot(runtimeRegistry: runtimeRegistry, usageServiceRegistry: usageServiceRegistry)
       .task {
         guard runtimeMode.shouldConnectServer else { return }
 
@@ -53,6 +42,14 @@ struct OrbitDockApp: App {
         let state = ServerManager.shared.installState
         if state == .running || state == .installed || state == .remote {
           runtimeRegistry.startEnabledRuntimes()
+        }
+        if UsageServiceRegistry.shouldStartServices(
+          shouldConnectServer: runtimeMode.shouldConnectServer,
+          installState: state
+        ) {
+          usageServiceRegistry.start()
+        } else {
+          usageServiceRegistry.stop()
         }
         // .notConfigured → setup view handles connection after install
       }
@@ -70,17 +67,17 @@ struct OrbitDockApp: App {
       .commands {
         CommandGroup(after: .toolbar) {
           Button("Dashboard") {
-            router.goToDashboard()
+            NotificationCenter.default.post(name: .navigateToDashboard, object: nil)
           }
           .keyboardShortcut("0", modifiers: .command)
 
           Button("Library") {
-            router.goToLibrary()
+            NotificationCenter.default.post(name: .navigateToLibrary, object: nil)
           }
           .keyboardShortcut("1", modifiers: .command)
 
           Button("Quick Switch") {
-            router.openQuickSwitcher()
+            NotificationCenter.default.post(name: .openQuickSwitcher, object: nil)
           }
           .keyboardShortcut("k", modifiers: .command)
         }
@@ -89,18 +86,16 @@ struct OrbitDockApp: App {
       // Settings window (⌘,)
       Settings {
         SettingsView()
-          .environment(sessionStore)
           .environment(runtimeRegistry)
-          .environment(attentionService)
           .preferredColorScheme(.dark)
       }
 
       // Menu bar
       MenuBarExtra {
         MenuBarView()
-          .environment(sessionStore)
+          .environment(runtimeRegistry.activeSessionStore)
           .environment(runtimeRegistry)
-          .environment(attentionService)
+          .environment(usageServiceRegistry)
           .environment(\.colorScheme, .dark)
           .preferredColorScheme(.dark)
       } label: {
@@ -223,4 +218,7 @@ extension Notification.Name {
   static let serverSessionsDidChange = Notification.Name("serverSessionsDidChange")
   static let serverPrimaryEndpointDidChange = Notification.Name("serverPrimaryEndpointDidChange")
   static let openPendingActionPanel = Notification.Name("openPendingActionPanel")
+  static let navigateToDashboard = Notification.Name("navigateToDashboard")
+  static let navigateToLibrary = Notification.Name("navigateToLibrary")
+  static let openQuickSwitcher = Notification.Name("openQuickSwitcher")
 }

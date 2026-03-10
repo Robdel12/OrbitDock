@@ -8,13 +8,18 @@ import SwiftUI
 
 struct SessionDetailView: View {
   @Environment(SessionStore.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(AppRouter.self) private var router
   let sessionId: String
   let endpointId: UUID
 
+  private var scopedServerState: SessionStore {
+    runtimeRegistry.sessionStore(for: endpointId, fallback: serverState)
+  }
+
   private var obs: SessionObservable {
-    serverState.session(sessionId)
+    scopedServerState.session(sessionId)
   }
 
   @State private var copiedResume = false
@@ -123,7 +128,7 @@ struct SessionDetailView: View {
       } else {
         if obs.canTakeOver, !obs.needsApprovalOverlay {
           TakeOverInputBar {
-            Task { try? await serverState.takeoverSession(sessionId) }
+            Task { try? await scopedServerState.takeoverSession(sessionId) }
           }
         }
         actionBar
@@ -134,12 +139,12 @@ struct SessionDetailView: View {
       if shouldSubscribeToServerSession {
         // Let SessionStore choose the best recovery path: retained state, cached restore,
         // or full-history recovery when the detail view needs to rebuild after being away.
-        serverState.subscribeToSession(sessionId, recoveryGoal: .completeHistory)
-        serverState.setSessionAutoMarkRead(sessionId, enabled: isPinned)
+        scopedServerState.subscribeToSession(sessionId, recoveryGoal: .completeHistory)
+        scopedServerState.setSessionAutoMarkRead(sessionId, enabled: isPinned)
         if obs.isDirect {
           Task {
-            if let resp = try? await serverState.apiClient.listApprovals(sessionId: sessionId) {
-              serverState.session(sessionId).approvalHistory = resp.approvals
+            if let resp = try? await scopedServerState.apiClient.listApprovals(sessionId: sessionId) {
+              scopedServerState.session(sessionId).approvalHistory = resp.approvals
             }
           }
         }
@@ -147,13 +152,13 @@ struct SessionDetailView: View {
     }
     .onDisappear {
       if shouldSubscribeToServerSession {
-        serverState.setSessionAutoMarkRead(sessionId, enabled: false)
-        serverState.unsubscribeFromSession(sessionId)
+        scopedServerState.setSessionAutoMarkRead(sessionId, enabled: false)
+        scopedServerState.unsubscribeFromSession(sessionId)
       }
     }
     .onChange(of: isPinned) { _, pinned in
       guard shouldSubscribeToServerSession else { return }
-      serverState.setSessionAutoMarkRead(sessionId, enabled: pinned)
+      scopedServerState.setSessionAutoMarkRead(sessionId, enabled: pinned)
     }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
@@ -181,7 +186,7 @@ struct SessionDetailView: View {
       return .ignored
     }
     // Diff-available banner trigger
-    .onChange(of: serverState.session(sessionId).diff) { oldDiff, newDiff in
+    .onChange(of: scopedServerState.session(sessionId).diff) { oldDiff, newDiff in
       guard obs.isDirect else { return }
       if oldDiff == nil, newDiff != nil, layoutConfig == .conversationOnly {
         withAnimation(Motion.standard) {
@@ -539,9 +544,9 @@ struct SessionDetailView: View {
 
   private var worktreeForSession: ServerWorktreeSummary? {
     if let wtId = obs.worktreeId {
-      return serverState.worktreesByRepo.values.flatMap { $0 }.first { $0.id == wtId }
+      return scopedServerState.worktreesByRepo.values.flatMap { $0 }.first { $0.id == wtId }
     }
-    return serverState.worktreesByRepo.values.flatMap { $0 }.first { $0.worktreePath == obs.projectPath }
+    return scopedServerState.worktreesByRepo.values.flatMap { $0 }.first { $0.worktreePath == obs.projectPath }
   }
 
   private var worktreeCleanupBanner: some View {
@@ -618,7 +623,7 @@ struct SessionDetailView: View {
 
     Task {
       do {
-        try await serverState.apiClient.removeWorktree(
+        try await scopedServerState.apiClient.removeWorktree(
           worktreeId: wt.id,
           force: true,
           deleteBranch: deleteBranchOnCleanup
@@ -697,7 +702,7 @@ struct SessionDetailView: View {
   }
 
   private func endDirectSession() {
-    Task { try? await serverState.endSession(sessionId) }
+    Task { try? await scopedServerState.endSession(sessionId) }
   }
 
   // MARK: - Send Review
@@ -797,11 +802,11 @@ struct SessionDetailView: View {
     let message = lines.joined(separator: "\n")
 
     Task {
-      try? await serverState.sendMessage(sessionId: sessionId, content: message)
+      try? await scopedServerState.sendMessage(sessionId: sessionId, content: message)
 
       // Resolve sent comments
       for comment in commentsToSend {
-        try? await serverState.apiClient.updateReviewComment(
+        try? await scopedServerState.apiClient.updateReviewComment(
           commentId: comment.id,
           body: APIClient.UpdateReviewCommentRequest(status: .resolved)
         )

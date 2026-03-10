@@ -124,7 +124,7 @@ struct ToastContainer: View {
           toast: toast,
           onTap: {
             withAnimation(Motion.standard) {
-              router.navigateToSession(scopedID: toast.sessionId, runtimeRegistry: runtimeRegistry)
+              router.navigateToSession(scopedID: toast.sessionId)
             }
             toastManager.dismiss(toast)
           },

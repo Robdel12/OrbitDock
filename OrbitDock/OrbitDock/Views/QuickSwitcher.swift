@@ -894,7 +894,7 @@ struct QuickSwitcher: View {
 
     return Button {
       Platform.services.playHaptic(.navigation)
-      router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+      router.navigateToSession(scopedID: session.scopedID)
       router.closeQuickSwitcher()
     } label: {
       HStack(spacing: isCompactLayout ? Spacing.md_ : Spacing.lg_) {
@@ -1187,7 +1187,7 @@ struct QuickSwitcher: View {
     guard sessionIndex >= 0, sessionIndex < allVisibleSessions.count else { return }
     let session = allVisibleSessions[sessionIndex]
     Platform.services.playHaptic(.navigation)
-    router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+    router.navigateToSession(scopedID: session.scopedID)
     router.closeQuickSwitcher()
   }
 

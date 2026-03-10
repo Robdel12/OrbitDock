@@ -7,9 +7,10 @@ import SwiftUI
 
 #if os(macOS)
 
-  struct MenuBarView: View {
-    @Environment(SessionStore.self) private var serverState
-    @Environment(\.colorScheme) private var colorScheme
+struct MenuBarView: View {
+  @Environment(SessionStore.self) private var serverState
+  @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
+  @Environment(\.colorScheme) private var colorScheme
 
     var activeSessions: [Session] {
       serverState.sessions.filter(\.showsInMissionControl)
@@ -56,12 +57,12 @@ import SwiftUI
 
         // Provider Usage
         VStack(spacing: Spacing.sm_) {
-          ForEach(UsageServiceRegistry.shared.allProviders) { provider in
+          ForEach(usageServiceRegistry.allProviders) { provider in
             ProviderMenuBarSection(
               provider: provider,
-              windows: UsageServiceRegistry.shared.windows(for: provider),
-              isLoading: UsageServiceRegistry.shared.isLoading(for: provider),
-              error: UsageServiceRegistry.shared.error(for: provider)
+              windows: usageServiceRegistry.windows(for: provider),
+              isLoading: usageServiceRegistry.isLoading(for: provider),
+              error: usageServiceRegistry.error(for: provider)
             )
           }
         }

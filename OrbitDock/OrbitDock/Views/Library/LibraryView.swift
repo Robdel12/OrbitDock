@@ -825,7 +825,7 @@ struct LibraryView: View {
 
   private func selectSession(_ session: Session) {
     withAnimation(Motion.standard) {
-      router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+      router.navigateToSession(scopedID: session.scopedID)
     }
   }
 

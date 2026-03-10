@@ -242,7 +242,7 @@ struct DesktopSidebarPanel: View {
 
 private struct SidebarUsageSection: View {
   @State private var expandedProviderIDs: Set<String> = []
-  let registry = UsageServiceRegistry.shared
+  @Environment(UsageServiceRegistry.self) private var registry
 
   private var activeProviders: [(provider: Provider, windows: [RateLimitWindow], isLoading: Bool, error: (any LocalizedError)?)] {
     registry.allProviders.map { provider in

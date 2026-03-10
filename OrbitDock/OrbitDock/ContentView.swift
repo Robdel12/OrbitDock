@@ -50,7 +50,7 @@ struct ContentView: View {
   @StateObject private var serverManager = ServerManager.shared
   @State private var unifiedSessionsStore = UnifiedSessionsStore()
   @State private var sessions: [Session] = []
-  @StateObject private var toastManager = ToastManager.shared
+  @StateObject private var toastManager = ToastManager()
 
   var missionControlSessions: [Session] {
     sessions.filter(\.showsInMissionControl)
@@ -120,7 +120,6 @@ struct ContentView: View {
     }
     .background(Color.backgroundPrimary)
     .onChange(of: router.selectedScopedID, initial: true, updateToastSessionSelection)
-    .onChange(of: runtimeRegistry.activeEndpointId, synchronizeActiveEndpoint)
     .onAppear {
       Task { await loadSessions() }
     }
@@ -277,18 +276,15 @@ struct ContentView: View {
   }
 
   private func creationAppState() -> SessionStore {
-    runtimeRegistry.primarySessionStore(fallback: serverState)
+    let fallbackStore = runtimeRegistry.primarySessionStore(fallback: serverState)
+    return runtimeRegistry.sessionStore(
+      for: router.selectedEndpointId ?? router.selectedSessionRef?.endpointId,
+      fallback: fallbackStore
+    )
   }
 
   private func updateToastSessionSelection(_: String?, _ newId: String?) {
     toastManager.currentSessionId = newId
-  }
-
-  private func synchronizeActiveEndpoint(_: UUID?, _: UUID?) {
-    guard let ref = router.selectedSessionRef else { return }
-    if runtimeRegistry.activeEndpointId != ref.endpointId {
-      runtimeRegistry.setActiveEndpoint(id: ref.endpointId)
-    }
   }
 
   private func reloadSessions<T>(_: T, _: T) {
@@ -307,7 +303,7 @@ struct ContentView: View {
         sessionID: sessionID,
         endpointId: endpointId(from: notification),
         store: unifiedSessionsStore,
-        runtimeRegistry: runtimeRegistry
+        fallbackEndpointId: runtimeRegistry.primaryEndpointId ?? runtimeRegistry.activeEndpointId
       )
     }
   }
@@ -332,9 +328,11 @@ struct ContentView: View {
 }
 
 #Preview {
+  let runtimeRegistry = ServerRuntimeRegistry.shared
   ContentView()
     .environment(SessionStore())
-    .environment(ServerRuntimeRegistry.shared)
+    .environment(runtimeRegistry)
+    .environment(UsageServiceRegistry(runtimeRegistry: runtimeRegistry))
     .environment(AttentionService())
     .environment(AppRouter())
     .frame(width: 1_000, height: 700)

@@ -52,4 +52,12 @@ struct UsageServiceRegistryTests {
       )
     )
   }
+
+  @Test func shouldStartServicesOnlyWhenServerLifecycleIsReady() {
+    #expect(UsageServiceRegistry.shouldStartServices(shouldConnectServer: true, installState: .running))
+    #expect(UsageServiceRegistry.shouldStartServices(shouldConnectServer: true, installState: .installed))
+    #expect(UsageServiceRegistry.shouldStartServices(shouldConnectServer: true, installState: .remote))
+    #expect(!UsageServiceRegistry.shouldStartServices(shouldConnectServer: true, installState: .notConfigured))
+    #expect(!UsageServiceRegistry.shouldStartServices(shouldConnectServer: false, installState: .running))
+  }
 }

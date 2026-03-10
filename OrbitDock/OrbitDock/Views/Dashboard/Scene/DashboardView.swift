@@ -302,7 +302,7 @@ struct DashboardView: View {
     let session = navigableSessions[selectedIndex]
     dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
     withAnimation(Motion.standard) {
-      router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+      router.navigateToSession(scopedID: session.scopedID)
     }
   }
 

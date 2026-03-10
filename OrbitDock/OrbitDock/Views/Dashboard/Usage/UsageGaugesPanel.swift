@@ -11,8 +11,8 @@ import SwiftUI
 // MARK: - Usage Gauges Panel
 
 struct UsageGaugesPanel: View {
+  @Environment(UsageServiceRegistry.self) private var registry
   var axis: Axis = .horizontal
-  let registry = UsageServiceRegistry.shared
 
   private var activeProviders: [(provider: Provider, windows: [RateLimitWindow], isLoading: Bool)] {
     registry.allProviders.map { provider in

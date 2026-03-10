@@ -492,11 +492,89 @@ That coordinator should:
   - startup bootstrap
   - endpoint enable/disable changes
   - default endpoint changes
-  - reconnect flows without duplicate primary-claim writes
+- reconnect flows without duplicate primary-claim writes
 
 ---
 
-## Phase 6: Thin the App Shell
+## Phase 6: Make Service Lifecycles Explicit
+
+This is the “stop hidden startup work” phase.
+
+The bug class we are explicitly trying to eliminate here is:
+
+- global singleton access triggering network work
+- usage polling starting from `init()` instead of an explicit lifecycle
+- process-wide services reaching into shared runtime state before app bootstrap is actually settled
+
+### Scope
+
+- remove eager observer/refresh work from singleton initializers
+- make usage services explicitly startable/stoppable
+- make `UsageServiceRegistry` an explicit composition dependency instead of an eager global composition root
+- stop treating `shared` access as a valid place to start real background work
+
+### Files
+
+- `SubscriptionUsageService.swift`
+- `CodexUsageService.swift`
+- `UsageServiceRegistry.swift`
+- `OrbitDockApp.swift`
+
+### Expected output
+
+- touching a service singleton no longer starts network traffic
+- usage polling only starts when the app/window runtime chooses to start it
+- startup becomes easier to reason about and easier to test
+- transport crashes stop surfacing from hidden singleton init paths
+
+### Testing
+
+- tests for explicit `start` / `stop` lifecycle behavior
+- tests that verify refresh does not start from initialization alone
+- tests that verify endpoint updates only trigger refresh after lifecycle start
+
+---
+
+## Phase 7: Make Windows Truly Independent
+
+This is the scene-ownership phase.
+
+The goal is:
+
+- a new OrbitDock window gets its own navigation, selection, quick switcher state, and sheet state
+- while shared runtime/server truth remains shared across the app
+
+### Scope
+
+- add a real window-root scene model
+- move router/navigation/presentation state out of `OrbitDockApp`
+- move toast ownership out of global shared state
+- stop using shared runtime selection as a substitute for window-local focus
+
+### Files
+
+- `OrbitDockApp.swift`
+- `ContentView.swift`
+- `AppRouter.swift`
+- `ToastManager.swift`
+- `UnifiedSessionsStore.swift`
+
+### Expected output
+
+- each window gets its own router and local shell state
+- shared runtime stays shared, but window focus does not
+- selecting a session in one window does not hijack another window’s navigation state
+- the app shell becomes much easier to reason about
+
+### Testing
+
+- window-root state tests for independent router/presentation state
+- tests for external navigation handling against a window-local router
+- tests for toast/session-selection behavior staying local to a window
+
+---
+
+## Phase 8: Thin the App Shell
 
 ### Scope
 
@@ -517,7 +595,7 @@ That coordinator should:
 
 ---
 
-## Phase 7: Refactor the Composer Feature
+## Phase 9: Refactor the Composer Feature
 
 ### Scope
 
@@ -541,7 +619,7 @@ That coordinator should:
 
 ---
 
-## Phase 8: Refactor the Review Feature
+## Phase 10: Refactor the Review Feature
 
 ### Scope
 
@@ -562,7 +640,7 @@ That coordinator should:
 
 ---
 
-## Phase 9: Decompose Large Screens
+## Phase 11: Decompose Large Screens
 
 ### Scope
 
@@ -585,7 +663,7 @@ That coordinator should:
 
 ---
 
-## Phase 10: Conversation Rendering Architecture Pass
+## Phase 12: Conversation Rendering Architecture Pass
 
 This should happen after the store/runtime work, not before.
 
