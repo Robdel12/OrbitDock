@@ -54,17 +54,9 @@ struct DirectSessionComposer: View {
   @State var dictationDraftBaseMessage: String?
   @State var showForkToWorktreeSheet = false
   @State var showForkToExistingWorktreeSheet = false
-  @State var pendingPanelExpanded = true
-  @State var pendingPanelPromptIndex = 0
-  @State var pendingPanelAnswers: [String: [String]] = [:]
-  @State var pendingPanelDrafts: [String: String] = [:]
-  @State var pendingPanelShowDenyReason = false
-  @State var pendingPanelDenyReason = ""
-  @State var pendingPanelMeasuredContentHeight: CGFloat = 0
-  @State var pendingPanelHovering = false
+  @State var pendingState = DirectSessionComposerPendingState()
   @State var permissionPanelExpanded = false
   @State var hoveringSuggestion: String?
-  @State var lastHapticPendingApprovalIdentity = ""
 
   var obs: SessionObservable {
     serverState.session(sessionId)
@@ -623,17 +615,17 @@ struct DirectSessionComposer: View {
     }
     .onChange(of: pendingApprovalIdentity) { _, newValue in
       resetPendingPanelStateForRequest()
-      guard !newValue.isEmpty, newValue != lastHapticPendingApprovalIdentity else {
-        lastHapticPendingApprovalIdentity = newValue
+      guard !newValue.isEmpty, newValue != pendingState.lastHapticApprovalIdentity else {
+        pendingState.lastHapticApprovalIdentity = newValue
         return
       }
-      lastHapticPendingApprovalIdentity = newValue
+      pendingState.lastHapticApprovalIdentity = newValue
       Platform.services.playHaptic(.warning)
     }
     .onChange(of: pendingPanelOpenSignal) { _, newValue in
       guard newValue > 0 else { return }
       withAnimation(Motion.standard) {
-        pendingPanelExpanded = true
+        pendingState.isExpanded = true
       }
     }
     .onChange(of: codexModelOptionsSignature) { _, _ in
@@ -847,7 +839,7 @@ struct DirectSessionComposer: View {
     .overlay(composerDropTargetOverlay)
     .animation(Motion.gentle, value: inputMode)
     .animation(Motion.standard, value: pendingApprovalIdentity)
-    .animation(Motion.standard, value: pendingPanelExpanded)
+    .animation(Motion.standard, value: pendingState.isExpanded)
     .animation(Motion.standard, value: permissionPanelExpanded)
     .animation(Motion.hover, value: inputState.focus.isFocused)
     .animation(Motion.standard, value: isImageDropTargeted)

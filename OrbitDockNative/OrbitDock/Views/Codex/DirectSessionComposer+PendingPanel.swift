@@ -31,7 +31,7 @@ extension DirectSessionComposer {
       // Inline header (tap to collapse/expand)
       Button {
         withAnimation(Motion.standard) {
-          pendingPanelExpanded.toggle()
+          pendingState.isExpanded.toggle()
         }
         Platform.services.playHaptic(.expansion)
       } label: {
@@ -39,7 +39,7 @@ extension DirectSessionComposer {
       }
       .buttonStyle(.plain)
       .onHover { hovering in
-        pendingPanelHovering = hovering
+        pendingState.isHovering = hovering
         #if os(macOS)
           if hovering {
             NSCursor.pointingHand.push()
@@ -50,7 +50,7 @@ extension DirectSessionComposer {
       }
 
       // Expandable content
-      if pendingPanelExpanded {
+      if pendingState.isExpanded {
         ScrollView(.vertical, showsIndicators: true) {
           VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
             switch model.mode {
@@ -79,8 +79,8 @@ extension DirectSessionComposer {
         .frame(height: pendingPanelClampedContentHeight(for: model))
         .onPreferenceChange(PendingPanelContentHeightPreferenceKey.self) { measuredHeight in
           let normalizedHeight = max(0, measuredHeight)
-          guard abs(normalizedHeight - pendingPanelMeasuredContentHeight) > 0.5 else { return }
-          pendingPanelMeasuredContentHeight = normalizedHeight
+          guard abs(normalizedHeight - pendingState.measuredContentHeight) > 0.5 else { return }
+          pendingState.measuredContentHeight = normalizedHeight
         }
         .transition(.opacity.animation(Motion.gentle.delay(0.05)))
       }
@@ -140,13 +140,13 @@ extension DirectSessionComposer {
         .foregroundStyle(Color.textQuaternary)
         .frame(width: 16, height: 16)
         .background(Circle().fill(Color.surfaceHover.opacity(OpacityTier.subtle)))
-        .rotationEffect(.degrees(pendingPanelExpanded ? 90 : 0))
-        .animation(Motion.snappy, value: pendingPanelExpanded)
+        .rotationEffect(.degrees(pendingState.isExpanded ? 90 : 0))
+        .animation(Motion.snappy, value: pendingState.isExpanded)
     }
     .padding(.horizontal, Spacing.md_)
     .padding(.vertical, Spacing.xs)
     .background(
-      pendingPanelHovering ? Color.surfaceHover : modeColor.opacity(OpacityTier.tint)
+      pendingState.isHovering ? Color.surfaceHover : modeColor.opacity(OpacityTier.tint)
     )
     .contentShape(Rectangle())
   }
@@ -162,29 +162,11 @@ extension DirectSessionComposer {
   }
 
   func pendingPanelTitle(_ model: ApprovalCardModel) -> String {
-    switch model.mode {
-      case .permission:
-        model.toolName ?? "Tool"
-      case .question:
-        "Question"
-      case .takeover:
-        model.toolName ?? "Takeover"
-      case .none:
-        ""
-    }
+    DirectSessionComposerPendingPlanner.title(for: model)
   }
 
   private func pendingPanelStatusBadgeText(_ model: ApprovalCardModel) -> String {
-    switch model.mode {
-      case .permission:
-        "APPROVAL"
-      case .question:
-        "QUESTION"
-      case .takeover:
-        "TAKEOVER"
-      case .none:
-        ""
-    }
+    DirectSessionComposerPendingPlanner.statusBadgeText(for: model)
   }
 
   @ViewBuilder
@@ -206,23 +188,18 @@ extension DirectSessionComposer {
   }
 
   private func pendingPanelFallbackHeight(for model: ApprovalCardModel) -> CGFloat {
-    switch model.mode {
-      case .permission:
-        pendingPanelShowDenyReason ? 116 : 96
-      case .question:
-        152
-      case .takeover:
-        72
-      case .none:
-        44
-    }
+    DirectSessionComposerPendingPlanner.fallbackContentHeight(
+      for: model,
+      showsDenyReason: pendingState.showsDenyReason
+    )
   }
 
   private func pendingPanelClampedContentHeight(for model: ApprovalCardModel) -> CGFloat {
-    let measuredHeight = pendingPanelMeasuredContentHeight > 0
-      ? pendingPanelMeasuredContentHeight
-      : pendingPanelFallbackHeight(for: model)
-    return min(pendingPanelContentMaxHeight(), measuredHeight)
+    DirectSessionComposerPendingPlanner.clampedContentHeight(
+      measuredHeight: pendingState.measuredContentHeight,
+      maxHeight: pendingPanelContentMaxHeight(),
+      fallbackHeight: pendingPanelFallbackHeight(for: model)
+    )
   }
 
   // MARK: - Permission Inline Content (no action buttons)
@@ -351,8 +328,8 @@ extension DirectSessionComposer {
     }
 
     // ━━━ Deny reason text field (cancel/send buttons in footer) ━━━
-    if pendingPanelShowDenyReason {
-      TextField("Deny reason", text: $pendingPanelDenyReason)
+    if pendingState.showsDenyReason {
+      TextField("Deny reason", text: $pendingState.denyReason)
         .textFieldStyle(.plain)
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textPrimary)
@@ -477,13 +454,13 @@ extension DirectSessionComposer {
         pendingThemedTextField(
           "Your response",
           text: Binding(
-            get: { pendingPanelDrafts["default"] ?? "" },
-            set: { pendingPanelDrafts["default"] = $0 }
+            get: { pendingState.drafts["default"] ?? "" },
+            set: { pendingState.drafts["default"] = $0 }
           )
         )
       }
     } else {
-      let boundedIndex = min(max(pendingPanelPromptIndex, 0), max(0, prompts.count - 1))
+      let boundedIndex = min(max(pendingState.promptIndex, 0), max(0, prompts.count - 1))
       let prompt = prompts[boundedIndex]
 
       VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -527,7 +504,7 @@ extension DirectSessionComposer {
 
           Button {
             withAnimation(Motion.gentle) {
-              pendingPanelPromptIndex = index
+              pendingState.promptIndex = index
             }
           } label: {
             HStack(spacing: Spacing.xs) {
@@ -578,7 +555,7 @@ extension DirectSessionComposer {
 
         VStack(spacing: Spacing.xs) {
           ForEach(Array(prompt.options.enumerated()), id: \.offset) { _, option in
-            let isSelected = (pendingPanelAnswers[prompt.id] ?? []).contains(option.label)
+            let isSelected = (pendingState.answers[prompt.id] ?? []).contains(option.label)
             Button {
               pendingToggleAnswer(
                 questionId: prompt.id,
@@ -587,7 +564,7 @@ extension DirectSessionComposer {
               )
               if !prompt.allowsMultipleSelection, !prompt.allowsOther, index < totalCount - 1 {
                 withAnimation(Motion.gentle) {
-                  pendingPanelPromptIndex = index + 1
+                  pendingState.promptIndex = index + 1
                 }
               }
             } label: {
@@ -664,8 +641,8 @@ extension DirectSessionComposer {
   @ViewBuilder
   func pendingPromptDraftInput(_ prompt: ApprovalQuestionPrompt) -> some View {
     let draftBinding = Binding(
-      get: { pendingPanelDrafts[prompt.id] ?? "" },
-      set: { pendingPanelDrafts[prompt.id] = $0 }
+      get: { pendingState.drafts[prompt.id] ?? "" },
+      set: { pendingState.drafts[prompt.id] = $0 }
     )
 
     if prompt.isSecret {
@@ -685,7 +662,7 @@ extension DirectSessionComposer {
         )
     } else {
       ZStack(alignment: .topLeading) {
-        if (pendingPanelDrafts[prompt.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if (pendingState.drafts[prompt.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
           .isEmpty
         {
           Text("Your response")
@@ -777,11 +754,10 @@ extension DirectSessionComposer {
     let buttonSize: CGFloat = isCompactLayout ? 34 : 28
 
     HStack(spacing: Spacing.sm_) {
-      if pendingPanelShowDenyReason {
+      if pendingState.showsDenyReason {
         // Cancel deny reason
         Button {
-          pendingPanelShowDenyReason = false
-          pendingPanelDenyReason = ""
+          pendingState.cancelDenyReason()
           Platform.services.playHaptic(.selection)
         } label: {
           Text("Cancel")
@@ -791,18 +767,15 @@ extension DirectSessionComposer {
         .buttonStyle(.plain)
 
         // Send denial
-        let denyEmpty = pendingPanelDenyReason
-          .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let denyEmpty = !pendingState.hasDenyReason
 
         Button {
-          let reason = pendingPanelDenyReason
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+          let reason = pendingState.denyReason.trimmingCharacters(in: .whitespacesAndNewlines)
           guard !reason.isEmpty else { return }
           sendPendingDecision(
             model: model, decision: "denied", message: reason, interrupt: nil
           )
-          pendingPanelShowDenyReason = false
-          pendingPanelDenyReason = ""
+          pendingState.cancelDenyReason()
         } label: {
           Image(systemName: "xmark")
             .font(.system(
@@ -824,7 +797,7 @@ extension DirectSessionComposer {
         Button {
           if let denyPrimary {
             if denyPrimary.decision == "deny_reason" {
-              pendingPanelShowDenyReason = true
+              pendingState.showsDenyReason = true
               Platform.services.playHaptic(.selection)
             } else {
               sendPendingDecision(
@@ -876,7 +849,7 @@ extension DirectSessionComposer {
                 ) { _, action in
                   Button(role: action.isDestructive ? .destructive : nil) {
                     if action.decision == "deny_reason" {
-                      pendingPanelShowDenyReason = true
+                      pendingState.showsDenyReason = true
                       Platform.services.playHaptic(.selection)
                     } else {
                       sendPendingDecision(
@@ -931,7 +904,7 @@ extension DirectSessionComposer {
 
     if prompts.isEmpty {
       // Simple single response — dismiss + submit
-      let submitDisabled = (pendingPanelDrafts["default"] ?? "")
+      let submitDisabled = (pendingState.drafts["default"] ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
       HStack(spacing: Spacing.sm_) {
@@ -945,7 +918,7 @@ extension DirectSessionComposer {
         .buttonStyle(.plain)
 
         Button {
-          let answer = (pendingPanelDrafts["default"] ?? "")
+          let answer = (pendingState.drafts["default"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
           guard let requestId = model.approvalId, !answer.isEmpty else { return }
           Task {
@@ -976,7 +949,7 @@ extension DirectSessionComposer {
       }
     } else {
       let boundedIndex = min(
-        max(pendingPanelPromptIndex, 0), max(0, prompts.count - 1)
+        max(pendingState.promptIndex, 0), max(0, prompts.count - 1)
       )
       let isLastQuestion = boundedIndex >= prompts.count - 1
       let prompt = prompts[boundedIndex]
@@ -997,7 +970,7 @@ extension DirectSessionComposer {
         if prompts.count > 1 {
           Button {
             withAnimation(Motion.gentle) {
-              pendingPanelPromptIndex = max(0, boundedIndex - 1)
+              pendingState.promptIndex = max(0, boundedIndex - 1)
             }
             Platform.services.playHaptic(.selection)
           } label: {
@@ -1013,7 +986,7 @@ extension DirectSessionComposer {
         Button {
           if !isLastQuestion {
             withAnimation(Motion.gentle) {
-              pendingPanelPromptIndex = boundedIndex + 1
+              pendingState.promptIndex = boundedIndex + 1
             }
             Platform.services.playHaptic(.selection)
           } else {
@@ -1063,19 +1036,11 @@ extension DirectSessionComposer {
   // MARK: - State Management Helpers
 
   func resetPendingPanelStateForRequest() {
-    pendingPanelExpanded = true
-    pendingPanelPromptIndex = 0
-    pendingPanelAnswers = [:]
-    pendingPanelDrafts = [:]
-    pendingPanelShowDenyReason = false
-    pendingPanelDenyReason = ""
-    pendingPanelMeasuredContentHeight = 0
+    pendingState.resetForNewRequest()
   }
 
   func normalizedApprovalRequestId(_ value: String?) -> String? {
-    guard let value else { return nil }
-    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    return normalized.isEmpty ? nil : normalized
+    DirectSessionComposerPendingPlanner.normalizedApprovalRequestId(value)
   }
 
   func pendingToggleAnswer(
@@ -1083,53 +1048,39 @@ extension DirectSessionComposer {
     optionLabel: String,
     allowsMultipleSelection: Bool
   ) {
-    var values = pendingPanelAnswers[questionId] ?? []
-    if allowsMultipleSelection {
-      if let index = values.firstIndex(of: optionLabel) {
-        values.remove(at: index)
-      } else {
-        values.append(optionLabel)
-      }
-    } else {
-      values = [optionLabel]
-    }
-
-    if values.isEmpty {
-      pendingPanelAnswers.removeValue(forKey: questionId)
-    } else {
-      pendingPanelAnswers[questionId] = values
-    }
+    pendingState.answers = DirectSessionComposerPendingPlanner.toggledAnswers(
+      existingAnswers: pendingState.answers,
+      questionId: questionId,
+      optionLabel: optionLabel,
+      allowsMultipleSelection: allowsMultipleSelection
+    )
     Platform.services.playHaptic(.selection)
   }
 
   func pendingPromptIsAnswered(_ prompt: ApprovalQuestionPrompt) -> Bool {
-    let hasSelectedOption = !(pendingPanelAnswers[prompt.id] ?? []).isEmpty
-    let hasDraft = !(pendingPanelDrafts[prompt.id] ?? "")
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-      .isEmpty
-    return hasSelectedOption || hasDraft
+    DirectSessionComposerPendingPlanner.promptIsAnswered(
+      prompt: prompt,
+      answers: pendingState.answers,
+      drafts: pendingState.drafts
+    )
   }
 
   func pendingAllPromptsAnswered(_ prompts: [ApprovalQuestionPrompt]) -> Bool {
-    prompts.allSatisfy { pendingPromptIsAnswered($0) }
+    DirectSessionComposerPendingPlanner.allPromptsAnswered(
+      prompts: prompts,
+      answers: pendingState.answers,
+      drafts: pendingState.drafts
+    )
   }
 
   func pendingCollectedAnswers(
     prompts: [ApprovalQuestionPrompt]
   ) -> [String: [String]] {
-    var answers: [String: [String]] = [:]
-    for prompt in prompts {
-      var values = pendingPanelAnswers[prompt.id] ?? []
-      let draft = (pendingPanelDrafts[prompt.id] ?? "")
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      if !draft.isEmpty, !values.contains(draft) {
-        values.append(draft)
-      }
-      if !values.isEmpty {
-        answers[prompt.id] = values
-      }
-    }
-    return answers
+    DirectSessionComposerPendingPlanner.collectedAnswers(
+      prompts: prompts,
+      answers: pendingState.answers,
+      drafts: pendingState.drafts
+    )
   }
 
   func sendPendingQuestionAnswers(
@@ -1140,18 +1091,12 @@ extension DirectSessionComposer {
     let answers = pendingCollectedAnswers(prompts: prompts)
     guard !answers.isEmpty else { return }
 
-    let primaryQuestionId = prompts.first?.id
-    let primaryAnswer: String? = {
-      if let primaryQuestionId, let value = answers[primaryQuestionId]?.first {
-        return value
-      }
-      for prompt in prompts {
-        if let value = answers[prompt.id]?.first {
-          return value
-        }
-      }
-      return answers.values.first?.first
-    }()
+    let primarySelection = DirectSessionComposerPendingPlanner.primaryAnswer(
+      prompts: prompts,
+      answers: answers
+    )
+    let primaryQuestionId = primarySelection.questionId
+    let primaryAnswer = primarySelection.answer
     guard let primaryAnswer, !primaryAnswer.isEmpty else { return }
 
     Task {

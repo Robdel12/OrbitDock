@@ -1,0 +1,150 @@
+import Foundation
+
+enum DirectSessionComposerPendingPlanner {
+  static func title(for model: ApprovalCardModel) -> String {
+    switch model.mode {
+      case .permission:
+        model.toolName ?? "Tool"
+      case .question:
+        "Question"
+      case .takeover:
+        model.toolName ?? "Takeover"
+      case .none:
+        ""
+    }
+  }
+
+  static func statusBadgeText(for model: ApprovalCardModel) -> String {
+    switch model.mode {
+      case .permission:
+        "APPROVAL"
+      case .question:
+        "QUESTION"
+      case .takeover:
+        "TAKEOVER"
+      case .none:
+        ""
+    }
+  }
+
+  static func fallbackContentHeight(
+    for model: ApprovalCardModel,
+    showsDenyReason: Bool
+  ) -> CGFloat {
+    switch model.mode {
+      case .permission:
+        showsDenyReason ? 116 : 96
+      case .question:
+        152
+      case .takeover:
+        72
+      case .none:
+        44
+    }
+  }
+
+  static func clampedContentHeight(
+    measuredHeight: CGFloat,
+    maxHeight: CGFloat,
+    fallbackHeight: CGFloat
+  ) -> CGFloat {
+    let resolvedHeight = measuredHeight > 0 ? measuredHeight : fallbackHeight
+    return min(maxHeight, resolvedHeight)
+  }
+
+  static func toggledAnswers(
+    existingAnswers: [String: [String]],
+    questionId: String,
+    optionLabel: String,
+    allowsMultipleSelection: Bool
+  ) -> [String: [String]] {
+    var answers = existingAnswers
+    var values = answers[questionId] ?? []
+
+    if allowsMultipleSelection {
+      if let index = values.firstIndex(of: optionLabel) {
+        values.remove(at: index)
+      } else {
+        values.append(optionLabel)
+      }
+    } else {
+      values = [optionLabel]
+    }
+
+    if values.isEmpty {
+      answers.removeValue(forKey: questionId)
+    } else {
+      answers[questionId] = values
+    }
+
+    return answers
+  }
+
+  static func promptIsAnswered(
+    prompt: ApprovalQuestionPrompt,
+    answers: [String: [String]],
+    drafts: [String: String]
+  ) -> Bool {
+    let hasSelectedOption = !(answers[prompt.id] ?? []).isEmpty
+    let hasDraft = !(drafts[prompt.id] ?? "")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .isEmpty
+    return hasSelectedOption || hasDraft
+  }
+
+  static func allPromptsAnswered(
+    prompts: [ApprovalQuestionPrompt],
+    answers: [String: [String]],
+    drafts: [String: String]
+  ) -> Bool {
+    prompts.allSatisfy { prompt in
+      promptIsAnswered(prompt: prompt, answers: answers, drafts: drafts)
+    }
+  }
+
+  static func collectedAnswers(
+    prompts: [ApprovalQuestionPrompt],
+    answers: [String: [String]],
+    drafts: [String: String]
+  ) -> [String: [String]] {
+    var collected: [String: [String]] = [:]
+
+    for prompt in prompts {
+      var values = answers[prompt.id] ?? []
+      let draft = (drafts[prompt.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+      if !draft.isEmpty, !values.contains(draft) {
+        values.append(draft)
+      }
+      if !values.isEmpty {
+        collected[prompt.id] = values
+      }
+    }
+
+    return collected
+  }
+
+  static func primaryAnswer(
+    prompts: [ApprovalQuestionPrompt],
+    answers: [String: [String]]
+  ) -> (questionId: String?, answer: String?) {
+    let primaryQuestionId = prompts.first?.id
+
+    if let primaryQuestionId, let value = answers[primaryQuestionId]?.first {
+      return (primaryQuestionId, value)
+    }
+
+    for prompt in prompts {
+      if let value = answers[prompt.id]?.first {
+        return (primaryQuestionId, value)
+      }
+    }
+
+    return (primaryQuestionId, answers.values.first?.first)
+  }
+
+  static func normalizedApprovalRequestId(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? nil : normalized
+  }
+}

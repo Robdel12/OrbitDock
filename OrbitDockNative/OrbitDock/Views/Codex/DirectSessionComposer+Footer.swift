@@ -52,7 +52,7 @@ extension DirectSessionComposer {
   /// Footer action cluster — swaps between normal send and pending approval actions.
   @ViewBuilder
   var composerFooterActions: some View {
-    if let model = pendingApprovalModel, pendingPanelExpanded {
+    if let model = pendingApprovalModel, pendingState.isExpanded {
       pendingFooterActions(model)
         .transition(.opacity.combined(with: .scale(scale: 0.95)))
     } else {
