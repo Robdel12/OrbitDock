@@ -8,7 +8,7 @@
 import os.log
 import SwiftUI
 
-private let logger = Logger(subsystem: "com.orbitdock", category: "server-settings")
+private let serverSettingsLogger = Logger(subsystem: "com.orbitdock", category: "server-settings")
 
 struct ServerSettingsSheet: View {
   @Environment(\.dismiss) private var dismiss
@@ -628,7 +628,7 @@ struct ServerSettingsSheet: View {
         persistEndpoints(updated)
         closeEditor()
         if let saved = updated.first(where: { $0.id == editingEndpointId }) ?? updated.last {
-          logger.info("Saved endpoint: \(saved.name, privacy: .public)")
+          serverSettingsLogger.info("Saved endpoint: \(saved.name, privacy: .public)")
         }
       case let .failure(error):
         editorError = error.message
@@ -642,7 +642,7 @@ struct ServerSettingsSheet: View {
       removing: endpoint
     )
     persistEndpoints(updated)
-    logger.info("Removed endpoint: \(endpoint.name, privacy: .public)")
+    serverSettingsLogger.info("Removed endpoint: \(endpoint.name, privacy: .public)")
   }
 
   private func setDefaultEndpoint(_ endpointId: UUID) {

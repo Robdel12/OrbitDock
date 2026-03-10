@@ -104,7 +104,6 @@ import SwiftUI
     private var currentModel: NativeRichMessageRowModel?
     private var currentBlocks: [MarkdownBlock] = []
     private var currentImages: [MessageImage] = []
-    private var currentContentStyle: ContentStyle = .standard
 
     // MARK: - Init
 
@@ -253,12 +252,7 @@ import SwiftUI
         bodyTopConstraint?.constant = 0
       }
 
-      currentContentStyle = presentation.contentStyle
-      currentBlocks = if model.usesStreamingTextRenderer {
-        []
-      } else {
-        MarkdownSystemParser.parse(model.displayContent, style: presentation.contentStyle)
-      }
+      currentBlocks = RichMessageRenderPlanning.parsedBlocks(for: model, presentation: presentation)
 
       // Configure body based on message type
       rebuildBody(model: model, presentation: presentation, width: width)
@@ -365,21 +359,57 @@ import SwiftUI
       markdownContentView.layer?.mask = nil
       streamingTextView.layer?.mask = nil
 
-      switch presentation.bodyChrome {
-        case .assistant:
-          rebuildAssistantBody(model: model, totalWidth: width, presentation: presentation)
+      let renderPlan = RichMessageRenderPlanning.bodyRenderPlan(
+        for: model,
+        presentation: presentation,
+        width: width,
+        blocks: currentBlocks,
+        imageHeightProvider: { availableWidth in
+          Self.imageBlockHeight(for: model.images, availableWidth: availableWidth)
+        }
+      )
 
-        case .userBubble:
-          rebuildUserBody(model: model, totalWidth: width, presentation: presentation)
+      switch renderPlan.layoutPlan {
+        case let .assistant(contentFrame, imagePlacement):
+          rebuildAssistantBody(
+            contentFrame: contentFrame,
+            imagePlacement: imagePlacement,
+            content: renderPlan.content,
+            model: model
+          )
 
-        case let .steer(lineSpacing):
-          rebuildSteerBody(model: model, totalWidth: width, lineSpacing: lineSpacing, presentation: presentation)
+        case let .userBubble(backgroundFrame, accentFrame, contentFrame, imagePlacement):
+          rebuildUserBody(
+            backgroundFrame: backgroundFrame,
+            accentFrame: accentFrame,
+            contentFrame: contentFrame,
+            imagePlacement: imagePlacement,
+            content: renderPlan.content,
+            model: model
+          )
 
-        case .thinking:
-          rebuildThinkingBody(model: model, totalWidth: width, presentation: presentation)
+        case let .steer(contentFrame):
+          rebuildSteerBody(contentFrame: contentFrame, content: renderPlan.content)
 
-        case .error:
-          rebuildErrorBody(model: model, totalWidth: width, presentation: presentation)
+        case let .thinking(backgroundFrame, contentFrame, footerFrame, isCollapsed, fadeHeight):
+          rebuildThinkingBody(
+            backgroundFrame: backgroundFrame,
+            contentFrame: contentFrame,
+            footerFrame: footerFrame,
+            isCollapsed: isCollapsed,
+            fadeHeight: fadeHeight,
+            content: renderPlan.content,
+            model: model,
+            presentation: presentation
+          )
+
+        case let .error(backgroundFrame, accentFrame, contentFrame):
+          rebuildErrorBody(
+            backgroundFrame: backgroundFrame,
+            accentFrame: accentFrame,
+            contentFrame: contentFrame,
+            content: renderPlan.content
+          )
       }
     }
 
@@ -388,49 +418,25 @@ import SwiftUI
       streamingTextView.frame = frame
     }
 
-    private func rebuildAssistantBody(
-      model: NativeRichMessageRowModel,
-      totalWidth: CGFloat,
-      presentation: RichMessagePresentation
-    ) {
-      let contentWidth = ConversationRichMessageLayout.contentWidth(for: totalWidth, presentation: presentation)
-      if model.usesStreamingTextRenderer {
-        let attrStr = ConversationRichMessageLayout.streamingAttributedText(for: model, style: currentContentStyle)
-        let textHeight = NativeMarkdownContentView.measureTextHeight(attrStr, width: contentWidth)
-        guard case let .assistant(contentFrame, imagePlacement) = ConversationRichMessageLayout.bodyLayoutPlan(
-          totalWidth: totalWidth,
-          model: model,
-          presentation: presentation,
-          contentHeight: textHeight
-        ) else { return }
-        configureStreamingTextView(attrStr, frame: contentFrame)
-        bodyContainer.addSubview(streamingTextView)
-        if let imagePlacement {
-          addImageViews(
-            images: model.images,
-            below: imagePlacement.offsetY,
-            leadingX: imagePlacement.leadingX,
-            availableWidth: imagePlacement.availableWidth,
-            isUserAligned: imagePlacement.isUserAligned
-          )
-        }
-        return
+    private func applyBodyContent(_ content: RichMessageRenderableContent, frame: NSRect) {
+      switch content {
+        case let .markdown(blocks, style):
+          markdownContentView.frame = frame
+          markdownContentView.configure(blocks: blocks, style: style)
+          bodyContainer.addSubview(markdownContentView)
+        case let .attributedText(attributedText):
+          configureStreamingTextView(attributedText, frame: frame)
+          bodyContainer.addSubview(streamingTextView)
       }
+    }
 
-      let mdHeight = NativeMarkdownContentView.requiredHeight(
-        for: currentBlocks,
-        width: contentWidth,
-        style: currentContentStyle
-      )
-      guard case let .assistant(contentFrame, imagePlacement) = ConversationRichMessageLayout.bodyLayoutPlan(
-        totalWidth: totalWidth,
-        model: model,
-        presentation: presentation,
-        contentHeight: mdHeight
-      ) else { return }
-      markdownContentView.frame = contentFrame
-      markdownContentView.configure(blocks: currentBlocks, style: currentContentStyle)
-      bodyContainer.addSubview(markdownContentView)
+    private func rebuildAssistantBody(
+      contentFrame: NSRect,
+      imagePlacement: RichMessageImagePlacementPlan?,
+      content: RichMessageRenderableContent,
+      model: NativeRichMessageRowModel
+    ) {
+      applyBodyContent(content, frame: contentFrame)
       if let imagePlacement {
         addImageViews(
           images: model.images,
@@ -443,24 +449,20 @@ import SwiftUI
     }
 
     private func rebuildUserBody(
-      model: NativeRichMessageRowModel,
-      totalWidth: CGFloat,
-      presentation: RichMessagePresentation
+      backgroundFrame: NSRect,
+      accentFrame: NSRect,
+      contentFrame: NSRect,
+      imagePlacement: RichMessageImagePlacementPlan?,
+      content: RichMessageRenderableContent,
+      model: NativeRichMessageRowModel
     ) {
-      let contentWidth = ConversationRichMessageLayout.contentWidth(for: totalWidth, presentation: presentation)
-      guard case let .userBubble(backgroundFrame, accentFrame, contentFrame, imagePlacement) =
-        userLayoutPlan(model: model, totalWidth: totalWidth, presentation: presentation, contentWidth: contentWidth)
-      else { return }
-
       bubbleBackground.frame = backgroundFrame
       bubbleBackground.isHidden = false
       bodyContainer.addSubview(bubbleBackground)
       accentBar.frame = accentFrame
       accentBar.isHidden = false
       bodyContainer.addSubview(accentBar)
-      markdownContentView.frame = contentFrame
-      markdownContentView.configure(blocks: currentBlocks, style: currentContentStyle)
-      bodyContainer.addSubview(markdownContentView)
+      applyBodyContent(content, frame: contentFrame)
       if let imagePlacement {
         addImageViews(
           images: model.images,
@@ -473,78 +475,48 @@ import SwiftUI
     }
 
     private func rebuildSteerBody(
-      model: NativeRichMessageRowModel,
-      totalWidth: CGFloat,
-      lineSpacing: CGFloat,
-      presentation: RichMessagePresentation
+      contentFrame: NSRect,
+      content: RichMessageRenderableContent
     ) {
-      let contentWidth = ConversationRichMessageLayout.contentWidth(for: totalWidth, presentation: presentation)
-      let textView = NSTextView(frame: NSRect(x: Self.laneHorizontalInset, y: 0, width: contentWidth, height: 0))
+      guard case let .attributedText(attrStr) = content else { return }
+      let textView = NSTextView(frame: contentFrame)
       textView.drawsBackground = false
       textView.isEditable = false
       textView.isSelectable = true
       textView.textContainerInset = .zero
       textView.textContainer?.lineFragmentPadding = 0
 
-      let attrStr = ConversationRichMessageLayout.steerAttributedText(model.content, lineSpacing: lineSpacing)
       textView.textStorage?.setAttributedString(attrStr)
-
-      let height = NativeMarkdownContentView.measureTextHeight(attrStr, width: contentWidth)
-      guard case let .steer(contentFrame) = ConversationRichMessageLayout.bodyLayoutPlan(
-        totalWidth: totalWidth,
-        model: model,
-        presentation: presentation,
-        contentHeight: height
-      ) else { return }
       textView.frame = contentFrame
       bodyContainer.addSubview(textView)
     }
 
     private func rebuildThinkingBody(
+      backgroundFrame: NSRect,
+      contentFrame: NSRect,
+      footerFrame: NSRect?,
+      isCollapsed: Bool,
+      fadeHeight: CGFloat,
+      content: RichMessageRenderableContent,
       model: NativeRichMessageRowModel,
-      totalWidth: CGFloat,
       presentation: RichMessagePresentation
     ) {
-      let contentWidth = ConversationRichMessageLayout.contentWidth(for: totalWidth, presentation: presentation)
-      let horizontalPadding = Self.thinkingHPad
-      let innerWidth = contentWidth - horizontalPadding * 2
-      let mdHeight: CGFloat
-      if model.usesStreamingTextRenderer {
-        let attrStr = ConversationRichMessageLayout.streamingAttributedText(for: model, style: .thinking)
-        mdHeight = NativeMarkdownContentView.measureTextHeight(attrStr, width: innerWidth)
-      } else {
-        mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth, style: .thinking)
-      }
-
-      guard case let .thinking(backgroundFrame, contentFrame, footerFrame, isCollapsed, fadeHeight) =
-        ConversationRichMessageLayout.bodyLayoutPlan(
-          totalWidth: totalWidth,
-          model: model,
-          presentation: presentation,
-          contentHeight: mdHeight
-        )
-      else { return }
-
       thinkingBackground.frame = backgroundFrame
       thinkingBackground.isHidden = false
       bodyContainer.addSubview(thinkingBackground)
 
-      if model.usesStreamingTextRenderer {
-        let attrStr = ConversationRichMessageLayout.streamingAttributedText(for: model, style: .thinking)
-        configureStreamingTextView(attrStr, frame: contentFrame)
-        bodyContainer.addSubview(streamingTextView)
-      } else {
-        markdownContentView.frame = contentFrame
-        markdownContentView.configure(blocks: currentBlocks, style: .thinking)
-        bodyContainer.addSubview(markdownContentView)
-      }
+      applyBodyContent(content, frame: contentFrame)
 
       // Gradient mask: fade text to transparent over the last lines when collapsed
       if isCollapsed {
         let maskLayer = CAGradientLayer()
-        let maskTarget: NSView = model.usesStreamingTextRenderer ? streamingTextView : markdownContentView
+        let maskTarget: NSView = switch content {
+          case .attributedText: streamingTextView
+          case .markdown: markdownContentView
+        }
         maskLayer.frame = maskTarget.bounds
-        let fadeStart = max(0, 1.0 - Double(fadeHeight) / Double(mdHeight))
+        let renderedHeight = max(contentFrame.height, 1)
+        let fadeStart = max(0, 1.0 - Double(fadeHeight) / Double(renderedHeight))
         maskLayer.colors = [
           NSColor.white.cgColor,
           NSColor.white.cgColor,
@@ -579,56 +551,18 @@ import SwiftUI
     }
 
     private func rebuildErrorBody(
-      model: NativeRichMessageRowModel,
-      totalWidth: CGFloat,
-      presentation: RichMessagePresentation
+      backgroundFrame: NSRect,
+      accentFrame: NSRect,
+      contentFrame: NSRect,
+      content: RichMessageRenderableContent
     ) {
-      let contentWidth = ConversationRichMessageLayout.contentWidth(for: totalWidth, presentation: presentation)
-      let horizontalPadding = Self.errorHPad
-      let accentBarWidth = Self.errorAccentBarWidth
-      let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
-      let mdHeight = NativeMarkdownContentView.requiredHeight(
-        for: currentBlocks,
-        width: innerWidth,
-        style: currentContentStyle
-      )
-      guard case let .error(backgroundFrame, accentFrame, contentFrame) = ConversationRichMessageLayout.bodyLayoutPlan(
-        totalWidth: totalWidth,
-        model: model,
-        presentation: presentation,
-        contentHeight: mdHeight
-      ) else { return }
       errorBackground.frame = backgroundFrame
       errorBackground.isHidden = false
       bodyContainer.addSubview(errorBackground)
       errorAccentBar.frame = accentFrame
       errorAccentBar.isHidden = false
       bodyContainer.addSubview(errorAccentBar)
-      markdownContentView.frame = contentFrame
-      markdownContentView.configure(blocks: currentBlocks, style: currentContentStyle)
-      bodyContainer.addSubview(markdownContentView)
-    }
-
-    private func userLayoutPlan(
-      model: NativeRichMessageRowModel,
-      totalWidth: CGFloat,
-      presentation: RichMessagePresentation,
-      contentWidth: CGFloat
-    ) -> RichMessageBodyLayoutPlan? {
-      let horizontalPadding = Self.userBubbleHorizontalPad
-      let accentBarWidth = Self.userAccentBarWidth
-      let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
-      let mdHeight = NativeMarkdownContentView.requiredHeight(
-        for: currentBlocks,
-        width: innerWidth,
-        style: currentContentStyle
-      )
-      return ConversationRichMessageLayout.bodyLayoutPlan(
-        totalWidth: totalWidth,
-        model: model,
-        presentation: presentation,
-        contentHeight: mdHeight
-      )
+      applyBodyContent(content, frame: contentFrame)
     }
 
     // MARK: - Image Layout
@@ -920,11 +854,8 @@ import SwiftUI
     static func requiredHeight(for width: CGFloat, model: NativeRichMessageRowModel) -> CGFloat {
       guard width > 1 else { return 1 }
 
-      var blocks: [MarkdownBlock] = []
-      if !model.usesStreamingTextRenderer {
-        let presentation = ConversationRichMessageLayout.presentation(for: model)
-        blocks = MarkdownSystemParser.parse(model.displayContent, style: presentation.contentStyle)
-      }
+      let presentation = ConversationRichMessageLayout.presentation(for: model)
+      let blocks = RichMessageRenderPlanning.parsedBlocks(for: model, presentation: presentation)
       return requiredHeight(for: width, model: model, blocks: blocks)
     }
 
@@ -933,7 +864,7 @@ import SwiftUI
       model: NativeRichMessageRowModel,
       blocks: [MarkdownBlock]
     ) -> CGFloat {
-      let measurement = ConversationRichMessageSupport.measureHeight(
+      let totalHeight = RichMessageRenderPlanning.requiredHeight(
         for: width,
         model: model,
         blocks: blocks
@@ -942,10 +873,10 @@ import SwiftUI
       }
       logger.debug(
         "requiredHeight-rich[\(model.messageID)] \(model.messageType) "
-          + "body=\(f(measurement.bodyHeight)) total=\(f(measurement.totalHeight)) w=\(f(width)) "
+          + "total=\(f(totalHeight)) w=\(f(width)) "
           + "blocks=\(blocks.count) chars=\(model.displayContent.count)"
       )
-      return measurement.totalHeight
+      return totalHeight
     }
 
     private static func f(_ v: CGFloat) -> String {

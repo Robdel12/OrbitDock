@@ -8,7 +8,7 @@
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.orbitdock", category: "CodexUsage")
+private let codexUsageLogger = Logger(subsystem: "com.orbitdock", category: "CodexUsage")
 
 // MARK: - Models
 
@@ -207,25 +207,25 @@ final class CodexUsageService {
     guard context.isReadyForRequests else { return }
 
     isLoading = true
-    logger.info("refresh: starting endpoint=\(context.endpointId.uuidString, privacy: .public)")
+    codexUsageLogger.info("refresh: starting endpoint=\(context.endpointId.uuidString, privacy: .public)")
 
     do {
       let response = try await context.usageClient.fetchCodexUsage()
       if let errorInfo = response.errorInfo {
         error = mapServerError(errorInfo)
-        logger.error("refresh: failed - \(errorInfo.message, privacy: .public)")
+        codexUsageLogger.error("refresh: failed - \(errorInfo.message, privacy: .public)")
       } else if let snapshot = response.usage {
         let newUsage = Self.mapSnapshot(snapshot)
         usage = newUsage
         error = nil
         saveCachedUsage(for: context.endpointId)
-        logger.info("refresh: success, primary=\(newUsage.primary?.usedPercent ?? -1)%")
+        codexUsageLogger.info("refresh: success, primary=\(newUsage.primary?.usedPercent ?? -1)%")
       } else {
         error = .requestFailed("No Codex usage data returned")
       }
     } catch {
       self.error = .requestFailed(error.localizedDescription)
-      logger.error("refresh: transport failed - \(error.localizedDescription, privacy: .public)")
+      codexUsageLogger.error("refresh: transport failed - \(error.localizedDescription, privacy: .public)")
     }
 
     isLoading = false

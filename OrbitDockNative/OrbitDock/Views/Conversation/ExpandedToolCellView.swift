@@ -468,50 +468,48 @@ import SwiftUI
     // ── Content Builders ──
 
     private func buildContent(model: NativeExpandedToolModel, width: CGFloat) {
-      switch model.content {
-        case let .bash(_, input, output):
-          buildGenericContent(input: input, output: output, width: width)
-        case let .edit(_, _, _, _, lines, isWriteNew):
-          buildEditContent(lines: lines, isWriteNew: isWriteNew, width: width)
-        case let .read(_, _, language, lines):
-          buildReadContent(lines: lines, language: language, width: width)
-        case let .glob(_, grouped):
-          buildGlobContent(grouped: grouped, width: width)
-        case let .grep(_, grouped):
-          buildGrepContent(grouped: grouped, width: width)
-        case let .task(_, _, _, output, _):
-          buildTextOutputContent(output: output, width: width)
-        case let .todo(_, _, items, output):
-          buildTodoContent(items: items, output: output, width: width)
-        case let .mcp(_, _, _, input, output):
-          buildGenericContent(input: input, output: output, width: width)
-        case let .webFetch(_, _, input, output):
-          buildGenericContent(input: input, output: output, width: width)
-        case let .webSearch(_, input, output):
-          buildGenericContent(input: input, output: output, width: width)
-        case let .generic(toolName, input, output):
-          buildGenericContent(toolName: toolName, input: input, output: output, width: width)
+      let plan = ExpandedToolContentPlanning.contentPlan(for: model)
+      buildContent(plan: plan, width: width)
+    }
+
+    private func buildContent(plan: ExpandedToolContentPlan, width: CGFloat) {
+      var payloadSectionY = Self.contentTopPad
+      for section in plan.sections {
+        switch section {
+          case let .textOutput(lines):
+            buildTextOutputContent(lines: lines, width: width)
+          case let .edit(plan):
+            buildEditContent(plan: plan, width: width)
+          case let .read(plan):
+            buildReadContent(plan: plan, width: width)
+          case let .glob(groups):
+            buildGlobContent(groups: groups, width: width)
+          case let .grep(groups):
+            buildGrepContent(groups: groups, width: width)
+          case let .todo(plan):
+            buildTodoContent(plan: plan, width: width)
+          case let .payload(sectionPlan):
+            payloadSectionY = buildPayloadSection(plan: sectionPlan, width: width, startY: payloadSectionY)
+        }
       }
     }
 
     // ── Text Output (bash, mcp, webfetch, websearch, task) ──
 
-    private func buildTextOutputContent(output: String?, width: CGFloat) {
-      guard let output, !output.isEmpty else { return }
+    private func buildTextOutputContent(lines: [String], width: CGFloat) {
+      guard !lines.isEmpty else { return }
 
-      let lines = output.components(separatedBy: "\n")
       let textWidth = width - Self.headerHPad * 2
       var y: CGFloat = Self.sectionPadding + Self.contentTopPad
 
       for line in lines {
-        let text = line.isEmpty ? " " : line
-        let label = NSTextField(labelWithString: text)
+        let label = NSTextField(labelWithString: line)
         label.font = Self.codeFont
         label.textColor = Self.textSecondary
         label.lineBreakMode = .byCharWrapping
         label.maximumNumberOfLines = 0
         label.isSelectable = true
-        let labelH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textWidth)
+        let labelH = ExpandedToolLayout.measuredTextHeight(line, font: Self.codeFont, maxWidth: textWidth)
         label.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: labelH)
         contentContainer.addSubview(label)
         y += labelH
@@ -520,7 +518,9 @@ import SwiftUI
 
     // ── Edit (diff lines) ──
 
-    private func buildEditContent(lines: [DiffLine], isWriteNew: Bool, width: CGFloat) {
+    private func buildEditContent(plan: ExpandedToolEditSectionPlan, width: CGFloat) {
+      let lines = plan.lines
+      let isWriteNew = plan.isWriteNew
       var y: CGFloat = 0
 
       // Write new file header
@@ -652,7 +652,9 @@ import SwiftUI
 
     // ── Read (line-numbered code) ──
 
-    private func buildReadContent(lines: [String], language: String, width: CGFloat) {
+    private func buildReadContent(plan: ExpandedToolReadSectionPlan, width: CGFloat) {
+      let lines = plan.lines
+      let language = plan.language
       let gutterMetrics = ExpandedToolLayout.readGutterMetrics(lineCount: lines.count)
       let codeX = gutterMetrics.codeX
       let codeAvailW = width - codeX - ExpandedToolLayout.diffContentTrailingPad
@@ -717,10 +719,10 @@ import SwiftUI
 
     // ── Glob (directory tree) ──
 
-    private func buildGlobContent(grouped: [(dir: String, files: [String])], width: CGFloat) {
+    private func buildGlobContent(groups: [ExpandedToolGlobDirectoryPlan], width: CGFloat) {
       var y: CGFloat = Self.sectionPadding + Self.contentTopPad
 
-      for (dir, files) in grouped {
+      for group in groups {
         // Directory header
         let dirIcon = NSImageView()
         let iconConfig = NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
@@ -730,29 +732,27 @@ import SwiftUI
         dirIcon.frame = NSRect(x: Self.headerHPad, y: y + 2, width: 14, height: 14)
         contentContainer.addSubview(dirIcon)
 
-        let dirText = "\(dir == "." ? "(root)" : dir) (\(files.count))"
-        let dirLabel = NSTextField(labelWithString: dirText)
+        let dirLabel = NSTextField(labelWithString: group.displayName)
         dirLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
         dirLabel.textColor = Self.textSecondary
         dirLabel.lineBreakMode = .byCharWrapping
         dirLabel.maximumNumberOfLines = 0
         let dirW = width - Self.headerHPad * 2 - 18
-        let dirH = ExpandedToolLayout.measuredTextHeight(dirText, font: dirLabel.font!, maxWidth: dirW)
+        let dirH = ExpandedToolLayout.measuredTextHeight(group.displayName, font: dirLabel.font!, maxWidth: dirW)
         dirLabel.frame = NSRect(x: Self.headerHPad + 18, y: y, width: dirW, height: dirH)
         contentContainer.addSubview(dirLabel)
         y += dirH + 2
 
         // Files
-        for file in files {
-          let filename = file.components(separatedBy: "/").last ?? file
-          let fileLabel = NSTextField(labelWithString: filename)
+        for file in group.files {
+          let fileLabel = NSTextField(labelWithString: file)
           fileLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .regular)
           fileLabel.textColor = Self.textTertiary
           fileLabel.lineBreakMode = .byCharWrapping
           fileLabel.maximumNumberOfLines = 0
           let fileX = Self.headerHPad + 28
           let fileW = width - Self.headerHPad * 2 - 28
-          let fileH = ExpandedToolLayout.measuredTextHeight(filename, font: fileLabel.font!, maxWidth: fileW)
+          let fileH = ExpandedToolLayout.measuredTextHeight(file, font: fileLabel.font!, maxWidth: fileW)
           fileLabel.frame = NSRect(
             x: fileX, y: y, width: fileW, height: fileH
           )
@@ -766,27 +766,24 @@ import SwiftUI
 
     // ── Grep (file-grouped results) ──
 
-    private func buildGrepContent(grouped: [(file: String, matches: [String])], width: CGFloat) {
+    private func buildGrepContent(groups: [ExpandedToolGrepMatchPlan], width: CGFloat) {
       var y: CGFloat = Self.sectionPadding + Self.contentTopPad
 
-      for (file, matches) in grouped {
+      for group in groups {
         // File header
-        let shortPath = file.components(separatedBy: "/").suffix(3).joined(separator: "/")
-        let matchSuffix = matches.isEmpty ? "" : " (\(matches.count))"
-        let fileText = shortPath + matchSuffix
-        let fileLabel = NSTextField(labelWithString: fileText)
+        let fileLabel = NSTextField(labelWithString: group.displayName)
         fileLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
         fileLabel.textColor = Self.textPrimary
         fileLabel.lineBreakMode = .byCharWrapping
         fileLabel.maximumNumberOfLines = 0
         let fileLabelW = width - Self.headerHPad * 2
-        let fileLabelH = ExpandedToolLayout.measuredTextHeight(fileText, font: fileLabel.font!, maxWidth: fileLabelW)
+        let fileLabelH = ExpandedToolLayout.measuredTextHeight(group.displayName, font: fileLabel.font!, maxWidth: fileLabelW)
         fileLabel.frame = NSRect(x: Self.headerHPad, y: y, width: fileLabelW, height: fileLabelH)
         contentContainer.addSubview(fileLabel)
         y += fileLabelH + 2
 
         // Match lines
-        for match in matches {
+        for match in group.matches {
           let matchLabel = NSTextField(labelWithString: match)
           matchLabel.font = Self.codeFont
           matchLabel.textColor = Self.textTertiary
@@ -808,9 +805,10 @@ import SwiftUI
 
     // ── Todo (structured checklist) ──
 
-    private func buildTodoContent(items: [NativeTodoItem], output: String?, width: CGFloat) {
+    private func buildTodoContent(plan: ExpandedToolTodoSectionPlan, width: CGFloat) {
       var y: CGFloat = Self.contentTopPad
       let contentWidth = width - Self.headerHPad * 2
+      let items = plan.items
 
       if !items.isEmpty {
         let todoHeader = NSTextField(labelWithString: "")
@@ -907,7 +905,7 @@ import SwiftUI
         y += Self.sectionPadding
       }
 
-      if let output, !output.isEmpty {
+      if !plan.outputLines.isEmpty {
         let outputHeader = NSTextField(labelWithString: "")
         let attrs: [NSAttributedString.Key: Any] = [
           .kern: 0.8,
@@ -919,17 +917,15 @@ import SwiftUI
         contentContainer.addSubview(outputHeader)
         y += Self.sectionHeaderHeight + Self.sectionPadding
 
-        let outputLines = output.components(separatedBy: "\n")
         let textW = width - Self.headerHPad * 2
-        for line in outputLines {
-          let text = line.isEmpty ? " " : line
-          let label = NSTextField(labelWithString: text)
+        for line in plan.outputLines {
+          let label = NSTextField(labelWithString: line)
           label.font = Self.codeFont
           label.textColor = Self.textSecondary
           label.lineBreakMode = .byCharWrapping
           label.maximumNumberOfLines = 0
           label.isSelectable = true
-          let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textW)
+          let lineH = ExpandedToolLayout.measuredTextHeight(line, font: Self.codeFont, maxWidth: textW)
           label.frame = NSRect(x: Self.headerHPad, y: y, width: textW, height: lineH)
           contentContainer.addSubview(label)
           y += lineH
@@ -941,26 +937,14 @@ import SwiftUI
 
     // ── Generic (input + output) ──
 
-    private func buildGenericContent(toolName: String? = nil, input: String?, output: String?, width: CGFloat) {
-      var y: CGFloat = Self.contentTopPad
-
-      buildPayloadSection(title: "INPUT", payload: input, toolName: toolName, width: width, y: &y)
-      buildPayloadSection(title: "OUTPUT", payload: output, width: width, y: &y)
-    }
-
     private func buildPayloadSection(
-      title: String,
-      payload: String?,
-      toolName: String? = nil,
+      plan: ExpandedToolPayloadSectionRenderPlan,
       width: CGFloat,
-      y: inout CGFloat
-    ) {
-      let rows = ExpandedToolRenderPlanning.payloadSectionTextRows(
-        title: title,
-        payload: payload,
-        toolName: toolName
-      )
-      guard !rows.isEmpty else { return }
+      startY: CGFloat
+    ) -> CGFloat {
+      let rows = ExpandedToolRenderPlanning.payloadTextRows(for: plan.items)
+      guard !rows.isEmpty else { return startY }
+      let y = startY
 
       let header = NSTextField(labelWithString: "")
       let attrs: [NSAttributedString.Key: Any] = [
@@ -968,28 +952,28 @@ import SwiftUI
         .font: Self.sectionLabelFont as Any,
         .foregroundColor: Self.textQuaternary,
       ]
-      header.attributedStringValue = NSAttributedString(string: title, attributes: attrs)
+      header.attributedStringValue = NSAttributedString(string: plan.title, attributes: attrs)
       header.frame = NSRect(x: Self.headerHPad, y: y + Self.sectionPadding, width: 80, height: 14)
       contentContainer.addSubview(header)
-      y += Self.sectionHeaderHeight + Self.sectionPadding
+      var nextY = y + Self.sectionHeaderHeight + Self.sectionPadding
 
       let textWidth = width - Self.headerHPad * 2
       for row in rows {
-        y += row.topInset
+        nextY += row.topInset
         let labelWidth = textWidth - row.widthAdjustment
 
         let label = payloadLabel(for: row, maxWidth: labelWidth)
         label.frame = NSRect(
           x: Self.headerHPad + row.leadingInset,
-          y: y,
+          y: nextY,
           width: labelWidth,
           height: payloadRowHeight(row, maxWidth: labelWidth)
         )
         contentContainer.addSubview(label)
-        y += label.frame.height + row.bottomSpacing
+        nextY += label.frame.height + row.bottomSpacing
       }
 
-      y += Self.sectionPadding
+      return nextY + Self.sectionPadding
     }
 
     private func payloadLabel(for row: ExpandedToolPayloadTextRowPlan, maxWidth: CGFloat) -> NSTextField {

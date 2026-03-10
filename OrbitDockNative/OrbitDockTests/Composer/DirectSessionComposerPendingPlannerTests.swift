@@ -181,6 +181,92 @@ struct DirectSessionComposerPendingPlannerTests {
     #expect(ready.submitDisabled == false)
   }
 
+  @Test func presentationBuildsShellCommandFallbackAndPromptCount() {
+    let model = ApprovalCardModel(
+      mode: .question,
+      toolName: "Bash",
+      previewType: .shellCommand,
+      shellSegments: [],
+      serverManifest: nil,
+      decisionScope: nil,
+      command: "echo hi",
+      filePath: nil,
+      risk: .normal,
+      riskFindings: [],
+      diff: nil,
+      questions: [
+        ApprovalQuestionPrompt(
+          id: "q1",
+          header: nil,
+          question: "First",
+          options: [],
+          allowsMultipleSelection: false,
+          allowsOther: true,
+          isSecret: false
+        ),
+        ApprovalQuestionPrompt(
+          id: "q2",
+          header: nil,
+          question: "Second",
+          options: [],
+          allowsMultipleSelection: false,
+          allowsOther: true,
+          isSecret: false
+        ),
+      ],
+      hasAmendment: false,
+      amendmentDetail: nil,
+      approvalType: .question,
+      projectPath: "/tmp/OrbitDock",
+      approvalId: "approval-1",
+      sessionId: "session-1"
+    )
+
+    let presentation = DirectSessionComposerPendingPlanner.presentation(
+      for: model,
+      showsDenyReason: false,
+      measuredHeight: 0,
+      maxHeight: 220
+    )
+
+    #expect(presentation.title == "Question")
+    #expect(presentation.statusText == "QUESTION")
+    #expect(presentation.promptCountText == "2 prompts")
+    #expect(presentation.commandChainSegments.map { $0.command } == ["echo hi"])
+    #expect(presentation.clampedContentHeight == 152)
+  }
+
+  @Test func questionContentStateBoundsActiveIndex() {
+    let prompts = [
+      ApprovalQuestionPrompt(
+        id: "q1",
+        header: nil,
+        question: "First",
+        options: [],
+        allowsMultipleSelection: false,
+        allowsOther: true,
+        isSecret: false
+      ),
+      ApprovalQuestionPrompt(
+        id: "q2",
+        header: nil,
+        question: "Second",
+        options: [],
+        allowsMultipleSelection: false,
+        allowsOther: true,
+        isSecret: false
+      ),
+    ]
+
+    let state = DirectSessionComposerPendingPlanner.questionContentState(
+      prompts: prompts,
+      promptIndex: 99
+    )
+
+    #expect(state.activeIndex == 1)
+    #expect(state.activePrompt?.id == "q2")
+  }
+
   @Test func permissionFooterStateTracksDenyComposerAndOverflow() {
     let denyActions = [
       ApprovalCardConfiguration.MenuAction(title: "Deny", decision: "denied"),

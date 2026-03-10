@@ -1,0 +1,127 @@
+import CoreGraphics
+import Foundation
+
+enum RichMessageRenderableContent {
+  case markdown(blocks: [MarkdownBlock], style: ContentStyle)
+  case attributedText(NSAttributedString)
+}
+
+struct RichMessageBodyRenderPlan {
+  let bodyHeight: CGFloat
+  let layoutPlan: RichMessageBodyLayoutPlan
+  let content: RichMessageRenderableContent
+}
+
+@MainActor
+enum RichMessageRenderPlanning {
+  static func parsedBlocks(
+    for model: NativeRichMessageRowModel,
+    presentation: RichMessagePresentation
+  ) -> [MarkdownBlock] {
+    guard !model.usesStreamingTextRenderer else { return [] }
+    return MarkdownSystemParser.parse(model.displayContent, style: presentation.contentStyle)
+  }
+
+  static func requiredHeight(
+    for width: CGFloat,
+    model: NativeRichMessageRowModel,
+    blocks: [MarkdownBlock],
+    imageHeightProvider: (CGFloat) -> CGFloat
+  ) -> CGFloat {
+    ConversationRichMessageSupport.measureHeight(
+      for: width,
+      model: model,
+      blocks: blocks,
+      imageHeightProvider: imageHeightProvider
+    ).totalHeight
+  }
+
+  static func bodyRenderPlan(
+    for model: NativeRichMessageRowModel,
+    presentation: RichMessagePresentation,
+    width: CGFloat,
+    blocks: [MarkdownBlock],
+    imageHeightProvider: (CGFloat) -> CGFloat
+  ) -> RichMessageBodyRenderPlan {
+    let contentWidth = ConversationRichMessageLayout.contentWidth(for: width, presentation: presentation)
+
+    let content: RichMessageRenderableContent
+    let contentHeight: CGFloat
+
+    switch presentation.bodyChrome {
+      case .assistant:
+        if model.usesStreamingTextRenderer {
+          let attributedText = ConversationRichMessageLayout.streamingAttributedText(
+            for: model,
+            style: presentation.contentStyle
+          )
+          content = .attributedText(attributedText)
+          contentHeight = NativeMarkdownContentView.measureTextHeight(attributedText, width: contentWidth)
+        } else {
+          content = .markdown(blocks: blocks, style: presentation.contentStyle)
+          contentHeight = NativeMarkdownContentView.requiredHeight(
+            for: blocks,
+            width: contentWidth,
+            style: presentation.contentStyle
+          )
+        }
+
+      case let .userBubble(horizontalPadding, _, accentBarWidth):
+        let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
+        content = .markdown(blocks: blocks, style: presentation.contentStyle)
+        contentHeight = NativeMarkdownContentView.requiredHeight(
+          for: blocks,
+          width: innerWidth,
+          style: presentation.contentStyle
+        )
+
+      case let .steer(lineSpacing):
+        let attributedText = ConversationRichMessageLayout.steerAttributedText(
+          model.content,
+          lineSpacing: lineSpacing
+        )
+        content = .attributedText(attributedText)
+        contentHeight = NativeMarkdownContentView.measureTextHeight(attributedText, width: contentWidth)
+
+      case let .thinking(horizontalPadding, _, _, _, _):
+        let innerWidth = contentWidth - horizontalPadding * 2
+        if model.usesStreamingTextRenderer {
+          let attributedText = ConversationRichMessageLayout.streamingAttributedText(for: model, style: .thinking)
+          content = .attributedText(attributedText)
+          contentHeight = NativeMarkdownContentView.measureTextHeight(attributedText, width: innerWidth)
+        } else {
+          content = .markdown(blocks: blocks, style: .thinking)
+          contentHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth, style: .thinking)
+        }
+
+      case let .error(horizontalPadding, _, _, accentBarWidth):
+        let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
+        content = .markdown(blocks: blocks, style: presentation.contentStyle)
+        contentHeight = NativeMarkdownContentView.requiredHeight(
+          for: blocks,
+          width: innerWidth,
+          style: presentation.contentStyle
+        )
+    }
+
+    let layoutPlan = ConversationRichMessageLayout.bodyLayoutPlan(
+      totalWidth: width,
+      model: model,
+      presentation: presentation,
+      contentHeight: contentHeight
+    )
+
+    let bodyHeight = ConversationRichMessageLayout.bodyHeight(
+      for: width,
+      model: model,
+      blocks: blocks,
+      imageHeightProvider: imageHeightProvider
+    )
+
+    return RichMessageBodyRenderPlan(
+      bodyHeight: bodyHeight,
+      layoutPlan: layoutPlan,
+      content: content
+    )
+  }
+}

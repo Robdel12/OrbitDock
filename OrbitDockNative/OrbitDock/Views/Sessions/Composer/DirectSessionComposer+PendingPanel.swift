@@ -24,22 +24,23 @@ extension DirectSessionComposer {
 
   @ViewBuilder
   func pendingInlineZone(_ model: ApprovalCardModel) -> some View {
+    let presentation = pendingPresentation(for: model)
     let header = ApprovalCardConfiguration.headerConfig(for: model, mode: model.mode)
     let modeColor = pendingPanelModeColor(model)
 
     DirectSessionComposerPendingInlineZone(
       modeColor: modeColor,
       isExpanded: pendingState.isExpanded,
-      contentHeight: pendingPanelClampedContentHeight(for: model),
+      contentHeight: presentation.clampedContentHeight,
       onMeasuredHeightChanged: { normalizedHeight in
         guard abs(normalizedHeight - pendingState.measuredContentHeight) > 0.5 else { return }
         pendingState.measuredContentHeight = normalizedHeight
       },
       header: {
         PendingPanelInlineHeader(
-          title: pendingPanelTitle(model),
-          statusText: pendingPanelStatusBadgeText(model),
-          promptCountText: model.mode == .question && model.questions.count > 1 ? "\(model.questions.count) prompts" : nil,
+          title: presentation.title,
+          statusText: presentation.statusText,
+          promptCountText: presentation.promptCountText,
           header: header,
           modeColor: modeColor,
           isExpanded: pendingState.isExpanded,
@@ -84,6 +85,15 @@ extension DirectSessionComposer {
 
   // MARK: - Helpers
 
+  func pendingPresentation(for model: ApprovalCardModel) -> DirectSessionComposerPendingPresentation {
+    DirectSessionComposerPendingPlanner.presentation(
+      for: model,
+      showsDenyReason: pendingState.showsDenyReason,
+      measuredHeight: pendingState.measuredContentHeight,
+      maxHeight: pendingPanelContentMaxHeight()
+    )
+  }
+
   func pendingPanelModeColor(_ model: ApprovalCardModel) -> Color {
     switch model.mode {
       case .permission, .takeover: model.risk.tintColor
@@ -92,50 +102,19 @@ extension DirectSessionComposer {
     }
   }
 
-  func pendingPanelTitle(_ model: ApprovalCardModel) -> String {
-    DirectSessionComposerPendingPlanner.title(for: model)
-  }
-
-  private func pendingPanelStatusBadgeText(_ model: ApprovalCardModel) -> String {
-    DirectSessionComposerPendingPlanner.statusBadgeText(for: model)
-  }
-
   private func pendingPanelContentMaxHeight() -> CGFloat {
     isCompactLayout ? 220 : 260
-  }
-
-  private func pendingPanelFallbackHeight(for model: ApprovalCardModel) -> CGFloat {
-    DirectSessionComposerPendingPlanner.fallbackContentHeight(
-      for: model,
-      showsDenyReason: pendingState.showsDenyReason
-    )
-  }
-
-  private func pendingPanelClampedContentHeight(for model: ApprovalCardModel) -> CGFloat {
-    DirectSessionComposerPendingPlanner.clampedContentHeight(
-      measuredHeight: pendingState.measuredContentHeight,
-      maxHeight: pendingPanelContentMaxHeight(),
-      fallbackHeight: pendingPanelFallbackHeight(for: model)
-    )
   }
 
   // MARK: - Permission Inline Content (no action buttons)
 
   @ViewBuilder
   func pendingPermissionInlineContent(_ model: ApprovalCardModel) -> some View {
-    let previewText = model.command ?? model.filePath ?? "Review required before the session can continue."
+    let presentation = pendingPresentation(for: model)
     let modeColor = pendingPanelModeColor(model)
-    let commandChainSegments: [ApprovalShellSegment] = {
-      guard model.previewType == .shellCommand else { return [] }
-      if !model.shellSegments.isEmpty { return model.shellSegments }
-      if let command = model.command?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty {
-        return [ApprovalShellSegment(command: command, leadingOperator: nil)]
-      }
-      return []
-    }()
     // ━━━ Command / preview display ━━━
-    if !commandChainSegments.isEmpty {
-      let isSingleStep = commandChainSegments.count == 1
+    if presentation.showsCommandChain {
+      let isSingleStep = presentation.commandChainSegments.count == 1
 
       VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.sm_) {
         if !isSingleStep, !isCompactLayout {
@@ -144,13 +123,13 @@ extension DirectSessionComposer {
               .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
 
-            Text("\(commandChainSegments.count) steps")
+            Text("\(presentation.commandChainSegments.count) steps")
               .font(.system(size: TypeScale.mini, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
           }
         }
 
-        ForEach(Array(commandChainSegments.enumerated()), id: \.offset) { index, segment in
+        ForEach(Array(presentation.commandChainSegments.enumerated()), id: \.offset) { index, segment in
           if isSingleStep {
             PendingCommandCodeBlock(
               command: segment.command,
@@ -168,7 +147,7 @@ extension DirectSessionComposer {
         }
       }
     } else {
-      Text(previewText)
+      Text(presentation.previewText)
         .font(.system(
           size: isCompactLayout ? TypeScale.micro : TypeScale.caption,
           weight: .regular
@@ -238,8 +217,12 @@ extension DirectSessionComposer {
 
   @ViewBuilder
   func pendingQuestionInlineContent(_ model: ApprovalCardModel) -> some View {
-    let prompts = model.questions
-    if prompts.isEmpty {
+    let questionState = DirectSessionComposerPendingPlanner.questionContentState(
+      prompts: model.questions,
+      promptIndex: pendingState.promptIndex
+    )
+
+    if questionState.prompts.isEmpty {
       VStack(alignment: .leading, spacing: Spacing.sm) {
         Text("Provide your response below, then submit.")
           .font(.system(size: TypeScale.caption, weight: .medium))
@@ -255,10 +238,10 @@ extension DirectSessionComposer {
       }
     } else {
       DirectSessionComposerPendingQuestionContent(
-        prompts: prompts,
-        activeIndex: pendingState.promptIndex,
+        prompts: questionState.prompts,
+        activeIndex: questionState.activeIndex,
         isCompactLayout: isCompactLayout,
-        answeredState: prompts.map(pendingPromptIsAnswered),
+        answeredState: questionState.prompts.map(pendingPromptIsAnswered),
         answers: pendingState.answers,
         drafts: pendingState.drafts,
         onSelectPrompt: { index in
