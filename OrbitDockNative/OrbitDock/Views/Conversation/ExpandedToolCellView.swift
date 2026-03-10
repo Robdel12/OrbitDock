@@ -1035,11 +1035,12 @@ import SwiftUI
       width: CGFloat,
       y: inout CGFloat
     ) {
-      guard let section = ExpandedToolRenderPlanning.payloadSectionRenderPlan(
+      let rows = ExpandedToolRenderPlanning.payloadSectionTextRows(
         title: title,
         payload: payload,
         toolName: toolName
-      ) else { return }
+      )
+      guard !rows.isEmpty else { return }
 
       let header = NSTextField(labelWithString: "")
       let attrs: [NSAttributedString.Key: Any] = [
@@ -1047,119 +1048,96 @@ import SwiftUI
         .font: Self.sectionLabelFont as Any,
         .foregroundColor: Self.textQuaternary,
       ]
-      header.attributedStringValue = NSAttributedString(string: section.title, attributes: attrs)
+      header.attributedStringValue = NSAttributedString(string: title, attributes: attrs)
       header.frame = NSRect(x: Self.headerHPad, y: y + Self.sectionPadding, width: 80, height: 14)
       contentContainer.addSubview(header)
       y += Self.sectionHeaderHeight + Self.sectionPadding
 
       let textWidth = width - Self.headerHPad * 2
-      for item in section.items {
-        switch item {
-          case let .questionHeader(headerText):
-            let headerLabel = NSTextField(labelWithString: headerText)
-            headerLabel.font = NSFont.systemFont(ofSize: TypeScale.mini, weight: .bold)
-            headerLabel.textColor = Self.textQuaternary
-            headerLabel.frame = NSRect(
-              x: Self.headerHPad,
-              y: y,
-              width: textWidth,
-              height: ExpandedToolLayout.measuredTextHeight(
-                headerText,
-                font: NSFont.systemFont(ofSize: TypeScale.mini, weight: .bold),
-                maxWidth: textWidth
-              )
-            )
-            contentContainer.addSubview(headerLabel)
-            y += headerLabel.frame.height + 3
+      for row in rows {
+        y += row.topInset
+        let labelWidth = textWidth - row.widthAdjustment
 
-          case let .questionPrompt(prompt):
-            let promptLabel = NSTextField(labelWithString: prompt)
-            promptLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
-            promptLabel.textColor = Self.textPrimary
-            promptLabel.lineBreakMode = .byWordWrapping
-            promptLabel.maximumNumberOfLines = 0
-            promptLabel.isSelectable = true
-            let promptHeight = ExpandedToolLayout.measuredTextHeight(
-              prompt,
-              font: NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
-              maxWidth: textWidth
-            )
-            promptLabel.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: promptHeight)
-            contentContainer.addSubview(promptLabel)
-            y += promptHeight
-
-          case let .questionOption(label, description):
-            let optionText = "• \(label)"
-            let optionLabel = NSTextField(labelWithString: optionText)
-            optionLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
-            optionLabel.textColor = Self.textSecondary
-            optionLabel.lineBreakMode = .byWordWrapping
-            optionLabel.maximumNumberOfLines = 0
-            optionLabel.isSelectable = true
-            let optionHeight = ExpandedToolLayout.measuredTextHeight(
-              optionText,
-              font: NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
-              maxWidth: textWidth
-            )
-            optionLabel.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: optionHeight)
-            contentContainer.addSubview(optionLabel)
-            y += optionHeight
-
-            if let detail = description, !detail.isEmpty {
-                let detailLabel = NSTextField(labelWithString: detail)
-                detailLabel.font = NSFont.systemFont(ofSize: TypeScale.meta, weight: .regular)
-                detailLabel.textColor = Self.textTertiary
-                detailLabel.lineBreakMode = .byWordWrapping
-                detailLabel.maximumNumberOfLines = 0
-                detailLabel.isSelectable = true
-                let detailHeight = ExpandedToolLayout.measuredTextHeight(
-                  detail,
-                  font: NSFont.systemFont(ofSize: TypeScale.meta, weight: .regular),
-                  maxWidth: textWidth
-                )
-                detailLabel.frame = NSRect(
-                  x: Self.headerHPad + 14,
-                  y: y + 2,
-                  width: textWidth - 14,
-                  height: detailHeight
-                )
-                contentContainer.addSubview(detailLabel)
-                y += detailHeight + 2
-            }
-
-          case let .structuredEntry(key, value):
-            let label = NSTextField(labelWithAttributedString: payloadAttributedLine(
-              key: key,
-              value: value
-            ))
-            label.lineBreakMode = .byCharWrapping
-            label.maximumNumberOfLines = 0
-            label.isSelectable = true
-            let text = "\(key): \(value)"
-            let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textWidth)
-            label.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: lineH)
-            contentContainer.addSubview(label)
-            y += lineH
-
-          case let .textLine(line):
-            let text = line.isEmpty ? " " : line
-            let label = NSTextField(labelWithString: text)
-            label.font = Self.codeFont
-            label.textColor = Self.textSecondary
-            label.lineBreakMode = .byCharWrapping
-            label.maximumNumberOfLines = 0
-            label.isSelectable = true
-            let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textWidth)
-            label.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: lineH)
-            contentContainer.addSubview(label)
-            y += lineH
-
-          case let .spacer(spacing):
-            y += spacing
-        }
+        let label = payloadLabel(for: row, maxWidth: labelWidth)
+        label.frame = NSRect(
+          x: Self.headerHPad + row.leadingInset,
+          y: y,
+          width: labelWidth,
+          height: payloadRowHeight(row, maxWidth: labelWidth)
+        )
+        contentContainer.addSubview(label)
+        y += label.frame.height + row.bottomSpacing
       }
 
       y += Self.sectionPadding
+    }
+
+    private func payloadLabel(for row: ExpandedToolPayloadTextRowPlan, maxWidth: CGFloat) -> NSTextField {
+      switch row.content {
+        case let .structuredEntry(key, value):
+          let label = NSTextField(labelWithAttributedString: payloadAttributedLine(key: key, value: value))
+          label.lineBreakMode = .byCharWrapping
+          label.maximumNumberOfLines = 0
+          label.isSelectable = true
+          return label
+
+        case let .plain(text):
+          let label = NSTextField(labelWithString: text.isEmpty ? " " : text)
+          label.font = payloadFont(for: row.style)
+          label.textColor = payloadColor(for: row.style)
+          label.lineBreakMode = row.style == .textLine || row.style == .structuredEntry ? .byCharWrapping : .byWordWrapping
+          label.maximumNumberOfLines = 0
+          label.isSelectable = true
+          return label
+      }
+    }
+
+    private func payloadRowHeight(_ row: ExpandedToolPayloadTextRowPlan, maxWidth: CGFloat) -> CGFloat {
+      switch row.content {
+        case let .structuredEntry(key, value):
+          return ExpandedToolLayout.measuredTextHeight(
+            "\(key): \(value)",
+            font: Self.codeFont,
+            maxWidth: maxWidth
+          )
+
+        case let .plain(text):
+          return ExpandedToolLayout.measuredTextHeight(
+            text.isEmpty ? " " : text,
+            font: payloadFont(for: row.style),
+            maxWidth: maxWidth
+          )
+      }
+    }
+
+    private func payloadFont(for style: ExpandedToolPayloadTextStyle) -> NSFont {
+      switch style {
+        case .questionHeader:
+          NSFont.systemFont(ofSize: TypeScale.mini, weight: .bold)
+        case .questionPrompt:
+          NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+        case .questionOption:
+          NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+        case .questionDetail:
+          NSFont.systemFont(ofSize: TypeScale.meta, weight: .regular)
+        case .structuredEntry, .textLine:
+          Self.codeFont
+      }
+    }
+
+    private func payloadColor(for style: ExpandedToolPayloadTextStyle) -> NSColor {
+      switch style {
+        case .questionHeader:
+          Self.textQuaternary
+        case .questionPrompt:
+          Self.textPrimary
+        case .questionOption:
+          Self.textSecondary
+        case .questionDetail:
+          Self.textTertiary
+        case .structuredEntry, .textLine:
+          Self.textSecondary
+      }
     }
 
     private func payloadAttributedLine(key: String, value: String) -> NSAttributedString {

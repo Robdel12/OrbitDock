@@ -269,51 +269,7 @@ final class SessionObservable {
   }
 
   func applySession(_ session: Session) {
-    endpointId = session.endpointId
-    endpointName = session.endpointName
-    projectPath = session.projectPath
-    projectName = session.projectName
-    branch = session.branch
-    model = session.model
-    effort = session.effort
-    summary = session.summary
-    customName = session.customName
-    firstPrompt = session.firstPrompt
-    lastMessage = session.lastMessage
-    transcriptPath = session.transcriptPath
-    status = session.status
-    workStatus = session.workStatus
-    attentionReason = session.attentionReason
-    lastActivityAt = session.lastActivityAt
-    lastTool = session.lastTool
-    lastToolAt = session.lastToolAt
-    inputTokens = session.inputTokens
-    outputTokens = session.outputTokens
-    cachedTokens = session.cachedTokens
-    contextWindow = session.contextWindow
-    totalTokens = session.totalTokens
-    totalCostUSD = session.totalCostUSD
-    provider = session.provider
-    codexIntegrationMode = session.codexIntegrationMode
-    claudeIntegrationMode = session.claudeIntegrationMode
-    codexThreadId = session.codexThreadId
-    pendingApprovalId = session.pendingApprovalId
-    pendingToolName = session.pendingToolName
-    pendingToolInput = session.pendingToolInput
-    pendingPermissionDetail = session.pendingPermissionDetail
-    pendingQuestion = session.pendingQuestion
-    promptCount = session.promptCount
-    toolCount = session.toolCount
-    startedAt = session.startedAt
-    endedAt = session.endedAt
-    endReason = session.endReason
-    tokenUsageSnapshotKind = session.tokenUsageSnapshotKind
-    gitSha = session.gitSha
-    currentCwd = session.currentCwd
-    repositoryRoot = session.repositoryRoot
-    isWorktree = session.isWorktree
-    worktreeId = session.worktreeId
-    unreadCount = session.unreadCount
+    applySnapshotProjection(SessionDetailSnapshotProjection.from(session))
   }
 
   func applyPendingApproval(_ request: ServerApprovalRequest) {

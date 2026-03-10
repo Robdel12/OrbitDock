@@ -88,6 +88,36 @@ struct RichMessagePresentation {
   var isUserAligned: Bool { header.isRightAligned }
 }
 
+struct RichMessageImagePlacementPlan: Equatable {
+  let leadingX: CGFloat
+  let availableWidth: CGFloat
+  let offsetY: CGFloat
+  let isUserAligned: Bool
+}
+
+enum RichMessageBodyLayoutPlan: Equatable {
+  case assistant(contentFrame: CGRect, imagePlacement: RichMessageImagePlacementPlan?)
+  case userBubble(
+    backgroundFrame: CGRect,
+    accentFrame: CGRect,
+    contentFrame: CGRect,
+    imagePlacement: RichMessageImagePlacementPlan?
+  )
+  case steer(contentFrame: CGRect)
+  case thinking(
+    backgroundFrame: CGRect,
+    contentFrame: CGRect,
+    footerFrame: CGRect?,
+    isCollapsed: Bool,
+    fadeHeight: CGFloat
+  )
+  case error(
+    backgroundFrame: CGRect,
+    accentFrame: CGRect,
+    contentFrame: CGRect
+  )
+}
+
 @MainActor
 enum ConversationRichMessageLayout {
   static let headerHeight: CGFloat = 20
@@ -340,5 +370,109 @@ enum ConversationRichMessageLayout {
       imageHeightProvider: imageHeightProvider
     )
     return max(1, ceil(presentation.actualHeaderHeight + presentation.actualHeaderSpacing + body + entryBottomSpacing))
+  }
+
+  static func bodyLayoutPlan(
+    totalWidth: CGFloat,
+    model: NativeRichMessageRowModel,
+    presentation: RichMessagePresentation,
+    contentHeight: CGFloat
+  ) -> RichMessageBodyLayoutPlan {
+    let contentWidth = contentWidth(for: totalWidth, presentation: presentation)
+
+    switch presentation.bodyChrome {
+      case .assistant:
+        let contentFrame = CGRect(
+          x: laneHorizontalInset,
+          y: 0,
+          width: contentWidth,
+          height: contentHeight
+        )
+        let imagePlacement = model.images.isEmpty ? nil : RichMessageImagePlacementPlan(
+          leadingX: laneHorizontalInset,
+          availableWidth: contentWidth,
+          offsetY: contentHeight,
+          isUserAligned: false
+        )
+        return .assistant(contentFrame: contentFrame, imagePlacement: imagePlacement)
+
+      case let .userBubble(horizontalPadding, verticalPadding, accentBarWidth):
+        let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
+        let bubbleHeight = contentHeight + verticalPadding * 2
+        let bubbleWidth = min(contentWidth, innerWidth + horizontalPadding * 2 + accentBarWidth)
+        let bubbleX = totalWidth - laneHorizontalInset - bubbleWidth
+        let backgroundFrame = CGRect(x: bubbleX, y: 0, width: bubbleWidth, height: bubbleHeight)
+        let accentFrame = CGRect(
+          x: bubbleX + bubbleWidth - accentBarWidth,
+          y: 0,
+          width: accentBarWidth,
+          height: bubbleHeight
+        )
+        let contentFrame = CGRect(
+          x: bubbleX + horizontalPadding,
+          y: verticalPadding,
+          width: innerWidth,
+          height: contentHeight
+        )
+        let imagePlacement = model.images.isEmpty ? nil : RichMessageImagePlacementPlan(
+          leadingX: bubbleX,
+          availableWidth: bubbleWidth,
+          offsetY: bubbleHeight,
+          isUserAligned: true
+        )
+        return .userBubble(
+          backgroundFrame: backgroundFrame,
+          accentFrame: accentFrame,
+          contentFrame: contentFrame,
+          imagePlacement: imagePlacement
+        )
+
+      case .steer:
+        return .steer(contentFrame: CGRect(
+          x: laneHorizontalInset,
+          y: 0,
+          width: contentWidth,
+          height: contentHeight
+        ))
+
+      case let .thinking(horizontalPadding, verticalTop, verticalBottom, footerHeight, fadeHeight):
+        let innerWidth = contentWidth - horizontalPadding * 2
+        let hasFooter = presentation.thinkingButtonTitle != nil
+        let isCollapsed = hasFooter && !model.isThinkingExpanded
+        let backgroundHeight = verticalTop + contentHeight + verticalBottom + (hasFooter ? footerHeight : 0)
+        let contentFrame = CGRect(
+          x: laneHorizontalInset + horizontalPadding,
+          y: verticalTop,
+          width: innerWidth,
+          height: contentHeight
+        )
+        let footerFrame = hasFooter ? CGRect(
+          x: laneHorizontalInset + horizontalPadding,
+          y: verticalTop + contentHeight + verticalBottom,
+          width: innerWidth,
+          height: footerHeight
+        ) : nil
+        return .thinking(
+          backgroundFrame: CGRect(x: laneHorizontalInset, y: 0, width: contentWidth, height: backgroundHeight),
+          contentFrame: contentFrame,
+          footerFrame: footerFrame,
+          isCollapsed: isCollapsed,
+          fadeHeight: fadeHeight
+        )
+
+      case let .error(horizontalPadding, verticalTop, verticalBottom, accentBarWidth):
+        let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
+        let backgroundHeight = verticalTop + contentHeight + verticalBottom
+        return .error(
+          backgroundFrame: CGRect(x: laneHorizontalInset, y: 0, width: contentWidth, height: backgroundHeight),
+          accentFrame: CGRect(x: laneHorizontalInset, y: 0, width: accentBarWidth, height: backgroundHeight),
+          contentFrame: CGRect(
+            x: laneHorizontalInset + accentBarWidth + horizontalPadding,
+            y: verticalTop,
+            width: innerWidth,
+            height: contentHeight
+          )
+        )
+    }
   }
 }

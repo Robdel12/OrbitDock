@@ -191,6 +191,88 @@ struct ExpandedToolLayoutTests {
     ])
   }
 
+  @Test func payloadSectionTextRowsFlattenQuestionSpacingAndIndentation() {
+    let payload = """
+    {
+      "questions": [
+        {
+          "header": "Choice",
+          "question": "How should we continue?",
+          "options": [
+            { "label": "Keep going", "description": "Continue the current plan" },
+            { "label": "Pause" }
+          ]
+        }
+      ]
+    }
+    """
+
+    let rows = ExpandedToolRenderPlanning.payloadSectionTextRows(
+      title: "INPUT",
+      payload: payload,
+      toolName: "question"
+    )
+
+    #expect(rows == [
+      .init(
+        style: .questionHeader,
+        content: .plain("CHOICE"),
+        leadingInset: 0,
+        widthAdjustment: 0,
+        topInset: 0,
+        bottomSpacing: 3
+      ),
+      .init(
+        style: .questionPrompt,
+        content: .plain("How should we continue?"),
+        leadingInset: 0,
+        widthAdjustment: 0,
+        topInset: 0,
+        bottomSpacing: 0
+      ),
+      .init(
+        style: .textLine,
+        content: .plain(""),
+        leadingInset: 0,
+        widthAdjustment: 0,
+        topInset: 0,
+        bottomSpacing: 6
+      ),
+      .init(
+        style: .questionOption,
+        content: .plain("• Keep going"),
+        leadingInset: 0,
+        widthAdjustment: 0,
+        topInset: 0,
+        bottomSpacing: 0
+      ),
+      .init(
+        style: .questionDetail,
+        content: .plain("Continue the current plan"),
+        leadingInset: 14,
+        widthAdjustment: 14,
+        topInset: 2,
+        bottomSpacing: 2
+      ),
+      .init(
+        style: .textLine,
+        content: .plain(""),
+        leadingInset: 0,
+        widthAdjustment: 0,
+        topInset: 0,
+        bottomSpacing: 5
+      ),
+      .init(
+        style: .questionOption,
+        content: .plain("• Pause"),
+        leadingInset: 0,
+        widthAdjustment: 0,
+        topInset: 0,
+        bottomSpacing: 0
+      ),
+    ])
+  }
+
   @Test func todoRowMetricsProduceStableBadgeAndRowSizing() {
     let item = NativeTodoItem(
       content: "Write the integration tests",

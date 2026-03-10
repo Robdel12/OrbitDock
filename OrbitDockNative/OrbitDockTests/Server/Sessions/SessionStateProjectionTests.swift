@@ -102,6 +102,68 @@ struct SessionStateProjectionTests {
     #expect(observable.contextWindow == 200_000)
   }
 
+  @Test func sessionDetailSnapshotProjectionCapturesDetailMirrorFields() {
+    var session = Session(
+      id: "session-1",
+      endpointId: UUID(uuidString: "11111111-1111-1111-1111-111111111111"),
+      endpointName: "Primary",
+      projectPath: "/tmp/project",
+      projectName: "project",
+      branch: "main",
+      model: "claude-opus",
+      transcriptPath: "/tmp/transcript.jsonl",
+      status: .active,
+      workStatus: .waiting,
+      startedAt: Date(timeIntervalSince1970: 100),
+      endReason: "completed",
+      totalTokens: 321,
+      lastActivityAt: Date(timeIntervalSince1970: 200),
+      attentionReason: .awaitingReply,
+      provider: .claude,
+      claudeIntegrationMode: .direct,
+      inputTokens: 120,
+      outputTokens: 201,
+      cachedTokens: 12,
+      contextWindow: 200_000
+    )
+    session.effort = "high"
+    session.summary = "Refactor session store"
+    session.customName = "Important Session"
+    session.firstPrompt = "Please refactor this"
+    session.lastMessage = "Latest message"
+    session.endedAt = Date(timeIntervalSince1970: 150)
+    session.totalCostUSD = 1.25
+    session.lastTool = "Bash"
+    session.lastToolAt = Date(timeIntervalSince1970: 201)
+    session.pendingToolName = "Bash"
+    session.pendingToolInput = #"{"command":"pwd"}"#
+    session.pendingPermissionDetail = "pwd"
+    session.pendingQuestion = "Continue?"
+    session.pendingApprovalId = "req-42"
+    session.promptCount = 3
+    session.toolCount = 9
+    session.gitSha = "abc123"
+    session.currentCwd = "/tmp/project/subdir"
+    session.repositoryRoot = "/tmp/project"
+    session.isWorktree = true
+    session.worktreeId = "wt-1"
+    session.unreadCount = 7
+
+    let projection = SessionDetailSnapshotProjection.from(session)
+
+    #expect(projection.endpointName == "Primary")
+    #expect(projection.projectPath == "/tmp/project")
+    #expect(projection.model == "claude-opus")
+    #expect(projection.pendingApprovalId == "req-42")
+    #expect(projection.pendingPermissionDetail == "pwd")
+    #expect(projection.totalTokens == 321)
+    #expect(projection.totalCostUSD == 1.25)
+    #expect(projection.repositoryRoot == "/tmp/project")
+    #expect(projection.isWorktree)
+    #expect(projection.worktreeId == "wt-1")
+    #expect(projection.unreadCount == 7)
+  }
+
   @Test func sessionObservableApprovalProjectionUsesQuestionTextAndClearsWithoutResettingAttentionByDefault() {
     let observable = SessionObservable(id: "session-1")
     let request = questionApprovalRequest()

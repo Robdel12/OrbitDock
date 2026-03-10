@@ -32,6 +32,29 @@ struct ExpandedToolPayloadSectionRenderPlan: Equatable {
   let items: [ExpandedToolPayloadRenderItem]
 }
 
+enum ExpandedToolPayloadTextStyle: Equatable {
+  case questionHeader
+  case questionPrompt
+  case questionOption
+  case questionDetail
+  case structuredEntry
+  case textLine
+}
+
+enum ExpandedToolPayloadTextContent: Equatable {
+  case plain(String)
+  case structuredEntry(key: String, value: String)
+}
+
+struct ExpandedToolPayloadTextRowPlan: Equatable {
+  let style: ExpandedToolPayloadTextStyle
+  let content: ExpandedToolPayloadTextContent
+  let leadingInset: CGFloat
+  let widthAdjustment: CGFloat
+  let topInset: CGFloat
+  let bottomSpacing: CGFloat
+}
+
 struct ExpandedToolTodoRowMetrics: Equatable {
   let statusText: String
   let iconName: String
@@ -116,6 +139,117 @@ enum ExpandedToolRenderPlanning {
     }
 
     return ExpandedToolPayloadSectionRenderPlan(title: section.title, items: items)
+  }
+
+  static func payloadSectionTextRows(
+    title: String,
+    payload: String?,
+    toolName: String? = nil
+  ) -> [ExpandedToolPayloadTextRowPlan] {
+    guard let section = payloadSectionRenderPlan(title: title, payload: payload, toolName: toolName) else {
+      return []
+    }
+
+    return payloadTextRows(for: section.items)
+  }
+
+  static func payloadTextRows(
+    for items: [ExpandedToolPayloadRenderItem]
+  ) -> [ExpandedToolPayloadTextRowPlan] {
+    items.flatMap(payloadTextRows(for:))
+  }
+
+  private static func payloadTextRows(
+    for item: ExpandedToolPayloadRenderItem
+  ) -> [ExpandedToolPayloadTextRowPlan] {
+    switch item {
+      case let .questionHeader(text):
+        return [
+          ExpandedToolPayloadTextRowPlan(
+            style: .questionHeader,
+            content: .plain(text),
+            leadingInset: 0,
+            widthAdjustment: 0,
+            topInset: 0,
+            bottomSpacing: 3
+          )
+        ]
+
+      case let .questionPrompt(text):
+        return [
+          ExpandedToolPayloadTextRowPlan(
+            style: .questionPrompt,
+            content: .plain(text),
+            leadingInset: 0,
+            widthAdjustment: 0,
+            topInset: 0,
+            bottomSpacing: 0
+          )
+        ]
+
+      case let .questionOption(label, description):
+        var rows = [
+          ExpandedToolPayloadTextRowPlan(
+            style: .questionOption,
+            content: .plain("• \(label)"),
+            leadingInset: 0,
+            widthAdjustment: 0,
+            topInset: 0,
+            bottomSpacing: 0
+          )
+        ]
+
+        if let description, !description.isEmpty {
+          rows.append(
+            ExpandedToolPayloadTextRowPlan(
+              style: .questionDetail,
+              content: .plain(description),
+              leadingInset: 14,
+              widthAdjustment: 14,
+              topInset: 2,
+              bottomSpacing: 2
+            )
+          )
+        }
+
+        return rows
+
+      case let .structuredEntry(key, value):
+        return [
+          ExpandedToolPayloadTextRowPlan(
+            style: .structuredEntry,
+            content: .structuredEntry(key: key, value: value),
+            leadingInset: 0,
+            widthAdjustment: 0,
+            topInset: 0,
+            bottomSpacing: 0
+          )
+        ]
+
+      case let .textLine(text):
+        return [
+          ExpandedToolPayloadTextRowPlan(
+            style: .textLine,
+            content: .plain(text),
+            leadingInset: 0,
+            widthAdjustment: 0,
+            topInset: 0,
+            bottomSpacing: 0
+          )
+        ]
+
+      case let .spacer(spacing):
+        return [
+          ExpandedToolPayloadTextRowPlan(
+            style: .textLine,
+            content: .plain(""),
+            leadingInset: 0,
+            widthAdjustment: 0,
+            topInset: 0,
+            bottomSpacing: spacing
+          )
+        ]
+    }
   }
 
   static func todoRowMetrics(

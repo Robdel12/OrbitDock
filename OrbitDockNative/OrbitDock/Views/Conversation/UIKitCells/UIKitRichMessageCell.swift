@@ -355,42 +355,19 @@
 
       switch presentation.bodyChrome {
         case .assistant:
-          rebuildAssistantBody(model: model, contentWidth: contentWidth)
+          rebuildAssistantBody(model: model, totalWidth: width, presentation: presentation)
 
         case let .userBubble(horizontalPadding, verticalPadding, accentBarWidth):
-          rebuildUserBody(
-            model: model,
-            contentWidth: contentWidth,
-            totalWidth: width,
-            horizontalPadding: horizontalPadding,
-            verticalPadding: verticalPadding,
-            accentBarWidth: accentBarWidth
-          )
+          rebuildUserBody(model: model, totalWidth: width, presentation: presentation)
 
         case let .steer(lineSpacing):
-          rebuildSteerBody(model: model, contentWidth: contentWidth, lineSpacing: lineSpacing)
+          rebuildSteerBody(model: model, totalWidth: width, lineSpacing: lineSpacing, presentation: presentation)
 
         case let .thinking(horizontalPadding, verticalTop, verticalBottom, footerHeight, fadeHeight):
-          rebuildThinkingBody(
-            model: model,
-            contentWidth: contentWidth,
-            horizontalPadding: horizontalPadding,
-            verticalTop: verticalTop,
-            verticalBottom: verticalBottom,
-            footerHeight: footerHeight,
-            fadeHeight: fadeHeight,
-            buttonTitle: presentation.thinkingButtonTitle
-          )
+          rebuildThinkingBody(model: model, totalWidth: width, presentation: presentation)
 
         case let .error(horizontalPadding, verticalTop, verticalBottom, accentBarWidth):
-          rebuildErrorBody(
-            model: model,
-            contentWidth: contentWidth,
-            horizontalPadding: horizontalPadding,
-            verticalTop: verticalTop,
-            verticalBottom: verticalBottom,
-            accentBarWidth: accentBarWidth
-          )
+          rebuildErrorBody(model: model, totalWidth: width, presentation: presentation)
       }
 
       // Body container starts after header + spacing
@@ -409,28 +386,30 @@
       streamingTextView.frame = frame
     }
 
-    private func rebuildAssistantBody(model: NativeRichMessageRowModel, contentWidth: CGFloat) {
+    private func rebuildAssistantBody(
+      model: NativeRichMessageRowModel,
+      totalWidth: CGFloat,
+      presentation: RichMessagePresentation
+    ) {
+      let contentWidth = ConversationRichMessageLayout.contentWidth(for: totalWidth, presentation: presentation)
       if model.usesStreamingTextRenderer {
         let attrStr = ConversationRichMessageLayout.streamingAttributedText(for: model, style: currentContentStyle)
         let textHeight = NativeMarkdownContentView.measureTextHeight(attrStr, width: contentWidth)
-        configureStreamingTextView(
-          attrStr,
-          frame: CGRect(
-            x: Self.laneHorizontalInset,
-            y: 0,
-            width: contentWidth,
-            height: textHeight
-          )
-        )
+        guard case let .assistant(contentFrame, imagePlacement) = ConversationRichMessageLayout.bodyLayoutPlan(
+          totalWidth: totalWidth,
+          model: model,
+          presentation: presentation,
+          contentHeight: textHeight
+        ) else { return }
+        configureStreamingTextView(attrStr, frame: contentFrame)
         bodyContainer.addSubview(streamingTextView)
-
-        if !model.images.isEmpty {
+        if let imagePlacement {
           addImageViews(
             images: model.images,
-            below: textHeight,
-            leadingX: Self.laneHorizontalInset,
-            availableWidth: contentWidth,
-            isUserAligned: false
+            below: imagePlacement.offsetY,
+            leadingX: imagePlacement.leadingX,
+            availableWidth: imagePlacement.availableWidth,
+            isUserAligned: imagePlacement.isUserAligned
           )
         }
         return
@@ -441,84 +420,76 @@
         width: contentWidth,
         style: currentContentStyle
       )
-      markdownContentView.frame = CGRect(
-        x: Self.laneHorizontalInset, y: 0,
-        width: contentWidth, height: mdHeight
-      )
+      guard case let .assistant(contentFrame, imagePlacement) = ConversationRichMessageLayout.bodyLayoutPlan(
+        totalWidth: totalWidth,
+        model: model,
+        presentation: presentation,
+        contentHeight: mdHeight
+      ) else { return }
+      markdownContentView.frame = contentFrame
       markdownContentView.configure(blocks: currentBlocks, style: currentContentStyle)
       bodyContainer.addSubview(markdownContentView)
-
-      if !model.images.isEmpty {
+      if let imagePlacement {
         addImageViews(
           images: model.images,
-          below: mdHeight,
-          leadingX: Self.laneHorizontalInset,
-          availableWidth: contentWidth,
-          isUserAligned: false
+          below: imagePlacement.offsetY,
+          leadingX: imagePlacement.leadingX,
+          availableWidth: imagePlacement.availableWidth,
+          isUserAligned: imagePlacement.isUserAligned
         )
       }
     }
 
     private func rebuildUserBody(
       model: NativeRichMessageRowModel,
-      contentWidth: CGFloat,
       totalWidth: CGFloat,
-      horizontalPadding: CGFloat,
-      verticalPadding: CGFloat,
-      accentBarWidth: CGFloat
+      presentation: RichMessagePresentation
     ) {
-      let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
-      let mdHeight = NativeMarkdownContentView.requiredHeight(
-        for: currentBlocks,
-        width: innerWidth,
-        style: currentContentStyle
-      )
-      let bubbleHeight = mdHeight + verticalPadding * 2
+      let contentWidth = ConversationRichMessageLayout.contentWidth(for: totalWidth, presentation: presentation)
+      guard case let .userBubble(backgroundFrame, accentFrame, contentFrame, imagePlacement) =
+        userLayoutPlan(model: model, totalWidth: totalWidth, presentation: presentation, contentWidth: contentWidth)
+      else { return }
 
-      let bubbleWidth = min(contentWidth, innerWidth + horizontalPadding * 2 + accentBarWidth)
-      let bubbleX = totalWidth - Self.laneHorizontalInset - bubbleWidth
-
-      bubbleBackground.frame = CGRect(x: bubbleX, y: 0, width: bubbleWidth, height: bubbleHeight)
+      bubbleBackground.frame = backgroundFrame
       bubbleBackground.isHidden = false
       bodyContainer.addSubview(bubbleBackground)
 
-      accentBar.frame = CGRect(
-        x: bubbleX + bubbleWidth - accentBarWidth,
-        y: 0,
-        width: accentBarWidth,
-        height: bubbleHeight
-      )
+      accentBar.frame = accentFrame
       accentBar.isHidden = false
       bodyContainer.addSubview(accentBar)
 
-      markdownContentView.frame = CGRect(
-        x: bubbleX + horizontalPadding,
-        y: verticalPadding,
-        width: innerWidth,
-        height: mdHeight
-      )
+      markdownContentView.frame = contentFrame
       markdownContentView.configure(blocks: currentBlocks, style: currentContentStyle)
       bodyContainer.addSubview(markdownContentView)
 
-      if !model.images.isEmpty {
+      if let imagePlacement {
         addImageViews(
           images: model.images,
-          below: bubbleHeight,
-          leadingX: bubbleX,
-          availableWidth: bubbleWidth,
-          isUserAligned: true
+          below: imagePlacement.offsetY,
+          leadingX: imagePlacement.leadingX,
+          availableWidth: imagePlacement.availableWidth,
+          isUserAligned: imagePlacement.isUserAligned
         )
       }
     }
 
-    private func rebuildSteerBody(model: NativeRichMessageRowModel, contentWidth: CGFloat, lineSpacing: CGFloat) {
+    private func rebuildSteerBody(
+      model: NativeRichMessageRowModel,
+      totalWidth: CGFloat,
+      lineSpacing: CGFloat,
+      presentation: RichMessagePresentation
+    ) {
+      let contentWidth = ConversationRichMessageLayout.contentWidth(for: totalWidth, presentation: presentation)
       let attrStr = ConversationRichMessageLayout.steerAttributedText(model.content, lineSpacing: lineSpacing)
       let height = NativeMarkdownContentView.measureTextHeight(attrStr, width: contentWidth)
 
-      let textView = UITextView(frame: CGRect(
-        x: Self.laneHorizontalInset, y: 0,
-        width: contentWidth, height: height
-      ))
+      guard case let .steer(contentFrame) = ConversationRichMessageLayout.bodyLayoutPlan(
+        totalWidth: totalWidth,
+        model: model,
+        presentation: presentation,
+        contentHeight: height
+      ) else { return }
+      let textView = UITextView(frame: contentFrame)
       textView.backgroundColor = .clear
       textView.isEditable = false
       textView.isSelectable = true
@@ -531,14 +502,11 @@
 
     private func rebuildThinkingBody(
       model: NativeRichMessageRowModel,
-      contentWidth: CGFloat,
-      horizontalPadding: CGFloat,
-      verticalTop: CGFloat,
-      verticalBottom: CGFloat,
-      footerHeight: CGFloat,
-      fadeHeight: CGFloat,
-      buttonTitle: String?
+      totalWidth: CGFloat,
+      presentation: RichMessagePresentation
     ) {
+      let contentWidth = ConversationRichMessageLayout.contentWidth(for: totalWidth, presentation: presentation)
+      let horizontalPadding = Self.thinkingHPad
       let innerWidth = contentWidth - horizontalPadding * 2
       let mdHeight: CGFloat
       if model.usesStreamingTextRenderer {
@@ -548,32 +516,25 @@
         mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth, style: .thinking)
       }
 
-      let hasShowMore = buttonTitle != nil
-      let isCollapsed = hasShowMore && !model.isThinkingExpanded
+      guard case let .thinking(backgroundFrame, contentFrame, footerFrame, isCollapsed, fadeHeight) =
+        ConversationRichMessageLayout.bodyLayoutPlan(
+          totalWidth: totalWidth,
+          model: model,
+          presentation: presentation,
+          contentHeight: mdHeight
+        )
+      else { return }
 
-      // Bottom area: show more button only (fade mask handles the transition)
-      let bottomZoneHeight: CGFloat = hasShowMore ? footerHeight : 0
-      let containerHeight = verticalTop + mdHeight + verticalBottom + bottomZoneHeight
-
-      // Purple background
-      thinkingBackground.frame = CGRect(
-        x: Self.laneHorizontalInset, y: 0,
-        width: contentWidth, height: containerHeight
-      )
+      thinkingBackground.frame = backgroundFrame
       thinkingBackground.isHidden = false
       bodyContainer.addSubview(thinkingBackground)
 
-      // Markdown content
-      let contentX = Self.laneHorizontalInset + horizontalPadding
       if model.usesStreamingTextRenderer {
         let attrStr = ConversationRichMessageLayout.streamingAttributedText(for: model, style: .thinking)
-        configureStreamingTextView(
-          attrStr,
-          frame: CGRect(x: contentX, y: verticalTop, width: innerWidth, height: mdHeight)
-        )
+        configureStreamingTextView(attrStr, frame: contentFrame)
         bodyContainer.addSubview(streamingTextView)
       } else {
-        markdownContentView.frame = CGRect(x: contentX, y: verticalTop, width: innerWidth, height: mdHeight)
+        markdownContentView.frame = contentFrame
         markdownContentView.configure(blocks: currentBlocks, style: .thinking)
         bodyContainer.addSubview(markdownContentView)
       }
@@ -597,15 +558,9 @@
       thinkingSeparator.isHidden = true
 
       // "Show more / Show less" button
-      if let buttonTitle {
-        let buttonY = verticalTop + mdHeight + verticalBottom
+      if let buttonTitle = presentation.thinkingButtonTitle, let footerFrame {
         thinkingShowMoreButton.setTitle(buttonTitle, for: .normal)
-        thinkingShowMoreButton.frame = CGRect(
-          x: Self.laneHorizontalInset + horizontalPadding,
-          y: buttonY,
-          width: innerWidth,
-          height: footerHeight
-        )
+        thinkingShowMoreButton.frame = footerFrame
         thinkingShowMoreButton.isHidden = false
         bodyContainer.addSubview(thinkingShowMoreButton)
       } else {
@@ -620,50 +575,55 @@
 
     private func rebuildErrorBody(
       model: NativeRichMessageRowModel,
-      contentWidth: CGFloat,
-      horizontalPadding: CGFloat,
-      verticalTop: CGFloat,
-      verticalBottom: CGFloat,
-      accentBarWidth: CGFloat
+      totalWidth: CGFloat,
+      presentation: RichMessagePresentation
     ) {
+      let contentWidth = ConversationRichMessageLayout.contentWidth(for: totalWidth, presentation: presentation)
+      let horizontalPadding = Self.errorHPad
+      let accentBarWidth = Self.errorAccentBarWidth
       let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
       let mdHeight = NativeMarkdownContentView.requiredHeight(
         for: currentBlocks,
         width: innerWidth,
         style: currentContentStyle
       )
-      let containerHeight = verticalTop + mdHeight + verticalBottom
-
-      // Coral-tinted background with subtle border
-      errorBackground.frame = CGRect(
-        x: Self.laneHorizontalInset,
-        y: 0,
-        width: contentWidth,
-        height: containerHeight
-      )
+      guard case let .error(backgroundFrame, accentFrame, contentFrame) = ConversationRichMessageLayout.bodyLayoutPlan(
+        totalWidth: totalWidth,
+        model: model,
+        presentation: presentation,
+        contentHeight: mdHeight
+      ) else { return }
+      errorBackground.frame = backgroundFrame
       errorBackground.isHidden = false
       bodyContainer.addSubview(errorBackground)
-
-      // Solid coral accent bar on left edge
-      errorAccentBar.frame = CGRect(
-        x: Self.laneHorizontalInset,
-        y: 0,
-        width: accentBarWidth,
-        height: containerHeight
-      )
+      errorAccentBar.frame = accentFrame
       errorAccentBar.isHidden = false
       bodyContainer.addSubview(errorAccentBar)
-
-      // Content inside the container
-      let contentX = Self.laneHorizontalInset + accentBarWidth + horizontalPadding
-      markdownContentView.frame = CGRect(
-        x: contentX,
-        y: verticalTop,
-        width: innerWidth,
-        height: mdHeight
-      )
+      markdownContentView.frame = contentFrame
       markdownContentView.configure(blocks: currentBlocks, style: currentContentStyle)
       bodyContainer.addSubview(markdownContentView)
+    }
+
+    private func userLayoutPlan(
+      model: NativeRichMessageRowModel,
+      totalWidth: CGFloat,
+      presentation: RichMessagePresentation,
+      contentWidth: CGFloat
+    ) -> RichMessageBodyLayoutPlan? {
+      let horizontalPadding = Self.userBubbleHorizontalPad
+      let accentBarWidth = Self.userAccentBarWidth
+      let innerWidth = contentWidth - horizontalPadding * 2 - accentBarWidth
+      let mdHeight = NativeMarkdownContentView.requiredHeight(
+        for: currentBlocks,
+        width: innerWidth,
+        style: currentContentStyle
+      )
+      return ConversationRichMessageLayout.bodyLayoutPlan(
+        totalWidth: totalWidth,
+        model: model,
+        presentation: presentation,
+        contentHeight: mdHeight
+      )
     }
 
     // MARK: - Image Layout

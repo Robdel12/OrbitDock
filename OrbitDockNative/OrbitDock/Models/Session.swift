@@ -43,6 +43,7 @@ struct Session: Identifiable, Hashable, Sendable {
   var totalTokens: Int
   var totalCostUSD: Double
   var lastActivityAt: Date?
+  var lastFilesPersistedAt: Date?
   var lastTool: String?
   var lastToolAt: Date?
   var promptCount: Int
@@ -168,6 +169,7 @@ struct Session: Identifiable, Hashable, Sendable {
     totalTokens: Int = 0,
     totalCostUSD: Double = 0,
     lastActivityAt: Date? = nil,
+    lastFilesPersistedAt: Date? = nil,
     lastTool: String? = nil,
     lastToolAt: Date? = nil,
     promptCount: Int = 0,
@@ -212,6 +214,7 @@ struct Session: Identifiable, Hashable, Sendable {
     self.totalTokens = totalTokens
     self.totalCostUSD = totalCostUSD
     self.lastActivityAt = lastActivityAt
+    self.lastFilesPersistedAt = lastFilesPersistedAt
     self.lastTool = lastTool
     self.lastToolAt = lastToolAt
     self.promptCount = promptCount

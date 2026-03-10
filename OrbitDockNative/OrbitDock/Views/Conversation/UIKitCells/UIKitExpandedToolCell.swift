@@ -960,102 +960,30 @@
       textWidth: CGFloat,
       y: inout CGFloat
     ) {
-      guard let section = ExpandedToolRenderPlanning.payloadSectionRenderPlan(
+      let rows = ExpandedToolRenderPlanning.payloadSectionTextRows(
         title: title,
         payload: payload,
         toolName: toolName
-      ) else { return }
+      )
+      guard !rows.isEmpty else { return }
 
-      let header = makeSectionHeader(section.title)
+      let header = makeSectionHeader(title)
       header.frame = CGRect(x: EL.headerHPad, y: y + EL.sectionPadding, width: 80, height: 14)
       contentContainer.addSubview(header)
       y += EL.sectionHeaderHeight + EL.sectionPadding
 
-      for item in section.items {
-        switch item {
-          case let .questionHeader(headerText):
-            let headerLabel = UILabel()
-            headerLabel.font = UIFont.systemFont(ofSize: TypeScale.mini, weight: .bold)
-            headerLabel.textColor = EL.textQuaternary
-            headerLabel.text = headerText
-            headerLabel.numberOfLines = 0
-            let headerHeight = EL.measuredTextHeight(
-              headerText,
-              font: UIFont.systemFont(ofSize: TypeScale.mini, weight: .bold),
-              maxWidth: textWidth
-            )
-            headerLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: headerHeight)
-            contentContainer.addSubview(headerLabel)
-            y += headerHeight + 3
-
-          case let .questionPrompt(prompt):
-            let promptLabel = UILabel()
-            promptLabel.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
-            promptLabel.textColor = EL.textPrimary
-            promptLabel.lineBreakMode = .byWordWrapping
-            promptLabel.numberOfLines = 0
-            promptLabel.text = prompt
-            let promptHeight = EL.measuredTextHeight(
-              prompt,
-              font: UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
-              maxWidth: textWidth
-            )
-            promptLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: promptHeight)
-            contentContainer.addSubview(promptLabel)
-            y += promptHeight
-
-          case let .questionOption(label, description):
-            let optionText = "• \(label)"
-            let optionLabel = UILabel()
-            optionLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
-            optionLabel.textColor = EL.textSecondary
-            optionLabel.numberOfLines = 0
-            optionLabel.text = optionText
-            let optionHeight = EL.measuredTextHeight(
-              optionText,
-              font: UIFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
-              maxWidth: textWidth
-            )
-            optionLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: optionHeight)
-            contentContainer.addSubview(optionLabel)
-            y += optionHeight
-
-            if let detail = description, !detail.isEmpty {
-                let detailLabel = UILabel()
-                detailLabel.font = UIFont.systemFont(ofSize: TypeScale.meta, weight: .regular)
-                detailLabel.textColor = EL.textTertiary
-                detailLabel.lineBreakMode = .byWordWrapping
-                detailLabel.numberOfLines = 0
-                detailLabel.text = detail
-                let detailHeight = EL.measuredTextHeight(
-                  detail,
-                  font: UIFont.systemFont(ofSize: TypeScale.meta, weight: .regular),
-                  maxWidth: textWidth - 14
-                )
-                detailLabel.frame = CGRect(x: EL.headerHPad + 14, y: y + 2, width: textWidth - 14, height: detailHeight)
-                contentContainer.addSubview(detailLabel)
-                y += detailHeight + 2
-            }
-
-          case let .structuredEntry(key, value):
-            let label = makePayloadLabel(key: key, value: value)
-          let display = "\(key): \(value)"
-          let labelH = EL.measuredTextHeight(display, font: EL.codeFont, maxWidth: textWidth)
-          label.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: labelH)
-          contentContainer.addSubview(label)
-          y += labelH
-
-          case let .textLine(line):
-          let text = line.isEmpty ? " " : line
-          let label = makeCodeLabel(text, color: EL.textSecondary)
-          let labelH = EL.measuredTextHeight(text, font: EL.codeFont, maxWidth: textWidth)
-          label.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: labelH)
-          contentContainer.addSubview(label)
-          y += labelH
-
-          case let .spacer(spacing):
-            y += spacing
-        }
+      for row in rows {
+        y += row.topInset
+        let labelWidth = textWidth - row.widthAdjustment
+        let label = makePayloadLabel(for: row)
+        label.frame = CGRect(
+          x: EL.headerHPad + row.leadingInset,
+          y: y,
+          width: labelWidth,
+          height: payloadRowHeight(row, maxWidth: labelWidth)
+        )
+        contentContainer.addSubview(label)
+        y += label.frame.height + row.bottomSpacing
       }
 
       y += EL.sectionPadding
@@ -1078,20 +1006,88 @@
       return label
     }
 
-    private func makePayloadLabel(key: String, value: String) -> UILabel {
-      let label = UILabel()
-      label.lineBreakMode = .byCharWrapping
-      label.numberOfLines = 0
-      let attributed = NSMutableAttributedString(string: "\(key): ", attributes: [
-        .font: EL.codeFontStrong,
-        .foregroundColor: EL.textQuaternary,
-      ])
-      attributed.append(NSAttributedString(string: value, attributes: [
-        .font: EL.codeFont,
-        .foregroundColor: EL.textSecondary,
-      ]))
-      label.attributedText = attributed
-      return label
+    private func makePayloadLabel(for row: ExpandedToolPayloadTextRowPlan) -> UILabel {
+      switch row.content {
+        case let .structuredEntry(key, value):
+          let label = UILabel()
+          label.lineBreakMode = .byCharWrapping
+          label.numberOfLines = 0
+          let attributed = NSMutableAttributedString(string: "\(key): ", attributes: [
+            .font: EL.codeFontStrong,
+            .foregroundColor: EL.textQuaternary,
+          ])
+          attributed.append(NSAttributedString(string: value, attributes: [
+            .font: EL.codeFont,
+            .foregroundColor: EL.textSecondary,
+          ]))
+          label.attributedText = attributed
+          return label
+
+        case let .plain(text):
+          return makeCodeLabel(
+            text.isEmpty ? " " : text,
+            color: payloadColor(for: row.style),
+            fontSize: payloadFontSize(for: row.style),
+            weight: payloadFontWeight(for: row.style)
+          )
+      }
+    }
+
+    private func payloadRowHeight(_ row: ExpandedToolPayloadTextRowPlan, maxWidth: CGFloat) -> CGFloat {
+      switch row.content {
+        case let .structuredEntry(key, value):
+          return EL.measuredTextHeight("\(key): \(value)", font: EL.codeFont, maxWidth: maxWidth)
+
+        case let .plain(text):
+          let font = UIFont.systemFont(
+            ofSize: payloadFontSize(for: row.style),
+            weight: payloadFontWeight(for: row.style)
+          )
+          return EL.measuredTextHeight(text.isEmpty ? " " : text, font: font, maxWidth: maxWidth)
+      }
+    }
+
+    private func payloadFontSize(for style: ExpandedToolPayloadTextStyle) -> CGFloat {
+      switch style {
+        case .questionHeader:
+          TypeScale.mini
+        case .questionPrompt:
+          TypeScale.body
+        case .questionOption:
+          TypeScale.caption
+        case .questionDetail:
+          TypeScale.meta
+        case .structuredEntry, .textLine:
+          11.5
+      }
+    }
+
+    private func payloadFontWeight(for style: ExpandedToolPayloadTextStyle) -> UIFont.Weight {
+      switch style {
+        case .questionHeader:
+          .bold
+        case .questionPrompt:
+          .semibold
+        case .questionOption:
+          .medium
+        case .questionDetail, .structuredEntry, .textLine:
+          .regular
+      }
+    }
+
+    private func payloadColor(for style: ExpandedToolPayloadTextStyle) -> PlatformColor {
+      switch style {
+        case .questionHeader:
+          EL.textQuaternary
+        case .questionPrompt:
+          EL.textPrimary
+        case .questionOption:
+          EL.textSecondary
+        case .questionDetail:
+          EL.textTertiary
+        case .structuredEntry, .textLine:
+          EL.textSecondary
+      }
     }
 
     private func makeLineNumLabel(_ text: String) -> UILabel {

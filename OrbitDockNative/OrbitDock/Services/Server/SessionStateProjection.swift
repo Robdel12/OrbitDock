@@ -22,6 +22,106 @@ struct SessionPendingApprovalProjection {
   }
 }
 
+struct SessionDetailSnapshotProjection {
+  let endpointId: UUID?
+  let endpointName: String?
+  let projectPath: String
+  let projectName: String?
+  let branch: String?
+  let model: String?
+  let effort: String?
+  let summary: String?
+  let customName: String?
+  let firstPrompt: String?
+  let lastMessage: String?
+  let transcriptPath: String?
+  let status: Session.SessionStatus
+  let workStatus: Session.WorkStatus
+  let attentionReason: Session.AttentionReason
+  let lastActivityAt: Date?
+  let lastFilesPersistedAt: Date?
+  let lastTool: String?
+  let lastToolAt: Date?
+  let inputTokens: Int?
+  let outputTokens: Int?
+  let cachedTokens: Int?
+  let contextWindow: Int?
+  let totalTokens: Int
+  let totalCostUSD: Double
+  let provider: Provider
+  let codexIntegrationMode: CodexIntegrationMode?
+  let claudeIntegrationMode: ClaudeIntegrationMode?
+  let codexThreadId: String?
+  let pendingApprovalId: String?
+  let pendingToolName: String?
+  let pendingToolInput: String?
+  let pendingPermissionDetail: String?
+  let pendingQuestion: String?
+  let promptCount: Int
+  let toolCount: Int
+  let startedAt: Date?
+  let endedAt: Date?
+  let endReason: String?
+  let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind
+  let gitSha: String?
+  let currentCwd: String?
+  let repositoryRoot: String?
+  let isWorktree: Bool
+  let worktreeId: String?
+  let unreadCount: UInt64
+
+  static func from(_ session: Session) -> SessionDetailSnapshotProjection {
+    SessionDetailSnapshotProjection(
+      endpointId: session.endpointId,
+      endpointName: session.endpointName,
+      projectPath: session.projectPath,
+      projectName: session.projectName,
+      branch: session.branch,
+      model: session.model,
+      effort: session.effort,
+      summary: session.summary,
+      customName: session.customName,
+      firstPrompt: session.firstPrompt,
+      lastMessage: session.lastMessage,
+      transcriptPath: session.transcriptPath,
+      status: session.status,
+      workStatus: session.workStatus,
+      attentionReason: session.attentionReason,
+      lastActivityAt: session.lastActivityAt,
+      lastFilesPersistedAt: session.lastFilesPersistedAt,
+      lastTool: session.lastTool,
+      lastToolAt: session.lastToolAt,
+      inputTokens: session.inputTokens,
+      outputTokens: session.outputTokens,
+      cachedTokens: session.cachedTokens,
+      contextWindow: session.contextWindow,
+      totalTokens: session.totalTokens,
+      totalCostUSD: session.totalCostUSD,
+      provider: session.provider,
+      codexIntegrationMode: session.codexIntegrationMode,
+      claudeIntegrationMode: session.claudeIntegrationMode,
+      codexThreadId: session.codexThreadId,
+      pendingApprovalId: session.pendingApprovalId,
+      pendingToolName: session.pendingToolName,
+      pendingToolInput: session.pendingToolInput,
+      pendingPermissionDetail: session.pendingPermissionDetail,
+      pendingQuestion: session.pendingQuestion,
+      promptCount: session.promptCount,
+      toolCount: session.toolCount,
+      startedAt: session.startedAt,
+      endedAt: session.endedAt,
+      endReason: session.endReason,
+      tokenUsageSnapshotKind: session.tokenUsageSnapshotKind,
+      gitSha: session.gitSha,
+      currentCwd: session.currentCwd,
+      repositoryRoot: session.repositoryRoot,
+      isWorktree: session.isWorktree,
+      worktreeId: session.worktreeId,
+      unreadCount: session.unreadCount
+    )
+  }
+}
+
 struct SessionStateProjection {
   let status: Session.SessionStatus?
   let workStatus: Session.WorkStatus?
@@ -225,6 +325,55 @@ extension Session {
 
 @MainActor
 extension SessionObservable {
+  func applySnapshotProjection(_ projection: SessionDetailSnapshotProjection) {
+    endpointId = projection.endpointId
+    endpointName = projection.endpointName
+    projectPath = projection.projectPath
+    projectName = projection.projectName
+    branch = projection.branch
+    model = projection.model
+    effort = projection.effort
+    summary = projection.summary
+    customName = projection.customName
+    firstPrompt = projection.firstPrompt
+    lastMessage = projection.lastMessage
+    transcriptPath = projection.transcriptPath
+    status = projection.status
+    workStatus = projection.workStatus
+    attentionReason = projection.attentionReason
+    lastActivityAt = projection.lastActivityAt
+    lastFilesPersistedAt = projection.lastFilesPersistedAt
+    lastTool = projection.lastTool
+    lastToolAt = projection.lastToolAt
+    inputTokens = projection.inputTokens
+    outputTokens = projection.outputTokens
+    cachedTokens = projection.cachedTokens
+    contextWindow = projection.contextWindow
+    totalTokens = projection.totalTokens
+    totalCostUSD = projection.totalCostUSD
+    provider = projection.provider
+    codexIntegrationMode = projection.codexIntegrationMode
+    claudeIntegrationMode = projection.claudeIntegrationMode
+    codexThreadId = projection.codexThreadId
+    pendingApprovalId = projection.pendingApprovalId
+    pendingToolName = projection.pendingToolName
+    pendingToolInput = projection.pendingToolInput
+    pendingPermissionDetail = projection.pendingPermissionDetail
+    pendingQuestion = projection.pendingQuestion
+    promptCount = projection.promptCount
+    toolCount = projection.toolCount
+    startedAt = projection.startedAt
+    endedAt = projection.endedAt
+    endReason = projection.endReason
+    tokenUsageSnapshotKind = projection.tokenUsageSnapshotKind
+    gitSha = projection.gitSha
+    currentCwd = projection.currentCwd
+    repositoryRoot = projection.repositoryRoot
+    isWorktree = projection.isWorktree
+    worktreeId = projection.worktreeId
+    unreadCount = projection.unreadCount
+  }
+
   func applyProjection(_ projection: SessionStateProjection) {
     if let status = projection.status {
       self.status = status
