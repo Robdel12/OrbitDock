@@ -65,13 +65,6 @@ struct OrbitDockWindowRoot: View {
       .onChange(of: appRuntime.runtimeRegistry.runtimesByEndpointId.count) { _, _ in
         windowSessionCoordinator.runtimeGraphDidChange()
       }
-    #if os(iOS)
-      .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
-        appRuntime.runtimeRegistry.handleMemoryPressure()
-        MarkdownSystemParser.clearCache()
-        SyntaxHighlighter.clearCache()
-      }
-    #endif
   }
 
   private func updateWindowFocus(for phase: ScenePhase) {

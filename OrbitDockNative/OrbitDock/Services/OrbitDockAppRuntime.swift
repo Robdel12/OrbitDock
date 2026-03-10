@@ -19,6 +19,8 @@ struct OrbitDockAppRuntimeDependencies {
   let runtimeRegistry: ServerRuntimeRegistry
   let externalNavigationCenter: AppExternalNavigationCenter
   let notificationManager: NotificationManager
+  let appLifecycleClient: AppLifecycleClient
+  let handleMemoryPressure: @MainActor () -> Void
   let shouldConnectServer: Bool
   #if os(macOS)
     let serverManager: ServerManager
@@ -32,10 +34,17 @@ struct OrbitDockAppRuntimeDependencies {
     static func live(
       shouldConnectServer: Bool
     ) -> OrbitDockAppRuntimeDependencies {
-      OrbitDockAppRuntimeDependencies(
-        runtimeRegistry: ServerRuntimeRegistry(),
+      let runtimeRegistry = ServerRuntimeRegistry()
+      return OrbitDockAppRuntimeDependencies(
+        runtimeRegistry: runtimeRegistry,
         externalNavigationCenter: AppExternalNavigationCenter(),
         notificationManager: NotificationManager(),
+        appLifecycleClient: .live(),
+        handleMemoryPressure: {
+          runtimeRegistry.handleMemoryPressure()
+          MarkdownSystemParser.clearCache()
+          SyntaxHighlighter.clearCache()
+        },
         shouldConnectServer: shouldConnectServer,
         serverManager: .live()
       )
@@ -48,10 +57,17 @@ struct OrbitDockAppRuntimeDependencies {
     static func live(
       shouldConnectServer: Bool
     ) -> OrbitDockAppRuntimeDependencies {
-      OrbitDockAppRuntimeDependencies(
-        runtimeRegistry: ServerRuntimeRegistry(),
+      let runtimeRegistry = ServerRuntimeRegistry()
+      return OrbitDockAppRuntimeDependencies(
+        runtimeRegistry: runtimeRegistry,
         externalNavigationCenter: AppExternalNavigationCenter(),
         notificationManager: NotificationManager(),
+        appLifecycleClient: .live(),
+        handleMemoryPressure: {
+          runtimeRegistry.handleMemoryPressure()
+          MarkdownSystemParser.clearCache()
+          SyntaxHighlighter.clearCache()
+        },
         shouldConnectServer: shouldConnectServer
       )
     }
@@ -66,6 +82,9 @@ final class OrbitDockAppRuntime {
   let notificationManager: NotificationManager
   let usageServiceRegistry: UsageServiceRegistry
   let startupCoordinator: ClientStartupCoordinator
+  private let appLifecycleClient: AppLifecycleClient
+  private let handleMemoryPressure: @MainActor () -> Void
+  @ObservationIgnored private var lifecycleObserverTask: Task<Void, Never>?
   #if os(macOS)
     let serverManager: ServerManager
   #endif
@@ -75,6 +94,8 @@ final class OrbitDockAppRuntime {
     self.runtimeRegistry = dependencies.runtimeRegistry
     self.externalNavigationCenter = dependencies.externalNavigationCenter
     self.notificationManager = dependencies.notificationManager
+    self.appLifecycleClient = dependencies.appLifecycleClient
+    self.handleMemoryPressure = dependencies.handleMemoryPressure
     self.usageServiceRegistry = UsageServiceRegistry(runtimeRegistry: runtimeRegistry)
     self.serverManager = dependencies.serverManager
     self.startupCoordinator = ClientStartupCoordinator(
@@ -109,6 +130,8 @@ final class OrbitDockAppRuntime {
       self.runtimeRegistry = dependencies.runtimeRegistry
       self.externalNavigationCenter = dependencies.externalNavigationCenter
       self.notificationManager = dependencies.notificationManager
+      self.appLifecycleClient = dependencies.appLifecycleClient
+      self.handleMemoryPressure = dependencies.handleMemoryPressure
       self.usageServiceRegistry = UsageServiceRegistry(runtimeRegistry: runtimeRegistry)
       self.startupCoordinator = ClientStartupCoordinator(
         runtimeRegistry: runtimeRegistry,
@@ -137,6 +160,7 @@ final class OrbitDockAppRuntime {
   #endif
 
   func startIfNeeded() async {
+    startLifecycleObserversIfNeeded()
     await startupCoordinator.startIfNeeded()
   }
 
@@ -145,6 +169,20 @@ final class OrbitDockAppRuntime {
   }
 
   func stop() {
+    lifecycleObserverTask?.cancel()
+    lifecycleObserverTask = nil
     startupCoordinator.stop()
+  }
+
+  private func startLifecycleObserversIfNeeded() {
+    guard lifecycleObserverTask == nil else { return }
+    let memoryWarnings = appLifecycleClient.memoryWarnings()
+
+    lifecycleObserverTask = Task { @MainActor [handleMemoryPressure] in
+      for await _ in memoryWarnings {
+        guard !Task.isCancelled else { break }
+        handleMemoryPressure()
+      }
+    }
   }
 }
