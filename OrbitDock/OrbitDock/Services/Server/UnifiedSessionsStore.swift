@@ -160,32 +160,17 @@ enum UnifiedSessionsProjection {
 @Observable
 @MainActor
 final class UnifiedSessionsStore {
-  private let runtimeRegistry: ServerRuntimeRegistry
-
   private(set) var selectedEndpointFilter: UnifiedEndpointFilter = .all
   private(set) var sessions: [Session] = []
   private(set) var sessionRefsByScopedID: [String: SessionRef] = [:]
   private(set) var endpointHealth: [UnifiedEndpointHealth] = []
   private(set) var counts = UnifiedSessionCounts()
 
-  init(runtimeRegistry: ServerRuntimeRegistry) {
-    self.runtimeRegistry = runtimeRegistry
-  }
-
   func setEndpointFilter(_ filter: UnifiedEndpointFilter) {
     selectedEndpointFilter = filter
-    refresh()
   }
 
-  func refresh() {
-    let inputs = runtimeRegistry.runtimes.map { runtime in
-      UnifiedSessionsProjection.EndpointInput(
-        endpoint: runtime.endpoint,
-        status: runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? .disconnected,
-        sessions: runtime.sessionStore.sessions
-      )
-    }
-
+  func refresh(from inputs: [UnifiedSessionsProjection.EndpointInput]) {
     let snapshot = UnifiedSessionsProjection.snapshot(from: inputs, filter: selectedEndpointFilter)
     sessions = snapshot.sessions
     sessionRefsByScopedID = snapshot.sessionRefsByScopedID

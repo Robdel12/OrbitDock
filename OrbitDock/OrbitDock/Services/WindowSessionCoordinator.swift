@@ -21,7 +21,7 @@ final class WindowSessionCoordinator {
     self.attentionService = attentionService
     self.toastManager = toastManager
     self.router = router
-    self.unifiedSessionsStore = UnifiedSessionsStore(runtimeRegistry: runtimeRegistry)
+    self.unifiedSessionsStore = UnifiedSessionsStore()
   }
 
   var endpointHealth: [UnifiedEndpointHealth] {
@@ -47,7 +47,7 @@ final class WindowSessionCoordinator {
     let oldWaitingIds = Set(missionControlAttentionSessions.map(\.scopedID))
     let oldSessions = sessions
 
-    unifiedSessionsStore.refresh()
+    unifiedSessionsStore.refresh(from: projectionInputs())
     sessions = unifiedSessionsStore.sessions
 
     if let selectedScopedID = router.selectedScopedID,
@@ -104,5 +104,15 @@ final class WindowSessionCoordinator {
       store: unifiedSessionsStore,
       fallbackEndpointId: runtimeRegistry.primaryEndpointId ?? runtimeRegistry.activeEndpointId
     )
+  }
+
+  private func projectionInputs() -> [UnifiedSessionsProjection.EndpointInput] {
+    runtimeRegistry.runtimes.map { runtime in
+      UnifiedSessionsProjection.EndpointInput(
+        endpoint: runtime.endpoint,
+        status: runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? .disconnected,
+        sessions: runtime.sessionStore.sessions
+      )
+    }
   }
 }
