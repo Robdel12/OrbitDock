@@ -110,7 +110,8 @@ fn runtime_page_requires_db_reconciliation(
     before_sequence: Option<u64>,
     limit: usize,
 ) -> bool {
-    let expected_count = expected_page_message_count(page.total_message_count, before_sequence, limit);
+    let expected_count =
+        expected_page_message_count(page.total_message_count, before_sequence, limit);
     if expected_count == 0 {
         return !page.messages.is_empty();
     }
@@ -129,11 +130,19 @@ fn page_expected_window_is_contiguous(
     before_sequence: Option<u64>,
     expected_count: usize,
 ) -> Option<bool> {
-    let upper_bound = before_sequence.unwrap_or(page.total_message_count).min(page.total_message_count);
+    let upper_bound = before_sequence
+        .unwrap_or(page.total_message_count)
+        .min(page.total_message_count);
     let expected_newest = upper_bound.checked_sub(1)?;
-    let expected_oldest = expected_newest.checked_add(1)?.checked_sub(expected_count as u64)?;
+    let expected_oldest = expected_newest
+        .checked_add(1)?
+        .checked_sub(expected_count as u64)?;
 
-    let sequences: Option<Vec<u64>> = page.messages.iter().map(|message| message.sequence).collect();
+    let sequences: Option<Vec<u64>> = page
+        .messages
+        .iter()
+        .map(|message| message.sequence)
+        .collect();
     let sequences = sequences?;
     let expected: Vec<u64> = (expected_oldest..=expected_newest).collect();
     Some(sequences == expected)

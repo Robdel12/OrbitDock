@@ -224,8 +224,8 @@ pub async fn mark_session_read(
 mod tests {
     use super::*;
     use axum::{extract::Path, extract::State, Json};
-    use rusqlite::{params, Connection};
     use orbitdock_protocol::{Message, MessageType, Provider};
+    use rusqlite::{params, Connection};
 
     use crate::domain::sessions::session::SessionHandle;
     use crate::domain::sessions::transition::WorkPhase;
@@ -428,7 +428,10 @@ mod tests {
 
         let response = get_conversation_bootstrap(
             Path(session_id),
-            Query(ConversationPageQuery { limit: Some(200), before_sequence: None }),
+            Query(ConversationPageQuery {
+                limit: Some(200),
+                before_sequence: None,
+            }),
             State(state),
         )
         .await;
@@ -439,8 +442,22 @@ mod tests {
                 assert_eq!(payload.oldest_sequence, Some(0));
                 assert_eq!(payload.newest_sequence, Some(107));
                 assert_eq!(payload.session.messages.len(), 108);
-                assert_eq!(payload.session.messages.first().and_then(|message| message.sequence), Some(0));
-                assert_eq!(payload.session.messages.last().and_then(|message| message.sequence), Some(107));
+                assert_eq!(
+                    payload
+                        .session
+                        .messages
+                        .first()
+                        .and_then(|message| message.sequence),
+                    Some(0)
+                );
+                assert_eq!(
+                    payload
+                        .session
+                        .messages
+                        .last()
+                        .and_then(|message| message.sequence),
+                    Some(107)
+                );
             }
             Err((status, body)) => panic!(
                 "expected successful conversation bootstrap, got status {:?} with error {:?}",
