@@ -28,26 +28,31 @@ extension DirectSessionComposer {
     let modeColor = pendingPanelModeColor(model)
 
     VStack(spacing: 0) {
-      // Inline header (tap to collapse/expand)
-      Button {
-        withAnimation(Motion.standard) {
-          pendingState.isExpanded.toggle()
-        }
-        Platform.services.playHaptic(.expansion)
-      } label: {
-        pendingInlineHeader(model, header: header, modeColor: modeColor)
-      }
-      .buttonStyle(.plain)
-      .onHover { hovering in
-        pendingState.isHovering = hovering
-        #if os(macOS)
-          if hovering {
-            NSCursor.pointingHand.push()
-          } else {
-            NSCursor.pop()
+      PendingPanelInlineHeader(
+        title: pendingPanelTitle(model),
+        statusText: pendingPanelStatusBadgeText(model),
+        promptCountText: model.mode == .question && model.questions.count > 1 ? "\(model.questions.count) prompts" : nil,
+        header: header,
+        modeColor: modeColor,
+        isExpanded: pendingState.isExpanded,
+        isHovering: pendingState.isHovering,
+        onToggle: {
+          withAnimation(Motion.standard) {
+            pendingState.isExpanded.toggle()
           }
-        #endif
-      }
+          Platform.services.playHaptic(.expansion)
+        },
+        onHoverChanged: { hovering in
+          pendingState.isHovering = hovering
+          #if os(macOS)
+            if hovering {
+              NSCursor.pointingHand.push()
+            } else {
+              NSCursor.pop()
+            }
+          #endif
+        }
+      )
 
       // Expandable content
       if pendingState.isExpanded {
@@ -93,64 +98,6 @@ extension DirectSessionComposer {
     }
   }
 
-  // MARK: - Inline Header
-
-  private func pendingInlineHeader(
-    _ model: ApprovalCardModel,
-    header: ApprovalHeaderConfig,
-    modeColor: Color
-  ) -> some View {
-    HStack(spacing: Spacing.sm_) {
-      Image(systemName: header.iconName)
-        .font(.system(size: TypeScale.micro, weight: .semibold))
-        .foregroundStyle(header.iconTint)
-        .frame(width: 16, height: 16)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            .fill(header.iconTint.opacity(OpacityTier.light))
-        )
-
-      Text(pendingPanelTitle(model))
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-        .foregroundStyle(Color.textPrimary)
-
-      pendingHeaderChip(
-        text: pendingPanelStatusBadgeText(model),
-        tint: modeColor
-      )
-
-      if model.mode == .question, model.questions.count > 1 {
-        pendingHeaderChip(
-          text: "\(model.questions.count) prompts",
-          tint: Color.statusQuestion
-        )
-      }
-
-      if false /* queuedApprovalCount removed — approvals are no longer queued client-side */ {
-        pendingHeaderChip(
-          text: "queued",
-          tint: Color.textTertiary
-        )
-      }
-
-      Spacer(minLength: 0)
-
-      Image(systemName: "chevron.right")
-        .font(.system(size: TypeScale.mini, weight: .bold))
-        .foregroundStyle(Color.textQuaternary)
-        .frame(width: 16, height: 16)
-        .background(Circle().fill(Color.surfaceHover.opacity(OpacityTier.subtle)))
-        .rotationEffect(.degrees(pendingState.isExpanded ? 90 : 0))
-        .animation(Motion.snappy, value: pendingState.isExpanded)
-    }
-    .padding(.horizontal, Spacing.md_)
-    .padding(.vertical, Spacing.xs)
-    .background(
-      pendingState.isHovering ? Color.surfaceHover : modeColor.opacity(OpacityTier.tint)
-    )
-    .contentShape(Rectangle())
-  }
-
   // MARK: - Helpers
 
   func pendingPanelModeColor(_ model: ApprovalCardModel) -> Color {
@@ -167,20 +114,6 @@ extension DirectSessionComposer {
 
   private func pendingPanelStatusBadgeText(_ model: ApprovalCardModel) -> String {
     DirectSessionComposerPendingPlanner.statusBadgeText(for: model)
-  }
-
-  @ViewBuilder
-  private func pendingHeaderChip(text: String, tint: Color) -> some View {
-    if !text.isEmpty {
-      Text(text)
-        .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
-        .foregroundStyle(tint)
-        .padding(.horizontal, Spacing.xs)
-        .padding(.vertical, Spacing.xxs)
-        .background(
-          Capsule().fill(tint.opacity(OpacityTier.light))
-        )
-    }
   }
 
   private func pendingPanelContentMaxHeight() -> CGFloat {
@@ -235,9 +168,18 @@ extension DirectSessionComposer {
 
         ForEach(Array(commandChainSegments.enumerated()), id: \.offset) { index, segment in
           if isSingleStep {
-            pendingCommandCodeBlock(segment: segment, modeColor: modeColor)
+            PendingCommandCodeBlock(
+              command: segment.command,
+              modeColor: modeColor,
+              isCompactLayout: isCompactLayout
+            )
           } else {
-            pendingCommandChainRow(index: index + 1, segment: segment, modeColor: modeColor)
+            PendingCommandChainRow(
+              index: index + 1,
+              segment: segment,
+              modeColor: modeColor,
+              isCompactLayout: isCompactLayout
+            )
           }
         }
       }
@@ -270,54 +212,29 @@ extension DirectSessionComposer {
 
     // ━━━ Risk findings ━━━
     if !model.riskFindings.isEmpty {
-      VStack(alignment: .leading, spacing: Spacing.sm_) {
-        ForEach(Array(model.riskFindings.enumerated()), id: \.offset) { _, finding in
-          HStack(alignment: .top, spacing: Spacing.xs) {
-            Image(systemName: "exclamationmark.triangle.fill")
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(model.risk.tintColor)
-            Text(finding)
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.textSecondary)
-              .fixedSize(horizontal: false, vertical: true)
-              .multilineTextAlignment(.leading)
-          }
-        }
-      }
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.sm_)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .fill(model.risk == .high ? Color.statusError.opacity(OpacityTier.tint) : Color.clear)
+      PendingRiskFindingsSection(
+        findings: model.riskFindings,
+        tint: model.risk.tintColor,
+        highlightsBackground: model.risk == .high
       )
     }
 
     // ━━━ Decision scope hint ━━━
     if let scope = model.decisionScope, !scope.isEmpty {
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: "info.circle")
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-          .foregroundStyle(Color.textQuaternary)
-        Text(scope)
-          .font(.system(size: TypeScale.micro, weight: .regular))
-          .foregroundStyle(Color.textTertiary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
+      PendingInfoHintRow(
+        iconName: "info.circle",
+        iconColor: Color.textQuaternary,
+        text: scope
+      )
     }
 
     // ━━━ Amendment detail (what "Always Allow" would permit) ━━━
     if model.hasAmendment, let detail = model.amendmentDetail, !detail.isEmpty {
-      HStack(alignment: .top, spacing: Spacing.xs) {
-        Image(systemName: "shield.checkered")
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.feedbackCaution)
-        Text(detail)
-          .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
-          .multilineTextAlignment(.leading)
-      }
+      PendingInfoHintRow(
+        iconName: "shield.checkered",
+        iconColor: Color.feedbackCaution,
+        text: detail
+      )
       .padding(.horizontal, Spacing.sm)
       .padding(.vertical, Spacing.sm_)
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -329,114 +246,7 @@ extension DirectSessionComposer {
 
     // ━━━ Deny reason text field (cancel/send buttons in footer) ━━━
     if pendingState.showsDenyReason {
-      TextField("Deny reason", text: $pendingState.denyReason)
-        .textFieldStyle(.plain)
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textPrimary)
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, Spacing.sm_)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .fill(Color.backgroundCode)
-        )
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .strokeBorder(Color.feedbackNegative.opacity(OpacityTier.subtle), lineWidth: 1)
-        )
-    }
-  }
-
-  /// Standalone code block for single-step commands.
-  func pendingCommandCodeBlock(segment: ApprovalShellSegment, modeColor: Color) -> some View {
-    let codeRadius = isCompactLayout ? Radius.sm : Radius.md
-    let codeFontSize = isCompactLayout ? TypeScale.micro : TypeScale.caption
-
-    return ScrollView(.horizontal, showsIndicators: false) {
-      Text(verbatim: segment.command)
-        .font(.system(size: codeFontSize, weight: .regular, design: .monospaced))
-        .foregroundStyle(Color.textPrimary)
-        .lineSpacing(isCompactLayout ? 2 : 3)
-        .fixedSize(horizontal: true, vertical: true)
-        .multilineTextAlignment(.leading)
-        .textSelection(.enabled)
-        .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
-        .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.sm_)
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .background(
-      RoundedRectangle(cornerRadius: codeRadius, style: .continuous)
-        .fill(Color.backgroundCode)
-        .overlay(
-          RoundedRectangle(cornerRadius: codeRadius, style: .continuous)
-            .fill(modeColor.opacity(OpacityTier.tint))
-        )
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: codeRadius, style: .continuous)
-        .strokeBorder(modeColor.opacity(OpacityTier.light), lineWidth: 0.5)
-    )
-  }
-
-  /// Multi-step command chain row with numbered badge and operator label.
-  func pendingCommandChainRow(
-    index: Int,
-    segment: ApprovalShellSegment,
-    modeColor: Color
-  ) -> some View {
-    let operatorText = segment.leadingOperator?
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-
-    let chainCodeFont = isCompactLayout ? TypeScale.micro : TypeScale.caption
-
-    return VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.sm_) {
-      HStack(spacing: Spacing.xs) {
-        Text("\(index)")
-          .font(.system(size: TypeScale.mini, weight: .bold))
-          .foregroundStyle(modeColor)
-          .frame(width: 12, height: 12)
-          .background(
-            Circle()
-              .fill(modeColor.opacity(OpacityTier.light))
-          )
-
-        if let operatorText, !operatorText.isEmpty, index > 1 {
-          let operatorHint = ApprovalPermissionPreviewHelpers.operatorLabel(operatorText) ?? "then"
-          Text("[\(operatorText)] \(operatorHint)")
-            .font(.system(size: TypeScale.mini, weight: .medium))
-            .foregroundStyle(Color.textTertiary)
-        } else {
-          Text("Run first")
-            .font(.system(size: TypeScale.mini, weight: .medium))
-            .foregroundStyle(Color.textQuaternary)
-        }
-
-        Spacer(minLength: 0)
-      }
-
-      ScrollView(.horizontal, showsIndicators: false) {
-        Text(verbatim: segment.command)
-          .font(.system(size: chainCodeFont, weight: .regular, design: .monospaced))
-          .foregroundStyle(Color.textPrimary)
-          .lineSpacing(isCompactLayout ? 2 : 3)
-          .fixedSize(horizontal: true, vertical: true)
-          .multilineTextAlignment(.leading)
-          .textSelection(.enabled)
-          .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
-          .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.sm_)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          .fill(Color.backgroundCode)
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              .fill(modeColor.opacity(OpacityTier.tint))
-          )
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          .strokeBorder(modeColor.opacity(OpacityTier.light), lineWidth: 0.5)
-      )
+      PendingDenyReasonField(text: $pendingState.denyReason)
     }
   }
 
