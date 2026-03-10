@@ -138,6 +138,8 @@ final class EventStream {
   /// The event stream. Consumers iterate with `for await event in eventStream.events { ... }`.
   let events: AsyncStream<ServerEvent>
   private let continuation: AsyncStream<ServerEvent>.Continuation
+  let statusUpdates: AsyncStream<ConnectionStatus>
+  private let statusContinuation: AsyncStream<ConnectionStatus>.Continuation
 
   private var serverURL: URL?
   private let authToken: String?
@@ -157,13 +159,18 @@ final class EventStream {
 
   init(authToken: String?) {
     self.authToken = authToken
-    var cont: AsyncStream<ServerEvent>.Continuation!
-    events = AsyncStream { cont = $0 }
-    continuation = cont
+    var eventContinuation: AsyncStream<ServerEvent>.Continuation!
+    events = AsyncStream { eventContinuation = $0 }
+    continuation = eventContinuation
+
+    var connectionContinuation: AsyncStream<ConnectionStatus>.Continuation!
+    statusUpdates = AsyncStream { connectionContinuation = $0 }
+    statusContinuation = connectionContinuation
   }
 
   deinit {
     continuation.finish()
+    statusContinuation.finish()
   }
 
   // MARK: - Connection
@@ -496,6 +503,7 @@ final class EventStream {
   private func setStatus(_ status: ConnectionStatus) {
     netLog(.info, cat: .ws, "Status → \(status)")
     connectionStatus = status
+    statusContinuation.yield(status)
     emit(.connectionStatusChanged(status))
   }
 

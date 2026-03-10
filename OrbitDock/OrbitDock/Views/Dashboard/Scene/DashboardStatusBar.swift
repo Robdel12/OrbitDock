@@ -52,7 +52,7 @@ struct DashboardStatusBar: View {
 
   private var endpointStatuses: [ConnectionStatus] {
     enabledRuntimes.map { runtime in
-      runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.eventStream.connectionStatus
+      runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? .disconnected
     }
   }
 

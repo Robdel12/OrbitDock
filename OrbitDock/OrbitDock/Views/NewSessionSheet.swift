@@ -194,7 +194,6 @@ struct NewSessionSheet: View {
 
   private var endpointStatus: ConnectionStatus {
     runtimeRegistry.connectionStatusByEndpointId[selectedEndpointId]
-      ?? runtimeRegistry.runtimesByEndpointId[selectedEndpointId]?.eventStream.connectionStatus
       ?? .disconnected
   }
 

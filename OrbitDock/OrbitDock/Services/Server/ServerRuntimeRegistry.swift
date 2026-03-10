@@ -45,6 +45,25 @@ struct ServerClientIdentity: Equatable {
   }
 }
 
+struct ServerPrimaryClaimUpdate: Equatable {
+  let endpointId: UUID
+  let isPrimary: Bool
+}
+
+enum ServerPrimaryClaimPlanner {
+  static func updates(
+    enabledEndpointIds: [UUID],
+    primaryEndpointId: UUID?,
+    previousAssignments: [UUID: Bool]
+  ) -> [ServerPrimaryClaimUpdate] {
+    enabledEndpointIds.compactMap { endpointId in
+      let desired = primaryEndpointId == endpointId
+      guard previousAssignments[endpointId] != desired else { return nil }
+      return ServerPrimaryClaimUpdate(endpointId: endpointId, isPrimary: desired)
+    }
+  }
+}
+
 @Observable
 @MainActor
 final class ServerRuntimeRegistry {
@@ -55,6 +74,7 @@ final class ServerRuntimeRegistry {
   private let clientIdentityProvider: () -> ServerClientIdentity
   private let shouldBootstrapFromSettings: Bool
   private(set) var runtimesByEndpointId: [UUID: ServerRuntime] = [:]
+  private(set) var connectionStatusByEndpointId: [UUID: ConnectionStatus] = [:]
   private(set) var activeEndpointId: UUID?
   private(set) var primaryEndpointId: UUID?
   private(set) var hasPrimaryEndpointConflict = false
@@ -68,6 +88,8 @@ final class ServerRuntimeRegistry {
     )
   }()
   @ObservationIgnored private var statusObserverTasks: [UUID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var primaryClaimTasks: [UUID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var primaryClaimAssignments: [UUID: Bool] = [:]
 
   init() {
     endpointsProvider = { ServerEndpointSettings.endpoints }
@@ -129,14 +151,6 @@ final class ServerRuntimeRegistry {
     return fallbackSessionStore
   }
 
-  var connectionStatusByEndpointId: [UUID: ConnectionStatus] {
-    var result: [UUID: ConnectionStatus] = [:]
-    for (id, runtime) in runtimesByEndpointId {
-      result[id] = runtime.eventStream.connectionStatus
-    }
-    return result
-  }
-
   var serverPrimaryByEndpointId: [UUID: Bool] {
     var result: [UUID: Bool] = [:]
     for (id, runtime) in runtimesByEndpointId {
@@ -159,15 +173,15 @@ final class ServerRuntimeRegistry {
   }
 
   var connectedRuntimeCount: Int {
-    runtimes.filter {
-      if case .connected = $0.eventStream.connectionStatus { return true }
+    connectionStatusByEndpointId.values.filter {
+      if case .connected = $0 { return true }
       return false
     }.count
   }
 
   var activeConnectionStatus: ConnectionStatus {
     guard let activeEndpointId else { return .disconnected }
-    return runtimesByEndpointId[activeEndpointId]?.eventStream.connectionStatus ?? .disconnected
+    return connectionStatusByEndpointId[activeEndpointId] ?? .disconnected
   }
 
   func configureFromSettings(startEnabled: Bool) {
@@ -179,6 +193,10 @@ final class ServerRuntimeRegistry {
       runtimesByEndpointId[id] = nil
       statusObserverTasks[id]?.cancel()
       statusObserverTasks[id] = nil
+      primaryClaimTasks[id]?.cancel()
+      primaryClaimTasks[id] = nil
+      primaryClaimAssignments[id] = nil
+      connectionStatusByEndpointId[id] = nil
     }
 
     for endpoint in configuredEndpoints {
@@ -190,10 +208,12 @@ final class ServerRuntimeRegistry {
 
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
+          bindRuntimeState(replacement)
         }
       } else {
         let runtime = runtimeFactory(endpoint)
         runtimesByEndpointId[endpoint.id] = runtime
+        bindRuntimeState(runtime)
       }
     }
 
@@ -232,11 +252,33 @@ final class ServerRuntimeRegistry {
 
     if isPrimary {
       for runtime in runtimesByEndpointId.values where runtime.endpoint.id != endpointId && runtime.endpoint.isEnabled {
-        runtime.sessionStore.setServerRole(isPrimary: false)
+        Task {
+          do {
+            _ = try await runtime.sessionStore.setServerRole(isPrimary: false)
+          } catch {
+            netLog(
+              .error,
+              cat: .store,
+              "Set server role failed",
+              data: ["endpointId": runtime.endpoint.id.uuidString, "error": error.localizedDescription]
+            )
+          }
+        }
       }
     }
 
-    targetRuntime.sessionStore.setServerRole(isPrimary: isPrimary)
+    Task {
+      do {
+        _ = try await targetRuntime.sessionStore.setServerRole(isPrimary: isPrimary)
+      } catch {
+        netLog(
+          .error,
+          cat: .store,
+          "Set server role failed",
+          data: ["endpointId": endpointId.uuidString, "error": error.localizedDescription]
+        )
+      }
+    }
   }
 
   func stop(endpointId: UUID) {
@@ -310,6 +352,7 @@ final class ServerRuntimeRegistry {
       let endpoint = ServerEndpoint.localDefault(defaultPort: ServerEndpointSettings.defaultPort)
       let runtime = runtimeFactory(endpoint)
       runtimesByEndpointId[endpoint.id] = runtime
+      bindRuntimeState(runtime)
     }
 
     if activeEndpointId == nil {
@@ -362,14 +405,61 @@ final class ServerRuntimeRegistry {
 
   private func syncClientPrimaryClaims() {
     let identity = clientIdentityProvider()
-    guard let primaryEndpointId else { return }
+    let enabledRuntimes = runtimesByEndpointId.values
+      .filter(\.endpoint.isEnabled)
+      .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
+    let enabledEndpointIds = enabledRuntimes.map(\.endpoint.id)
 
-    for runtime in runtimesByEndpointId.values where runtime.endpoint.isEnabled {
-      runtime.sessionStore.setClientPrimaryClaim(
-        clientId: identity.clientId,
-        deviceName: identity.deviceName,
-        isPrimary: runtime.endpoint.id == primaryEndpointId
-      )
+    for endpointId in primaryClaimAssignments.keys where !enabledEndpointIds.contains(endpointId) {
+      primaryClaimAssignments[endpointId] = nil
+      primaryClaimTasks[endpointId]?.cancel()
+      primaryClaimTasks[endpointId] = nil
+    }
+
+    let updates = ServerPrimaryClaimPlanner.updates(
+      enabledEndpointIds: enabledEndpointIds,
+      primaryEndpointId: primaryEndpointId,
+      previousAssignments: primaryClaimAssignments
+    )
+
+    for update in updates {
+      primaryClaimAssignments[update.endpointId] = update.isPrimary
+      primaryClaimTasks[update.endpointId]?.cancel()
+
+      guard let runtime = runtimesByEndpointId[update.endpointId] else { continue }
+      primaryClaimTasks[update.endpointId] = Task {
+        do {
+          try await runtime.sessionStore.setClientPrimaryClaim(
+            clientId: identity.clientId,
+            deviceName: identity.deviceName,
+            isPrimary: update.isPrimary
+          )
+        } catch {
+          netLog(
+            .error,
+            cat: .store,
+            "Set client primary claim failed",
+            data: [
+              "endpointId": update.endpointId.uuidString,
+              "isPrimary": String(update.isPrimary),
+              "error": error.localizedDescription,
+            ]
+          )
+        }
+      }
+    }
+  }
+
+  private func bindRuntimeState(_ runtime: ServerRuntime) {
+    let endpointId = runtime.endpoint.id
+    connectionStatusByEndpointId[endpointId] = runtime.eventStream.connectionStatus
+    statusObserverTasks[endpointId]?.cancel()
+    statusObserverTasks[endpointId] = Task { [weak self] in
+      guard let self else { return }
+      for await status in runtime.eventStream.statusUpdates {
+        guard !Task.isCancelled else { break }
+        self.connectionStatusByEndpointId[endpointId] = status
+      }
     }
   }
 }

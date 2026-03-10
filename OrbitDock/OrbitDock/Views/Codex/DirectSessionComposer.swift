@@ -150,7 +150,7 @@ struct DirectSessionComposer: View {
   }
 
   var connectionStatus: ConnectionStatus {
-    runtimeRegistry.connectionStatusByEndpointId[serverState.endpointId] ?? serverState.eventStream.connectionStatus
+    runtimeRegistry.connectionStatusByEndpointId[serverState.endpointId] ?? .disconnected
   }
 
   var isConnected: Bool {

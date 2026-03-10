@@ -166,6 +166,26 @@ struct ServerRuntimeRegistryTests {
     #expect(ServerRuntimeRegistry.preferredActiveEndpointID(from: [disabledDefault, enabled]) == enabled.id)
   }
 
+  @Test func primaryClaimPlannerOnlyReturnsChangedAssignmentsForEnabledEndpoints() throws {
+    let endpointA = try #require(UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+    let endpointB = try #require(UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"))
+    let endpointC = try #require(UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc"))
+
+    let updates = ServerPrimaryClaimPlanner.updates(
+      enabledEndpointIds: [endpointA, endpointB],
+      primaryEndpointId: endpointB,
+      previousAssignments: [
+        endpointA: false,
+        endpointB: false,
+        endpointC: true,
+      ]
+    )
+
+    #expect(updates == [
+      ServerPrimaryClaimUpdate(endpointId: endpointB, isPrimary: true)
+    ])
+  }
+
   private func makeMessage(id: String, content: String) -> TranscriptMessage {
     TranscriptMessage(
       id: id,

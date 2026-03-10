@@ -85,7 +85,7 @@ struct SettingsView: View {
 
   private var connectedEndpointCount: Int {
     runtimeRegistry.runtimes.filter { runtime in
-      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.eventStream.connectionStatus
+      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? .disconnected
       if case .connected = status {
         return true
       }
@@ -1279,7 +1279,7 @@ struct DebugSettingsView: View {
 
   private var connectedEndpointCount: Int {
     runtimeRegistry.runtimes.filter { runtime in
-      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.eventStream.connectionStatus
+      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? .disconnected
       if case .connected = status {
         return true
       }

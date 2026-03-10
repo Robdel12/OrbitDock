@@ -489,26 +489,19 @@ final class SessionStore {
     lastServerError = nil
   }
 
-  func setServerRole(isPrimary: Bool) {
-    Task {
-      do {
-        _ = try await apiClient.setServerRole(isPrimary: isPrimary)
-      } catch {
-        netLog(.error, cat: .store, "Set server role failed", data: ["error": error.localizedDescription])
-      }
-    }
+  @discardableResult
+  func setServerRole(isPrimary: Bool) async throws -> Bool {
+    let updatedPrimary = try await apiClient.setServerRole(isPrimary: isPrimary)
+    serverIsPrimary = updatedPrimary
+    return updatedPrimary
   }
 
-  func setClientPrimaryClaim(clientId: String, deviceName: String, isPrimary: Bool) {
-    Task {
-      do {
-        try await apiClient.setClientPrimaryClaim(
-          clientId: clientId, deviceName: deviceName, isPrimary: isPrimary
-        )
-      } catch {
-        netLog(.error, cat: .store, "Set client primary claim failed", data: ["error": error.localizedDescription])
-      }
-    }
+  func setClientPrimaryClaim(clientId: String, deviceName: String, isPrimary: Bool) async throws {
+    try await apiClient.setClientPrimaryClaim(
+      clientId: clientId,
+      deviceName: deviceName,
+      isPrimary: isPrimary
+    )
   }
 
   /// Whether this endpoint has a remote (non-localhost) server.
