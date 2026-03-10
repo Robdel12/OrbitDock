@@ -255,62 +255,18 @@ struct QuickSwitcher: View {
   }
 
   private func commandRow(command: QuickSwitcherCommand, index: Int) -> some View {
-    let iconSize: CGFloat = isCompactLayout ? 28 : 32
-
-    return Button {
-      runCommand(command)
-    } label: {
-      HStack(spacing: isCompactLayout ? Spacing.md_ : Spacing.lg_) {
-        // Icon in colored container
-        ZStack {
-          RoundedRectangle(cornerRadius: isCompactLayout ? 7 : 8, style: .continuous)
-            .fill(Color.accent.opacity(0.1))
-            .frame(width: iconSize, height: iconSize)
-
-          Image(systemName: command.icon)
-            .font(.system(size: isCompactLayout ? TypeScale.body : TypeScale.subhead, weight: .medium))
-            .foregroundStyle(Color.accent.opacity(0.8))
-        }
-
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text(command.name)
-            .font(.system(size: isCompactLayout ? TypeScale.title : TypeScale.subhead, weight: .medium))
-            .foregroundStyle(.primary)
-
-          if command.requiresSession {
-            Text("Applies to selected session")
-              .font(.system(size: isCompactLayout ? TypeScale.caption : TypeScale.meta))
-              .foregroundStyle(Color.textTertiary)
-          }
-        }
-
-        Spacer()
-
-        if !isCompactLayout, let shortcut = command.shortcut {
-          Text(shortcut)
-            .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
-            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
-        }
+    QuickSwitcherCommandRow(
+      command: command,
+      isCompactLayout: isCompactLayout,
+      isSelected: selectedIndex == index,
+      isHovered: hoveredIndex == index,
+      onHoverChanged: { isHovered in
+        hoveredIndex = isHovered ? index : nil
+      },
+      onRun: {
+        runCommand(command)
       }
-      .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
-      .padding(.vertical, isCompactLayout ? Spacing.md_ : Spacing.md)
-      .background(
-        QuickSwitcherRowBackground(
-          isSelected: selectedIndex == index,
-          isHovered: hoveredIndex == index
-        )
-      )
-      .padding(.horizontal, isCompactLayout ? Spacing.xs : Spacing.sm)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .onHover { isHovered in
-      guard !isCompactLayout else { return }
-      hoveredIndex = isHovered ? index : nil
-    }
+    )
   }
 
   private func runCommand(_ command: QuickSwitcherCommand) {
@@ -596,61 +552,19 @@ struct QuickSwitcher: View {
 
   /// Dashboard row
   private var dashboardRow: some View {
-    let iconSize: CGFloat = isCompactLayout ? 28 : 32
-
-    return Button {
-      Platform.services.playHaptic(.navigation)
-      router.goToDashboard()
-      router.closeQuickSwitcher()
-    } label: {
-      HStack(spacing: isCompactLayout ? Spacing.md_ : Spacing.lg_) {
-        ZStack {
-          RoundedRectangle(cornerRadius: isCompactLayout ? 7 : 8, style: .continuous)
-            .fill(Color.accent.opacity(0.15))
-            .frame(width: iconSize, height: iconSize)
-
-          Image(systemName: "square.grid.2x2")
-            .font(.system(size: isCompactLayout ? TypeScale.body : TypeScale.subhead, weight: .semibold))
-            .foregroundStyle(Color.accent)
-        }
-
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text("Dashboard")
-            .font(.system(size: isCompactLayout ? TypeScale.title : TypeScale.subhead, weight: .semibold))
-            .foregroundStyle(.primary)
-
-          Text("View all agents overview")
-            .font(.system(size: isCompactLayout ? TypeScale.caption : TypeScale.meta))
-            .foregroundStyle(Color.textTertiary)
-        }
-
-        Spacer()
-
-        if !isCompactLayout {
-          Text("⌘0")
-            .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
-            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
-        }
+    QuickSwitcherDashboardRow(
+      isCompactLayout: isCompactLayout,
+      isSelected: selectedIndex == dashboardIndex,
+      isHovered: hoveredIndex == dashboardIndex,
+      onHoverChanged: { isHovered in
+        hoveredIndex = isHovered ? dashboardIndex : nil
+      },
+      onSelect: {
+        Platform.services.playHaptic(.navigation)
+        router.goToDashboard()
+        router.closeQuickSwitcher()
       }
-      .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
-      .padding(.vertical, Spacing.md_)
-      .background(
-        QuickSwitcherRowBackground(
-          isSelected: selectedIndex == dashboardIndex,
-          isHovered: hoveredIndex == dashboardIndex
-        )
-      )
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .onHover { isHovered in
-      guard !isCompactLayout else { return }
-      hoveredIndex = isHovered ? dashboardIndex : nil
-    }
-    .padding(.horizontal, isCompactLayout ? Spacing.xs : Spacing.sm)
+    )
   }
 
   // MARK: - Switcher Row
@@ -688,83 +602,16 @@ struct QuickSwitcher: View {
   // MARK: - Empty State
 
   private var emptyState: some View {
-    let circleSize: CGFloat = isCompactLayout ? 44 : 56
-    let iconSize: CGFloat = isCompactLayout ? 20 : 24
-
-    return VStack(spacing: isCompactLayout ? Spacing.md : Spacing.lg) {
-      ZStack {
-        Circle()
-          .fill(Color.backgroundTertiary)
-          .frame(width: circleSize, height: circleSize)
-
-        Image(systemName: "magnifyingglass")
-          .font(.system(size: iconSize, weight: .medium))
-          .foregroundStyle(Color.textQuaternary)
-      }
-
-      VStack(spacing: Spacing.xs) {
-        Text("No agents found")
-          .font(.system(size: isCompactLayout ? TypeScale.title : TypeScale.subhead, weight: .medium))
-          .foregroundStyle(Color.textSecondary)
-
-        if !searchText.isEmpty {
-          Text("Try a different search term")
-            .font(.system(size: isCompactLayout ? TypeScale.body : TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
-        }
-      }
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, isCompactLayout ? 36 : 48)
+    QuickSwitcherEmptyState(
+      isCompactLayout: isCompactLayout,
+      searchText: searchText
+    )
   }
 
   // MARK: - Footer
 
   private var footerHint: some View {
-    HStack(spacing: 0) {
-      hintItem(keys: "↑↓", label: "Navigate")
-      footerDivider
-
-      if quickLaunchMode != nil {
-        hintItem(keys: "↵", label: "Launch")
-        footerDivider
-        hintItem(keys: "⇧↵", label: "Full Sheet")
-      } else {
-        hintItem(keys: "↵", label: "Select")
-        footerDivider
-        hintItem(keys: "⌘R", label: "Rename")
-      }
-
-      footerDivider
-      hintItem(keys: "esc", label: "Close")
-
-      Spacer()
-    }
-    .padding(.horizontal, Spacing.section)
-    .padding(.vertical, Spacing.md)
-    .background(Color.backgroundTertiary.opacity(0.3))
-  }
-
-  private var footerDivider: some View {
-    Rectangle()
-      .fill(Color.panelBorder)
-      .frame(width: 1, height: Spacing.lg_)
-      .padding(.horizontal, Spacing.md)
-  }
-
-  private func hintItem(keys: String, label: String) -> some View {
-    HStack(spacing: Spacing.sm_) {
-      Text(keys)
-        .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, Spacing.sm_)
-        .padding(.vertical, Spacing.gap)
-        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
-
-      Text(label)
-        .font(.system(size: TypeScale.meta))
-        .foregroundStyle(Color.textTertiary)
-    }
+    QuickSwitcherFooterHint(isQuickLaunchMode: quickLaunchMode != nil)
   }
 
   // MARK: - Helpers
