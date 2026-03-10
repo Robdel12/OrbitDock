@@ -79,35 +79,33 @@ struct SettingsView: View {
     self.showsCloseButton = showsCloseButton
   }
 
-  private var enabledEndpointCount: Int {
-    runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
-  }
-
-  private var connectedEndpointCount: Int {
-    runtimeRegistry.runtimes.filter { runtime in
+  private var endpointHealthSummary: SettingsEndpointHealthSummary {
+    let endpointCount = runtimeRegistry.runtimes.count
+    let enabledEndpointCount = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
+    let connectedEndpointCount = runtimeRegistry.runtimes.filter { runtime in
       let status = runtimeRegistry.displayConnectionStatus(for: runtime.endpoint.id)
       if case .connected = status {
         return true
       }
       return false
     }.count
+
+    return SettingsEndpointHealthSummary.make(
+      endpointCount: endpointCount,
+      enabledEndpointCount: enabledEndpointCount,
+      connectedEndpointCount: connectedEndpointCount
+    )
   }
 
   private var endpointHealthColor: Color {
-    if enabledEndpointCount > 0, connectedEndpointCount == enabledEndpointCount {
-      return Color.feedbackPositive
+    switch endpointHealthSummary.tone {
+      case .positive:
+        Color.feedbackPositive
+      case .mixed:
+        Color.statusQuestion
+      case .warning:
+        Color.statusPermission
     }
-    if connectedEndpointCount > 0 {
-      return Color.statusQuestion
-    }
-    return Color.statusPermission
-  }
-
-  private var endpointHealthText: String {
-    if enabledEndpointCount == 0 {
-      return "No enabled endpoints"
-    }
-    return "\(connectedEndpointCount)/\(enabledEndpointCount) connected"
   }
 
   private var usesCompactLayout: Bool {
@@ -188,7 +186,7 @@ struct SettingsView: View {
             .foregroundStyle(Color.textSecondary)
         }
 
-        Text(endpointHealthText)
+        Text(endpointHealthSummary.shortText)
           .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
       }
@@ -1271,39 +1269,33 @@ struct DebugSettingsView: View {
     runtimeRegistry.activeConnectionStatus
   }
 
-  private var endpointCount: Int {
-    runtimeRegistry.runtimes.count
-  }
-
-  private var enabledEndpointCount: Int {
-    runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
-  }
-
-  private var connectedEndpointCount: Int {
-    runtimeRegistry.runtimes.filter { runtime in
+  private var endpointHealthSummary: SettingsEndpointHealthSummary {
+    let endpointCount = runtimeRegistry.runtimes.count
+    let enabledEndpointCount = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
+    let connectedEndpointCount = runtimeRegistry.runtimes.filter { runtime in
       let status = runtimeRegistry.displayConnectionStatus(for: runtime.endpoint.id)
       if case .connected = status {
         return true
       }
       return false
     }.count
+
+    return SettingsEndpointHealthSummary.make(
+      endpointCount: endpointCount,
+      enabledEndpointCount: enabledEndpointCount,
+      connectedEndpointCount: connectedEndpointCount
+    )
   }
 
   private var endpointStatusColor: Color {
-    if enabledEndpointCount > 0, connectedEndpointCount == enabledEndpointCount {
-      return Color.feedbackPositive
+    switch endpointHealthSummary.tone {
+      case .positive:
+        Color.feedbackPositive
+      case .mixed:
+        Color.statusQuestion
+      case .warning:
+        Color.statusPermission
     }
-    if connectedEndpointCount > 0 {
-      return Color.statusQuestion
-    }
-    return Color.statusPermission
-  }
-
-  private var endpointStatusText: String {
-    if enabledEndpointCount == 0 {
-      return "No enabled endpoints"
-    }
-    return "\(connectedEndpointCount) of \(enabledEndpointCount) enabled connected"
   }
 
   var body: some View {
@@ -1316,10 +1308,10 @@ struct DebugSettingsView: View {
               .foregroundStyle(endpointStatusColor)
 
             VStack(alignment: .leading, spacing: Spacing.gap) {
-              Text(endpointStatusText)
+              Text(endpointHealthSummary.detailedText)
                 .font(.system(size: TypeScale.body))
                 .foregroundStyle(.primary)
-              Text("\(endpointCount) total endpoints configured")
+              Text("\(endpointHealthSummary.endpointCount) total endpoints configured")
                 .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color.textTertiary)
             }
