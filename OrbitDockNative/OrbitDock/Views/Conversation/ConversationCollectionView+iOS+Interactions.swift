@@ -1,5 +1,7 @@
 #if os(iOS)
 
+  import UIKit
+
   extension ConversationCollectionViewController {
     func toggleThinkingExpansion(messageID: String) {
       if expandedThinkingIDs.contains(messageID) {
@@ -60,10 +62,22 @@
 
     func cancelShellCommand(requestID: String) {
       guard let serverState, let sessionId else { return }
-      if let msg = messagesByID[requestID], msg.toolName?.lowercased() == "task" {
-        serverState.stopTask(sessionId: sessionId, taskId: requestID)
-      } else {
-        serverState.cancelShell(sessionId: sessionId, requestId: requestID)
+      Task { @MainActor in
+        do {
+          if let msg = messagesByID[requestID], msg.toolName?.lowercased() == "task" {
+            try await serverState.stopTask(sessionId, taskId: requestID)
+          } else {
+            try await serverState.cancelShell(sessionId, requestId: requestID)
+          }
+        } catch {
+          netLog(
+            .error,
+            cat: .conv,
+            "Cancel shell command failed",
+            sid: sessionId,
+            data: ["requestId": requestID, "error": error.localizedDescription]
+          )
+        }
       }
     }
   }

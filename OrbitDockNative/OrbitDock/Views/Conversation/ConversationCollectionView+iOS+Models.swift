@@ -1,5 +1,7 @@
 #if os(iOS)
 
+  import Foundation
+
   extension ConversationCollectionViewController {
     func buildApprovalCardModel() -> ApprovalCardModel? {
       guard let sid = sessionId,

@@ -387,7 +387,12 @@
           )
       }
 
-      bodyContainer.frame = CGRect(x: 0, y: presentation.bodyOriginY, width: width, height: renderPlan.bodyHeight)
+      bodyContainer.frame = CGRect(
+        x: 0,
+        y: presentation.bodyOriginY,
+        width: contentView.bounds.width,
+        height: renderPlan.bodyHeight
+      )
     }
 
     private func configureStreamingTextView(_ attributedText: NSAttributedString, frame: CGRect) {

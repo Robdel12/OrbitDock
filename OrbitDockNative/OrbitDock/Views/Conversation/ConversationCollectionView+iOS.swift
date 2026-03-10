@@ -143,6 +143,10 @@ import SwiftUI
   // MARK: - iOS ViewController
 
   class ConversationCollectionViewController: UIViewController {
+    static func formatWidth(_ value: CGFloat) -> String {
+      String(format: "%.1f", value)
+    }
+
     var coordinator: ConversationCollectionView.Coordinator?
     var serverState: SessionStore?
     var openFileInReview: ((String) -> Void)?
@@ -159,10 +163,10 @@ import SwiftUI
     var uiState = ConversationUIState()
     var messagesByID: [String: TranscriptMessage] = [:]
     var turnsByID: [String: TurnSummary] = [:]
-    private var projectionResult = ProjectionResult.empty
-    private var currentRows: [TimelineRow] = []
-    private var rowIndexByTimelineRowID: [TimelineRowID: Int] = [:]
-    private var previousMessageCount = 0
+    var projectionResult = ProjectionResult.empty
+    var currentRows: [TimelineRow] = []
+    var rowIndexByTimelineRowID: [TimelineRowID: Int] = [:]
+    var previousMessageCount = 0
 
     /// Convenience accessors
     var currentMessages: [TranscriptMessage] {
@@ -173,29 +177,29 @@ import SwiftUI
       sourceState.metadata.chatViewMode
     }
 
-    private var collectionView: UICollectionView!
-    private var dataSource: UICollectionViewDiffableDataSource<ConversationSection, TimelineRowID>!
+    var collectionView: UICollectionView!
+    var dataSource: UICollectionViewDiffableDataSource<ConversationSection, TimelineRowID>!
 
     // Cell registrations
-    private var messageCellReg: UICollectionView.CellRegistration<UIKitRichMessageCell, String>!
-    private var compactToolCellReg: UICollectionView.CellRegistration<UIKitCompactToolCell, String>!
-    private var expandedToolCellReg: UICollectionView.CellRegistration<UIKitExpandedToolCell, String>!
-    private var turnHeaderCellReg: UICollectionView.CellRegistration<UIKitTurnHeaderCell, String>!
-    private var rollupSummaryCellReg: UICollectionView.CellRegistration<UIKitRollupSummaryCell, String>!
-    private var loadMoreCellReg: UICollectionView.CellRegistration<UIKitLoadMoreCell, Void>!
-    private var messageCountCellReg: UICollectionView.CellRegistration<UIKitMessageCountCell, Void>!
-    private var liveIndicatorCellReg: UICollectionView.CellRegistration<UIKitLiveIndicatorCell, Void>!
-    private var liveProgressCellReg: UICollectionView.CellRegistration<UIKitLiveProgressCell, Void>!
-    private var approvalCardCellReg: UICollectionView.CellRegistration<UIKitApprovalCardCell, Void>!
-    private var collapsedTurnCellReg: UICollectionView.CellRegistration<UIKitCollapsedTurnCell, String>!
-    private var spacerCellReg: UICollectionView.CellRegistration<UIKitSpacerCell, Void>!
+    var messageCellReg: UICollectionView.CellRegistration<UIKitRichMessageCell, String>!
+    var compactToolCellReg: UICollectionView.CellRegistration<UIKitCompactToolCell, String>!
+    var expandedToolCellReg: UICollectionView.CellRegistration<UIKitExpandedToolCell, String>!
+    var turnHeaderCellReg: UICollectionView.CellRegistration<UIKitTurnHeaderCell, String>!
+    var rollupSummaryCellReg: UICollectionView.CellRegistration<UIKitRollupSummaryCell, String>!
+    var loadMoreCellReg: UICollectionView.CellRegistration<UIKitLoadMoreCell, Void>!
+    var messageCountCellReg: UICollectionView.CellRegistration<UIKitMessageCountCell, Void>!
+    var liveIndicatorCellReg: UICollectionView.CellRegistration<UIKitLiveIndicatorCell, Void>!
+    var liveProgressCellReg: UICollectionView.CellRegistration<UIKitLiveProgressCell, Void>!
+    var approvalCardCellReg: UICollectionView.CellRegistration<UIKitApprovalCardCell, Void>!
+    var collapsedTurnCellReg: UICollectionView.CellRegistration<UIKitCollapsedTurnCell, String>!
+    var spacerCellReg: UICollectionView.CellRegistration<UIKitSpacerCell, Void>!
 
     private var needsInitialScroll = true
-    private var expandedThinkingIDs: Set<String> = []
+    var expandedThinkingIDs: Set<String> = []
     /// Cached heights keyed by TimelineRowID. Invalidated on width change.
-    private var heightCache: [TimelineRowID: CGFloat] = [:]
+    var heightCache: [TimelineRowID: CGFloat] = [:]
     private var lastLayoutWidth: CGFloat = 0
-    private let logger = TimelineFileLogger.shared
+    let logger = TimelineFileLogger.shared
 
     override func viewDidLoad() {
       super.viewDidLoad()
@@ -330,7 +334,7 @@ import SwiftUI
       logger.info(
         "rebuildSnapshot rows=\(currentRows.count) msgs=\(sourceState.messages.count) "
           + "turns=\(sourceState.turns.count) mode=\(chatViewMode) "
-          + "w=\(Self.f(collectionView.bounds.width))"
+          + "w=\(Self.formatWidth(collectionView.bounds.width))"
       )
 
       heightCache.removeAll()

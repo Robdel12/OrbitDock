@@ -75,6 +75,7 @@ struct DebugSettingsView: View {
         }
 
         SettingsSection(title: "SERVER", icon: "server.rack") {
+          #if os(macOS)
           HStack {
             Circle()
               .fill(installStateColor)
@@ -93,6 +94,11 @@ struct DebugSettingsView: View {
               .font(.system(size: TypeScale.meta))
               .foregroundStyle(Color.statusError)
           }
+          #else
+            Text("Local server install controls are available on macOS.")
+              .font(.system(size: TypeScale.body))
+              .foregroundStyle(Color.textSecondary)
+          #endif
         }
 
         SettingsSection(title: "CONNECTION", icon: "bolt.horizontal") {
@@ -108,6 +114,7 @@ struct DebugSettingsView: View {
           }
 
           HStack {
+            #if os(macOS)
             VStack(alignment: .leading, spacing: Spacing.xs) {
               Text("Binary")
                 .font(.system(size: TypeScale.body))
@@ -122,6 +129,15 @@ struct DebugSettingsView: View {
               Task { await serverManager.refreshState() }
             }
             .buttonStyle(.bordered)
+            #else
+              VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text("Binary")
+                  .font(.system(size: TypeScale.body))
+                Text("Managed by the connected server runtime")
+                  .font(.system(size: TypeScale.meta).monospaced())
+                  .foregroundStyle(Color.textTertiary)
+              }
+            #endif
           }
         }
       }
@@ -134,6 +150,7 @@ struct DebugSettingsView: View {
   }
 
   private var installStateColor: Color {
+    #if os(macOS)
     switch serverManager.installState {
       case .running: .feedbackPositive
       case .installed: .statusReply
@@ -141,9 +158,13 @@ struct DebugSettingsView: View {
       case .notConfigured: .statusEnded
       case .unknown: .statusEnded
     }
+    #else
+      .statusReply
+    #endif
   }
 
   private var installStateLabel: String {
+    #if os(macOS)
     switch serverManager.installState {
       case .running: "Server Running"
       case .installed: "Installed (Stopped)"
@@ -151,6 +172,9 @@ struct DebugSettingsView: View {
       case .notConfigured: "Not Configured"
       case .unknown: "Checking..."
     }
+    #else
+      "Managed by Connected Runtime"
+    #endif
   }
 
   @ViewBuilder

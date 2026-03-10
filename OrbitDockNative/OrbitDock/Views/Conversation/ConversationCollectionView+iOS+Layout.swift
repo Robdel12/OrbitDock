@@ -115,7 +115,7 @@
       return 44
     }
 
-    private func captureTopVisibleAnchor() -> (rowID: TimelineRowID, delta: Double)? {
+    func captureTopVisibleAnchor() -> (rowID: TimelineRowID, delta: Double)? {
       guard !currentRows.isEmpty else { return nil }
       let visiblePaths = collectionView.indexPathsForVisibleItems.sorted()
       guard let topPath = visiblePaths.first else { return nil }
@@ -127,7 +127,7 @@
       return (rowID: currentRows[row].id, delta: delta)
     }
 
-    private func restoreScrollAnchor(_ anchor: (rowID: TimelineRowID, delta: Double)) {
+    func restoreScrollAnchor(_ anchor: (rowID: TimelineRowID, delta: Double)) {
       guard let row = rowIndexByTimelineRowID[anchor.rowID], row >= 0, row < currentRows.count else { return }
       collectionView.layoutIfNeeded()
       let indexPath = IndexPath(item: row, section: 0)
@@ -168,7 +168,7 @@
       cardSpacing(forItem: item).heightExtra
     }
 
-    private func applyCardPosition(to cell: UICollectionViewCell, at indexPath: IndexPath) {
+    func applyCardPosition(to cell: UICollectionViewCell, at indexPath: IndexPath) {
       let spacing = cardSpacing(forItem: indexPath.item)
       let position = cardPosition(forItem: indexPath.item)
       switch cell {
