@@ -150,52 +150,63 @@ final class SessionStore {
 
     let conv = conversation(sessionId)
 
-    if !forceRefresh, conv.hasReceivedInitialData {
-      // Path 1: Retained snapshot — already have messages, just re-subscribe WS
-      netLog(.info, cat: .store, "Subscribe: Path 1 — retained snapshot, re-subscribing WS", sid: sessionId)
-      if recoveryGoal == .completeHistory {
-        Task {
-          _ = await conv.bootstrap(goal: recoveryGoal)
+    let plan = SessionFeedPlanner.subscriptionPlan(
+      forceRefresh: forceRefresh,
+      hasInitialConversationData: conv.hasReceivedInitialData,
+      hasCachedConversation: conversationCache[sessionId] != nil,
+      recoveryGoal: recoveryGoal
+    )
+
+    switch plan.strategy {
+      case .retainedSnapshot:
+        netLog(.info, cat: .store, "Subscribe: Path 1 — retained snapshot, re-subscribing WS", sid: sessionId)
+        if let goal = plan.deferredBootstrapGoal {
+          Task {
+            _ = await conv.bootstrap(goal: goal)
+          }
         }
-      }
-      eventStream.subscribeSession(
-        sessionId,
-        sinceRevision: nil,
-        includeSnapshot: false
-      )
-    } else if !forceRefresh, let cached = conversationCache.removeValue(forKey: sessionId) {
-      // Path 2: Cached messages — restore for instant display, subscribe for delta
-      netLog(.info, cat: .store, "Subscribe: Path 2 — restoring from cache, WS + HTTP reconcile", sid: sessionId)
-      conv.restoreFromCache(cached)
-      eventStream.subscribeSession(
-        sessionId,
-        sinceRevision: lastRevision[sessionId],
-        includeSnapshot: false
-      )
-      // Background reconcile via HTTP bootstrap
-      Task {
-        _ = await conv.bootstrap(goal: recoveryGoal)
-      }
-    } else {
-      // Path 3: Bootstrap — fresh HTTP load, then subscribe
-      netLog(.info, cat: .store, "Subscribe: Path 3 — fresh HTTP bootstrap", sid: sessionId)
-      Task {
-        let revision = await conv.bootstrap(goal: recoveryGoal)
         eventStream.subscribeSession(
           sessionId,
-          sinceRevision: revision,
+          sinceRevision: nil,
           includeSnapshot: false
         )
-      }
+
+      case .cachedSnapshot:
+        netLog(.info, cat: .store, "Subscribe: Path 2 — restoring from cache, WS + HTTP reconcile", sid: sessionId)
+        if let cached = conversationCache.removeValue(forKey: sessionId) {
+          conv.restoreFromCache(cached)
+        }
+        eventStream.subscribeSession(
+          sessionId,
+          sinceRevision: lastRevision[sessionId],
+          includeSnapshot: false
+        )
+        if let goal = plan.deferredBootstrapGoal {
+          Task {
+            _ = await conv.bootstrap(goal: goal)
+          }
+        }
+
+      case .freshBootstrap:
+        netLog(.info, cat: .store, "Subscribe: Path 3 — fresh HTTP bootstrap", sid: sessionId)
+        Task {
+          let revision = await conv.bootstrap(goal: recoveryGoal)
+          eventStream.subscribeSession(
+            sessionId,
+            sinceRevision: revision,
+            includeSnapshot: false
+          )
+        }
     }
 
-    // Fetch approval history
-    Task {
-      do {
-        let response = try await clients.approvals.listApprovals(sessionId: sessionId, limit: 200)
-        session(sessionId).approvalHistory = response.approvals
-      } catch {
-        netLog(.error, cat: .store, "Load approvals failed", sid: sessionId, data: ["error": error.localizedDescription])
+    if plan.shouldFetchApprovals {
+      Task {
+        do {
+          let response = try await clients.approvals.listApprovals(sessionId: sessionId, limit: 200)
+          session(sessionId).approvalHistory = response.approvals
+        } catch {
+          netLog(.error, cat: .store, "Load approvals failed", sid: sessionId, data: ["error": error.localizedDescription])
+        }
       }
     }
   }

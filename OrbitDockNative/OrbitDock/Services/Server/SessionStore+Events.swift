@@ -380,19 +380,30 @@ extension SessionStore {
   }
 
   func handleConnectionStatusChanged(_ status: ConnectionStatus) {
-    if status == .connected {
+    guard let plan = SessionFeedPlanner.connectionRecoveryPlan(
+      status: status,
+      subscribedSessionIds: subscribedSessions,
+      sessionHasInitialConversationData: Dictionary(
+        uniqueKeysWithValues: subscribedSessions.map { ($0, conversation($0).hasReceivedInitialData) }
+      ),
+      lastRevisionBySession: lastRevision
+    ) else {
+      return
+    }
+
+    if plan.shouldResetInitialSessionsList {
       setHasReceivedInitialSessionsList(false)
-      eventStream.subscribeList()
-      for sessionId in subscribedSessions {
-        let shouldIncludeSnapshot = !conversation(sessionId).hasReceivedInitialData
-        eventStream.subscribeSession(
-          sessionId,
-          sinceRevision: lastRevision[sessionId],
-          includeSnapshot: shouldIncludeSnapshot
-        )
-      }
-    } else if status == .disconnected {
-      setHasReceivedInitialSessionsList(false)
+    }
+
+    guard plan.shouldSubscribeList else { return }
+
+    eventStream.subscribeList()
+    for request in plan.replayRequests {
+      eventStream.subscribeSession(
+        request.sessionId,
+        sinceRevision: request.sinceRevision,
+        includeSnapshot: request.includeSnapshot
+      )
     }
   }
 

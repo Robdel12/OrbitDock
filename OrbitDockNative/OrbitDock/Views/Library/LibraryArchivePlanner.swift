@@ -188,7 +188,7 @@ enum LibraryArchivePlanner {
     LibraryArchiveSummary(
       projectCount: Set(sessions.map(\.groupingPath)).count,
       sessionCount: sessions.count,
-      liveCount: sessions.filter(\.showsInMissionControl).count,
+      liveCount: sessions.filter(isLiveSession(_:)).count,
       endpointCount: Set(sessions.compactMap(\.endpointId)).count
     )
   }
@@ -230,11 +230,11 @@ enum LibraryArchivePlanner {
         ?? "Unknown"
 
       let liveSessions = projectSessions
-        .filter(\.showsInMissionControl)
+        .filter(isLiveSession(_:))
         .sorted { activityDate(for: $0) > activityDate(for: $1) }
 
       let archivedSessions = projectSessions
-        .filter { !$0.showsInMissionControl }
+        .filter { !isLiveSession($0) }
         .sorted { lhs, rhs in
           if lhs.isActive != rhs.isActive {
             return lhs.isActive && !rhs.isActive
@@ -279,5 +279,9 @@ enum LibraryArchivePlanner {
 
   static func activityDate(for session: Session) -> Date {
     session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
+  }
+
+  static func isLiveSession(_ session: Session) -> Bool {
+    session.isActive && session.hasLiveEndpointConnection
   }
 }

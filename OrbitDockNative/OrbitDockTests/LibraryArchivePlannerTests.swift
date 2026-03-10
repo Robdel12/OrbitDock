@@ -82,47 +82,50 @@ struct LibraryArchivePlannerTests {
     let recent = Date(timeIntervalSince1970: 20)
     let older = Date(timeIntervalSince1970: 10)
     let oldest = Date(timeIntervalSince1970: 5)
+    let liveSession = makeSession(
+      id: "live-one",
+      endpointId: endpointA,
+      endpointName: "Local",
+      provider: .claude,
+      projectPath: "/tmp/printer",
+      status: .active,
+      workStatus: .working,
+      totalTokens: 1_500,
+      totalCostUSD: 1.25,
+      lastActivityAt: recent,
+      connectionStatus: .connected
+    )
+    let cachedActiveSession = makeSession(
+      id: "cached-active",
+      endpointId: endpointA,
+      endpointName: "Local",
+      provider: .claude,
+      projectPath: "/tmp/printer",
+      status: .active,
+      workStatus: .waiting,
+      totalTokens: 700,
+      totalCostUSD: 0.50,
+      lastActivityAt: older,
+      connectionStatus: .disconnected
+    )
+    let archivedSession = makeSession(
+      id: "archive",
+      endpointId: endpointA,
+      endpointName: "Local",
+      provider: .codex,
+      projectPath: "/tmp/router",
+      status: .ended,
+      workStatus: .waiting,
+      totalTokens: 100,
+      totalCostUSD: 0.05,
+      lastActivityAt: oldest
+    )
+
+    #expect(liveSession.showsInMissionControl)
+    #expect(!cachedActiveSession.showsInMissionControl)
 
     let groups = LibraryArchivePlanner.projectGroups(
-      sessions: [
-        makeSession(
-          id: "live-one",
-          endpointId: endpointA,
-          endpointName: "Local",
-          provider: .claude,
-          projectPath: "/tmp/printer",
-          status: .active,
-          workStatus: .working,
-          totalTokens: 1_500,
-          totalCostUSD: 1.25,
-          lastActivityAt: recent
-        ),
-        makeSession(
-          id: "cached-active",
-          endpointId: endpointA,
-          endpointName: "Local",
-          provider: .claude,
-          projectPath: "/tmp/printer",
-          status: .active,
-          workStatus: .waiting,
-          totalTokens: 700,
-          totalCostUSD: 0.50,
-          lastActivityAt: older,
-          connectionStatus: .disconnected
-        ),
-        makeSession(
-          id: "archive",
-          endpointId: endpointA,
-          endpointName: "Local",
-          provider: .codex,
-          projectPath: "/tmp/router",
-          status: .ended,
-          workStatus: .waiting,
-          totalTokens: 100,
-          totalCostUSD: 0.05,
-          lastActivityAt: oldest
-        ),
-      ],
+      sessions: [liveSession, cachedActiveSession, archivedSession],
       sort: .status
     )
 
@@ -133,6 +136,42 @@ struct LibraryArchivePlannerTests {
     #expect(firstGroup.cachedActiveSessionCount == 1)
     #expect(firstGroup.totalTokens == 2_200)
     #expect(firstGroup.totalCost == 1.75)
+  }
+
+  @Test func liveSessionClassificationRequiresAnActiveLiveConnection() {
+    let endpointID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+
+    let live = makeSession(
+      id: "live",
+      endpointId: endpointID,
+      endpointName: "Local",
+      provider: .claude,
+      projectPath: "/tmp/live",
+      status: .active,
+      connectionStatus: .connected
+    )
+    let cached = makeSession(
+      id: "cached",
+      endpointId: endpointID,
+      endpointName: "Local",
+      provider: .claude,
+      projectPath: "/tmp/live",
+      status: .active,
+      connectionStatus: .disconnected
+    )
+    let ended = makeSession(
+      id: "ended",
+      endpointId: endpointID,
+      endpointName: "Local",
+      provider: .claude,
+      projectPath: "/tmp/live",
+      status: .ended,
+      connectionStatus: .connected
+    )
+
+    #expect(LibraryArchivePlanner.isLiveSession(live))
+    #expect(!LibraryArchivePlanner.isLiveSession(cached))
+    #expect(!LibraryArchivePlanner.isLiveSession(ended))
   }
 
   @Test func scopeDescriptionFallsBackToAllServersAndAllProviders() {
