@@ -113,6 +113,7 @@ This plan is now an active execution document, not just a roadmap.
 - **Phase 11: Decompose Large Screens**
   - `QuickSwitcher` now has a real pure core for query planning, session projection, keyboard navigation, command catalog, and selection resolution instead of embedding those rules directly in the view
   - `SettingsView` now has its first real pure display-state seam through `SettingsEndpointHealthSummary`, so runtime health reasoning is no longer duplicated inline across the screen
+  - `SessionDetailView` now routes review-send formatting through the shared review helpers instead of duplicating message construction inline in the screen
   - the remaining work is action-side effect cleanup in `QuickSwitcher`, then more screen-specific extractions from `SettingsView`, `SessionDetailView`, and the other large screens
 
 ### Next

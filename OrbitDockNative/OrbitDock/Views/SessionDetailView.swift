@@ -722,107 +722,22 @@ struct SessionDetailView: View {
 
   // MARK: - Send Review
 
-  /// Format review comments and send as a structured message to the model.
-  /// Uses selected comments if any, otherwise all open. Includes diff content
-  /// and embeds comment IDs for transcript traceability.
   private func sendReviewToModel() {
-    let openComments = obs.reviewComments.filter { $0.status == .open }
-    guard !openComments.isEmpty else { return }
-
-    // Use selected comments if any, otherwise all open
-    let commentsToSend: [ServerReviewComment]
-    if !selectedCommentIds.isEmpty {
-      commentsToSend = openComments.filter { selectedCommentIds.contains($0.id) }
-      guard !commentsToSend.isEmpty else { return }
-    } else {
-      commentsToSend = openComments
+    guard let plan = SessionDetailReviewSendPlanner.makePlan(
+      reviewComments: obs.reviewComments,
+      selectedCommentIds: selectedCommentIds,
+      turnDiffs: obs.turnDiffs,
+      currentDiff: obs.diff
+    ) else {
+      return
     }
-
-    // Build diff model for code extraction
-    let diffModel: DiffModel? = {
-      var parts: [String] = []
-      for td in obs.turnDiffs {
-        parts.append(td.diff)
-      }
-      if let current = obs.diff, !current.isEmpty {
-        if obs.turnDiffs.last?.diff != current { parts.append(current) }
-      }
-      let combined = parts.joined(separator: "\n")
-      return combined.isEmpty ? nil : DiffModel.parse(unifiedDiff: combined)
-    }()
-
-    // Group by file path, preserving order of first appearance
-    var fileOrder: [String] = []
-    var grouped: [String: [ServerReviewComment]] = [:]
-    for comment in commentsToSend {
-      if grouped[comment.filePath] == nil {
-        fileOrder.append(comment.filePath)
-      }
-      grouped[comment.filePath, default: []].append(comment)
-    }
-
-    var lines: [String] = ["## Code Review Feedback", ""]
-
-    for filePath in fileOrder {
-      let comments = grouped[filePath] ?? []
-      let ext = filePath.components(separatedBy: ".").last ?? ""
-      lines.append("### \(filePath)")
-
-      for comment in comments.sorted(by: { $0.lineStart < $1.lineStart }) {
-        let lineRef = if let end = comment.lineEnd, end != comment.lineStart {
-          "Lines \(comment.lineStart)–\(end)"
-        } else {
-          "Line \(comment.lineStart)"
-        }
-
-        let tagStr = comment.tag.map { " [\($0.rawValue)]" } ?? ""
-        lines.append("")
-        lines.append("**\(lineRef)**\(tagStr):")
-
-        // Include actual diff content
-        if let file = diffModel?.files.first(where: { $0.newPath == filePath }) {
-          let start = Int(comment.lineStart)
-          let end = comment.lineEnd.map { Int($0) } ?? start
-          var extracted: [String] = []
-          for hunk in file.hunks {
-            for line in hunk.lines {
-              guard let newNum = line.newLineNum else {
-                if !extracted.isEmpty, line.type == .removed {
-                  extracted.append("\(line.prefix)\(line.content)")
-                }
-                continue
-              }
-              if newNum >= start, newNum <= end {
-                extracted.append("\(line.prefix)\(line.content)")
-              }
-            }
-          }
-          if !extracted.isEmpty {
-            lines.append("```\(ext)")
-            lines.append(extracted.joined(separator: "\n"))
-            lines.append("```")
-          }
-        }
-
-        lines.append("> \(comment.body)")
-      }
-
-      lines.append("")
-    }
-
-    // Embed comment IDs for transcript traceability
-    let ids = commentsToSend.map(\.id).joined(separator: ",")
-    lines.append("<!-- review-comment-ids: \(ids) -->")
-
-    let message = lines.joined(separator: "\n")
 
     Task {
-      try? await scopedServerState.sendMessage(sessionId: sessionId, content: message)
+      try? await scopedServerState.sendMessage(sessionId: sessionId, content: plan.message)
 
-      // Resolve sent comments
-      for comment in commentsToSend {
+      for commentId in plan.commentIdsToResolve {
         try? await scopedServerState.clients.approvals.updateReviewComment(
-          commentId: comment.id,
+          commentId: commentId,
           body: ApprovalsClient.UpdateReviewCommentRequest(status: .resolved)
         )
       }
