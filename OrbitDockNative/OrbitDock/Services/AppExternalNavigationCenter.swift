@@ -9,8 +9,6 @@ final class AppExternalNavigationCenter {
     let endpointId: UUID?
   }
 
-  static let shared = AppExternalNavigationCenter()
-
   private(set) var pendingSelection: SessionSelectionRequest?
   private(set) var focusedWindowID: UUID?
 

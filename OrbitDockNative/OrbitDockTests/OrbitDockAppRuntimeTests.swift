@@ -8,7 +8,7 @@ struct OrbitDockAppRuntimeTests {
     let otherDependencies = OrbitDockAppRuntimeDependencies.live(shouldConnectServer: false)
 
     #expect(dependencies.runtimeRegistry !== ServerRuntimeRegistry.shared)
-    #expect(dependencies.externalNavigationCenter !== AppExternalNavigationCenter.shared)
+    #expect(dependencies.externalNavigationCenter !== otherDependencies.externalNavigationCenter)
     #expect(dependencies.notificationManager !== otherDependencies.notificationManager)
     #if os(macOS)
       #expect(dependencies.serverManager === ServerManager.shared)
