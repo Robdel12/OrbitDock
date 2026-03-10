@@ -8,7 +8,7 @@
 
 import Foundation
 
-actor APIClientTransport {
+final class APIClientTransport: @unchecked Sendable {
   private let urlSession: URLSession
 
   init() {
@@ -19,7 +19,19 @@ actor APIClientTransport {
   }
 
   func load(_ request: URLRequest) async throws -> (Data, URLResponse) {
-    try await urlSession.data(for: request)
+    try await withCheckedThrowingContinuation { continuation in
+      let task = urlSession.dataTask(with: request) { data, response, error in
+        if let error {
+          continuation.resume(throwing: error)
+        } else if let data, let response {
+          continuation.resume(returning: (data, response))
+        } else {
+          continuation.resume(throwing: ServerRequestError.invalidResponse)
+        }
+      }
+
+      task.resume()
+    }
   }
 }
 
