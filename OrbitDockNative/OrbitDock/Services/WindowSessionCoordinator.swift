@@ -5,6 +5,7 @@ import Foundation
 final class WindowSessionCoordinator {
   private let runtimeRegistry: ServerRuntimeRegistry
   private let attentionService: AttentionService
+  private let notificationManager: NotificationManager
   let toastManager: ToastManager
   private let router: AppRouter
   private let unifiedSessionsStore: UnifiedSessionsStore
@@ -15,11 +16,13 @@ final class WindowSessionCoordinator {
   init(
     runtimeRegistry: ServerRuntimeRegistry,
     attentionService: AttentionService,
+    notificationManager: NotificationManager,
     toastManager: ToastManager,
     router: AppRouter
   ) {
     self.runtimeRegistry = runtimeRegistry
     self.attentionService = attentionService
+    self.notificationManager = notificationManager
     self.toastManager = toastManager
     self.router = router
     self.unifiedSessionsStore = UnifiedSessionsStore()
@@ -63,15 +66,15 @@ final class WindowSessionCoordinator {
     )
 
     for session in notificationSessions {
-      NotificationManager.shared.updateSessionWorkStatus(session: session)
+      notificationManager.updateSessionWorkStatus(session: session)
     }
 
     for session in missionControlAttentionSessions where !oldWaitingIds.contains(session.scopedID) {
-      NotificationManager.shared.notifyNeedsAttention(session: session)
+      notificationManager.notifyNeedsAttention(session: session)
     }
 
     for oldId in oldWaitingIds where !missionControlAttentionSessions.contains(where: { $0.scopedID == oldId }) {
-      NotificationManager.shared.resetNotificationState(for: oldId)
+      notificationManager.resetNotificationState(for: oldId)
     }
 
     toastManager.checkForAttentionChanges(
