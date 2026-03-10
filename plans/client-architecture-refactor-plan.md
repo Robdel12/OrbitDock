@@ -42,6 +42,9 @@ This plan is now an active execution document, not just a roadmap.
 - **Review phase 1c**
   - review-send coordination, message formatting, and review-round banner tracking now live in dedicated helpers instead of `ReviewCanvas`
   - deterministic unit tests now cover the send plan, banner progression, and addressed-file tracking
+- **Review phase 1d**
+  - file header and compact file-strip rendering now live in dedicated review helpers instead of `ReviewCanvas`
+  - the review shell now owns less mixed presentation/workflow code, making the remaining routing and interaction seams easier to isolate
 - **Window-local external navigation cleanup**
   - app-internal `.selectSession` broadcast routing has been replaced with a typed app-level external navigation center
   - external session selection now enters through a typed channel while actual navigation stays window-local
@@ -54,6 +57,12 @@ This plan is now an active execution document, not just a roadmap.
 - **Composer phase 2b**
   - attachment state and mention/image send planning now live in focused composer helpers instead of the root send path
   - deterministic unit tests now cover mention expansion, attachment reset, and image preservation through send planning
+- **Composer phase 2c**
+  - skill resolution, send payload preparation, and async send execution now live in focused composer helpers instead of `DirectSessionComposer+Helpers.swift`
+  - deterministic unit tests now cover inline skill parsing, skill-input resolution, shell-context preparation, and send/steer request preparation
+- **Composer phase 2d**
+  - provider controls and workflow overflow menus now live in dedicated composer helpers instead of the main footer file
+  - the remaining composer cleanup is now mostly display-only polish and any last provider-specific action drift
 - **Testing baseline**
   - `make build` is green
   - `make test-unit` is green
@@ -82,16 +91,17 @@ This plan is now an active execution document, not just a roadmap.
   - approval-card to composer routing is moving onto typed feature callbacks instead of process-wide notifications
   - these phases are not finished yet, but the shell now owns much less runtime lifecycle wiring than before
 - **Phase 10: Refactor the Review Feature**
-  - workflow, cursor/navigation, projection, comment composition, and send coordination are now extracted from `ReviewCanvas`
-  - the main remaining work is render-section cleanup so the root view becomes a true shell
+  - workflow, cursor/navigation, projection, comment composition, send coordination, and file chrome are now extracted from `ReviewCanvas`
+  - the main remaining work is navigation/editor routing plus mouse/composer interaction cleanup so the root view becomes a true shell
 
 ### Next
 
 - finish the remaining window-local routing cleanup and remove the last app-internal notification paths
 - keep thinning `SessionStore` and related store/runtime ownership
+- clean up the last obvious app-global leftovers, especially dead singletons and preview/runtime `.shared` leakage
 - then land complete feature phases in this order:
-  - review render-section cleanup
-  - composer provider/action-boundary extraction
+  - review navigation/editor and composer-interaction cleanup
+  - app-global ownership cleanup
   - larger screen decomposition
 
 ### Next complete phases
@@ -103,13 +113,13 @@ This plan is now an active execution document, not just a roadmap.
   - the remaining composer work is pending-approval state, attachments, and provider/action boundaries
 - **Review phase 1: Extract projection + workflow**
   - in progress
-  - review workflow, cursor/navigation, projection/state, comment composition/range-selection state, and send coordination are now extracted into dedicated helpers
-  - the remaining work is render-section cleanup so `ReviewCanvas` becomes a real feature shell
+  - review workflow, cursor/navigation, projection/state, comment composition/range-selection state, send coordination, and file chrome are now extracted into dedicated helpers
+  - the remaining work is navigation/editor routing and mouse/composer interaction cleanup so `ReviewCanvas` becomes a real feature shell
   - unit tests now cover workflow behavior, cursor/navigation, review projection, comment-composer planning, and review send coordination
 - **Composer phase 2: Extract pending approval + action boundaries**
   - in progress
-  - pending approval presentation state, pure approval/question planning, and attachment state/planning are now extracted
-  - the remaining work is side-effect coordination and provider/action boundaries
+  - pending approval presentation state, pure approval/question planning, attachment state/planning, skill resolution, send payload preparation, async send execution, provider controls, and workflow menus are now extracted
+  - the remaining work is a final pass over display-only helpers and any last provider-specific action drift
   - keep the root view focused on rendering bindings into the composer model
   - add deterministic tests for pending-action routing, attachment behavior, and provider-aware send execution
 
