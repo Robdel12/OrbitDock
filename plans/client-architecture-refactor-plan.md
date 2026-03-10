@@ -232,9 +232,10 @@ of those rewrite-sized targets land cleanly.
   - the remaining work is small shell polish and any last display-only cleanup in `ReviewCanvas`
   - unit tests now cover workflow behavior, cursor/navigation, review projection, comment-composer planning, and review send coordination
 - **Composer phase 2: Extract pending approval + action boundaries**
-  - in progress
+  - effectively done
   - pending approval presentation state, pure approval/question planning, attachment state/planning, skill resolution, send payload preparation, async send execution, provider controls, workflow menus, provider display rules, and command-deck construction are now extracted
-  - the remaining work is a final pass over the pending-approval display shell and any last provider-specific action drift
+  - the pending footer shell now routes through dedicated shell views plus deterministic footer-state planners instead of mixing that decision logic into the root pending-panel extension
+  - the remaining work is now just incidental display polish or any future provider-specific behavior, not another architecture pass
   - keep the root view focused on rendering bindings into the composer model
   - add deterministic tests for pending-action routing, attachment behavior, and provider-aware send execution
 - **New session phase 1: Extract launch planning + provider state**

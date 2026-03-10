@@ -370,39 +370,21 @@ extension DirectSessionComposer {
         pendingState.cancelDenyReason()
       },
       onPrimaryDeny: {
-        let action = footerState.primaryDenyAction
-        if action?.decision == "deny_reason" {
-          pendingState.showsDenyReason = true
-          Platform.services.playHaptic(.selection)
-        } else {
-          sendPendingDecision(
-            model: model,
-            decision: action?.decision ?? "denied",
-            message: nil,
-            interrupt: nil
-          )
-        }
+        handlePendingPermissionAction(
+          model: model,
+          action: footerState.primaryDenyAction
+            ?? ApprovalCardConfiguration.MenuAction(title: "Deny", decision: "denied")
+        )
       },
       onPrimaryApprove: {
-        sendPendingDecision(
+        handlePendingPermissionAction(
           model: model,
-          decision: footerState.primaryApproveAction?.decision ?? "approved",
-          message: nil,
-          interrupt: nil
+          action: footerState.primaryApproveAction
+            ?? ApprovalCardConfiguration.MenuAction(title: "Approve", decision: "approved")
         )
       },
       onOverflowAction: { action in
-        if action.decision == "deny_reason" {
-          pendingState.showsDenyReason = true
-          Platform.services.playHaptic(.selection)
-        } else {
-          sendPendingDecision(
-            model: model,
-            decision: action.decision,
-            message: nil,
-            interrupt: nil
-          )
-        }
+        handlePendingPermissionAction(model: model, action: action)
       }
     )
   }
@@ -416,8 +398,12 @@ extension DirectSessionComposer {
 
     if prompts.isEmpty {
       // Simple single response — dismiss + submit
-      let submitDisabled = (pendingState.drafts["default"] ?? "")
-        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      let footerState = DirectSessionComposerPendingPlanner.questionFooterState(
+        prompts: prompts,
+        promptIndex: pendingState.promptIndex,
+        answers: pendingState.answers,
+        drafts: pendingState.drafts
+      )
 
       HStack(spacing: Spacing.sm_) {
         Button {
@@ -433,8 +419,8 @@ extension DirectSessionComposer {
           systemName: "arrow.up",
           iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
           dimension: buttonSize,
-          fillColor: submitDisabled ? Color.surfaceHover : Color.statusQuestion.opacity(0.85),
-          isDisabled: submitDisabled
+          fillColor: footerState.submitDisabled ? Color.surfaceHover : Color.statusQuestion.opacity(0.85),
+          isDisabled: footerState.submitDisabled
         ) {
           let answer = (pendingState.drafts["default"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -603,5 +589,22 @@ extension DirectSessionComposer {
 
   private func hapticForPendingDecision(_ decision: String) -> AppHaptic {
     DirectSessionComposerPendingPlanner.hapticForDecision(decision)
+  }
+
+  private func handlePendingPermissionAction(
+    model: ApprovalCardModel,
+    action: ApprovalCardConfiguration.MenuAction
+  ) {
+    if action.decision == "deny_reason" {
+      pendingState.showsDenyReason = true
+      Platform.services.playHaptic(.selection)
+    } else {
+      sendPendingDecision(
+        model: model,
+        decision: action.decision,
+        message: nil,
+        interrupt: nil
+      )
+    }
   }
 }
