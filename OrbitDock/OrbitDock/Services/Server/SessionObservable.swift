@@ -300,6 +300,110 @@ final class SessionObservable {
     messagesRevision += 1
   }
 
+  func applySession(_ session: Session) {
+    endpointId = session.endpointId
+    endpointName = session.endpointName
+    projectPath = session.projectPath
+    projectName = session.projectName
+    branch = session.branch
+    model = session.model
+    effort = session.effort
+    summary = session.summary
+    customName = session.customName
+    firstPrompt = session.firstPrompt
+    lastMessage = session.lastMessage
+    transcriptPath = session.transcriptPath
+    status = session.status
+    workStatus = session.workStatus
+    attentionReason = session.attentionReason
+    lastActivityAt = session.lastActivityAt
+    lastTool = session.lastTool
+    lastToolAt = session.lastToolAt
+    inputTokens = session.inputTokens
+    outputTokens = session.outputTokens
+    cachedTokens = session.cachedTokens
+    contextWindow = session.contextWindow
+    totalTokens = session.totalTokens
+    totalCostUSD = session.totalCostUSD
+    provider = session.provider
+    codexIntegrationMode = session.codexIntegrationMode
+    claudeIntegrationMode = session.claudeIntegrationMode
+    codexThreadId = session.codexThreadId
+    pendingApprovalId = session.pendingApprovalId
+    pendingToolName = session.pendingToolName
+    pendingToolInput = session.pendingToolInput
+    pendingPermissionDetail = session.pendingPermissionDetail
+    pendingQuestion = session.pendingQuestion
+    promptCount = session.promptCount
+    toolCount = session.toolCount
+    startedAt = session.startedAt
+    endedAt = session.endedAt
+    endReason = session.endReason
+    tokenUsageSnapshotKind = session.tokenUsageSnapshotKind
+    gitSha = session.gitSha
+    currentCwd = session.currentCwd
+    repositoryRoot = session.repositoryRoot
+    isWorktree = session.isWorktree
+    worktreeId = session.worktreeId
+    unreadCount = session.unreadCount
+  }
+
+  func applyConversationSnapshot(
+    messages: [TranscriptMessage],
+    totalMessageCount: Int,
+    oldestLoadedSequence: UInt64?,
+    newestLoadedSequence: UInt64?,
+    hasMoreHistoryBefore: Bool,
+    isLoadingOlderMessages: Bool,
+    hasReceivedInitialData: Bool
+  ) {
+    self.messages = messages
+    self.totalMessageCount = totalMessageCount
+    self.oldestLoadedSequence = oldestLoadedSequence
+    self.newestLoadedSequence = newestLoadedSequence
+    self.hasMoreHistoryBefore = hasMoreHistoryBefore
+    self.isLoadingOlderMessages = isLoadingOlderMessages
+    if hasReceivedInitialData {
+      self.hasReceivedSnapshot = true
+    }
+    bumpMessagesRevision()
+  }
+
+  func applyPendingApproval(_ request: ServerApprovalRequest) {
+    pendingApproval = request
+    pendingApprovalId = request.id
+    pendingToolName = request.toolNameForDisplay
+    pendingToolInput = request.toolInputForDisplay
+    pendingPermissionDetail = request.preview?.compact
+      ?? String.shellCommandDisplay(from: request.command)
+      ?? request.command
+    pendingQuestion = request.questionPrompts.first?.question ?? request.question
+
+    let nextAttention: Session.AttentionReason = request.type == .question
+      ? .awaitingQuestion
+      : .awaitingPermission
+    attentionReason = nextAttention
+    workStatus = .permission
+  }
+
+  func clearPendingApprovalDetails(resetAttention: Bool) {
+    pendingApproval = nil
+    pendingApprovalId = nil
+    pendingToolName = nil
+    pendingToolInput = nil
+    pendingPermissionDetail = nil
+    pendingQuestion = nil
+
+    guard resetAttention else { return }
+
+    if attentionReason == .awaitingPermission || attentionReason == .awaitingQuestion {
+      attentionReason = .none
+    }
+    if workStatus == .permission {
+      workStatus = .working
+    }
+  }
+
   var hasMcpData: Bool {
     !mcpTools.isEmpty || mcpStartupState != nil
   }

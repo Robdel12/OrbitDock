@@ -2,6 +2,7 @@ import Foundation
 @testable import OrbitDock
 import Testing
 
+@MainActor
 struct ServerProtocolRequestCorrelationTests {
   @Test func shellMessagesEncodeAndDecodeOutcome() throws {
     let message = ServerToClientMessage.shellOutput(

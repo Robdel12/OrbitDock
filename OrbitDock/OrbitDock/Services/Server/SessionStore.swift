@@ -841,6 +841,7 @@ final class SessionStore {
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
       sessions[idx].status = .ended
       sessions[idx].endedAt = Date()
+      sessions[idx].clearPendingApprovalSummary(resetAttention: true)
     }
     notifySessionsChanged()
   }
@@ -929,42 +930,10 @@ final class SessionStore {
       if !isStale {
         if incomingVersion > 0 { obs.approvalVersion = incomingVersion }
         if let approval = approvalOuter {
-          obs.pendingApproval = approval
-          let toolName = approval.toolNameForDisplay
-          let toolInput = approval.toolInputForDisplay
-          let permDetail = approval.preview?.compact
-            ?? String.shellCommandDisplay(from: approval.command)
-            ?? approval.command
-          let question = approval.questionPrompts.first?.question ?? approval.question
-          let attention: Session.AttentionReason = approval.type == .question ? .awaitingQuestion : .awaitingPermission
-
-          sess.pendingApprovalId = approval.id
-          sess.pendingToolName = toolName
-          sess.pendingToolInput = toolInput
-          sess.pendingPermissionDetail = permDetail
-          sess.pendingQuestion = question
-          sess.attentionReason = attention
-          sess.workStatus = .permission
-
-          obs.pendingApprovalId = approval.id
-          obs.pendingToolName = toolName
-          obs.pendingToolInput = toolInput
-          obs.pendingPermissionDetail = permDetail
-          obs.pendingQuestion = question
-          obs.attentionReason = attention
-          obs.workStatus = .permission
+          sess.applyPendingApprovalSummary(approval)
+          obs.applyPendingApproval(approval)
         } else {
           obs.pendingApproval = nil
-          sess.pendingApprovalId = nil
-          sess.pendingToolName = nil
-          sess.pendingToolInput = nil
-          sess.pendingPermissionDetail = nil
-          sess.pendingQuestion = nil
-          obs.pendingApprovalId = nil
-          obs.pendingToolName = nil
-          obs.pendingToolInput = nil
-          obs.pendingPermissionDetail = nil
-          obs.pendingQuestion = nil
         }
       }
     }
@@ -1069,17 +1038,8 @@ final class SessionStore {
       || sess.attentionReason == .awaitingQuestion
       || sess.workStatus == .permission
     if changes.pendingApproval == nil, !summaryStillBlocked {
-      sess.pendingApprovalId = nil
-      sess.pendingToolName = nil
-      sess.pendingToolInput = nil
-      sess.pendingPermissionDetail = nil
-      sess.pendingQuestion = nil
-      obs.pendingApproval = nil
-      obs.pendingApprovalId = nil
-      obs.pendingToolName = nil
-      obs.pendingToolInput = nil
-      obs.pendingPermissionDetail = nil
-      obs.pendingQuestion = nil
+      sess.clearPendingApprovalSummary(resetAttention: false)
+      obs.clearPendingApprovalDetails(resetAttention: false)
     }
 
     sessions[idx] = sess
@@ -1112,23 +1072,10 @@ final class SessionStore {
       if version < obs.approvalVersion { return } // stale
       obs.approvalVersion = version
     }
-    obs.pendingApproval = request
-    obs.pendingApprovalId = request.id
-    obs.pendingToolName = request.toolNameForDisplay
-    obs.pendingToolInput = request.toolInputForDisplay
-    obs.pendingPermissionDetail = request.preview?.compact
-      ?? String.shellCommandDisplay(from: request.command)
-      ?? request.command
-    obs.pendingQuestion = request.questionPrompts.first?.question ?? request.question
-
-    let attention: Session.AttentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
-    obs.attentionReason = attention
-    obs.workStatus = .permission
+    obs.applyPendingApproval(request)
 
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-      sessions[idx].pendingApprovalId = request.id
-      sessions[idx].attentionReason = attention
-      sessions[idx].workStatus = .permission
+      sessions[idx].applyPendingApprovalSummary(request)
     }
   }
 
@@ -1142,12 +1089,10 @@ final class SessionStore {
     // If the decided request matches current pending, clear it
     if obs.pendingApproval?.id == requestId || obs.pendingApprovalId == requestId {
       if activeRequestId == nil {
-        obs.pendingApproval = nil
-        obs.pendingApprovalId = nil
-        obs.pendingToolName = nil
-        obs.pendingToolInput = nil
-        obs.pendingPermissionDetail = nil
-        obs.pendingQuestion = nil
+        obs.clearPendingApprovalDetails(resetAttention: true)
+        if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+          sessions[idx].clearPendingApprovalSummary(resetAttention: true)
+        }
       }
     }
 
@@ -1212,64 +1157,19 @@ final class SessionStore {
 
   private func syncConversationToObservable(_ conv: ConversationStore, obs: SessionObservable) {
     netLog(.debug, cat: .store, "Sync conversation → observable", sid: conv.sessionId, data: ["messageCount": conv.messages.count, "hasSnapshot": conv.hasReceivedInitialData])
-    obs.messages = conv.messages
-    obs.totalMessageCount = conv.totalMessageCount
-    obs.oldestLoadedSequence = conv.oldestLoadedSequence
-    obs.newestLoadedSequence = conv.newestLoadedSequence
-    obs.hasMoreHistoryBefore = conv.hasMoreHistoryBefore
-    obs.isLoadingOlderMessages = conv.isLoadingOlderMessages
-    if conv.hasReceivedInitialData {
-      obs.hasReceivedSnapshot = true
-    }
-    obs.bumpMessagesRevision()
+    obs.applyConversationSnapshot(
+      messages: conv.messages,
+      totalMessageCount: conv.totalMessageCount,
+      oldestLoadedSequence: conv.oldestLoadedSequence,
+      newestLoadedSequence: conv.newestLoadedSequence,
+      hasMoreHistoryBefore: conv.hasMoreHistoryBefore,
+      isLoadingOlderMessages: conv.isLoadingOlderMessages,
+      hasReceivedInitialData: conv.hasReceivedInitialData
+    )
   }
 
   private func hydrateObservable(_ obs: SessionObservable, from sess: Session) {
-    obs.endpointId = sess.endpointId
-    obs.endpointName = sess.endpointName
-    obs.projectPath = sess.projectPath
-    obs.projectName = sess.projectName
-    obs.branch = sess.branch
-    obs.model = sess.model
-    obs.effort = sess.effort
-    obs.summary = sess.summary
-    obs.customName = sess.customName
-    obs.firstPrompt = sess.firstPrompt
-    obs.lastMessage = sess.lastMessage
-    obs.transcriptPath = sess.transcriptPath
-    obs.status = sess.status
-    obs.workStatus = sess.workStatus
-    obs.attentionReason = sess.attentionReason
-    obs.lastActivityAt = sess.lastActivityAt
-    obs.lastTool = sess.lastTool
-    obs.lastToolAt = sess.lastToolAt
-    obs.inputTokens = sess.inputTokens
-    obs.outputTokens = sess.outputTokens
-    obs.cachedTokens = sess.cachedTokens
-    obs.contextWindow = sess.contextWindow
-    obs.totalTokens = sess.totalTokens
-    obs.totalCostUSD = sess.totalCostUSD
-    obs.provider = sess.provider
-    obs.codexIntegrationMode = sess.codexIntegrationMode
-    obs.claudeIntegrationMode = sess.claudeIntegrationMode
-    obs.codexThreadId = sess.codexThreadId
-    obs.pendingApprovalId = sess.pendingApprovalId
-    obs.pendingToolName = sess.pendingToolName
-    obs.pendingToolInput = sess.pendingToolInput
-    obs.pendingPermissionDetail = sess.pendingPermissionDetail
-    obs.pendingQuestion = sess.pendingQuestion
-    obs.promptCount = sess.promptCount
-    obs.toolCount = sess.toolCount
-    obs.startedAt = sess.startedAt
-    obs.endedAt = sess.endedAt
-    obs.endReason = sess.endReason
-    obs.tokenUsageSnapshotKind = sess.tokenUsageSnapshotKind
-    obs.gitSha = sess.gitSha
-    obs.currentCwd = sess.currentCwd
-    obs.repositoryRoot = sess.repositoryRoot
-    obs.isWorktree = sess.isWorktree
-    obs.worktreeId = sess.worktreeId
-    obs.unreadCount = sess.unreadCount
+    obs.applySession(sess)
   }
 
   private func updateSessionInList(_ session: Session) {

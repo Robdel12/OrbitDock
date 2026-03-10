@@ -133,7 +133,7 @@ struct APIClientTests {
     }
   }
 
-  private static func jsonResponse(
+  nonisolated private static func jsonResponse(
     url: URL,
     statusCode: Int,
     json: String

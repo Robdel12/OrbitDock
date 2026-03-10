@@ -489,6 +489,37 @@ struct Session: Identifiable, Hashable, Sendable {
   }
 }
 
+extension Session {
+  mutating func applyPendingApprovalSummary(_ request: ServerApprovalRequest) {
+    pendingApprovalId = request.id
+    pendingToolName = request.toolNameForDisplay
+    pendingToolInput = request.toolInputForDisplay
+    pendingPermissionDetail = request.preview?.compact
+      ?? String.shellCommandDisplay(from: request.command)
+      ?? request.command
+    pendingQuestion = request.questionPrompts.first?.question ?? request.question
+    attentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
+    workStatus = .permission
+  }
+
+  mutating func clearPendingApprovalSummary(resetAttention: Bool) {
+    pendingApprovalId = nil
+    pendingToolName = nil
+    pendingToolInput = nil
+    pendingPermissionDetail = nil
+    pendingQuestion = nil
+
+    guard resetAttention else { return }
+
+    if attentionReason == .awaitingPermission || attentionReason == .awaitingQuestion {
+      attentionReason = .none
+    }
+    if workStatus == .permission {
+      workStatus = .working
+    }
+  }
+}
+
 // MARK: - String Extensions
 
 extension String {
