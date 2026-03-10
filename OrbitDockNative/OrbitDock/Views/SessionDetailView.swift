@@ -432,69 +432,20 @@ struct SessionDetailView: View {
   }
 
   private var worktreeCleanupBanner: some View {
-    let bannerState = sessionDetailWorktreeCleanupState
-
-    return VStack(spacing: Spacing.sm) {
-      HStack(spacing: Spacing.sm) {
-        Image(systemName: "arrow.triangle.branch")
-          .font(.system(size: TypeScale.body, weight: .medium))
-          .foregroundStyle(Color.accent)
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text("Worktree: \(bannerState?.branchName ?? "unknown")")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-          Text("This session used a worktree that may still be on disk.")
-            .font(.system(size: TypeScale.micro))
-            .foregroundStyle(Color.textSecondary)
+    SessionDetailWorktreeCleanupBanner(
+      bannerState: sessionDetailWorktreeCleanupState,
+      errorMessage: worktreeCleanupError,
+      deleteBranchOnCleanup: $deleteBranchOnCleanup,
+      isCleaningUp: isCleaningUpWorktree,
+      onKeep: {
+        withAnimation(Motion.gentle) {
+          worktreeCleanupDismissed = true
         }
-        Spacer()
+      },
+      onCleanUp: {
+        cleanUpWorktree()
       }
-
-      if let error = worktreeCleanupError {
-        Text(error)
-          .font(.system(size: TypeScale.micro))
-          .foregroundStyle(Color.statusPermission)
-      }
-
-      HStack(spacing: Spacing.md) {
-        Toggle("Delete branch too", isOn: $deleteBranchOnCleanup)
-        #if os(macOS)
-          .toggleStyle(.checkbox)
-        #endif
-          .font(.system(size: TypeScale.micro))
-          .foregroundStyle(Color.textSecondary)
-
-        Spacer()
-
-        Button("Keep") {
-          withAnimation(Motion.gentle) {
-            worktreeCleanupDismissed = true
-          }
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Color.textSecondary)
-        .font(.system(size: TypeScale.body, weight: .medium))
-
-        Button {
-          cleanUpWorktree()
-        } label: {
-          if isCleaningUpWorktree {
-            ProgressView()
-              .controlSize(.small)
-          } else {
-            Text("Clean Up")
-          }
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(Color.accent)
-        .font(.system(size: TypeScale.body, weight: .medium))
-        .disabled(!(bannerState?.canCleanUp ?? false))
-      }
-    }
-    .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm)
-    .background(Color.backgroundSecondary)
-    .transition(.move(edge: .top).combined(with: .opacity))
+    )
   }
 
   private func cleanUpWorktree() {
