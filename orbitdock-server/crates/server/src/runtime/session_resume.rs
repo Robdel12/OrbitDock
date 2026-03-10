@@ -98,13 +98,15 @@ pub(crate) async fn launch_resumed_session(
         Provider::Codex => {
             spawn_codex_resume(
                 state,
-                &session_id,
-                prepared.project_path,
-                prepared.model,
-                prepared.approval_policy,
-                prepared.sandbox_mode,
-                prepared.handle,
-                prepared.message_count,
+                CodexResumeRequest {
+                    session_id: session_id.clone(),
+                    project_path: prepared.project_path,
+                    model: prepared.model,
+                    approval_policy: prepared.approval_policy,
+                    sandbox_mode: prepared.sandbox_mode,
+                    handle: prepared.handle,
+                    message_count: prepared.message_count,
+                },
             )
             .await;
         }
@@ -225,16 +227,16 @@ async fn spawn_claude_resume(
     });
 }
 
-async fn spawn_codex_resume(
-    state: &Arc<SessionRegistry>,
-    session_id: &str,
-    project_path: String,
-    model: Option<String>,
-    approval_policy: Option<String>,
-    sandbox_mode: Option<String>,
-    mut handle: crate::domain::sessions::session::SessionHandle,
-    message_count: usize,
-) {
+async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRequest) {
+    let CodexResumeRequest {
+        session_id,
+        project_path,
+        model,
+        approval_policy,
+        sandbox_mode,
+        mut handle,
+        message_count,
+    } = request;
     let session_id = session_id.to_string();
     let persist_tx = state.persist().clone();
     let state = state.clone();
@@ -304,4 +306,14 @@ async fn spawn_codex_resume(
             }
         }
     });
+}
+
+struct CodexResumeRequest {
+    session_id: String,
+    project_path: String,
+    model: Option<String>,
+    approval_policy: Option<String>,
+    sandbox_mode: Option<String>,
+    handle: crate::domain::sessions::session::SessionHandle,
+    message_count: usize,
 }

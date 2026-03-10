@@ -257,9 +257,7 @@ fn orbitdock_hook_entry(command: &str) -> serde_json::Value {
 }
 
 fn orbitdock_hook_index(entries: &[serde_json::Value]) -> Option<usize> {
-    entries
-        .iter()
-        .position(|entry| entry_contains_orbitdock_command(entry))
+    entries.iter().position(entry_contains_orbitdock_command)
 }
 
 fn entry_contains_orbitdock_command(entry: &serde_json::Value) -> bool {

@@ -26,6 +26,17 @@ pub(crate) struct ForkedSessionStart {
     pub forked_from_thread_id: Option<String>,
 }
 
+pub(crate) struct FinalizeCodexForkRequest<'a> {
+    pub source_session_id: &'a str,
+    pub nth_user_message: Option<u32>,
+    pub effective_cwd: &'a str,
+    pub effective_model: Option<&'a str>,
+    pub effective_approval_policy: Option<&'a str>,
+    pub effective_sandbox_mode: Option<&'a str>,
+    pub new_connector: CodexConnector,
+    pub new_thread_id: String,
+}
+
 pub(crate) async fn start_claude_fork_session(
     state: &Arc<SessionRegistry>,
     source_session_id: &str,
@@ -104,15 +115,18 @@ pub(crate) async fn start_claude_fork_session(
 
 pub(crate) async fn finalize_codex_fork_session(
     state: &Arc<SessionRegistry>,
-    source_session_id: &str,
-    nth_user_message: Option<u32>,
-    effective_cwd: &str,
-    effective_model: Option<&str>,
-    effective_approval_policy: Option<&str>,
-    effective_sandbox_mode: Option<&str>,
-    new_connector: CodexConnector,
-    new_thread_id: String,
+    request: FinalizeCodexForkRequest<'_>,
 ) -> Result<ForkedSessionStart, String> {
+    let FinalizeCodexForkRequest {
+        source_session_id,
+        nth_user_message,
+        effective_cwd,
+        effective_model,
+        effective_approval_policy,
+        effective_sandbox_mode,
+        new_connector,
+        new_thread_id,
+    } = request;
     let new_session_id = orbitdock_protocol::new_id();
     let project_name = effective_cwd.split('/').next_back().map(String::from);
     let fork_branch = crate::domain::git::repo::resolve_git_branch(effective_cwd).await;

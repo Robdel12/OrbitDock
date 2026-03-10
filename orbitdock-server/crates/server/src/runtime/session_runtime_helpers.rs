@@ -150,6 +150,110 @@ pub(crate) fn direct_mode_activation_changes(provider: Provider) -> StateChanges
     changes
 }
 
+pub(crate) fn is_stale_empty_claude_shell(
+    summary: &orbitdock_protocol::SessionSummary,
+    current_session_id: &str,
+    cwd: &str,
+    now_secs: u64,
+) -> bool {
+    if summary.id == current_session_id {
+        return false;
+    }
+    if summary.provider != Provider::Claude {
+        return false;
+    }
+    if summary.project_path != cwd {
+        return false;
+    }
+    if summary.status != orbitdock_protocol::SessionStatus::Active {
+        return false;
+    }
+    if summary.work_status != orbitdock_protocol::WorkStatus::Waiting {
+        return false;
+    }
+    if summary.custom_name.is_some() {
+        return false;
+    }
+
+    let started_at = parse_unix_z(summary.started_at.as_deref());
+    let last_activity_at = parse_unix_z(summary.last_activity_at.as_deref()).or(started_at);
+    let Some(last_activity_at) = last_activity_at else {
+        return false;
+    };
+
+    now_secs.saturating_sub(last_activity_at) >= CLAUDE_EMPTY_SHELL_TTL_SECS
+}
+
+/// Re-read a session's transcript and broadcast any new messages to subscribers.
+/// Works for any hook-triggered session (Claude CLI, future Codex CLI hooks).
+pub(crate) async fn sync_transcript_messages(
+    actor: &SessionActorHandle,
+    persist_tx: &tokio::sync::mpsc::Sender<crate::infrastructure::persistence::PersistCommand>,
+) {
+    let snap = actor.snapshot();
+    let transcript_path = match snap.transcript_path.as_deref() {
+        Some(p) => p.to_string(),
+        None => return,
+    };
+    let session_id = snap.id.clone();
+    let existing_count = snap.message_count;
+
+    let all_messages = match load_messages_from_transcript_path(&transcript_path, &session_id).await
+    {
+        Ok(msgs) => msgs,
+        Err(_) => return,
+    };
+
+    // Double-check count hasn't changed while we were reading
+    let (count_tx, count_rx) = oneshot::channel();
+    actor
+        .send(SessionCommand::GetMessageCount { reply: count_tx })
+        .await;
+    let confirmed_count = count_rx.await.ok();
+
+    let plan = plan_transcript_sync(TranscriptSyncInputs {
+        provider: snap.provider,
+        current_usage: snap.token_usage.clone(),
+        transcript_usage: load_token_usage_from_transcript_path(&transcript_path)
+            .await
+            .ok()
+            .flatten(),
+        transcript_messages: all_messages,
+        existing_count,
+        confirmed_count,
+    });
+
+    if let Some(usage_update) = plan.usage_update {
+        actor
+            .send(SessionCommand::ProcessEvent {
+                event: crate::domain::sessions::transition::Input::TokensUpdated {
+                    usage: usage_update.usage,
+                    snapshot_kind: usage_update.snapshot_kind,
+                },
+            })
+            .await;
+    }
+
+    if matches!(
+        plan.message_sync_decision,
+        TranscriptMessageSyncDecision::AppendNewMessages
+    ) {
+        for msg in plan.new_messages {
+            let _ = persist_tx
+                .send(
+                    crate::infrastructure::persistence::PersistCommand::MessageAppend {
+                        session_id: session_id.clone(),
+                        message: msg.clone(),
+                    },
+                )
+                .await;
+            actor
+                .send(SessionCommand::AddMessageAndBroadcast { message: msg })
+                .await;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{claim_codex_thread_for_direct_session, direct_mode_activation_changes};
@@ -263,110 +367,6 @@ mod tests {
                 "expected CleanupThreadShadowSession command, got {:?}",
                 other
             ),
-        }
-    }
-}
-
-pub(crate) fn is_stale_empty_claude_shell(
-    summary: &orbitdock_protocol::SessionSummary,
-    current_session_id: &str,
-    cwd: &str,
-    now_secs: u64,
-) -> bool {
-    if summary.id == current_session_id {
-        return false;
-    }
-    if summary.provider != Provider::Claude {
-        return false;
-    }
-    if summary.project_path != cwd {
-        return false;
-    }
-    if summary.status != orbitdock_protocol::SessionStatus::Active {
-        return false;
-    }
-    if summary.work_status != orbitdock_protocol::WorkStatus::Waiting {
-        return false;
-    }
-    if summary.custom_name.is_some() {
-        return false;
-    }
-
-    let started_at = parse_unix_z(summary.started_at.as_deref());
-    let last_activity_at = parse_unix_z(summary.last_activity_at.as_deref()).or(started_at);
-    let Some(last_activity_at) = last_activity_at else {
-        return false;
-    };
-
-    now_secs.saturating_sub(last_activity_at) >= CLAUDE_EMPTY_SHELL_TTL_SECS
-}
-
-/// Re-read a session's transcript and broadcast any new messages to subscribers.
-/// Works for any hook-triggered session (Claude CLI, future Codex CLI hooks).
-pub(crate) async fn sync_transcript_messages(
-    actor: &SessionActorHandle,
-    persist_tx: &tokio::sync::mpsc::Sender<crate::infrastructure::persistence::PersistCommand>,
-) {
-    let snap = actor.snapshot();
-    let transcript_path = match snap.transcript_path.as_deref() {
-        Some(p) => p.to_string(),
-        None => return,
-    };
-    let session_id = snap.id.clone();
-    let existing_count = snap.message_count;
-
-    let all_messages = match load_messages_from_transcript_path(&transcript_path, &session_id).await
-    {
-        Ok(msgs) => msgs,
-        Err(_) => return,
-    };
-
-    // Double-check count hasn't changed while we were reading
-    let (count_tx, count_rx) = oneshot::channel();
-    actor
-        .send(SessionCommand::GetMessageCount { reply: count_tx })
-        .await;
-    let confirmed_count = count_rx.await.ok();
-
-    let plan = plan_transcript_sync(TranscriptSyncInputs {
-        provider: snap.provider,
-        current_usage: snap.token_usage.clone(),
-        transcript_usage: load_token_usage_from_transcript_path(&transcript_path)
-            .await
-            .ok()
-            .flatten(),
-        transcript_messages: all_messages,
-        existing_count,
-        confirmed_count,
-    });
-
-    if let Some(usage_update) = plan.usage_update {
-        actor
-            .send(SessionCommand::ProcessEvent {
-                event: crate::domain::sessions::transition::Input::TokensUpdated {
-                    usage: usage_update.usage,
-                    snapshot_kind: usage_update.snapshot_kind,
-                },
-            })
-            .await;
-    }
-
-    if matches!(
-        plan.message_sync_decision,
-        TranscriptMessageSyncDecision::AppendNewMessages
-    ) {
-        for msg in plan.new_messages {
-            let _ = persist_tx
-                .send(
-                    crate::infrastructure::persistence::PersistCommand::MessageAppend {
-                        session_id: session_id.clone(),
-                        message: msg.clone(),
-                    },
-                )
-                .await;
-            actor
-                .send(SessionCommand::AddMessageAndBroadcast { message: msg })
-                .await;
         }
     }
 }

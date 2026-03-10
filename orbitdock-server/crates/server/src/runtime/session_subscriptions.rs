@@ -30,7 +30,7 @@ pub(crate) struct SessionSubscribePlan {
 
 pub(crate) enum PreparedSubscribeResult {
     Snapshot {
-        state: SessionState,
+        state: Box<SessionState>,
         rx: broadcast::Receiver<ServerMessage>,
     },
     Replay {
@@ -86,7 +86,7 @@ pub(crate) async fn prepare_subscribe_result(
     match result {
         SubscribeResult::Replay { events, rx } => PreparedSubscribeResult::Replay { events, rx },
         SubscribeResult::Snapshot { state, rx } => PreparedSubscribeResult::Snapshot {
-            state: hydrate_runtime_subscribe_snapshot(actor, *state, session_id).await,
+            state: Box::new(hydrate_runtime_subscribe_snapshot(actor, *state, session_id).await),
             rx,
         },
     }

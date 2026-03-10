@@ -114,8 +114,8 @@ pub async fn update_review_comment(
     })?;
 
     let updated_body = body.body.clone();
-    let updated_tag = body.tag.clone();
-    let updated_status = body.status.clone();
+    let updated_tag = body.tag;
+    let updated_status = body.status;
 
     let tag_str = body.tag.map(|tag| match tag {
         ReviewCommentTag::Clarity => "clarity".to_string(),
@@ -146,8 +146,8 @@ pub async fn update_review_comment(
         line_start: existing.line_start,
         line_end: existing.line_end,
         body: updated_body.unwrap_or_else(|| existing.body.clone()),
-        tag: updated_tag.or_else(|| existing.tag.clone()),
-        status: updated_status.unwrap_or_else(|| existing.status.clone()),
+        tag: updated_tag.or(existing.tag),
+        status: updated_status.unwrap_or(existing.status),
         created_at: existing.created_at.clone(),
         updated_at: Some(crate::support::session_time::chrono_now()),
     };

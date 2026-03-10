@@ -1464,7 +1464,7 @@ mod tests {
 
     #[test]
     fn most_recent_claude_session_selector_ignores_other_projects_and_current_session() {
-        let summaries = vec![
+        let summaries = [
             session_summary(
                 "current",
                 Provider::Claude,

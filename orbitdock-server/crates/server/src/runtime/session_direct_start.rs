@@ -82,15 +82,18 @@ pub(crate) async fn start_direct_codex_session(
 
 pub(crate) async fn start_direct_claude_session(
     state: &Arc<SessionRegistry>,
-    mut handle: SessionHandle,
-    session_id: &str,
-    cwd: &str,
-    model: Option<&str>,
-    permission_mode: Option<&str>,
-    allowed_tools: &[String],
-    disallowed_tools: &[String],
-    effort: Option<&str>,
+    request: StartDirectClaudeRequest<'_>,
 ) -> Result<(), String> {
+    let StartDirectClaudeRequest {
+        mut handle,
+        session_id,
+        cwd,
+        model,
+        permission_mode,
+        allowed_tools,
+        disallowed_tools,
+        effort,
+    } = request;
     let session_id = session_id.to_string();
     let claude_session = ClaudeSession::new(
         session_id.clone(),
@@ -139,6 +142,17 @@ pub(crate) async fn start_direct_claude_session(
 
     spawn_claude_init_watchdog(state, persist_tx, action_tx, session_id);
     Ok(())
+}
+
+pub(crate) struct StartDirectClaudeRequest<'a> {
+    pub handle: SessionHandle,
+    pub session_id: &'a str,
+    pub cwd: &'a str,
+    pub model: Option<&'a str>,
+    pub permission_mode: Option<&'a str>,
+    pub allowed_tools: &'a [String],
+    pub disallowed_tools: &'a [String],
+    pub effort: Option<&'a str>,
 }
 
 fn spawn_claude_init_watchdog(

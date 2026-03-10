@@ -387,14 +387,16 @@ pub async fn fork_session(
 
             let started = finalize_codex_fork_session(
                 &state,
-                &source_session_id,
-                body.nth_user_message,
-                &effective_cwd,
-                fork_plan.effective_model.as_deref(),
-                fork_plan.effective_approval_policy.as_deref(),
-                fork_plan.effective_sandbox_mode.as_deref(),
-                new_connector,
-                new_thread_id,
+                crate::runtime::session_fork_runtime::FinalizeCodexForkRequest {
+                    source_session_id: &source_session_id,
+                    nth_user_message: body.nth_user_message,
+                    effective_cwd: &effective_cwd,
+                    effective_model: fork_plan.effective_model.as_deref(),
+                    effective_approval_policy: fork_plan.effective_approval_policy.as_deref(),
+                    effective_sandbox_mode: fork_plan.effective_sandbox_mode.as_deref(),
+                    new_connector,
+                    new_thread_id,
+                },
             )
             .await
             .map_err(|error| internal("fork_failed", error))?;

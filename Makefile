@@ -8,6 +8,7 @@ XCODE_DESTINATION ?= platform=macOS,arch=arm64
 XCODE_UNIT_TEST_SCHEME ?= OrbitDock Unit Tests
 XCODE_IOS_SCHEME ?= OrbitDock iOS
 XCODE_IOS_DESTINATION ?= generic/platform=iOS
+XCODE_IOS_TEST_DESTINATION ?= platform=iOS Simulator,name=iPhone 16,OS=18.5
 XCODEBUILD_LOG_DIR ?= .logs
 XCODE_DERIVED_DATA_DIR ?= .build/DerivedData
 XCODE_CACHE_DIR ?= .cache/xcodebuild
@@ -54,6 +55,7 @@ endef
 XCODEBUILD_MACOS = $(call xcodebuild_cmd,$(XCODE_SCHEME),$(XCODE_DESTINATION),$(XCODE_MACOS_CODE_SIGN_FLAGS))
 XCODEBUILD_UNIT_TEST = $(call xcodebuild_cmd,$(XCODE_UNIT_TEST_SCHEME),$(XCODE_DESTINATION),$(XCODE_MACOS_CODE_SIGN_FLAGS))
 XCODEBUILD_IOS = $(call xcodebuild_cmd,$(XCODE_IOS_SCHEME),$(XCODE_IOS_DESTINATION),CODE_SIGNING_ALLOWED=NO)
+XCODEBUILD_IOS_UNIT_TEST = $(call xcodebuild_cmd,$(XCODE_IOS_SCHEME),$(XCODE_IOS_TEST_DESTINATION),CODE_SIGNING_ALLOWED=NO)
 
 RUST_ENV_BASE = PATH="$(RUST_PATH)" SCCACHE_DIR="$(SCCACHE_DIR)" SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE) CARGO_TARGET_DIR="$(RUST_TARGET_DIR)" CARGO_INCREMENTAL=0
 
@@ -72,7 +74,7 @@ RUST_CARGO = $(RUST_WORKSPACE_PREFIX) cargo
 
 .PHONY: \
 	help \
-	build build-ios build-all clean test test-all test-unit test-ui \
+	build build-ios build-all clean test test-all test-unit test-unit-ios test-ui \
 	fmt lint swift-fmt swift-lint \
 	rust-ci rust-build rust-build-release rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint \
 	rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token \
@@ -157,6 +159,7 @@ help:
 	@echo "make build-all  Build both macOS and iOS"
 	@echo "make test       Run unit tests (no UI tests)"
 	@echo "make test-unit  Run unit tests only (OrbitDockTests)"
+	@echo "make test-unit-ios Run iOS unit tests only (OrbitDock iOSTests)"
 	@echo "make test-ui    Run UI tests only (OrbitDockUITests)"
 	@echo "make test-all   Run all tests"
 	@echo "make clean      Clean build artifacts for the scheme"
@@ -220,6 +223,9 @@ test: test-unit
 
 test-unit:
 	$(call run_xcode_pretty,$(XCODEBUILD_UNIT_TEST) -parallel-testing-enabled NO test)
+
+test-unit-ios:
+	$(call run_xcode_pretty,$(XCODEBUILD_IOS_UNIT_TEST) -parallel-testing-enabled NO -only-testing:"OrbitDock iOSTests" test)
 
 test-ui:
 	$(call run_xcode_pretty,$(XCODEBUILD_MACOS) -only-testing:OrbitDockUITests test)

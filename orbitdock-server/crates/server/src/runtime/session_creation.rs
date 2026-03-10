@@ -53,6 +53,19 @@ pub(crate) struct PreparedPersistedDirectSession {
     pub snapshot: SessionState,
 }
 
+struct PersistDirectSessionCreate {
+    id: String,
+    provider: Provider,
+    project_path: String,
+    project_name: Option<String>,
+    branch: Option<String>,
+    model: Option<String>,
+    approval_policy: Option<String>,
+    sandbox_mode: Option<String>,
+    permission_mode: Option<String>,
+    effort: Option<String>,
+}
+
 pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> PreparedDirectSession {
     let project_name = input.cwd.split('/').next_back().map(String::from);
     let mut handle = SessionHandle::new(input.id, input.provider, input.cwd);
@@ -83,19 +96,22 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
     }
 }
 
-pub(crate) async fn persist_direct_session_create(
+async fn persist_direct_session_create(
     persist_tx: &mpsc::Sender<PersistCommand>,
-    id: String,
-    provider: Provider,
-    project_path: String,
-    project_name: Option<String>,
-    branch: Option<String>,
-    model: Option<String>,
-    approval_policy: Option<String>,
-    sandbox_mode: Option<String>,
-    permission_mode: Option<String>,
-    effort: Option<String>,
+    request: PersistDirectSessionCreate,
 ) {
+    let PersistDirectSessionCreate {
+        id,
+        provider,
+        project_path,
+        project_name,
+        branch,
+        model,
+        approval_policy,
+        sandbox_mode,
+        permission_mode,
+        effort,
+    } = request;
     let _ = persist_tx
         .send(PersistCommand::SessionCreate {
             id: id.clone(),
@@ -141,16 +157,18 @@ pub(crate) async fn prepare_persist_direct_session(
     let persist_tx = state.persist().clone();
     persist_direct_session_create(
         &persist_tx,
-        id.clone(),
-        request.provider,
-        request.cwd.clone(),
-        prepared.project_name,
-        git_branch,
-        request.model.clone(),
-        request.approval_policy.clone(),
-        request.sandbox_mode.clone(),
-        request.permission_mode.clone(),
-        request.effort.clone(),
+        PersistDirectSessionCreate {
+            id: id.clone(),
+            provider: request.provider,
+            project_path: request.cwd.clone(),
+            project_name: prepared.project_name,
+            branch: git_branch,
+            model: request.model.clone(),
+            approval_policy: request.approval_policy.clone(),
+            sandbox_mode: request.sandbox_mode.clone(),
+            permission_mode: request.permission_mode.clone(),
+            effort: request.effort.clone(),
+        },
     )
     .await;
 
@@ -187,14 +205,16 @@ pub(crate) async fn launch_prepared_direct_session(
         Provider::Claude => {
             start_direct_claude_session(
                 state,
-                handle,
-                &session_id,
-                &request.cwd,
-                request.model.as_deref(),
-                request.permission_mode.as_deref(),
-                &request.allowed_tools,
-                &request.disallowed_tools,
-                request.effort.as_deref(),
+                crate::runtime::session_direct_start::StartDirectClaudeRequest {
+                    handle,
+                    session_id: &session_id,
+                    cwd: &request.cwd,
+                    model: request.model.as_deref(),
+                    permission_mode: request.permission_mode.as_deref(),
+                    allowed_tools: &request.allowed_tools,
+                    disallowed_tools: &request.disallowed_tools,
+                    effort: request.effort.as_deref(),
+                },
             )
             .await
         }

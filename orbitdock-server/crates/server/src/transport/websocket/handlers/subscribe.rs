@@ -30,7 +30,7 @@ async fn forward_subscribe_result(
     match result {
         PreparedSubscribeResult::Snapshot { state, rx } => {
             spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.to_string()));
-            send_snapshot_if_requested(client_tx, session_id, state, include_snapshot, conn_id)
+            send_snapshot_if_requested(client_tx, session_id, *state, include_snapshot, conn_id)
                 .await;
         }
         PreparedSubscribeResult::Replay { events, rx } => {
@@ -120,12 +120,14 @@ pub(crate) async fn handle(
                     match start_lazy_connector_and_prepare_subscribe(
                         state,
                         &actor,
-                        &session_id,
-                        snap.provider,
-                        &snap.project_path,
-                        snap.model.as_deref(),
-                        snap.approval_policy.as_deref(),
-                        snap.sandbox_mode.as_deref(),
+                        crate::runtime::session_activation::LazyConnectorStartRequest {
+                            session_id: &session_id,
+                            provider: snap.provider,
+                            project_path: &snap.project_path,
+                            model: snap.model.as_deref(),
+                            approval_policy: snap.approval_policy.as_deref(),
+                            sandbox_mode: snap.sandbox_mode.as_deref(),
+                        },
                     )
                     .await
                     {

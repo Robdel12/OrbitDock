@@ -129,28 +129,32 @@ pub(crate) async fn takeover_passive_session(
         Provider::Codex => {
             complete_codex_takeover(
                 state,
-                session_id,
-                snapshot.project_path.clone(),
-                handle,
-                takeover_plan.effective_model,
-                takeover_plan.effective_effort,
-                takeover_plan.effective_approval_policy,
-                takeover_plan.effective_sandbox_mode,
+                CodexTakeoverRequest {
+                    session_id: session_id.to_string(),
+                    project_path: snapshot.project_path.clone(),
+                    handle,
+                    effective_model: takeover_plan.effective_model,
+                    effective_effort: takeover_plan.effective_effort,
+                    effective_approval: takeover_plan.effective_approval_policy,
+                    effective_sandbox: takeover_plan.effective_sandbox_mode,
+                },
             )
             .await?;
         }
         Provider::Claude => {
             complete_claude_takeover(
                 state,
-                session_id,
-                snapshot.project_path.clone(),
-                snapshot.transcript_path.clone(),
-                handle,
-                takeover_plan.effective_model,
-                takeover_plan.effective_permission_mode,
-                takeover_plan.requested_permission_mode.is_some(),
-                inputs.allowed_tools,
-                inputs.disallowed_tools,
+                ClaudeTakeoverRequest {
+                    session_id: session_id.to_string(),
+                    project_path: snapshot.project_path.clone(),
+                    transcript_path: snapshot.transcript_path.clone(),
+                    handle,
+                    effective_model: takeover_plan.effective_model,
+                    effective_permission: takeover_plan.effective_permission_mode,
+                    persist_permission_mode: takeover_plan.requested_permission_mode.is_some(),
+                    allowed_tools: inputs.allowed_tools,
+                    disallowed_tools: inputs.disallowed_tools,
+                },
             )
             .await?;
         }
@@ -218,21 +222,24 @@ async fn load_stored_takeover_permission_mode(
 
 async fn complete_codex_takeover(
     state: &Arc<SessionRegistry>,
-    session_id: &str,
-    project_path: String,
-    mut handle: SessionHandle,
-    effective_model: Option<String>,
-    effective_effort: Option<String>,
-    effective_approval: Option<String>,
-    effective_sandbox: Option<String>,
+    request: CodexTakeoverRequest,
 ) -> Result<(), TakeoverSessionError> {
+    let CodexTakeoverRequest {
+        session_id,
+        project_path,
+        mut handle,
+        effective_model,
+        effective_effort,
+        effective_approval,
+        effective_sandbox,
+    } = request;
     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
     if let Some(ref model) = effective_model {
         handle.set_model(Some(model.clone()));
     }
     handle.set_config(effective_approval.clone(), effective_sandbox.clone());
 
-    let thread_id = state.codex_thread_for_session(session_id);
+    let thread_id = state.codex_thread_for_session(&session_id);
     let session_id = session_id.to_string();
     let model = effective_model.clone();
     let approval = effective_approval.clone();
@@ -365,18 +372,31 @@ async fn complete_codex_takeover(
     }
 }
 
+struct CodexTakeoverRequest {
+    session_id: String,
+    project_path: String,
+    handle: SessionHandle,
+    effective_model: Option<String>,
+    effective_effort: Option<String>,
+    effective_approval: Option<String>,
+    effective_sandbox: Option<String>,
+}
+
 async fn complete_claude_takeover(
     state: &Arc<SessionRegistry>,
-    session_id: &str,
-    project_path: String,
-    transcript_path: Option<String>,
-    mut handle: SessionHandle,
-    effective_model: Option<String>,
-    effective_permission: Option<String>,
-    persist_permission_mode: bool,
-    allowed_tools: Vec<String>,
-    disallowed_tools: Vec<String>,
+    request: ClaudeTakeoverRequest,
 ) -> Result<(), TakeoverSessionError> {
+    let ClaudeTakeoverRequest {
+        session_id,
+        project_path,
+        transcript_path,
+        mut handle,
+        effective_model,
+        effective_permission,
+        persist_permission_mode,
+        allowed_tools,
+        disallowed_tools,
+    } = request;
     handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
     if let Some(ref model) = effective_model {
         handle.set_model(Some(model.clone()));
@@ -388,7 +408,7 @@ async fn complete_claude_takeover(
         project_path
     };
     let takeover_sdk_id = state
-        .claude_sdk_id_for_session(session_id)
+        .claude_sdk_id_for_session(&session_id)
         .and_then(orbitdock_protocol::ProviderSessionId::new);
     let session_id = session_id.to_string();
     let model = effective_model.clone();
@@ -489,6 +509,18 @@ async fn complete_claude_takeover(
             ))
         }
     }
+}
+
+struct ClaudeTakeoverRequest {
+    session_id: String,
+    project_path: String,
+    transcript_path: Option<String>,
+    handle: SessionHandle,
+    effective_model: Option<String>,
+    effective_permission: Option<String>,
+    persist_permission_mode: bool,
+    allowed_tools: Vec<String>,
+    disallowed_tools: Vec<String>,
 }
 
 fn takeover_permission_persist_op(

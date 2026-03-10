@@ -26,17 +26,31 @@ pub(crate) struct AnswerQuestionResult {
     pub approval_version: u64,
 }
 
+pub(crate) struct DispatchSendMessage {
+    pub session_id: String,
+    pub content: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub skills: Vec<SkillInput>,
+    pub images: Vec<ImageInput>,
+    pub mentions: Vec<MentionInput>,
+    pub message_id: String,
+}
+
 pub(crate) async fn dispatch_send_message(
     state: &Arc<SessionRegistry>,
-    session_id: String,
-    content: String,
-    model: Option<String>,
-    effort: Option<String>,
-    skills: Vec<SkillInput>,
-    images: Vec<ImageInput>,
-    mentions: Vec<MentionInput>,
-    message_id: String,
+    request: DispatchSendMessage,
 ) -> Result<(), DispatchMessageError> {
+    let DispatchSendMessage {
+        session_id,
+        content,
+        model,
+        effort,
+        skills,
+        images,
+        mentions,
+        message_id,
+    } = request;
     let codex_tx = state.get_codex_action_tx(&session_id);
     let claude_tx = state.get_claude_action_tx(&session_id);
     let Some(actor) = state.get_session(&session_id) else {

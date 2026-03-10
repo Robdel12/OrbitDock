@@ -52,14 +52,16 @@ pub(crate) async fn handle(
 
             if dispatch_send_message(
                 state,
-                session_id.clone(),
-                content,
-                model,
-                effort,
-                skills,
-                images,
-                mentions,
-                message_id,
+                crate::runtime::message_dispatch::DispatchSendMessage {
+                    session_id: session_id.clone(),
+                    content,
+                    model,
+                    effort,
+                    skills,
+                    images,
+                    mentions,
+                    message_id,
+                },
             )
             .await
             .is_err()
@@ -352,6 +354,33 @@ pub(crate) async fn handle(
 
         _ => {}
     }
+}
+
+async fn send_not_found(client_tx: &mpsc::Sender<OutboundMessage>, session_id: &str) {
+    send_json(
+        client_tx,
+        ServerMessage::Error {
+            code: "not_found".into(),
+            message: format!(
+                "Session {} not found or has no active connector",
+                session_id
+            ),
+            session_id: Some(session_id.to_string()),
+        },
+    )
+    .await;
+}
+
+async fn send_invalid_answer_payload(client_tx: &mpsc::Sender<OutboundMessage>, session_id: &str) {
+    send_json(
+        client_tx,
+        ServerMessage::Error {
+            code: "invalid_answer_payload".into(),
+            message: "Question approvals require a non-empty answer or answers map".into(),
+            session_id: Some(session_id.to_string()),
+        },
+    )
+    .await;
 }
 
 #[cfg(test)]
@@ -834,31 +863,4 @@ mod tests {
         let snapshot = actor.snapshot();
         assert_eq!(snapshot.effort.as_deref(), Some("xhigh"));
     }
-}
-
-async fn send_not_found(client_tx: &mpsc::Sender<OutboundMessage>, session_id: &str) {
-    send_json(
-        client_tx,
-        ServerMessage::Error {
-            code: "not_found".into(),
-            message: format!(
-                "Session {} not found or has no active connector",
-                session_id
-            ),
-            session_id: Some(session_id.to_string()),
-        },
-    )
-    .await;
-}
-
-async fn send_invalid_answer_payload(client_tx: &mpsc::Sender<OutboundMessage>, session_id: &str) {
-    send_json(
-        client_tx,
-        ServerMessage::Error {
-            code: "invalid_answer_payload".into(),
-            message: "Question approvals require a non-empty answer or answers map".into(),
-            session_id: Some(session_id.to_string()),
-        },
-    )
-    .await;
 }

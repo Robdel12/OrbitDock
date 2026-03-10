@@ -70,13 +70,16 @@ pub(crate) async fn reactivate_passive_and_prepare_subscribe(
 pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
     state: &Arc<SessionRegistry>,
     actor: &SessionActorHandle,
-    session_id: &str,
-    provider: Provider,
-    project_path: &str,
-    model: Option<&str>,
-    approval_policy: Option<&str>,
-    sandbox_mode: Option<&str>,
+    request: LazyConnectorStartRequest<'_>,
 ) -> Result<Option<PreparedSubscribeResult>, String> {
+    let LazyConnectorStartRequest {
+        session_id,
+        provider,
+        project_path,
+        model,
+        approval_policy,
+        sandbox_mode,
+    } = request;
     let (take_tx, take_rx) = tokio::sync::oneshot::channel();
     actor
         .send(SessionCommand::TakeHandle { reply: take_tx })
@@ -94,14 +97,16 @@ pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
         Provider::Codex => {
             start_lazy_codex_connector(
                 state,
-                session_id,
-                project_path,
-                model,
-                approval_policy,
-                sandbox_mode,
-                handle,
-                persist_tx.clone(),
-                connector_timeout,
+                LazyCodexConnectorStart {
+                    session_id,
+                    project_path,
+                    model,
+                    approval_policy,
+                    sandbox_mode,
+                    handle,
+                    persist_tx: persist_tx.clone(),
+                    connector_timeout,
+                },
             )
             .await
         }
@@ -136,17 +141,40 @@ pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
     Ok(None)
 }
 
-async fn start_lazy_codex_connector(
-    state: &Arc<SessionRegistry>,
-    session_id: &str,
-    project_path: &str,
-    model: Option<&str>,
-    approval_policy: Option<&str>,
-    sandbox_mode: Option<&str>,
+pub(crate) struct LazyConnectorStartRequest<'a> {
+    pub session_id: &'a str,
+    pub provider: Provider,
+    pub project_path: &'a str,
+    pub model: Option<&'a str>,
+    pub approval_policy: Option<&'a str>,
+    pub sandbox_mode: Option<&'a str>,
+}
+
+struct LazyCodexConnectorStart<'a> {
+    session_id: &'a str,
+    project_path: &'a str,
+    model: Option<&'a str>,
+    approval_policy: Option<&'a str>,
+    sandbox_mode: Option<&'a str>,
     handle: crate::domain::sessions::session::SessionHandle,
     persist_tx: tokio::sync::mpsc::Sender<PersistCommand>,
     connector_timeout: Duration,
+}
+
+async fn start_lazy_codex_connector(
+    state: &Arc<SessionRegistry>,
+    request: LazyCodexConnectorStart<'_>,
 ) -> bool {
+    let LazyCodexConnectorStart {
+        session_id,
+        project_path,
+        model,
+        approval_policy,
+        sandbox_mode,
+        handle,
+        persist_tx,
+        connector_timeout,
+    } = request;
     let thread_id = state.codex_thread_for_session(session_id);
     let sid = session_id.to_string();
     let project = project_path.to_string();

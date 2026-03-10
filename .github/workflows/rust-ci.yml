@@ -3,22 +3,8 @@ name: Rust CI
 on:
   push:
     branches: [main]
-    paths:
-      - 'orbitdock-server/**'
-      - 'Makefile'
-      - 'orbitdock-server/Cargo.toml'
-      - 'orbitdock-server/build-universal.sh'
-      - 'orbitdock-server/package-release-assets.sh'
-      - '.github/workflows/rust-ci.yml'
   pull_request:
     branches: [main]
-    paths:
-      - 'orbitdock-server/**'
-      - 'Makefile'
-      - 'orbitdock-server/Cargo.toml'
-      - 'orbitdock-server/build-universal.sh'
-      - 'orbitdock-server/package-release-assets.sh'
-      - '.github/workflows/rust-ci.yml'
 
 concurrency:
   group: rust-ci-${{ github.ref }}

@@ -87,14 +87,16 @@ pub async fn post_session_message(
 
     crate::runtime::message_dispatch::dispatch_send_message(
         &state,
-        session_id.clone(),
-        body.content,
-        body.model,
-        body.effort,
-        body.skills,
-        body.images,
-        body.mentions,
-        message_id,
+        crate::runtime::message_dispatch::DispatchSendMessage {
+            session_id: session_id.clone(),
+            content: body.content,
+            model: body.model,
+            effort: body.effort,
+            skills: body.skills,
+            images: body.images,
+            mentions: body.mentions,
+            message_id,
+        },
     )
     .await
     .map_err(|error| messaging_dispatch_error_response(error, &session_id))?;

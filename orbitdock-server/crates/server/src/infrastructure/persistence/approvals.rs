@@ -1,22 +1,42 @@
 use super::*;
 
+pub(super) struct ApprovalRequestedRecord {
+    pub session_id: String,
+    pub request_id: String,
+    pub approval_type: ApprovalType,
+    pub tool_name: Option<String>,
+    pub tool_input: Option<String>,
+    pub command: Option<String>,
+    pub file_path: Option<String>,
+    pub diff: Option<String>,
+    pub question: Option<String>,
+    pub question_prompts: Vec<ApprovalQuestionPrompt>,
+    pub preview: Option<ApprovalPreview>,
+    pub cwd: Option<String>,
+    pub proposed_amendment: Option<Vec<String>>,
+    pub permission_suggestions: Option<Value>,
+}
+
 pub(super) fn persist_approval_requested(
     conn: &Connection,
-    session_id: String,
-    request_id: String,
-    approval_type: ApprovalType,
-    tool_name: Option<String>,
-    tool_input: Option<String>,
-    command: Option<String>,
-    file_path: Option<String>,
-    diff: Option<String>,
-    question: Option<String>,
-    question_prompts: Vec<ApprovalQuestionPrompt>,
-    preview: Option<ApprovalPreview>,
-    cwd: Option<String>,
-    proposed_amendment: Option<Vec<String>>,
-    permission_suggestions: Option<Value>,
+    record: ApprovalRequestedRecord,
 ) -> Result<(), rusqlite::Error> {
+    let ApprovalRequestedRecord {
+        session_id,
+        request_id,
+        approval_type,
+        tool_name,
+        tool_input,
+        command,
+        file_path,
+        diff,
+        question,
+        question_prompts,
+        preview,
+        cwd,
+        proposed_amendment,
+        permission_suggestions,
+    } = record;
     let approval_type_str = match approval_type {
         ApprovalType::Exec => "exec",
         ApprovalType::Patch => "patch",
@@ -125,95 +145,91 @@ pub async fn list_approvals(
     let db_path = crate::infrastructure::paths::db_path();
     let limit = limit.unwrap_or(200).min(1000) as i64;
 
-    Ok(
-        tokio::task::spawn_blocking(move || -> Result<Vec<ApprovalHistoryItem>, anyhow::Error> {
-            if !db_path.exists() {
-                return Ok(Vec::new());
-            }
+    tokio::task::spawn_blocking(move || -> Result<Vec<ApprovalHistoryItem>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(Vec::new());
+        }
 
-            let conn = Connection::open(&db_path)?;
-            conn.execute_batch(
-                "PRAGMA journal_mode = WAL;
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
                  PRAGMA busy_timeout = 5000;",
-            )?;
+        )?;
 
-            let table_exists: i64 = conn.query_row(
-                "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'approval_history'",
-                [],
-                |row| row.get(0),
-            )?;
-            if table_exists == 0 {
-                return Ok(Vec::new());
-            }
+        let table_exists: i64 = conn.query_row(
+            "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'approval_history'",
+            [],
+            |row| row.get(0),
+        )?;
+        if table_exists == 0 {
+            return Ok(Vec::new());
+        }
 
-            let mut items = Vec::new();
-            if let Some(session_id) = session_id {
-                let mut stmt = conn.prepare(
-                    "SELECT id, session_id, request_id, approval_type, tool_name, tool_input, command,
+        let mut items = Vec::new();
+        if let Some(session_id) = session_id {
+            let mut stmt = conn.prepare(
+                "SELECT id, session_id, request_id, approval_type, tool_name, tool_input, command,
                             file_path, diff, question, question_prompts, preview, cwd, decision,
                             proposed_amendment, permission_suggestions, created_at, decided_at
                      FROM approval_history
                      WHERE session_id = ?1
                      ORDER BY id DESC
                      LIMIT ?2",
-                )?;
-                let rows =
-                    stmt.query_map(params![session_id, limit], decode_approval_history_item_row)?;
-                for item in rows.flatten() {
-                    items.push(item);
-                }
-            } else {
-                let mut stmt = conn.prepare(
-                    "SELECT id, session_id, request_id, approval_type, tool_name, tool_input, command,
+            )?;
+            let rows =
+                stmt.query_map(params![session_id, limit], decode_approval_history_item_row)?;
+            for item in rows.flatten() {
+                items.push(item);
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id, session_id, request_id, approval_type, tool_name, tool_input, command,
                             file_path, diff, question, question_prompts, preview, cwd, decision,
                             proposed_amendment, permission_suggestions, created_at, decided_at
                      FROM approval_history
                      ORDER BY id DESC
                      LIMIT ?1",
-                )?;
-                let rows = stmt.query_map(params![limit], decode_approval_history_item_row)?;
-                for item in rows.flatten() {
-                    items.push(item);
-                }
+            )?;
+            let rows = stmt.query_map(params![limit], decode_approval_history_item_row)?;
+            for item in rows.flatten() {
+                items.push(item);
             }
+        }
 
-            Ok(items)
-        })
-        .await??,
-    )
+        Ok(items)
+    })
+    .await?
 }
 
 pub async fn delete_approval(approval_id: i64) -> Result<bool, anyhow::Error> {
     let db_path = crate::infrastructure::paths::db_path();
 
-    Ok(
-        tokio::task::spawn_blocking(move || -> Result<bool, anyhow::Error> {
-            if !db_path.exists() {
-                return Ok(false);
-            }
+    tokio::task::spawn_blocking(move || -> Result<bool, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(false);
+        }
 
-            let conn = Connection::open(&db_path)?;
-            conn.execute_batch(
-                "PRAGMA journal_mode = WAL;
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
              PRAGMA busy_timeout = 5000;",
-            )?;
-            let table_exists: i64 = conn.query_row(
+        )?;
+        let table_exists: i64 = conn.query_row(
             "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'approval_history'",
             [],
             |row| row.get(0),
         )?;
-            if table_exists == 0 {
-                return Ok(false);
-            }
+        if table_exists == 0 {
+            return Ok(false);
+        }
 
-            let rows = conn.execute(
-                "DELETE FROM approval_history WHERE id = ?1",
-                params![approval_id],
-            )?;
-            Ok(rows > 0)
-        })
-        .await??,
-    )
+        let rows = conn.execute(
+            "DELETE FROM approval_history WHERE id = ?1",
+            params![approval_id],
+        )?;
+        Ok(rows > 0)
+    })
+    .await?
 }
 
 fn sync_pending_approval_head(conn: &Connection, session_id: &str) -> Result<(), rusqlite::Error> {
