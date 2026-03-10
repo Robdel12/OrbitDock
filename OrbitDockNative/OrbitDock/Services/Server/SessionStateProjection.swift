@@ -85,6 +85,40 @@ struct SessionStateProjection {
   }
 }
 
+struct SessionTurnDiffSnapshotProjection {
+  let turnDiff: ServerTurnDiff?
+  let usage: ServerTokenUsage?
+  let snapshotKind: ServerTokenUsageSnapshotKind
+
+  static func fromTurnDiffSnapshot(
+    turnId: String,
+    diff: String?,
+    inputTokens: UInt64?,
+    outputTokens: UInt64?,
+    cachedTokens: UInt64?,
+    contextWindow: UInt64?,
+    snapshotKind: ServerTokenUsageSnapshotKind
+  ) -> SessionTurnDiffSnapshotProjection {
+    let turnDiff = diff.map { diff in
+      ServerTurnDiff(
+        turnId: turnId,
+        diff: diff,
+        inputTokens: inputTokens,
+        outputTokens: outputTokens,
+        cachedTokens: cachedTokens,
+        contextWindow: contextWindow,
+        snapshotKind: snapshotKind
+      )
+    }
+
+    return SessionTurnDiffSnapshotProjection(
+      turnDiff: turnDiff,
+      usage: turnDiff?.tokenUsage,
+      snapshotKind: snapshotKind
+    )
+  }
+}
+
 extension Session {
   mutating func applyPendingApprovalProjection(_ projection: SessionPendingApprovalProjection) {
     pendingApprovalId = projection.id
@@ -177,6 +211,14 @@ extension Session {
     totalTokens = Int(usage.inputTokens + usage.outputTokens)
     if let snapshotKind {
       tokenUsageSnapshotKind = snapshotKind
+    }
+  }
+
+  mutating func applyTurnDiffSnapshot(_ projection: SessionTurnDiffSnapshotProjection) {
+    if let usage = projection.usage {
+      applyTokenUsage(usage, snapshotKind: projection.snapshotKind)
+    } else {
+      tokenUsageSnapshotKind = projection.snapshotKind
     }
   }
 }
@@ -277,6 +319,22 @@ extension SessionObservable {
     totalTokens = Int(usage.inputTokens + usage.outputTokens)
     if let snapshotKind {
       tokenUsageSnapshotKind = snapshotKind
+    }
+  }
+
+  func applyTurnDiffSnapshot(_ projection: SessionTurnDiffSnapshotProjection) {
+    if let turnDiff = projection.turnDiff {
+      if let idx = turnDiffs.firstIndex(where: { $0.turnId == turnDiff.turnId }) {
+        turnDiffs[idx] = turnDiff
+      } else {
+        turnDiffs.append(turnDiff)
+      }
+    }
+
+    if let usage = projection.usage {
+      applyTokenUsage(usage, snapshotKind: projection.snapshotKind)
+    } else {
+      tokenUsageSnapshotKind = projection.snapshotKind
     }
   }
 }

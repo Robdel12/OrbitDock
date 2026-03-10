@@ -29,10 +29,10 @@ extension SessionStore {
       handleApprovalDeleted(approvalId)
     case .tokensUpdated(let sessionId, let usage, let kind):
       let obs = session(sessionId)
-      obs.applyTokenUsage(usage, snapshotKind: kind)
       if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
         sessions[idx].applyTokenUsage(usage, snapshotKind: kind)
       }
+      obs.applyTokenUsage(usage, snapshotKind: kind)
     case .modelsList(let models):
       codexModels = models
     case .claudeModelsList(let models):
@@ -98,26 +98,18 @@ extension SessionStore {
       requestSelection(SessionRef(endpointId: endpointId, sessionId: newSessionId))
     case .turnDiffSnapshot(let sessionId, let turnId, let diff, let input, let output, let cached, let window, let kind):
       let obs = session(sessionId)
-      let turnDiff = ServerTurnDiff(
+      let projection = SessionTurnDiffSnapshotProjection.fromTurnDiffSnapshot(
         turnId: turnId,
         diff: diff,
         inputTokens: input,
         outputTokens: output,
         cachedTokens: cached,
-        contextWindow: window
+        contextWindow: window,
+        snapshotKind: kind
       )
-      if let idx = obs.turnDiffs.firstIndex(where: { $0.turnId == turnId }) {
-        obs.turnDiffs[idx] = turnDiff
-      } else {
-        obs.turnDiffs.append(turnDiff)
-      }
-      obs.tokenUsageSnapshotKind = kind
+      obs.applyTurnDiffSnapshot(projection)
       if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-        sessions[idx].tokenUsageSnapshotKind = kind
-        if let input { sessions[idx].inputTokens = Int(input) }
-        if let output { sessions[idx].outputTokens = Int(output) }
-        if let cached { sessions[idx].cachedTokens = Int(cached) }
-        if let window { sessions[idx].contextWindow = Int(window) }
+        sessions[idx].applyTurnDiffSnapshot(projection)
       }
     case .reviewCommentCreated(let sessionId, _, let comment):
       session(sessionId).reviewComments.append(comment)

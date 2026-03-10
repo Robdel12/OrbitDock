@@ -276,6 +276,74 @@ struct SessionStateProjectionTests {
     #expect(observable.tokenUsage?.inputTokens == 50)
   }
 
+  @Test func turnDiffSnapshotProjectionUpsertsDetailDiffAndKeepsUsageInSync() {
+    let projection = SessionTurnDiffSnapshotProjection.fromTurnDiffSnapshot(
+      turnId: "turn-1",
+      diff: "diff --git a/file.swift b/file.swift",
+      inputTokens: 40,
+      outputTokens: 15,
+      cachedTokens: 5,
+      contextWindow: 2_000,
+      snapshotKind: .contextTurn
+    )
+
+    var session = Session(
+      id: "session-1",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .working,
+      attentionReason: .none,
+      provider: .claude,
+      claudeIntegrationMode: .direct
+    )
+    let observable = SessionObservable(id: "session-1")
+
+    session.applyTurnDiffSnapshot(projection)
+    observable.applyTurnDiffSnapshot(projection)
+
+    #expect(session.inputTokens == 40)
+    #expect(session.outputTokens == 15)
+    #expect(session.cachedTokens == 5)
+    #expect(session.contextWindow == 2_000)
+    #expect(session.tokenUsageSnapshotKind == .contextTurn)
+
+    #expect(observable.turnDiffs.count == 1)
+    #expect(observable.turnDiffs.first?.turnId == "turn-1")
+    #expect(observable.turnDiffs.first?.diff == "diff --git a/file.swift b/file.swift")
+    #expect(observable.inputTokens == 40)
+    #expect(observable.outputTokens == 15)
+    #expect(observable.cachedTokens == 5)
+    #expect(observable.contextWindow == 2_000)
+    #expect(observable.tokenUsageSnapshotKind == .contextTurn)
+  }
+
+  @Test func turnDiffSnapshotProjectionReplacesExistingTurnById() {
+    let observable = SessionObservable(id: "session-1")
+    observable.turnDiffs = [
+      ServerTurnDiff(turnId: "turn-1", diff: "old diff", inputTokens: 1, outputTokens: 2, cachedTokens: 3, contextWindow: 4)
+    ]
+
+    let projection = SessionTurnDiffSnapshotProjection.fromTurnDiffSnapshot(
+      turnId: "turn-1",
+      diff: "new diff",
+      inputTokens: 10,
+      outputTokens: 11,
+      cachedTokens: 12,
+      contextWindow: 13,
+      snapshotKind: .lifetimeTotals
+    )
+
+    observable.applyTurnDiffSnapshot(projection)
+
+    #expect(observable.turnDiffs.count == 1)
+    #expect(observable.turnDiffs.first?.diff == "new diff")
+    #expect(observable.inputTokens == 10)
+    #expect(observable.outputTokens == 11)
+    #expect(observable.cachedTokens == 12)
+    #expect(observable.contextWindow == 13)
+    #expect(observable.tokenUsageSnapshotKind == .lifetimeTotals)
+  }
+
   private func execApprovalRequest() -> ServerApprovalRequest {
     ServerApprovalRequest(
       id: "req-1",
