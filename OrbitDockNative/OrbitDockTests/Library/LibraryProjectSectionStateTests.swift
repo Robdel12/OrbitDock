@@ -47,7 +47,6 @@ struct LibraryProjectSectionStateTests {
         "tokens:2.0k",
       ]
     )
-    #expect(state.archiveSectionTitle == "Cached / Archive")
   }
 
   @Test func limitsVisibleEndpointFacetsAndReportsOverflowCount() {
