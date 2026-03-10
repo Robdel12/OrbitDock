@@ -28,64 +28,38 @@ struct LibraryView: View {
     )
   }
 
-  private var providerScopedSessions: [Session] {
-    switch providerFilter {
-      case .all:
-        sessions
-      case .claude:
-        sessions.filter { $0.provider == .claude }
-      case .codex:
-        sessions.filter { $0.provider == .codex }
-    }
-  }
-
-  private var endpointFacets: [LibraryEndpointFacet] {
-    buildEndpointFacets(from: providerScopedSessions)
-  }
-
-  private var endpointScopedSessions: [Session] {
-    guard let selectedEndpointId,
-          endpointFacets.contains(where: { $0.endpointId == selectedEndpointId })
-    else {
-      return providerScopedSessions
-    }
-
-    return providerScopedSessions.filter { $0.endpointId == selectedEndpointId }
-  }
-
-  private var filteredSessions: [Session] {
-    guard !searchText.isEmpty else { return endpointScopedSessions }
-
-    let query = searchText.lowercased()
-    return endpointScopedSessions.filter { session in
-      let fields = [
-        session.displayName,
-        session.projectName,
-        session.projectPath,
-        session.firstPrompt,
-        session.lastMessage,
-        session.branch,
-        session.endpointName,
-        session.model,
-      ]
-      .compactMap { $0?.lowercased() }
-
-      return fields.contains { $0.contains(query) }
-    }
-  }
-
-  private var summary: LibraryArchiveSummary {
-    LibraryArchiveSummary(
-      projectCount: Set(filteredSessions.map(\.groupingPath)).count,
-      sessionCount: filteredSessions.count,
-      liveCount: filteredSessions.filter(\.showsInMissionControl).count,
-      endpointCount: Set(filteredSessions.compactMap(\.endpointId)).count
+  private var archiveState: LibraryArchiveState {
+    LibraryArchivePlanner.state(
+      sessions: sessions,
+      searchText: searchText,
+      providerFilter: providerFilter,
+      selectedEndpointId: selectedEndpointId,
+      sort: sort
     )
   }
 
+  private var providerScopedSessions: [Session] {
+    archiveState.providerScopedSessions
+  }
+
+  private var endpointFacets: [LibraryEndpointFacet] {
+    archiveState.endpointFacets
+  }
+
+  private var endpointScopedSessions: [Session] {
+    archiveState.endpointScopedSessions
+  }
+
+  private var filteredSessions: [Session] {
+    archiveState.filteredSessions
+  }
+
+  private var summary: LibraryArchiveSummary {
+    archiveState.summary
+  }
+
   private var selectedEndpointFacet: LibraryEndpointFacet? {
-    guard let selectedEndpointId else { return nil }
-    return endpointFacets.first(where: { $0.endpointId == selectedEndpointId })
+    archiveState.selectedEndpointFacet
   }
 
   private var hasActiveFilters: Bool {
@@ -93,80 +67,11 @@ struct LibraryView: View {
   }
 
   private var scopeDescription: String {
-    var segments: [String] = []
-
-    if let selectedEndpointFacet {
-      segments.append(selectedEndpointFacet.name)
-    } else if summary.endpointCount > 1 {
-      segments.append("\(summary.endpointCount) servers")
-    } else {
-      segments.append("all servers")
-    }
-
-    if providerFilter != .all {
-      segments.append(providerFilter.label)
-    } else {
-      segments.append("all providers")
-    }
-
-    segments.append("\(summary.sessionCount) sessions")
-    return segments.joined(separator: " • ")
+    archiveState.scopeDescription
   }
 
   private var projectGroups: [LibraryProjectGroup] {
-    let grouped = Dictionary(grouping: filteredSessions) { $0.groupingPath }
-
-    return grouped.map { path, projectSessions in
-      let name = projectSessions.first?.projectName
-        ?? path.components(separatedBy: "/").last
-        ?? "Unknown"
-
-      let liveSessions = projectSessions
-        .filter(\.showsInMissionControl)
-        .sorted { activityDate(for: $0) > activityDate(for: $1) }
-
-      let archivedSessions = projectSessions
-        .filter { !$0.showsInMissionControl }
-        .sorted { lhs, rhs in
-          if lhs.isActive != rhs.isActive {
-            return lhs.isActive && !rhs.isActive
-          }
-          return activityDate(for: lhs) > activityDate(for: rhs)
-        }
-
-      return LibraryProjectGroup(
-        path: path,
-        name: name,
-        liveSessions: liveSessions,
-        archivedSessions: archivedSessions,
-        activeSessionCount: projectSessions.filter(\.isActive).count,
-        totalCost: projectSessions.reduce(0.0) { $0 + $1.totalCostUSD },
-        totalTokens: projectSessions.reduce(0) { $0 + $1.totalTokens },
-        endpointFacets: buildEndpointFacets(from: projectSessions)
-      )
-    }
-    .sorted { lhs, rhs in
-      switch sort {
-        case .recent:
-          return lhs.latestActivity > rhs.latestActivity
-        case .name:
-          return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        case .cost:
-          if lhs.totalCost != rhs.totalCost { return lhs.totalCost > rhs.totalCost }
-          return lhs.latestActivity > rhs.latestActivity
-        case .tokens:
-          if lhs.totalTokens != rhs.totalTokens { return lhs.totalTokens > rhs.totalTokens }
-          return lhs.latestActivity > rhs.latestActivity
-        case .status:
-          if lhs.liveSessions.count != rhs.liveSessions.count {
-            return lhs.liveSessions.count > rhs.liveSessions.count
-          }
-          if lhs.cachedActiveSessionCount != rhs.cachedActiveSessionCount {
-            return lhs.cachedActiveSessionCount > rhs.cachedActiveSessionCount
-          }
-          return lhs.latestActivity > rhs.latestActivity
-      }
-    }
+    archiveState.projectGroups
   }
 
   var body: some View {
@@ -831,40 +736,6 @@ struct LibraryView: View {
 
   // MARK: - Formatting
 
-  private func activityDate(for session: Session) -> Date {
-    session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
-  }
-
-  private func buildEndpointFacets(from sessions: [Session]) -> [LibraryEndpointFacet] {
-    let grouped: [UUID?: [Session]] = Dictionary(grouping: sessions) { $0.endpointId }
-
-    return grouped
-      .compactMap { (entry: (key: UUID?, value: [Session])) -> LibraryEndpointFacet? in
-        guard let endpointId = entry.key else { return nil }
-        let endpointSessions = entry.value
-        let sortedSessions = endpointSessions.sorted { activityDate(for: $0) > activityDate(for: $1) }
-        let endpointName = sortedSessions.compactMap(\.endpointName).first ?? "Endpoint"
-        let isConnected = sortedSessions.contains { session in
-          guard let status = session.endpointConnectionStatus else { return false }
-          if case .connected = status { return true }
-          return false
-        }
-        return LibraryEndpointFacet(
-          endpointId: endpointId,
-          name: endpointName,
-          sessionCount: endpointSessions.count,
-          isConnected: isConnected
-        )
-      }
-      .sorted { lhs, rhs in
-        let comparison = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-        if comparison != .orderedSame {
-          return comparison == .orderedAscending
-        }
-        return lhs.endpointId.uuidString < rhs.endpointId.uuidString
-      }
-  }
-
   private func formatCost(_ cost: Double) -> String {
     if cost >= 100 { return String(format: "$%.0f", cost) }
     if cost >= 10 { return String(format: "$%.1f", cost) }
@@ -876,50 +747,6 @@ struct LibraryView: View {
     if value >= 1_000 { return String(format: "%.1fk", Double(value) / 1_000) }
     return "\(value)"
   }
-}
-
-// MARK: - Library Project Group
-
-private struct LibraryProjectGroup: Identifiable {
-  let path: String
-  let name: String
-  let liveSessions: [Session]
-  let archivedSessions: [Session]
-  let activeSessionCount: Int
-  let totalCost: Double
-  let totalTokens: Int
-  let endpointFacets: [LibraryEndpointFacet]
-
-  var id: String { path }
-
-  var totalSessionCount: Int {
-    liveSessions.count + archivedSessions.count
-  }
-
-  var cachedActiveSessionCount: Int {
-    max(activeSessionCount - liveSessions.count, 0)
-  }
-
-  var latestActivity: Date {
-    let allSessions = liveSessions + archivedSessions
-    return allSessions.compactMap { $0.lastActivityAt ?? $0.startedAt }.max() ?? .distantPast
-  }
-}
-
-private struct LibraryEndpointFacet: Identifiable, Hashable {
-  let endpointId: UUID
-  let name: String
-  let sessionCount: Int
-  let isConnected: Bool
-
-  var id: UUID { endpointId }
-}
-
-private struct LibraryArchiveSummary {
-  let projectCount: Int
-  let sessionCount: Int
-  let liveCount: Int
-  let endpointCount: Int
 }
 
 private struct LibrarySummaryCard: View {
