@@ -219,13 +219,10 @@ final class ServerRuntimeRegistry {
   func displayConnectionStatus(for endpointId: UUID) -> ConnectionStatus {
     let status = connectionStatusByEndpointId[endpointId] ?? .disconnected
     let readiness = runtimeReadiness(for: endpointId)
-
-    switch status {
-      case .connected where !readiness.queryReady:
-        return .connecting
-      default:
-        return status
-    }
+    return ServerRuntimeRegistryPlanner.displayConnectionStatus(
+      connectionStatus: status,
+      readiness: readiness
+    )
   }
 
   var displayConnectionStatusByEndpointId: [UUID: ConnectionStatus] {
@@ -282,14 +279,10 @@ final class ServerRuntimeRegistry {
       }
     }
 
-    let preferredActiveEndpointId = Self.preferredActiveEndpointID(from: configuredEndpoints)
-    if let activeEndpointId,
-       configuredEndpoints.contains(where: { $0.id == activeEndpointId && $0.isEnabled })
-    {
-      self.activeEndpointId = activeEndpointId
-    } else {
-      self.activeEndpointId = preferredActiveEndpointId
-    }
+    activeEndpointId = ServerRuntimeRegistryPlanner.resolvedActiveEndpointID(
+      currentActiveEndpointId: activeEndpointId,
+      configuredEndpoints: configuredEndpoints
+    )
     recomputePrimaryEndpoint(from: configuredEndpoints)
     readinessContinuation.yield(())
 
@@ -433,17 +426,11 @@ final class ServerRuntimeRegistry {
     }
 
     hasPrimaryEndpointConflict = declaredPrimaryCandidates.count > 1
-    primaryEndpointId = Self.preferredActiveEndpointID(from: configuredEndpoints)
+    primaryEndpointId = ServerRuntimeRegistryPlanner.preferredActiveEndpointID(from: configuredEndpoints)
 
     if previousPrimaryEndpointId != primaryEndpointId {
       primaryEndpointContinuation.yield(primaryEndpointId)
     }
-  }
-
-  static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
-    endpoints.first(where: { $0.isDefault && $0.isEnabled })?.id
-      ?? endpoints.first(where: \.isEnabled)?.id
-      ?? endpoints.first?.id
   }
 
   private func schedulePrimaryClaimReconciliation() {
@@ -476,7 +463,12 @@ final class ServerRuntimeRegistry {
         self.connectionStatusByEndpointId[endpointId] = status
         let updatedReadiness = runtime.readiness
         self.readinessByEndpointId[endpointId] = updatedReadiness
-        if previousStatus != status || previousReadiness != updatedReadiness {
+        if ServerRuntimeRegistryPlanner.shouldBroadcastRuntimeStateChange(
+          previousStatus: previousStatus,
+          previousReadiness: previousReadiness,
+          nextStatus: status,
+          nextReadiness: updatedReadiness
+        ) {
           self.readinessContinuation.yield(())
           self.schedulePrimaryClaimReconciliation()
         }
@@ -490,7 +482,12 @@ final class ServerRuntimeRegistry {
         let previousReadiness = self.readinessByEndpointId[endpointId] ?? .offline
         let updatedReadiness = runtime.readiness
         self.readinessByEndpointId[endpointId] = updatedReadiness
-        if previousReadiness != updatedReadiness {
+        if ServerRuntimeRegistryPlanner.shouldBroadcastRuntimeStateChange(
+          previousStatus: self.connectionStatusByEndpointId[endpointId],
+          previousReadiness: previousReadiness,
+          nextStatus: self.connectionStatusByEndpointId[endpointId] ?? .disconnected,
+          nextReadiness: updatedReadiness
+        ) {
           self.readinessContinuation.yield(())
           self.schedulePrimaryClaimReconciliation()
         }
@@ -499,17 +496,18 @@ final class ServerRuntimeRegistry {
   }
 
   private func enabledControlPlanePorts() -> [ServerControlPlanePort] {
-    runtimesByEndpointId.values
-      .filter(\.endpoint.isEnabled)
-      .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
-      .map(\.controlPlanePort)
+    ServerRuntimeRegistryPlanner.controlPlanePorts(
+      runtimes: Array(runtimesByEndpointId.values),
+      readinessByEndpointId: readinessByEndpointId,
+      requireControlPlaneReady: false
+    )
   }
 
   private func controlPlaneReadyPorts() -> [ServerControlPlanePort] {
-    runtimesByEndpointId.values
-      .filter(\.endpoint.isEnabled)
-      .filter { readinessByEndpointId[$0.endpoint.id]?.controlPlaneReady == true }
-      .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
-      .map(\.controlPlanePort)
+    ServerRuntimeRegistryPlanner.controlPlanePorts(
+      runtimes: Array(runtimesByEndpointId.values),
+      readinessByEndpointId: readinessByEndpointId,
+      requireControlPlaneReady: true
+    )
   }
 }

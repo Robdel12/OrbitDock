@@ -175,7 +175,56 @@ struct ServerRuntimeRegistryTests {
       isDefault: false
     )
 
-    #expect(ServerRuntimeRegistry.preferredActiveEndpointID(from: [disabledDefault, enabled]) == enabled.id)
+    #expect(ServerRuntimeRegistryPlanner.preferredActiveEndpointID(from: [disabledDefault, enabled]) == enabled.id)
+  }
+
+  @Test func resolvedActiveEndpointIDPreservesEnabledSelectionOtherwiseFallsBack() throws {
+    let endpointA = try makeEndpoint(
+      id: "aaaaaaaa-1111-1111-1111-111111111111",
+      name: "Alpha",
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = try makeEndpoint(
+      id: "bbbbbbbb-2222-2222-2222-222222222222",
+      name: "Beta",
+      isEnabled: true,
+      isDefault: false
+    )
+    let disabledB = try makeEndpoint(
+      id: endpointB.id.uuidString,
+      name: endpointB.name,
+      isEnabled: false,
+      isDefault: false
+    )
+
+    #expect(
+      ServerRuntimeRegistryPlanner.resolvedActiveEndpointID(
+        currentActiveEndpointId: endpointB.id,
+        configuredEndpoints: [endpointA, endpointB]
+      ) == endpointB.id
+    )
+    #expect(
+      ServerRuntimeRegistryPlanner.resolvedActiveEndpointID(
+        currentActiveEndpointId: endpointB.id,
+        configuredEndpoints: [endpointA, disabledB]
+      ) == endpointA.id
+    )
+  }
+
+  @Test func displayConnectionStatusShowsConnectingUntilQueryReady() {
+    #expect(
+      ServerRuntimeRegistryPlanner.displayConnectionStatus(
+        connectionStatus: .connected,
+        readiness: .transportReady
+      ) == .connecting
+    )
+    #expect(
+      ServerRuntimeRegistryPlanner.displayConnectionStatus(
+        connectionStatus: .connected,
+        readiness: .queryReady
+      ) == .connected
+    )
   }
 
   @Test func primaryClaimPlannerOnlyReturnsChangedAssignmentsForEnabledEndpoints() throws {
