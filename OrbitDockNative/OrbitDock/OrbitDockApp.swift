@@ -52,6 +52,9 @@ struct OrbitDockApp: App {
       // Settings window (⌘,)
       Settings {
         SettingsView()
+          #if os(macOS)
+            .environment(\.serverManager, appRuntime.serverManager)
+          #endif
           .environment(appRuntime.runtimeRegistry)
           .preferredColorScheme(.dark)
       }
@@ -127,8 +130,8 @@ struct OrbitDockWindowCommands: Commands {
       // Set up notification delegate
       UNUserNotificationCenter.current().delegate = self
 
-      // Initialize notification manager (triggers authorization request)
-      _ = NotificationManager.shared
+      // Ensure app-level notification ownership is initialized before we register categories.
+      _ = appRuntime?.notificationManager
 
       // Define notification actions
       let viewAction = UNNotificationAction(

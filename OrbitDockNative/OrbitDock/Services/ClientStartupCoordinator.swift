@@ -24,10 +24,7 @@ final class ClientStartupCoordinator {
     runtimeRegistry: ServerRuntimeRegistry,
     usageServiceRegistry: UsageServiceRegistry,
     shouldConnectServer: Bool,
-    refreshInstallState: @escaping @MainActor () async -> ServerInstallState = {
-      await ServerManager.shared.refreshState()
-      return ServerManager.shared.installState
-    }
+    refreshInstallState: @escaping @MainActor () async -> ServerInstallState
   ) {
     self.runtimeRegistry = runtimeRegistry
     self.usageServiceRegistry = usageServiceRegistry

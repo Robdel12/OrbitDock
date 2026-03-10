@@ -10,7 +10,9 @@ import SwiftUI
 
 struct ServerSetupView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  @StateObject private var serverManager = ServerManager.shared
+  #if os(macOS)
+    @Environment(\.serverManager) private var serverManager
+  #endif
   @State private var showRemoteSheet = false
 
   var body: some View {
@@ -44,17 +46,19 @@ struct ServerSetupView: View {
       .frame(maxWidth: 420)
 
       // Error display
-      if let error = serverManager.installError {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: "exclamationmark.triangle.fill")
-            .foregroundStyle(Color.statusPermission)
-            .font(.system(size: TypeScale.caption))
-          Text(error)
-            .font(.system(size: TypeScale.body))
-            .foregroundStyle(Color.statusPermission)
+      #if os(macOS)
+        if let error = serverManager.installError {
+          HStack(spacing: Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+              .foregroundStyle(Color.statusPermission)
+              .font(.system(size: TypeScale.caption))
+            Text(error)
+              .font(.system(size: TypeScale.body))
+              .foregroundStyle(Color.statusPermission)
+          }
+          .padding(.horizontal, Spacing.lg)
         }
-        .padding(.horizontal, Spacing.lg)
-      }
+      #endif
 
       Spacer()
     }
@@ -167,6 +171,9 @@ struct ServerSetupView: View {
 #Preview {
   ServerSetupView()
     .environment(ServerRuntimeRegistry.shared)
+    #if os(macOS)
+      .environment(\.serverManager, .shared)
+    #endif
     .frame(width: 600, height: 500)
     .preferredColorScheme(.dark)
 }

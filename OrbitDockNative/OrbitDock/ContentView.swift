@@ -47,17 +47,27 @@ struct ContentView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
   @Environment(WindowSessionCoordinator.self) private var windowSessionCoordinator
-  @StateObject private var serverManager = ServerManager.shared
+  #if os(macOS)
+    @Environment(\.serverManager) private var serverManager
+  #endif
 
   private var isAnyRefreshingCachedSessions: Bool {
     false
+  }
+
+  private var currentInstallState: ServerInstallState {
+    #if os(macOS)
+      serverManager.installState
+    #else
+      .remote
+    #endif
   }
 
   /// Show setup view when server is not configured and not connected
   private var shouldShowSetup: Bool {
     ServerSetupVisibility.shouldShowSetup(
       connectedRuntimeCount: runtimeRegistry.connectedRuntimeCount,
-      installState: serverManager.installState
+      installState: currentInstallState
     )
   }
 
@@ -223,5 +233,8 @@ struct ContentView: View {
         router: router
       )
     )
+    #if os(macOS)
+      .environment(\.serverManager, .shared)
+    #endif
     .frame(width: 1_000, height: 700)
 }

@@ -72,6 +72,9 @@ This plan is now an active execution document, not just a roadmap.
 - **New session phase 1**
   - launch request planning, provider-state sync/reset, and async launch coordination now live in dedicated helpers instead of `NewSessionSheet`
   - deterministic unit tests now cover request planning, provider model sync, and launch sequencing around git init, worktree creation, and continuation prompts
+- **App-global ownership cleanup**
+  - `ServerManager` and app notification ownership now flow through the app runtime/environment instead of direct singleton grabs in production views and startup coordination
+  - `ToastManager.shared` is gone, and startup/runtime tests now cover the injected install-state seam
 - **Testing baseline**
   - `make build` is green
   - `make test-unit` is green
@@ -110,7 +113,7 @@ This plan is now an active execution document, not just a roadmap.
 - keep thinning `SessionStore` and related store/runtime ownership
 - clean up the last obvious app-global leftovers, especially dead singletons and preview/runtime `.shared` leakage
 - then land complete feature phases in this order:
-  - app-global ownership cleanup
+  - preview runtime cleanup
   - larger screen decomposition
 
 ### Next complete phases
@@ -135,6 +138,12 @@ This plan is now an active execution document, not just a roadmap.
   - done
   - session request construction, provider-specific selection sync/reset, and async launch workflow now live in dedicated helpers instead of `NewSessionSheet`
   - deterministic tests now cover request planning, provider reset/sync behavior, and launch action sequencing
+- **App-global ownership cleanup**
+  - done for production paths
+  - the startup coordinator now uses an injected install-state refresh seam
+  - `ContentView`, `ServerSetupView`, and debug settings now read `ServerManager` from the runtime/environment instead of `ServerManager.shared`
+  - app/window notification ownership now comes from `OrbitDockAppRuntime`, not direct singleton grabs in production code
+  - preview/test `.shared` usage is intentionally left for the next preview-runtime cleanup phase
 
 ---
 

@@ -1261,7 +1261,9 @@ struct SetupSettingsView: View {
 // MARK: - Debug Settings
 
 struct DebugSettingsView: View {
-  @StateObject private var serverManager = ServerManager.shared
+  #if os(macOS)
+    @Environment(\.serverManager) private var serverManager
+  #endif
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var showEndpointSettings = false
 

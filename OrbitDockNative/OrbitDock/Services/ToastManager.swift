@@ -10,8 +10,6 @@ import SwiftUI
 
 @MainActor
 class ToastManager: ObservableObject {
-  static let shared = ToastManager()
-
   @Published var toasts: [SessionToast] = []
 
   /// Sessions we've already shown a toast for (to avoid duplicates)
