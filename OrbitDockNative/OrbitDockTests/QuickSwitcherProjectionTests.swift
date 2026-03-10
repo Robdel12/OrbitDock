@@ -38,6 +38,28 @@ struct QuickSwitcherProjectionTests {
     #expect(branchProjection.filteredSessions.map(\.id) == ["active-branch", "recent-summary"])
   }
 
+  @Test func filteringIsCaseAndDiacriticInsensitive() {
+    let sessions = [
+      makeSession(
+        id: "accented",
+        projectPath: "/tmp/cafe",
+        projectName: "Cafe",
+        summary: "Café cleanup",
+        status: .active,
+        startedAt: Date(timeIntervalSince1970: 100)
+      )
+    ]
+
+    let projection = QuickSwitcherProjection.make(
+      sessions: sessions,
+      normalizedQuery: "cafe",
+      isRecentExpanded: false,
+      commandCount: 0
+    )
+
+    #expect(projection.filteredSessions.map(\.id) == ["accented"])
+  }
+
   @Test func activeSessionsSortNewestFirstAndRecentSessionsSortByRecentActivity() {
     let sessions = [
       makeSession(
