@@ -22,7 +22,6 @@ struct HeaderView: View {
   @Environment(SessionStore.self) private var serverState
   @State private var isHoveringBack = false
   @State private var isHoveringProject = false
-  @AppStorage("preferredEditor") private var preferredEditor: String = ""
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   private var obs: SessionObservable {
@@ -55,70 +54,59 @@ struct HeaderView: View {
   }
 
   var body: some View {
-    Group {
+    HeaderShell {
       if isCompactLayout {
         compactHeader
       } else {
         regularHeader
       }
     }
-    .background(Color.backgroundSecondary)
   }
 
   // MARK: - Layouts
 
   private var regularHeader: some View {
-    HStack(spacing: Spacing.md) {
-      // Back button
-      backButton
+    HeaderRegularShell(
+      leading: {
+        backButton
+        SessionStatusDot(status: obs.displayStatus, size: 10)
+        sessionTitleDropdown
+        UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
+        if let effort = HeaderCompactPresentation.effortLabel(for: obs.effort) {
+          Text(effort)
+            .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
+            .foregroundStyle(HeaderCompactPresentation.effortColor(for: obs.effort))
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xxs)
+            .background(HeaderCompactPresentation.effortColor(for: obs.effort).opacity(0.12), in: Capsule())
+        }
+      },
+      intelligence: {
+        if let layoutBinding = layoutConfig {
+          ContextualStatusStrip(
+            sessionId: sessionId,
+            layoutConfig: layoutBinding,
+            selectedCommentIds: $selectedCommentIds,
+            onNavigateToComment: onNavigateToComment,
+            onSendReview: onSendReview
+          )
+        }
+      },
+      controls: {
+        if let chatModeBinding = chatViewMode {
+          ConversationViewModeToggle(chatViewMode: chatModeBinding)
+        }
 
-      // Status dot
-      SessionStatusDot(status: obs.displayStatus, size: 10)
+        if let layoutBinding = layoutConfig {
+          layoutToggle(layoutBinding)
+        }
 
-      // Session title dropdown
-      sessionTitleDropdown
-
-      // Model badge
-      UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
-
-      if let effort = HeaderCompactPresentation.effortLabel(for: obs.effort) {
-        Text(effort)
-          .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
-          .foregroundStyle(HeaderCompactPresentation.effortColor(for: obs.effort))
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.xxs)
-          .background(HeaderCompactPresentation.effortColor(for: obs.effort).opacity(0.12), in: Capsule())
+        HStack(spacing: Spacing.xxs) {
+          navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
+          overflowMenu
+        }
       }
-
-      Spacer()
-
-      // Zone 2: Session intelligence pills
-      if let layoutBinding = layoutConfig {
-        ContextualStatusStrip(
-          sessionId: sessionId,
-          layoutConfig: layoutBinding,
-          selectedCommentIds: $selectedCommentIds,
-          onNavigateToComment: onNavigateToComment,
-          onSendReview: onSendReview
-        )
-      }
-
-      // Zone 3: View controls + actions
-      if let chatModeBinding = chatViewMode {
-        ConversationViewModeToggle(chatViewMode: chatModeBinding)
-      }
-
-      if let layoutBinding = layoutConfig {
-        layoutToggle(layoutBinding)
-      }
-
-      HStack(spacing: Spacing.xxs) {
-        navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
-        overflowMenu
-      }
-    }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.sm)
+    )
   }
 
   // MARK: - Back Button
@@ -214,12 +202,10 @@ struct HeaderView: View {
   }
 
   private var compactHeader: some View {
-    VStack(spacing: Spacing.sm) {
-      compactPrimaryRow
-
-      compactControlRow
-    }
-    .padding(.vertical, Spacing.sm)
+    HeaderCompactShell(
+      primaryRow: { compactPrimaryRow },
+      controlRow: { compactControlRow }
+    )
   }
 
   private var compactPrimaryRow: some View {
@@ -511,228 +497,6 @@ struct HeaderView: View {
     obs.displayName
   }
 
-  private func openInEditor(_ path: String) {
-    // If no editor configured, fall back to Finder
-    guard !preferredEditor.isEmpty else {
-      _ = Platform.services.revealInFileBrowser(path)
-      return
-    }
-
-    #if !os(macOS)
-      _ = Platform.services.openURL(URL(fileURLWithPath: path))
-      return
-    #else
-      // Map common editor commands to app names for `open -a`
-      let appNames: [String: String] = [
-        "emacs": "Emacs",
-        "code": "Visual Studio Code",
-        "cursor": "Cursor",
-        "zed": "Zed",
-        "subl": "Sublime Text",
-      ]
-
-      // Try opening as a macOS app first (works best for GUI editors)
-      if let appName = appNames[preferredEditor] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", appName, path]
-        if (try? process.run()) != nil {
-          return
-        }
-      }
-
-      // Fall back to running the command directly (for terminal editors or custom paths)
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-      process.arguments = [preferredEditor, path]
-      process.currentDirectoryURL = URL(fileURLWithPath: path)
-      try? process.run()
-    #endif
-  }
-}
-
-// MARK: - Compact Components
-
-struct StatusPillCompact: View {
-  let workStatus: Session.WorkStatus
-  let currentTool: String?
-
-  private var color: Color {
-    switch workStatus {
-      case .working: .statusWorking
-      case .waiting: .statusReply
-      case .permission: .statusPermission
-      case .unknown: .secondary
-    }
-  }
-
-  private var icon: String {
-    switch workStatus {
-      case .working: "bolt.fill"
-      case .waiting: "clock"
-      case .permission: "lock.fill"
-      case .unknown: "circle"
-    }
-  }
-
-  private var label: String {
-    switch workStatus {
-      case .working:
-        if let tool = currentTool {
-          return tool
-        }
-        return "Working"
-      case .waiting: return "Waiting"
-      case .permission: return "Permission"
-      case .unknown: return ""
-    }
-  }
-
-  var body: some View {
-    if workStatus != .unknown {
-      HStack(spacing: Spacing.xs) {
-        if workStatus == .working {
-          ProgressView()
-            .controlSize(.mini)
-        } else {
-          Image(systemName: icon)
-            .font(.system(size: 8, weight: .bold))
-        }
-        Text(label)
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .lineLimit(1)
-      }
-      .foregroundStyle(color)
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.xs)
-      .background(color.opacity(OpacityTier.light), in: Capsule())
-    }
-  }
-}
-
-struct ContextGaugeCompact: View {
-  let stats: TranscriptUsageStats
-
-  private var progressColor: Color {
-    if stats.contextPercentage > 0.9 { return .statusError }
-    if stats.contextPercentage > 0.7 { return .feedbackCaution }
-    return .accent
-  }
-
-  var body: some View {
-    HStack(spacing: Spacing.sm_) {
-      // Mini progress bar
-      GeometryReader { geo in
-        ZStack(alignment: .leading) {
-          RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-            .fill(Color.primary.opacity(0.1))
-
-          RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-            .fill(progressColor)
-            .frame(width: geo.size.width * stats.contextPercentage)
-        }
-      }
-      .frame(width: 32, height: 4)
-
-      Text("\(Int(stats.contextPercentage * 100))%")
-        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-        .foregroundStyle(progressColor)
-    }
-  }
-}
-
-struct CodexTokenBadge: View {
-  let sessionId: String
-  @Environment(SessionStore.self) private var serverState
-
-  private var obs: SessionObservable {
-    serverState.session(sessionId)
-  }
-
-  var body: some View {
-    HStack(spacing: Spacing.sm) {
-      // Context fill percentage
-      if let window = obs.contextWindow, window > 0 {
-        Text("\(contextPercent)%")
-          .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
-          .foregroundStyle(contextColor)
-
-        Text("of \(formatTokenCount(window))")
-          .font(.system(size: TypeScale.micro))
-          .foregroundStyle(Color.textTertiary)
-      } else {
-        // Fallback if no window info yet
-        Text(formatTokenCount(obs.effectiveContextInputTokens))
-          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
-          .foregroundStyle(.secondary)
-        Text("tokens")
-          .font(.system(size: TypeScale.micro))
-          .foregroundStyle(Color.textTertiary)
-      }
-
-      // Cache savings (compact)
-      if cacheSavingsPercent >= 10 {
-        HStack(spacing: Spacing.xxs) {
-          Image(systemName: "bolt.fill")
-            .font(.system(size: 8))
-          Text("\(cacheSavingsPercent)%")
-            .font(.system(size: TypeScale.micro, design: .monospaced))
-        }
-        .foregroundStyle(Color.feedbackPositive.opacity(0.85))
-      }
-    }
-    .padding(.horizontal, Spacing.md_)
-    .padding(.vertical, 5)
-    .background(Color.surfaceHover, in: Capsule())
-    .help(tokenTooltip)
-  }
-
-  /// Context fill: input tokens / context window
-  private var contextPercent: Int {
-    min(100, Int(obs.contextFillPercent))
-  }
-
-  private var contextColor: Color {
-    if contextPercent >= 90 { return .statusError }
-    if contextPercent >= 70 { return .feedbackCaution }
-    return .secondary
-  }
-
-  /// Cache savings as percentage of input tokens
-  private var cacheSavingsPercent: Int {
-    Int(obs.effectiveCacheHitPercent)
-  }
-
-  private var tokenTooltip: String {
-    var parts: [String] = []
-
-    if let input = obs.inputTokens {
-      parts.append("Input: \(formatTokenCount(input))")
-    }
-    if let output = obs.outputTokens {
-      parts.append("Output: \(formatTokenCount(output))")
-    }
-    if let cached = obs.cachedTokens, cached > 0,
-       obs.effectiveContextInputTokens > 0
-    {
-      let percent = Int(obs.effectiveCacheHitPercent)
-      parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
-    }
-    if let window = obs.contextWindow {
-      parts.append("Context window: \(formatTokenCount(window))")
-    }
-
-    return parts.isEmpty ? "Token usage" : parts.joined(separator: "\n")
-  }
-
-  private func formatTokenCount(_ count: Int) -> String {
-    if count >= 1_000_000 {
-      return String(format: "%.1fM", Double(count) / 1_000_000)
-    } else if count >= 1_000 {
-      return String(format: "%.1fk", Double(count) / 1_000)
-    }
-    return "\(count)"
-  }
 }
 
 // MARK: - Preview
