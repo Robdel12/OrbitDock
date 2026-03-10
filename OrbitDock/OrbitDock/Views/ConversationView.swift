@@ -6,6 +6,12 @@
 import SwiftUI
 
 struct ConversationView: View {
+  private enum LoadState {
+    case loading
+    case empty
+    case ready
+  }
+
   let sessionId: String?
   var endpointId: UUID?
   var isSessionActive: Bool = false
@@ -34,24 +40,40 @@ struct ConversationView: View {
     serverState.session(sessionId ?? "")
   }
 
-  private var displayedMessages: [TranscriptMessage] {
-    guard sessionId != nil else { return [] }
-    return obs.normalizedMessages
+  private var conversationStore: ConversationStore? {
+    guard let sessionId else { return nil }
+    return serverState.conversation(sessionId)
   }
 
-  private var isLoading: Bool {
-    guard sessionId != nil else { return false }
-    return !obs.hasReceivedSnapshot
+  private var displayedMessages: [TranscriptMessage] {
+    conversationStore?.normalizedMessages ?? []
+  }
+
+  private var loadState: LoadState {
+    guard let conversationStore else { return .empty }
+    if conversationStore.hasRenderableConversation || !displayedMessages.isEmpty {
+      return .ready
+    }
+    switch conversationStore.hydrationState {
+      case .empty, .loadingRecent:
+        return .loading
+      case .readyPartial, .readyComplete, .failed:
+        return .empty
+    }
   }
 
   var hasMoreMessages: Bool {
-    guard sessionId != nil else { return false }
-    return obs.hasMoreHistoryBefore
+    conversationStore?.hasMoreHistoryBefore ?? false
   }
 
   var remainingLoadCount: Int {
-    guard sessionId != nil else { return 0 }
-    return min(pageSize, max(0, obs.totalMessageCount - displayedMessages.count))
+    guard let conversationStore else { return 0 }
+    return min(pageSize, max(0, conversationStore.totalMessageCount - displayedMessages.count))
+  }
+
+  private var totalMessageCount: Int {
+    guard let conversationStore else { return displayedMessages.count }
+    return max(displayedMessages.count, conversationStore.totalMessageCount)
   }
 
   var body: some View {
@@ -60,32 +82,33 @@ struct ConversationView: View {
       Color.backgroundPrimary
         .ignoresSafeArea()
 
-      if isLoading {
-        ConversationLoadingView()
-          .transition(.opacity)
-      } else if displayedMessages.isEmpty {
-        ConversationEmptyStateView()
-          .transition(.opacity)
-      } else {
-        VStack(spacing: 0) {
-          // Fork origin banner (persistent, above scroll)
-          if let sid = sessionId, let sourceId = serverState.session(sid).forkedFrom {
-            ConversationForkOriginBanner(
-              sourceSessionId: sourceId,
-              sourceEndpointId: endpointId,
-              sourceName: serverState.sessions.first(where: { $0.id == sourceId })?.displayName
-            )
-            .padding(.horizontal, Spacing.lg)
-            .padding(.top, Spacing.sm)
-            .padding(.bottom, Spacing.xs)
-          }
+      switch loadState {
+        case .loading:
+          ConversationLoadingView()
+            .transition(.opacity)
+        case .empty:
+          ConversationEmptyStateView()
+            .transition(.opacity)
+        case .ready:
+          VStack(spacing: 0) {
+            // Fork origin banner (persistent, above scroll)
+            if let sid = sessionId, let sourceId = serverState.session(sid).forkedFrom {
+              ConversationForkOriginBanner(
+                sourceSessionId: sourceId,
+                sourceEndpointId: endpointId,
+                sourceName: serverState.sessions.first(where: { $0.id == sourceId })?.displayName
+              )
+              .padding(.horizontal, Spacing.lg)
+              .padding(.top, Spacing.sm)
+              .padding(.bottom, Spacing.xs)
+            }
 
-          conversationThread
-        }
-        .transition(.opacity)
+            conversationThread
+          }
+          .transition(.opacity)
       }
     }
-    .animation(Motion.fade, value: isLoading)
+    .animation(Motion.fade, value: loadState == .loading)
     .animation(Motion.fade, value: displayedMessages.isEmpty)
     .onChange(of: sessionId) { _, newId in
       loadedSessionId = newId
@@ -112,7 +135,7 @@ struct ConversationView: View {
       serverState: serverState,
       hasMoreMessages: hasMoreMessages,
       currentPrompt: currentPrompt,
-      messageCount: sessionId.map { max(displayedMessages.count, serverState.session($0).totalMessageCount) } ?? displayedMessages.count,
+      messageCount: totalMessageCount,
       remainingLoadCount: remainingLoadCount,
       openFileInReview: openFileInReview,
       onLoadMore: {

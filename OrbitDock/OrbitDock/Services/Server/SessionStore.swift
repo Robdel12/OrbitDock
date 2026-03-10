@@ -105,15 +105,23 @@ final class SessionStore {
 
   // MARK: - Session subscription
 
-  func subscribeToSession(_ sessionId: String, forceRefresh: Bool = false) {
+  func subscribeToSession(
+    _ sessionId: String,
+    forceRefresh: Bool = false,
+    recoveryGoal: ConversationRecoveryGoal = .coherentRecent
+  ) {
     subscribedSessions.insert(sessionId)
 
-    let obs = session(sessionId)
     let conv = conversation(sessionId)
 
     if !forceRefresh, conv.hasReceivedInitialData {
       // Path 1: Retained snapshot — already have messages, just re-subscribe WS
       netLog(.info, cat: .store, "Subscribe: Path 1 — retained snapshot, re-subscribing WS", sid: sessionId)
+      if recoveryGoal == .completeHistory {
+        Task {
+          _ = await conv.bootstrap(goal: recoveryGoal)
+        }
+      }
       eventStream.subscribeSession(
         sessionId,
         sinceRevision: nil,
@@ -123,7 +131,6 @@ final class SessionStore {
       // Path 2: Cached messages — restore for instant display, subscribe for delta
       netLog(.info, cat: .store, "Subscribe: Path 2 — restoring from cache, WS + HTTP reconcile", sid: sessionId)
       conv.restoreFromCache(cached)
-      syncConversationToObservable(conv, obs: obs)
       eventStream.subscribeSession(
         sessionId,
         sinceRevision: lastRevision[sessionId],
@@ -131,15 +138,13 @@ final class SessionStore {
       )
       // Background reconcile via HTTP bootstrap
       Task {
-        _ = await conv.bootstrap()
-        syncConversationToObservable(conv, obs: obs)
+        _ = await conv.bootstrap(goal: recoveryGoal)
       }
     } else {
       // Path 3: Bootstrap — fresh HTTP load, then subscribe
       netLog(.info, cat: .store, "Subscribe: Path 3 — fresh HTTP bootstrap", sid: sessionId)
       Task {
-        let revision = await conv.bootstrap()
-        syncConversationToObservable(conv, obs: obs)
+        let revision = await conv.bootstrap(goal: recoveryGoal)
         eventStream.subscribeSession(
           sessionId,
           sinceRevision: revision,
@@ -152,7 +157,7 @@ final class SessionStore {
     Task {
       do {
         let response = try await apiClient.listApprovals(sessionId: sessionId, limit: 200)
-        obs.approvalHistory = response.approvals
+        session(sessionId).approvalHistory = response.approvals
       } catch {
         netLog(.error, cat: .store, "Load approvals failed", sid: sessionId, data: ["error": error.localizedDescription])
       }
@@ -644,16 +649,13 @@ final class SessionStore {
         // Re-bootstrap conversation to get updated messages
         let conv = conversation(sessionId)
         Task {
-          _ = await conv.bootstrap()
-          syncConversationToObservable(conv, obs: obs)
+          _ = await conv.bootstrap(goal: .completeHistory)
         }
       }
     case .threadRolledBack(let sessionId, _):
       let conv = conversation(sessionId)
-      let obs = session(sessionId)
       Task {
-        _ = await conv.bootstrap()
-        syncConversationToObservable(conv, obs: obs)
+        _ = await conv.bootstrap(goal: .completeHistory)
       }
     case .sessionForked(let sourceSessionId, let newSessionId, _):
       let obs = session(sourceSessionId)
@@ -865,7 +867,6 @@ final class SessionStore {
     // Route messages through ConversationStore
     let conv = conversation(state.id)
     conv.handleSnapshot(state)
-    syncConversationToObservable(conv, obs: obs)
 
     // Approval state
     if let approval = state.pendingApproval {
@@ -897,7 +898,6 @@ final class SessionStore {
       obs.permissionMode = ClaudePermissionMode(rawValue: pm) ?? .default
     }
 
-    obs.hasReceivedSnapshot = true
   }
 
   private func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
@@ -1050,8 +1050,6 @@ final class SessionStore {
     netLog(.debug, cat: .store, "Message appended", sid: sessionId, data: ["messageId": message.id])
     let conv = conversation(sessionId)
     conv.handleMessageAppended(message)
-    let obs = session(sessionId)
-    syncConversationToObservable(conv, obs: obs)
 
     // Auto mark-read
     if autoMarkReadSessions.contains(sessionId) {
@@ -1062,8 +1060,6 @@ final class SessionStore {
   private func handleMessageUpdated(_ sessionId: String, _ messageId: String, _ changes: ServerMessageChanges) {
     let conv = conversation(sessionId)
     conv.handleMessageUpdated(messageId: messageId, changes: changes)
-    let obs = session(sessionId)
-    syncConversationToObservable(conv, obs: obs)
   }
 
   private func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest, _ version: UInt64?) {
@@ -1117,10 +1113,8 @@ final class SessionStore {
     if code == "lagged" || code == "replay_oversized" {
       if let sessionId {
         let conv = conversation(sessionId)
-        let obs = session(sessionId)
         Task {
           await conv.bootstrapFresh()
-          syncConversationToObservable(conv, obs: obs)
         }
       }
       return
@@ -1154,19 +1148,6 @@ final class SessionStore {
   }
 
   // MARK: - Helpers
-
-  private func syncConversationToObservable(_ conv: ConversationStore, obs: SessionObservable) {
-    netLog(.debug, cat: .store, "Sync conversation → observable", sid: conv.sessionId, data: ["messageCount": conv.messages.count, "hasSnapshot": conv.hasReceivedInitialData])
-    obs.applyConversationSnapshot(
-      messages: conv.messages,
-      totalMessageCount: conv.totalMessageCount,
-      oldestLoadedSequence: conv.oldestLoadedSequence,
-      newestLoadedSequence: conv.newestLoadedSequence,
-      hasMoreHistoryBefore: conv.hasMoreHistoryBefore,
-      isLoadingOlderMessages: conv.isLoadingOlderMessages,
-      hasReceivedInitialData: conv.hasReceivedInitialData
-    )
-  }
 
   private func hydrateObservable(_ obs: SessionObservable, from sess: Session) {
     obs.applySession(sess)
@@ -1216,7 +1197,7 @@ final class SessionStore {
 
   private func trimInactiveSessionPayload(_ sessionId: String) {
     let obs = session(sessionId)
-    obs.clearConversationPayloads()
+    obs.trimInactiveDetailPayloads()
     _conversationStores[sessionId]?.clear()
   }
 

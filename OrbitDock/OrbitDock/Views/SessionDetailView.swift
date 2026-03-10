@@ -132,7 +132,9 @@ struct SessionDetailView: View {
     .background(Color.backgroundPrimary)
     .onAppear {
       if shouldSubscribeToServerSession {
-        serverState.subscribeToSession(sessionId, forceRefresh: true)
+        // Let SessionStore choose the best recovery path: retained state, cached restore,
+        // or full-history recovery when the detail view needs to rebuild after being away.
+        serverState.subscribeToSession(sessionId, recoveryGoal: .completeHistory)
         serverState.setSessionAutoMarkRead(sessionId, enabled: isPinned)
         if obs.isDirect {
           Task {

@@ -26,6 +26,8 @@ struct ConversationSnapshotCacheTests {
     #expect(store.newestLoadedSequence == 11)
     #expect(store.hasMoreHistoryBefore)
     #expect(store.hasReceivedInitialData)
+    #expect(store.hydrationState == .readyPartial)
+    #expect(store.hasRenderableConversation)
     #expect(store.messagesRevision == 1)
   }
 
@@ -55,6 +57,7 @@ struct ConversationSnapshotCacheTests {
     #expect(snapshot.newestSequence == 23)
     #expect(snapshot.hasMoreHistoryBefore == false)
     #expect(snapshot.cachedAt >= cachedAt)
+    #expect(store.hydrationState == .readyComplete)
   }
 
   @Test func restoreFromCacheCanBeClearedBackToEmptyState() throws {
@@ -78,6 +81,7 @@ struct ConversationSnapshotCacheTests {
     #expect(store.newestLoadedSequence == nil)
     #expect(store.hasMoreHistoryBefore == false)
     #expect(store.hasReceivedInitialData == false)
+    #expect(store.hydrationState == .empty)
   }
 
   private func makeClient() -> APIClient {

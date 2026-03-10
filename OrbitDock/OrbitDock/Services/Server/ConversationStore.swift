@@ -13,6 +13,28 @@ private let kPageSize = 50
 private let kBootstrapMinTurns = 4
 private let kBootstrapMaxMessages = 200
 
+enum ConversationRecoveryGoal: Sendable, Equatable {
+  case coherentRecent
+  case completeHistory
+}
+
+enum ConversationHydrationState: Sendable, Equatable {
+  case empty
+  case loadingRecent
+  case readyPartial
+  case readyComplete
+  case failed
+
+  var hasRenderableConversation: Bool {
+    switch self {
+      case .readyPartial, .readyComplete:
+        return true
+      case .empty, .loadingRecent, .failed:
+        return false
+    }
+  }
+}
+
 func requiresConversationBootstrapBackfill(
   messages: [TranscriptMessage],
   hasMoreHistoryBefore: Bool,
@@ -40,14 +62,40 @@ final class ConversationStore {
 
   private(set) var messages: [TranscriptMessage] = []
   private(set) var messagesRevision: Int = 0
+  private var normalizedMessagesCache: [TranscriptMessage] = []
+  private var normalizedMessagesRevision: Int = -1
   private(set) var totalMessageCount: Int = 0
   private(set) var oldestLoadedSequence: UInt64?
   private(set) var newestLoadedSequence: UInt64?
   private(set) var hasMoreHistoryBefore: Bool = false
   private(set) var isLoadingOlderMessages: Bool = false
   private(set) var hasReceivedInitialData: Bool = false
+  private(set) var hydrationState: ConversationHydrationState = .empty
+  private(set) var lastHydrationGoal: ConversationRecoveryGoal = .coherentRecent
 
   private var backfillTask: Task<Void, Never>?
+
+  var hasRenderableConversation: Bool {
+    hydrationState.hasRenderableConversation
+  }
+
+  var isFullyHydrated: Bool {
+    hydrationState == .readyComplete
+  }
+
+  var normalizedMessages: [TranscriptMessage] {
+    if normalizedMessagesRevision == messagesRevision {
+      return normalizedMessagesCache
+    }
+
+    normalizedMessagesCache = ConversationRenderMessageNormalizer.normalize(
+      messages,
+      sessionId: sessionId,
+      source: "conversation-store"
+    )
+    normalizedMessagesRevision = messagesRevision
+    return normalizedMessagesCache
+  }
 
   init(sessionId: String, apiClient: APIClient) {
     self.sessionId = sessionId
@@ -58,18 +106,30 @@ final class ConversationStore {
 
   /// Load the newest conversation page from the server.
   /// Returns the bootstrap's revision for WS subscription.
-  func bootstrap() async -> UInt64? {
+  func bootstrap(goal: ConversationRecoveryGoal = .coherentRecent) async -> UInt64? {
     netLog(.info, cat: .conv, "Bootstrapping", sid: self.sessionId)
+    lastHydrationGoal = goal
+    if !hydrationState.hasRenderableConversation {
+      hydrationState = .loadingRecent
+    }
     do {
       let result = try await apiClient.fetchConversationBootstrap(sessionId, limit: kPageSize)
-      applyBootstrap(result)
+      applyBootstrap(result, goal: goal)
       netLog(.info, cat: .conv, "Bootstrap complete", sid: self.sessionId, data: ["messages": self.messages.count, "revision": result.session.revision ?? 0])
-      scheduleBackfill()
       return result.session.revision
     } catch {
+      hydrationState = messages.isEmpty ? .failed : .readyPartial
       netLog(.error, cat: .conv, "Bootstrap failed", sid: self.sessionId, data: ["error": error.localizedDescription])
       return nil
     }
+  }
+
+  /// Wait for any in-flight recovery pass to settle.
+  /// Useful for deterministic tests and recovery flows that need the final
+  /// hydrated state rather than just the initial recent window.
+  func waitForHydrationToSettle() async {
+    let task = backfillTask
+    await task?.value
   }
 
   /// Restore from a cached snapshot for instant session switching.
@@ -80,6 +140,7 @@ final class ConversationStore {
     newestLoadedSequence = cached.newestSequence
     hasMoreHistoryBefore = cached.hasMoreHistoryBefore
     hasReceivedInitialData = true
+    hydrationState = cached.hasMoreHistoryBefore ? .readyPartial : .readyComplete
     bumpRevision()
     netLog(.info, cat: .conv, "Restored from cache", sid: self.sessionId, data: ["messages": cached.messages.count])
   }
@@ -207,7 +268,7 @@ final class ConversationStore {
     netLog(.warning, cat: .conv, "Lagged event — re-bootstrapping", sid: self.sessionId)
     backfillTask?.cancel()
     Task {
-      _ = await bootstrap()
+      _ = await bootstrap(goal: .completeHistory)
     }
   }
 
@@ -215,7 +276,7 @@ final class ConversationStore {
   func bootstrapFresh() async {
     netLog(.warning, cat: .conv, "Fresh bootstrap requested", sid: self.sessionId)
     backfillTask?.cancel()
-    _ = await bootstrap()
+    _ = await bootstrap(goal: .completeHistory)
   }
 
   /// Handle session snapshot by replacing messages entirely.
@@ -229,9 +290,10 @@ final class ConversationStore {
     newestLoadedSequence = state.newestSequence
     hasMoreHistoryBefore = state.hasMoreBefore ?? false
     hasReceivedInitialData = true
+    hydrationState = hasMoreHistoryBefore ? .readyPartial : .readyComplete
     bumpRevision()
     netLog(.info, cat: .conv, "Snapshot received", sid: self.sessionId, data: ["messages": normalized.count])
-    scheduleBackfill()
+    scheduleBackfillIfNeeded()
   }
 
   /// Clear all message data (e.g. on disconnect).
@@ -243,13 +305,14 @@ final class ConversationStore {
     newestLoadedSequence = nil
     hasMoreHistoryBefore = false
     hasReceivedInitialData = false
+    hydrationState = .empty
     bumpRevision()
     netLog(.info, cat: .conv, "Cleared conversation", sid: self.sessionId)
   }
 
   // MARK: - Private
 
-  private func applyBootstrap(_ bootstrap: ServerConversationBootstrap) {
+  private func applyBootstrap(_ bootstrap: ServerConversationBootstrap, goal: ConversationRecoveryGoal) {
     let incoming = bootstrap.session.messages.map { $0.toTranscriptMessage() }
     let normalized = normalizeMessages(incoming)
 
@@ -272,7 +335,9 @@ final class ConversationStore {
     newestLoadedSequence = bootstrap.newestSequence
     hasMoreHistoryBefore = preserved.isEmpty ? bootstrap.hasMoreBefore : true
     hasReceivedInitialData = true
+    hydrationState = shouldContinueRecovering(for: goal) ? .readyPartial : .readyComplete
     bumpRevision()
+    scheduleBackfillIfNeeded()
   }
 
   private func applyHistoryPage(_ page: ServerConversationHistoryPage) {
@@ -289,23 +354,22 @@ final class ConversationStore {
     oldestLoadedSequence = page.oldestSequence ?? oldestLoadedSequence
     newestLoadedSequence = page.newestSequence ?? newestLoadedSequence
     hasMoreHistoryBefore = page.hasMoreBefore
+    hydrationState = shouldContinueRecovering(for: lastHydrationGoal) ? .readyPartial : .readyComplete
     bumpRevision()
     netLog(.debug, cat: .conv, "Applied history page", sid: self.sessionId, data: ["added": newMessages.count, "total": self.messages.count])
   }
 
-  private func scheduleBackfill() {
+  private func scheduleBackfillIfNeeded() {
     backfillTask?.cancel()
+    guard shouldContinueRecovering(for: lastHydrationGoal) else { return }
     backfillTask = Task {
       await backfillIfNeeded()
     }
   }
 
   private func backfillIfNeeded() async {
-    while !Task.isCancelled,
-          hasMoreHistoryBefore,
-          messages.count < kBootstrapMaxMessages,
-          requiresBackfill()
-    {
+    defer { backfillTask = nil }
+    while !Task.isCancelled, shouldContinueRecovering(for: lastHydrationGoal) {
       guard let before = oldestLoadedSequence else { break }
       netLog(.debug, cat: .conv, "Backfill page", sid: self.sessionId, data: ["beforeSeq": before])
       do {
@@ -316,18 +380,27 @@ final class ConversationStore {
         // Stop if no new messages were added (prevents infinite loop)
         guard messages.count > countBefore else { break }
       } catch {
+        hydrationState = messages.isEmpty ? .failed : .readyPartial
         netLog(.error, cat: .conv, "Backfill page failed", sid: self.sessionId, data: ["error": error.localizedDescription])
         break
       }
     }
   }
 
-  private func requiresBackfill() -> Bool {
-    requiresConversationBootstrapBackfill(
-      messages: messages,
-      hasMoreHistoryBefore: hasMoreHistoryBefore,
-      minimumTurnCount: kBootstrapMinTurns
-    )
+  private func shouldContinueRecovering(for goal: ConversationRecoveryGoal) -> Bool {
+    guard hasMoreHistoryBefore else { return false }
+
+    switch goal {
+      case .coherentRecent:
+        guard messages.count < kBootstrapMaxMessages else { return false }
+        return requiresConversationBootstrapBackfill(
+          messages: messages,
+          hasMoreHistoryBefore: hasMoreHistoryBefore,
+          minimumTurnCount: kBootstrapMinTurns
+        )
+      case .completeHistory:
+        return true
+    }
   }
 
   private func updateSequenceCursors(for message: TranscriptMessage) {

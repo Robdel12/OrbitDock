@@ -2,8 +2,9 @@
 //  SessionObservable.swift
 //  OrbitDock
 //
-//  Per-session @Observable state. Views observe only the session they display,
-//  eliminating cascading re-renders when other sessions update.
+//  Per-session @Observable detail state for non-conversation session data.
+//  Conversation payload and hydration live in ConversationStore so the client
+//  has one authoritative owner for transcript recovery and rendering.
 //
 
 import Foundation
@@ -20,32 +21,6 @@ struct McpStartupState {
 @MainActor
 final class SessionObservable {
   let id: String
-
-  // Messages
-  var messages: [TranscriptMessage] = []
-  private(set) var messagesRevision: Int = 0
-  var totalMessageCount: Int = 0
-
-  // Cached normalized messages — recomputed only when messagesRevision changes
-  private var _normalizedMessagesCache: [TranscriptMessage] = []
-  private var _normalizedRevision: Int = -1
-
-  var normalizedMessages: [TranscriptMessage] {
-    if _normalizedRevision == messagesRevision {
-      return _normalizedMessagesCache
-    }
-    _normalizedMessagesCache = ConversationRenderMessageNormalizer.normalize(
-      messages,
-      sessionId: id,
-      source: "observable"
-    )
-    _normalizedRevision = messagesRevision
-    return _normalizedMessagesCache
-  }
-  var oldestLoadedSequence: UInt64?
-  var newestLoadedSequence: UInt64?
-  var hasMoreHistoryBefore: Bool = false
-  var isLoadingOlderMessages: Bool = false
 
   // Approval
   var pendingApproval: ServerApprovalRequest?
@@ -81,9 +56,6 @@ final class SessionObservable {
 
   /// Shell context buffer — auto-prepended to next sendMessage
   var pendingShellContext: [ShellContextEntry] = []
-
-  /// Lifecycle
-  var hasReceivedSnapshot: Bool = false
 
   // Operation flags
   var undoInProgress: Bool = false
@@ -296,10 +268,6 @@ final class SessionObservable {
     (inputTokens ?? 0) > 0 || (outputTokens ?? 0) > 0 || (cachedTokens ?? 0) > 0
   }
 
-  func bumpMessagesRevision() {
-    messagesRevision += 1
-  }
-
   func applySession(_ session: Session) {
     endpointId = session.endpointId
     endpointName = session.endpointName
@@ -346,27 +314,6 @@ final class SessionObservable {
     isWorktree = session.isWorktree
     worktreeId = session.worktreeId
     unreadCount = session.unreadCount
-  }
-
-  func applyConversationSnapshot(
-    messages: [TranscriptMessage],
-    totalMessageCount: Int,
-    oldestLoadedSequence: UInt64?,
-    newestLoadedSequence: UInt64?,
-    hasMoreHistoryBefore: Bool,
-    isLoadingOlderMessages: Bool,
-    hasReceivedInitialData: Bool
-  ) {
-    self.messages = messages
-    self.totalMessageCount = totalMessageCount
-    self.oldestLoadedSequence = oldestLoadedSequence
-    self.newestLoadedSequence = newestLoadedSequence
-    self.hasMoreHistoryBefore = hasMoreHistoryBefore
-    self.isLoadingOlderMessages = isLoadingOlderMessages
-    if hasReceivedInitialData {
-      self.hasReceivedSnapshot = true
-    }
-    bumpMessagesRevision()
   }
 
   func applyPendingApproval(_ request: ServerApprovalRequest) {
@@ -487,38 +434,9 @@ final class SessionObservable {
     attentionReason = .none
   }
 
-  /// Restore messages from a local cache snapshot for instant session switching.
-  /// Sets `hasReceivedSnapshot = true` so ConversationView renders immediately
-  /// instead of showing a loading spinner.
-  func restoreFromCache(
-    messages cached: [TranscriptMessage],
-    totalMessageCount: Int,
-    oldestSequence: UInt64?,
-    newestSequence: UInt64?,
-    hasMoreHistoryBefore: Bool,
-    turnDiffs cached_turnDiffs: [ServerTurnDiff]
-  ) {
-    messages = cached
-    self.totalMessageCount = totalMessageCount
-    oldestLoadedSequence = oldestSequence
-    newestLoadedSequence = newestSequence
-    self.hasMoreHistoryBefore = hasMoreHistoryBefore
-    turnDiffs = cached_turnDiffs
-    hasReceivedSnapshot = true
-    bumpMessagesRevision()
-  }
-
-  /// Drop heavy conversation payloads when a session is no longer observed.
-  /// Keep lightweight identity/config fields so list UI remains stable.
-  func clearConversationPayloads() {
-    messages = []
-    totalMessageCount = 0
-    oldestLoadedSequence = nil
-    newestLoadedSequence = nil
-    hasMoreHistoryBefore = false
-    isLoadingOlderMessages = false
-    hasReceivedSnapshot = false
-    bumpMessagesRevision()
+  /// Drop heavy non-conversation detail payloads when a session is no longer observed.
+  /// Conversation history is owned by ConversationStore.
+  func trimInactiveDetailPayloads() {
     turnDiffs = []
     diff = nil
     plan = nil

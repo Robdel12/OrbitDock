@@ -452,7 +452,7 @@ extension DirectSessionComposer {
       .disabled(serverState.session(sessionId).undoInProgress)
     }
 
-    if obs.isDirect, let lastUserMsg = obs.messages.last(where: \.isUser) {
+    if obs.isDirect, let lastUserMsg = serverState.conversation(sessionId).messages.last(where: \.isUser) {
       let hasRecentCheckpoint = obs.lastFilesPersistedAt.map { Date().timeIntervalSince($0) < 300 } ?? false
       Button {
         Task { try? await serverState.rewindFiles(sessionId, userMessageId: lastUserMsg.id) }

@@ -857,7 +857,7 @@ import SwiftUI
         session: session,
         pendingApproval: pendingApproval,
         approvalHistory: serverState.session(sid).approvalHistory,
-        transcriptMessages: serverState.session(sid).messages
+        transcriptMessages: serverState.conversation(sid).messages
       )
     }
 

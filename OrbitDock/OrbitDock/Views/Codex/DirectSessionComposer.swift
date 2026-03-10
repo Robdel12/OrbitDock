@@ -110,7 +110,7 @@ struct DirectSessionComposer: View {
       session: summary,
       pendingApproval: pendingApproval,
       approvalHistory: obs.approvalHistory,
-      transcriptMessages: obs.messages
+      transcriptMessages: serverState.conversation(sessionId).messages
     )
   }
 

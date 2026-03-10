@@ -331,7 +331,73 @@ Use one authoritative mutable detail owner per session, then project:
 
 ---
 
-## Phase 3: Make Runtime State Explicit
+## Phase 3: Fix Conversation Hydration and State Recovery
+
+This is the user-visible reliability phase.
+
+The bug we are explicitly trying to kill here is:
+
+- if the user is not sitting in the conversation view watching events stream live,
+- then comes back later,
+- the client still needs to load the complete conversation state it should show,
+- including missed messages, tools, and tool outputs.
+
+The app should not depend on having watched events in real time to reconstruct the conversation correctly.
+
+### Scope
+
+- make conversation hydration an explicit runtime/store concept instead of a best-effort side effect
+- define clear loading states for:
+  - retained in-memory conversation
+  - restored cached conversation
+  - bootstrap from server
+  - backfill in progress
+  - fully hydrated vs partially hydrated conversation state
+- stop forcing refresh paths that discard usable local state without a good reason
+- tighten trim/cache/unsubscribe behavior so returning to a session is deterministic
+- make `ConversationView` render against explicit hydration state instead of only `hasReceivedSnapshot`
+
+### Files
+
+- `ConversationStore.swift`
+- `SessionStore.swift`
+- `SessionDetailView.swift`
+- `ConversationView.swift`
+
+### Recommended direction
+
+Use `ConversationStore` as the single owner of conversation payload and hydration state.
+
+That store should expose an intentional loading model, for example:
+
+- no data yet
+- restored from cache
+- bootstrapping latest window
+- backfilling older history
+- hydrated enough for display
+- fully hydrated
+- failed
+
+`SessionStore` should choose a clear subscription/hydration policy instead of branching ad hoc between retained data, cache restore, fresh bootstrap, and WebSocket replay.
+
+### Expected output
+
+- opening a session later shows the same conversation/tool history the user missed while away
+- returning to a session is deterministic whether the data came from memory, cache, bootstrap, or replay
+- less ambiguity around whether the client has “some” conversation data or the conversation data it actually needs
+- fewer state bugs caused by trimming payloads and rebuilding them inconsistently
+
+### Testing
+
+- regression test for “messages/tools still appear after not watching live”
+- tests for restore-from-cache plus bootstrap reconciliation
+- tests for trim/unsubscribe then reopen
+- tests for long conversations that require multiple backfill pages
+- tests that verify tool-heavy turns and assistant messages load correctly even without live observation
+
+---
+
+## Phase 4: Make Runtime State Explicit
 
 ### Scope
 
@@ -360,7 +426,7 @@ Use one authoritative mutable detail owner per session, then project:
 
 ---
 
-## Phase 4: Thin the App Shell
+## Phase 5: Thin the App Shell
 
 ### Scope
 
@@ -381,7 +447,7 @@ Use one authoritative mutable detail owner per session, then project:
 
 ---
 
-## Phase 5: Refactor the Composer Feature
+## Phase 6: Refactor the Composer Feature
 
 ### Scope
 
@@ -405,7 +471,7 @@ Use one authoritative mutable detail owner per session, then project:
 
 ---
 
-## Phase 6: Refactor the Review Feature
+## Phase 7: Refactor the Review Feature
 
 ### Scope
 
@@ -426,7 +492,7 @@ Use one authoritative mutable detail owner per session, then project:
 
 ---
 
-## Phase 7: Decompose Large Screens
+## Phase 8: Decompose Large Screens
 
 ### Scope
 
@@ -449,7 +515,7 @@ Use one authoritative mutable detail owner per session, then project:
 
 ---
 
-## Phase 8: Conversation Rendering Architecture Pass
+## Phase 9: Conversation Rendering Architecture Pass
 
 This should happen after the store/runtime work, not before.
 

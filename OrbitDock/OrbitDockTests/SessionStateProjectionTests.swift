@@ -125,32 +125,39 @@ struct SessionStateProjectionTests {
     #expect(observable.workStatus == .permission)
   }
 
-  @Test func sessionObservableConversationSnapshotMarksInitialDataAndBumpsRevision() {
+  @Test func sessionObservableTrimInactiveDetailPayloadsClearsHeavyNonConversationState() {
     let observable = SessionObservable(id: "session-1")
-    let message = TranscriptMessage(
-      id: "msg-1",
-      sequence: 1,
-      type: .assistant,
-      content: "hello",
-      timestamp: Date(timeIntervalSince1970: 1)
-    )
+    observable.turnDiffs = [ServerTurnDiff(turnId: "turn-1", diff: "diff")]
+    observable.diff = "working tree diff"
+    observable.plan = "[]"
+    observable.currentTurnId = "turn-1"
+    observable.reviewComments = [
+      ServerReviewComment(
+        id: "comment-1",
+        sessionId: "session-1",
+        turnId: nil,
+        filePath: "/tmp/file.swift",
+        lineStart: 12,
+        lineEnd: nil,
+        body: "Please fix",
+        tag: nil,
+        status: .open,
+        createdAt: "2026-03-09T10:00:00Z",
+        updatedAt: nil
+      )
+    ]
+    observable.pendingShellContext = [
+      ShellContextEntry(command: "pwd", output: "/tmp/project", exitCode: 0, timestamp: Date())
+    ]
 
-    observable.applyConversationSnapshot(
-      messages: [message],
-      totalMessageCount: 1,
-      oldestLoadedSequence: 1,
-      newestLoadedSequence: 1,
-      hasMoreHistoryBefore: false,
-      isLoadingOlderMessages: false,
-      hasReceivedInitialData: true
-    )
+    observable.trimInactiveDetailPayloads()
 
-    #expect(observable.messages.count == 1)
-    #expect(observable.totalMessageCount == 1)
-    #expect(observable.oldestLoadedSequence == 1)
-    #expect(observable.newestLoadedSequence == 1)
-    #expect(observable.hasReceivedSnapshot)
-    #expect(observable.messagesRevision == 1)
+    #expect(observable.turnDiffs.isEmpty)
+    #expect(observable.diff == nil)
+    #expect(observable.plan == nil)
+    #expect(observable.currentTurnId == nil)
+    #expect(observable.reviewComments.isEmpty)
+    #expect(observable.pendingShellContext.isEmpty)
   }
 
   private func execApprovalRequest() -> ServerApprovalRequest {
