@@ -374,7 +374,7 @@ final class ServerRuntimeRegistry {
 
   private func schedulePrimaryClaimReconciliation() {
     let identity = clientIdentityProvider()
-    let ports = enabledControlPlanePorts()
+    let ports = connectedControlPlanePorts()
     let plan = ServerControlPlanePlan(
       enabledEndpointIds: ports.map(\.endpointId),
       primaryEndpointId: primaryEndpointId
@@ -396,7 +396,11 @@ final class ServerRuntimeRegistry {
       guard let self else { return }
       for await status in runtime.eventStream.statusUpdates {
         guard !Task.isCancelled else { break }
+        let previousStatus = self.connectionStatusByEndpointId[endpointId]
         self.connectionStatusByEndpointId[endpointId] = status
+        if previousStatus != status {
+          self.schedulePrimaryClaimReconciliation()
+        }
       }
     }
   }
@@ -404,6 +408,14 @@ final class ServerRuntimeRegistry {
   private func enabledControlPlanePorts() -> [ServerControlPlanePort] {
     runtimesByEndpointId.values
       .filter(\.endpoint.isEnabled)
+      .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
+      .map(\.controlPlanePort)
+  }
+
+  private func connectedControlPlanePorts() -> [ServerControlPlanePort] {
+    runtimesByEndpointId.values
+      .filter(\.endpoint.isEnabled)
+      .filter { connectionStatusByEndpointId[$0.endpoint.id] == .connected }
       .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
       .map(\.controlPlanePort)
   }
