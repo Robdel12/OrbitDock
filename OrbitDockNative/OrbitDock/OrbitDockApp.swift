@@ -22,7 +22,7 @@ struct OrbitDockApp: App {
   @State private var appRuntime: OrbitDockAppRuntime
 
   init() {
-    let appRuntime = OrbitDockAppRuntime()
+    let appRuntime = OrbitDockAppRuntime.live()
     _appRuntime = State(initialValue: appRuntime)
   #if os(macOS)
     appDelegate.configure(appRuntime: appRuntime)

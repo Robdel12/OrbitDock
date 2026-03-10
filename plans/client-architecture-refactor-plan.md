@@ -75,6 +75,7 @@ This plan is now an active execution document, not just a roadmap.
 - **App-global ownership cleanup**
   - `ServerManager` and app notification ownership now flow through the app runtime/environment instead of direct singleton grabs in production views and startup coordination
   - `ToastManager.shared` is gone, and startup/runtime tests now cover the injected install-state seam
+  - `OrbitDockAppRuntime` now builds from an explicit dependency bundle and `live()` composition entrypoint instead of quietly reaching for `.shared` services inside its default initializer
 - **Preview runtime cleanup**
   - preview-specific runtime graphs now flow through a dedicated `PreviewRuntime` helper instead of `ServerRuntimeRegistry.shared` / `NotificationManager.shared`
   - primary and secondary previews now build local runtime state without leaking app-global singletons back into the architecture
@@ -111,7 +112,8 @@ This plan is now an active execution document, not just a roadmap.
   - any remaining work here should be polish-level cleanup, not more architectural rescue
 - **Phase 11: Decompose Large Screens**
   - `QuickSwitcher` now has a real pure core for query planning, session projection, keyboard navigation, command catalog, and selection resolution instead of embedding those rules directly in the view
-  - the remaining work is action-side effect cleanup and then moving on to the next large screens from this cleaner base
+  - `SettingsView` now has its first real pure display-state seam through `SettingsEndpointHealthSummary`, so runtime health reasoning is no longer duplicated inline across the screen
+  - the remaining work is action-side effect cleanup in `QuickSwitcher`, then more screen-specific extractions from `SettingsView`, `SessionDetailView`, and the other large screens
 
 ### Next
 
@@ -149,10 +151,15 @@ This plan is now an active execution document, not just a roadmap.
   - `ContentView`, `ServerSetupView`, and debug settings now read `ServerManager` from the runtime/environment instead of `ServerManager.shared`
   - app/window notification ownership now comes from `OrbitDockAppRuntime`, not direct singleton grabs in production code
   - preview/test runtime setup now goes through a dedicated helper instead of `.shared` globals
+  - the app entrypoint now composes `OrbitDockAppRuntime` through an explicit dependency bundle and `live()` entrypoint instead of hidden singleton lookup inside the runtime initializer
 - **QuickSwitcher phase 1**
   - query classification, session projection, keyboard navigation, command catalog, and selection resolution now live in dedicated pure helpers instead of inline view logic
   - deterministic unit tests now cover quick-launch intent detection, search filtering, active/recent ordering, navigation counts, wraparound movement, command inventory, and selected-item resolution
   - the remaining work is trimming the last action-side-effect wiring in `QuickSwitcher`
+- **Settings phase 1**
+  - endpoint/runtime health summary logic now lives in a dedicated pure helper instead of duplicated inline calculations inside `SettingsView`
+  - deterministic unit tests now cover the display-state copy and tone decisions for enabled/connected endpoint combinations
+  - the remaining work is to keep peeling section-specific reasoning and smaller settings subfeatures out of the root screen
 
 ---
 
