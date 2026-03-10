@@ -56,8 +56,13 @@ extension ReviewCanvas {
     let line = file.hunks[h].lines[l]
     guard let newLine = line.newLineNum else { return }
 
-    let lineComments = commentsForLine(filePath: file.newPath, lineNum: newLine)
-    if let first = lineComments.first(where: { $0.status == .open }) {
+    let lineComments = ReviewCanvasProjection.commentsForLine(
+      comments: obs.reviewComments,
+      filePath: file.newPath,
+      lineNum: newLine,
+      activeTurnId: selectedTurnDiffId
+    )
+    if let first = lineComments.first(where: { $0.status == ServerReviewCommentStatus.open }) {
       resolveComment(first)
     } else if let first = lineComments.first {
       resolveComment(first)
@@ -73,8 +78,13 @@ extension ReviewCanvas {
     let line = file.hunks[h].lines[l]
     guard let newLine = line.newLineNum else { return }
 
-    let lineComments = commentsForLine(filePath: file.newPath, lineNum: newLine)
-    for comment in lineComments where comment.status == .open {
+    let lineComments = ReviewCanvasProjection.commentsForLine(
+      comments: obs.reviewComments,
+      filePath: file.newPath,
+      lineNum: newLine,
+      activeTurnId: selectedTurnDiffId
+    )
+    for comment in lineComments where comment.status == ServerReviewCommentStatus.open {
       if selectedCommentIds.contains(comment.id) {
         selectedCommentIds.remove(comment.id)
       } else {

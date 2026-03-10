@@ -53,6 +53,22 @@ struct ReviewComposerLineRange: Equatable {
   let lineEnd: UInt32?
 }
 
+struct ReviewCanvasRefreshState: Equatable {
+  let cursorIndex: Int
+  let previousFileCount: Int
+}
+
+struct ReviewCanvasInlineComposerContext: Equatable {
+  let fileName: String
+  let lineLabel: String
+}
+
+struct ReviewCanvasInlinePresentation {
+  let openComments: [ServerReviewComment]
+  let resolvedComments: [ServerReviewComment]
+  let composerContext: ReviewCanvasInlineComposerContext?
+}
+
 /// Records the state when a batch of review comments was sent to the model.
 /// Used to detect which files the model modified in response to review feedback.
 struct ReviewRound: Equatable {

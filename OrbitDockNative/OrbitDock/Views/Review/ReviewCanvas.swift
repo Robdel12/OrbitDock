@@ -65,24 +65,11 @@ struct ReviewCanvas: View {
   }
 
   private var rawDiff: String? {
-    if let turnId = selectedTurnDiffId {
-      return obs.turnDiffs.first(where: { $0.turnId == turnId })?.diff
-    }
-    return cumulativeDiff
-  }
-
-  private var cumulativeDiff: String? {
-    var parts: [String] = []
-    for td in obs.turnDiffs {
-      parts.append(td.diff)
-    }
-    if let current = obs.diff, !current.isEmpty {
-      if obs.turnDiffs.last?.diff != current {
-        parts.append(current)
-      }
-    }
-    let combined = parts.joined(separator: "\n")
-    return combined.isEmpty ? nil : combined
+    ReviewCanvasStatePlanner.rawDiff(
+      selectedTurnDiffId: selectedTurnDiffId,
+      turnDiffs: obs.turnDiffs,
+      currentDiff: obs.diff
+    )
   }
 
   var diffModel: DiffModel? {
@@ -158,20 +145,16 @@ struct ReviewCanvas: View {
     .onChange(of: rawDiff) { _, _ in
       guard let model = diffModel else { return }
       let targets = visibleTargets(model)
-      let newFileCount = model.files.count
-
-      cursorIndex = ReviewCursorNavigation.clampedCursorIndex(cursorIndex: cursorIndex, targets: targets)
-      if let followIndex = ReviewCursorNavigation.autoFollowFileHeaderIndex(
+      let refreshState = ReviewCanvasStatePlanner.refreshState(
+        cursorIndex: cursorIndex,
+        previousFileCount: previousFileCount,
         isFollowing: isFollowing,
         isSessionActive: isSessionActive,
-        previousFileCount: previousFileCount,
-        newFileCount: newFileCount,
+        newFileCount: model.files.count,
         targets: targets
-      ) {
-        cursorIndex = followIndex
-      }
-
-      previousFileCount = newFileCount
+      )
+      cursorIndex = refreshState.cursorIndex
+      previousFileCount = refreshState.previousFileCount
     }
     .onChange(of: navigateToFileId?.wrappedValue) { _, _ in
       handlePendingNavigation()
@@ -184,7 +167,7 @@ struct ReviewCanvas: View {
     .onAppear {
       isCanvasFocused = true
       handlePendingNavigation()
-      if obs.reviewComments.isEmpty {
+      if ReviewCanvasStatePlanner.shouldLoadReviewComments(existingComments: obs.reviewComments) {
         Task { try? await serverState.listReviewComments(sessionId: sessionId, turnId: nil) }
       }
     }
@@ -321,60 +304,55 @@ struct ReviewCanvas: View {
                     )
                   }
                 ) { lineIdx, line in
+                  let inlinePresentation = ReviewCanvasInlinePresentationPlanner.presentation(
+                    comments: obs.reviewComments,
+                    filePath: file.newPath,
+                    newLine: line.newLineNum,
+                    activeTurnId: selectedTurnDiffId,
+                    resolvedGroups: groupedResolved,
+                    composerTarget: commentInteraction.composerTarget,
+                    fileIndex: fileIdx,
+                    hunkIndex: hunkIdx,
+                    lineIndex: lineIdx
+                  )
+
                   // Inline comments: open → full thread, resolved → grouped marker
-                  if let newLine = line.newLineNum {
-                    // Open comments: per-line interactive threads
-                    let openComments = commentsForLine(filePath: file.newPath, lineNum: newLine)
-                      .filter { $0.status == .open }
-
-                    if !openComments.isEmpty {
-                      InlineCommentThread(
-                        comments: openComments,
-                        selectedIds: selectedCommentIds,
-                        onResolve: { comment in
-                          resolveComment(comment)
-                        },
-                        onToggleSelection: { comment in
-                          if selectedCommentIds.contains(comment.id) {
-                            selectedCommentIds.remove(comment.id)
-                          } else {
-                            selectedCommentIds.insert(comment.id)
-                          }
+                  if !inlinePresentation.openComments.isEmpty {
+                    InlineCommentThread(
+                      comments: inlinePresentation.openComments,
+                      selectedIds: selectedCommentIds,
+                      onResolve: { comment in
+                        resolveComment(comment)
+                      },
+                      onToggleSelection: { comment in
+                        if selectedCommentIds.contains(comment.id) {
+                          selectedCommentIds.remove(comment.id)
+                        } else {
+                          selectedCommentIds.insert(comment.id)
                         }
-                      )
-                      .id("comments-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
-                    }
+                      }
+                    )
+                    .id("comments-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
+                  }
 
-                    // Resolved comments: grouped by proximity — adjacent comments merge
-                    // into a single marker at the last line of the group
-                    if let resolvedGroup = groupedResolved[newLine] {
-                      ResolvedCommentMarker(
-                        comments: resolvedGroup,
-                        onReopen: { comment in
-                          resolveComment(comment)
-                        },
-                        startExpanded: showResolvedComments
-                      )
-                      .id("resolved-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
-                    }
+                  if !inlinePresentation.resolvedComments.isEmpty {
+                    ResolvedCommentMarker(
+                      comments: inlinePresentation.resolvedComments,
+                      onReopen: { comment in
+                        resolveComment(comment)
+                      },
+                      startExpanded: showResolvedComments
+                    )
+                    .id("resolved-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
                   }
 
                   // Composer (appears after last line of selection)
-                  if let ct = commentInteraction.composerTarget,
-                     ct.fileIndex == fileIdx,
-                     ct.hunkIndex == hunkIdx,
-                     ct.lineEndIdx == lineIdx
-                  {
-                    let fileName = ct.filePath.components(separatedBy: "/").last ?? ct.filePath
-                    let lineLabel = ct.lineEnd.map { end in
-                      end != ct.lineStart ? "Lines \(ct.lineStart)–\(end)" : "Line \(ct.lineStart)"
-                    } ?? "Line \(ct.lineStart)"
-
+                  if let composerContext = inlinePresentation.composerContext {
                     CommentComposerView(
                       commentBody: $commentInteraction.composerBody,
                       tag: $commentInteraction.composerTag,
-                      fileName: fileName,
-                      lineLabel: lineLabel,
+                      fileName: composerContext.fileName,
+                      lineLabel: composerContext.lineLabel,
                       onSubmit: { submitComment() },
                       onCancel: { commentInteraction.clearComposer() }
                     )
@@ -474,13 +452,6 @@ struct ReviewCanvas: View {
       activeTurnId: selectedTurnDiffId,
       showResolvedComments: showResolvedComments
     )
-  }
-
-  /// Whether a comment matches the currently active turn view.
-  /// "All Changes" view shows all comments; per-turn view shows only that turn's comments
-  /// (plus comments with no turn, which are global).
-  private func commentMatchesTurnView(_ comment: ServerReviewComment) -> Bool {
-    ReviewCanvasProjection.commentMatchesTurnView(comment, activeTurnId: selectedTurnDiffId)
   }
 
   /// Set of line indices within a hunk that fall in the mark-to-cursor selection range.
