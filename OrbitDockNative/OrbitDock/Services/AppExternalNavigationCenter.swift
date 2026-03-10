@@ -1,37 +1,49 @@
 import Foundation
 
-@Observable
+enum AppExternalCommand: Equatable, Sendable {
+  case selectSession(sessionId: String, endpointId: UUID?)
+}
+
 @MainActor
 final class AppExternalNavigationCenter {
-  struct SessionSelectionRequest: Equatable, Sendable, Identifiable {
-    let id: UUID
-    let sessionId: String
-    let endpointId: UUID?
+  typealias CommandHandler = @MainActor (AppExternalCommand) -> Void
+
+  private(set) var focusedWindowID: UUID?
+  private var pendingCommand: AppExternalCommand?
+  private var handlers: [UUID: CommandHandler] = [:]
+
+  func registerWindow(_ windowID: UUID, handler: @escaping CommandHandler) {
+    handlers[windowID] = handler
+    dispatchPendingCommandIfPossible()
   }
 
-  private(set) var pendingSelection: SessionSelectionRequest?
-  private(set) var focusedWindowID: UUID?
-
-  func submitSessionSelection(sessionId: String, endpointId: UUID?) {
-    pendingSelection = SessionSelectionRequest(
-      id: UUID(),
-      sessionId: sessionId,
-      endpointId: endpointId
-    )
+  func unregisterWindow(_ windowID: UUID) {
+    handlers.removeValue(forKey: windowID)
+    if focusedWindowID == windowID {
+      focusedWindowID = nil
+    }
   }
 
   func updateFocusedWindow(_ windowID: UUID?) {
     focusedWindowID = windowID
+    dispatchPendingCommandIfPossible()
   }
 
-  func selection(for windowID: UUID) -> SessionSelectionRequest? {
-    guard focusedWindowID == windowID else { return nil }
-    return pendingSelection
+  func submitSessionSelection(sessionId: String, endpointId: UUID?) {
+    submit(.selectSession(sessionId: sessionId, endpointId: endpointId))
   }
 
-  func markHandled(_ requestID: UUID, by windowID: UUID) {
-    guard focusedWindowID == windowID else { return }
-    guard pendingSelection?.id == requestID else { return }
-    pendingSelection = nil
+  func submit(_ command: AppExternalCommand) {
+    pendingCommand = command
+    dispatchPendingCommandIfPossible()
+  }
+
+  private func dispatchPendingCommandIfPossible() {
+    guard let focusedWindowID, let pendingCommand, let handler = handlers[focusedWindowID] else {
+      return
+    }
+
+    self.pendingCommand = nil
+    handler(pendingCommand)
   }
 }

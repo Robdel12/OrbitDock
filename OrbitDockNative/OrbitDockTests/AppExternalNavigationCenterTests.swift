@@ -4,53 +4,81 @@ import Testing
 
 @MainActor
 struct AppExternalNavigationCenterTests {
-  @Test func focusedWindowReceivesPendingSelection() {
+  @Test func focusedWindowReceivesCommandImmediately() {
     let center = AppExternalNavigationCenter()
     let windowID = UUID()
+    var received: [AppExternalCommand] = []
 
+    center.registerWindow(windowID) { command in
+      received.append(command)
+    }
     center.updateFocusedWindow(windowID)
+
     center.submitSessionSelection(sessionId: "session-123", endpointId: nil)
 
-    let request = center.selection(for: windowID)
-
-    #expect(request?.sessionId == "session-123")
-    #expect(request?.endpointId == nil)
+    #expect(received == [.selectSession(sessionId: "session-123", endpointId: nil)])
   }
 
-  @Test func unfocusedWindowDoesNotReceiveSelection() {
+  @Test func unfocusedWindowDoesNotReceiveCommand() {
     let center = AppExternalNavigationCenter()
     let focusedWindowID = UUID()
     let otherWindowID = UUID()
+    var focusedReceived: [AppExternalCommand] = []
+    var otherReceived: [AppExternalCommand] = []
 
+    center.registerWindow(focusedWindowID) { command in
+      focusedReceived.append(command)
+    }
+    center.registerWindow(otherWindowID) { command in
+      otherReceived.append(command)
+    }
     center.updateFocusedWindow(focusedWindowID)
+
     center.submitSessionSelection(sessionId: "session-123", endpointId: nil)
 
-    #expect(center.selection(for: otherWindowID) == nil)
-    #expect(center.selection(for: focusedWindowID)?.sessionId == "session-123")
+    #expect(focusedReceived == [.selectSession(sessionId: "session-123", endpointId: nil)])
+    #expect(otherReceived.isEmpty)
   }
 
-  @Test func handledSelectionClearsPendingRequest() throws {
+  @Test func queuedCommandDispatchesWhenWindowBecomesFocused() {
     let center = AppExternalNavigationCenter()
     let windowID = UUID()
+    var received: [AppExternalCommand] = []
 
-    center.updateFocusedWindow(windowID)
-    center.submitSessionSelection(sessionId: "session-123", endpointId: nil)
-    let request = try #require(center.selection(for: windowID))
-
-    center.markHandled(request.id, by: windowID)
-
-    #expect(center.pendingSelection == nil)
-  }
-
-  @Test func pendingSelectionWaitsUntilWindowIsFocused() {
-    let center = AppExternalNavigationCenter()
-    let windowID = UUID()
+    center.registerWindow(windowID) { command in
+      received.append(command)
+    }
 
     center.submitSessionSelection(sessionId: "session-123", endpointId: nil)
-    #expect(center.selection(for: windowID) == nil)
+    #expect(received.isEmpty)
 
     center.updateFocusedWindow(windowID)
 
-    #expect(center.selection(for: windowID)?.sessionId == "session-123")
+    #expect(received == [.selectSession(sessionId: "session-123", endpointId: nil)])
+  }
+
+  @Test func unregisteringFocusedWindowStopsDeliveryUntilAnotherWindowTakesFocus() {
+    let center = AppExternalNavigationCenter()
+    let firstWindowID = UUID()
+    let secondWindowID = UUID()
+    var firstReceived: [AppExternalCommand] = []
+    var secondReceived: [AppExternalCommand] = []
+
+    center.registerWindow(firstWindowID) { command in
+      firstReceived.append(command)
+    }
+    center.registerWindow(secondWindowID) { command in
+      secondReceived.append(command)
+    }
+    center.updateFocusedWindow(firstWindowID)
+    center.unregisterWindow(firstWindowID)
+
+    center.submitSessionSelection(sessionId: "session-456", endpointId: nil)
+    #expect(firstReceived.isEmpty)
+    #expect(secondReceived.isEmpty)
+
+    center.updateFocusedWindow(secondWindowID)
+
+    #expect(secondReceived == [.selectSession(sessionId: "session-456", endpointId: nil)])
   }
 }

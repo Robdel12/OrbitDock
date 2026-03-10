@@ -44,13 +44,17 @@ struct OrbitDockWindowRoot: View {
       .focusedSceneValue(\.orbitDockRouter, router)
       .preferredColorScheme(.dark)
       .onAppear {
+        appRuntime.externalNavigationCenter.registerWindow(windowID) { command in
+          handleExternalCommand(command)
+        }
         windowSessionCoordinator.start(currentScopedId: router.selectedScopedID)
         updateWindowFocus(for: scenePhase)
-        consumePendingExternalSelectionIfNeeded()
+      }
+      .onDisappear {
+        appRuntime.externalNavigationCenter.unregisterWindow(windowID)
       }
       .onChange(of: scenePhase, initial: true) { _, newPhase in
         updateWindowFocus(for: newPhase)
-        consumePendingExternalSelectionIfNeeded()
       }
       .onChange(of: router.selectedScopedID, initial: true) { _, newId in
         windowSessionCoordinator.selectedSessionDidChange(to: newId)
@@ -60,9 +64,6 @@ struct OrbitDockWindowRoot: View {
       }
       .onChange(of: appRuntime.runtimeRegistry.runtimesByEndpointId.count) { _, _ in
         windowSessionCoordinator.runtimeGraphDidChange()
-      }
-      .onChange(of: appRuntime.externalNavigationCenter.pendingSelection?.id) { _, _ in
-        consumePendingExternalSelectionIfNeeded()
       }
     #if os(iOS)
       .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
@@ -81,16 +82,17 @@ struct OrbitDockWindowRoot: View {
     }
   }
 
-  private func consumePendingExternalSelectionIfNeeded() {
+  private func handleExternalCommand(_ command: AppExternalCommand) {
     guard scenePhase == .active else { return }
-    guard let request = appRuntime.externalNavigationCenter.selection(for: windowID) else { return }
 
-    withAnimation(Motion.standard) {
-      windowSessionCoordinator.handleExternalSelection(
-        sessionID: request.sessionId,
-        endpointId: request.endpointId
-      )
+    switch command {
+    case let .selectSession(sessionId, endpointId):
+      withAnimation(Motion.standard) {
+        windowSessionCoordinator.handleExternalSelection(
+          sessionID: sessionId,
+          endpointId: endpointId
+        )
+      }
     }
-    appRuntime.externalNavigationCenter.markHandled(request.id, by: windowID)
   }
 }
