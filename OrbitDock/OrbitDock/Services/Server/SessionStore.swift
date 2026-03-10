@@ -32,6 +32,7 @@ final class SessionStore {
   var worktreesByRepo: [String: [ServerWorktreeSummary]] = [:]
   var serverIsPrimary: Bool?
   var serverPrimaryClaims: [ServerClientPrimaryClaim] = []
+  let initialSessionsListUpdates: AsyncStream<Bool>
 
   // MARK: - Per-session registries (not @Observable tracked)
 
@@ -49,11 +50,15 @@ final class SessionStore {
   @ObservationIgnored var autoMarkReadSessions: Set<String> = []
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []
   @ObservationIgnored var eventProcessingTask: Task<Void, Never>?
+  @ObservationIgnored private let initialSessionsListContinuation: AsyncStream<Bool>.Continuation
 
   /// Shared project file index for @ mention completions.
   let projectFileIndex = ProjectFileIndex()
 
   init(apiClient: APIClient, eventStream: EventStream, endpointId: UUID, endpointName: String? = nil) {
+    var initialSessionsListContinuation: AsyncStream<Bool>.Continuation!
+    self.initialSessionsListUpdates = AsyncStream { initialSessionsListContinuation = $0 }
+    self.initialSessionsListContinuation = initialSessionsListContinuation
     self.apiClient = apiClient
     self.eventStream = eventStream
     self.endpointId = endpointId
@@ -70,6 +75,10 @@ final class SessionStore {
     )
   }
 
+  deinit {
+    initialSessionsListContinuation.finish()
+  }
+
   // MARK: - Per-session accessors
 
   func session(_ id: String) -> SessionObservable {
@@ -84,6 +93,12 @@ final class SessionStore {
     let store = ConversationStore(sessionId: id, apiClient: apiClient)
     _conversationStores[id] = store
     return store
+  }
+
+  func setHasReceivedInitialSessionsList(_ hasReceived: Bool) {
+    guard hasReceivedInitialSessionsList != hasReceived else { return }
+    hasReceivedInitialSessionsList = hasReceived
+    initialSessionsListContinuation.yield(hasReceived)
   }
 
   // MARK: - Event processing

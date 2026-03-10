@@ -57,6 +57,7 @@ final class ServerRuntimeRegistry {
   private let controlPlaneCoordinator = ServerControlPlaneCoordinator()
   private(set) var runtimesByEndpointId: [UUID: ServerRuntime] = [:]
   private(set) var connectionStatusByEndpointId: [UUID: ConnectionStatus] = [:]
+  private(set) var readinessByEndpointId: [UUID: ServerRuntimeReadiness] = [:]
   private(set) var activeEndpointId: UUID?
   private(set) var primaryEndpointId: UUID?
   private(set) var hasPrimaryEndpointConflict = false
@@ -72,6 +73,7 @@ final class ServerRuntimeRegistry {
     )
   }()
   @ObservationIgnored private var statusObserverTasks: [UUID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var readinessObserverTasks: [UUID: Task<Void, Never>] = [:]
 
   init() {
     var primaryEndpointContinuation: AsyncStream<UUID?>.Continuation!
@@ -168,15 +170,23 @@ final class ServerRuntimeRegistry {
   }
 
   var connectedRuntimeCount: Int {
-    connectionStatusByEndpointId.values.filter {
-      if case .connected = $0 { return true }
-      return false
+    readinessByEndpointId.values.filter {
+      $0.transportReady
     }.count
   }
 
   var activeConnectionStatus: ConnectionStatus {
     guard let activeEndpointId else { return .disconnected }
     return connectionStatusByEndpointId[activeEndpointId] ?? .disconnected
+  }
+
+  var activeRuntimeReadiness: ServerRuntimeReadiness {
+    guard let activeEndpointId else { return .offline }
+    return readinessByEndpointId[activeEndpointId] ?? .offline
+  }
+
+  func runtimeReadiness(for endpointId: UUID) -> ServerRuntimeReadiness {
+    readinessByEndpointId[endpointId] ?? .offline
   }
 
   func configureFromSettings(startEnabled: Bool) {
@@ -188,7 +198,10 @@ final class ServerRuntimeRegistry {
       runtimesByEndpointId[id] = nil
       statusObserverTasks[id]?.cancel()
       statusObserverTasks[id] = nil
+      readinessObserverTasks[id]?.cancel()
+      readinessObserverTasks[id] = nil
       connectionStatusByEndpointId[id] = nil
+      readinessByEndpointId[id] = nil
     }
 
     for endpoint in configuredEndpoints {
@@ -197,6 +210,8 @@ final class ServerRuntimeRegistry {
           existing.stop()
           statusObserverTasks[endpoint.id]?.cancel()
           statusObserverTasks[endpoint.id] = nil
+          readinessObserverTasks[endpoint.id]?.cancel()
+          readinessObserverTasks[endpoint.id] = nil
 
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
@@ -374,7 +389,7 @@ final class ServerRuntimeRegistry {
 
   private func schedulePrimaryClaimReconciliation() {
     let identity = clientIdentityProvider()
-    let ports = connectedControlPlanePorts()
+    let ports = controlPlaneReadyPorts()
     let plan = ServerControlPlanePlan(
       enabledEndpointIds: ports.map(\.endpointId),
       primaryEndpointId: primaryEndpointId
@@ -391,14 +406,31 @@ final class ServerRuntimeRegistry {
   private func bindRuntimeState(_ runtime: ServerRuntime) {
     let endpointId = runtime.endpoint.id
     connectionStatusByEndpointId[endpointId] = runtime.eventStream.connectionStatus
+    readinessByEndpointId[endpointId] = runtime.readiness
     statusObserverTasks[endpointId]?.cancel()
     statusObserverTasks[endpointId] = Task { [weak self] in
       guard let self else { return }
       for await status in runtime.eventStream.statusUpdates {
         guard !Task.isCancelled else { break }
         let previousStatus = self.connectionStatusByEndpointId[endpointId]
+        let previousReadiness = self.readinessByEndpointId[endpointId] ?? .offline
         self.connectionStatusByEndpointId[endpointId] = status
-        if previousStatus != status {
+        let updatedReadiness = runtime.readiness
+        self.readinessByEndpointId[endpointId] = updatedReadiness
+        if previousStatus != status || previousReadiness != updatedReadiness {
+          self.schedulePrimaryClaimReconciliation()
+        }
+      }
+    }
+    readinessObserverTasks[endpointId]?.cancel()
+    readinessObserverTasks[endpointId] = Task { [weak self] in
+      guard let self else { return }
+      for await _ in runtime.sessionStore.initialSessionsListUpdates {
+        guard !Task.isCancelled else { break }
+        let previousReadiness = self.readinessByEndpointId[endpointId] ?? .offline
+        let updatedReadiness = runtime.readiness
+        self.readinessByEndpointId[endpointId] = updatedReadiness
+        if previousReadiness != updatedReadiness {
           self.schedulePrimaryClaimReconciliation()
         }
       }
@@ -412,10 +444,10 @@ final class ServerRuntimeRegistry {
       .map(\.controlPlanePort)
   }
 
-  private func connectedControlPlanePorts() -> [ServerControlPlanePort] {
+  private func controlPlaneReadyPorts() -> [ServerControlPlanePort] {
     runtimesByEndpointId.values
       .filter(\.endpoint.isEnabled)
-      .filter { connectionStatusByEndpointId[$0.endpoint.id] == .connected }
+      .filter { readinessByEndpointId[$0.endpoint.id]?.controlPlaneReady == true }
       .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
       .map(\.controlPlanePort)
   }

@@ -207,7 +207,7 @@ extension SessionStore {
 
   func handleSessionsList(_ summaries: [ServerSessionSummary]) {
     netLog(.info, cat: .store, "Received sessions list", data: ["count": summaries.count])
-    hasReceivedInitialSessionsList = true
+    setHasReceivedInitialSessionsList(true)
 
     let currentById = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
 
@@ -520,7 +520,7 @@ extension SessionStore {
 
   func handleConnectionStatusChanged(_ status: ConnectionStatus) {
     if status == .connected {
-      hasReceivedInitialSessionsList = false
+      setHasReceivedInitialSessionsList(false)
       eventStream.subscribeList()
       for sessionId in subscribedSessions {
         eventStream.subscribeSession(
@@ -530,7 +530,7 @@ extension SessionStore {
         )
       }
     } else if status == .disconnected {
-      hasReceivedInitialSessionsList = false
+      setHasReceivedInitialSessionsList(false)
     }
   }
 

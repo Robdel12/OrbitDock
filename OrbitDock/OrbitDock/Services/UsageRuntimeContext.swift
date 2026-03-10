@@ -3,10 +3,10 @@ import Foundation
 struct UsageControlPlaneContext {
   let endpointId: UUID
   let apiClient: APIClient
-  let connectionStatus: ConnectionStatus
+  let readiness: ServerRuntimeReadiness
 
   var isReadyForRequests: Bool {
-    connectionStatus == .connected
+    readiness.queryReady
   }
 }
 
@@ -23,7 +23,7 @@ struct UsageRuntimeContext {
         return UsageControlPlaneContext(
           endpointId: runtime.endpoint.id,
           apiClient: runtime.apiClient,
-          connectionStatus: runtime.eventStream.connectionStatus
+          readiness: runtime.readiness
         )
       },
       primaryEndpointUpdates: runtimeRegistry.primaryEndpointUpdates

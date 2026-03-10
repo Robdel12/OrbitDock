@@ -4,6 +4,7 @@ import Foundation
 final class ServerRuntime: Identifiable {
   let endpoint: ServerEndpoint
   let apiClient: APIClient
+  let controlPlaneClient: ControlPlaneClient
   let eventStream: EventStream
   let sessionStore: SessionStore
 
@@ -15,6 +16,7 @@ final class ServerRuntime: Identifiable {
       serverURL: APIClient.httpBaseURL(from: endpoint.wsURL),
       authToken: endpoint.authToken
     )
+    self.controlPlaneClient = .live(apiClient: apiClient)
     self.eventStream = EventStream(authToken: endpoint.authToken)
     self.sessionStore = SessionStore(
       apiClient: apiClient,
@@ -27,11 +29,13 @@ final class ServerRuntime: Identifiable {
   init(
     endpoint: ServerEndpoint,
     apiClient: APIClient,
+    controlPlaneClient: ControlPlaneClient? = nil,
     eventStream: EventStream,
     sessionStore: SessionStore? = nil
   ) {
     self.endpoint = endpoint
     self.apiClient = apiClient
+    self.controlPlaneClient = controlPlaneClient ?? .live(apiClient: apiClient)
     self.eventStream = eventStream
     self.sessionStore = sessionStore
       ?? SessionStore(
@@ -47,20 +51,16 @@ final class ServerRuntime: Identifiable {
   }
 
   var controlPlanePort: ServerControlPlanePort {
-    let endpointId = endpoint.id
-    let apiClient = self.apiClient
     return ServerControlPlanePort(
-      endpointId: endpointId,
-      setServerRole: { isPrimary in
-        try await apiClient.setServerRole(isPrimary: isPrimary)
-      },
-      setClientPrimaryClaim: { identity, isPrimary in
-        try await apiClient.setClientPrimaryClaim(
-          clientId: identity.clientId,
-          deviceName: identity.deviceName,
-          isPrimary: isPrimary
-        )
-      }
+      endpointId: endpoint.id,
+      client: controlPlaneClient
+    )
+  }
+
+  var readiness: ServerRuntimeReadiness {
+    ServerRuntimeReadiness.derive(
+      connectionStatus: eventStream.connectionStatus,
+      hasReceivedInitialSessionsList: sessionStore.hasReceivedInitialSessionsList
     )
   }
 

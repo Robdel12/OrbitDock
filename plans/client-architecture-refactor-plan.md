@@ -496,6 +496,78 @@ That coordinator should:
 
 ---
 
+## Phase 5B: Rebuild the Networking Boundary and Startup Phases
+
+This is the transport-foundation phase.
+
+The bug class we are explicitly trying to eliminate here is:
+
+- boot-time crashes surfacing from the generic HTTP request path
+- control-plane mutations and normal app reads sharing the same implicit transport boundary
+- startup code treating "runtime exists" or "endpoint is enabled" as enough reason to issue REST traffic
+- Foundation async request bridging being the place where architectural bugs surface first
+
+This should be solved as a networking and startup-design problem, not a localized request patch.
+
+### Scope
+
+- make the client networking layer an explicit boundary instead of an inline closure plus generic request helpers
+- normalize transport results and transport errors before they leave the callback boundary
+- separate control-plane mutation traffic from normal query traffic where it improves lifecycle clarity
+- define explicit startup phases for:
+  - endpoint configuration
+  - runtime creation
+  - runtime connection
+  - readiness for control-plane reconciliation
+  - readiness for background reads like usage refresh
+- stop issuing generic REST work during bootstrap until the owning runtime phase says it is allowed
+
+### Files
+
+- `API/APIClient.swift`
+- `API/APIClient+Settings.swift`
+- `ServerRuntime.swift`
+- `ServerRuntimeRegistry.swift`
+- `ServerControlPlaneCoordinator.swift`
+- `UsageRuntimeContext.swift`
+- `SubscriptionUsageService.swift`
+- `CodexUsageService.swift`
+
+### Recommended direction
+
+Use explicit transport and startup boundaries.
+
+That means:
+
+- one transport type owns URLSession request execution
+- transport callbacks normalize data/response/error into typed client-side results
+- control-plane writes flow through a narrower path than normal app queries
+- runtime code plans startup state first, then opts into control-plane sync and background reads only when the runtime is actually ready
+
+The important design rule is:
+
+- "configured" is not "connected"
+- "connected" is not "ready for mutation"
+- "ready for mutation" is not "ready for background refresh"
+
+### Expected output
+
+- boot no longer issues incidental REST traffic just because runtime objects exist
+- control-plane writes have a narrower, easier-to-debug path
+- transport crashes stop surfacing from generic request helpers during startup
+- networking becomes easier to instrument, test, and reason about
+
+### Testing
+
+- transport tests for normalized success/error behavior
+- startup/runtime tests that verify:
+  - no control-plane mutation before readiness
+  - no usage/background reads before readiness
+  - endpoint enable/configure does not imply immediate REST traffic
+- control-plane tests that verify startup sequencing stays deterministic
+
+---
+
 ## Phase 6: Make Service Lifecycles Explicit
 
 This is the “stop hidden startup work” phase.

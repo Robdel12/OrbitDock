@@ -47,8 +47,7 @@ enum ServerPrimaryClaimPlanner {
 
 struct ServerControlPlanePort: Sendable {
   let endpointId: UUID
-  let setServerRole: @Sendable (Bool) async throws -> Bool
-  let setClientPrimaryClaim: @Sendable (ServerClientIdentity, Bool) async throws -> Void
+  let client: ControlPlaneClient
 }
 
 actor ServerControlPlaneCoordinator {
@@ -87,7 +86,7 @@ actor ServerControlPlaneCoordinator {
     if isPrimary {
       for port in sortedPorts where port.endpointId != endpointId {
         do {
-          _ = try await port.setServerRole(false)
+          _ = try await port.client.setServerRole(false)
         } catch {
           await logFailure(
             "Set server role failed",
@@ -104,7 +103,7 @@ actor ServerControlPlaneCoordinator {
     }
 
     do {
-      _ = try await targetPort.setServerRole(isPrimary)
+      _ = try await targetPort.client.setServerRole(isPrimary)
     } catch {
       await logFailure(
         "Set server role failed",
@@ -141,7 +140,7 @@ actor ServerControlPlaneCoordinator {
         guard let port = portsByEndpointId[update.endpointId] else { continue }
 
         do {
-          try await port.setClientPrimaryClaim(clientIdentity, update.isPrimary)
+          try await port.client.setClientPrimaryClaim(clientIdentity, update.isPrimary)
           appliedPrimaryClaimAssignments[update.endpointId] = update.isPrimary
         } catch {
           await logFailure(
