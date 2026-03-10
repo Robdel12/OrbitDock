@@ -34,6 +34,7 @@ struct OrbitDockApp: App {
 
   private var mainRootView: some View {
     OrbitDockWindowRoot(appRuntime: appRuntime)
+      .environment(\.modelPricingService, modelPricingService)
       .task {
         await appRuntime.startIfNeeded()
       }
@@ -53,11 +54,12 @@ struct OrbitDockApp: App {
       }
 
       // Settings window (⌘,)
-      Settings {
-        SettingsView()
+        Settings {
+          SettingsView()
           #if os(macOS)
             .environment(\.serverManager, appRuntime.serverManager)
           #endif
+          .environment(\.modelPricingService, modelPricingService)
           .environment(appRuntime.runtimeRegistry)
           .environment(appRuntime.notificationManager)
           .preferredColorScheme(.dark)
@@ -66,6 +68,7 @@ struct OrbitDockApp: App {
       // Menu bar
       MenuBarExtra {
         MenuBarView()
+          .environment(\.modelPricingService, modelPricingService)
           .environment(appRuntime.runtimeRegistry.activeSessionStore)
           .environment(appRuntime.runtimeRegistry)
           .environment(appRuntime.usageServiceRegistry)

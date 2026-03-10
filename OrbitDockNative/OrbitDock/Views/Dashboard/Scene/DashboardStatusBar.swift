@@ -13,6 +13,7 @@ import SwiftUI
 
 struct DashboardStatusBar: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.modelPricingService) private var modelPricingService
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
 
@@ -38,11 +39,17 @@ struct DashboardStatusBar: View {
       guard let start = $0.startedAt else { return false }
       return calendar.isDateInToday(start)
     }
-    return StatusBarStats.from(sessions: todaySessions)
+    return StatusBarStats.from(
+      sessions: todaySessions,
+      costCalculator: modelPricingService.calculatorSnapshot
+    )
   }
 
   private var allStats: StatusBarStats {
-    StatusBarStats.from(sessions: sessions)
+    StatusBarStats.from(
+      sessions: sessions,
+      costCalculator: modelPricingService.calculatorSnapshot
+    )
   }
 
   // Connection state

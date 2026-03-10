@@ -235,7 +235,10 @@ struct StatusBarStats {
   let tokens: Int
   let costByModel: [(model: String, cost: Double, color: Color)]
 
-  static func from(sessions: [Session]) -> StatusBarStats {
+  static func from(
+    sessions: [Session],
+    costCalculator: TokenCostCalculator
+  ) -> StatusBarStats {
     var inputTokens = 0
     var outputTokens = 0
     var cacheReadTokens = 0
@@ -269,7 +272,7 @@ struct StatusBarStats {
       cacheCreationTokens += sessionCacheCreation
 
       let rawModel = session.model
-      let sessionCost = ModelPricingService.shared.calculateCost(
+      let sessionCost = costCalculator.calculateCost(
         model: rawModel,
         inputTokens: sessionInput,
         outputTokens: sessionOutput,

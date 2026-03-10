@@ -108,19 +108,68 @@ struct SessionDetailReviewNavigationPlan {
   let layoutConfig: LayoutConfiguration
 }
 
+struct SessionDetailActionBarState: Equatable {
+  let branchLabel: String?
+  let projectPathLabel: String
+  let formattedCost: String?
+  let lastActivityAt: Date?
+  let isPinned: Bool
+  let unreadCount: Int
+
+  var showsUnreadIndicator: Bool {
+    !isPinned && unreadCount > 0
+  }
+
+  var unreadBadgeText: String {
+    "\(unreadCount)"
+  }
+
+  var followLabel: String {
+    isPinned ? "Following" : "Paused"
+  }
+
+  var compactFollowIcon: String {
+    isPinned ? "arrow.down.to.line" : "pause"
+  }
+}
+
 enum SessionDetailMetadataPlanner {
-  static func compactBranchLabel(_ branch: String) -> String {
+  nonisolated static func compactBranchLabel(_ branch: String) -> String {
     let maxLength = 14
     guard branch.count > maxLength else { return branch }
     return String(branch.prefix(maxLength - 1)) + "…"
   }
 
-  static func compactProjectPath(_ path: String) -> String {
+  nonisolated static func compactProjectPath(_ path: String) -> String {
     let components = path.split(separator: "/")
     if components.count >= 2 {
       return components.suffix(2).joined(separator: "/")
     }
     return path
+  }
+}
+
+enum SessionDetailActionBarPlanner {
+  nonisolated static func formattedCost(_ cost: Double) -> String {
+    String(format: "$%.2f", cost)
+  }
+
+  nonisolated static func state(
+    branch: String?,
+    projectPath: String,
+    usageStats: TranscriptUsageStats,
+    isPinned: Bool,
+    unreadCount: Int,
+    lastActivityAt: Date?
+  ) -> SessionDetailActionBarState {
+    SessionDetailActionBarState(
+      branchLabel: branch.map(SessionDetailMetadataPlanner.compactBranchLabel),
+      projectPathLabel: SessionDetailMetadataPlanner.compactProjectPath(projectPath),
+      formattedCost: usageStats.estimatedCostUSD > 0 ? formattedCost(usageStats.estimatedCostUSD) : nil,
+      lastActivityAt: lastActivityAt,
+      isPinned: isPinned,
+      unreadCount: unreadCount
+    )
   }
 }
 
@@ -204,7 +253,8 @@ enum SessionDetailUsagePlanner {
     outputTokens: Int?,
     cachedTokens: Int?,
     contextUsed: Int,
-    totalTokens: Int
+    totalTokens: Int,
+    costCalculator: TokenCostCalculator
   ) -> TranscriptUsageStats {
     var stats = TranscriptUsageStats()
     stats.model = model
@@ -222,6 +272,14 @@ enum SessionDetailUsagePlanner {
     } else {
       stats.outputTokens = max(totalTokens, 0)
     }
+
+    stats.estimatedCostUSD = costCalculator.calculateCost(
+      model: model,
+      inputTokens: stats.inputTokens,
+      outputTokens: stats.outputTokens,
+      cacheReadTokens: stats.cacheReadTokens,
+      cacheCreationTokens: stats.cacheCreationTokens
+    )
 
     return stats
   }

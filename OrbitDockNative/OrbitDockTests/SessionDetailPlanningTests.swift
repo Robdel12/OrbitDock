@@ -3,6 +3,17 @@ import Testing
 @testable import OrbitDock
 
 struct SessionDetailPlanningTests {
+  private let costCalculator = TokenCostCalculator(
+    prices: [
+      "claude-opus-4": ModelPrice(
+        inputCostPerToken: 1.0,
+        outputCostPerToken: 2.0,
+        cacheReadInputTokenCost: 0.5,
+        cacheCreationInputTokenCost: 4.0
+      ),
+    ]
+  )
+
   @Test func openingPendingApprovalPanelPinsConversationAndClearsUnreadState() {
     let next = SessionDetailConversationChromePlanner.openPendingApprovalPanel(
       current: SessionDetailConversationChromeState(
@@ -128,33 +139,80 @@ struct SessionDetailPlanningTests {
     #expect(SessionDetailMetadataPlanner.compactProjectPath("repo") == "repo")
   }
 
+  @Test func actionBarPlannerProjectsReadableDisplayState() {
+    var stats = TranscriptUsageStats()
+    stats.outputTokens = 42
+    stats.estimatedCostUSD = 1.25
+
+    let lastActivity = Date(timeIntervalSince1970: 123)
+    let state = SessionDetailActionBarPlanner.state(
+      branch: "feature/super-long-branch-name",
+      projectPath: "/tmp/repo/feature-a",
+      usageStats: stats,
+      isPinned: false,
+      unreadCount: 3,
+      lastActivityAt: lastActivity
+    )
+
+    #expect(state.branchLabel == "feature/super…")
+    #expect(state.projectPathLabel == "repo/feature-a")
+    #expect(state.formattedCost == stats.formattedCost)
+    #expect(state.lastActivityAt == lastActivity)
+    #expect(state.showsUnreadIndicator)
+    #expect(state.unreadBadgeText == "3")
+    #expect(state.followLabel == "Paused")
+    #expect(state.compactFollowIcon == "pause")
+  }
+
+  @Test func actionBarPlannerHidesUnreadIndicatorWhenFollowingAndOmitsZeroCost() {
+    let state = SessionDetailActionBarPlanner.state(
+      branch: nil,
+      projectPath: "repo",
+      usageStats: TranscriptUsageStats(),
+      isPinned: true,
+      unreadCount: 8,
+      lastActivityAt: nil
+    )
+
+    #expect(state.branchLabel == nil)
+    #expect(state.projectPathLabel == "repo")
+    #expect(state.formattedCost == nil)
+    #expect(!state.showsUnreadIndicator)
+    #expect(state.followLabel == "Following")
+    #expect(state.compactFollowIcon == "arrow.down.to.line")
+  }
+
   @Test func usagePlannerPrefersServerUsageAndFallsBackToTotalTokens() {
     let serverStats = SessionDetailUsagePlanner.makeStats(
-      model: "claude-opus",
+      model: "claude-opus-4",
       inputTokens: 120,
       outputTokens: 45,
       cachedTokens: 10,
       contextUsed: 300,
-      totalTokens: 999
+      totalTokens: 999,
+      costCalculator: costCalculator
     )
-    #expect(serverStats.model == "claude-opus")
+    #expect(serverStats.model == "claude-opus-4")
     #expect(serverStats.inputTokens == 120)
     #expect(serverStats.outputTokens == 45)
     #expect(serverStats.cacheReadTokens == 10)
     #expect(serverStats.contextUsed == 300)
+    #expect(serverStats.estimatedCostUSD == 215)
 
     let fallbackStats = SessionDetailUsagePlanner.makeStats(
-      model: "claude-opus",
+      model: "claude-opus-4",
       inputTokens: nil,
       outputTokens: nil,
       cachedTokens: nil,
       contextUsed: 0,
-      totalTokens: 88
+      totalTokens: 88,
+      costCalculator: costCalculator
     )
     #expect(fallbackStats.inputTokens == 0)
     #expect(fallbackStats.outputTokens == 88)
     #expect(fallbackStats.cacheReadTokens == 0)
     #expect(fallbackStats.contextUsed == 0)
+    #expect(fallbackStats.estimatedCostUSD == 176)
   }
 
   @Test func diffPlannerCountsCombinedTurnSnapshotsWithoutDuplicatingCurrentSnapshot() {

@@ -10,6 +10,7 @@ struct SessionDetailView: View {
   @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.modelPricingService) private var modelPricingService
   @Environment(AppRouter.self) private var router
   let sessionId: String
   let endpointId: UUID
@@ -49,6 +50,17 @@ struct SessionDetailView: View {
 
   private var isCompactLayout: Bool {
     horizontalSizeClass == .compact
+  }
+
+  private var actionBarState: SessionDetailActionBarState {
+    SessionDetailActionBarPlanner.state(
+      branch: obs.branch,
+      projectPath: obs.projectPath,
+      usageStats: usageStats,
+      isPinned: isPinned,
+      unreadCount: unreadCount,
+      lastActivityAt: obs.lastActivityAt
+    )
   }
 
   var body: some View {
@@ -277,210 +289,43 @@ struct SessionDetailView: View {
   // MARK: - Passive Instrument Strip
 
   private var passiveInstrumentStrip: some View {
-    HStack(spacing: 0) {
-      // Git branch
-      if let branch = obs.branch, !branch.isEmpty {
-        HStack(spacing: Spacing.xs) {
-          Image(systemName: "arrow.triangle.branch")
-            .font(.system(size: TypeScale.micro, weight: .semibold))
-          Text(SessionDetailMetadataPlanner.compactBranchLabel(branch))
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-        }
-        .foregroundStyle(Color.gitBranch)
-        .padding(.horizontal, Spacing.md)
-
-        stripDivider
-      }
-
-      // Project path
-      Text(SessionDetailMetadataPlanner.compactProjectPath(obs.projectPath))
-        .font(.system(size: TypeScale.caption, design: .monospaced))
-        .foregroundStyle(Color.textTertiary)
-        .lineLimit(1)
-        .padding(.horizontal, Spacing.md)
-
-      Spacer()
-
-      // Cost
-      if usageStats.estimatedCostUSD > 0 {
-        Text(usageStats.formattedCost)
-          .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
-          .foregroundStyle(Color.textTertiary)
-          .padding(.horizontal, Spacing.md)
-
-        stripDivider
-      }
-
-      // Context gauge
-      ContextGaugeCompact(stats: usageStats)
-        .padding(.horizontal, Spacing.md)
-
-      stripDivider
-
-      // Scroll state / new messages
-      if !isPinned, unreadCount > 0 {
-        Button {
-          applyConversationChromeState(
-            SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
-          )
-        } label: {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: "arrow.down")
-              .font(.system(size: TypeScale.micro, weight: .bold))
-            Text("\(unreadCount) new")
-              .font(.system(size: TypeScale.caption, weight: .semibold))
-          }
-          .foregroundStyle(.white)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.xs)
-          .background(Color.accent, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, Spacing.sm)
-        .transition(.scale.combined(with: .opacity))
-      }
-
-      Button {
+    SessionDetailRegularActionBar(
+      state: actionBarState,
+      usageStats: usageStats,
+      jumpToLatest: {
+        applyConversationChromeState(
+          SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
+        )
+      },
+      togglePinned: {
         applyConversationChromeState(
           SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
         )
-      } label: {
-        Text(isPinned ? "Following" : "Paused")
-          .font(.system(size: TypeScale.caption, weight: .medium))
-          .foregroundStyle(isPinned ? Color.textTertiary : Color.textPrimary)
       }
-      .buttonStyle(.plain)
-      .padding(.horizontal, Spacing.md)
-    }
-    .frame(height: 30)
-    .background(Color.backgroundSecondary)
-    .animation(Motion.standard, value: isPinned)
-    .animation(Motion.standard, value: unreadCount)
-  }
-
-  private var stripDivider: some View {
-    Color.panelBorder.opacity(0.38)
-      .frame(width: 1, height: 14)
+    )
   }
 
   private var compactActionBar: some View {
-    VStack(spacing: Spacing.xs) {
-      HStack(spacing: Spacing.sm) {
-        Button {
-          copyResumeCommand()
-        } label: {
-          Image(systemName: copiedResume ? "checkmark" : "doc.on.doc")
-            .font(.system(size: TypeScale.code, weight: .medium))
-            .frame(width: 30, height: 30)
-            .foregroundStyle(copiedResume ? Color.feedbackPositive : .secondary)
-            .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .help("Copy resume command")
-
-        if Platform.services.capabilities.canRevealInFileBrowser {
-          Button {
-            _ = Platform.services.revealInFileBrowser(obs.projectPath)
-          } label: {
-            Image(systemName: "folder")
-              .font(.system(size: TypeScale.code, weight: .medium))
-              .frame(width: 30, height: 30)
-              .foregroundStyle(.secondary)
-              .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-          }
-          .buttonStyle(.plain)
-          .help("Open in Finder")
-        }
-
-        Spacer(minLength: 0)
-
-        if !isPinned, unreadCount > 0 {
-          Button {
-            applyConversationChromeState(
-              SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
-            )
-          } label: {
-            HStack(spacing: Spacing.xs) {
-              Image(systemName: "arrow.down")
-                .font(.system(size: TypeScale.caption, weight: .bold))
-              Text("\(unreadCount)")
-                .font(.system(size: TypeScale.code, weight: .semibold))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
-            .background(Color.accent, in: Capsule())
-          }
-          .buttonStyle(.plain)
-          .transition(.scale.combined(with: .opacity))
-        }
-
-        Button {
-          applyConversationChromeState(
-            SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
-          )
-        } label: {
-          HStack(spacing: Spacing.xs) {
-            Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
-              .font(.system(size: TypeScale.body, weight: .medium))
-            Text(isPinned ? "Following" : "Paused")
-              .font(.system(size: TypeScale.code, weight: .medium))
-          }
-          .foregroundStyle(isPinned ? .secondary : .primary)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.xs)
-          .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-              .fill(isPinned ? Color.clear : Color.backgroundTertiary)
-          )
-        }
-        .buttonStyle(.plain)
+    SessionDetailCompactActionBar(
+      state: actionBarState,
+      usageStats: usageStats,
+      canRevealInFileBrowser: Platform.services.capabilities.canRevealInFileBrowser,
+      copiedResume: copiedResume,
+      onCopyResume: copyResumeCommand,
+      onRevealInFinder: {
+        _ = Platform.services.revealInFileBrowser(obs.projectPath)
+      },
+      jumpToLatest: {
+        applyConversationChromeState(
+          SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
+        )
+      },
+      togglePinned: {
+        applyConversationChromeState(
+          SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
+        )
       }
-      .padding(.horizontal, Spacing.md)
-
-      ScrollView(.horizontal) {
-        HStack(spacing: Spacing.sm) {
-          ContextGaugeCompact(stats: usageStats)
-
-          if usageStats.estimatedCostUSD > 0 {
-            Text(usageStats.formattedCost)
-              .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
-              .foregroundStyle(.primary.opacity(OpacityTier.vivid))
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.xs)
-              .background(Color.backgroundTertiary, in: Capsule())
-          }
-
-          if let branch = obs.branch, !branch.isEmpty {
-            HStack(spacing: Spacing.xs) {
-              Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: TypeScale.caption, weight: .semibold))
-              Text(SessionDetailMetadataPlanner.compactBranchLabel(branch))
-                .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-            }
-            .foregroundStyle(Color.gitBranch)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
-            .background(Color.backgroundTertiary, in: Capsule())
-          }
-
-          if let lastActivity = obs.lastActivityAt {
-            Text(lastActivity, style: .relative)
-              .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.xs)
-              .background(Color.backgroundTertiary, in: Capsule())
-          }
-        }
-        .padding(.horizontal, Spacing.md)
-      }
-      .scrollIndicators(.hidden)
-    }
-    .padding(.vertical, Spacing.sm)
-    .background(Color.backgroundSecondary)
-    .animation(Motion.standard, value: isPinned)
-    .animation(Motion.standard, value: unreadCount)
+    )
   }
 
   // MARK: - Conversation Content
@@ -690,7 +535,8 @@ struct SessionDetailView: View {
       outputTokens: obs.outputTokens,
       cachedTokens: obs.cachedTokens,
       contextUsed: obs.effectiveContextInputTokens,
-      totalTokens: obs.totalTokens
+      totalTokens: obs.totalTokens,
+      costCalculator: modelPricingService.calculatorSnapshot
     )
   }
 
