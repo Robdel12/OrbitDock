@@ -188,3 +188,139 @@ struct DirectSessionComposerErrorRow: View {
     .padding(.bottom, Spacing.sm)
   }
 }
+
+struct DirectSessionComposerPendingInlineZone<Header: View, Content: View>: View {
+  let modeColor: Color
+  let isExpanded: Bool
+  let contentHeight: CGFloat
+  let onMeasuredHeightChanged: (CGFloat) -> Void
+  @ViewBuilder let header: () -> Header
+  @ViewBuilder let content: () -> Content
+
+  var body: some View {
+    VStack(spacing: 0) {
+      header()
+
+      if isExpanded {
+        ScrollView(.vertical, showsIndicators: true) {
+          content()
+            .background(
+              GeometryReader { geometry in
+                Color.clear.preference(
+                  key: PendingPanelContentHeightPreferenceKey.self,
+                  value: geometry.size.height
+                )
+              }
+            )
+        }
+        .frame(height: contentHeight)
+        .onPreferenceChange(PendingPanelContentHeightPreferenceKey.self) { measuredHeight in
+          onMeasuredHeightChanged(max(0, measuredHeight))
+        }
+        .transition(.opacity.animation(Motion.gentle.delay(0.05)))
+      }
+
+      Rectangle()
+        .fill(modeColor.opacity(OpacityTier.light))
+        .frame(height: 0.5)
+        .padding(.horizontal, Spacing.sm)
+    }
+  }
+}
+
+struct DirectSessionComposerPendingQuestionProgress: View {
+  let currentIndex: Int
+  let totalCount: Int
+  let isCompactLayout: Bool
+  let dotColors: [Color]
+
+  var body: some View {
+    HStack(alignment: .center, spacing: Spacing.sm) {
+      Text("Question \(currentIndex + 1) of \(totalCount)")
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+
+      Spacer(minLength: 0)
+
+      HStack(spacing: Spacing.xs) {
+        ForEach(Array(dotColors.enumerated()), id: \.offset) { _, color in
+          Circle()
+            .fill(color)
+            .frame(width: 6, height: 6)
+        }
+      }
+    }
+  }
+}
+
+struct DirectSessionComposerPendingQuestionOptionRow: View {
+  let option: ApprovalQuestionOption
+  let isSelected: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+          .font(.system(size: TypeScale.caption, weight: .medium))
+          .foregroundStyle(isSelected ? Color.statusQuestion : Color.textQuaternary)
+
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          Text(option.label)
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+          if let description = option.description, !description.isEmpty {
+            Text(description)
+              .font(.system(size: TypeScale.micro, weight: .regular))
+              .foregroundStyle(Color.textTertiary)
+              .fixedSize(horizontal: false, vertical: true)
+              .multilineTextAlignment(.leading)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm_)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .fill(isSelected ? Color.statusQuestion.opacity(OpacityTier.medium) : Color.clear)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .strokeBorder(
+            isSelected
+              ? Color.statusQuestion.opacity(OpacityTier.strong)
+              : Color.surfaceBorder.opacity(OpacityTier.subtle),
+            lineWidth: isSelected ? 1.5 : 1
+          )
+      )
+    }
+    .buttonStyle(.plain)
+  }
+}
+
+struct DirectSessionComposerPendingFooterIconButton: View {
+  let systemName: String
+  let iconSize: CGFloat
+  let dimension: CGFloat
+  let fillColor: Color
+  let isDisabled: Bool
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: systemName)
+        .font(.system(size: iconSize, weight: .bold))
+        .foregroundStyle(.white)
+        .frame(width: dimension, height: dimension)
+        .background(Circle().fill(fillColor))
+    }
+    .buttonStyle(.plain)
+    .disabled(isDisabled)
+  }
+}
