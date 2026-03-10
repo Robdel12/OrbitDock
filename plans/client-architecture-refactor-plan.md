@@ -167,8 +167,9 @@ This plan is now an active execution document, not just a roadmap.
   - the app entrypoint now composes `OrbitDockAppRuntime` through an explicit dependency bundle and `live()` entrypoint instead of hidden singleton lookup inside the runtime initializer
 - **QuickSwitcher phase 1**
   - query classification, session projection, keyboard navigation, command catalog, and selection resolution now live in dedicated pure helpers instead of inline view logic
+  - action-side command planning and target-session capture now also live in a dedicated helper instead of being embedded in `QuickSwitcher`
   - deterministic unit tests now cover quick-launch intent detection, search filtering, active/recent ordering, navigation counts, wraparound movement, command inventory, and selected-item resolution
-  - the remaining work is trimming the last action-side-effect wiring in `QuickSwitcher`
+  - the remaining work is trimming any last side-effect-only shell code in `QuickSwitcher`
 - **Settings phase 1**
   - endpoint/runtime health summary logic now lives in a dedicated pure helper instead of duplicated inline calculations inside `SettingsView`
   - deterministic unit tests now cover the display-state copy and tone decisions for enabled/connected endpoint combinations
