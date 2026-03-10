@@ -224,9 +224,14 @@ pub async fn mark_session_read(
 mod tests {
     use super::*;
     use axum::{extract::Path, extract::State, Json};
+    use rusqlite::{params, Connection};
     use orbitdock_protocol::{Message, MessageType, Provider};
 
     use crate::domain::sessions::session::SessionHandle;
+    use crate::domain::sessions::transition::WorkPhase;
+    use crate::infrastructure::migration_runner;
+    use crate::infrastructure::paths;
+    use crate::support::test_support::ensure_server_test_data_dir;
     use crate::transport::http::test_support::new_test_state;
 
     #[tokio::test]
@@ -283,6 +288,162 @@ mod tests {
             }
             Err((status, body)) => panic!(
                 "expected successful session response, got status {:?} with error {:?}",
+                status, body.error
+            ),
+        }
+    }
+
+    fn seed_message_history(session_id: &str, messages: &[Message]) {
+        ensure_server_test_data_dir();
+        let db_path = paths::db_path();
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent).expect("create http session test data dir");
+        }
+        let mut conn = Connection::open(&db_path).expect("open db");
+        migration_runner::run_migrations(&mut conn).expect("run migrations");
+        conn.execute(
+            "INSERT OR REPLACE INTO sessions (id, project_path, project_name, provider, status, work_status, codex_integration_mode, started_at, last_activity_at)
+             VALUES (?1, ?2, ?3, 'claude', 'active', 'waiting', 'direct', ?4, ?4)",
+            params![
+                session_id,
+                "/tmp/orbitdock-api-test",
+                "orbitdock-api-test",
+                "2026-03-09T00:00:00Z",
+            ],
+        )
+        .expect("insert test session");
+        conn.execute(
+            "DELETE FROM messages WHERE session_id = ?1",
+            params![session_id],
+        )
+        .expect("clear test messages");
+
+        for message in messages {
+            let type_str = match message.message_type {
+                MessageType::User => "user",
+                MessageType::Assistant => "assistant",
+                MessageType::Thinking => "thinking",
+                MessageType::Tool => "tool",
+                MessageType::ToolResult => "tool_result",
+                MessageType::Steer => "steer",
+                MessageType::Shell => "shell",
+            };
+
+            conn.execute(
+                "INSERT OR REPLACE INTO messages (id, session_id, type, content, timestamp, sequence, tool_name, tool_input, tool_output, tool_duration, is_error, is_in_progress, images_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![
+                    message.id,
+                    message.session_id,
+                    type_str,
+                    message.content,
+                    message.timestamp,
+                    message.sequence.map(|sequence| sequence as i64),
+                    message.tool_name,
+                    message.tool_input,
+                    message.tool_output,
+                    message.duration_ms.map(|d| d as f64 / 1000.0),
+                    if message.is_error { 1 } else { 0 },
+                    if message.is_in_progress { 1 } else { 0 },
+                    None::<String>,
+                ],
+            )
+            .expect("insert test message");
+        }
+    }
+
+    fn test_message(
+        session_id: &str,
+        id: &str,
+        sequence: u64,
+        content: &str,
+        message_type: MessageType,
+    ) -> Message {
+        Message {
+            id: id.to_string(),
+            session_id: session_id.to_string(),
+            sequence: Some(sequence),
+            message_type,
+            content: content.to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            is_in_progress: false,
+            timestamp: "2026-03-09T00:00:00Z".to_string(),
+            duration_ms: None,
+            images: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn conversation_bootstrap_endpoint_returns_full_history_when_runtime_window_is_sparse() {
+        let state = new_test_state(true);
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let mut handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Claude,
+            "/tmp/orbitdock-api-test".to_string(),
+        );
+
+        let messages: Vec<Message> = (0_u64..108)
+            .map(|sequence| {
+                test_message(
+                    &session_id,
+                    &format!("message-{sequence}"),
+                    sequence,
+                    &format!("message-{sequence}"),
+                    match sequence % 5 {
+                        0 => MessageType::User,
+                        1 => MessageType::Assistant,
+                        2 => MessageType::Tool,
+                        3 => MessageType::Thinking,
+                        _ => MessageType::Assistant,
+                    },
+                )
+            })
+            .collect();
+        seed_message_history(&session_id, &messages);
+        for message in messages.clone() {
+            handle.add_message(message);
+        }
+
+        let sparse_sequences = [
+            0_u64, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 33, 64, 71, 75, 85, 93, 95, 98,
+        ];
+        let mut sparse_state = handle.extract_state();
+        sparse_state.phase = WorkPhase::Idle;
+        sparse_state.messages = messages
+            .into_iter()
+            .filter(|message| {
+                message
+                    .sequence
+                    .is_some_and(|sequence| sparse_sequences.contains(&sequence))
+            })
+            .collect();
+        sparse_state.total_message_count = 108;
+        handle.apply_state(sparse_state);
+
+        state.add_session(handle);
+
+        let response = get_conversation_bootstrap(
+            Path(session_id),
+            Query(ConversationPageQuery { limit: Some(200), before_sequence: None }),
+            State(state),
+        )
+        .await;
+
+        match response {
+            Ok(Json(payload)) => {
+                assert_eq!(payload.total_message_count, 108);
+                assert_eq!(payload.oldest_sequence, Some(0));
+                assert_eq!(payload.newest_sequence, Some(107));
+                assert_eq!(payload.session.messages.len(), 108);
+                assert_eq!(payload.session.messages.first().and_then(|message| message.sequence), Some(0));
+                assert_eq!(payload.session.messages.last().and_then(|message| message.sequence), Some(107));
+            }
+            Err((status, body)) => panic!(
+                "expected successful conversation bootstrap, got status {:?} with error {:?}",
                 status, body.error
             ),
         }

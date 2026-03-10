@@ -23,7 +23,9 @@ use crate::runtime::restored_sessions::{
 };
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_runtime_helpers::hydrate_full_message_history;
+use crate::runtime::session_runtime_helpers::{
+    hydrate_full_message_history, merge_messages_by_sequence,
+};
 
 #[derive(Debug)]
 pub(crate) enum SessionLoadError {
@@ -82,45 +84,59 @@ async fn top_up_runtime_page_from_db(
         return Ok(page);
     }
 
-    let expected_count =
-        expected_page_message_count(page.total_message_count, before_sequence, limit);
-    if page.messages.len() >= expected_count {
+    if !runtime_page_requires_db_reconciliation(&page, before_sequence, limit) {
         return Ok(page);
     }
 
-    if page.messages.is_empty() {
-        let db_page = load_message_page_for_session(session_id, before_sequence, limit)
-            .await
-            .map_err(|err| SessionLoadError::Db(err.to_string()))?;
-        return Ok(conversation_page_with_total(
-            db_page.messages,
-            page.total_message_count.max(db_page.total_count),
-        ));
-    }
-
-    let Some(oldest_runtime_sequence) = page.messages.first().and_then(|message| message.sequence)
-    else {
-        return Ok(page);
-    };
-    let remaining = limit.saturating_sub(page.messages.len());
-    if remaining == 0 {
-        return Ok(page);
-    }
-
-    let db_page =
-        load_message_page_for_session(session_id, Some(oldest_runtime_sequence), remaining)
-            .await
-            .map_err(|err| SessionLoadError::Db(err.to_string()))?;
+    let db_page = load_message_page_for_session(session_id, before_sequence, limit)
+        .await
+        .map_err(|err| SessionLoadError::Db(err.to_string()))?;
     if db_page.messages.is_empty() {
         return Ok(page);
     }
 
-    let mut messages = db_page.messages;
-    messages.extend(page.messages);
+    let messages = merge_messages_by_sequence(db_page.messages, page.messages);
+    let merged_count = messages.len() as u64;
     Ok(conversation_page_with_total(
         messages,
-        page.total_message_count.max(db_page.total_count),
+        page.total_message_count
+            .max(db_page.total_count)
+            .max(merged_count),
     ))
+}
+
+fn runtime_page_requires_db_reconciliation(
+    page: &ConversationPage,
+    before_sequence: Option<u64>,
+    limit: usize,
+) -> bool {
+    let expected_count = expected_page_message_count(page.total_message_count, before_sequence, limit);
+    if expected_count == 0 {
+        return !page.messages.is_empty();
+    }
+
+    if page.messages.len() != expected_count {
+        return true;
+    }
+
+    page_expected_window_is_contiguous(page, before_sequence, expected_count)
+        .map(|is_contiguous| !is_contiguous)
+        .unwrap_or(true)
+}
+
+fn page_expected_window_is_contiguous(
+    page: &ConversationPage,
+    before_sequence: Option<u64>,
+    expected_count: usize,
+) -> Option<bool> {
+    let upper_bound = before_sequence.unwrap_or(page.total_message_count).min(page.total_message_count);
+    let expected_newest = upper_bound.checked_sub(1)?;
+    let expected_oldest = expected_newest.checked_add(1)?.checked_sub(expected_count as u64)?;
+
+    let sequences: Option<Vec<u64>> = page.messages.iter().map(|message| message.sequence).collect();
+    let sequences = sequences?;
+    let expected: Vec<u64> = (expected_oldest..=expected_newest).collect();
+    Some(sequences == expected)
 }
 
 fn conversation_page_from_db_page(
@@ -593,6 +609,50 @@ mod tests {
             ));
         }
         messages
+    }
+
+    #[test]
+    fn sparse_runtime_page_requires_database_reconciliation() {
+        let page = ConversationPage {
+            messages: vec![
+                test_message("session-1", "m0", 0, "user-0", MessageType::User),
+                test_message("session-1", "m75", 75, "user-75", MessageType::User),
+                test_message("session-1", "m98", 98, "user-98", MessageType::User),
+            ],
+            total_message_count: 108,
+            has_more_before: false,
+            oldest_sequence: Some(0),
+            newest_sequence: Some(98),
+        };
+
+        assert!(runtime_page_requires_db_reconciliation(&page, None, 200));
+    }
+
+    #[test]
+    fn contiguous_runtime_tail_does_not_require_database_reconciliation() {
+        let page = ConversationPage {
+            messages: (210_u64..260)
+                .map(|sequence| {
+                    test_message(
+                        "session-1",
+                        &format!("m{sequence}"),
+                        sequence,
+                        &format!("message-{sequence}"),
+                        if sequence % 2 == 0 {
+                            MessageType::User
+                        } else {
+                            MessageType::Assistant
+                        },
+                    )
+                })
+                .collect(),
+            total_message_count: 260,
+            has_more_before: true,
+            oldest_sequence: Some(210),
+            newest_sequence: Some(259),
+        };
+
+        assert!(!runtime_page_requires_db_reconciliation(&page, None, 50));
     }
 
     #[tokio::test]

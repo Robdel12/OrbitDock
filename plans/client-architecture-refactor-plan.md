@@ -338,6 +338,13 @@ This is the user-visible reliability phase.
 The bug we are explicitly trying to kill here is:
 
 - if the user is not sitting in the conversation view watching events stream live,
+
+### Progress
+
+- conversation reopen/hydration is now driven by an explicit recovery path instead of relying on live-stream presence
+- the server conversation bootstrap contract was tightened so reopened Claude sessions now return authoritative full history instead of sparse runtime subsets
+- the client has been verified against a real previously-broken Claude session (`od-9fab8463-c640-432f-9bfa-bdd3dd5d78db`) and now renders the full conversation correctly
+- regression coverage now exists both at the runtime query seam and the HTTP endpoint seam on the server side
 - then comes back later,
 - the client still needs to load the complete conversation state it should show,
 - including missed messages, tools, and tool outputs.
@@ -509,6 +516,15 @@ The bug class we are explicitly trying to eliminate here is:
 
 This should be solved as a networking and startup-design problem, not a localized request patch.
 
+At this point we should assume we are free to replace the current client networking/runtime path outright if that yields a cleaner design. The goal is not to preserve the old `APIClient` shape out of habit. The goal is to end up with a networking/runtime stack that is explicit, Swift 6-safe, and easy to reason about.
+
+### Progress
+
+- the old `APIClient` center of gravity has been removed in favor of narrower typed client surfaces
+- control-plane reconciliation now has an explicit owner instead of ad hoc mutation tasks
+- runtime readiness is modeled explicitly enough to gate startup work and background reads
+- the remaining work in this phase is cleanup and simplification, not proving the architecture direction
+
 ### Scope
 
 - make the client networking layer an explicit boundary instead of an inline closure plus generic request helpers
@@ -521,6 +537,8 @@ This should be solved as a networking and startup-design problem, not a localize
   - readiness for control-plane reconciliation
   - readiness for background reads like usage refresh
 - stop issuing generic REST work during bootstrap until the owning runtime phase says it is allowed
+- separate app-global infrastructure from window-scoped state and lifecycle
+- make the startup pipeline explicit enough that a new window can get its own shell state without inheriting hidden boot work
 
 ### Files
 
@@ -532,17 +550,30 @@ This should be solved as a networking and startup-design problem, not a localize
 - `UsageRuntimeContext.swift`
 - `SubscriptionUsageService.swift`
 - `CodexUsageService.swift`
+- `OrbitDockApp.swift`
+- `OrbitDockWindowRoot.swift`
+- `ContentView.swift`
 
 ### Recommended direction
 
-Use explicit transport and startup boundaries.
+Use explicit transport and startup boundaries, even if that means deleting and replacing parts of the current stack.
 
 That means:
 
-- one transport type owns URLSession request execution
-- transport callbacks normalize data/response/error into typed client-side results
-- control-plane writes flow through a narrower path than normal app queries
+- one narrow transport layer owns request execution and result normalization
+- one query client surface owns ordinary reads
+- one control-plane client surface owns server-role and primary-claim mutation
+- app-global runtime infrastructure is explicit
+- window-scoped shell state is explicit
 - runtime code plans startup state first, then opts into control-plane sync and background reads only when the runtime is actually ready
+
+The ownership rule should be:
+
+- app-global: endpoint definitions, shared runtime registry, shared event connectivity
+- window-scoped: router, selection, sheets, quick switcher, transient attention/toast state
+- lifecycle-scoped: usage refresh, control-plane reconciliation, and any background work that should start and stop explicitly
+
+If the old `APIClient` composition root makes that harder to express cleanly, we should replace it with a smaller set of types instead of preserving it.
 
 The important design rule is:
 
@@ -556,15 +587,17 @@ The important design rule is:
 - control-plane writes have a narrower, easier-to-debug path
 - transport crashes stop surfacing from generic request helpers during startup
 - networking becomes easier to instrument, test, and reason about
+- a new window can boot with its own shell state without accidentally inheriting global side effects
 
 ### Testing
 
 - transport tests for normalized success/error behavior
 - startup/runtime tests that verify:
   - no control-plane mutation before readiness
-  - no usage/background reads before readiness
-  - endpoint enable/configure does not imply immediate REST traffic
+- no usage/background reads before readiness
+- endpoint enable/configure does not imply immediate REST traffic
 - control-plane tests that verify startup sequencing stays deterministic
+- window/runtime tests that verify creating a new window does not trigger shared hidden navigation or startup work
 
 ---
 
