@@ -64,7 +64,13 @@ struct QuickSwitcherProjection: Equatable, Sendable {
 
   private static func matches(_ value: String?, query: String) -> Bool {
     guard let value else { return false }
-    return value.localizedCaseInsensitiveContains(query)
+    return normalized(value).contains(normalized(query))
+  }
+
+  private static func normalized(_ value: String) -> String {
+    value
+      .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   private static func recentSessionDate(for session: Session) -> Date {
