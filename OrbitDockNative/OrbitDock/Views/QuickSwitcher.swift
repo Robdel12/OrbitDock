@@ -309,45 +309,13 @@ struct QuickSwitcher: View {
   // MARK: - Search Bar
 
   private var searchBar: some View {
-    HStack(spacing: isCompactLayout ? Spacing.md_ : Spacing.lg_) {
-      Image(systemName: "magnifyingglass")
-        .font(.system(size: isCompactLayout ? TypeScale.large : TypeScale.thinkingHeading1, weight: .medium))
-        .foregroundStyle(Color.textTertiary)
-        .frame(width: isCompactLayout ? Spacing.section : Spacing.xl)
-
-      TextField(
-        isCompactLayout ? "Search sessions..." : "Search sessions and commands...",
-        text: $searchText
-      )
-      .textFieldStyle(.plain)
-      .font(.system(size: isCompactLayout ? TypeScale.large : 17))
-      .focused($isSearchFocused)
-
-      if !searchText.isEmpty {
-        Button {
-          searchText = ""
-        } label: {
-          Image(systemName: "xmark.circle.fill")
-            .font(.system(size: isCompactLayout ? TypeScale.thinkingHeading1 : TypeScale.large))
-            .foregroundStyle(Color.textQuaternary)
-        }
-        .buttonStyle(.plain)
-      }
-
-      if isCompactLayout {
-        Button {
-          router.closeQuickSwitcher()
-        } label: {
-          Text("Cancel")
-            .font(.system(size: TypeScale.reading, weight: .medium))
-            .foregroundStyle(Color.accent)
-        }
-        .buttonStyle(.plain)
-      }
-    }
-    .padding(.horizontal, isCompactLayout ? Spacing.lg_ : Spacing.section)
-    .padding(.vertical, isCompactLayout ? Spacing.md : Spacing.lg_)
-    .frame(minHeight: isCompactLayout ? nil : 40)
+    QuickSwitcherSearchBar(
+      isCompactLayout: isCompactLayout,
+      searchText: $searchText,
+      isSearchFocused: $isSearchFocused,
+      onClear: { searchText = "" },
+      onCancel: { router.closeQuickSwitcher() }
+    )
   }
 
   // MARK: - Results View
@@ -413,96 +381,32 @@ struct QuickSwitcher: View {
   // MARK: - Active Sessions Section
 
   private var activeSessionsSection: some View {
-    VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.xs) {
-      // Section Header
-      HStack(spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
-        Image(systemName: "cpu")
-          .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.meta, weight: .semibold))
-          .foregroundStyle(Color.accent)
-
-        Text("ACTIVE")
-          .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.meta, weight: .bold, design: .rounded))
-          .foregroundStyle(Color.accent)
-          .tracking(0.8)
-
-        // Count badge
-        Text("\(activeSessions.count)")
-          .font(.system(size: isCompactLayout ? TypeScale.mini : TypeScale.micro, weight: .bold, design: .rounded))
-          .foregroundStyle(Color.accent)
-          .padding(.horizontal, Spacing.sm_)
-          .padding(.vertical, Spacing.xxs)
-          .background(Color.accent.opacity(0.15), in: Capsule())
-      }
-      .padding(.horizontal, isCompactLayout ? Spacing.lg_ : Spacing.section)
-      .padding(.top, isCompactLayout ? Spacing.md_ : Spacing.lg)
-      .padding(.bottom, isCompactLayout ? Spacing.xs : Spacing.sm)
-
-      // Session Rows
-      ForEach(Array(activeSessions.enumerated()), id: \.element.scopedID) { index, session in
-        let globalIndex = sessionStartIndex + index
-        switcherRow(session: session, index: globalIndex)
-          .id("row-\(globalIndex)")
-      }
-    }
+    QuickSwitcherActiveSessionsSection(
+      sessions: activeSessions,
+      isCompactLayout: isCompactLayout,
+      sessionStartIndex: sessionStartIndex,
+      row: { session, index in switcherRow(session: session, index: index) }
+    )
   }
 
   // MARK: - Recent Sessions Section
 
   private var recentSessionsSection: some View {
-    let isSearching = !searchQuery.isEmpty
-
-    return VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.xs) {
-      // Section Header - collapsible when not searching
-      Button {
+    QuickSwitcherRecentSessionsSection(
+      sessions: recentSessions,
+      isCompactLayout: isCompactLayout,
+      searchQuery: searchQuery,
+      isExpanded: isRecentExpanded,
+      shouldShowSessions: shouldShowRecentSessions,
+      sessionStartIndex: sessionStartIndex,
+      activeSessionCount: activeSessions.count,
+      onToggleExpanded: {
         withAnimation(Motion.standard) {
           isRecentExpanded.toggle()
         }
-      } label: {
-        HStack(spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
-          // Chevron indicator (only when not searching)
-          if !isSearching {
-            Image(systemName: "chevron.right")
-              .font(.system(size: isCompactLayout ? TypeScale.mini : TypeScale.micro, weight: .semibold))
-              .foregroundStyle(Color.textQuaternary)
-              .rotationEffect(.degrees(isRecentExpanded ? 90 : 0))
-          }
-
-          Image(systemName: "clock")
-            .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.meta, weight: .semibold))
-            .foregroundStyle(Color.statusEnded)
-
-          Text("RECENT")
-            .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.meta, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.statusEnded)
-            .tracking(0.8)
-
-          // Count badge
-          Text("\(recentSessions.count)")
-            .font(.system(size: isCompactLayout ? TypeScale.mini : TypeScale.micro, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.statusEnded)
-            .padding(.horizontal, Spacing.sm_)
-            .padding(.vertical, Spacing.xxs)
-            .background(Color.statusEnded.opacity(0.15), in: Capsule())
-
-          Spacer()
-        }
-        .padding(.horizontal, isCompactLayout ? Spacing.lg_ : Spacing.section)
-        .padding(.top, isCompactLayout ? Spacing.md_ : Spacing.lg)
-        .padding(.bottom, isCompactLayout ? Spacing.xs : Spacing.sm)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .disabled(isSearching) // Can't collapse while searching
-
-      // Session Rows - shown when expanded OR searching
-      if shouldShowRecentSessions {
-        ForEach(Array(recentSessions.enumerated()), id: \.element.scopedID) { index, session in
-          let globalIndex = sessionStartIndex + activeSessions.count + index
-          switcherRow(session: session, index: globalIndex)
-            .id("row-\(globalIndex)")
-        }
-      }
-    }
+      },
+      row: { session, index in switcherRow(session: session, index: index) }
+    )
   }
 
   // MARK: - Commands Section
@@ -510,44 +414,12 @@ struct QuickSwitcher: View {
   private var commandsSection: some View {
     let activeSession = targetSession ?? allVisibleSessions.first
 
-    return VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.xs) {
-      HStack(spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
-        Image(systemName: "command")
-          .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.meta, weight: .semibold))
-          .foregroundStyle(Color.accent)
-
-        Text("COMMANDS")
-          .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.meta, weight: .bold, design: .rounded))
-          .foregroundStyle(Color.accent)
-          .tracking(0.8)
-
-        if let session = activeSession {
-          Text("→")
-            .font(.system(size: isCompactLayout ? TypeScale.mini : TypeScale.micro))
-            .foregroundStyle(Color.textQuaternary)
-
-          Text(session.displayName)
-            .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.meta, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-            .lineLimit(1)
-        }
-      }
-      .padding(.horizontal, isCompactLayout ? Spacing.lg_ : Spacing.section)
-      .padding(.top, isCompactLayout ? Spacing.sm_ : Spacing.sm)
-      .padding(.bottom, isCompactLayout ? Spacing.xxs : Spacing.xs)
-
-      ForEach(Array(filteredCommands.enumerated()), id: \.element.id) { index, command in
-        commandRow(command: command, index: index)
-          .id("row-\(index)")
-      }
-
-      // Divider after commands
-      Rectangle()
-        .fill(Color.panelBorder)
-        .frame(height: 1)
-        .padding(.horizontal, Spacing.section)
-        .padding(.vertical, Spacing.sm)
-    }
+    return QuickSwitcherCommandsSection(
+      commands: filteredCommands,
+      activeSession: activeSession,
+      isCompactLayout: isCompactLayout,
+      row: { command, index in commandRow(command: command, index: index) }
+    )
   }
 
   /// Dashboard row
