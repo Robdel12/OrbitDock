@@ -773,17 +773,42 @@ import SwiftUI
       programmaticScrollInProgress = false
     }
 
-    /// Build a NativeRichMessageRowModel for ANY .message row — no markdown filter.
-    /// Returns nil only for tool rows or empty content.
-    private func nativeRichMessageRow(for row: TimelineRow) -> NativeRichMessageRowModel? {
-      guard case let .message(id, showHeader) = row.payload else { return nil }
-      guard let message = messagesByID[id] else { return nil }
+    private var rowContext: AppKitConversationRowContext {
+      AppKitConversationRowContext(
+        rows: currentRows,
+        messagesByID: messagesByID,
+        turnsByID: turnsByID,
+        metadata: sourceState.metadata,
+        uiState: uiState,
+        approvalCardModel: buildApprovalCardModel(),
+        expandedThinkingIDs: expandedThinkingIDs,
+        rowWidth: availableRowWidth,
+        tableWidth: tableView?.bounds.width ?? 0
+      )
+    }
 
-      return SharedModelBuilders.richMessageModel(
-        from: message,
-        messageID: id,
-        isThinkingExpanded: expandedThinkingIDs.contains(id),
-        showHeader: showHeader
+    private var rowHandlers: AppKitConversationRowHandlers {
+      AppKitConversationRowHandlers(
+        toggleThinkingExpansion: { [weak self] messageID, row in
+          self?.toggleThinkingExpansion(messageID: messageID, row: row)
+        },
+        expandToolRow: { [weak self] messageID in
+          self?.setToolRowExpansion(messageID: messageID, expanded: true)
+        },
+        collapseToolRow: { [weak self] messageID in
+          self?.setToolRowExpansion(messageID: messageID, expanded: false)
+        },
+        cancelShellCommand: { [weak self] requestID in
+          self?.cancelShellCommand(requestID: requestID)
+        },
+        toggleRollup: { [weak self] rollupID in
+          self?.toggleRollup(id: rollupID)
+        },
+        toggleTurnExpansion: { [weak self] turnID in
+          self?.toggleTurnExpansion(turnID: turnID)
+        },
+        loadMore: onLoadMore,
+        openPendingApprovalPanel: onOpenPendingApprovalPanel
       )
     }
 
@@ -811,36 +836,11 @@ import SwiftUI
       if let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
         as? NativeRichMessageCellView,
         let timelineRow = row < currentRows.count ? currentRows[row] : nil,
-        let model = nativeRichMessageRow(for: timelineRow)
+        let model = rowContext.richMessageModel(for: timelineRow)
       {
         let width = max(100, tableView.bounds.width)
         cell.configure(model: model, width: width)
       }
-    }
-
-    // MARK: - Compact Tool Row Model Builder
-
-    private func nativeCompactToolRow(for row: TimelineRow) -> NativeCompactToolRowModel? {
-      guard case let .tool(id) = row.payload else { return nil }
-      guard !uiState.expandedToolCards.contains(id) else { return nil }
-      guard let message = messagesByID[id] else { return nil }
-      return SharedModelBuilders.compactToolModel(
-        from: message,
-        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
-      )
-    }
-
-    // MARK: - Expanded Tool Model Builder
-
-    private func nativeExpandedToolModel(for row: TimelineRow) -> NativeExpandedToolModel? {
-      guard case let .tool(id) = row.payload else { return nil }
-      guard uiState.expandedToolCards.contains(id) else { return nil }
-      guard let message = messagesByID[id] else { return nil }
-      return SharedModelBuilders.expandedToolModel(
-        from: message,
-        messageID: id,
-        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
-      )
     }
 
     // MARK: - Approval Card Model
@@ -872,298 +872,29 @@ import SwiftUI
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-      guard row >= 0, row < currentRows.count else { return nil }
-      let timelineRow = currentRows[row]
-      let width = availableRowWidth
-
-      // ── Native structural rows ──
-
-      switch timelineRow.kind {
-        case .bottomSpacer:
-          let id = NativeSpacerCellView.reuseIdentifier
-          let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeSpacerCellView)
-            ?? NativeSpacerCellView(frame: .zero)
-          cell.identifier = id
-          return cell
-
-        case .approvalCard:
-          if let model = buildApprovalCardModel() {
-            let id = NativeApprovalCardCellView.reuseIdentifier
-            let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeApprovalCardCellView)
-              ?? NativeApprovalCardCellView(frame: .zero)
-            cell.identifier = id
-            cell.onTap = onOpenPendingApprovalPanel
-            cell.configure(model: model)
-            return cell
-          }
-          return NativeSpacerCellView(frame: .zero)
-
-        case .turnHeader:
-          if case let .turnHeader(turnID, turnNumber, _) = timelineRow.payload {
-            let id = NativeTurnHeaderCellView.reuseIdentifier
-            let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeTurnHeaderCellView)
-              ?? NativeTurnHeaderCellView(frame: .zero)
-            cell.identifier = id
-            let model: ConversationUtilityRowModels.TurnHeaderModel
-            if let turn = turnsByID[turnID] {
-              model = ConversationUtilityRowModels.turnHeader(for: turn)
-            } else {
-              model = ConversationUtilityRowModels.TurnHeaderModel(
-                labelText: turnNumber > 1 ? "TURN \(turnNumber)" : nil,
-                toolsText: nil
-              )
-            }
-            cell.configure(model: model)
-            return cell
-          }
-
-        case .rollupSummary:
-          if case let .rollupSummary(rollupID, hiddenCount, totalToolCount, isExpanded, breakdown, hiddenMessageIDs) =
-            timelineRow.payload
-          {
-            let id = NativeRollupSummaryCellView.reuseIdentifier
-            let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeRollupSummaryCellView)
-              ?? NativeRollupSummaryCellView(frame: .zero)
-            cell.identifier = id
-
-            let groupMessages = hiddenMessageIDs.compactMap { self.messagesByID[$0] }
-            let model = ConversationUtilityRowModels.rollupSummary(
-              hiddenCount: hiddenCount,
-              totalToolCount: totalToolCount,
-              isExpanded: isExpanded,
-              breakdown: breakdown,
-              messages: groupMessages
-            )
-
-            cell.configure(model: model)
-            cell.onToggle = { [weak self] in self?.toggleRollup(id: rollupID) }
-            return cell
-          }
-
-        case .loadMore:
-          let id = NativeLoadMoreCellView.reuseIdentifier
-          let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeLoadMoreCellView)
-            ?? NativeLoadMoreCellView(frame: .zero)
-          cell.identifier = id
-          cell.configure(remainingCount: sourceState.metadata.remainingLoadCount)
-          cell.onLoadMore = onLoadMore
-          return cell
-
-        case .messageCount:
-          let id = NativeMessageCountCellView.reuseIdentifier
-          let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeMessageCountCellView)
-            ?? NativeMessageCountCellView(frame: .zero)
-          cell.identifier = id
-          cell.configure(displayedCount: sourceState.messages.count, totalCount: sourceState.metadata.messageCount)
-          return cell
-
-        case .liveIndicator:
-          let id = NativeLiveIndicatorCellView.reuseIdentifier
-          let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeLiveIndicatorCellView)
-            ?? NativeLiveIndicatorCellView(frame: .zero)
-          cell.identifier = id
-          let meta = sourceState.metadata
-          let model = ConversationUtilityRowModels.liveIndicator(
-            workStatus: meta.workStatus,
-            currentTool: meta.currentTool,
-            pendingToolName: meta.pendingToolName
-          )
-          cell.configure(model: model)
-          return cell
-
-        case .tool:
-          if let toolModel = nativeCompactToolRow(for: timelineRow) {
-            let id = NativeCompactToolCellView.reuseIdentifier
-            let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeCompactToolCellView)
-              ?? NativeCompactToolCellView(frame: .zero)
-            cell.identifier = id
-            cell.configure(model: toolModel)
-            if case let .tool(messageID) = timelineRow.payload {
-              cell.onTap = { [weak self] in
-                self?.setToolRowExpansion(messageID: messageID, expanded: true)
-              }
-            }
-            return cell
-          }
-
-        case .liveProgress:
-          if case let .liveProgress(currentTool, completedCount, elapsedTime) = timelineRow.payload {
-            let id = NativeLiveProgressCellView.reuseIdentifier
-            let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeLiveProgressCellView)
-              ?? NativeLiveProgressCellView(frame: .zero)
-            cell.identifier = id
-            let model = ConversationUtilityRowModels.liveProgress(
-              currentTool: currentTool,
-              completedCount: completedCount,
-              elapsedTime: elapsedTime
-            )
-            cell.configure(model: model)
-            return cell
-          }
-
-        case .collapsedTurn:
-          if case let .collapsedTurn(turnID, userPreview, assistantPreview, toolCount, totalDuration) = timelineRow.payload {
-            let id = NativeCollapsedTurnCellView.reuseIdentifier
-            let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeCollapsedTurnCellView)
-              ?? NativeCollapsedTurnCellView(frame: .zero)
-            cell.identifier = id
-            let model = ConversationUtilityRowModels.collapsedTurn(
-              userPreview: userPreview,
-              assistantPreview: assistantPreview,
-              toolCount: toolCount,
-              totalDuration: totalDuration
-            )
-            cell.configure(model: model)
-            cell.onTap = { [weak self] in
-              self?.toggleTurnExpansion(turnID: turnID)
-            }
-            return cell
-          }
-
-        default:
-          break
-      }
-
-      // ── Native rich message rows (ALL markdown, zero SwiftUI) ──
-
-      if let richModel = nativeRichMessageRow(for: timelineRow) {
-        let richID = NativeRichMessageCellView.reuseIdentifier
-        let richCell = (tableView.makeView(withIdentifier: richID, owner: self) as? NativeRichMessageCellView)
-          ?? NativeRichMessageCellView(frame: .zero)
-        richCell.identifier = richID
-        richCell.onThinkingExpandToggle = { [weak self] messageID in
-          self?.toggleThinkingExpansion(messageID: messageID, row: row)
-        }
-        richCell.configure(model: richModel, width: width)
-        logger.debug("viewFor[\(row)] \(timelineRow.id.rawValue) native-rich w=\(String(format: "%.0f", width))")
-        return richCell
-      }
-
-      // ── Native expanded tool cards (ALL tool types, zero SwiftUI) ──
-
-      if let expandedModel = nativeExpandedToolModel(for: timelineRow) {
-        let expandedID = NativeExpandedToolCellView.reuseIdentifier
-        let expandedCell = (tableView.makeView(withIdentifier: expandedID, owner: self) as? NativeExpandedToolCellView)
-          ?? NativeExpandedToolCellView(frame: .zero)
-        expandedCell.identifier = expandedID
-        expandedCell.onCollapse = { [weak self] messageID in
-          self?.setToolRowExpansion(messageID: messageID, expanded: false)
-        }
-        expandedCell.onCancel = { [weak self] requestID in
-          self?.cancelShellCommand(requestID: requestID)
-        }
-        expandedCell.configure(model: expandedModel, width: width)
-        logger
-          .debug("viewFor[\(row)] \(timelineRow.id.rawValue) native-expanded-tool w=\(String(format: "%.0f", width))")
-        return expandedCell
-      }
-
-      let id = NativeSpacerCellView.reuseIdentifier
-      let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeSpacerCellView)
-        ?? NativeSpacerCellView(frame: .zero)
-      cell.identifier = id
-      logger.debug("viewFor[\(row)] \(timelineRow.id.rawValue) clear-fallback")
-      return cell
+      AppKitConversationRowFactory.makeView(
+        tableView: tableView,
+        row: row,
+        context: rowContext,
+        handlers: rowHandlers,
+        logger: logger
+      )
     }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-      guard row >= 0, row < currentRows.count else {
-        let id = NSUserInterfaceItemIdentifier("conversationClearRowView")
-        let rv = (tableView.makeView(withIdentifier: id, owner: self) as? ClearTableRowView)
-          ?? ClearTableRowView(frame: .zero)
-        rv.identifier = id
-        return rv
-      }
-
-      let position = cardPosition(forRow: row)
-      if position != .none {
-        let id = NSUserInterfaceItemIdentifier("conversationCardRowView")
-        let cardView = (tableView.makeView(withIdentifier: id, owner: self) as? CardTableRowView)
-          ?? CardTableRowView(frame: .zero)
-        cardView.identifier = id
-        cardView.cardPosition = position
-        let insets = cardSpacing(forRow: row)
-        cardView.cardTopInset = insets.topInset
-        cardView.cardBottomInset = insets.bottomInset
-        return cardView
-      }
-
-      let id = NSUserInterfaceItemIdentifier("conversationClearRowView")
-      let rv = (tableView.makeView(withIdentifier: id, owner: self) as? ClearTableRowView)
-        ?? ClearTableRowView(frame: .zero)
-      rv.identifier = id
-      return rv
-    }
-
-    // MARK: - Card Position
-
-    private func cardPosition(forRow row: Int) -> CardPosition {
-      ConversationTimelineLayoutHelpers.cardPosition(for: row, rows: currentRows) { [messagesByID] messageID in
-        messagesByID[messageID]
-      }
-    }
-
-    /// Compute extra height and card layer insets for a row based on its card position.
-    /// - Returns: (topInset, bottomInset, heightExtra) where topInset/bottomInset position
-    ///   the card background layer, and heightExtra is added to the row height.
-    private func cardSpacing(forRow row: Int) -> (topInset: CGFloat, bottomInset: CGFloat, heightExtra: CGFloat) {
-      let spacing = ConversationTimelineLayoutHelpers.cardSpacing(for: row, rows: currentRows) { [messagesByID] messageID in
-        messagesByID[messageID]
-      }
-      return (spacing.topInset, spacing.bottomInset, spacing.heightExtra)
+      AppKitConversationRowFactory.makeRowView(
+        tableView: tableView,
+        row: row,
+        context: rowContext
+      )
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
       guard row >= 0, row < currentRows.count else { return 1 }
-      let timelineRow = currentRows[row]
       let width = availableRowWidth
       let measurementWidth = width > 1
         ? width
         : max(lastKnownWidth, tableColumn.width, tableView.bounds.width, view.bounds.width)
-
-      // Card spacing adds breathing room around card groups.
-      let spacing = cardSpacing(forRow: row)
-
-      // ── Tier 1: Fixed-height rows (no measurement, no cache, no SwiftUI) ──
-      switch timelineRow.kind {
-        case .bottomSpacer:
-          return ConversationLayout.bottomSpacerHeight
-        case .turnHeader:
-          return ConversationTimelineLayoutHelpers.turnHeaderHeight(for: timelineRow)
-        case .loadMore:
-          return ConversationLayout.loadMoreHeight
-        case .messageCount:
-          return ConversationLayout.messageCountHeight
-        case .rollupSummary:
-          return ConversationLayout.activityCapsuleHeight + spacing.heightExtra
-        case .approvalCard:
-          let model = buildApprovalCardModel()
-          return NativeApprovalCardCellView.requiredHeight(for: model, availableWidth: tableView.bounds.width)
-        case .liveIndicator:
-          return ConversationLayout.liveIndicatorHeight
-        case .liveProgress:
-          return ConversationLayout.liveProgressHeight + spacing.heightExtra
-        case .collapsedTurn:
-          return ConversationLayout.collapsedTurnHeight
-        case .tool:
-          if case let .tool(id) = timelineRow.payload, !uiState.expandedToolCards.contains(id) {
-            let compactH: CGFloat
-            if let message = messagesByID[id] {
-              let model = SharedModelBuilders.compactToolModel(
-                from: message,
-                supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
-              )
-              compactH = NativeCompactToolCellView.requiredHeight(
-                model: model,
-                width: tableView.bounds.width
-              )
-            } else {
-              compactH = ConversationLayout.compactToolRowHeight
-            }
-            return compactH + spacing.heightExtra
-          }
-        default: break
-      }
 
       // During early layout/rebuild passes NSTableView can ask for heights before
       // the clip view has a valid width. Never cache these placeholder values.
@@ -1175,33 +906,17 @@ import SwiftUI
       guard let cacheKey = heightCacheKey(forRow: row) else { return 1 }
       if let cachedHeight = heightEngine.height(for: cacheKey) {
         signposter.emitEvent("timeline-height-cache-hit")
-        return cachedHeight + spacing.heightExtra
+        return cachedHeight
       }
       signposter.emitEvent("timeline-height-cache-miss")
 
-      // Tier 2a: Native rich message rows (ALL markdown + images, zero SwiftUI)
-      if let richModel = nativeRichMessageRow(for: timelineRow) {
-        let measuredHeight = max(
-          1,
-          ceil(NativeRichMessageCellView.requiredHeight(for: measurementWidth, model: richModel))
-        )
-        heightEngine.store(measuredHeight, for: cacheKey)
-        return measuredHeight + spacing.heightExtra
-      }
-
-      // Tier 2b: Native expanded tool cards (deterministic line-count-based)
-      if let expandedModel = nativeExpandedToolModel(for: timelineRow) {
-        let measuredHeight = max(
-          1,
-          ceil(NativeExpandedToolCellView.requiredHeight(for: measurementWidth, model: expandedModel))
-        )
-        heightEngine.store(measuredHeight, for: cacheKey)
-        return measuredHeight + spacing.heightExtra
-      }
-
-      // Should be unreachable now that message/tool/live indicator rows are native.
-      heightEngine.store(1, for: cacheKey)
-      return 1
+      let measuredHeight = AppKitConversationRowFactory.height(
+        for: row,
+        context: rowContext,
+        measurementWidth: measurementWidth
+      )
+      heightEngine.store(measuredHeight, for: cacheKey)
+      return measuredHeight
     }
 
     private func setToolRowExpansion(messageID: String, expanded: Bool) {
