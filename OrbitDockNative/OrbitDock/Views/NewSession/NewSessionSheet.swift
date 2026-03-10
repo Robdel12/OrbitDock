@@ -14,6 +14,7 @@ struct NewSessionSheet: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(AppRouter.self) private var router
 
   let continuation: SessionContinuation?
   private let availableEndpointsOverride: [ServerEndpoint]?
@@ -432,7 +433,7 @@ struct NewSessionSheet: View {
           baseBranch: baseBranch,
           using: launchPorts(store: store, runtime: runtime)
         )
-        launchSession(plan: plan, cwd: worktreePath, store: store, runtime: runtime)
+        try await launchSession(plan: plan, cwd: worktreePath, store: store, runtime: runtime)
         dismiss()
       } catch {
         model.isCreating = false
@@ -443,8 +444,17 @@ struct NewSessionSheet: View {
 
   private func createSessionDirect(plan: NewSessionLaunchPlan) {
     guard case let .direct(cwd) = plan.target else { return }
-    launchSession(plan: plan, cwd: cwd, store: endpointAppState, runtime: nil)
-    dismiss()
+    model.isCreating = true
+    let store = endpointAppState
+    Task { @MainActor in
+      do {
+        try await launchSession(plan: plan, cwd: cwd, store: store, runtime: nil)
+        dismiss()
+      } catch {
+        model.isCreating = false
+        model.codexErrorMessage = error.localizedDescription
+      }
+    }
   }
 
   private func launchSession(
@@ -452,15 +462,16 @@ struct NewSessionSheet: View {
     cwd: String,
     store: SessionStore,
     runtime: ServerRuntime?
-  ) {
+  ) async throws {
     let request = plan.requestTemplate.makeRequest(cwd: cwd)
-
-    Task {
-      _ = try? await NewSessionLaunchCoordinator.launchSession(
-        request: request,
-        continuationPrompt: plan.bootstrapPrompt,
-        using: launchPorts(store: store, runtime: runtime)
-      )
+    let createdSessionId = try await NewSessionLaunchCoordinator.launchSession(
+      request: request,
+      continuationPrompt: plan.bootstrapPrompt,
+      using: launchPorts(store: store, runtime: runtime)
+    )
+    model.isCreating = false
+    if let createdSessionId {
+      router.selectSession(SessionRef(endpointId: store.endpointId, sessionId: createdSessionId))
     }
   }
 
