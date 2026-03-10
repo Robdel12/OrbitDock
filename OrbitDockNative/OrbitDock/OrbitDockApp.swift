@@ -59,6 +59,7 @@ struct OrbitDockApp: App {
             .environment(\.serverManager, appRuntime.serverManager)
           #endif
           .environment(appRuntime.runtimeRegistry)
+          .environment(appRuntime.notificationManager)
           .preferredColorScheme(.dark)
       }
 

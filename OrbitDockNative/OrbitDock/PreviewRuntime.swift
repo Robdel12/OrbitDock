@@ -101,6 +101,7 @@ struct PreviewRuntime {
       .environment(sessionStore)
       .environment(runtimeRegistry)
       .environment(usageServiceRegistry)
+      .environment(notificationManager)
       .environment(attentionService)
       .environment(router)
       .environment(windowSessionCoordinator)
