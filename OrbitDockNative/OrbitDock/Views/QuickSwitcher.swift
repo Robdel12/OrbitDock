@@ -212,46 +212,14 @@ struct QuickSwitcher: View {
   }
 
   private var mainContent: some View {
-    VStack(spacing: 0) {
-      searchBar
-
-      Divider()
-        .foregroundStyle(Color.panelBorder)
-
-      if allVisibleSessions.isEmpty, filteredCommands.isEmpty, !searchQuery.isEmpty {
-        emptyState
-      } else {
-        resultsView
-      }
-
-      if !isCompactLayout {
-        footerHint
-      }
-    }
-    .frame(maxWidth: isCompactLayout ? .infinity : 720)
-    .padding(.horizontal, isCompactLayout ? 0 : 0)
-    .background {
-      if isCompactLayout {
-        Color.backgroundSecondary
-          .ignoresSafeArea(.container, edges: .bottom)
-      } else {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .fill(Color.backgroundSecondary)
-      }
-    }
-    .overlay {
-      if !isCompactLayout {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .strokeBorder(Color.panelBorder, lineWidth: 1)
-      }
-    }
-    .clipShape(
-      isCompactLayout
-        ? AnyShape(RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
-        : AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    QuickSwitcherShell(
+      isCompactLayout: isCompactLayout,
+      isEmptyState: allVisibleSessions.isEmpty && filteredCommands.isEmpty && !searchQuery.isEmpty,
+      searchBar: { searchBar },
+      content: { resultsView },
+      emptyState: { emptyState },
+      footer: { footerHint }
     )
-    .themeShadow(Shadow.lg)
-    .padding(.horizontal, isCompactLayout ? Spacing.sm_ : 0)
   }
 
   private func commandRow(command: QuickSwitcherCommand, index: Int) -> some View {
@@ -321,39 +289,27 @@ struct QuickSwitcher: View {
   // MARK: - Results View
 
   private var resultsView: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        LazyVStack(spacing: 0) {
-          if quickLaunchMode != nil {
-            // Quick launch mode: show recent projects
-            quickLaunchSection
-          } else {
-            // Normal mode: commands, dashboard, sessions
-            // Commands section (when searching)
-            if !filteredCommands.isEmpty {
-              commandsSection
-            }
-
-            // Dashboard row
-            dashboardRow
-              .id("row-\(dashboardIndex)")
-
-            // Active sessions - flat list sorted by start time (matches dashboard)
-            if !activeSessions.isEmpty {
-              activeSessionsSection
-            }
-
-            // Recent ended sessions
-            if !recentSessions.isEmpty {
-              recentSessionsSection
-            }
-          }
+    QuickSwitcherResultsShell(
+      isCompactLayout: isCompactLayout,
+      selectedIndex: selectedIndex
+    ) {
+      if quickLaunchMode != nil {
+        quickLaunchSection
+      } else {
+        if !filteredCommands.isEmpty {
+          commandsSection
         }
-        .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.sm)
-      }
-      .frame(maxHeight: isCompactLayout ? 560 : 620)
-      .onChange(of: selectedIndex) { _, newIndex in
-        proxy.scrollTo("row-\(newIndex)", anchor: .center)
+
+        dashboardRow
+          .id("row-\(dashboardIndex)")
+
+        if !activeSessions.isEmpty {
+          activeSessionsSection
+        }
+
+        if !recentSessions.isEmpty {
+          recentSessionsSection
+        }
       }
     }
   }
