@@ -64,9 +64,10 @@ struct SessionDetailView: View {
         onNavigateToComment: { comment in
           navigateToComment = comment
           withAnimation(Motion.gentle) {
-            if layoutConfig == .conversationOnly {
-              layoutConfig = .split
-            }
+            layoutConfig = SessionDetailLayoutPlanner.nextLayout(
+              currentLayout: layoutConfig,
+              intent: .revealReviewSplit
+            )
           }
         },
         onSendReview: { sendReviewToModel() }
@@ -106,7 +107,10 @@ struct SessionDetailView: View {
             navigateToFileId: $reviewFileId,
             onDismiss: {
               withAnimation(Motion.gentle) {
-                layoutConfig = .conversationOnly
+                layoutConfig = SessionDetailLayoutPlanner.nextLayout(
+                  currentLayout: layoutConfig,
+                  intent: .dismissReview
+                )
               }
             },
             selectedCommentIds: $selectedCommentIds,
@@ -139,12 +143,18 @@ struct SessionDetailView: View {
     .background(Color.backgroundPrimary)
     .environment(scopedServerState)
     .onAppear {
-      if shouldSubscribeToServerSession {
+      let plan = SessionDetailLifecyclePlanner.onAppearPlan(
+        shouldSubscribeToServerSession: shouldSubscribeToServerSession,
+        isDirect: obs.isDirect,
+        isPinned: isPinned
+      )
+
+      if plan.shouldSubscribe {
         // Let SessionStore choose the best recovery path: retained state, cached restore,
         // or full-history recovery when the detail view needs to rebuild after being away.
         scopedServerState.subscribeToSession(sessionId, recoveryGoal: .completeHistory)
-        scopedServerState.setSessionAutoMarkRead(sessionId, enabled: isPinned)
-        if obs.isDirect {
+        scopedServerState.setSessionAutoMarkRead(sessionId, enabled: plan.autoMarkReadEnabled)
+        if plan.shouldLoadApprovalHistory {
           Task {
             if let resp = try? await scopedServerState.clients.approvals.listApprovals(sessionId: sessionId) {
               scopedServerState.session(sessionId).approvalHistory = resp.approvals
@@ -154,14 +164,25 @@ struct SessionDetailView: View {
       }
     }
     .onDisappear {
-      if shouldSubscribeToServerSession {
-        scopedServerState.setSessionAutoMarkRead(sessionId, enabled: false)
+      let plan = SessionDetailLifecyclePlanner.onDisappearPlan(
+        shouldSubscribeToServerSession: shouldSubscribeToServerSession
+      )
+
+      if plan.shouldSetAutoMarkRead {
+        scopedServerState.setSessionAutoMarkRead(sessionId, enabled: plan.autoMarkReadEnabled)
+      }
+      if plan.shouldUnsubscribe {
         scopedServerState.unsubscribeFromSession(sessionId)
       }
     }
     .onChange(of: isPinned) { _, pinned in
-      guard shouldSubscribeToServerSession else { return }
-      scopedServerState.setSessionAutoMarkRead(sessionId, enabled: pinned)
+      guard let enabled = SessionDetailLifecyclePlanner.autoMarkReadEnabled(
+        shouldSubscribeToServerSession: shouldSubscribeToServerSession,
+        isPinned: pinned
+      ) else {
+        return
+      }
+      scopedServerState.setSessionAutoMarkRead(sessionId, enabled: enabled)
     }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
@@ -170,7 +191,10 @@ struct SessionDetailView: View {
       // Cmd+D: Toggle conversation ↔ split
       if keyPress.modifiers == .command, keyPress.key == KeyEquivalent("d") {
         withAnimation(Motion.gentle) {
-          layoutConfig = layoutConfig == .conversationOnly ? .split : .conversationOnly
+          layoutConfig = SessionDetailLayoutPlanner.nextLayout(
+            currentLayout: layoutConfig,
+            intent: .toggleSplitShortcut
+          )
         }
         return .handled
       }
@@ -178,7 +202,10 @@ struct SessionDetailView: View {
       // Cmd+Shift+D: Review only
       if keyPress.modifiers == [.command, .shift], keyPress.key == KeyEquivalent("d") {
         withAnimation(Motion.gentle) {
-          layoutConfig = .reviewOnly
+          layoutConfig = SessionDetailLayoutPlanner.nextLayout(
+            currentLayout: layoutConfig,
+            intent: .showReviewOnlyShortcut
+          )
         }
         return .handled
       }
@@ -190,22 +217,38 @@ struct SessionDetailView: View {
     }
     // Diff-available banner trigger
     .onChange(of: scopedServerState.session(sessionId).diff) { oldDiff, newDiff in
-      guard obs.isDirect else { return }
-      if oldDiff == nil, newDiff != nil, layoutConfig == .conversationOnly {
-        withAnimation(Motion.standard) {
-          showDiffBanner = true
-        }
-        // Auto-dismiss after 8 seconds
-        Task {
-          try? await Task.sleep(for: .seconds(8))
-          await MainActor.run {
-            withAnimation(Motion.standard) {
-              showDiffBanner = false
-            }
+      guard SessionDetailLifecyclePlanner.shouldRevealDiffBanner(
+        isDirect: obs.isDirect,
+        oldDiff: oldDiff,
+        newDiff: newDiff,
+        layoutConfig: layoutConfig
+      ) else {
+        return
+      }
+      withAnimation(Motion.standard) {
+        showDiffBanner = true
+      }
+      // Auto-dismiss after 8 seconds
+      Task {
+        try? await Task.sleep(for: .seconds(8))
+        await MainActor.run {
+          withAnimation(Motion.standard) {
+            showDiffBanner = false
           }
         }
       }
     }
+  }
+
+  private var sessionDetailWorktreeCleanupState: SessionDetailWorktreeCleanupBannerState? {
+    SessionDetailWorktreeCleanupPlanner.bannerState(
+      status: obs.status,
+      isWorktree: obs.isWorktree,
+      dismissed: worktreeCleanupDismissed,
+      worktree: worktreeForSession,
+      branch: obs.branch,
+      isCleaningUp: isCleaningUpWorktree
+    )
   }
 
   // MARK: - Action Bar
@@ -461,26 +504,16 @@ struct SessionDetailView: View {
       model: obs.model,
       chatViewMode: chatViewMode,
       onNavigateToReviewFile: { filePath, lineNumber in
-        // Navigate to the file in the review canvas and jump to the line
-        reviewFileId = filePath
-        // Create a synthetic comment to navigate to the specific line
-        navigateToComment = ServerReviewComment(
-          id: "nav-\(filePath)-\(lineNumber)",
+        let plan = SessionDetailLayoutPlanner.reviewFileNavigationPlan(
           sessionId: sessionId,
-          turnId: nil,
+          currentLayout: layoutConfig,
           filePath: filePath,
-          lineStart: UInt32(lineNumber),
-          lineEnd: nil,
-          body: "",
-          tag: nil,
-          status: .resolved,
-          createdAt: "",
-          updatedAt: nil
+          lineNumber: lineNumber
         )
+        reviewFileId = plan.reviewFileId
+        navigateToComment = plan.navigateToComment
         withAnimation(Motion.gentle) {
-          if layoutConfig == .conversationOnly {
-            layoutConfig = .split
-          }
+          layoutConfig = plan.layoutConfig
         }
       },
       onOpenPendingApprovalPanel: {
@@ -491,15 +524,14 @@ struct SessionDetailView: View {
       scrollToBottomTrigger: $scrollToBottomTrigger
     )
     .environment(\.openFileInReview, obs.isDirect ? { filePath in
-      // Extract the relative file path (strip project path prefix if present)
-      let relative = filePath.hasPrefix(obs.projectPath)
-        ? String(filePath.dropFirst(obs.projectPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        : filePath
-      reviewFileId = relative
+      let plan = SessionDetailLayoutPlanner.openFileInReviewPlan(
+        projectPath: obs.projectPath,
+        currentLayout: layoutConfig,
+        filePath: filePath
+      )
+      reviewFileId = plan.reviewFileId
       withAnimation(Motion.gentle) {
-        if layoutConfig == .conversationOnly {
-          layoutConfig = .split
-        }
+        layoutConfig = plan.layoutConfig
       }
     } : nil)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -510,8 +542,12 @@ struct SessionDetailView: View {
   private var diffAvailableBanner: some View {
     let fileCount = diffFileCount
     return Button {
+      let nextLayout = SessionDetailLayoutPlanner.nextLayout(
+        currentLayout: layoutConfig,
+        intent: .revealReviewSplit
+      )
       withAnimation(Motion.gentle) {
-        layoutConfig = .split
+        layoutConfig = nextLayout
         showDiffBanner = false
       }
     } label: {
@@ -554,19 +590,19 @@ struct SessionDetailView: View {
   // MARK: - Worktree Cleanup
 
   private var showWorktreeCleanupBanner: Bool {
-    obs.status == .ended && obs.isWorktree && !worktreeCleanupDismissed
+    sessionDetailWorktreeCleanupState != nil
   }
 
   private var worktreeForSession: ServerWorktreeSummary? {
-    if let wtId = obs.worktreeId {
-      return scopedServerState.worktreesByRepo.values.flatMap { $0 }.first { $0.id == wtId }
-    }
-    return scopedServerState.worktreesByRepo.values.flatMap { $0 }.first { $0.worktreePath == obs.projectPath }
+    SessionDetailWorktreeCleanupPlanner.resolveWorktree(
+      worktreesByRepo: scopedServerState.worktreesByRepo,
+      worktreeId: obs.worktreeId,
+      projectPath: obs.projectPath
+    )
   }
 
   private var worktreeCleanupBanner: some View {
-    let wt = worktreeForSession
-    let branchName = wt?.branch ?? obs.branch ?? "unknown"
+    let bannerState = sessionDetailWorktreeCleanupState
 
     return VStack(spacing: Spacing.sm) {
       HStack(spacing: Spacing.sm) {
@@ -574,7 +610,7 @@ struct SessionDetailView: View {
           .font(.system(size: TypeScale.body, weight: .medium))
           .foregroundStyle(Color.accent)
         VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text("Worktree: \(branchName)")
+          Text("Worktree: \(bannerState?.branchName ?? "unknown")")
             .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.textPrimary)
           Text("This session used a worktree that may still be on disk.")
@@ -622,7 +658,7 @@ struct SessionDetailView: View {
         .buttonStyle(.borderedProminent)
         .tint(Color.accent)
         .font(.system(size: TypeScale.body, weight: .medium))
-        .disabled(isCleaningUpWorktree || wt == nil)
+        .disabled(!(bannerState?.canCleanUp ?? false))
       }
     }
     .padding(.horizontal, Spacing.md)
@@ -632,16 +668,21 @@ struct SessionDetailView: View {
   }
 
   private func cleanUpWorktree() {
-    guard let wt = worktreeForSession else { return }
+    guard let request = SessionDetailWorktreeCleanupPlanner.cleanupRequest(
+      worktree: worktreeForSession,
+      deleteBranch: deleteBranchOnCleanup
+    ) else {
+      return
+    }
     isCleaningUpWorktree = true
     worktreeCleanupError = nil
 
     Task {
       do {
         try await scopedServerState.clients.worktrees.removeWorktree(
-          worktreeId: wt.id,
-          force: true,
-          deleteBranch: deleteBranchOnCleanup
+          worktreeId: request.worktreeId,
+          force: request.force,
+          deleteBranch: request.deleteBranch
         )
         withAnimation(Motion.gentle) {
           worktreeCleanupDismissed = true
