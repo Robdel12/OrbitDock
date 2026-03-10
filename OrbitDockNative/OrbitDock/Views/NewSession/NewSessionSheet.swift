@@ -354,7 +354,8 @@ struct NewSessionSheet: View {
   // MARK: - Actions
 
   private func refreshEndpointData() {
-    // Models arrive via the event stream; only codex account needs an explicit refresh
+    endpointAppState.refreshClaudeModels()
+    endpointAppState.refreshCodexModels()
     endpointAppState.refreshCodexAccount()
   }
 
