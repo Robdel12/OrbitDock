@@ -48,6 +48,9 @@ This plan is now an active execution document, not just a roadmap.
 - **Review phase 1e**
   - navigation/file-selection routing and editor-opening actions now live in dedicated review helpers instead of `ReviewCanvas`
   - deterministic unit tests now cover file-id routing and selected-file projection behavior
+- **Review phase 1f**
+  - mouse-driven composer interactions and range-opening behavior now live in dedicated review helpers instead of `ReviewCanvas`
+  - deterministic unit tests now cover composer target selection, mouse drag ranges, and hunk-scoped composer visibility
 - **Window-local external navigation cleanup**
   - app-internal `.selectSession` broadcast routing has been replaced with a typed app-level external navigation center
   - external session selection now enters through a typed channel while actual navigation stays window-local
@@ -94,8 +97,9 @@ This plan is now an active execution document, not just a roadmap.
   - approval-card to composer routing is moving onto typed feature callbacks instead of process-wide notifications
   - these phases are not finished yet, but the shell now owns much less runtime lifecycle wiring than before
 - **Phase 10: Refactor the Review Feature**
-  - workflow, cursor/navigation, projection, comment composition, send coordination, file chrome, and routing/editor actions are now extracted from `ReviewCanvas`
-  - the main remaining work is mouse/composer interaction cleanup so the root view becomes a true shell
+  - workflow, cursor/navigation, projection, comment composition, send coordination, file chrome, routing/editor actions, and mouse/composer interactions are now extracted from `ReviewCanvas`
+  - the root review view is now much closer to a true shell
+  - any remaining work here should be polish-level cleanup, not more architectural rescue
 
 ### Next
 
@@ -103,7 +107,7 @@ This plan is now an active execution document, not just a roadmap.
 - keep thinning `SessionStore` and related store/runtime ownership
 - clean up the last obvious app-global leftovers, especially dead singletons and preview/runtime `.shared` leakage
 - then land complete feature phases in this order:
-  - review interaction cleanup
+  - new session launch/state decomposition
   - app-global ownership cleanup
   - larger screen decomposition
 
@@ -115,9 +119,9 @@ This plan is now an active execution document, not just a roadmap.
   - send-mode and command routing now have a pure planner with unit tests
   - the remaining composer work is pending-approval state, attachments, and provider/action boundaries
 - **Review phase 1: Extract projection + workflow**
-  - in progress
-  - review workflow, cursor/navigation, projection/state, comment composition/range-selection state, send coordination, file chrome, and routing/editor actions are now extracted into dedicated helpers
-  - the remaining work is mouse/composer interaction cleanup so `ReviewCanvas` becomes a real feature shell
+  - mostly done
+  - review workflow, cursor/navigation, projection/state, comment composition/range-selection state, send coordination, file chrome, routing/editor actions, and mouse/composer interactions are now extracted into dedicated helpers
+  - the remaining work is small shell polish and any last display-only cleanup in `ReviewCanvas`
   - unit tests now cover workflow behavior, cursor/navigation, review projection, comment-composer planning, and review send coordination
 - **Composer phase 2: Extract pending approval + action boundaries**
   - in progress
@@ -125,6 +129,10 @@ This plan is now an active execution document, not just a roadmap.
   - the remaining work is a final pass over display-only helpers and any last provider-specific action drift
   - keep the root view focused on rendering bindings into the composer model
   - add deterministic tests for pending-action routing, attachment behavior, and provider-aware send execution
+- **New session phase 1: Extract launch planning + provider state**
+  - next
+  - move session request construction, provider-specific selection sync, and launch workflow decisions out of `NewSessionSheet`
+  - add deterministic tests for request planning, provider reset/sync behavior, and launch action selection
 
 ---
 
