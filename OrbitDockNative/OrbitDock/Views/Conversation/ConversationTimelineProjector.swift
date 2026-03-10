@@ -105,7 +105,90 @@ nonisolated enum ConversationTimelineProjector {
       )
     )
 
-    for message in turn.messages {
+    let split = splitFocusedTurnMessages(turn.messages)
+
+    for message in split.leading {
+      appendMessageRow(message, toolRowsEnabled: true, context: context, rows: &rows)
+    }
+
+    if split.toolZone.isEmpty {
+      for message in split.trailing {
+        appendMessageRow(message, toolRowsEnabled: true, context: context, rows: &rows)
+      }
+      return
+    }
+
+    let segments = segmentToolZone(split.toolZone)
+    for (index, segment) in segments.enumerated() {
+      switch segment {
+        case let .breaker(message):
+          appendMessageRow(message, toolRowsEnabled: true, context: context, rows: &rows)
+
+        case let .workGroup(groupMessages):
+          appendFocusedWorkGroup(
+            groupMessages,
+            turnID: turn.id,
+            segmentIndex: index,
+            context: context,
+            rows: &rows
+          )
+      }
+    }
+
+    for message in split.trailing {
+      appendMessageRow(message, toolRowsEnabled: true, context: context, rows: &rows)
+    }
+  }
+
+  private static func appendFocusedWorkGroup(
+    _ messages: [TranscriptMessage],
+    turnID: String,
+    segmentIndex: Int,
+    context: ProjectionContext,
+    rows: inout [TimelineRow]
+  ) {
+    guard !messages.isEmpty else { return }
+
+    let toolMessages = messages.filter(isToolLikeMessage)
+    let totalToolCount = toolMessages.count
+
+    guard totalToolCount > focusedCollapseThreshold else {
+      for message in messages {
+        appendMessageRow(message, toolRowsEnabled: true, context: context, rows: &rows)
+      }
+      return
+    }
+
+    let rollupID = "\(TimelineRowID.turnRollupKey(turnID)):\(segmentIndex)"
+    let isExpanded = context.ui.expandedRollups.contains(rollupID)
+    let visibleTailCount = min(focusedVisibleToolTail, messages.count)
+    let hiddenCount = max(0, messages.count - visibleTailCount)
+    let hiddenMessages = Array(messages.prefix(hiddenCount))
+    let hiddenMessageIDs = hiddenMessages.map(\.id)
+
+    rows.append(
+      makeRow(
+        id: .rollupSummary(rollupID),
+        kind: .rollupSummary,
+        payload: .rollupSummary(
+          id: rollupID,
+          hiddenCount: hiddenMessages.count,
+          totalToolCount: totalToolCount,
+          isExpanded: isExpanded,
+          breakdown: toolBreakdown(from: hiddenMessages),
+          hiddenMessageIDs: hiddenMessageIDs
+        ),
+        context: context
+      )
+    )
+
+    if isExpanded {
+      for message in hiddenMessages {
+        appendMessageRow(message, toolRowsEnabled: true, context: context, rows: &rows)
+      }
+    }
+
+    for message in messages.suffix(visibleTailCount) {
       appendMessageRow(message, toolRowsEnabled: true, context: context, rows: &rows)
     }
   }

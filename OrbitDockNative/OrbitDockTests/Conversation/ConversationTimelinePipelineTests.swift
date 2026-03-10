@@ -285,7 +285,7 @@ struct ConversationTimelinePipelineTests {
 
     let kinds = projected.rows.map(\.kind)
     #expect(kinds == [
-      .turnHeader, .message, .message, .tool, .tool, .tool, .message,
+      .turnHeader, .message, .message, .rollupSummary, .tool, .tool, .message,
       .turnHeader, .message, .message, .tool, .message,
       .bottomSpacer,
     ])
@@ -295,10 +295,11 @@ struct ConversationTimelinePipelineTests {
     #expect(rowIDs.contains(.message("a2")))
     #expect(rowIDs.contains(.message("a3")))
     #expect(rowIDs.contains(.message("a4")))
-    #expect(rowIDs.contains(.tool("t1")))
     #expect(rowIDs.contains(.tool("t2")))
     #expect(rowIDs.contains(.tool("t3")))
     #expect(rowIDs.contains(.tool("t4")))
+    #expect(rowIDs.contains(.rollupSummary("timeline:turn-rollup:turn-synth-1:0")))
+    #expect(!rowIDs.contains(.tool("t1")))
   }
 
   @Test func projectorMarksToolRowDirtyWhenToolExpansionChanges() {
