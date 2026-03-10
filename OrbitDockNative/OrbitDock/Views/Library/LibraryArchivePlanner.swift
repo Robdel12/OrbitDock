@@ -188,7 +188,7 @@ enum LibraryArchivePlanner {
     LibraryArchiveSummary(
       projectCount: Set(sessions.map(\.groupingPath)).count,
       sessionCount: sessions.count,
-      liveCount: sessions.filter(isLiveSession(_:)).count,
+      liveCount: sessions.filter { $0.status == .active && ($0.endpointConnectionStatus == nil || $0.endpointConnectionStatus == .connected) }.count,
       endpointCount: Set(sessions.compactMap(\.endpointId)).count
     )
   }
@@ -230,11 +230,11 @@ enum LibraryArchivePlanner {
         ?? "Unknown"
 
       let liveSessions = projectSessions
-        .filter(isLiveSession(_:))
+        .filter { $0.status == .active && ($0.endpointConnectionStatus == nil || $0.endpointConnectionStatus == .connected) }
         .sorted { activityDate(for: $0) > activityDate(for: $1) }
 
       let archivedSessions = projectSessions
-        .filter { !isLiveSession($0) }
+        .filter { !($0.status == .active && ($0.endpointConnectionStatus == nil || $0.endpointConnectionStatus == .connected)) }
         .sorted { lhs, rhs in
           if lhs.isActive != rhs.isActive {
             return lhs.isActive && !rhs.isActive
@@ -282,6 +282,14 @@ enum LibraryArchivePlanner {
   }
 
   nonisolated static func isLiveSession(_ session: Session) -> Bool {
-    session.isActive && session.hasLiveEndpointConnection
+    let hasLiveConnection: Bool
+    switch session.endpointConnectionStatus {
+      case .none, .some(.connected):
+        hasLiveConnection = true
+      default:
+        hasLiveConnection = false
+    }
+
+    return session.status == .active && hasLiveConnection
   }
 }

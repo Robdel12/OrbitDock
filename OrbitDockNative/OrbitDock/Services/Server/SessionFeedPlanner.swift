@@ -4,12 +4,29 @@ enum SessionFeedBootstrapStrategy: Equatable {
   case retainedSnapshot
   case cachedSnapshot
   case freshBootstrap
+
+  nonisolated static func == (lhs: SessionFeedBootstrapStrategy, rhs: SessionFeedBootstrapStrategy) -> Bool {
+    switch (lhs, rhs) {
+      case (.retainedSnapshot, .retainedSnapshot),
+           (.cachedSnapshot, .cachedSnapshot),
+           (.freshBootstrap, .freshBootstrap):
+        true
+      default:
+        false
+    }
+  }
 }
 
 struct SessionFeedSubscriptionPlan: Equatable {
   let strategy: SessionFeedBootstrapStrategy
   let deferredBootstrapGoal: ConversationRecoveryGoal?
   let shouldFetchApprovals: Bool
+
+  nonisolated static func == (lhs: SessionFeedSubscriptionPlan, rhs: SessionFeedSubscriptionPlan) -> Bool {
+    lhs.strategy == rhs.strategy
+      && lhs.deferredBootstrapGoal == rhs.deferredBootstrapGoal
+      && lhs.shouldFetchApprovals == rhs.shouldFetchApprovals
+  }
 }
 
 struct SessionReplayRequest: Equatable {
@@ -22,6 +39,16 @@ struct SessionConnectionRecoveryPlan: Equatable {
   let shouldResetInitialSessionsList: Bool
   let shouldSubscribeList: Bool
   let replayRequests: [SessionReplayRequest]
+
+  nonisolated static func == (lhs: SessionConnectionRecoveryPlan, rhs: SessionConnectionRecoveryPlan) -> Bool {
+    lhs.shouldResetInitialSessionsList == rhs.shouldResetInitialSessionsList
+      && lhs.shouldSubscribeList == rhs.shouldSubscribeList
+      && lhs.replayRequests.elementsEqual(rhs.replayRequests, by: {
+        $0.sessionId == $1.sessionId
+          && $0.sinceRevision == $1.sinceRevision
+          && $0.includeSnapshot == $1.includeSnapshot
+      })
+  }
 }
 
 enum SessionFeedPlanner {

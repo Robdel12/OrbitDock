@@ -16,6 +16,16 @@ private let kBootstrapMaxMessages = 200
 enum ConversationRecoveryGoal: Sendable, Equatable {
   case coherentRecent
   case completeHistory
+
+  nonisolated static func == (lhs: ConversationRecoveryGoal, rhs: ConversationRecoveryGoal) -> Bool {
+    switch (lhs, rhs) {
+      case (.coherentRecent, .coherentRecent),
+           (.completeHistory, .completeHistory):
+        true
+      default:
+        false
+    }
+  }
 }
 
 enum ConversationHydrationState: Sendable, Equatable {

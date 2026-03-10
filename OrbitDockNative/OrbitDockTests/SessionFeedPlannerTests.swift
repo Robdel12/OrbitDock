@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import OrbitDock
 
+@MainActor
 struct SessionFeedPlannerTests {
   @Test func retainedSnapshotPlanOnlyBackfillsForCompleteHistory() {
     let recentPlan = SessionFeedPlanner.subscriptionPlan(
