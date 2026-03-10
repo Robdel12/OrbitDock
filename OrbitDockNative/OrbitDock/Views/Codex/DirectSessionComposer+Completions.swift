@@ -11,41 +11,20 @@ extension DirectSessionComposer {
   // MARK: - Inline Skill Completion
 
   func updateSkillCompletion(_ text: String) {
-    guard let dollarIdx = text.lastIndex(of: "$") else {
-      completionActive = false
-      return
-    }
-
-    let afterDollar = text[text.index(after: dollarIdx)...]
-
-    if afterDollar.contains(where: \.isWhitespace) {
-      completionActive = false
-      return
-    }
-
-    let query = String(afterDollar)
-
-    if availableSkills.contains(where: { $0.name == query }) {
-      completionActive = false
-      return
-    }
-
-    if availableSkills.isEmpty {
+    let needsSkillLoad = inputState.updateSkillCompletion(
+      for: text,
+      availableSkillNames: Set(availableSkills.map(\.name))
+    )
+    if needsSkillLoad {
       Task { try? await serverState.listSkills(sessionId: sessionId) }
     }
-
-    completionQuery = query
-    completionIndex = 0
-    completionActive = true
   }
 
   func acceptSkillCompletion(_ skill: ServerSkillMetadata) {
     if let updated = ComposerTextEditing.applySkillCompletion(in: message, skillName: skill.name) {
       setComposerMessage(updated, moveCursorToEnd: true)
     }
-    completionActive = false
-    completionQuery = ""
-    completionIndex = 0
+    inputState.skillCompletion.dismiss()
     requestComposerFocus()
   }
 
@@ -68,47 +47,20 @@ extension DirectSessionComposer {
   // MARK: - @ Mention Completion
 
   func updateMentionCompletion(_ text: String) {
-    guard let atIdx = text.lastIndex(of: "@") else {
-      mentionActive = false
-      return
+    let shouldLoadProjectFiles = inputState.updateMentionCompletion(
+      for: text,
+      attachedMentions: attachedMentions
+    )
+    if shouldLoadProjectFiles {
+      loadProjectFilesIfNeeded()
     }
-
-    if atIdx != text.startIndex {
-      let before = text[text.index(before: atIdx)]
-      if !before.isWhitespace {
-        mentionActive = false
-        return
-      }
-    }
-
-    let afterAt = text[text.index(after: atIdx)...]
-
-    if afterAt.contains(where: \.isWhitespace) {
-      mentionActive = false
-      return
-    }
-
-    let query = String(afterAt)
-
-    if attachedMentions.contains(where: { $0.name == query || $0.path.hasSuffix(query) }) {
-      mentionActive = false
-      return
-    }
-
-    mentionQuery = query
-    mentionIndex = 0
-    mentionActive = true
-
-    loadProjectFilesIfNeeded()
   }
 
   func acceptMentionCompletion(_ file: ProjectFileIndex.ProjectFile) {
     if let updated = ComposerTextEditing.applyMentionCompletion(in: message, fileName: file.name) {
       setComposerMessage(updated, moveCursorToEnd: true)
     }
-    mentionActive = false
-    mentionQuery = ""
-    mentionIndex = 0
+    inputState.mentionCompletion.dismiss()
     requestComposerFocus()
 
     addMentionAttachment(file)
@@ -151,35 +103,21 @@ extension DirectSessionComposer {
   // MARK: - Command Deck
 
   func updateCommandDeckCompletion(_ text: String) {
-    guard let slashIdx = text.lastIndex(of: "/") else {
-      commandDeckActive = false
-      commandDeckQuery = ""
-      commandDeckIndex = 0
-      return
-    }
-
-    guard ComposerTextEditing.isCommandDeckTokenStart(slashIdx, in: text) else {
-      commandDeckActive = false
-      return
-    }
-
-    let afterSlash = text[text.index(after: slashIdx)...]
-    if afterSlash.contains(where: \.isWhitespace) {
-      commandDeckActive = false
-      return
-    }
-
-    commandDeckQuery = String(afterSlash)
-    commandDeckIndex = 0
-    commandDeckActive = true
-
-    if hasSkillsPanel, availableSkills.isEmpty {
+    let loadRequests = inputState.updateCommandDeckCompletion(
+      for: text,
+      hasSkillsPanel: hasSkillsPanel,
+      availableSkillsAreLoaded: !availableSkills.isEmpty,
+      hasMcpTools: !serverState.session(sessionId).mcpTools.isEmpty
+    )
+    if loadRequests.contains(.skills) {
       Task { try? await serverState.listSkills(sessionId: sessionId) }
     }
-    if serverState.session(sessionId).mcpTools.isEmpty {
+    if loadRequests.contains(.mcpTools) {
       Task { try? await serverState.listMcpTools(sessionId: sessionId) }
     }
-    loadProjectFilesIfNeeded()
+    if loadRequests.contains(.projectFiles) {
+      loadProjectFilesIfNeeded()
+    }
   }
 
   func loadProjectFilesIfNeeded() {
@@ -208,9 +146,7 @@ extension DirectSessionComposer {
   }
 
   func clearCommandDeckState() {
-    commandDeckActive = false
-    commandDeckQuery = ""
-    commandDeckIndex = 0
+    inputState.clearCommandDeck()
   }
 
   func removeTrailingCommandDeckToken() {
@@ -283,15 +219,6 @@ extension DirectSessionComposer {
 
   // MARK: - Keyboard Navigation
 
-  enum ComposerCompletionCommand {
-    case escape
-    case upArrow
-    case downArrow
-    case accept
-    case controlN
-    case controlP
-  }
-
   func handleComposerTextAreaKeyCommand(_ keyCommand: ComposerTextAreaKeyCommand) -> Bool {
     switch keyCommand {
       case .commandShiftT:
@@ -343,12 +270,12 @@ extension DirectSessionComposer {
         removeTrailingCommandDeckToken()
         return true
       }
-      if mentionActive {
-        mentionActive = false
+      if inputState.mentionCompletion.isActive {
+        inputState.dismissMentionCompletion()
         return true
       }
-      guard completionActive else { return false }
-      completionActive = false
+      guard inputState.skillCompletion.isActive else { return false }
+      inputState.dismissSkillCompletion()
       return true
     }
 
@@ -364,19 +291,19 @@ extension DirectSessionComposer {
 
     switch command {
       case .upArrow:
-        completionIndex = max(0, completionIndex - 1)
+        _ = inputState.skillCompletion.move(command, itemCount: filteredSkills.count)
         return true
       case .downArrow:
-        completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
+        _ = inputState.skillCompletion.move(command, itemCount: filteredSkills.count)
         return true
       case .controlN:
-        completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
+        _ = inputState.skillCompletion.move(command, itemCount: filteredSkills.count)
         return true
       case .controlP:
-        completionIndex = max(0, completionIndex - 1)
+        _ = inputState.skillCompletion.move(command, itemCount: filteredSkills.count)
         return true
       case .accept:
-        acceptSkillCompletion(filteredSkills[completionIndex])
+        acceptSkillCompletion(filteredSkills[inputState.skillCompletion.index])
         return true
       case .escape:
         return false
@@ -389,20 +316,20 @@ extension DirectSessionComposer {
 
     switch command {
       case .upArrow:
-        commandDeckIndex = max(0, commandDeckIndex - 1)
+        _ = inputState.commandDeck.move(command, itemCount: commandDeckItems.count)
         return true
       case .downArrow:
-        commandDeckIndex = min(maxIndex, commandDeckIndex + 1)
+        _ = inputState.commandDeck.move(command, itemCount: commandDeckItems.count)
         return true
       case .controlN:
-        commandDeckIndex = min(maxIndex, commandDeckIndex + 1)
+        _ = inputState.commandDeck.move(command, itemCount: commandDeckItems.count)
         return true
       case .controlP:
-        commandDeckIndex = max(0, commandDeckIndex - 1)
+        _ = inputState.commandDeck.move(command, itemCount: commandDeckItems.count)
         return true
       case .accept:
-        if commandDeckIndex < commandDeckItems.count {
-          acceptCommandDeckItem(commandDeckItems[commandDeckIndex])
+        if inputState.commandDeck.index < commandDeckItems.count {
+          acceptCommandDeckItem(commandDeckItems[inputState.commandDeck.index])
         }
         return true
       case .escape:
@@ -416,20 +343,20 @@ extension DirectSessionComposer {
 
     switch command {
       case .upArrow:
-        mentionIndex = max(0, mentionIndex - 1)
+        _ = inputState.mentionCompletion.move(command, itemCount: filteredFiles.count)
         return true
       case .downArrow:
-        mentionIndex = min(maxIndex, mentionIndex + 1)
+        _ = inputState.mentionCompletion.move(command, itemCount: filteredFiles.count)
         return true
       case .controlN:
-        mentionIndex = min(maxIndex, mentionIndex + 1)
+        _ = inputState.mentionCompletion.move(command, itemCount: filteredFiles.count)
         return true
       case .controlP:
-        mentionIndex = max(0, mentionIndex - 1)
+        _ = inputState.mentionCompletion.move(command, itemCount: filteredFiles.count)
         return true
       case .accept:
-        if mentionIndex < filteredFiles.count {
-          acceptMentionCompletion(filteredFiles[mentionIndex])
+        if inputState.mentionCompletion.index < filteredFiles.count {
+          acceptMentionCompletion(filteredFiles[inputState.mentionCompletion.index])
         }
         return true
       case .escape:

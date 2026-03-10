@@ -11,42 +11,28 @@ extension DirectSessionComposer {
   // MARK: - Cursor
 
   func requestComposerFocus() {
-    shouldMaintainTypingFocus = true
-    focusRequestSignal &+= 1
+    inputState.focus.requestFocus()
   }
 
   func relinquishComposerFocus() {
-    shouldMaintainTypingFocus = false
-    blurRequestSignal &+= 1
+    inputState.focus.relinquishFocus()
   }
 
   func handleComposerFocusEvent(_ event: ComposerTextAreaFocusEvent) {
-    switch event {
-      case .began:
-        if !isFocused {
-          isFocused = true
-        }
-        shouldMaintainTypingFocus = true
-
-      case let .ended(userInitiated):
-        if isFocused {
-          isFocused = false
-        }
-        if userInitiated {
-          shouldMaintainTypingFocus = false
-          return
-        }
-        guard shouldMaintainTypingFocus, isSessionActive else { return }
-        Task { @MainActor in
-          await Task.yield()
-          guard shouldMaintainTypingFocus, !isFocused, isSessionActive else { return }
-          focusRequestSignal &+= 1
-        }
+    let shouldRefocus = inputState.focus.handle(event, isSessionActive: isSessionActive)
+    guard shouldRefocus else { return }
+    Task { @MainActor in
+      await Task.yield()
+      guard inputState.focus.shouldMaintainTypingFocus,
+            !inputState.focus.isFocused,
+            isSessionActive
+      else { return }
+      inputState.focus.focusRequestSignal &+= 1
     }
   }
 
   func moveComposerCursorToEnd() {
-    moveCursorToEndSignal &+= 1
+    inputState.focus.moveCursorToEnd()
   }
 
   func setComposerMessage(_ newValue: String, moveCursorToEnd: Bool = false) {
@@ -89,53 +75,40 @@ extension DirectSessionComposer {
   // MARK: - Message
 
   var canSend: Bool {
-    if isDictationActive { return false }
-    let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    if inputMode == .shell { return !isSending && hasContent }
-    if isSessionWorking { return !isSending && (hasContent || hasAttachments) }
-    let hasModel: Bool = if obs.isDirectCodex {
-      !selectedModel.isEmpty
-    } else if obs.isDirectClaude {
-      !effectiveClaudeModel.isEmpty
-    } else {
-      obs.model != nil
-    }
-    return !isSending && (hasContent || hasAttachments) && hasModel
+    guard !isDictationActive else { return false }
+    return DirectSessionComposerActionPlanner.canSend(sendContext)
   }
 
   func sendMessage() {
-    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !isSending else { return }
-    guard !trimmed.isEmpty || hasAttachments else { return }
+    let sendPlan = DirectSessionComposerActionPlanner.planSend(sendContext)
+    guard sendPlan != .blocked else { return }
+    let trimmed = sendContext.trimmedMessage
 
-    // Shell mode: route to executeShell
-    if inputMode == .shell {
-      guard isConnected else {
-        errorMessage = "Server is offline. Shell command not sent."
+    switch sendPlan {
+      case .blocked:
+        return
+
+      case let .offlineShell(message):
+        errorMessage = message
         Platform.services.playHaptic(.error)
         return
-      }
-      Task { try? await serverState.executeShell(sessionId, command: trimmed) }
-      Platform.services.playHaptic(.action)
-      message = ""
-      manualShellMode = false
-      requestComposerFocus()
-      return
-    }
 
-    // ! prefix: execute as shell command
-    if trimmed.hasPrefix("!"), trimmed.count > 1 {
-      guard isConnected else {
-        errorMessage = "Server is offline. Shell command not sent."
-        Platform.services.playHaptic(.error)
+      case let .missingModel(message):
+        errorMessage = message
         return
-      }
-      let shellCmd = String(trimmed.dropFirst())
-      Task { try? await serverState.executeShell(sessionId, command: shellCmd) }
-      Platform.services.playHaptic(.action)
-      message = ""
-      requestComposerFocus()
-      return
+
+      case let .executeShell(command, exitsShellMode):
+        Task { try? await serverState.executeShell(sessionId, command: command) }
+        Platform.services.playHaptic(.action)
+        self.message = ""
+        if exitsShellMode {
+          manualShellMode = false
+        }
+        requestComposerFocus()
+        return
+
+      case .steer, .send:
+        break
     }
 
     var expandedContent = trimmed
@@ -145,7 +118,7 @@ extension DirectSessionComposer {
     let mentionInputs = attachedMentions.map { ServerMentionInput(name: $0.name, path: $0.path) }
     let hasAttachedImages = !attachedImages.isEmpty
 
-    if isSessionWorking {
+    if case .steer = sendPlan {
       guard !expandedContent.isEmpty || hasAttachedImages || !mentionInputs.isEmpty else { return }
 
       isSending = true
@@ -176,24 +149,7 @@ extension DirectSessionComposer {
       return
     }
 
-    let effectiveModel: String
-    if obs.isDirectCodex {
-      guard !selectedModel.isEmpty else {
-        errorMessage = "No model available yet. Wait for model list to load."
-        return
-      }
-      effectiveModel = selectedModel
-    } else if obs.isDirectClaude {
-      guard !effectiveClaudeModel.isEmpty else {
-        errorMessage = "No Claude model available yet. Wait for model list to load."
-        return
-      }
-      effectiveModel = effectiveClaudeModel
-    } else {
-      effectiveModel = obs.model ?? ""
-    }
-
-    let effort = selectedEffort.serialized
+    guard case let .send(_, effectiveModel, effort) = sendPlan else { return }
 
     let inlineSkillNames = extractInlineSkillNames(from: expandedContent)
 
@@ -240,6 +196,45 @@ extension DirectSessionComposer {
           requestComposerFocus()
         }
       }
+    }
+  }
+
+  var sendContext: DirectSessionComposerSendContext {
+    DirectSessionComposerSendContext(
+      inputMode: composerSendMode,
+      rawMessage: message,
+      hasAttachments: !attachedImages.isEmpty,
+      hasMentions: !attachedMentions.isEmpty,
+      isSending: isSending,
+      isConnected: isConnected,
+      providerMode: providerMode,
+      selectedCodexModel: selectedModel,
+      selectedClaudeModel: effectiveClaudeModel,
+      inheritedModel: obs.model,
+      effort: selectedEffort.serialized ?? ""
+    )
+  }
+
+  var providerMode: ComposerProviderMode {
+    if obs.isDirectCodex {
+      return .directCodex
+    }
+    if obs.isDirectClaude {
+      return .directClaude
+    }
+    return .inherited
+  }
+
+  var composerSendMode: ComposerSendMode {
+    switch inputMode {
+      case .prompt:
+        .prompt
+      case .steer:
+        .steer
+      case .reviewNotes:
+        .reviewNotes
+      case .shell:
+        .shell
     }
   }
 

@@ -34,26 +34,12 @@ struct DirectSessionComposer: View {
   @State var showClaudeModelPopover = false
   @State var showFilePickerPopover = false
   @State var filePickerQuery = ""
-  @State var commandDeckActive = false
-  @State var commandDeckQuery = ""
-  @State var commandDeckIndex = 0
-  @State var completionActive = false
-  @State var completionQuery = ""
-  @State var completionIndex = 0
-  @State var isFocused = false
-  @State var focusRequestSignal = 0
-  @State var blurRequestSignal = 0
-  @State var shouldMaintainTypingFocus = false
-  @State var moveCursorToEndSignal = 0
-  @State var composerInputHeight: CGFloat = 30
+  @State var inputState = DirectSessionComposerInputState()
 
   /// Attachments
   @State var attachedImages: [AttachedImage] = []
   @State var attachedMentions: [AttachedMention] = []
   @State var isImageDropTargeted = false
-  @State var mentionActive = false
-  @State var mentionQuery = ""
-  @State var mentionIndex = 0
   #if os(iOS)
     @State var photoPickerItems: [PhotosPickerItem] = []
     @State var isPhotoPickerPresented = false
@@ -239,13 +225,13 @@ struct DirectSessionComposer: View {
   }
 
   var filteredSkills: [ServerSkillMetadata] {
-    guard !completionQuery.isEmpty else { return availableSkills }
-    let q = completionQuery.lowercased()
+    guard !inputState.skillCompletion.query.isEmpty else { return availableSkills }
+    let q = inputState.skillCompletion.query.lowercased()
     return availableSkills.filter { $0.name.lowercased().contains(q) }
   }
 
   var shouldShowCompletion: Bool {
-    completionActive && !filteredSkills.isEmpty
+    inputState.skillCompletion.isActive && !filteredSkills.isEmpty
   }
 
   var hasInlineSkills: Bool {
@@ -344,15 +330,15 @@ struct DirectSessionComposer: View {
 
   var filteredFiles: [ProjectFileIndex.ProjectFile] {
     guard let path = projectPath else { return [] }
-    return fileIndex.search(mentionQuery, in: path)
+    return fileIndex.search(inputState.mentionCompletion.query, in: path)
   }
 
   var shouldShowMentionCompletion: Bool {
-    mentionActive && !filteredFiles.isEmpty
+    inputState.mentionCompletion.isActive && !filteredFiles.isEmpty
   }
 
   var shouldShowCommandDeck: Bool {
-    commandDeckActive && !commandDeckItems.isEmpty
+    inputState.commandDeck.isActive && !commandDeckItems.isEmpty
   }
 
   var hasSkillsPanel: Bool {
@@ -391,7 +377,7 @@ struct DirectSessionComposer: View {
   }
 
   var commandDeckItems: [ComposerCommandDeckItem] {
-    let trimmedQuery = commandDeckQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedQuery = inputState.commandDeck.query.trimmingCharacters(in: .whitespacesAndNewlines)
     let query = trimmedQuery.lowercased()
 
     func matches(_ values: [String]) -> Bool {
@@ -698,10 +684,10 @@ struct DirectSessionComposer: View {
     ComposerTextArea(
       text: $message,
       placeholder: composerPlaceholder,
-      focusRequestSignal: $focusRequestSignal,
-      blurRequestSignal: $blurRequestSignal,
-      moveCursorToEndSignal: $moveCursorToEndSignal,
-      measuredHeight: $composerInputHeight,
+      focusRequestSignal: $inputState.focus.focusRequestSignal,
+      blurRequestSignal: $inputState.focus.blurRequestSignal,
+      moveCursorToEndSignal: $inputState.focus.moveCursorToEndSignal,
+      measuredHeight: $inputState.focus.measuredHeight,
       isEnabled: !isSending && !isDictationActive,
       minLines: 2,
       maxLines: 4,
@@ -711,7 +697,7 @@ struct DirectSessionComposer: View {
       onFocusEvent: handleComposerFocusEvent
     )
     .frame(maxWidth: .infinity, alignment: .leading)
-    .frame(height: composerInputHeight)
+    .frame(height: inputState.focus.measuredHeight)
     .layoutPriority(1)
     #if os(iOS)
       .toolbar {
@@ -735,8 +721,8 @@ struct DirectSessionComposer: View {
     if shouldShowCommandDeck {
       ComposerCommandDeckList(
         items: commandDeckItems,
-        selectedIndex: commandDeckIndex,
-        query: commandDeckQuery,
+        selectedIndex: inputState.commandDeck.index,
+        query: inputState.commandDeck.query,
         onSelect: acceptCommandDeckItem
       )
       .padding(.horizontal, Spacing.lg)
@@ -747,8 +733,8 @@ struct DirectSessionComposer: View {
     if shouldShowCompletion, !shouldShowCommandDeck {
       SkillCompletionList(
         skills: filteredSkills,
-        selectedIndex: completionIndex,
-        query: completionQuery,
+        selectedIndex: inputState.skillCompletion.index,
+        query: inputState.skillCompletion.query,
         onSelect: acceptSkillCompletion
       )
       .padding(.horizontal, Spacing.lg)
@@ -759,8 +745,8 @@ struct DirectSessionComposer: View {
     if shouldShowMentionCompletion, !shouldShowCommandDeck {
       MentionCompletionList(
         files: filteredFiles,
-        selectedIndex: mentionIndex,
-        query: mentionQuery,
+        selectedIndex: inputState.mentionCompletion.index,
+        query: inputState.mentionCompletion.query,
         onSelect: acceptMentionCompletion
       )
       .padding(.horizontal, Spacing.lg)
@@ -866,7 +852,7 @@ struct DirectSessionComposer: View {
     .animation(Motion.standard, value: pendingApprovalIdentity)
     .animation(Motion.standard, value: pendingPanelExpanded)
     .animation(Motion.standard, value: permissionPanelExpanded)
-    .animation(Motion.hover, value: isFocused)
+    .animation(Motion.hover, value: inputState.focus.isFocused)
     .animation(Motion.standard, value: isImageDropTargeted)
     .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
     .padding(.vertical, Spacing.sm)
@@ -949,10 +935,10 @@ struct DirectSessionComposer: View {
   var composerSurfaceBorder: some View {
     RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
       .strokeBorder(
-        isFocused || inputMode != .prompt
+        inputState.focus.isFocused || inputMode != .prompt
           ? composerBorderColor.opacity(0.5)
           : Color.surfaceBorder.opacity(isCompactLayout ? 0.35 : (canSend ? 0.34 : 0.18)),
-        lineWidth: isFocused || inputMode != .prompt ? 1.5 : 1
+        lineWidth: inputState.focus.isFocused || inputMode != .prompt ? 1.5 : 1
       )
   }
 
