@@ -50,15 +50,8 @@ struct ReviewCanvas: View {
   @State private var previousFileCount = 0
   @FocusState private var isCanvasFocused: Bool
 
-  // Comment state
-  @State private var commentMark: ReviewCursorTarget?
-  @State private var composerTarget: ReviewComposerLineRange?
-  @State private var composerBody: String = ""
-  @State private var composerTag: ServerReviewCommentTag? = nil
-
-  // Mouse drag state for gutter range selection
-  @State private var mouseDragAnchor: (fileIdx: Int, hunkIdx: Int, lineIdx: Int)?
-  @State private var mouseDragCurrent: (fileIdx: Int, hunkIdx: Int, lineIdx: Int)?
+  // Comment interaction state
+  @State private var commentInteraction = ReviewCommentInteractionState()
 
   // Review round tracking — detects which files the model modified after feedback
   @State private var lastReviewRound: ReviewRound?
@@ -458,7 +451,7 @@ struct ReviewCanvas: View {
                   }
 
                   // Composer (appears after last line of selection)
-                  if let ct = composerTarget,
+                  if let ct = commentInteraction.composerTarget,
                      ct.fileIndex == fileIdx,
                      ct.hunkIndex == hunkIdx,
                      ct.lineEndIdx == lineIdx
@@ -469,12 +462,12 @@ struct ReviewCanvas: View {
                     } ?? "Line \(ct.lineStart)"
 
                     CommentComposerView(
-                      commentBody: $composerBody,
-                      tag: $composerTag,
+                      commentBody: $commentInteraction.composerBody,
+                      tag: $commentInteraction.composerTag,
                       fileName: fileName,
                       lineLabel: lineLabel,
                       onSubmit: { submitComment() },
-                      onCancel: { composerTarget = nil; composerBody = ""; composerTag = nil }
+                      onCancel: { commentInteraction.clearComposer() }
                     )
                     .id("composer-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
                   }
@@ -499,18 +492,12 @@ struct ReviewCanvas: View {
     .focused($isCanvasFocused)
     .onKeyPress(keys: [.escape]) { _ in
       // Clear mark first, then composer — always consume to prevent closing review
-      if commentMark != nil {
-        commentMark = nil
-      } else if composerTarget != nil {
-        composerTarget = nil
-        composerBody = ""
-        composerTag = nil
-      }
+      commentInteraction.cancelActiveInteraction()
       // Always handled: q is the close key, not Escape
       return .handled
     }
     .onKeyPress(keys: [.tab]) { _ in
-      guard composerTarget == nil else { return .ignored }
+      guard !commentInteraction.hasComposer else { return .ignored }
       guard let model = diffModel else { return .ignored }
       let target = currentTarget(model)
       switch target {
@@ -526,13 +513,13 @@ struct ReviewCanvas: View {
       return .handled
     }
     .onKeyPress(keys: [.return]) { _ in
-      guard composerTarget == nil else { return .ignored }
+      guard !commentInteraction.hasComposer else { return .ignored }
       guard let model = diffModel, let file = currentFile(model) else { return .ignored }
       openFileInEditor(file)
       return .handled
     }
     .onKeyPress { keyPress in
-      guard composerTarget == nil else { return .ignored }
+      guard !commentInteraction.hasComposer else { return .ignored }
       guard let model = diffModel else { return .ignored }
       return handleKeyPress(keyPress, model: model)
     }
@@ -738,20 +725,14 @@ struct ReviewCanvas: View {
     }
     // Emacs: C-g — abort / cancel mark / cancel composer
     if keyPress.key == "g", keyPress.modifiers.contains(.control) {
-      if commentMark != nil {
-        commentMark = nil
-      } else if composerTarget != nil {
-        composerTarget = nil
-        composerBody = ""
-        composerTag = nil
-      }
+      commentInteraction.cancelActiveInteraction()
       return .handled
     }
     // C-space — set mark for range selection
     if keyPress.key == " ", keyPress.modifiers.contains(.control) {
       let target = currentTarget(model)
-      if case .diffLine = target, let t = target, diffLineHasNewLineNum(t, model: model) {
-        commentMark = t
+      if ReviewCommentComposerPlanner.canSetMark(for: target, model: model) {
+        commentInteraction.commentMark = target
       }
       return .handled
     }
@@ -940,43 +921,13 @@ struct ReviewCanvas: View {
 
   /// Set of line indices within a hunk that fall in the mark-to-cursor selection range.
   private func selectionLineIndices(fileIdx: Int, hunkIdx: Int) -> Set<Int> {
-    guard let mark = commentMark else { return [] }
-    guard let model = diffModel else { return [] }
-    guard case let .diffLine(mf, mh, ml) = mark else { return [] }
-    guard let target = currentTarget(model) else { return [] }
-    guard case let .diffLine(cf, ch, cl) = target else { return [] }
-
-    // Only highlight when both mark and cursor are in the same file
-    guard mf == cf, mf == fileIdx else { return [] }
-
-    // Build range across hunks
-    let startHunk = min(mh, ch)
-    let endHunk = max(mh, ch)
-
-    guard hunkIdx >= startHunk, hunkIdx <= endHunk else { return [] }
-
-    let startLine = mh < ch ? ml : (mh == ch ? min(ml, cl) : cl)
-    let endLine = mh < ch ? cl : (mh == ch ? max(ml, cl) : ml)
-
-    if startHunk == endHunk {
-      // Same hunk
-      guard hunkIdx == startHunk else { return [] }
-      return Set(min(startLine, endLine) ... max(startLine, endLine))
-    }
-
-    // Cross-hunk selection
-    if hunkIdx == startHunk {
-      let hunkLineCount = model.files[fileIdx].hunks[hunkIdx].lines.count
-      let sl = mh < ch ? ml : cl
-      return Set(sl ..< hunkLineCount)
-    } else if hunkIdx == endHunk {
-      let el = mh < ch ? cl : ml
-      return Set(0 ... el)
-    } else {
-      // Entire hunk is in selection
-      let hunkLineCount = model.files[fileIdx].hunks[hunkIdx].lines.count
-      return Set(0 ..< hunkLineCount)
-    }
+    ReviewCommentComposerPlanner.selectionLineIndices(
+      mark: commentInteraction.commentMark,
+      currentTarget: diffModel.flatMap { currentTarget($0) },
+      model: diffModel,
+      fileIndex: fileIdx,
+      hunkIndex: hunkIdx
+    )
   }
 
   // MARK: - Mouse Interactions
@@ -989,177 +940,75 @@ struct ReviewCanvas: View {
     smartRange: ClosedRange<Int>,
     model: DiffModel
   ) {
-    let file = model.files[fileIdx]
-    let hunk = file.hunks[hunkIdx]
+    _ = clickedIdx
 
-    // Clear any keyboard mark
-    commentMark = nil
-
-    // Use the smart range to find start/end new-side line numbers
-    let startIdx = smartRange.lowerBound
-    let endIdx = smartRange.upperBound
-
-    // Find first new-side line number in range (skip removed-only lines)
-    var startNewLine: Int?
-    for i in startIdx ... endIdx {
-      if let n = hunk.lines[i].newLineNum { startNewLine = n; break }
-    }
-
-    // Find last new-side line number in range
-    var endNewLine: Int?
-    for i in stride(from: endIdx, through: startIdx, by: -1) {
-      if let n = hunk.lines[i].newLineNum { endNewLine = n; break }
-    }
-
-    guard let sn = startNewLine else { return }
-
-    composerTarget = ReviewComposerLineRange(
-      filePath: file.newPath,
+    guard let composerTarget = ReviewCommentComposerPlanner.smartCommentTarget(
       fileIndex: fileIdx,
       hunkIndex: hunkIdx,
-      lineStartIdx: startIdx,
-      lineEndIdx: endIdx,
-      lineStart: UInt32(sn),
-      lineEnd: endNewLine.map { UInt32($0) }
-    )
-    composerBody = ""
-    composerTag = nil
+      smartRange: smartRange,
+      model: model
+    ) else {
+      return
+    }
+
+    commentInteraction.clearMark()
+    commentInteraction.beginComposer(target: composerTarget)
   }
 
   /// Handle drag update — show selection highlight.
   private func handleLineDragChanged(fileIdx: Int, hunkIdx: Int, anchor: Int, current: Int) {
-    commentMark = nil
-    mouseDragAnchor = (fileIdx, hunkIdx, anchor)
-    mouseDragCurrent = (fileIdx, hunkIdx, current)
+    commentInteraction.beginMouseDrag(
+      fileIndex: fileIdx,
+      hunkIndex: hunkIdx,
+      anchorLineIndex: anchor,
+      currentLineIndex: current
+    )
   }
 
   /// Handle drag end — open composer for the dragged range.
   private func handleLineDragEnded(fileIdx: Int, hunkIdx: Int, startIdx: Int, endIdx: Int, model: DiffModel) {
-    let file = model.files[fileIdx]
-    let hunk = file.hunks[hunkIdx]
-
-    // Find new-side line numbers for the range
-    var startNewLine: Int?
-    for i in startIdx ... endIdx {
-      if let n = hunk.lines[i].newLineNum { startNewLine = n; break }
-    }
-    var endNewLine: Int?
-    for i in stride(from: endIdx, through: startIdx, by: -1) {
-      if let n = hunk.lines[i].newLineNum { endNewLine = n; break }
-    }
-
-    guard let sn = startNewLine else {
-      mouseDragAnchor = nil
-      mouseDragCurrent = nil
-      return
-    }
-
-    composerTarget = ReviewComposerLineRange(
-      filePath: file.newPath,
+    if let composerTarget = ReviewCommentComposerPlanner.dragCommentTarget(
       fileIndex: fileIdx,
       hunkIndex: hunkIdx,
-      lineStartIdx: startIdx,
-      lineEndIdx: endIdx,
-      lineStart: UInt32(sn),
-      lineEnd: endNewLine.map { UInt32($0) }
-    )
-    composerBody = ""
-    composerTag = nil
+      startLineIndex: startIdx,
+      endLineIndex: endIdx,
+      model: model
+    ) {
+      commentInteraction.beginComposer(target: composerTarget)
+    }
 
-    mouseDragAnchor = nil
-    mouseDragCurrent = nil
+    commentInteraction.clearMouseDrag()
   }
 
   /// Line index range within a hunk that has an active composer open.
   private func composerLineRangeForHunk(fileIdx: Int, hunkIdx: Int) -> ClosedRange<Int>? {
-    guard let ct = composerTarget,
-          ct.fileIndex == fileIdx,
-          ct.hunkIndex == hunkIdx else { return nil }
-    return ct.lineStartIdx ... ct.lineEndIdx
+    ReviewCommentComposerPlanner.composerLineRange(
+      composerTarget: commentInteraction.composerTarget,
+      fileIndex: fileIdx,
+      hunkIndex: hunkIdx
+    )
   }
 
   /// Line indices within a hunk that fall in the mouse drag selection.
   private func mouseSelectionLineIndices(fileIdx: Int, hunkIdx: Int) -> Set<Int> {
-    guard let anchor = mouseDragAnchor, let current = mouseDragCurrent else { return [] }
-    guard anchor.fileIdx == fileIdx, anchor.hunkIdx == hunkIdx,
-          current.fileIdx == fileIdx, current.hunkIdx == hunkIdx else { return [] }
-
-    let start = min(anchor.lineIdx, current.lineIdx)
-    let end = max(anchor.lineIdx, current.lineIdx)
-    return Set(start ... end)
-  }
-
-  /// Check if a cursor target (diffLine) has a non-nil newLineNum.
-  private func diffLineHasNewLineNum(_ target: ReviewCursorTarget, model: DiffModel) -> Bool {
-    guard case let .diffLine(f, h, l) = target else { return false }
-    guard f < model.files.count else { return false }
-    let file = model.files[f]
-    guard h < file.hunks.count else { return false }
-    let hunk = file.hunks[h]
-    guard l < hunk.lines.count else { return false }
-    return hunk.lines[l].newLineNum != nil
+    ReviewCommentComposerPlanner.mouseSelectionLineIndices(
+      anchor: commentInteraction.mouseDragAnchor,
+      current: commentInteraction.mouseDragCurrent,
+      fileIndex: fileIdx,
+      hunkIndex: hunkIdx
+    )
   }
 
   /// Open the comment composer for the current cursor position or mark range.
   private func openComposer(model: DiffModel) -> KeyPress.Result {
-    let target = currentTarget(model)
-
-    if let mark = commentMark {
-      // Range comment: mark to cursor
-      guard case let .diffLine(mf, mh, ml) = mark,
-            case let .diffLine(cf, ch, cl) = target,
-            mf == cf
-      else {
-        commentMark = nil
-        return .handled
-      }
-
-      let file = model.files[mf]
-      let startHunk = min(mh, ch)
-      let endHunk = max(mh, ch)
-      let startLine = startHunk == endHunk ? min(ml, cl) : (mh <= ch ? ml : cl)
-      let endLine = startHunk == endHunk ? max(ml, cl) : (mh <= ch ? cl : ml)
-
-      let startNewLine = file.hunks[startHunk].lines[startLine].newLineNum
-      let endNewLine = file.hunks[endHunk].lines[endLine].newLineNum
-
-      guard let sn = startNewLine else {
-        commentMark = nil
-        return .handled
-      }
-
-      composerTarget = ReviewComposerLineRange(
-        filePath: file.newPath,
-        fileIndex: mf,
-        hunkIndex: endHunk,
-        lineStartIdx: startLine,
-        lineEndIdx: endLine,
-        lineStart: UInt32(sn),
-        lineEnd: endNewLine.map { UInt32($0) }
-      )
-      composerBody = ""
-      composerTag = nil
-      commentMark = nil
-      return .handled
-    }
-
-    // Single-line comment
-    guard case let .diffLine(f, h, l) = target else { return .ignored }
-    let file = model.files[f]
-    let line = file.hunks[h].lines[l]
-    guard let newLine = line.newLineNum else { return .ignored }
-
-    composerTarget = ReviewComposerLineRange(
-      filePath: file.newPath,
-      fileIndex: f,
-      hunkIndex: h,
-      lineStartIdx: l,
-      lineEndIdx: l,
-      lineStart: UInt32(newLine),
-      lineEnd: nil
+    let composerTarget = ReviewCommentComposerPlanner.openComposerTarget(
+      mark: commentInteraction.commentMark,
+      currentTarget: currentTarget(model),
+      model: model
     )
-    composerBody = ""
-    composerTag = nil
+    commentInteraction.clearMark()
+    guard let composerTarget else { return .handled }
+    commentInteraction.beginComposer(target: composerTarget)
     return .handled
   }
 
@@ -1167,8 +1016,8 @@ struct ReviewCanvas: View {
   /// Associates the comment with the correct turn diff — either the one being viewed,
   /// or auto-inferred from the file when on "All Changes" view.
   private func submitComment() {
-    guard let ct = composerTarget else { return }
-    let trimmed = composerBody.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let ct = commentInteraction.composerTarget else { return }
+    let trimmed = commentInteraction.composerBody.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
 
     // Smart turn association: if viewing "All Changes", find the latest turn that
@@ -1184,14 +1033,12 @@ struct ReviewCanvas: View {
           lineStart: ct.lineStart,
           lineEnd: ct.lineEnd,
           body: trimmed,
-          tag: composerTag
+          tag: commentInteraction.composerTag
         )
       )
     }
 
-    composerTarget = nil
-    composerBody = ""
-    composerTag = nil
+    commentInteraction.clearComposer()
   }
 
   /// Resolve/unresolve a comment.
