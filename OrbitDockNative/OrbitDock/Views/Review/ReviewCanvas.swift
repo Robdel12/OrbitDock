@@ -689,7 +689,7 @@ struct ReviewCanvas: View {
 
   /// Get all comments whose range ends at this line (so thread appears after the last selected line).
   /// Scoped to the active turn view — when viewing a specific turn, only shows that turn's comments.
-  private func commentsForLine(filePath: String, lineNum: Int) -> [ServerReviewComment] {
+  func commentsForLine(filePath: String, lineNum: Int) -> [ServerReviewComment] {
     ReviewCanvasProjection.commentsForLine(
       comments: obs.reviewComments,
       filePath: filePath,
@@ -819,84 +819,6 @@ struct ReviewCanvas: View {
     return .handled
   }
 
-  /// Submit the current comment to the server.
-  /// Associates the comment with the correct turn diff — either the one being viewed,
-  /// or auto-inferred from the file when on "All Changes" view.
-  private func submitComment() {
-    guard let ct = commentInteraction.composerTarget else { return }
-    let trimmed = commentInteraction.composerBody.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return }
-
-    // Smart turn association: if viewing "All Changes", find the latest turn that
-    // modified this file so the comment shows up on the correct edit turn.
-    let turnId = selectedTurnDiffId ?? inferTurnId(forFile: ct.filePath)
-
-    Task {
-      _ = try? await serverState.clients.approvals.createReviewComment(
-        sessionId: sessionId,
-        request: ApprovalsClient.CreateReviewCommentRequest(
-          turnId: turnId,
-          filePath: ct.filePath,
-          lineStart: ct.lineStart,
-          lineEnd: ct.lineEnd,
-          body: trimmed,
-          tag: commentInteraction.composerTag
-        )
-      )
-    }
-
-    commentInteraction.clearComposer()
-  }
-
-  /// Resolve/unresolve a comment.
-  func resolveComment(_ comment: ServerReviewComment) {
-    let newStatus: ServerReviewCommentStatus = comment.status == .open ? .resolved : .open
-    Task {
-      try? await serverState.clients.approvals.updateReviewComment(
-        commentId: comment.id,
-        body: ApprovalsClient.UpdateReviewCommentRequest(status: newStatus)
-      )
-    }
-  }
-
-  /// Toggle resolve on the first open comment at the current cursor line.
-  func resolveCommentAtCursor(model: DiffModel) {
-    guard let target = currentTarget(model),
-          case let .diffLine(f, _, _) = target else { return }
-
-    let file = model.files[f]
-    guard case let .diffLine(_, h, l) = target else { return }
-    let line = file.hunks[h].lines[l]
-    guard let newLine = line.newLineNum else { return }
-
-    let lineComments = commentsForLine(filePath: file.newPath, lineNum: newLine)
-    if let first = lineComments.first(where: { $0.status == .open }) {
-      resolveComment(first)
-    } else if let first = lineComments.first {
-      resolveComment(first)
-    }
-  }
-
-  /// Toggle selection on the open comment at cursor for partial sends.
-  func toggleSelectionAtCursor(model: DiffModel) {
-    guard let target = currentTarget(model),
-          case let .diffLine(f, _, _) = target else { return }
-
-    let file = model.files[f]
-    guard case let .diffLine(_, h, l) = target else { return }
-    let line = file.hunks[h].lines[l]
-    guard let newLine = line.newLineNum else { return }
-
-    let lineComments = commentsForLine(filePath: file.newPath, lineNum: newLine)
-    for comment in lineComments where comment.status == .open {
-      if selectedCommentIds.contains(comment.id) {
-        selectedCommentIds.remove(comment.id)
-      } else {
-        selectedCommentIds.insert(comment.id)
-      }
-    }
-  }
-
   // MARK: - Send Review to Model
 
   /// Send review comments as structured feedback to the model, then resolve them.
@@ -1019,17 +941,6 @@ struct ReviewCanvas: View {
       state: reviewRoundTracker,
       turnDiffs: obs.turnDiffs
     )
-  }
-
-  /// Infer which turn a comment belongs to by finding the latest turn that touched the file.
-  /// Used when commenting on "All Changes" — maps the comment to the right edit turn.
-  private func inferTurnId(forFile filePath: String) -> String? {
-    for turnDiff in obs.turnDiffs.reversed() {
-      if ReviewWorkflow.diffMentionsFile(turnDiff.diff, filePath: filePath) {
-        return turnDiff.turnId
-      }
-    }
-    return nil
   }
 
   // MARK: - Compact File Strip
