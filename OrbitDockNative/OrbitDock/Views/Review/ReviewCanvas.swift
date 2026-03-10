@@ -27,84 +27,6 @@
 
 import SwiftUI
 
-// MARK: - Cursor Target
-
-/// Identifies a single navigable element in the unified diff view.
-private enum CursorTarget: Equatable, Hashable {
-  case fileHeader(fileIndex: Int)
-  case hunkHeader(fileIndex: Int, hunkIndex: Int)
-  case diffLine(fileIndex: Int, hunkIndex: Int, lineIndex: Int)
-
-  var fileIndex: Int {
-    switch self {
-      case let .fileHeader(f): f
-      case let .hunkHeader(f, _): f
-      case let .diffLine(f, _, _): f
-    }
-  }
-
-  var scrollId: String {
-    switch self {
-      case let .fileHeader(f): "file-\(f)"
-      case let .hunkHeader(f, h): "file-\(f)-hunk-\(h)"
-      case let .diffLine(f, h, l): "file-\(f)-hunk-\(h)-line-\(l)"
-    }
-  }
-
-  var isFileHeader: Bool {
-    if case .fileHeader = self { return true }
-    return false
-  }
-
-  var isHunkHeader: Bool {
-    if case .hunkHeader = self { return true }
-    return false
-  }
-}
-
-// MARK: - Composer Line Range
-
-private struct ComposerLineRange: Equatable {
-  let filePath: String
-  let fileIndex: Int
-  let hunkIndex: Int
-  let lineStartIdx: Int // Index in hunk.lines
-  let lineEndIdx: Int
-  let lineStart: UInt32 // Actual new-side line number for server
-  let lineEnd: UInt32?
-}
-
-// MARK: - Review Round Tracking
-
-/// Records the state when a batch of review comments was sent to the model.
-/// Used to detect which files the model modified in response to review feedback.
-private struct ReviewRound {
-  let sentAt: Date
-  let turnDiffCountAtSend: Int // obs.turnDiffs.count when review was sent
-  let reviewedFilePaths: Set<String>
-  let commentCount: Int
-}
-
-// MARK: - Diff Parse Cache
-
-/// Memoizes DiffModel.parse() to avoid re-parsing the same diff string on every body evaluation.
-/// Stored as @State so it persists across body re-evaluations.
-private final class DiffParseCache {
-  private var lastRaw: String?
-  private var lastModel: DiffModel?
-
-  func model(for raw: String?) -> DiffModel? {
-    if raw == lastRaw { return lastModel }
-    lastRaw = raw
-    if let r = raw, !r.isEmpty {
-      lastModel = DiffModel.parse(unifiedDiff: r)
-    } else {
-      lastModel = nil
-    }
-    return lastModel
-  }
-}
-
 // MARK: - ReviewCanvas
 
 struct ReviewCanvas: View {
@@ -129,8 +51,8 @@ struct ReviewCanvas: View {
   @FocusState private var isCanvasFocused: Bool
 
   // Comment state
-  @State private var commentMark: CursorTarget?
-  @State private var composerTarget: ComposerLineRange?
+  @State private var commentMark: ReviewCursorTarget?
+  @State private var composerTarget: ReviewComposerLineRange?
   @State private var composerBody: String = ""
   @State private var composerTag: ServerReviewCommentTag? = nil
 
@@ -144,7 +66,7 @@ struct ReviewCanvas: View {
   @State private var showResolvedComments: Bool = false
 
   /// Diff parsing cache — avoids re-parsing on every body evaluation
-  @State private var diffParseCache = DiffParseCache()
+  @State private var diffParseCache = ReviewDiffParseCache()
 
   private var obs: SessionObservable {
     serverState.session(sessionId)
@@ -177,52 +99,24 @@ struct ReviewCanvas: View {
 
   // MARK: - Cursor Helpers
 
-  /// Build flat ordered list of all visible cursor targets (respecting collapsed files).
-  private func computeVisibleTargets(_ model: DiffModel) -> [CursorTarget] {
-    var targets: [CursorTarget] = []
-    for (fileIdx, file) in model.files.enumerated() {
-      targets.append(.fileHeader(fileIndex: fileIdx))
-      guard !collapsedFiles.contains(file.id) else { continue }
-      for (hunkIdx, hunk) in file.hunks.enumerated() {
-        targets.append(.hunkHeader(fileIndex: fileIdx, hunkIndex: hunkIdx))
-        let hunkKey = "\(fileIdx)-\(hunkIdx)"
-        guard !collapsedHunks.contains(hunkKey) else { continue }
-        for lineIdx in 0 ..< hunk.lines.count {
-          targets.append(.diffLine(fileIndex: fileIdx, hunkIndex: hunkIdx, lineIndex: lineIdx))
-        }
-      }
-    }
-    return targets
+  private func visibleTargets(_ model: DiffModel) -> [ReviewCursorTarget] {
+    ReviewCursorNavigation.visibleTargets(
+      in: model,
+      collapsedFiles: collapsedFiles,
+      collapsedHunks: collapsedHunks
+    )
   }
 
-  /// Resolve the current cursor target from cursorIndex.
-  private func currentTarget(_ model: DiffModel) -> CursorTarget? {
-    let targets = computeVisibleTargets(model)
-    guard !targets.isEmpty else { return nil }
-    let idx = min(cursorIndex, targets.count - 1)
-    return targets[idx]
+  private func currentTarget(_ model: DiffModel) -> ReviewCursorTarget? {
+    ReviewCursorNavigation.currentTarget(cursorIndex: cursorIndex, targets: visibleTargets(model))
   }
 
-  /// File index at the cursor position.
   private func currentFileIndex(_ model: DiffModel) -> Int {
-    currentTarget(model)?.fileIndex ?? 0
+    ReviewCursorNavigation.currentFileIndex(target: currentTarget(model))
   }
 
-  /// The FileDiff at cursor position.
   private func currentFile(_ model: DiffModel) -> FileDiff? {
-    let idx = currentFileIndex(model)
-    return idx < model.files.count ? model.files[idx] : nil
-  }
-
-  /// Check if cursor is on a specific hunk header.
-  private func isCursorOnHunkHeader(fileIdx: Int, hunkIdx: Int, target: CursorTarget?) -> Bool {
-    target == .hunkHeader(fileIndex: fileIdx, hunkIndex: hunkIdx)
-  }
-
-  /// Get the cursor line index within a specific hunk (nil if cursor not in this hunk).
-  private func cursorLineForHunk(fileIdx: Int, hunkIdx: Int, target: CursorTarget?) -> Int? {
-    guard case let .diffLine(f, h, l) = target, f == fileIdx, h == hunkIdx else { return nil }
-    return l
+    ReviewCursorNavigation.currentFile(in: model, target: currentTarget(model))
   }
 
   // MARK: - Body
@@ -242,21 +136,18 @@ struct ReviewCanvas: View {
     .background(Color.backgroundPrimary)
     .onChange(of: rawDiff) { _, _ in
       guard let model = diffModel else { return }
-      let targets = computeVisibleTargets(model)
+      let targets = visibleTargets(model)
       let newFileCount = model.files.count
 
-      // Clamp cursor
-      if targets.isEmpty {
-        cursorIndex = 0
-      } else if cursorIndex >= targets.count {
-        cursorIndex = targets.count - 1
-      }
-
-      // Auto-follow: new file appeared, jump to its header
-      if isFollowing, isSessionActive, newFileCount > previousFileCount {
-        if let lastFileIdx = targets.lastIndex(where: { $0.isFileHeader }) {
-          cursorIndex = lastFileIdx
-        }
+      cursorIndex = ReviewCursorNavigation.clampedCursorIndex(cursorIndex: cursorIndex, targets: targets)
+      if let followIndex = ReviewCursorNavigation.autoFollowFileHeaderIndex(
+        isFollowing: isFollowing,
+        isSessionActive: isSessionActive,
+        previousFileCount: previousFileCount,
+        newFileCount: newFileCount,
+        targets: targets
+      ) {
+        cursorIndex = followIndex
       }
 
       previousFileCount = newFileCount
@@ -350,11 +241,16 @@ struct ReviewCanvas: View {
       if isSessionActive {
         Button {
           isFollowing.toggle()
-          if isFollowing {
-            let targets = computeVisibleTargets(model)
-            if let lastFile = targets.lastIndex(where: { $0.isFileHeader }) {
-              cursorIndex = lastFile
-            }
+          if isFollowing,
+             let lastFile = ReviewCursorNavigation.autoFollowFileHeaderIndex(
+               isFollowing: true,
+               isSessionActive: true,
+               previousFileCount: 0,
+               newFileCount: model.files.count,
+               targets: visibleTargets(model)
+             )
+          {
+            cursorIndex = lastFile
           }
         } label: {
           HStack(spacing: Spacing.xs) {
@@ -400,7 +296,7 @@ struct ReviewCanvas: View {
   // MARK: - Unified Diff View
 
   private func unifiedDiffView(_ model: DiffModel) -> some View {
-    let targets = computeVisibleTargets(model)
+    let targets = visibleTargets(model)
     let safeIdx = targets.isEmpty ? 0 : min(cursorIndex, targets.count - 1)
     let target = targets.isEmpty ? nil : targets[safeIdx]
 
@@ -456,8 +352,16 @@ struct ReviewCanvas: View {
                   language: language,
                   hunkIndex: hunk.id,
                   fileIndex: fileIdx,
-                  cursorLineIndex: cursorLineForHunk(fileIdx: fileIdx, hunkIdx: hunkIdx, target: target),
-                  isCursorOnHeader: isCursorOnHunkHeader(fileIdx: fileIdx, hunkIdx: hunkIdx, target: target),
+                  cursorLineIndex: ReviewCursorNavigation.cursorLineForHunk(
+                    fileIndex: fileIdx,
+                    hunkIndex: hunkIdx,
+                    target: target
+                  ),
+                  isCursorOnHeader: ReviewCursorNavigation.isCursorOnHunkHeader(
+                    fileIndex: fileIdx,
+                    hunkIndex: hunkIdx,
+                    target: target
+                  ),
                   isHunkCollapsed: isHunkCollapsed,
                   commentedLines: commentedNewLineNums(forFile: file.newPath),
                   selectionLines: mouseSelectionLineIndices(fileIdx: fileIdx, hunkIdx: hunkIdx)
@@ -553,7 +457,7 @@ struct ReviewCanvas: View {
         }
       }
       .onChange(of: cursorIndex) { _, newIdx in
-        let currentTargets = computeVisibleTargets(model)
+        let currentTargets = visibleTargets(model)
         guard !currentTargets.isEmpty else { return }
         let safe = min(newIdx, currentTargets.count - 1)
         withAnimation(Motion.snappy) {
@@ -885,7 +789,7 @@ struct ReviewCanvas: View {
       case "f":
         isFollowing.toggle()
         if isFollowing {
-          let targets = computeVisibleTargets(model)
+          let targets = visibleTargets(model)
           if let lastFile = targets.lastIndex(where: { $0.isFileHeader }) {
             cursorIndex = lastFile
           }
@@ -901,45 +805,26 @@ struct ReviewCanvas: View {
 
   /// Move cursor by delta lines (C-n/C-p — line-by-line).
   private func moveCursor(by delta: Int, in model: DiffModel) {
-    let targets = computeVisibleTargets(model)
-    guard !targets.isEmpty else { return }
+    let targets = visibleTargets(model)
+    guard let nextIndex = ReviewCursorNavigation.movedCursor(
+      currentIndex: cursorIndex,
+      delta: delta,
+      targets: targets
+    ) else { return }
     isFollowing = false
-    cursorIndex = max(0, min(cursorIndex + delta, targets.count - 1))
+    cursorIndex = nextIndex
   }
 
   /// Jump cursor to next/prev section header — file headers + hunk headers.
   private func jumpToNextHunk(forward: Bool, in model: DiffModel) {
-    let targets = computeVisibleTargets(model)
-    guard !targets.isEmpty else { return }
+    let targets = visibleTargets(model)
+    guard let nextIndex = ReviewCursorNavigation.jumpedToNextSection(
+      currentIndex: cursorIndex,
+      forward: forward,
+      targets: targets
+    ) else { return }
     isFollowing = false
-    let safeIdx = min(cursorIndex, targets.count - 1)
-
-    if forward {
-      for i in (safeIdx + 1) ..< targets.count {
-        if targets[i].isHunkHeader || targets[i].isFileHeader {
-          cursorIndex = i
-          return
-        }
-      }
-    } else {
-      // If not on a section header, jump to current hunk's header first
-      let onHeader = targets[safeIdx].isHunkHeader || targets[safeIdx].isFileHeader
-      if !onHeader {
-        for i in stride(from: safeIdx, through: 0, by: -1) {
-          if targets[i].isHunkHeader || targets[i].isFileHeader {
-            cursorIndex = i
-            return
-          }
-        }
-      } else {
-        for i in stride(from: safeIdx - 1, through: 0, by: -1) {
-          if targets[i].isHunkHeader || targets[i].isFileHeader {
-            cursorIndex = i
-            return
-          }
-        }
-      }
-    }
+    cursorIndex = nextIndex
   }
 
   // MARK: - Collapse
@@ -950,16 +835,14 @@ struct ReviewCanvas: View {
     let fileId = model.files[fileIdx].id
 
     withAnimation(Motion.snappy) {
-      if collapsedFiles.contains(fileId) {
-        collapsedFiles.remove(fileId)
-      } else {
-        collapsedFiles.insert(fileId)
-      }
+      collapsedFiles = ReviewCursorNavigation.toggledFileCollapse(
+        fileId: fileId,
+        collapsedFiles: collapsedFiles
+      )
     }
 
-    // Snap cursor to the file header after toggle
-    let newTargets = computeVisibleTargets(model)
-    if let idx = newTargets.firstIndex(of: .fileHeader(fileIndex: fileIdx)) {
+    let newTargets = visibleTargets(model)
+    if let idx = ReviewCursorNavigation.fileHeaderIndex(fileIndex: fileIdx, targets: newTargets) {
       cursorIndex = idx
     } else if !newTargets.isEmpty {
       cursorIndex = min(cursorIndex, newTargets.count - 1)
@@ -968,19 +851,21 @@ struct ReviewCanvas: View {
 
   /// Toggle collapse of a specific hunk, repositioning cursor to the hunk header.
   private func toggleHunkCollapse(model: DiffModel, fileIdx: Int, hunkIdx: Int) {
-    let hunkKey = "\(fileIdx)-\(hunkIdx)"
+    let hunkKey = ReviewCursorNavigation.hunkCollapseKey(fileIndex: fileIdx, hunkIndex: hunkIdx)
 
     withAnimation(Motion.snappy) {
-      if collapsedHunks.contains(hunkKey) {
-        collapsedHunks.remove(hunkKey)
-      } else {
-        collapsedHunks.insert(hunkKey)
-      }
+      collapsedHunks = ReviewCursorNavigation.toggledHunkCollapse(
+        hunkKey: hunkKey,
+        collapsedHunks: collapsedHunks
+      )
     }
 
-    // Snap cursor to the hunk header after toggle
-    let newTargets = computeVisibleTargets(model)
-    if let idx = newTargets.firstIndex(of: .hunkHeader(fileIndex: fileIdx, hunkIndex: hunkIdx)) {
+    let newTargets = visibleTargets(model)
+    if let idx = ReviewCursorNavigation.hunkHeaderIndex(
+      fileIndex: fileIdx,
+      hunkIndex: hunkIdx,
+      targets: newTargets
+    ) {
       cursorIndex = idx
     } else if !newTargets.isEmpty {
       cursorIndex = min(cursorIndex, newTargets.count - 1)
@@ -1151,7 +1036,7 @@ struct ReviewCanvas: View {
 
     guard let sn = startNewLine else { return }
 
-    composerTarget = ComposerLineRange(
+    composerTarget = ReviewComposerLineRange(
       filePath: file.newPath,
       fileIndex: fileIdx,
       hunkIndex: hunkIdx,
@@ -1192,7 +1077,7 @@ struct ReviewCanvas: View {
       return
     }
 
-    composerTarget = ComposerLineRange(
+    composerTarget = ReviewComposerLineRange(
       filePath: file.newPath,
       fileIndex: fileIdx,
       hunkIndex: hunkIdx,
@@ -1228,7 +1113,7 @@ struct ReviewCanvas: View {
   }
 
   /// Check if a cursor target (diffLine) has a non-nil newLineNum.
-  private func diffLineHasNewLineNum(_ target: CursorTarget, model: DiffModel) -> Bool {
+  private func diffLineHasNewLineNum(_ target: ReviewCursorTarget, model: DiffModel) -> Bool {
     guard case let .diffLine(f, h, l) = target else { return false }
     guard f < model.files.count else { return false }
     let file = model.files[f]
@@ -1266,7 +1151,7 @@ struct ReviewCanvas: View {
         return .handled
       }
 
-      composerTarget = ComposerLineRange(
+      composerTarget = ReviewComposerLineRange(
         filePath: file.newPath,
         fileIndex: mf,
         hunkIndex: endHunk,
@@ -1287,7 +1172,7 @@ struct ReviewCanvas: View {
     let line = file.hunks[h].lines[l]
     guard let newLine = line.newLineNum else { return .ignored }
 
-    composerTarget = ComposerLineRange(
+    composerTarget = ReviewComposerLineRange(
       filePath: file.newPath,
       fileIndex: f,
       hunkIndex: h,
@@ -1383,7 +1268,7 @@ struct ReviewCanvas: View {
 
   /// Jump cursor to the next/prev diff line that has an unresolved comment.
   private func jumpToNextComment(forward: Bool, in model: DiffModel) {
-    let targets = computeVisibleTargets(model)
+    let targets = visibleTargets(model)
     guard !targets.isEmpty else { return }
     let safeIdx = min(cursorIndex, targets.count - 1)
 
@@ -1419,7 +1304,7 @@ struct ReviewCanvas: View {
         }
 
         // Recompute targets after expansion and find the right index
-        let newTargets = computeVisibleTargets(model)
+        let newTargets = visibleTargets(model)
         if let newIdx = newTargets.firstIndex(of: .diffLine(fileIndex: f, hunkIndex: h, lineIndex: l)) {
           isFollowing = false
           cursorIndex = newIdx
@@ -1471,7 +1356,7 @@ struct ReviewCanvas: View {
           }
 
           // Move cursor
-          let targets = computeVisibleTargets(model)
+          let targets = visibleTargets(model)
           if let idx = targets.firstIndex(of: .diffLine(fileIndex: fileIdx, hunkIndex: hunkIdx, lineIndex: lineIdx)) {
             isFollowing = false
             cursorIndex = idx
@@ -1794,7 +1679,7 @@ struct ReviewCanvas: View {
               fileChip(file, isSelected: idx == cursorFileIdx)
                 .onTapGesture {
                   isFollowing = false
-                  let targets = computeVisibleTargets(model)
+                  let targets = visibleTargets(model)
                   if let targetIdx = targets.firstIndex(of: .fileHeader(fileIndex: idx)) {
                     cursorIndex = targetIdx
                   }
@@ -1836,7 +1721,7 @@ struct ReviewCanvas: View {
             Button {
               isFollowing.toggle()
               if isFollowing, let model = diffModel {
-                let targets = computeVisibleTargets(model)
+                let targets = visibleTargets(model)
                 if let lastFile = targets.lastIndex(where: { $0.isFileHeader }) {
                   cursorIndex = lastFile
                 }
@@ -1977,7 +1862,7 @@ struct ReviewCanvas: View {
         $0.id == fileId || $0.newPath == fileId
           || $0.newPath.hasSuffix(fileId) || fileId.hasSuffix($0.newPath)
       }) {
-        let targets = computeVisibleTargets(model)
+        let targets = visibleTargets(model)
         if let idx = targets.firstIndex(of: .fileHeader(fileIndex: fileIdx)) {
           cursorIndex = idx
         }
@@ -1996,7 +1881,7 @@ struct ReviewCanvas: View {
       set: { newId in
         if let id = newId, let fileIdx = model.files.firstIndex(where: { $0.id == id }) {
           isFollowing = false
-          let targets = computeVisibleTargets(model)
+          let targets = visibleTargets(model)
           if let idx = targets.firstIndex(of: .fileHeader(fileIndex: fileIdx)) {
             cursorIndex = idx
           }
