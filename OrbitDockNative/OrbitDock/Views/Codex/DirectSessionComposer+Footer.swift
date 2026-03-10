@@ -335,7 +335,7 @@ extension DirectSessionComposer {
     Button {
       openFilePicker()
     } label: {
-      ghostActionLabel(icon: "doc.badge.plus", isActive: !attachedMentions.isEmpty, tint: .composerPrompt)
+      ghostActionLabel(icon: "doc.badge.plus", isActive: attachmentState.hasMentions, tint: .composerPrompt)
     }
     .buttonStyle(.plain)
     .help("Attach project files (@)")
@@ -399,9 +399,9 @@ extension DirectSessionComposer {
       } label: {
         actionDockLabel(
           icon: "photo.badge.plus",
-          title: attachedImages.isEmpty ? "Images" : "Images \(attachedImages.count)",
+          title: attachmentState.images.isEmpty ? "Images" : "Images \(attachmentState.images.count)",
           tint: .accent,
-          isActive: !attachedImages.isEmpty
+          isActive: attachmentState.hasImages
         )
       }
       .buttonStyle(.plain)
@@ -431,9 +431,9 @@ extension DirectSessionComposer {
       } label: {
         actionDockLabel(
           icon: "photo.badge.plus",
-          title: attachedImages.isEmpty ? "Images" : "Images \(attachedImages.count)",
+          title: attachmentState.images.isEmpty ? "Images" : "Images \(attachmentState.images.count)",
           tint: .accent,
-          isActive: !attachedImages.isEmpty
+          isActive: attachmentState.hasImages
         )
       }
       .buttonStyle(.plain)

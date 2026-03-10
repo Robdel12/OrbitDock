@@ -111,12 +111,13 @@ extension DirectSessionComposer {
         break
     }
 
-    var expandedContent = trimmed
-    for mention in attachedMentions {
-      expandedContent = expandedContent.replacingOccurrences(of: "@\(mention.name)", with: mention.path)
-    }
-    let mentionInputs = attachedMentions.map { ServerMentionInput(name: $0.name, path: $0.path) }
-    let hasAttachedImages = !attachedImages.isEmpty
+    let resolvedAttachments = DirectSessionComposerAttachmentPlanner.resolveForSend(
+      message: trimmed,
+      attachments: attachmentState
+    )
+    var expandedContent = resolvedAttachments.expandedContent
+    let mentionInputs = resolvedAttachments.mentionInputs
+    let hasAttachedImages = resolvedAttachments.hasImages
 
     if case .steer = sendPlan {
       guard !expandedContent.isEmpty || hasAttachedImages || !mentionInputs.isEmpty else { return }
@@ -125,7 +126,7 @@ extension DirectSessionComposer {
       Task {
         do {
           let uploadedImages = hasAttachedImages
-            ? try await uploadAttachedImages(attachedImages)
+            ? try await uploadAttachedImages(resolvedAttachments.images)
             : []
           try await serverState.steerTurn(
             sessionId: sessionId,
@@ -173,7 +174,7 @@ extension DirectSessionComposer {
     Task {
       do {
         let uploadedImages = hasAttachedImages
-          ? try await uploadAttachedImages(attachedImages)
+          ? try await uploadAttachedImages(resolvedAttachments.images)
           : []
         try await serverState.sendMessage(
           sessionId: sessionId,
@@ -203,8 +204,8 @@ extension DirectSessionComposer {
     DirectSessionComposerSendContext(
       inputMode: composerSendMode,
       rawMessage: message,
-      hasAttachments: !attachedImages.isEmpty,
-      hasMentions: !attachedMentions.isEmpty,
+      hasAttachments: attachmentState.hasImages,
+      hasMentions: attachmentState.hasMentions,
       isSending: isSending,
       isConnected: isConnected,
       providerMode: providerMode,
@@ -262,8 +263,7 @@ extension DirectSessionComposer {
     errorMessage = nil
     message = ""
     withAnimation(Motion.gentle) {
-      attachedImages = []
-      attachedMentions = []
+      attachmentState.clearAfterSend()
     }
     requestComposerFocus()
   }

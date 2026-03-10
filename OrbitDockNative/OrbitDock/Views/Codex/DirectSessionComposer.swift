@@ -38,9 +38,7 @@ struct DirectSessionComposer: View {
   @State var inputState = DirectSessionComposerInputState()
 
   /// Attachments
-  @State var attachedImages: [AttachedImage] = []
-  @State var attachedMentions: [AttachedMention] = []
-  @State var isImageDropTargeted = false
+  @State var attachmentState = DirectSessionComposerAttachmentState()
   #if os(iOS)
     @State var photoPickerItems: [PhotosPickerItem] = []
     @State var isPhotoPickerPresented = false
@@ -518,7 +516,21 @@ struct DirectSessionComposer: View {
   }
 
   var hasAttachments: Bool {
-    !attachedImages.isEmpty || !attachedMentions.isEmpty
+    attachmentState.hasAttachments
+  }
+
+  var attachedImagesBinding: Binding<[AttachedImage]> {
+    Binding(
+      get: { attachmentState.images },
+      set: { attachmentState.images = $0 }
+    )
+  }
+
+  var attachedMentionsBinding: Binding<[AttachedMention]> {
+    Binding(
+      get: { attachmentState.mentions },
+      set: { attachmentState.mentions = $0 }
+    )
   }
 
   var isDictationActive: Bool {
@@ -579,7 +591,7 @@ struct DirectSessionComposer: View {
       matching: .images
     )
     #endif
-    .onDrop(of: [.image, .fileURL], isTargeted: $isImageDropTargeted) { providers in
+    .onDrop(of: [.image, .fileURL], isTargeted: $attachmentState.isImageDropTargeted) { providers in
       handleDrop(providers)
     }
     .task(id: sessionId) {
@@ -744,7 +756,7 @@ struct DirectSessionComposer: View {
     }
 
     if hasAttachments {
-      AttachmentBar(images: $attachedImages, mentions: $attachedMentions)
+      AttachmentBar(images: attachedImagesBinding, mentions: attachedMentionsBinding)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
@@ -842,7 +854,7 @@ struct DirectSessionComposer: View {
     .animation(Motion.standard, value: pendingState.isExpanded)
     .animation(Motion.standard, value: permissionPanelExpanded)
     .animation(Motion.hover, value: inputState.focus.isFocused)
-    .animation(Motion.standard, value: isImageDropTargeted)
+    .animation(Motion.standard, value: attachmentState.isImageDropTargeted)
     .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
     .padding(.vertical, Spacing.sm)
   }
@@ -885,7 +897,7 @@ struct DirectSessionComposer: View {
 
   @ViewBuilder
   var composerDropTargetOverlay: some View {
-    if isImageDropTargeted {
+    if attachmentState.isImageDropTargeted {
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
         .fill(Color.accent.opacity(0.16))
         .overlay(

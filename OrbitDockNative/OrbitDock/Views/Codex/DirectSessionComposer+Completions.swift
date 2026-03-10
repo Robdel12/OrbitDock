@@ -49,7 +49,7 @@ extension DirectSessionComposer {
   func updateMentionCompletion(_ text: String) {
     let shouldLoadProjectFiles = inputState.updateMentionCompletion(
       for: text,
-      attachedMentions: attachedMentions
+      attachedMentions: attachmentState.mentions
     )
     if shouldLoadProjectFiles {
       loadProjectFilesIfNeeded()
@@ -68,14 +68,13 @@ extension DirectSessionComposer {
   }
 
   func addMentionAttachment(_ file: ProjectFileIndex.ProjectFile) {
-    guard !attachedMentions.contains(where: { $0.id == file.id }) else { return }
-    let absolutePath = if let base = projectPath {
-      (base as NSString).appendingPathComponent(file.relativePath)
-    } else {
-      file.relativePath
-    }
+    let mention = DirectSessionComposerAttachmentPlanner.buildMention(
+      file: file,
+      projectPath: projectPath
+    )
+    guard !attachmentState.mentions.contains(where: { $0.id == mention.id }) else { return }
     withAnimation(Motion.gentle) {
-      attachedMentions.append(AttachedMention(id: file.id, name: file.name, path: absolutePath))
+      _ = attachmentState.appendMention(mention)
     }
   }
 

@@ -14,17 +14,17 @@ extension DirectSessionComposer {
 
   @discardableResult
   func appendAttachedImage(_ attached: AttachedImage) -> Bool {
-    let isDuplicate = attachedImages.contains {
+    let isDuplicate = attachmentState.images.contains {
       $0.uploadMimeType == attached.uploadMimeType
         && $0.uploadData == attached.uploadData
     }
     guard !isDuplicate else { return false }
 
     let usedRawBytes = ComposerImageAttachmentPolicy.usedRawBytes(
-      attachedImages.map(\.uploadData.count)
+      attachmentState.images.map(\.uploadData.count)
     )
     let validation = ComposerImageAttachmentPolicy.validateAddition(
-      existingCount: attachedImages.count,
+      existingCount: attachmentState.images.count,
       usedRawBytes: usedRawBytes,
       candidateRawBytes: attached.uploadData.count
     )
@@ -39,7 +39,7 @@ extension DirectSessionComposer {
       if let errorMessage, ComposerImageAttachmentPolicy.isPolicyMessage(errorMessage) {
         self.errorMessage = nil
       }
-      attachedImages.append(attached)
+      attachmentState.images.append(attached)
     }
     return true
   }
