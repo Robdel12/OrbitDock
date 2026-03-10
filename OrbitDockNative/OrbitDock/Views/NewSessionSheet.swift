@@ -407,225 +407,42 @@ struct NewSessionSheet: View {
   // MARK: - Provider Picker
 
   private var providerPicker: some View {
-    HStack(spacing: 0) {
-      ForEach(SessionProvider.allCases) { p in
-        Button {
-          withAnimation(Motion.standard) {
-            provider = p
-          }
-        } label: {
-          HStack(spacing: Spacing.sm_) {
-            Image(systemName: p.icon)
-              .font(.system(size: 10, weight: .semibold))
-            Text(p.displayName)
-              .font(.system(size: TypeScale.body, weight: .medium))
-          }
-          .padding(.horizontal, Spacing.lg)
-          .padding(.vertical, Spacing.sm)
-          .frame(maxWidth: .infinity)
-          .foregroundStyle(provider == p ? Color.backgroundSecondary : Color.textTertiary)
-          .background(
-            provider == p
-              ? AnyShapeStyle(p.color)
-              : AnyShapeStyle(Color.clear)
-          )
-        }
-        .buttonStyle(.plain)
-        #if !os(iOS)
-          .onHover { hovering in
-            if hovering {
-              NSCursor.pointingHand.push()
-            } else {
-              NSCursor.pop()
-            }
-          }
-        #endif
-      }
-    }
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-        .stroke(Color.surfaceBorder, lineWidth: 1)
+    NewSessionProviderPicker(
+      provider: provider,
+      onSelect: { provider = $0 }
     )
-    .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
   }
 
   // MARK: - Header
 
   private var header: some View {
-    #if os(iOS)
-      VStack(alignment: .leading, spacing: Spacing.md) {
-        HStack(spacing: Spacing.sm) {
-          headerIcon
-
-          Text("New Session")
-            .font(.system(size: TypeScale.large, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.9)
-
-          Spacer(minLength: Spacing.sm)
-
-          if provider == .codex, let account = endpointAppState.codexAccountStatus?.account {
-            connectedBadge(account)
-          }
-
-          closeButton
-        }
-      }
-      .padding(.horizontal, Spacing.lg)
-      .padding(.vertical, Spacing.md)
-    #else
-      HStack(spacing: Spacing.sm) {
-        headerIcon
-
-        Text("New Session")
-          .font(.system(size: TypeScale.subhead, weight: .semibold))
-          .foregroundStyle(Color.textPrimary)
-
-        Spacer()
-
-        if provider == .codex, let account = endpointAppState.codexAccountStatus?.account {
-          connectedBadge(account)
-        }
-
-        closeButton
-      }
-      .padding(.horizontal, Spacing.xl)
-      .padding(.vertical, Spacing.md)
-    #endif
-  }
-
-  private var headerIcon: some View {
-    Circle()
-      .fill(provider.color.opacity(OpacityTier.light))
-      .frame(width: 26, height: 26)
-      .overlay(
-        Image(systemName: "plus.circle.fill")
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(provider.color)
-      )
-      .animation(Motion.standard, value: provider)
-  }
-
-  private var closeButton: some View {
-    Button {
-      dismiss()
-    } label: {
-      Image(systemName: "xmark.circle.fill")
-        .font(.system(size: 18))
-        .foregroundStyle(Color.textQuaternary)
-        .frame(width: 28, height: 28)
-        .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    #if !os(iOS)
-      .onHover { hovering in
-        if hovering {
-          NSCursor.pointingHand.push()
-        } else {
-          NSCursor.pop()
-        }
-      }
-    #endif
+    NewSessionHeader(
+      provider: provider,
+      codexAccount: provider == .codex ? endpointAppState.codexAccountStatus?.account : nil,
+      onDismiss: { dismiss() }
+    )
   }
 
   // MARK: - Auth Gate (Codex only)
 
   @ViewBuilder
   private func continuationSection(_ continuation: SessionContinuation) -> some View {
-    VStack(alignment: .leading, spacing: Spacing.md) {
-      HStack(alignment: .top, spacing: Spacing.sm) {
-        Image(systemName: "arrow.right.circle.fill")
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(Color.accent)
-
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text("Continue From \(continuation.displayName)")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-
-          Text(continuation.sourceSummary)
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textTertiary)
-
-          Text("This starts a fresh session, then asks the new agent to inspect session `\(continuation.sessionId)` with the OrbitDock CLI for context.")
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
-
-      if !selectedEndpointSupportsContinuation {
-        Text("Continue from session is limited to the same local OrbitDock server for now. Switch back to the source endpoint or use the normal new-session flow.")
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.statusPermission)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-    }
-    .padding(Spacing.lg)
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .stroke(Color.surfaceBorder, lineWidth: 1)
+    NewSessionContinuationSection(
+      continuation: continuation,
+      supportsContinuation: selectedEndpointSupportsContinuation
     )
   }
 
   private var authGateSection: some View {
-    VStack(alignment: .leading, spacing: Spacing.md) {
-      HStack(spacing: Spacing.sm) {
-        Image(systemName: "exclamationmark.triangle.fill")
-          .font(.system(size: 11))
-          .foregroundStyle(Color.statusPermission)
-
-        Text("Connect your ChatGPT account to create sessions")
-          .font(.system(size: TypeScale.body, weight: .medium))
-          .foregroundStyle(Color.textSecondary)
+    NewSessionAuthGateSection(
+      loginInProgress: endpointAppState.codexAccountStatus?.loginInProgress == true,
+      authError: endpointAppState.codexAuthError,
+      onStartLogin: {
+        endpointAppState.startCodexChatgptLogin()
+      },
+      onCancelLogin: {
+        endpointAppState.cancelCodexChatgptLogin()
       }
-
-      HStack(spacing: Spacing.sm) {
-        if endpointAppState.codexAccountStatus?.loginInProgress == true {
-          Button {
-            endpointAppState.cancelCodexChatgptLogin()
-          } label: {
-            Label("Cancel", systemImage: "xmark.circle")
-              .font(.system(size: TypeScale.body, weight: .semibold))
-          }
-          .buttonStyle(.bordered)
-
-          HStack(spacing: Spacing.sm) {
-            ProgressView()
-              .controlSize(.small)
-            Text("Waiting for browser…")
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(Color.textTertiary)
-          }
-        } else {
-          Button {
-            endpointAppState.startCodexChatgptLogin()
-          } label: {
-            Label("Sign in with ChatGPT", systemImage: "sparkles")
-              .font(.system(size: TypeScale.body, weight: .semibold))
-          }
-          .buttonStyle(.borderedProminent)
-          .tint(Color.accent)
-        }
-      }
-
-      if let authError = endpointAppState.codexAuthError, !authError.isEmpty {
-        Text(authError)
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.statusPermission)
-      }
-    }
-    .padding(Spacing.lg)
-    .background(
-      Color.statusPermission.opacity(OpacityTier.tint),
-      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .stroke(Color.statusPermission.opacity(OpacityTier.light), lineWidth: 1)
     )
   }
 
@@ -679,258 +496,37 @@ struct NewSessionSheet: View {
   // MARK: - Tool Restrictions Card (Claude only)
 
   private var toolRestrictionsCard: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      Button {
-        withAnimation(Motion.bouncy) {
-          showToolConfig.toggle()
-        }
-      } label: {
-        HStack(spacing: Spacing.sm) {
-          Circle()
-            .fill(Color.textQuaternary.opacity(OpacityTier.light))
-            .frame(width: 20, height: 20)
-            .overlay(
-              Image(systemName: "wrench.and.screwdriver")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(Color.textTertiary)
-            )
-
-          Text("Tool Restrictions")
-            .font(.system(size: TypeScale.body, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-
-          Text("OPTIONAL")
-            .font(.system(size: 7, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.textTertiary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1.5)
-            .background(Color.textTertiary.opacity(OpacityTier.light), in: Capsule())
-
-          Spacer()
-
-          Image(systemName: "chevron.right")
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(Color.textQuaternary)
-            .rotationEffect(.degrees(showToolConfig ? 90 : 0))
-        }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.sm)
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      #if !os(iOS)
-        .onHover { hovering in
-          if hovering {
-            NSCursor.pointingHand.push()
-          } else {
-            NSCursor.pop()
-          }
-        }
-      #endif
-
-      if showToolConfig {
-        Divider()
-          .padding(.horizontal, Spacing.lg)
-
-        VStack(alignment: .leading, spacing: Spacing.md) {
-          VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(spacing: Spacing.xs) {
-              Text("Allowed Tools")
-                .font(.system(size: TypeScale.caption, weight: .semibold))
-                .foregroundStyle(Color.textSecondary)
-              Text("•")
-                .font(.system(size: TypeScale.micro))
-                .foregroundStyle(Color.textQuaternary)
-              Text("Comma-separated list")
-                .font(.system(size: TypeScale.micro))
-                .foregroundStyle(Color.textTertiary)
-            }
-            TextField("e.g. Read, Glob, Bash(git:*)", text: $allowedToolsText)
-              .textFieldStyle(.roundedBorder)
-              .font(.system(size: TypeScale.caption, design: .monospaced))
-          }
-
-          VStack(alignment: .leading, spacing: Spacing.xs) {
-            HStack(spacing: Spacing.xs) {
-              Text("Disallowed Tools")
-                .font(.system(size: TypeScale.caption, weight: .semibold))
-                .foregroundStyle(Color.textSecondary)
-              Text("•")
-                .font(.system(size: TypeScale.micro))
-                .foregroundStyle(Color.textQuaternary)
-              Text("Comma-separated list")
-                .font(.system(size: TypeScale.micro))
-                .foregroundStyle(Color.textTertiary)
-            }
-            TextField("e.g. Write, Edit", text: $disallowedToolsText)
-              .textFieldStyle(.roundedBorder)
-              .font(.system(size: TypeScale.caption, design: .monospaced))
-          }
-        }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.sm)
-        .transition(.opacity.combined(with: .move(edge: .top)))
-      }
-    }
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .stroke(Color.surfaceBorder, lineWidth: 1)
+    NewSessionToolRestrictionsCard(
+      showToolConfig: $showToolConfig,
+      allowedToolsText: $allowedToolsText,
+      disallowedToolsText: $disallowedToolsText
     )
   }
 
   // MARK: - Footer
 
   private var footer: some View {
-    #if os(iOS)
-      VStack(alignment: .leading, spacing: Spacing.md) {
-        if provider == .codex, endpointAppState.codexAccountStatus?.account != nil {
-          signOutButton
-        }
-
-        HStack(spacing: Spacing.sm) {
-          cancelButton
-            .frame(maxWidth: .infinity)
-          launchButton
-            .frame(maxWidth: .infinity)
-        }
+    NewSessionFooter(
+      provider: provider,
+      codexAccount: endpointAppState.codexAccountStatus?.account,
+      isCreating: isCreating,
+      canCreateSession: canCreateSession,
+      onSignOut: {
+        endpointAppState.logoutCodexAccount()
+      },
+      onCancel: {
+        dismiss()
+      },
+      onLaunch: {
+        createSession()
       }
-      .padding(.horizontal, Spacing.lg)
-      .padding(.top, Spacing.md)
-      .padding(.bottom, Spacing.lg)
-    #else
-      HStack(spacing: Spacing.md) {
-        if provider == .codex, endpointAppState.codexAccountStatus?.account != nil {
-          signOutButton
-        }
-
-        Spacer()
-
-        cancelButton
-        launchButton
-      }
-      .padding(.horizontal, Spacing.xl)
-      .padding(.vertical, Spacing.md)
-    #endif
-  }
-
-  private var signOutButton: some View {
-    Button {
-      endpointAppState.logoutCodexAccount()
-    } label: {
-      Text("Sign Out")
-        .font(.system(size: TypeScale.caption, weight: .medium))
-        .foregroundStyle(Color.textQuaternary)
-    }
-    .buttonStyle(.plain)
-    #if !os(iOS)
-      .onHover { hovering in
-        if hovering {
-          NSCursor.pointingHand.push()
-        } else {
-          NSCursor.pop()
-        }
-      }
-    #endif
-  }
-
-  private var cancelButton: some View {
-    Button("Cancel") {
-      dismiss()
-    }
-    .buttonStyle(.bordered)
-    .tint(Color.textTertiary)
-    #if os(iOS)
-      .controlSize(.large)
-    #else
-      .keyboardShortcut(.escape, modifiers: [])
-    #endif
-  }
-
-  private var launchButton: some View {
-    Button {
-      createSession()
-    } label: {
-      if isCreating {
-        HStack(spacing: Spacing.sm) {
-          ProgressView()
-            .controlSize(.small)
-          Text("Launch")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-        }
-        .frame(minWidth: 90)
-      } else {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: "paperplane.fill")
-            .font(.system(size: 12, weight: .semibold))
-          Text("Launch")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-        }
-        .frame(minWidth: 90)
-      }
-    }
-    .buttonStyle(.borderedProminent)
-    .tint(provider.color)
-    .disabled(!canCreateSession)
-    #if os(iOS)
-      .controlSize(.large)
-    #else
-      .keyboardShortcut(.return, modifiers: .command)
-    #endif
+    )
   }
 
   // MARK: - Helpers
 
-  private func connectedBadge(_ account: ServerCodexAccount) -> some View {
-    HStack(spacing: Spacing.sm) {
-      switch account {
-        case .apiKey:
-          HStack(spacing: Spacing.xs) {
-            Circle()
-              .fill(Color.providerCodex)
-              .frame(width: 6, height: 6)
-            Text("API Key")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
-          }
-
-        case let .chatgpt(email, planType):
-          HStack(spacing: Spacing.xs) {
-            Circle()
-              .fill(Color.providerCodex)
-              .frame(width: 6, height: 6)
-
-            if let email {
-              Text(email)
-                .font(.system(size: TypeScale.caption, weight: .medium))
-                .foregroundStyle(Color.textTertiary)
-                .lineLimit(1)
-            }
-
-            if let planType {
-              Text(planType.uppercased())
-                .font(.system(size: 8, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.providerCodex)
-                .padding(.horizontal, 5)
-                .padding(.vertical, Spacing.xxs)
-                .background(Color.providerCodex.opacity(OpacityTier.light), in: Capsule())
-            }
-          }
-      }
-    }
-  }
-
   private func errorBanner(_ message: String) -> some View {
-    HStack(spacing: Spacing.sm) {
-      Image(systemName: "exclamationmark.triangle.fill")
-        .font(.system(size: 11))
-        .foregroundStyle(Color.statusPermission)
-      Text(message)
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textSecondary)
-    }
-    .padding(Spacing.md)
-    .background(Color.statusPermission.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.md))
+    NewSessionErrorBanner(message: message)
   }
 
   // MARK: - Actions
