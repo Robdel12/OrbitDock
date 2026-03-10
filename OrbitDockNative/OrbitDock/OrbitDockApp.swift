@@ -22,7 +22,11 @@ struct OrbitDockApp: App {
   @State private var appRuntime: OrbitDockAppRuntime
 
   init() {
-    _appRuntime = State(initialValue: OrbitDockAppRuntime())
+    let appRuntime = OrbitDockAppRuntime()
+    _appRuntime = State(initialValue: appRuntime)
+  #if os(macOS)
+    appDelegate.configure(appRuntime: appRuntime)
+  #endif
   }
 
   private var mainRootView: some View {
@@ -104,6 +108,11 @@ struct OrbitDockWindowCommands: Commands {
 #if os(macOS)
   class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var memoryPressureSource: DispatchSourceMemoryPressure?
+    private var appRuntime: OrbitDockAppRuntime?
+
+    func configure(appRuntime: OrbitDockAppRuntime) {
+      self.appRuntime = appRuntime
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
       // Disable macOS Ventura+ row-height estimation so our ConversationHeightEngine
@@ -144,8 +153,8 @@ struct OrbitDockWindowCommands: Commands {
         eventMask: [.warning, .critical],
         queue: .main
       )
-      memoryPressureSource.setEventHandler {
-        ServerRuntimeRegistry.shared.handleMemoryPressure()
+      memoryPressureSource.setEventHandler { [weak self] in
+        self?.appRuntime?.runtimeRegistry.handleMemoryPressure()
         MarkdownSystemParser.clearCache()
         SyntaxHighlighter.clearCache()
       }
@@ -158,7 +167,7 @@ struct OrbitDockWindowCommands: Commands {
       memoryPressureSource = nil
 
       Task { @MainActor in
-        ServerRuntimeRegistry.shared.stopAllRuntimes()
+        appRuntime?.runtimeRegistry.stopAllRuntimes()
       }
     }
 
@@ -192,7 +201,7 @@ struct OrbitDockWindowCommands: Commands {
           }
           return nil
         }()
-        AppExternalNavigationCenter.shared.submitSessionSelection(
+        appRuntime?.externalNavigationCenter.submitSessionSelection(
           sessionId: sessionId,
           endpointId: endpointId
         )
