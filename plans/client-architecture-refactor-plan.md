@@ -51,6 +51,9 @@ This plan is now an active execution document, not just a roadmap.
 - **Review phase 1f**
   - mouse-driven composer interactions and range-opening behavior now live in dedicated review helpers instead of `ReviewCanvas`
   - deterministic unit tests now cover composer target selection, mouse drag ranges, and hunk-scoped composer visibility
+- **Review phase 1g**
+  - diff file / hunk / inline comment rendering now lives in a dedicated review view instead of staying embedded in `ReviewCanvas`
+  - the review root now reads more like a shell over routing, focus, and high-level actions than a mixed rendering/workflow blob
 - **Window-local external navigation cleanup**
   - app-internal `.selectSession` broadcast routing has been replaced with a typed app-level external navigation center
   - external session selection now enters through a typed channel while actual navigation stays window-local
@@ -59,6 +62,7 @@ This plan is now an active execution document, not just a roadmap.
   - query classification, session projection, keyboard navigation, command catalog, selection resolution, target-session capture, and search transition planning now live in dedicated pure helpers instead of inline view logic
   - deterministic unit tests now cover quick-launch intent detection, search filtering, active/recent ordering, navigation counts, wraparound movement, command inventory, selected-item resolution, and search-mode transitions
   - the root quick switcher view has also shed row presentation and quick-launch section rendering into focused subviews, so the remaining work is mostly shell-level action cleanup
+  - command rows, the dashboard row, empty-state rendering, and footer hints now live in dedicated shell views instead of staying inline in `QuickSwitcher`
 - **Phase 6 / Phase 7, lifecycle ownership**
   - `WindowSessionCoordinator` now owns startup/runtime-graph refresh behavior instead of `ContentView`
   - the app delegate now talks to `OrbitDockAppRuntime` instead of reaching for global runtime singletons during notifications and shutdown
@@ -78,6 +82,7 @@ This plan is now an active execution document, not just a roadmap.
 - **Composer phase 2e**
   - provider/model display rules and command-deck construction now live in dedicated pure planners instead of the root composer view
   - deterministic unit tests now cover default model selection, compact model labels, command filtering, and MCP command normalization
+  - prompt suggestions, resume chrome, and composer error presentation now live in dedicated shell sections instead of the root composer view
 - **New session phase 1**
   - launch request planning, provider-state sync/reset, and async launch coordination now live in dedicated helpers instead of `NewSessionSheet`
   - deterministic unit tests now cover request planning, provider model sync, and launch sequencing around git init, worktree creation, and continuation prompts
