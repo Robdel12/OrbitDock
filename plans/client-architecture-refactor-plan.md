@@ -39,6 +39,9 @@ This plan is now an active execution document, not just a roadmap.
 - **Review phase 1b**
   - comment-composer interaction state and range planning now live in dedicated review helpers instead of raw state inside `ReviewCanvas`
   - deterministic planner and interaction-state tests now cover mark selection, drag ranges, removed-only rejection, and composer reset rules
+- **Review phase 1c**
+  - review-send coordination, message formatting, and review-round banner tracking now live in dedicated helpers instead of `ReviewCanvas`
+  - deterministic unit tests now cover the send plan, banner progression, and addressed-file tracking
 - **Window-local external navigation cleanup**
   - app-internal `.selectSession` broadcast routing has been replaced with a typed app-level external navigation center
   - external session selection now enters through a typed channel while actual navigation stays window-local
@@ -48,6 +51,9 @@ This plan is now an active execution document, not just a roadmap.
 - **Composer phase 2a**
   - pending approval panel state and pure approval/question planning now live in focused composer helpers instead of the root view
   - deterministic unit tests now cover pending answer selection, collection, primary-answer fallback, and per-request state reset
+- **Composer phase 2b**
+  - attachment state and mention/image send planning now live in focused composer helpers instead of the root send path
+  - deterministic unit tests now cover mention expansion, attachment reset, and image preservation through send planning
 - **Testing baseline**
   - `make build` is green
   - `make test-unit` is green
@@ -76,17 +82,16 @@ This plan is now an active execution document, not just a roadmap.
   - approval-card to composer routing is moving onto typed feature callbacks instead of process-wide notifications
   - these phases are not finished yet, but the shell now owns much less runtime lifecycle wiring than before
 - **Phase 10: Refactor the Review Feature**
-  - workflow, cursor/navigation, and projection are now being peeled out of `ReviewCanvas`
-  - comment composition state and range planning are now extracted too
-  - the feature still needs review-send coordination, banner/round ownership, and render-section cleanup before the root view becomes a true shell
+  - workflow, cursor/navigation, projection, comment composition, and send coordination are now extracted from `ReviewCanvas`
+  - the main remaining work is render-section cleanup so the root view becomes a true shell
 
 ### Next
 
 - finish the remaining window-local routing cleanup and remove the last app-internal notification paths
 - keep thinning `SessionStore` and related store/runtime ownership
 - then land complete feature phases in this order:
-  - review send coordination + banner/round ownership
-  - composer attachment and provider/action-boundary extraction
+  - review render-section cleanup
+  - composer provider/action-boundary extraction
   - larger screen decomposition
 
 ### Next complete phases
@@ -98,13 +103,13 @@ This plan is now an active execution document, not just a roadmap.
   - the remaining composer work is pending-approval state, attachments, and provider/action boundaries
 - **Review phase 1: Extract projection + workflow**
   - in progress
-  - review workflow, cursor/navigation, projection/state, and comment composition/range-selection state are now extracted into dedicated helpers
-  - the remaining work is review-send coordination, banner/round ownership, and render-section cleanup so `ReviewCanvas` becomes a real feature shell
-  - unit tests now cover workflow behavior, cursor/navigation, review projection, and comment-composer planning
+  - review workflow, cursor/navigation, projection/state, comment composition/range-selection state, and send coordination are now extracted into dedicated helpers
+  - the remaining work is render-section cleanup so `ReviewCanvas` becomes a real feature shell
+  - unit tests now cover workflow behavior, cursor/navigation, review projection, comment-composer planning, and review send coordination
 - **Composer phase 2: Extract pending approval + action boundaries**
   - in progress
-  - pending approval presentation state and pure approval/question planning are now extracted
-  - the remaining work is side-effect coordination, attachment extraction, and provider/action boundaries
+  - pending approval presentation state, pure approval/question planning, and attachment state/planning are now extracted
+  - the remaining work is side-effect coordination and provider/action boundaries
   - keep the root view focused on rendering bindings into the composer model
   - add deterministic tests for pending-action routing, attachment behavior, and provider-aware send execution
 
