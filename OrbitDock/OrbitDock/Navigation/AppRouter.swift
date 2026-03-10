@@ -152,3 +152,14 @@ final class AppRouter {
     selectedSessionRef?.scopedID
   }
 }
+
+private struct OrbitDockRouterFocusedValueKey: FocusedValueKey {
+  typealias Value = AppRouter
+}
+
+extension FocusedValues {
+  var orbitDockRouter: AppRouter? {
+    get { self[OrbitDockRouterFocusedValueKey.self] }
+    set { self[OrbitDockRouterFocusedValueKey.self] = newValue }
+  }
+}

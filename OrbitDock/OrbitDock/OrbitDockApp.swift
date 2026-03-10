@@ -65,22 +65,7 @@ struct OrbitDockApp: App {
       .windowStyle(.hiddenTitleBar)
       .defaultSize(width: 1_000, height: 700)
       .commands {
-        CommandGroup(after: .toolbar) {
-          Button("Dashboard") {
-            NotificationCenter.default.post(name: .navigateToDashboard, object: nil)
-          }
-          .keyboardShortcut("0", modifiers: .command)
-
-          Button("Library") {
-            NotificationCenter.default.post(name: .navigateToLibrary, object: nil)
-          }
-          .keyboardShortcut("1", modifiers: .command)
-
-          Button("Quick Switch") {
-            NotificationCenter.default.post(name: .openQuickSwitcher, object: nil)
-          }
-          .keyboardShortcut("k", modifiers: .command)
-        }
+        OrbitDockWindowCommands()
       }
 
       // Settings window (⌘,)
@@ -108,6 +93,32 @@ struct OrbitDockApp: App {
         mainRootView
       }
     #endif
+  }
+}
+
+struct OrbitDockWindowCommands: Commands {
+  @FocusedValue(\.orbitDockRouter) private var router
+
+  var body: some Commands {
+    CommandGroup(after: .toolbar) {
+      Button("Dashboard") {
+        router?.goToDashboard()
+      }
+      .keyboardShortcut("0", modifiers: .command)
+      .disabled(router == nil)
+
+      Button("Library") {
+        router?.goToLibrary()
+      }
+      .keyboardShortcut("1", modifiers: .command)
+      .disabled(router == nil)
+
+      Button("Quick Switch") {
+        router?.openQuickSwitcher()
+      }
+      .keyboardShortcut("k", modifiers: .command)
+      .disabled(router == nil)
+    }
   }
 }
 
@@ -218,7 +229,4 @@ extension Notification.Name {
   static let serverSessionsDidChange = Notification.Name("serverSessionsDidChange")
   static let serverPrimaryEndpointDidChange = Notification.Name("serverPrimaryEndpointDidChange")
   static let openPendingActionPanel = Notification.Name("openPendingActionPanel")
-  static let navigateToDashboard = Notification.Name("navigateToDashboard")
-  static let navigateToLibrary = Notification.Name("navigateToLibrary")
-  static let openQuickSwitcher = Notification.Name("openQuickSwitcher")
 }

@@ -36,16 +36,8 @@ struct OrbitDockWindowRoot: View {
       .environment(attentionService)
       .environment(router)
       .environment(windowSessionCoordinator)
+      .focusedSceneValue(\.orbitDockRouter, router)
       .preferredColorScheme(.dark)
-      .onReceive(NotificationCenter.default.publisher(for: .navigateToDashboard)) { _ in
-        router.goToDashboard()
-      }
-      .onReceive(NotificationCenter.default.publisher(for: .navigateToLibrary)) { _ in
-        router.goToLibrary()
-      }
-      .onReceive(NotificationCenter.default.publisher(for: .openQuickSwitcher)) { _ in
-        router.openQuickSwitcher()
-      }
     #if os(iOS)
       .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
         runtimeRegistry.handleMemoryPressure()
