@@ -47,59 +47,6 @@ enum QuickLaunchProvider: Equatable {
   }
 }
 
-// MARK: - Command Definition
-
-struct QuickCommand: Identifiable {
-  let id: String
-  let name: String
-  let icon: String
-  let shortcut: String?
-  let requiresSession: Bool
-  let action: (Session?) -> Void
-
-  static func sessionCommands(
-    onRename: @escaping (Session) -> Void,
-    onOpenFinder: @escaping (Session) -> Void,
-    onCopyResume: @escaping (Session) -> Void,
-    onClose: @escaping (Session) -> Void
-  ) -> [QuickCommand] {
-    [
-      QuickCommand(
-        id: "rename",
-        name: "Rename Session",
-        icon: "pencil",
-        shortcut: "⌘R",
-        requiresSession: true,
-        action: { session in if let s = session { onRename(s) } }
-      ),
-      QuickCommand(
-        id: "finder",
-        name: "Open in Finder",
-        icon: "folder",
-        shortcut: nil,
-        requiresSession: true,
-        action: { session in if let s = session { onOpenFinder(s) } }
-      ),
-      QuickCommand(
-        id: "copy",
-        name: "Copy Resume Command",
-        icon: "doc.on.doc",
-        shortcut: nil,
-        requiresSession: true,
-        action: { session in if let s = session { onCopyResume(s) } }
-      ),
-      QuickCommand(
-        id: "close",
-        name: "Close Session",
-        icon: "xmark.circle",
-        shortcut: nil,
-        requiresSession: true,
-        action: { session in if let s = session { onClose(s) } }
-      ),
-    ]
-  }
-}
-
 // MARK: - Quick Switcher
 
 struct QuickSwitcher: View {
@@ -156,69 +103,11 @@ struct QuickSwitcher: View {
 
   // MARK: - Commands
 
-  private var commands: [QuickCommand] {
-    // Global commands (no session required)
-    var allCommands: [QuickCommand] = [
-      QuickCommand(
-        id: "dashboard",
-        name: "Go to Dashboard",
-        icon: "square.grid.2x2",
-        shortcut: "⌘0",
-        requiresSession: false,
-        action: { _ in
-          router.goToDashboard()
-          router.closeQuickSwitcher()
-        }
-      ),
-      QuickCommand(
-        id: "new-claude",
-        name: "New Claude Session",
-        icon: "plus.circle.fill",
-        shortcut: nil,
-        requiresSession: false,
-        action: { _ in
-          router.openNewSession(provider: .claude)
-          router.closeQuickSwitcher()
-        }
-      ),
-      QuickCommand(
-        id: "new-codex",
-        name: "New Codex Session",
-        icon: "plus.circle.fill",
-        shortcut: nil,
-        requiresSession: false,
-        action: { _ in
-          router.openNewSession(provider: .codex)
-          router.closeQuickSwitcher()
-        }
-      ),
-    ]
-
-    // Session-specific commands
-    allCommands += QuickCommand.sessionCommands(
-      onRename: { session in
-        renameText = session.customName ?? ""
-        renamingSession = session
-      },
-      onOpenFinder: { session in
-        _ = Platform.services.revealInFileBrowser(session.projectPath)
-        router.closeQuickSwitcher()
-      },
-      onCopyResume: { session in
-        let command = "claude --resume \(session.id)"
-        Platform.services.copyToClipboard(command)
-        router.closeQuickSwitcher()
-      },
-      onClose: { [self] session in
-        Task { try? await appState(for: session).endSession(session.id) }
-        router.closeQuickSwitcher()
-      }
-    )
-
-    return allCommands
+  private var commands: [QuickSwitcherCommand] {
+    QuickSwitcherCommandCatalog.allCommands()
   }
 
-  private var filteredCommands: [QuickCommand] {
+  private var filteredCommands: [QuickSwitcherCommand] {
     guard !searchQuery.isEmpty else { return [] }
     return commands.filter { $0.name.lowercased().contains(searchQuery) }
   }
@@ -363,7 +252,7 @@ struct QuickSwitcher: View {
     .padding(.horizontal, isCompactLayout ? Spacing.sm_ : 0)
   }
 
-  private func commandRow(command: QuickCommand, index: Int) -> some View {
+  private func commandRow(command: QuickSwitcherCommand, index: Int) -> some View {
     let iconSize: CGFloat = isCompactLayout ? 28 : 32
 
     return Button {
@@ -422,15 +311,43 @@ struct QuickSwitcher: View {
     }
   }
 
-  private func executeCommand(_ command: QuickCommand) {
-    if command.requiresSession {
-      // Use current session (from ContentView), or target (from navigation), or first visible
-      guard let session = currentSession ?? targetSession ?? allVisibleSessions.first else { return }
-      Platform.services.playHaptic(.action)
-      command.action(session)
-    } else {
-      Platform.services.playHaptic(.action)
-      command.action(nil)
+  private func executeCommand(_ command: QuickSwitcherCommand) {
+    let targetSession = QuickSwitcherSelectionResolver.commandTargetSession(
+      currentSession: currentSession,
+      explicitTargetSession: targetSession,
+      fallbackVisibleSession: allVisibleSessions.first
+    )
+
+    if command.requiresSession, targetSession == nil {
+      return
+    }
+
+    Platform.services.playHaptic(.action)
+
+    switch command.action {
+      case .goToDashboard:
+        router.goToDashboard()
+        router.closeQuickSwitcher()
+      case .openNewSession(let provider):
+        router.openNewSession(provider: provider)
+        router.closeQuickSwitcher()
+      case .renameSession:
+        guard let session = targetSession else { return }
+        renameText = session.customName ?? ""
+        renamingSession = session
+      case .openInFinder:
+        guard let session = targetSession else { return }
+        _ = Platform.services.revealInFileBrowser(session.projectPath)
+        router.closeQuickSwitcher()
+      case .copyResumeCommand:
+        guard let session = targetSession else { return }
+        let command = "claude --resume \(session.id)"
+        Platform.services.copyToClipboard(command)
+        router.closeQuickSwitcher()
+      case .closeSession:
+        guard let session = targetSession else { return }
+        Task { try? await appState(for: session).endSession(session.id) }
+        router.closeQuickSwitcher()
     }
   }
 
@@ -1130,44 +1047,47 @@ struct QuickSwitcher: View {
   }
 
   private func selectCurrent() {
-    // Quick launch mode: launch session with selected project
-    if quickLaunchMode != nil {
-      guard selectedIndex >= 0, selectedIndex < recentProjects.count else { return }
-      let project = recentProjects[selectedIndex]
-      quickLaunchSession(path: project.path)
-      return
+    switch QuickSwitcherSelectionResolver.selectedKind(
+      selectedIndex: selectedIndex,
+      isQuickLaunchMode: quickLaunchMode != nil,
+      quickLaunchProjectCount: recentProjects.count,
+      commandCount: commandCount,
+      dashboardIndex: dashboardIndex,
+      sessionStartIndex: sessionStartIndex,
+      visibleSessionCount: allVisibleSessions.count
+    ) {
+      case .none:
+        return
+      case .quickLaunchProject(let index):
+        quickLaunchSession(path: recentProjects[index].path)
+      case .command(let index):
+        executeCommand(filteredCommands[index])
+      case .dashboard:
+        Platform.services.playHaptic(.navigation)
+        router.goToDashboard()
+        router.closeQuickSwitcher()
+      case .session(let index):
+        let session = allVisibleSessions[index]
+        Platform.services.playHaptic(.navigation)
+        router.navigateToSession(scopedID: session.scopedID)
+        router.closeQuickSwitcher()
     }
-
-    // Commands come first
-    if selectedIndex < commandCount {
-      let command = filteredCommands[selectedIndex]
-      executeCommand(command)
-      return
-    }
-
-    // Dashboard is after commands
-    if selectedIndex == dashboardIndex {
-      Platform.services.playHaptic(.navigation)
-      router.goToDashboard()
-      router.closeQuickSwitcher()
-      return
-    }
-
-    // Sessions are after dashboard
-    let sessionIndex = selectedIndex - sessionStartIndex
-    guard sessionIndex >= 0, sessionIndex < allVisibleSessions.count else { return }
-    let session = allVisibleSessions[sessionIndex]
-    Platform.services.playHaptic(.navigation)
-    router.navigateToSession(scopedID: session.scopedID)
-    router.closeQuickSwitcher()
   }
 
   private func renameCurrentSelection() {
-    // Can only rename sessions (not commands or dashboard)
-    guard selectedIndex >= sessionStartIndex else { return }
-    let sessionIndex = selectedIndex - sessionStartIndex
-    guard sessionIndex < allVisibleSessions.count else { return }
-    let session = allVisibleSessions[sessionIndex]
+    guard case .session(let index) = QuickSwitcherSelectionResolver.selectedKind(
+      selectedIndex: selectedIndex,
+      isQuickLaunchMode: quickLaunchMode != nil,
+      quickLaunchProjectCount: recentProjects.count,
+      commandCount: commandCount,
+      dashboardIndex: dashboardIndex,
+      sessionStartIndex: sessionStartIndex,
+      visibleSessionCount: allVisibleSessions.count
+    ) else {
+      return
+    }
+
+    let session = allVisibleSessions[index]
     renameText = session.customName ?? ""
     renamingSession = session
   }

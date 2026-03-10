@@ -110,8 +110,8 @@ This plan is now an active execution document, not just a roadmap.
   - the root review view is now much closer to a true shell
   - any remaining work here should be polish-level cleanup, not more architectural rescue
 - **Phase 11: Decompose Large Screens**
-  - `QuickSwitcher` now has a real pure core for query planning, session projection, and keyboard navigation instead of embedding those rules directly in the view
-  - the remaining work is command/action extraction and then moving on to the next large screens from this cleaner base
+  - `QuickSwitcher` now has a real pure core for query planning, session projection, keyboard navigation, command catalog, and selection resolution instead of embedding those rules directly in the view
+  - the remaining work is action-side effect cleanup and then moving on to the next large screens from this cleaner base
 
 ### Next
 
@@ -150,9 +150,9 @@ This plan is now an active execution document, not just a roadmap.
   - app/window notification ownership now comes from `OrbitDockAppRuntime`, not direct singleton grabs in production code
   - preview/test runtime setup now goes through a dedicated helper instead of `.shared` globals
 - **QuickSwitcher phase 1**
-  - query classification, session projection, and keyboard navigation now live in dedicated pure helpers instead of inline view logic
-  - deterministic unit tests now cover quick-launch intent detection, search filtering, active/recent ordering, navigation counts, and wraparound movement
-  - the remaining work is command/action extraction and trimming the remaining workflow/UI wiring in `QuickSwitcher`
+  - query classification, session projection, keyboard navigation, command catalog, and selection resolution now live in dedicated pure helpers instead of inline view logic
+  - deterministic unit tests now cover quick-launch intent detection, search filtering, active/recent ordering, navigation counts, wraparound movement, command inventory, and selected-item resolution
+  - the remaining work is trimming the last action-side-effect wiring in `QuickSwitcher`
 
 ---
 
