@@ -318,19 +318,7 @@ final class SessionObservable {
 
   func applyPendingApproval(_ request: ServerApprovalRequest) {
     pendingApproval = request
-    pendingApprovalId = request.id
-    pendingToolName = request.toolNameForDisplay
-    pendingToolInput = request.toolInputForDisplay
-    pendingPermissionDetail = request.preview?.compact
-      ?? String.shellCommandDisplay(from: request.command)
-      ?? request.command
-    pendingQuestion = request.questionPrompts.first?.question ?? request.question
-
-    let nextAttention: Session.AttentionReason = request.type == .question
-      ? .awaitingQuestion
-      : .awaitingPermission
-    attentionReason = nextAttention
-    workStatus = .permission
+    applyPendingApprovalProjection(SessionPendingApprovalProjection(request: request))
   }
 
   func clearPendingApprovalDetails(resetAttention: Bool) {
@@ -349,6 +337,16 @@ final class SessionObservable {
     if workStatus == .permission {
       workStatus = .working
     }
+  }
+
+  func applyPendingApprovalProjection(_ projection: SessionPendingApprovalProjection) {
+    pendingApprovalId = projection.id
+    pendingToolName = projection.toolName
+    pendingToolInput = projection.toolInput
+    pendingPermissionDetail = projection.permissionDetail
+    pendingQuestion = projection.question
+    attentionReason = projection.attentionReason
+    workStatus = projection.workStatus
   }
 
   var hasMcpData: Bool {

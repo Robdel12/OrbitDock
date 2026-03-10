@@ -260,7 +260,7 @@ extension SessionStore {
 
   func updateClaudePermissionMode(_ sessionId: String, mode: ClaudePermissionMode) async throws {
     try await updateSessionConfig(sessionId, permissionMode: mode.rawValue)
-    session(sessionId).permissionMode = mode
+    applyLocalPermissionMode(mode, sessionId: sessionId)
   }
 
   func getSubagentTools(sessionId: String, subagentId: String) {

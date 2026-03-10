@@ -479,4 +479,46 @@ struct ServerStateChanges: Codable {
     case isWorktree = "is_worktree"
     case unreadCount = "unread_count"
   }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    status = try container.decodeIfPresent(ServerSessionStatus.self, forKey: .status)
+    workStatus = try container.decodeIfPresent(ServerWorkStatus.self, forKey: .workStatus)
+    pendingApproval = try container.decodePatchValue(ServerApprovalRequest.self, forKey: .pendingApproval)
+    tokenUsage = try container.decodeIfPresent(ServerTokenUsage.self, forKey: .tokenUsage)
+    tokenUsageSnapshotKind = try container.decodeIfPresent(ServerTokenUsageSnapshotKind.self, forKey: .tokenUsageSnapshotKind)
+    currentDiff = try container.decodePatchValue(String.self, forKey: .currentDiff)
+    currentPlan = try container.decodePatchValue(String.self, forKey: .currentPlan)
+    customName = try container.decodePatchValue(String.self, forKey: .customName)
+    summary = try container.decodePatchValue(String.self, forKey: .summary)
+    codexIntegrationMode = try container.decodePatchValue(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
+    claudeIntegrationMode = try container.decodePatchValue(ServerClaudeIntegrationMode.self, forKey: .claudeIntegrationMode)
+    approvalPolicy = try container.decodePatchValue(String.self, forKey: .approvalPolicy)
+    sandboxMode = try container.decodePatchValue(String.self, forKey: .sandboxMode)
+    lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
+    currentTurnId = try container.decodePatchValue(String.self, forKey: .currentTurnId)
+    turnCount = try container.decodeIfPresent(UInt64.self, forKey: .turnCount)
+    gitBranch = try container.decodePatchValue(String.self, forKey: .gitBranch)
+    gitSha = try container.decodePatchValue(String.self, forKey: .gitSha)
+    currentCwd = try container.decodePatchValue(String.self, forKey: .currentCwd)
+    firstPrompt = try container.decodePatchValue(String.self, forKey: .firstPrompt)
+    lastMessage = try container.decodePatchValue(String.self, forKey: .lastMessage)
+    model = try container.decodePatchValue(String.self, forKey: .model)
+    effort = try container.decodePatchValue(String.self, forKey: .effort)
+    permissionMode = try container.decodePatchValue(String.self, forKey: .permissionMode)
+    approvalVersion = try container.decodeIfPresent(UInt64.self, forKey: .approvalVersion)
+    repositoryRoot = try container.decodePatchValue(String.self, forKey: .repositoryRoot)
+    isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree)
+    unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount)
+  }
+}
+
+private extension KeyedDecodingContainer where Key == ServerStateChanges.CodingKeys {
+  func decodePatchValue<T: Decodable>(_ type: T.Type, forKey key: Key) throws -> T?? {
+    guard contains(key) else { return nil }
+    if try decodeNil(forKey: key) {
+      return .some(nil)
+    }
+    return .some(try decode(T.self, forKey: key))
+  }
 }

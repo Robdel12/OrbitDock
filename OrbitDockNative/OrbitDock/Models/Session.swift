@@ -491,15 +491,7 @@ struct Session: Identifiable, Hashable, Sendable {
 
 extension Session {
   mutating func applyPendingApprovalSummary(_ request: ServerApprovalRequest) {
-    pendingApprovalId = request.id
-    pendingToolName = request.toolNameForDisplay
-    pendingToolInput = request.toolInputForDisplay
-    pendingPermissionDetail = request.preview?.compact
-      ?? String.shellCommandDisplay(from: request.command)
-      ?? request.command
-    pendingQuestion = request.questionPrompts.first?.question ?? request.question
-    attentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
-    workStatus = .permission
+    applyPendingApprovalProjection(SessionPendingApprovalProjection(request: request))
   }
 
   mutating func clearPendingApprovalSummary(resetAttention: Bool) {

@@ -45,9 +45,7 @@ final class SessionStore {
   // MARK: - Private tracking
 
   @ObservationIgnored var lastRevision: [String: UInt64] = [:]
-  @ObservationIgnored var approvalPolicies: [String: String] = [:]
-  @ObservationIgnored var sandboxModes: [String: String] = [:]
-  @ObservationIgnored var permissionModes: [String: String] = [:]
+  @ObservationIgnored var controlStates: [String: SessionControlState] = [:]
   @ObservationIgnored var subscribedSessions: Set<String> = []
   @ObservationIgnored var autoMarkReadSessions: Set<String> = []
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []

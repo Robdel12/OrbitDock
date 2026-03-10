@@ -221,6 +221,7 @@ extension SessionStore {
       _sessionObservables.removeValue(forKey: id)
       _conversationStores[id]?.clear()
       _conversationStores.removeValue(forKey: id)
+      controlStates.removeValue(forKey: id)
     }
 
     notifySessionsChanged()
@@ -247,6 +248,7 @@ extension SessionStore {
       sessions[idx].endedAt = Date()
       sessions[idx].clearPendingApprovalSummary(resetAttention: true)
     }
+    controlStates.removeValue(forKey: sessionId)
     notifySessionsChanged()
   }
 
@@ -261,37 +263,18 @@ extension SessionStore {
 
     var session = state.toSession()
     session.customName = state.customName
-    updateSessionInList(session)
 
     let obs = self.session(state.id)
     hydrateObservable(obs, from: session)
 
     conversation(state.id).handleSnapshot(state)
-
-    obs.pendingApproval = state.pendingApproval
-    if let version = state.approvalVersion {
-      obs.approvalVersion = version
-    }
-
-    obs.tokenUsage = state.tokenUsage
-    obs.tokenUsageSnapshotKind = state.tokenUsageSnapshotKind
-
-    if state.provider == .codex || state.claudeIntegrationMode == .direct {
-      setConfigCache(
-        sessionId: state.id,
-        approvalPolicy: state.approvalPolicy,
-        sandboxMode: state.sandboxMode
-      )
-      obs.autonomy = AutonomyLevel.from(
-        approvalPolicy: approvalPolicies[state.id],
-        sandboxMode: sandboxModes[state.id]
-      )
-      obs.autonomyConfiguredOnServer = true
-    }
-    if let pm = state.permissionMode {
-      permissionModes[state.id] = pm
-      obs.permissionMode = ClaudePermissionMode(rawValue: pm) ?? .default
-    }
+    let transition = SessionControlStateReducer.snapshotTransition(
+      current: controlState(sessionId: state.id, observable: obs),
+      snapshot: state,
+      supportsServerControlConfiguration: state.provider == .codex || state.claudeIntegrationMode == .direct
+    )
+    applyControlTransition(transition, sessionId: state.id, session: &session, observable: obs)
+    updateSessionInList(session)
   }
 
   func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
@@ -302,51 +285,15 @@ extension SessionStore {
 
     session.applyProjection(projection)
     obs.applyProjection(projection)
-
-    if let approvalOuter = changes.pendingApproval {
-      let incomingVersion = changes.approvalVersion ?? 0
-      let isStale = incomingVersion > 0 && incomingVersion < obs.approvalVersion
-      if !isStale {
-        if incomingVersion > 0 { obs.approvalVersion = incomingVersion }
-        if let approval = approvalOuter {
-          session.applyPendingApprovalSummary(approval)
-          obs.applyPendingApproval(approval)
-        } else {
-          obs.pendingApproval = nil
-        }
-      }
-    }
-
-    if let approvalOuter = changes.approvalPolicy {
-      setConfigCache(sessionId: sessionId, approvalPolicy: approvalOuter, sandboxMode: sandboxModes[sessionId])
-    }
-    if let sandboxOuter = changes.sandboxMode {
-      setConfigCache(sessionId: sessionId, approvalPolicy: approvalPolicies[sessionId], sandboxMode: sandboxOuter)
-    }
-    if changes.approvalPolicy != nil || changes.sandboxMode != nil {
-      obs.autonomy = AutonomyLevel.from(
-        approvalPolicy: approvalPolicies[sessionId],
-        sandboxMode: sandboxModes[sessionId]
-      )
-      obs.autonomyConfiguredOnServer = true
-    }
-
-    if let pmOuter = changes.permissionMode {
-      if let pm = pmOuter {
-        permissionModes[sessionId] = pm
-      } else {
-        permissionModes.removeValue(forKey: sessionId)
-      }
-      obs.permissionMode = ClaudePermissionMode(rawValue: permissionModes[sessionId] ?? "default") ?? .default
-    }
-
     let summaryStillBlocked = session.attentionReason == .awaitingPermission
       || session.attentionReason == .awaitingQuestion
       || session.workStatus == .permission
-    if changes.pendingApproval == nil, !summaryStillBlocked {
-      session.clearPendingApprovalSummary(resetAttention: false)
-      obs.clearPendingApprovalDetails(resetAttention: false)
-    }
+    let transition = SessionControlStateReducer.deltaTransition(
+      current: controlState(sessionId: sessionId, observable: obs),
+      changes: changes,
+      summaryStillBlocked: summaryStillBlocked
+    )
+    applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
 
     sessions[idx] = session
     notifySessionsChanged()
@@ -366,15 +313,17 @@ extension SessionStore {
 
   func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest, _ version: UInt64?) {
     let obs = session(sessionId)
-    if let version, version > 0 {
-      if version < obs.approvalVersion { return }
-      obs.approvalVersion = version
+    guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+    var session = sessions[idx]
+    guard let transition = SessionControlStateReducer.approvalRequestedTransition(
+      current: controlState(sessionId: sessionId, observable: obs),
+      request: request,
+      version: version
+    ) else {
+      return
     }
-    obs.applyPendingApproval(request)
-
-    if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-      sessions[idx].applyPendingApprovalSummary(request)
-    }
+    applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
+    sessions[idx] = session
   }
 
   func handleApprovalDecisionResult(
@@ -385,14 +334,16 @@ extension SessionStore {
     _ version: UInt64
   ) {
     let obs = session(sessionId)
-    obs.approvalVersion = version
-
-    if obs.pendingApproval?.id == requestId || obs.pendingApprovalId == requestId, activeRequestId == nil {
-      obs.clearPendingApprovalDetails(resetAttention: true)
-      if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-        sessions[idx].clearPendingApprovalSummary(resetAttention: true)
-      }
-    }
+    guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+    var session = sessions[idx]
+    let transition = SessionControlStateReducer.approvalDecisionTransition(
+      current: controlState(sessionId: sessionId, observable: obs),
+      requestId: requestId,
+      activeRequestId: activeRequestId,
+      version: version
+    )
+    applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
+    sessions[idx] = session
 
     inFlightApprovalDispatches.remove(requestId)
   }
@@ -465,16 +416,73 @@ extension SessionStore {
     emitSessionListUpdate()
   }
 
-  func setConfigCache(sessionId: String, approvalPolicy: String?, sandboxMode: String?) {
-    if let approvalPolicy {
-      approvalPolicies[sessionId] = approvalPolicy
+  func controlState(sessionId: String, observable: SessionObservable) -> SessionControlState {
+    controlStates[sessionId] ?? SessionControlState(
+      approvalVersion: observable.approvalVersion,
+      approvalPolicy: nil,
+      sandboxMode: nil,
+      permissionModeRaw: observable.permissionMode.rawValue,
+      autonomy: observable.autonomy,
+      autonomyConfiguredOnServer: observable.autonomyConfiguredOnServer,
+      pendingApprovalId: observable.pendingApproval?.id ?? observable.pendingApprovalId
+    )
+  }
+
+  func applyControlTransition(
+    _ transition: SessionControlTransition,
+    sessionId: String,
+    session: inout Session,
+    observable: SessionObservable
+  ) {
+    controlStates[sessionId] = transition.nextState
+    observable.approvalVersion = transition.nextState.approvalVersion
+    observable.autonomy = transition.nextState.autonomy
+    observable.autonomyConfiguredOnServer = transition.nextState.autonomyConfiguredOnServer
+    observable.permissionMode = transition.nextState.permissionMode
+
+    applyPendingApprovalChange(transition.summaryApprovalChange, to: &session)
+    applyPendingApprovalChange(transition.detailApprovalChange, to: observable)
+  }
+
+  func applyLocalPermissionMode(_ mode: ClaudePermissionMode, sessionId: String) {
+    let observable = session(sessionId)
+    let transition = SessionControlStateReducer.optimisticPermissionModeTransition(
+      current: controlState(sessionId: sessionId, observable: observable),
+      mode: mode
+    )
+
+    if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+      var session = sessions[idx]
+      applyControlTransition(transition, sessionId: sessionId, session: &session, observable: observable)
+      sessions[idx] = session
     } else {
-      approvalPolicies.removeValue(forKey: sessionId)
+      controlStates[sessionId] = transition.nextState
+      observable.approvalVersion = transition.nextState.approvalVersion
+      observable.autonomy = transition.nextState.autonomy
+      observable.autonomyConfiguredOnServer = transition.nextState.autonomyConfiguredOnServer
+      observable.permissionMode = transition.nextState.permissionMode
     }
-    if let sandboxMode {
-      sandboxModes[sessionId] = sandboxMode
-    } else {
-      sandboxModes.removeValue(forKey: sessionId)
+  }
+
+  private func applyPendingApprovalChange(_ change: SessionPendingApprovalChange, to session: inout Session) {
+    switch change {
+    case .none:
+      break
+    case .set(let request):
+      session.applyPendingApprovalSummary(request)
+    case .clear(let resetAttention):
+      session.clearPendingApprovalSummary(resetAttention: resetAttention)
+    }
+  }
+
+  private func applyPendingApprovalChange(_ change: SessionPendingApprovalChange, to observable: SessionObservable) {
+    switch change {
+    case .none:
+      break
+    case .set(let request):
+      observable.applyPendingApproval(request)
+    case .clear(let resetAttention):
+      observable.clearPendingApprovalDetails(resetAttention: resetAttention)
     }
   }
 

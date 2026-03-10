@@ -1,5 +1,27 @@
 import Foundation
 
+struct SessionPendingApprovalProjection {
+  let id: String
+  let toolName: String?
+  let toolInput: String?
+  let permissionDetail: String?
+  let question: String?
+  let attentionReason: Session.AttentionReason
+  let workStatus: Session.WorkStatus
+
+  init(request: ServerApprovalRequest) {
+    id = request.id
+    toolName = request.toolNameForDisplay
+    toolInput = request.toolInputForDisplay
+    permissionDetail = request.preview?.compact
+      ?? String.shellCommandDisplay(from: request.command)
+      ?? request.command
+    question = request.questionPrompts.first?.question ?? request.question
+    attentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
+    workStatus = .permission
+  }
+}
+
 struct SessionStateProjection {
   let status: Session.SessionStatus?
   let workStatus: Session.WorkStatus?
@@ -64,6 +86,16 @@ struct SessionStateProjection {
 }
 
 extension Session {
+  mutating func applyPendingApprovalProjection(_ projection: SessionPendingApprovalProjection) {
+    pendingApprovalId = projection.id
+    pendingToolName = projection.toolName
+    pendingToolInput = projection.toolInput
+    pendingPermissionDetail = projection.permissionDetail
+    pendingQuestion = projection.question
+    attentionReason = projection.attentionReason
+    workStatus = projection.workStatus
+  }
+
   mutating func applyProjection(_ projection: SessionStateProjection) {
     if let status = projection.status {
       self.status = status
