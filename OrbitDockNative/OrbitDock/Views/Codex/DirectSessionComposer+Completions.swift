@@ -28,22 +28,6 @@ extension DirectSessionComposer {
     requestComposerFocus()
   }
 
-  func extractInlineSkillNames(from text: String) -> [String] {
-    let skillNameSet = Set(availableSkills.map(\.name))
-    var names: [String] = []
-
-    for word in text.components(separatedBy: .whitespacesAndNewlines) {
-      guard word.hasPrefix("$") else { continue }
-      let raw = String(word.dropFirst())
-      let name = raw.trimmingCharacters(in: .punctuationCharacters)
-      if skillNameSet.contains(name) {
-        names.append(name)
-      }
-    }
-
-    return names
-  }
-
   // MARK: - @ Mention Completion
 
   func updateMentionCompletion(_ text: String) {

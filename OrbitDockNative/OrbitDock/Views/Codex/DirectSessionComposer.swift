@@ -226,10 +226,10 @@ struct DirectSessionComposer: View {
   }
 
   var hasInlineSkills: Bool {
-    let names = Set(availableSkills.map(\.name))
-    return message.components(separatedBy: .whitespacesAndNewlines).contains { word in
-      word.hasPrefix("$") && names.contains(String(word.dropFirst()))
-    }
+    !DirectSessionComposerSkillPlanner.inlineSkillNames(
+      in: message,
+      availableSkillNames: Set(availableSkills.map(\.name))
+    ).isEmpty
   }
 
   var codexModelOptions: [ServerCodexModelOption] {

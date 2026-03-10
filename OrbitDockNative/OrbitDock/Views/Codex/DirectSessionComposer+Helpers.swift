@@ -82,7 +82,6 @@ extension DirectSessionComposer {
   func sendMessage() {
     let sendPlan = DirectSessionComposerActionPlanner.planSend(sendContext)
     guard sendPlan != .blocked else { return }
-    let trimmed = sendContext.trimmedMessage
 
     switch sendPlan {
       case .blocked:
@@ -111,79 +110,24 @@ extension DirectSessionComposer {
         break
     }
 
-    let resolvedAttachments = DirectSessionComposerAttachmentPlanner.resolveForSend(
-      message: trimmed,
-      attachments: attachmentState
+    let preparedAction = DirectSessionComposerExecutionPlanner.prepare(
+      sendPlan: sendPlan,
+      message: sendContext.trimmedMessage,
+      attachments: attachmentState,
+      shellContext: obs.consumeShellContext(),
+      selectedSkillPaths: selectedSkills,
+      availableSkills: availableSkills
     )
-    var expandedContent = resolvedAttachments.expandedContent
-    let mentionInputs = resolvedAttachments.mentionInputs
-    let hasAttachedImages = resolvedAttachments.hasImages
-
-    if case .steer = sendPlan {
-      guard !expandedContent.isEmpty || hasAttachedImages || !mentionInputs.isEmpty else { return }
-
-      isSending = true
-      Task {
-        do {
-          let uploadedImages = hasAttachedImages
-            ? try await uploadAttachedImages(resolvedAttachments.images)
-            : []
-          try await serverState.steerTurn(
-            sessionId: sessionId,
-            content: expandedContent,
-            images: uploadedImages,
-            mentions: mentionInputs
-          )
-          await MainActor.run {
-            isSending = false
-            completeSuccessfulComposerSend()
-          }
-        } catch {
-          await MainActor.run {
-            isSending = false
-            Platform.services.playHaptic(.error)
-            errorMessage = "Couldn't send steer message. Your draft is still here."
-            requestComposerFocus()
-          }
-        }
-      }
+    if case .blocked = preparedAction {
       return
-    }
-
-    guard case let .send(_, effectiveModel, effort) = sendPlan else { return }
-
-    let inlineSkillNames = extractInlineSkillNames(from: expandedContent)
-
-    var skillPaths = selectedSkills
-    for name in inlineSkillNames {
-      if let skill = availableSkills.first(where: { $0.name == name }) {
-        skillPaths.insert(skill.path)
-      }
-    }
-    let skillInputs = skillPaths.compactMap { path -> ServerSkillInput? in
-      guard let skill = availableSkills.first(where: { $0.path == path }) else { return nil }
-      return ServerSkillInput(name: skill.name, path: skill.path)
-    }
-
-    // Prepend any pending shell context
-    if let shellContext = obs.consumeShellContext() {
-      expandedContent = "\(shellContext)\n\n\(expandedContent)"
     }
 
     isSending = true
     Task {
       do {
-        let uploadedImages = hasAttachedImages
-          ? try await uploadAttachedImages(resolvedAttachments.images)
-          : []
-        try await serverState.sendMessage(
-          sessionId: sessionId,
-          content: expandedContent,
-          model: effectiveModel,
-          effort: effort,
-          skills: skillInputs,
-          images: uploadedImages,
-          mentions: mentionInputs
+        try await DirectSessionComposerExecutionCoordinator.execute(
+          preparedAction,
+          using: makeExecutionPorts()
         )
         await MainActor.run {
           isSending = false
@@ -235,27 +179,50 @@ extension DirectSessionComposer {
       case .reviewNotes:
         .reviewNotes
       case .shell:
-        .shell
+      .shell
     }
   }
 
-  private func uploadAttachedImages(_ images: [AttachedImage]) async throws -> [ServerImageInput] {
-    var uploaded: [ServerImageInput] = []
-    uploaded.reserveCapacity(images.count)
+  private func makeExecutionPorts() -> DirectSessionComposerExecutionPorts {
+    DirectSessionComposerExecutionPorts(
+      uploadImages: { images in
+        var uploaded: [ServerImageInput] = []
+        uploaded.reserveCapacity(images.count)
 
-    for image in images {
-      let input = try await serverState.uploadImageAttachment(
-        sessionId: sessionId,
-        data: image.uploadData,
-        mimeType: image.uploadMimeType,
-        displayName: image.displayName ?? "image",
-        pixelWidth: image.pixelWidth ?? 0,
-        pixelHeight: image.pixelHeight ?? 0
-      )
-      uploaded.append(input)
-    }
+        for image in images {
+          let input = try await serverState.uploadImageAttachment(
+            sessionId: sessionId,
+            data: image.uploadData,
+            mimeType: image.uploadMimeType,
+            displayName: image.displayName ?? "image",
+            pixelWidth: image.pixelWidth ?? 0,
+            pixelHeight: image.pixelHeight ?? 0
+          )
+          uploaded.append(input)
+        }
 
-    return uploaded
+        return uploaded
+      },
+      sendMessage: { request in
+        try await serverState.sendMessage(
+          sessionId: sessionId,
+          content: request.content,
+          model: request.model,
+          effort: request.effort,
+          skills: request.skills,
+          images: request.images,
+          mentions: request.mentions
+        )
+      },
+      steerTurn: { request in
+        try await serverState.steerTurn(
+          sessionId: sessionId,
+          content: request.content,
+          images: request.images,
+          mentions: request.mentions
+        )
+      }
+    )
   }
 
   private func completeSuccessfulComposerSend() {
