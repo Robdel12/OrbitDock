@@ -80,6 +80,7 @@ of those rewrite-sized targets land cleanly.
   - the root quick switcher view has also shed row presentation and quick-launch section rendering into focused subviews, so the remaining work is mostly shell-level action cleanup
   - command rows, the dashboard row, empty-state rendering, and footer hints now live in dedicated shell views instead of staying inline in `QuickSwitcher`
   - the entire QuickSwitcher feature family now lives under `Views/QuickSwitcher/` instead of scattering files across the root `Views/` folder
+  - `QuickSwitcher` now has an explicit feature-state owner and a separate derived view-state layer, so the root view is no longer the main mutable state and derived-selection brain
 - **Phase 6 / Phase 7, lifecycle ownership**
   - `WindowSessionCoordinator` now owns startup/runtime-graph refresh behavior instead of `ContentView`
   - the app delegate now talks to `OrbitDockAppRuntime` instead of reaching for global runtime singletons during notifications and shutdown
@@ -147,6 +148,8 @@ of those rewrite-sized targets land cleanly.
 - **Settings phase 2**
   - `SettingsView` is now a shell over focused pane views and shared settings components instead of one giant feature blob
   - diagnostics, notifications, integrations, debug/server controls, and general workspace settings now have clear homes
+  - `SettingsSetupView` is now a shell over provider-scoped setup panes with a dedicated setup model and a pure Claude hooks setup planner
+  - `SettingsGeneralView` is now a shell over focused editor, OpenAI naming, and dictation sections, with explicit naming state ownership and pure presentation planners
 - **Session detail review-send extraction**
   - `SessionDetailView` now uses a local pure review-send planner instead of rebuilding selected-comment filtering and diff merge logic inline
   - deterministic tests now cover selected-comment sends, send-all fallback, and duplicate-diff suppression

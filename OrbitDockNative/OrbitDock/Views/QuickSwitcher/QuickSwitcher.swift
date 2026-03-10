@@ -23,27 +23,17 @@ struct QuickSwitcher: View {
   let onQuickLaunchClaude: ((String) -> Void)?
   let onQuickLaunchCodex: ((String) -> Void)?
 
-  @State private var searchText = ""
-  @State private var selectedIndex = 0
-  @State private var hoveredIndex: Int?
-  @State private var renamingSession: Session?
-  @State private var renameText = ""
-  @State private var targetSession: Session? // Session that commands will act on
-  @State private var isRecentExpanded = false // Recent section collapsed by default
+  @State private var quickSwitcherState = QuickSwitcherState()
   @FocusState private var isSearchFocused: Bool
 
-  // Quick launch state
-  @State private var quickLaunchMode: QuickLaunchProvider?
-  @State private var recentProjects: [ServerRecentProject] = []
-  @State private var isLoadingProjects = false
-  @State private var recentProjectsRequestId = UUID()
-
   /// The session currently being viewed (for commands to act on)
-  private var currentSession: Session? {
-    if let id = router.selectedScopedID {
-      return sessions.first { $0.scopedID == id }
-    }
-    return nil
+  private var viewState: QuickSwitcherViewState {
+    QuickSwitcherViewState.make(
+      sessions: sessions,
+      state: quickSwitcherState,
+      selectedScopedID: router.selectedScopedID,
+      isCompactLayout: isCompactLayout
+    )
   }
 
   // MARK: - Search
@@ -56,110 +46,56 @@ struct QuickSwitcher: View {
     #endif
   }
 
-  private var searchQuery: String {
-    queryPlan.normalizedQuery
-  }
-
-  private var queryPlan: QuickSwitcherQueryPlan {
-    QuickSwitcherQueryPlanner.plan(searchText: searchText)
-  }
-
-  // MARK: - Commands
-
-  private var commands: [QuickSwitcherCommand] {
-    QuickSwitcherCommandCatalog.allCommands()
-  }
-
-  private var filteredCommands: [QuickSwitcherCommand] {
-    guard !searchQuery.isEmpty else { return [] }
-    return commands.filter { $0.name.lowercased().contains(searchQuery) }
-  }
-
-  // MARK: - Sessions
-
-  private var projection: QuickSwitcherProjection {
-    QuickSwitcherProjection.make(
-      sessions: sessions,
-      normalizedQuery: searchQuery,
-      isRecentExpanded: isRecentExpanded,
-      commandCount: filteredCommands.count,
-      quickLaunchProjectCount: quickLaunchMode != nil ? recentProjects.count : nil
-    )
-  }
-
-  private var filteredSessions: [Session] { projection.filteredSessions }
-  private var activeSessions: [Session] { projection.activeSessions }
-  private var recentSessions: [Session] { projection.recentSessions }
-  private var allVisibleSessions: [Session] { projection.allVisibleSessions }
-  private var totalItems: Int { projection.totalItems }
-  private var commandCount: Int { projection.commandCount }
-  private var dashboardIndex: Int { projection.dashboardIndex }
-  private var sessionStartIndex: Int { projection.sessionStartIndex }
-
-  private var shouldShowRecentSessions: Bool {
-    projection.shouldShowRecentSessions
-  }
-
   var body: some View {
     mainContent
       .onAppear {
-        selectedIndex = 0
+        quickSwitcherState.resetSelection()
         focusSearchField()
       }
       .modifier(KeyboardNavigationModifier(
         onMoveUp: { moveSelection(by: -1) },
         onMoveDown: { moveSelection(by: 1) },
         onMoveToFirst: {
-          selectedIndex = QuickSwitcherNavigationModel.moveToFirst(
-            currentIndex: selectedIndex,
-            totalItems: totalItems
+          quickSwitcherState.selectedIndex = QuickSwitcherNavigationModel.moveToFirst(
+            currentIndex: quickSwitcherState.selectedIndex,
+            totalItems: viewState.totalItems
           )
         },
         onMoveToLast: {
-          selectedIndex = QuickSwitcherNavigationModel.moveToLast(
-            currentIndex: selectedIndex,
-            totalItems: totalItems
+          quickSwitcherState.selectedIndex = QuickSwitcherNavigationModel.moveToLast(
+            currentIndex: quickSwitcherState.selectedIndex,
+            totalItems: viewState.totalItems
           )
         },
         onSelect: { selectCurrent() },
         onRename: { renameCurrentSelection() },
-        onShiftSelect: quickLaunchMode != nil ? { openFullSheet() } : nil
+        onShiftSelect: viewState.isQuickLaunchMode ? { openFullSheet() } : nil
       ))
-      .onChange(of: searchText) { oldValue, newValue in
+      .onChange(of: quickSwitcherState.searchText) { oldValue, newValue in
         let transition = QuickSwitcherSearchTransitionPlanner.transition(
           oldSearchText: oldValue,
           newSearchText: newValue,
-          previousMode: quickLaunchMode.map { .quickLaunch($0.intent) } ?? .standard,
+          previousMode: quickSwitcherState.quickLaunchMode.map { .quickLaunch($0.intent) } ?? .standard,
           selectedKind: selectedKind,
-          visibleSessions: allVisibleSessions
+          visibleSessions: viewState.allVisibleSessions
         )
-        targetSession = transition.targetSession
-        selectedIndex = transition.selectedIndex
-        hoveredIndex = transition.hoveredIndex
-        quickLaunchMode = {
-          switch transition.mode {
-            case .standard:
-              return nil
-            case .quickLaunch(let intent):
-              return QuickLaunchProvider(intent: intent)
-          }
-        }()
+        quickSwitcherState.applySearchTransition(transition)
 
         if transition.shouldLoadRecentProjects {
           loadRecentProjects()
         }
       }
-      .sheet(item: $renamingSession) { session in
+      .sheet(item: $quickSwitcherState.renamingSession) { session in
         RenameSessionSheet(
           session: session,
-          initialText: renameText,
+          initialText: quickSwitcherState.renameText,
           onSave: { newName in
             let name = newName.isEmpty ? nil : newName
             Task { try? await appState(for: session).renameSession(session.id, name: name) }
-            renamingSession = nil
+            quickSwitcherState.renamingSession = nil
           },
           onCancel: {
-            renamingSession = nil
+            quickSwitcherState.renamingSession = nil
           }
         )
       }
@@ -167,8 +103,8 @@ struct QuickSwitcher: View {
 
   private var mainContent: some View {
     QuickSwitcherShell(
-      isCompactLayout: isCompactLayout,
-      isEmptyState: allVisibleSessions.isEmpty && filteredCommands.isEmpty && !searchQuery.isEmpty,
+      isCompactLayout: viewState.isCompactLayout,
+      isEmptyState: viewState.isEmptyState,
       searchBar: { searchBar },
       content: { resultsView },
       emptyState: { emptyState },
@@ -179,11 +115,11 @@ struct QuickSwitcher: View {
   private func commandRow(command: QuickSwitcherCommand, index: Int) -> some View {
     QuickSwitcherCommandRow(
       command: command,
-      isCompactLayout: isCompactLayout,
-      isSelected: selectedIndex == index,
-      isHovered: hoveredIndex == index,
+      isCompactLayout: viewState.isCompactLayout,
+      isSelected: quickSwitcherState.selectedIndex == index,
+      isHovered: quickSwitcherState.hoveredIndex == index,
       onHoverChanged: { isHovered in
-        hoveredIndex = isHovered ? index : nil
+        quickSwitcherState.hoveredIndex = isHovered ? index : nil
       },
       onRun: {
         runCommand(command)
@@ -194,9 +130,9 @@ struct QuickSwitcher: View {
   private func runCommand(_ command: QuickSwitcherCommand) {
     guard let plan = QuickSwitcherActionPlanner.commandPlan(
       command: command,
-      currentSession: currentSession,
-      explicitTargetSession: targetSession,
-      fallbackVisibleSession: allVisibleSessions.first
+      currentSession: viewState.currentSession,
+      explicitTargetSession: viewState.targetSession,
+      fallbackVisibleSession: viewState.allVisibleSessions.first
     ) else {
       return
     }
@@ -214,8 +150,8 @@ struct QuickSwitcher: View {
         router.openNewSession(provider: provider)
         router.closeQuickSwitcher()
       case .renameSession(let session):
-        renameText = session.customName ?? ""
-        renamingSession = session
+        quickSwitcherState.renameText = session.customName ?? ""
+        quickSwitcherState.renamingSession = session
       case .openInFinder(let path):
         _ = Platform.services.revealInFileBrowser(path)
         router.closeQuickSwitcher()
@@ -232,10 +168,10 @@ struct QuickSwitcher: View {
 
   private var searchBar: some View {
     QuickSwitcherSearchBar(
-      isCompactLayout: isCompactLayout,
-      searchText: $searchText,
+      isCompactLayout: viewState.isCompactLayout,
+      searchText: $quickSwitcherState.searchText,
       isSearchFocused: $isSearchFocused,
-      onClear: { searchText = "" },
+      onClear: { quickSwitcherState.searchText = "" },
       onCancel: { router.closeQuickSwitcher() }
     )
   }
@@ -244,24 +180,24 @@ struct QuickSwitcher: View {
 
   private var resultsView: some View {
     QuickSwitcherResultsShell(
-      isCompactLayout: isCompactLayout,
-      selectedIndex: selectedIndex
+      isCompactLayout: viewState.isCompactLayout,
+      selectedIndex: quickSwitcherState.selectedIndex
     ) {
-      if quickLaunchMode != nil {
+      if viewState.isQuickLaunchMode {
         quickLaunchSection
       } else {
-        if !filteredCommands.isEmpty {
+        if !viewState.filteredCommands.isEmpty {
           commandsSection
         }
 
         dashboardRow
-          .id("row-\(dashboardIndex)")
+          .id("row-\(viewState.dashboardIndex)")
 
-        if !activeSessions.isEmpty {
+        if !viewState.activeSessions.isEmpty {
           activeSessionsSection
         }
 
-        if !recentSessions.isEmpty {
+        if !viewState.recentSessions.isEmpty {
           recentSessionsSection
         }
       }
@@ -272,15 +208,15 @@ struct QuickSwitcher: View {
 
   private var quickLaunchSection: some View {
     QuickSwitcherQuickLaunchSection(
-      provider: quickLaunchMode!,
-      isCompactLayout: isCompactLayout,
-      isLoadingProjects: isLoadingProjects,
-      recentProjects: recentProjects,
-      selectedIndex: selectedIndex,
-      hoveredIndex: hoveredIndex,
+      provider: viewState.quickLaunchMode!,
+      isCompactLayout: viewState.isCompactLayout,
+      isLoadingProjects: quickSwitcherState.isLoadingProjects,
+      recentProjects: viewState.recentProjects,
+      selectedIndex: quickSwitcherState.selectedIndex,
+      hoveredIndex: quickSwitcherState.hoveredIndex,
       onOpenFullSheet: openFullSheet,
       onHoverChanged: { index, hovered in
-        hoveredIndex = hovered ? index : nil
+        quickSwitcherState.hoveredIndex = hovered ? index : nil
       },
       onOpenProject: { path in
         quickLaunchSession(path: path)
@@ -292,9 +228,9 @@ struct QuickSwitcher: View {
 
   private var activeSessionsSection: some View {
     QuickSwitcherActiveSessionsSection(
-      sessions: activeSessions,
-      isCompactLayout: isCompactLayout,
-      sessionStartIndex: sessionStartIndex,
+      sessions: viewState.activeSessions,
+      isCompactLayout: viewState.isCompactLayout,
+      sessionStartIndex: viewState.sessionStartIndex,
       row: { session, index in switcherRow(session: session, index: index) }
     )
   }
@@ -303,16 +239,16 @@ struct QuickSwitcher: View {
 
   private var recentSessionsSection: some View {
     QuickSwitcherRecentSessionsSection(
-      sessions: recentSessions,
-      isCompactLayout: isCompactLayout,
-      searchQuery: searchQuery,
-      isExpanded: isRecentExpanded,
-      shouldShowSessions: shouldShowRecentSessions,
-      sessionStartIndex: sessionStartIndex,
-      activeSessionCount: activeSessions.count,
+      sessions: viewState.recentSessions,
+      isCompactLayout: viewState.isCompactLayout,
+      searchQuery: viewState.searchQuery,
+      isExpanded: quickSwitcherState.isRecentExpanded,
+      shouldShowSessions: viewState.shouldShowRecentSessions,
+      sessionStartIndex: viewState.sessionStartIndex,
+      activeSessionCount: viewState.activeSessions.count,
       onToggleExpanded: {
         withAnimation(Motion.standard) {
-          isRecentExpanded.toggle()
+          quickSwitcherState.isRecentExpanded.toggle()
         }
       },
       row: { session, index in switcherRow(session: session, index: index) }
@@ -322,12 +258,12 @@ struct QuickSwitcher: View {
   // MARK: - Commands Section
 
   private var commandsSection: some View {
-    let activeSession = targetSession ?? allVisibleSessions.first
+    let activeSession = viewState.targetSession ?? viewState.allVisibleSessions.first
 
     return QuickSwitcherCommandsSection(
-      commands: filteredCommands,
+      commands: viewState.filteredCommands,
       activeSession: activeSession,
-      isCompactLayout: isCompactLayout,
+      isCompactLayout: viewState.isCompactLayout,
       row: { command, index in commandRow(command: command, index: index) }
     )
   }
@@ -335,11 +271,11 @@ struct QuickSwitcher: View {
   /// Dashboard row
   private var dashboardRow: some View {
     QuickSwitcherDashboardRow(
-      isCompactLayout: isCompactLayout,
-      isSelected: selectedIndex == dashboardIndex,
-      isHovered: hoveredIndex == dashboardIndex,
+      isCompactLayout: viewState.isCompactLayout,
+      isSelected: quickSwitcherState.selectedIndex == viewState.dashboardIndex,
+      isHovered: quickSwitcherState.hoveredIndex == viewState.dashboardIndex,
       onHoverChanged: { isHovered in
-        hoveredIndex = isHovered ? dashboardIndex : nil
+        quickSwitcherState.hoveredIndex = isHovered ? viewState.dashboardIndex : nil
       },
       onSelect: {
         Platform.services.playHaptic(.navigation)
@@ -355,11 +291,11 @@ struct QuickSwitcher: View {
     QuickSwitcherSessionRow(
       session: session,
       index: index,
-      isCompactLayout: isCompactLayout,
-      isSelected: selectedIndex == index,
-      isHovered: hoveredIndex == index,
+      isCompactLayout: viewState.isCompactLayout,
+      isSelected: quickSwitcherState.selectedIndex == index,
+      isHovered: quickSwitcherState.hoveredIndex == index,
       onHoverChanged: { isHovered in
-        hoveredIndex = isHovered ? index : nil
+        quickSwitcherState.hoveredIndex = isHovered ? index : nil
       },
       onNavigate: {
         Platform.services.playHaptic(.navigation)
@@ -385,47 +321,47 @@ struct QuickSwitcher: View {
 
   private var emptyState: some View {
     QuickSwitcherEmptyState(
-      isCompactLayout: isCompactLayout,
-      searchText: searchText
+      isCompactLayout: viewState.isCompactLayout,
+      searchText: quickSwitcherState.searchText
     )
   }
 
   // MARK: - Footer
 
   private var footerHint: some View {
-    QuickSwitcherFooterHint(isQuickLaunchMode: quickLaunchMode != nil)
+    QuickSwitcherFooterHint(isQuickLaunchMode: viewState.isQuickLaunchMode)
   }
 
   // MARK: - Helpers
 
   private func moveSelection(by delta: Int) {
-    selectedIndex = QuickSwitcherNavigationModel.moveSelection(
-      currentIndex: selectedIndex,
+    quickSwitcherState.selectedIndex = QuickSwitcherNavigationModel.moveSelection(
+      currentIndex: quickSwitcherState.selectedIndex,
       delta: delta,
-      totalItems: totalItems
+      totalItems: viewState.totalItems
     )
   }
 
   private var selectedKind: QuickSwitcherSelectionKind {
     QuickSwitcherSelectionResolver.selectedKind(
-      selectedIndex: selectedIndex,
-      isQuickLaunchMode: quickLaunchMode != nil,
-      quickLaunchProjectCount: recentProjects.count,
-      commandCount: commandCount,
-      dashboardIndex: dashboardIndex,
-      sessionStartIndex: sessionStartIndex,
-      visibleSessionCount: allVisibleSessions.count
+      selectedIndex: quickSwitcherState.selectedIndex,
+      isQuickLaunchMode: viewState.isQuickLaunchMode,
+      quickLaunchProjectCount: viewState.recentProjects.count,
+      commandCount: viewState.commandCount,
+      dashboardIndex: viewState.dashboardIndex,
+      sessionStartIndex: viewState.sessionStartIndex,
+      visibleSessionCount: viewState.allVisibleSessions.count
     )
   }
 
   private func selectCurrent() {
     switch QuickSwitcherActionPlanner.selectionPlan(
       selectedKind: selectedKind,
-      recentProjects: recentProjects,
-      filteredCommands: filteredCommands,
-      visibleSessions: allVisibleSessions,
-      currentSession: currentSession,
-      explicitTargetSession: targetSession
+      recentProjects: viewState.recentProjects,
+      filteredCommands: viewState.filteredCommands,
+      visibleSessions: viewState.allVisibleSessions,
+      currentSession: viewState.currentSession,
+      explicitTargetSession: viewState.targetSession
     ) {
       case .none:
         return
@@ -448,13 +384,13 @@ struct QuickSwitcher: View {
   private func renameCurrentSelection() {
     guard let session = QuickSwitcherActionPlanner.renameTargetSession(
       selectedKind: selectedKind,
-      visibleSessions: allVisibleSessions
+      visibleSessions: viewState.allVisibleSessions
     ) else {
       return
     }
 
-    renameText = session.customName ?? ""
-    renamingSession = session
+    quickSwitcherState.renameText = session.customName ?? ""
+    quickSwitcherState.renamingSession = session
   }
 
   private func focusSearchField() {
@@ -477,30 +413,30 @@ struct QuickSwitcher: View {
 
   private func loadRecentProjects() {
     guard let clients = runtimeRegistry.primaryRuntime?.clients ?? runtimeRegistry.activeRuntime?.clients else {
-      recentProjects = []
-      isLoadingProjects = false
+      quickSwitcherState.resetRecentProjects()
       return
     }
 
-    isLoadingProjects = true
     let endpointId = currentControlPlaneEndpointID()
     let requestId = UUID()
-    recentProjectsRequestId = requestId
+    quickSwitcherState.beginRecentProjectsLoad(requestId: requestId)
 
     Task { @MainActor in
-      defer {
-        if recentProjectsRequestId == requestId, currentControlPlaneEndpointID() == endpointId {
-          isLoadingProjects = false
-        }
-      }
-
       do {
         let projects = try await clients.filesystem.listRecentProjects()
-        guard recentProjectsRequestId == requestId, currentControlPlaneEndpointID() == endpointId else { return }
-        recentProjects = projects
+        quickSwitcherState.finishRecentProjectsLoad(
+          requestId: requestId,
+          endpointId: endpointId,
+          activeEndpointId: currentControlPlaneEndpointID(),
+          projects: projects
+        )
       } catch {
-        guard recentProjectsRequestId == requestId, currentControlPlaneEndpointID() == endpointId else { return }
-        recentProjects = []
+        quickSwitcherState.finishRecentProjectsLoad(
+          requestId: requestId,
+          endpointId: endpointId,
+          activeEndpointId: currentControlPlaneEndpointID(),
+          projects: []
+        )
       }
     }
   }
@@ -510,7 +446,7 @@ struct QuickSwitcher: View {
   }
 
   private func quickLaunchSession(path: String) {
-    guard let provider = quickLaunchMode else { return }
+    guard let provider = viewState.quickLaunchMode else { return }
     Platform.services.playHaptic(.action)
     switch provider {
       case .claude:
@@ -522,7 +458,7 @@ struct QuickSwitcher: View {
   }
 
   private func openFullSheet() {
-    guard let provider = quickLaunchMode else { return }
+    guard let provider = viewState.quickLaunchMode else { return }
     Platform.services.playHaptic(.selection)
     router.openNewSession(provider: provider == .claude ? .claude : .codex)
     router.closeQuickSwitcher()
