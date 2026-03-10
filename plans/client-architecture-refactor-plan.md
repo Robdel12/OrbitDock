@@ -45,6 +45,9 @@ This plan is now an active execution document, not just a roadmap.
 - **Review phase 1d**
   - file header and compact file-strip rendering now live in dedicated review helpers instead of `ReviewCanvas`
   - the review shell now owns less mixed presentation/workflow code, making the remaining routing and interaction seams easier to isolate
+- **Review phase 1e**
+  - navigation/file-selection routing and editor-opening actions now live in dedicated review helpers instead of `ReviewCanvas`
+  - deterministic unit tests now cover file-id routing and selected-file projection behavior
 - **Window-local external navigation cleanup**
   - app-internal `.selectSession` broadcast routing has been replaced with a typed app-level external navigation center
   - external session selection now enters through a typed channel while actual navigation stays window-local
@@ -91,8 +94,8 @@ This plan is now an active execution document, not just a roadmap.
   - approval-card to composer routing is moving onto typed feature callbacks instead of process-wide notifications
   - these phases are not finished yet, but the shell now owns much less runtime lifecycle wiring than before
 - **Phase 10: Refactor the Review Feature**
-  - workflow, cursor/navigation, projection, comment composition, send coordination, and file chrome are now extracted from `ReviewCanvas`
-  - the main remaining work is navigation/editor routing plus mouse/composer interaction cleanup so the root view becomes a true shell
+  - workflow, cursor/navigation, projection, comment composition, send coordination, file chrome, and routing/editor actions are now extracted from `ReviewCanvas`
+  - the main remaining work is mouse/composer interaction cleanup so the root view becomes a true shell
 
 ### Next
 
@@ -100,7 +103,7 @@ This plan is now an active execution document, not just a roadmap.
 - keep thinning `SessionStore` and related store/runtime ownership
 - clean up the last obvious app-global leftovers, especially dead singletons and preview/runtime `.shared` leakage
 - then land complete feature phases in this order:
-  - review navigation/editor and composer-interaction cleanup
+  - review interaction cleanup
   - app-global ownership cleanup
   - larger screen decomposition
 
@@ -113,8 +116,8 @@ This plan is now an active execution document, not just a roadmap.
   - the remaining composer work is pending-approval state, attachments, and provider/action boundaries
 - **Review phase 1: Extract projection + workflow**
   - in progress
-  - review workflow, cursor/navigation, projection/state, comment composition/range-selection state, send coordination, and file chrome are now extracted into dedicated helpers
-  - the remaining work is navigation/editor routing and mouse/composer interaction cleanup so `ReviewCanvas` becomes a real feature shell
+  - review workflow, cursor/navigation, projection/state, comment composition/range-selection state, send coordination, file chrome, and routing/editor actions are now extracted into dedicated helpers
+  - the remaining work is mouse/composer interaction cleanup so `ReviewCanvas` becomes a real feature shell
   - unit tests now cover workflow behavior, cursor/navigation, review projection, comment-composer planning, and review send coordination
 - **Composer phase 2: Extract pending approval + action boundaries**
   - in progress

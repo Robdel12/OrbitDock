@@ -641,43 +641,6 @@ struct ReviewCanvas: View {
 
   // MARK: - Compact File Strip
 
-  // MARK: - Navigation Helpers
-
-  private func handlePendingNavigation() {
-    guard let fileId = navigateToFileId?.wrappedValue, !fileId.isEmpty else { return }
-    if let model = diffModel {
-      if let fileIdx = model.files.firstIndex(where: {
-        $0.id == fileId || $0.newPath == fileId
-          || $0.newPath.hasSuffix(fileId) || fileId.hasSuffix($0.newPath)
-      }) {
-        let targets = visibleTargets(model)
-        if let idx = targets.firstIndex(of: .fileHeader(fileIndex: fileIdx)) {
-          cursorIndex = idx
-        }
-      }
-    }
-    navigateToFileId?.wrappedValue = nil
-  }
-
-  /// Binding adapter for FileListNavigator — maps cursor to/from file ID.
-  private func fileListBinding(_ model: DiffModel) -> Binding<String?> {
-    Binding<String?>(
-      get: {
-        let fileIdx = currentFileIndex(model)
-        return fileIdx < model.files.count ? model.files[fileIdx].id : nil
-      },
-      set: { newId in
-        if let id = newId, let fileIdx = model.files.firstIndex(where: { $0.id == id }) {
-          isFollowing = false
-          let targets = visibleTargets(model)
-          if let idx = targets.firstIndex(of: .fileHeader(fileIndex: fileIdx)) {
-            cursorIndex = idx
-          }
-        }
-      }
-    )
-  }
-
   // MARK: - Helpers
 
   private func gapBetweenHunks(prev: DiffHunk, current: DiffHunk) -> Int {
@@ -686,26 +649,4 @@ struct ReviewCanvas: View {
     return max(0, currentStart - prevEnd)
   }
 
-  @AppStorage("preferredEditor") private var preferredEditor: String = ""
-
-  private func openFileInEditor(_ file: FileDiff) {
-    let fullPath = projectPath.hasSuffix("/")
-      ? projectPath + file.newPath
-      : projectPath + "/" + file.newPath
-
-    guard !preferredEditor.isEmpty else {
-      _ = Platform.services.openURL(URL(fileURLWithPath: fullPath))
-      return
-    }
-
-    #if !os(macOS)
-      _ = Platform.services.openURL(URL(fileURLWithPath: fullPath))
-      return
-    #else
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-      process.arguments = [preferredEditor, fullPath]
-      try? process.run()
-    #endif
-  }
 }
