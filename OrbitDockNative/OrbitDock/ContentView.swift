@@ -115,15 +115,6 @@ struct ContentView: View {
       windowSessionCoordinator.syncSessionObservers()
       windowSessionCoordinator.refreshSessions()
     }
-    .onReceive(NotificationCenter.default.publisher(for: .selectSession)) { notification in
-      guard let sessionID = notification.userInfo?["sessionId"] as? String else { return }
-      withAnimation(Motion.standard) {
-        windowSessionCoordinator.handleExternalSelection(
-          sessionID: sessionID,
-          endpointId: endpointId(from: notification)
-        )
-      }
-    }
     // Keyboard shortcuts
     .focusable()
     .onKeyPress(keys: [.escape]) { keyPress in
@@ -215,16 +206,6 @@ struct ContentView: View {
       .presentationDetents([.large])
       .presentationDragIndicator(.visible)
     #endif
-  }
-
-  private func endpointId(from notification: Notification) -> UUID? {
-    if let endpointId = notification.userInfo?["endpointId"] as? UUID {
-      return endpointId
-    }
-    if let endpointString = notification.userInfo?["endpointId"] as? String {
-      return UUID(uuidString: endpointString)
-    }
-    return nil
   }
 
   private func handleEscapeKey(_: KeyPress) -> KeyPress.Result {

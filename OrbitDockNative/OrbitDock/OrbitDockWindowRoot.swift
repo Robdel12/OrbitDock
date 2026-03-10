@@ -1,12 +1,14 @@
 import SwiftUI
 
 struct OrbitDockWindowRoot: View {
+  @Environment(\.scenePhase) private var scenePhase
   let appRuntime: OrbitDockAppRuntime
   @State private var attentionService: AttentionService
   @State private var notificationManager: NotificationManager
   @State private var router: AppRouter
   @State private var toastManager: ToastManager
   @State private var windowSessionCoordinator: WindowSessionCoordinator
+  @State private var windowID = UUID()
 
   init(appRuntime: OrbitDockAppRuntime) {
     self.appRuntime = appRuntime
@@ -40,6 +42,17 @@ struct OrbitDockWindowRoot: View {
       .environment(windowSessionCoordinator)
       .focusedSceneValue(\.orbitDockRouter, router)
       .preferredColorScheme(.dark)
+      .onAppear {
+        updateWindowFocus(for: scenePhase)
+        consumePendingExternalSelectionIfNeeded()
+      }
+      .onChange(of: scenePhase, initial: true) { _, newPhase in
+        updateWindowFocus(for: newPhase)
+        consumePendingExternalSelectionIfNeeded()
+      }
+      .onChange(of: appRuntime.externalNavigationCenter.pendingSelection?.id) { _, _ in
+        consumePendingExternalSelectionIfNeeded()
+      }
     #if os(iOS)
       .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
         appRuntime.runtimeRegistry.handleMemoryPressure()
@@ -47,5 +60,26 @@ struct OrbitDockWindowRoot: View {
         SyntaxHighlighter.clearCache()
       }
     #endif
+  }
+
+  private func updateWindowFocus(for phase: ScenePhase) {
+    if phase == .active {
+      appRuntime.externalNavigationCenter.updateFocusedWindow(windowID)
+    } else if appRuntime.externalNavigationCenter.focusedWindowID == windowID {
+      appRuntime.externalNavigationCenter.updateFocusedWindow(nil)
+    }
+  }
+
+  private func consumePendingExternalSelectionIfNeeded() {
+    guard scenePhase == .active else { return }
+    guard let request = appRuntime.externalNavigationCenter.selection(for: windowID) else { return }
+
+    withAnimation(Motion.standard) {
+      windowSessionCoordinator.handleExternalSelection(
+        sessionID: request.sessionId,
+        endpointId: request.endpointId
+      )
+    }
+    appRuntime.externalNavigationCenter.markHandled(request.id, by: windowID)
   }
 }

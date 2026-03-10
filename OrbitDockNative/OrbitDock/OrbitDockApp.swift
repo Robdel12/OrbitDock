@@ -183,11 +183,18 @@ struct OrbitDockWindowCommands: Commands {
       let userInfo = response.notification.request.content.userInfo
 
       if let sessionId = userInfo["sessionId"] as? String {
-        // Post notification to select this session
-        NotificationCenter.default.post(
-          name: .selectSession,
-          object: nil,
-          userInfo: ["sessionId": sessionId]
+        let endpointId: UUID? = {
+          if let raw = userInfo["endpointId"] as? UUID {
+            return raw
+          }
+          if let raw = userInfo["endpointId"] as? String {
+            return UUID(uuidString: raw)
+          }
+          return nil
+        }()
+        AppExternalNavigationCenter.shared.submitSessionSelection(
+          sessionId: sessionId,
+          endpointId: endpointId
         )
       }
 
@@ -198,10 +205,3 @@ struct OrbitDockWindowCommands: Commands {
     }
   }
 #endif
-
-// MARK: - Notification Names
-
-extension Notification.Name {
-  static let selectSession = Notification.Name("selectSession")
-  static let serverPrimaryEndpointDidChange = Notification.Name("serverPrimaryEndpointDidChange")
-}
