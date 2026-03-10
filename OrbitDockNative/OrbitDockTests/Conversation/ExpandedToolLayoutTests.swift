@@ -58,8 +58,8 @@ struct ExpandedToolLayoutTests {
 
   @Test func diffGutterMetricsReserveColumnsForBothLineNumbers() {
     let lines = [
-      DiffLine(type: .context, oldLineNum: 9, newLineNum: 9, content: "let a = 1"),
-      DiffLine(type: .added, oldLineNum: nil, newLineNum: 123, content: "let b = 2"),
+      DiffLine(type: .context, content: "let a = 1", oldLineNum: 9, newLineNum: 9, prefix: " "),
+      DiffLine(type: .added, content: "let b = 2", oldLineNum: nil, newLineNum: 123, prefix: "+"),
     ]
 
     let metrics = ExpandedToolLayout.diffGutterMetrics(for: lines)

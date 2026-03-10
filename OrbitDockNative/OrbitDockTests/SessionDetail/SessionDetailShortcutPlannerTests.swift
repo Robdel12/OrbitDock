@@ -2,6 +2,7 @@ import SwiftUI
 import Testing
 @testable import OrbitDock
 
+@MainActor
 struct SessionDetailShortcutPlannerTests {
   @Test func ignoresShortcutsForPassiveSessions() {
     #expect(

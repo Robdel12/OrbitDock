@@ -20,7 +20,7 @@ enum QuickSwitcherKeyboardActionResolver {
     return .select
   }
 
-  static func resolveCharacter(_ key: String, modifiers: EventModifiers) -> QuickSwitcherKeyboardAction {
+  static func resolveCharacter(_ key: KeyEquivalent, modifiers: EventModifiers) -> QuickSwitcherKeyboardAction {
     if key == "p", modifiers.contains(.control) {
       return .moveUp
     }

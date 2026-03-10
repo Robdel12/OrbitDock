@@ -18,6 +18,22 @@ This plan is intentionally phased. We want real progress with low-risk checkpoin
 
 This plan is now an active execution document, not just a roadmap.
 
+### Current Pivot
+
+We have already done the hard foundation work: transport split, runtime readiness, control-plane cleanup,
+conversation recovery, and the first major feature extractions. The next phase is intentionally a bigger
+rewrite phase again, not more endless shell-slimming.
+
+The remaining debt is concentrated in a few cross-cutting surfaces:
+
+- the conversation renderer stack
+- `SessionDetailView` as a feature shell
+- the remaining review feature root
+- any last duplicated session state ownership between the store, observable detail state, and projections
+
+Those are now the priority. Smaller presentation extractions are only worth doing when they directly help one
+of those rewrite-sized targets land cleanly.
+
 ### Done
 
 - **Phase 0: Guardrails and Architecture Notes**
@@ -180,11 +196,30 @@ This plan is now an active execution document, not just a roadmap.
 
 ### Next
 
-- finish the remaining window-local routing cleanup and remove the last app-internal notification paths
-- keep thinning `SessionStore` and related store/runtime ownership now that the control-state reducer is in place
-- then land complete feature phases in this order:
-  - larger screen decomposition
-  - app shell / session-detail cleanup
+- finish the remaining rewrite-sized targets in this order:
+  - conversation renderer rewrite
+  - `SessionDetailView` rewrite
+  - review feature finish
+  - final store / observable ownership cleanup
+- only after those land, do any remaining larger-screen decomposition that still feels worthwhile
+
+### Active Rewrite Targets
+
+- **Conversation renderer rewrite**
+  - rewrite `ToolCellModels`, `ExpandedToolCellView`, and the platform conversation hosts around cleaner seams:
+    - model building / projection
+    - pure layout math
+    - platform host coordination
+  - the goal is not to merely split files. The goal is to remove cross-cutting renderer concerns so the
+    conversation surface has obvious ownership boundaries.
+- **Session detail rewrite**
+  - make `SessionDetailView` a real shell over typed child features instead of a mixed view/orchestration root
+- **Review feature finish**
+  - finish the last review-root cleanup so `ReviewCanvas` becomes a small shell over projection, workflow,
+    routing, and rendering modules
+- **Final session state ownership pass**
+  - make one last deliberate pass over `SessionStore`, `SessionObservable`, and projection ownership so we do not
+    carry forward duplicated or leaky state patterns
 
 ### Next complete phases
 

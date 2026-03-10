@@ -254,186 +254,33 @@ extension DirectSessionComposer {
         )
       }
     } else {
-      let boundedIndex = min(max(pendingState.promptIndex, 0), max(0, prompts.count - 1))
-      let prompt = prompts[boundedIndex]
-
-      VStack(alignment: .leading, spacing: Spacing.sm) {
-        // ━━━ Progress header (multi-question) ━━━
-        if prompts.count > 1 {
-          DirectSessionComposerPendingQuestionProgress(
-            currentIndex: boundedIndex,
-            totalCount: prompts.count,
-            isCompactLayout: isCompactLayout,
-            dotColors: (0 ..< prompts.count).map { i in
-              pendingPromptIsAnswered(prompts[i])
-                ? .statusQuestion
-                : i == boundedIndex
-                ? Color.statusQuestion.opacity(0.4)
-                : Color.textQuaternary.opacity(0.3)
-            }
+      DirectSessionComposerPendingQuestionContent(
+        prompts: prompts,
+        activeIndex: pendingState.promptIndex,
+        isCompactLayout: isCompactLayout,
+        answeredState: prompts.map(pendingPromptIsAnswered),
+        answers: pendingState.answers,
+        drafts: pendingState.drafts,
+        onSelectPrompt: { index in
+          withAnimation(Motion.gentle) {
+            pendingState.promptIndex = index
+          }
+        },
+        onToggleOption: { questionId, optionLabel, allowsMultipleSelection in
+          pendingToggleAnswer(
+            questionId: questionId,
+            optionLabel: optionLabel,
+            allowsMultipleSelection: allowsMultipleSelection
           )
-
-          pendingQuestionMap(prompts: prompts, activeIndex: boundedIndex)
-        }
-
-        pendingPromptCard(prompt: prompt, index: boundedIndex, totalCount: prompts.count)
-      }
-    }
-  }
-
-  func pendingQuestionMap(prompts: [ApprovalQuestionPrompt], activeIndex: Int) -> some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: Spacing.xs) {
-        ForEach(Array(prompts.enumerated()), id: \.offset) { index, prompt in
-          let answered = pendingPromptIsAnswered(prompt)
-          let header = prompt.header?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Q\(index + 1)"
-          let isActive = index == activeIndex
-
-          Button {
-            withAnimation(Motion.gentle) {
-              pendingState.promptIndex = index
-            }
-          } label: {
-            HStack(spacing: Spacing.xs) {
-              if answered {
-                Image(systemName: "checkmark")
-                  .font(.system(size: TypeScale.mini, weight: .bold))
-              }
-              Text(header)
-                .font(.system(size: TypeScale.micro, weight: .semibold))
-            }
-            .foregroundStyle(
-              isActive ? Color.textPrimary : answered ? Color.statusQuestion : Color.textSecondary
-            )
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
-            .cosmicBadge(
-              color: isActive ? .statusQuestion : answered ? .statusQuestion : .textQuaternary,
-              shape: .roundedRect,
-              backgroundOpacity: isActive
-                ? OpacityTier.medium : answered ? OpacityTier.subtle : OpacityTier.tint
-            )
+        },
+        onAdvanceAfterSingleSelection: {
+          withAnimation(Motion.gentle) {
+            pendingState.promptIndex += 1
           }
-          .buttonStyle(.plain)
+        },
+        onDraftChanged: { questionId, value in
+          pendingState.drafts[questionId] = value
         }
-      }
-    }
-  }
-
-  func pendingPromptCard(
-    prompt: ApprovalQuestionPrompt,
-    index: Int,
-    totalCount: Int
-  ) -> some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      // ━━━ Question text ━━━
-      Text(prompt.question)
-        .font(.system(size: TypeScale.body, weight: .semibold))
-        .foregroundStyle(Color.textPrimary)
-        .lineSpacing(2)
-        .fixedSize(horizontal: false, vertical: true)
-        .multilineTextAlignment(.leading)
-
-      // ━━━ Options ━━━
-      if !prompt.options.isEmpty {
-        Text(pendingPromptInstructionText(prompt))
-          .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(Color.textTertiary)
-
-        VStack(spacing: Spacing.xs) {
-          ForEach(Array(prompt.options.enumerated()), id: \.offset) { _, option in
-            let isSelected = (pendingState.answers[prompt.id] ?? []).contains(option.label)
-            DirectSessionComposerPendingQuestionOptionRow(option: option, isSelected: isSelected) {
-              pendingToggleAnswer(
-                questionId: prompt.id,
-                optionLabel: option.label,
-                allowsMultipleSelection: prompt.allowsMultipleSelection
-              )
-              if !prompt.allowsMultipleSelection, !prompt.allowsOther, index < totalCount - 1 {
-                withAnimation(Motion.gentle) {
-                  pendingState.promptIndex = index + 1
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // ━━━ Free-form input ━━━
-      if prompt.options.isEmpty || prompt.allowsOther {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          if prompt.allowsOther, !prompt.options.isEmpty {
-            Text("Or type your own response.")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
-          }
-
-          pendingPromptDraftInput(prompt)
-        }
-      }
-    }
-  }
-
-  func pendingPromptInstructionText(_ prompt: ApprovalQuestionPrompt) -> String {
-    if prompt.allowsMultipleSelection {
-      return "Select all that apply"
-    }
-    if prompt.allowsOther {
-      return "Choose an option or type your own"
-    }
-    return "Choose one"
-  }
-
-  @ViewBuilder
-  func pendingPromptDraftInput(_ prompt: ApprovalQuestionPrompt) -> some View {
-    let draftBinding = Binding(
-      get: { pendingState.drafts[prompt.id] ?? "" },
-      set: { pendingState.drafts[prompt.id] = $0 }
-    )
-
-    if prompt.isSecret {
-      SecureField("Secure response", text: draftBinding)
-        .textFieldStyle(.plain)
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textPrimary)
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, Spacing.sm)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .fill(Color.backgroundCode)
-        )
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .strokeBorder(Color.surfaceBorder.opacity(OpacityTier.subtle), lineWidth: 1)
-        )
-    } else {
-      ZStack(alignment: .topLeading) {
-        if (pendingState.drafts[prompt.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-          .isEmpty
-        {
-          Text("Your response")
-            .font(.system(size: TypeScale.caption, weight: .regular))
-            .foregroundStyle(Color.textQuaternary)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.sm)
-            .allowsHitTesting(false)
-        }
-
-        TextEditor(text: draftBinding)
-          .font(.system(size: TypeScale.caption, weight: .regular))
-          .foregroundStyle(Color.textPrimary)
-          .scrollContentBackground(.hidden)
-          .padding(.horizontal, Spacing.xs)
-          .padding(.vertical, Spacing.xs)
-      }
-      .frame(minHeight: isCompactLayout ? 68 : 80)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .fill(Color.backgroundCode)
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .strokeBorder(Color.statusQuestion.opacity(OpacityTier.subtle), lineWidth: 1)
       )
     }
   }
@@ -673,55 +520,35 @@ extension DirectSessionComposer {
       let boundedIndex = min(
         max(pendingState.promptIndex, 0), max(0, prompts.count - 1)
       )
-      let isLastQuestion = boundedIndex >= prompts.count - 1
       let prompt = prompts[boundedIndex]
-      let isDisabled = isLastQuestion
+      let isDisabled = boundedIndex >= prompts.count - 1
         ? !pendingAllPromptsAnswered(prompts)
         : !pendingPromptIsAnswered(prompt)
 
-      HStack(spacing: Spacing.sm_) {
-        Button {
+      DirectSessionComposerPendingQuestionFooter(
+        prompts: prompts,
+        activeIndex: boundedIndex,
+        submitDisabled: isDisabled,
+        isCompactLayout: isCompactLayout,
+        onDismiss: {
           sendPendingDecision(model: model, decision: "denied", message: "Dismissed", interrupt: nil)
-        } label: {
-          Text("Dismiss")
-            .font(.system(size: TypeScale.caption, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-        }
-        .buttonStyle(.plain)
-
-        if prompts.count > 1 {
-          Button {
-            withAnimation(Motion.gentle) {
-              pendingState.promptIndex = max(0, boundedIndex - 1)
-            }
-            Platform.services.playHaptic(.selection)
-          } label: {
-            Text("Back")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(Color.textSecondary)
+        },
+        onBack: {
+          withAnimation(Motion.gentle) {
+            pendingState.promptIndex = max(0, boundedIndex - 1)
           }
-          .buttonStyle(.plain)
-          .disabled(boundedIndex == 0)
-          .opacity(boundedIndex == 0 ? 0.4 : 1.0)
-        }
-
-        DirectSessionComposerPendingFooterIconButton(
-          systemName: isLastQuestion ? "arrow.up" : "arrow.right",
-          iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
-          dimension: buttonSize,
-          fillColor: isDisabled ? Color.surfaceHover : Color.statusQuestion.opacity(0.85),
-          isDisabled: isDisabled
-        ) {
-          if !isLastQuestion {
-            withAnimation(Motion.gentle) {
-              pendingState.promptIndex = boundedIndex + 1
-            }
-            Platform.services.playHaptic(.selection)
-          } else {
-            sendPendingQuestionAnswers(model: model, prompts: prompts)
+          Platform.services.playHaptic(.selection)
+        },
+        onAdvance: {
+          withAnimation(Motion.gentle) {
+            pendingState.promptIndex = boundedIndex + 1
           }
+          Platform.services.playHaptic(.selection)
+        },
+        onSubmit: {
+          sendPendingQuestionAnswers(model: model, prompts: prompts)
         }
-      }
+      )
     }
   }
 

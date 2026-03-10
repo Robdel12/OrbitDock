@@ -2,7 +2,7 @@
 //  TodoToolParsing.swift
 //  OrbitDock
 //
-//  Shared parsing for TodoWrite/task plan tool payloads.
+//  Shared parsing for todo/task-plan tool payloads.
 //
 
 import Foundation
@@ -30,11 +30,8 @@ enum TodoToolOperation {
 
   private static func normalizedName(_ raw: String) -> String {
     let lowercased = raw.lowercased()
-    if lowercased.hasPrefix("mcp__") {
-      let parts = lowercased.split(separator: "__")
-      if let suffix = parts.last {
-        return String(suffix)
-      }
+    if lowercased.hasPrefix("mcp__"), let suffix = lowercased.split(separator: "__").last {
+      return String(suffix)
     }
     if lowercased.contains(":") {
       let suffix = lowercased.split(separator: ":").last ?? Substring(lowercased)
@@ -99,9 +96,7 @@ enum TodoToolParser {
   }
 
   static func compactSummary(from message: TranscriptMessage, supportsRichToolingCards: Bool) -> String? {
-    guard let toolName = message.toolName,
-          TodoToolOperation(toolName: toolName) != nil
-    else {
+    guard let toolName = message.toolName, TodoToolOperation(toolName: toolName) != nil else {
       return nil
     }
 
@@ -110,6 +105,7 @@ enum TodoToolParser {
       toolName: toolName,
       supportsRichToolingCards: supportsRichToolingCards
     )
+
     if let active = payload?.items.first(where: { $0.status == .inProgress }) {
       return active.primaryText
     }
@@ -263,13 +259,20 @@ enum TodoToolParser {
 
   private static func shouldSuppressOutput(_ output: String?, parsedItems: [NativeTodoItem]) -> Bool {
     guard !parsedItems.isEmpty else { return false }
-    guard let output = trimmed(output) else { return false }
-    return output.hasPrefix("{") || output.hasPrefix("[")
+    guard let output = trimmed(output), !output.isEmpty else { return true }
+
+    if let data = output.data(using: .utf8),
+       let json = try? JSONSerialization.jsonObject(with: data),
+       json is [String: Any] || json is [Any]
+    {
+      return true
+    }
+
+    return false
   }
 
   private static func trimmed(_ value: String?) -> String? {
-    guard let value else { return nil }
-    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
+    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed?.isEmpty == false ? trimmed : nil
   }
 }

@@ -6,12 +6,6 @@
 import SwiftUI
 
 struct ConversationView: View {
-  private enum LoadState {
-    case loading
-    case empty
-    case ready
-  }
-
   let sessionId: String?
   var endpointId: UUID?
   var isSessionActive: Bool = false
@@ -50,31 +44,36 @@ struct ConversationView: View {
     conversationStore?.normalizedMessages ?? []
   }
 
-  private var loadState: LoadState {
-    guard let conversationStore else { return .empty }
-    if conversationStore.hasRenderableConversation || !displayedMessages.isEmpty {
-      return .ready
+  private var viewState: ConversationViewState {
+    guard let conversationStore else {
+      return ConversationViewState(
+        loadState: .empty,
+        hasMoreMessages: false,
+        remainingLoadCount: 0,
+        totalMessageCount: displayedMessages.count
+      )
     }
-    switch conversationStore.hydrationState {
-      case .empty, .loadingRecent:
-        return .loading
-      case .readyPartial, .readyComplete, .failed:
-        return .empty
-    }
+
+    return ConversationViewState.derive(
+      messageCount: displayedMessages.count,
+      totalMessageCount: conversationStore.totalMessageCount,
+      hasRenderableConversation: conversationStore.hasRenderableConversation,
+      hydrationState: conversationStore.hydrationState,
+      hasMoreHistoryBefore: conversationStore.hasMoreHistoryBefore,
+      pageSize: pageSize
+    )
   }
 
   var hasMoreMessages: Bool {
-    conversationStore?.hasMoreHistoryBefore ?? false
+    viewState.hasMoreMessages
   }
 
   var remainingLoadCount: Int {
-    guard let conversationStore else { return 0 }
-    return min(pageSize, max(0, conversationStore.totalMessageCount - displayedMessages.count))
+    viewState.remainingLoadCount
   }
 
   private var totalMessageCount: Int {
-    guard let conversationStore else { return displayedMessages.count }
-    return max(displayedMessages.count, conversationStore.totalMessageCount)
+    viewState.totalMessageCount
   }
 
   var body: some View {
@@ -83,7 +82,7 @@ struct ConversationView: View {
       Color.backgroundPrimary
         .ignoresSafeArea()
 
-      switch loadState {
+      switch viewState.loadState {
         case .loading:
           ConversationLoadingView()
             .transition(.opacity)
@@ -109,7 +108,7 @@ struct ConversationView: View {
           .transition(.opacity)
       }
     }
-    .animation(Motion.fade, value: loadState == .loading)
+    .animation(Motion.fade, value: viewState.loadState == .loading)
     .animation(Motion.fade, value: displayedMessages.isEmpty)
     .onChange(of: sessionId) { _, newId in
       loadedSessionId = newId

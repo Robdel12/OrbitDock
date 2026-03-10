@@ -239,3 +239,279 @@ struct PendingDenyReasonField: View {
       )
   }
 }
+
+struct DirectSessionComposerPendingQuestionContent: View {
+  let prompts: [ApprovalQuestionPrompt]
+  let activeIndex: Int
+  let isCompactLayout: Bool
+  let answeredState: [Bool]
+  let answers: [String: [String]]
+  let drafts: [String: String]
+  let onSelectPrompt: (Int) -> Void
+  let onToggleOption: (String, String, Bool) -> Void
+  let onAdvanceAfterSingleSelection: () -> Void
+  let onDraftChanged: (String, String) -> Void
+
+  var body: some View {
+    if prompts.isEmpty {
+      EmptyView()
+    } else {
+      let boundedIndex = min(max(activeIndex, 0), max(0, prompts.count - 1))
+      let prompt = prompts[boundedIndex]
+
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        if prompts.count > 1 {
+          DirectSessionComposerPendingQuestionProgress(
+            currentIndex: boundedIndex,
+            totalCount: prompts.count,
+            isCompactLayout: isCompactLayout,
+            dotColors: (0 ..< prompts.count).map { index in
+              answeredState[index]
+                ? .statusQuestion
+                : index == boundedIndex
+                ? Color.statusQuestion.opacity(0.4)
+                : Color.textQuaternary.opacity(0.3)
+            }
+          )
+
+          DirectSessionComposerPendingQuestionMap(
+            prompts: prompts,
+            activeIndex: boundedIndex,
+            answeredState: answeredState,
+            onSelectPrompt: onSelectPrompt
+          )
+        }
+
+        DirectSessionComposerPendingPromptCard(
+          prompt: prompt,
+          index: boundedIndex,
+          totalCount: prompts.count,
+          isCompactLayout: isCompactLayout,
+          selectedAnswers: answers[prompt.id] ?? [],
+          draft: drafts[prompt.id] ?? "",
+          onToggleOption: { optionLabel in
+            onToggleOption(prompt.id, optionLabel, prompt.allowsMultipleSelection)
+            if !prompt.allowsMultipleSelection && !prompt.allowsOther && boundedIndex < prompts.count - 1 {
+              onAdvanceAfterSingleSelection()
+            }
+          },
+          onDraftChanged: { onDraftChanged(prompt.id, $0) }
+        )
+      }
+    }
+  }
+}
+
+private struct DirectSessionComposerPendingQuestionMap: View {
+  let prompts: [ApprovalQuestionPrompt]
+  let activeIndex: Int
+  let answeredState: [Bool]
+  let onSelectPrompt: (Int) -> Void
+
+  var body: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: Spacing.xs) {
+        ForEach(Array(prompts.enumerated()), id: \.offset) { index, prompt in
+          let answered = answeredState[index]
+          let header = prompt.header?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "Q\(index + 1)"
+          let isActive = index == activeIndex
+
+          Button {
+            onSelectPrompt(index)
+          } label: {
+            HStack(spacing: Spacing.xs) {
+              if answered {
+                Image(systemName: "checkmark")
+                  .font(.system(size: TypeScale.mini, weight: .bold))
+              }
+              Text(header)
+                .font(.system(size: TypeScale.micro, weight: .semibold))
+            }
+            .foregroundStyle(
+              isActive ? Color.textPrimary : answered ? Color.statusQuestion : Color.textSecondary
+            )
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .cosmicBadge(
+              color: isActive ? .statusQuestion : answered ? .statusQuestion : .textQuaternary,
+              shape: .roundedRect,
+              backgroundOpacity: isActive
+                ? OpacityTier.medium : answered ? OpacityTier.subtle : OpacityTier.tint
+            )
+          }
+          .buttonStyle(.plain)
+        }
+      }
+    }
+  }
+}
+
+private struct DirectSessionComposerPendingPromptCard: View {
+  let prompt: ApprovalQuestionPrompt
+  let index: Int
+  let totalCount: Int
+  let isCompactLayout: Bool
+  let selectedAnswers: [String]
+  let draft: String
+  let onToggleOption: (String) -> Void
+  let onDraftChanged: (String) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      Text(prompt.question)
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
+        .lineSpacing(2)
+        .fixedSize(horizontal: false, vertical: true)
+        .multilineTextAlignment(.leading)
+
+      if !prompt.options.isEmpty {
+        Text(promptInstructionText)
+          .font(.system(size: TypeScale.micro, weight: .medium))
+          .foregroundStyle(Color.textTertiary)
+
+        VStack(spacing: Spacing.xs) {
+          ForEach(Array(prompt.options.enumerated()), id: \.offset) { _, option in
+            DirectSessionComposerPendingQuestionOptionRow(
+              option: option,
+              isSelected: selectedAnswers.contains(option.label)
+            ) {
+              onToggleOption(option.label)
+            }
+          }
+        }
+      }
+
+      if prompt.options.isEmpty || prompt.allowsOther {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          if prompt.allowsOther, !prompt.options.isEmpty {
+            Text("Or type your own response.")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+          }
+
+          DirectSessionComposerPendingPromptDraftInput(
+            prompt: prompt,
+            draft: draft,
+            isCompactLayout: isCompactLayout,
+            onDraftChanged: onDraftChanged
+          )
+        }
+      }
+    }
+  }
+
+  private var promptInstructionText: String {
+    if prompt.allowsMultipleSelection {
+      return "Select all that apply"
+    }
+    if prompt.allowsOther {
+      return "Choose an option or type your own"
+    }
+    return "Choose one"
+  }
+}
+
+private struct DirectSessionComposerPendingPromptDraftInput: View {
+  let prompt: ApprovalQuestionPrompt
+  let draft: String
+  let isCompactLayout: Bool
+  let onDraftChanged: (String) -> Void
+
+  var body: some View {
+    if prompt.isSecret {
+      SecureField(
+        "Secure response",
+        text: Binding(get: { draft }, set: onDraftChanged)
+      )
+      .textFieldStyle(.plain)
+      .font(.system(size: TypeScale.caption))
+      .foregroundStyle(Color.textPrimary)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .fill(Color.backgroundCode)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .strokeBorder(Color.surfaceBorder.opacity(OpacityTier.subtle), lineWidth: 1)
+      )
+    } else {
+      ZStack(alignment: .topLeading) {
+        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          Text("Your response")
+            .font(.system(size: TypeScale.caption, weight: .regular))
+            .foregroundStyle(Color.textQuaternary)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.sm)
+            .allowsHitTesting(false)
+        }
+
+        TextEditor(text: Binding(get: { draft }, set: onDraftChanged))
+          .font(.system(size: TypeScale.caption, weight: .regular))
+          .foregroundStyle(Color.textPrimary)
+          .scrollContentBackground(.hidden)
+          .padding(.horizontal, Spacing.xs)
+          .padding(.vertical, Spacing.xs)
+      }
+      .frame(minHeight: isCompactLayout ? 68 : 80)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .fill(Color.backgroundCode)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .strokeBorder(Color.statusQuestion.opacity(OpacityTier.subtle), lineWidth: 1)
+      )
+    }
+  }
+}
+
+struct DirectSessionComposerPendingQuestionFooter: View {
+  let prompts: [ApprovalQuestionPrompt]
+  let activeIndex: Int
+  let submitDisabled: Bool
+  let isCompactLayout: Bool
+  let onDismiss: () -> Void
+  let onBack: () -> Void
+  let onAdvance: () -> Void
+  let onSubmit: () -> Void
+
+  var body: some View {
+    let buttonSize: CGFloat = isCompactLayout ? 34 : 28
+
+    HStack(spacing: Spacing.sm_) {
+      Button(action: onDismiss) {
+        Text("Dismiss")
+          .font(.system(size: TypeScale.caption, weight: .medium))
+          .foregroundStyle(Color.textSecondary)
+      }
+      .buttonStyle(.plain)
+
+      if prompts.count > 1 {
+        Button(action: onBack) {
+          Text("Back")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+        }
+        .buttonStyle(.plain)
+        .disabled(activeIndex == 0)
+        .opacity(activeIndex == 0 ? 0.4 : 1.0)
+      }
+
+      DirectSessionComposerPendingFooterIconButton(
+        systemName: isLastQuestion ? "arrow.up" : "arrow.right",
+        iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
+        dimension: buttonSize,
+        fillColor: submitDisabled ? Color.surfaceHover : Color.statusQuestion.opacity(0.85),
+        isDisabled: submitDisabled,
+        action: isLastQuestion ? onSubmit : onAdvance
+      )
+    }
+  }
+
+  private var isLastQuestion: Bool {
+    activeIndex >= prompts.count - 1
+  }
+}

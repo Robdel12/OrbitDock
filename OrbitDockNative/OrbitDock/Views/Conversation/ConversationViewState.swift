@@ -5,13 +5,13 @@
 
 import Foundation
 
-enum ConversationViewLoadState: Equatable {
+nonisolated enum ConversationViewLoadState: Equatable, Sendable {
   case loading
   case empty
   case ready
 }
 
-struct ConversationViewState: Equatable {
+struct ConversationViewState: Equatable, Sendable {
   let loadState: ConversationViewLoadState
   let hasMoreMessages: Bool
   let remainingLoadCount: Int
