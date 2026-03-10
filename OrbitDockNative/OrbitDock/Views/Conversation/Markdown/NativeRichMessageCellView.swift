@@ -868,21 +868,16 @@ import SwiftUI
       return badge
     }
 
-    private static func formatDimensions(width: Int, height: Int, bytes: Int) -> String {
-      "\(width) \u{00D7} \(height)  \u{00B7}  \(ConversationImageLayout.formattedByteCount(bytes))"
-    }
-
     private static func formatImageMetadata(
       for image: MessageImage,
       originalWidth: Int?,
       originalHeight: Int?
     ) -> String {
-      let width = originalWidth ?? image.pixelWidth
-      let height = originalHeight ?? image.pixelHeight
-      guard let width, let height, width > 0, height > 0 else {
-        return ConversationImageLayout.formattedByteCount(image.byteCount)
-      }
-      return formatDimensions(width: width, height: height, bytes: image.byteCount)
+      ConversationRichMessageSupport.imageMetadata(
+        for: image,
+        originalWidth: originalWidth,
+        originalHeight: originalHeight
+      )
     }
 
     /// Click handler to open fullscreen image viewer.
@@ -913,7 +908,7 @@ import SwiftUI
     }
 
     static func imageBlockHeight(for images: [MessageImage], availableWidth: CGFloat) -> CGFloat {
-      ConversationImageLayout.blockHeight(for: images, availableWidth: availableWidth) { image in
+      ConversationRichMessageSupport.imageBlockHeight(for: images, availableWidth: availableWidth) { image in
         ImageCache.shared.image(for: image)?.size
       }
     }
@@ -938,14 +933,7 @@ import SwiftUI
       model: NativeRichMessageRowModel,
       blocks: [MarkdownBlock]
     ) -> CGFloat {
-      let bodyHeight = ConversationRichMessageLayout.bodyHeight(
-        for: width,
-        model: model,
-        blocks: blocks
-      ) { availableWidth in
-        imageBlockHeight(for: model.images, availableWidth: availableWidth)
-      }
-      let total = ConversationRichMessageLayout.requiredHeight(
+      let measurement = ConversationRichMessageSupport.measureHeight(
         for: width,
         model: model,
         blocks: blocks
@@ -954,10 +942,10 @@ import SwiftUI
       }
       logger.debug(
         "requiredHeight-rich[\(model.messageID)] \(model.messageType) "
-          + "body=\(f(bodyHeight)) total=\(f(total)) w=\(f(width)) "
+          + "body=\(f(measurement.bodyHeight)) total=\(f(measurement.totalHeight)) w=\(f(width)) "
           + "blocks=\(blocks.count) chars=\(model.displayContent.count)"
       )
-      return total
+      return measurement.totalHeight
     }
 
     private static func f(_ v: CGFloat) -> String {

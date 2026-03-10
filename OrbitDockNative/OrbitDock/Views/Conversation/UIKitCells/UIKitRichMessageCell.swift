@@ -848,21 +848,16 @@
       return badge
     }
 
-    private static func formatDimensions(width: Int, height: Int, bytes: Int) -> String {
-      "\(width) \u{00D7} \(height)  \u{00B7}  \(ConversationImageLayout.formattedByteCount(bytes))"
-    }
-
     private static func formatImageMetadata(
       for image: MessageImage,
       originalWidth: Int?,
       originalHeight: Int?
     ) -> String {
-      let width = originalWidth ?? image.pixelWidth
-      let height = originalHeight ?? image.pixelHeight
-      guard let width, let height, width > 0, height > 0 else {
-        return ConversationImageLayout.formattedByteCount(image.byteCount)
-      }
-      return formatDimensions(width: width, height: height, bytes: image.byteCount)
+      ConversationRichMessageSupport.imageMetadata(
+        for: image,
+        originalWidth: originalWidth,
+        originalHeight: originalHeight
+      )
     }
 
     private func addFullscreenTap(to container: UIView, imageIndex: Int) {
@@ -897,7 +892,7 @@
     }
 
     static func imageBlockHeight(for images: [MessageImage], availableWidth: CGFloat) -> CGFloat {
-      ConversationImageLayout.blockHeight(for: images, availableWidth: availableWidth) { image in
+      ConversationRichMessageSupport.imageBlockHeight(for: images, availableWidth: availableWidth) { image in
         ImageCache.shared.image(for: image)?.size
       }
     }
@@ -911,8 +906,7 @@
         let presentation = ConversationRichMessageLayout.presentation(for: model)
         blocks = MarkdownSystemParser.parse(model.displayContent, style: presentation.contentStyle)
       }
-      let body = bodyHeight(for: width, model: model, blocks: blocks)
-      let total = ConversationRichMessageLayout.requiredHeight(
+      let measurement = ConversationRichMessageSupport.measureHeight(
         for: width,
         model: model,
         blocks: blocks
@@ -921,24 +915,10 @@
       }
       logger.debug(
         "requiredHeight-rich[\(model.messageID.prefix(8))] \(model.messageType) "
-          + "body=\(f(body)) total=\(f(total)) "
+          + "body=\(f(measurement.bodyHeight)) total=\(f(measurement.totalHeight)) "
           + "w=\(f(width)) blocks=\(blocks.count)"
       )
-      return total
-    }
-
-    private static func bodyHeight(
-      for width: CGFloat,
-      model: NativeRichMessageRowModel,
-      blocks: [MarkdownBlock]
-    ) -> CGFloat {
-      ConversationRichMessageLayout.bodyHeight(
-        for: width,
-        model: model,
-        blocks: blocks
-      ) { availableWidth in
-        imageBlockHeight(for: model.images, availableWidth: availableWidth)
-      }
+      return measurement.totalHeight
     }
   }
 
