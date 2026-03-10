@@ -9,6 +9,7 @@ struct SessionDetailReviewSendPlannerTests {
         id: "c-1",
         filePath: "Sources/App.swift",
         lineStart: 10,
+        lineEnd: 11,
         body: "Please rename this helper",
         status: .open
       ),
@@ -49,6 +50,7 @@ struct SessionDetailReviewSendPlannerTests {
         id: "c-1",
         filePath: "Sources/App.swift",
         lineStart: 10,
+        lineEnd: 11,
         body: "Please rename this helper",
         status: .open
       ),
@@ -90,6 +92,7 @@ struct SessionDetailReviewSendPlannerTests {
     id: String,
     filePath: String,
     lineStart: UInt32,
+    lineEnd: UInt32? = nil,
     body: String,
     status: ServerReviewCommentStatus
   ) -> ServerReviewComment {
@@ -99,7 +102,7 @@ struct SessionDetailReviewSendPlannerTests {
       turnId: "turn-1",
       filePath: filePath,
       lineStart: lineStart,
-      lineEnd: nil,
+      lineEnd: lineEnd,
       body: body,
       tag: nil,
       status: status,
