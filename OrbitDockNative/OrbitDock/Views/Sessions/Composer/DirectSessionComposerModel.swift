@@ -8,6 +8,25 @@
 import CoreGraphics
 import Foundation
 
+struct DirectSessionComposerState: Equatable {
+  var message = ""
+  var isSending = false
+  var errorMessage: String?
+  var selectedModel = ""
+  var selectedClaudeModel = ""
+  var selectedEffort: EffortLevel = .default
+  var showModelEffortPopover = false
+  var showClaudeModelPopover = false
+  var showFilePickerPopover = false
+  var filePickerQuery = ""
+  var manualReviewMode = false
+  var manualShellMode = false
+  var dictationDraftBaseMessage: String?
+  var showForkToWorktreeSheet = false
+  var showForkToExistingWorktreeSheet = false
+  var permissionPanelExpanded = false
+}
+
 nonisolated enum ComposerInputLoadRequest: Hashable, Sendable {
   case skills
   case projectFiles

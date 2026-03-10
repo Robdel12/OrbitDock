@@ -217,6 +217,7 @@ of those rewrite-sized targets land cleanly.
 
 - **Conversation renderer rewrite**
   - `ExpandedToolCellView` and the platform tool hosts now share extracted expanded-tool render planning instead of rebuilding payload/layout logic inline
+  - expanded tool card chrome, header accessories, and payload label geometry now route through a dedicated cell-planning layer with targeted tests, so the native cell is much more of an adapter
   - rich-message layout and presentation rules now live in a shared planner instead of being duplicated across AppKit/UIKit hosts
   - `UserBashCard` parsing has been split into a dedicated pure parser with unit tests, reducing mixed parsing/rendering concerns in tool-card views
   - finish rewriting `ToolCellModels`, `ExpandedToolCellView`, and the platform conversation hosts around cleaner seams:
@@ -247,6 +248,7 @@ of those rewrite-sized targets land cleanly.
   - effectively done
   - pending approval presentation state, pure approval/question planning, attachment state/planning, skill resolution, send payload preparation, async send execution, provider controls, workflow menus, provider display rules, and command-deck construction are now extracted
   - the pending footer shell now routes through dedicated shell views plus deterministic footer-state planners instead of mixing that decision logic into the root pending-panel extension
+  - composer mutable state now has a dedicated feature-state owner and the read-only derived session/runtime/provider state now lives in a separate view-state file instead of being smeared across the root view
   - the remaining work is now just incidental display polish or any future provider-specific behavior, not another architecture pass
   - keep the root view focused on rendering bindings into the composer model
   - add deterministic tests for pending-action routing, attachment behavior, and provider-aware send execution

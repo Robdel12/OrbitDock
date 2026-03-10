@@ -266,11 +266,11 @@ extension DirectSessionComposer {
     }
     .buttonStyle(.plain)
     .help("Attach project files (@)")
-    .platformPopover(isPresented: $showFilePickerPopover) {
+    .platformPopover(isPresented: $composerState.showFilePickerPopover) {
       #if os(iOS)
         NavigationStack {
           ComposerFilePickerPopover(
-            query: $filePickerQuery,
+            query: $composerState.filePickerQuery,
             files: filePickerResults,
             onSelect: attachMentionFromPicker
           )
@@ -284,7 +284,7 @@ extension DirectSessionComposer {
         .frame(minWidth: 340, minHeight: 320)
       #else
         ComposerFilePickerPopover(
-          query: $filePickerQuery,
+          query: $composerState.filePickerQuery,
           files: filePickerResults,
           onSelect: attachMentionFromPicker
         )

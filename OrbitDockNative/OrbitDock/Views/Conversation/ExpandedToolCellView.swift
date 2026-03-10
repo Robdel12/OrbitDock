@@ -228,33 +228,33 @@ import SwiftUI
     func configure(model: NativeExpandedToolModel, width: CGFloat) {
       self.model = model
 
-      let inset = Self.laneHorizontalInset
-      let cardWidth = width - inset * 2
-      let headerH = ExpandedToolLayout.headerHeight(for: model, cardWidth: cardWidth)
-      let contentH = ExpandedToolLayout.contentHeight(for: model, cardWidth: cardWidth)
-      let totalH = Self.requiredHeight(for: width, model: model)
+      let layoutPlan = ExpandedToolCellPlanning.cardLayoutPlan(for: model, width: width)
+      let cardWidth = layoutPlan.cardWidth
+      let headerH = layoutPlan.headerHeight
+      let contentH = layoutPlan.contentHeight
+      let totalH = layoutPlan.totalHeight
 
       // Card background — inset from lane edges
-      cardBackground.frame = NSRect(x: inset, y: 0, width: cardWidth, height: totalH)
+      cardBackground.frame = layoutPlan.cardFrame
       cardBackground.layer?.borderColor = model.toolColor.withAlphaComponent(OpacityTier.light).cgColor
 
       // Accent bar — full height of card
       let accentColor = model.hasError ? NSColor(Color.statusError) : model.toolColor
       accentBar.layer?.backgroundColor = accentColor.cgColor
-      accentBar.frame = NSRect(x: 0, y: 0, width: Self.accentBarWidth, height: totalH)
+      accentBar.frame = layoutPlan.accentFrame
 
       // Header divider line
-      let dividerX = Self.accentBarWidth
-      let dividerW = cardWidth - Self.accentBarWidth
-      headerDivider.frame = NSRect(x: dividerX, y: headerH, width: dividerW, height: 1)
-      headerDivider.isHidden = contentH == 0
+      if let headerDividerFrame = layoutPlan.headerDividerFrame {
+        headerDivider.frame = headerDividerFrame
+        headerDivider.isHidden = false
+      } else {
+        headerDivider.isHidden = true
+      }
 
       // Content background — darker region behind output (stops before card corner radius)
-      if contentH > 0 {
+      if let contentBackgroundFrame = layoutPlan.contentBackgroundFrame {
         contentBg.isHidden = false
-        contentBg.frame = NSRect(
-          x: dividerX, y: headerH + 1, width: dividerW, height: contentH
-        )
+        contentBg.frame = contentBackgroundFrame
       } else {
         contentBg.isHidden = true
       }
@@ -266,76 +266,48 @@ import SwiftUI
         accessibilityDescription: nil
       )?.withSymbolConfiguration(iconConfig)
       iconView.contentTintColor = model.hasError ? NSColor(Color.statusError) : model.toolColor
-      iconView.frame = NSRect(
-        x: Self.accentBarWidth + Self.headerHPad,
-        y: Self.headerVPad,
-        width: 20, height: 20
-      )
+      iconView.frame = layoutPlan.iconFrame
 
       // Title + subtitle
-      configureHeader(model: model, cardWidth: cardWidth, headerH: headerH)
+      configureHeader(model: model, layoutPlan: layoutPlan)
 
       // Progress indicator
-      if model.isInProgress {
+      if let progressFrame = layoutPlan.progressFrame {
         progressIndicator.isHidden = false
         progressIndicator.startAnimation(nil)
-        let spinnerX = model.canCancel
-          ? cardWidth - Self.headerHPad - 72
-          : cardWidth - Self.headerHPad - 16
-        progressIndicator.frame = NSRect(
-          x: spinnerX,
-          y: Self.headerVPad + 2,
-          width: 16, height: 16
-        )
+        progressIndicator.frame = progressFrame
       } else {
         progressIndicator.isHidden = true
         progressIndicator.stopAnimation(nil)
       }
 
-      if model.canCancel {
+      if let cancelFrame = layoutPlan.cancelFrame {
         cancelButton.isHidden = false
-        cancelButton.frame = NSRect(
-          x: cardWidth - Self.headerHPad - 52,
-          y: Self.headerVPad,
-          width: 52,
-          height: 20
-        )
+        cancelButton.frame = cancelFrame
       } else {
         cancelButton.isHidden = true
       }
 
       // Collapse chevron
-      if !model.isInProgress, !model.canCancel {
+      if let chevronFrame = layoutPlan.chevronFrame {
         collapseChevron.isHidden = false
-        collapseChevron.frame = NSRect(
-          x: cardWidth - Self.headerHPad - 12,
-          y: Self.headerVPad + 3,
-          width: 12, height: 12
-        )
+        collapseChevron.frame = chevronFrame
       } else {
         collapseChevron.isHidden = true
       }
 
       // Duration
-      if let dur = model.duration, !model.isInProgress, !model.canCancel {
+      if let durationFrame = layoutPlan.durationFrame, let dur = model.duration {
         durationField.isHidden = false
         durationField.stringValue = dur
-        durationField.sizeToFit()
-        let durW = durationField.frame.width
-        let durX = cardWidth - Self.headerHPad - 12 - 8 - durW
-        durationField.frame = NSRect(x: durX, y: Self.headerVPad + 2, width: durW, height: 16)
+        durationField.frame = durationFrame
       } else {
         durationField.isHidden = true
       }
 
       // Content
       contentContainer.subviews.forEach { $0.removeFromSuperview() }
-      contentContainer.frame = NSRect(
-        x: 0,
-        y: headerH,
-        width: cardWidth,
-        height: contentH
-      )
+      contentContainer.frame = layoutPlan.contentContainerFrame
       buildContent(model: model, width: cardWidth)
 
       // ── Diagnostic: detect content overflow ──
@@ -362,35 +334,16 @@ import SwiftUI
 
     // ── Header Configuration ──
 
-    private func configureHeader(model: NativeExpandedToolModel, cardWidth: CGFloat, headerH: CGFloat) {
-      let leftEdge = Self.accentBarWidth + Self.headerHPad + 20 + 8 // after accent + pad + icon + gap
-      let rightEdge = cardWidth - Self.headerHPad - 12 - 8 - 60 // before chevron + duration
+    private func configureHeader(model: NativeExpandedToolModel, layoutPlan: ExpandedToolCardLayoutPlan) {
       let plan = ExpandedToolHeaderPlanning.plan(for: model)
       applyHeaderPlan(plan, model: model)
 
-      // Layout title + subtitle
-      let hasSubtitle = !subtitleField.isHidden
-      let titleWidth = max(60, rightEdge - leftEdge)
-      if hasSubtitle {
-        titleField.frame = NSRect(x: leftEdge, y: Self.headerVPad, width: titleWidth, height: 18)
-        subtitleField.frame = NSRect(x: leftEdge, y: Self.headerVPad + 18, width: titleWidth, height: 16)
-      } else {
-        // For bash commands, measure wrapped height
-        if case .bash = model.content {
-          let titleH = headerH - Self.headerVPad * 2
-          titleField.frame = NSRect(x: leftEdge, y: Self.headerVPad, width: titleWidth, height: max(18, titleH))
-        } else {
-          titleField.frame = NSRect(x: leftEdge, y: Self.headerVPad + 4, width: titleWidth, height: 18)
-        }
+      titleField.frame = layoutPlan.header.titleFrame
+      if let subtitleFrame = layoutPlan.header.subtitleFrame {
+        subtitleField.frame = subtitleFrame
       }
-
-      // Stats (right-aligned, after title)
-      if !statsField.isHidden {
-        statsField.sizeToFit()
-        let statsW = statsField.frame.width
-        let statsX = cardWidth - Self
-          .headerHPad - 12 - 8 - (durationField.isHidden ? 0 : durationField.frame.width + 8) - statsW
-        statsField.frame = NSRect(x: statsX, y: Self.headerVPad + 2, width: statsW, height: 16)
+      if let statsFrame = layoutPlan.header.statsFrame {
+        statsField.frame = statsFrame
       }
     }
 
@@ -962,12 +915,13 @@ import SwiftUI
         nextY += row.topInset
         let labelWidth = textWidth - row.widthAdjustment
 
-        let label = payloadLabel(for: row, maxWidth: labelWidth)
+        let labelPlan = ExpandedToolCellPlanning.payloadLabelPlan(for: row, containerWidth: width)
+        let label = payloadLabel(for: labelPlan)
         label.frame = NSRect(
-          x: Self.headerHPad + row.leadingInset,
+          x: labelPlan.frame.origin.x,
           y: nextY,
-          width: labelWidth,
-          height: payloadRowHeight(row, maxWidth: labelWidth)
+          width: labelPlan.frame.width,
+          height: labelPlan.frame.height
         )
         contentContainer.addSubview(label)
         nextY += label.frame.height + row.bottomSpacing
@@ -976,42 +930,40 @@ import SwiftUI
       return nextY + Self.sectionPadding
     }
 
-    private func payloadLabel(for row: ExpandedToolPayloadTextRowPlan, maxWidth: CGFloat) -> NSTextField {
-      switch row.content {
-        case let .structuredEntry(key, value):
-          let label = NSTextField(labelWithAttributedString: payloadAttributedLine(key: key, value: value))
-          label.lineBreakMode = .byCharWrapping
-          label.maximumNumberOfLines = 0
-          label.isSelectable = true
-          return label
-
-        case let .plain(text):
-          let label = NSTextField(labelWithString: text.isEmpty ? " " : text)
-          label.font = payloadFont(for: row.style)
-          label.textColor = payloadColor(for: row.style)
-          label.lineBreakMode = row.style == .textLine || row.style == .structuredEntry ? .byCharWrapping : .byWordWrapping
-          label.maximumNumberOfLines = 0
-          label.isSelectable = true
-          return label
+    private func payloadLabel(for plan: ExpandedToolPayloadLabelPlan) -> NSTextField {
+      if let key = plan.attributedKey, let value = plan.attributedValue {
+        let label = NSTextField(labelWithAttributedString: payloadAttributedLine(key: key, value: value))
+        label.lineBreakMode = .byCharWrapping
+        label.maximumNumberOfLines = 0
+        label.isSelectable = true
+        return label
       }
+
+      let label = NSTextField(labelWithString: plan.text ?? " ")
+      label.font = payloadFont(for: plan.style)
+      label.textColor = payloadColor(for: plan.style)
+      label.lineBreakMode = plan.style == .textLine || plan.style == .structuredEntry ? .byCharWrapping : .byWordWrapping
+      label.maximumNumberOfLines = 0
+      label.isSelectable = true
+      return label
     }
 
-    private func payloadRowHeight(_ row: ExpandedToolPayloadTextRowPlan, maxWidth: CGFloat) -> CGFloat {
-      switch row.content {
-        case let .structuredEntry(key, value):
-          return ExpandedToolLayout.measuredTextHeight(
-            "\(key): \(value)",
-            font: Self.codeFont,
-            maxWidth: maxWidth
-          )
-
-        case let .plain(text):
-          return ExpandedToolLayout.measuredTextHeight(
-            text.isEmpty ? " " : text,
-            font: payloadFont(for: row.style),
-            maxWidth: maxWidth
-          )
-      }
+    private func payloadAttributedLine(key: String, value: String) -> NSAttributedString {
+      let attributed = NSMutableAttributedString(
+        string: "\(key): ",
+        attributes: [
+          .font: Self.codeFontStrong as Any,
+          .foregroundColor: Self.textQuaternary,
+        ]
+      )
+      attributed.append(NSAttributedString(
+        string: value,
+        attributes: [
+          .font: Self.codeFont as Any,
+          .foregroundColor: Self.textSecondary,
+        ]
+      ))
+      return attributed
     }
 
     private func payloadFont(for style: ExpandedToolPayloadTextStyle) -> NSFont {
@@ -1042,24 +994,6 @@ import SwiftUI
         case .structuredEntry, .textLine:
           Self.textSecondary
       }
-    }
-
-    private func payloadAttributedLine(key: String, value: String) -> NSAttributedString {
-      let attributed = NSMutableAttributedString(
-        string: "\(key): ",
-        attributes: [
-          .font: Self.codeFontStrong as Any,
-          .foregroundColor: Self.textQuaternary,
-        ]
-      )
-      attributed.append(NSAttributedString(
-        string: value,
-        attributes: [
-          .font: Self.codeFont as Any,
-          .foregroundColor: Self.textSecondary,
-        ]
-      ))
-      return attributed
     }
 
     // ── Height Calculation (delegates to shared ExpandedToolLayout) ──

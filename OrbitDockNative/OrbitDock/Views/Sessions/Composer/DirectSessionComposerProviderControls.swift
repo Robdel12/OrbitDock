@@ -10,12 +10,12 @@ extension DirectSessionComposer {
     }
     .buttonStyle(.plain)
     .help("Model and reasoning effort")
-    .platformPopover(isPresented: $showModelEffortPopover) {
+    .platformPopover(isPresented: $composerState.showModelEffortPopover) {
       #if os(iOS)
         NavigationStack {
           ModelEffortPopover(
-            selectedModel: $selectedModel,
-            selectedEffort: $selectedEffort,
+            selectedModel: $composerState.selectedModel,
+            selectedEffort: $composerState.selectedEffort,
             models: codexModelOptions
           )
           .toolbar {
@@ -26,8 +26,8 @@ extension DirectSessionComposer {
         }
       #else
         ModelEffortPopover(
-          selectedModel: $selectedModel,
-          selectedEffort: $selectedEffort,
+          selectedModel: $composerState.selectedModel,
+          selectedEffort: $composerState.selectedEffort,
           models: codexModelOptions
         )
       #endif
@@ -43,11 +43,11 @@ extension DirectSessionComposer {
     }
     .buttonStyle(.plain)
     .help("Claude model override")
-    .platformPopover(isPresented: $showClaudeModelPopover) {
+    .platformPopover(isPresented: $composerState.showClaudeModelPopover) {
       #if os(iOS)
         NavigationStack {
           ComposerClaudeModelPopover(
-            selectedModel: $selectedClaudeModel,
+            selectedModel: $composerState.selectedClaudeModel,
             models: claudeModelOptions
           )
           .toolbar {
@@ -58,7 +58,7 @@ extension DirectSessionComposer {
         }
       #else
         ComposerClaudeModelPopover(
-          selectedModel: $selectedClaudeModel,
+          selectedModel: $composerState.selectedClaudeModel,
           models: claudeModelOptions
         )
       #endif
