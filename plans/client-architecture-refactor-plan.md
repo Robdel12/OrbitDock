@@ -83,10 +83,12 @@ This plan is now an active execution document, not just a roadmap.
   - provider/model display rules and command-deck construction now live in dedicated pure planners instead of the root composer view
   - deterministic unit tests now cover default model selection, compact model labels, command filtering, and MCP command normalization
   - prompt suggestions, resume chrome, and composer error presentation now live in dedicated shell sections instead of the root composer view
+  - the top-level composer body and active surface scaffolding now live in dedicated shell wrappers instead of staying inline in `DirectSessionComposer`
 - **New session phase 1**
   - launch request planning, provider-state sync/reset, and async launch coordination now live in dedicated helpers instead of `NewSessionSheet`
   - deterministic unit tests now cover request planning, provider model sync, and launch sequencing around git init, worktree creation, and continuation prompts
   - the provider configuration card now lives in its own view instead of keeping that rendering surface embedded in `NewSessionSheet`
+  - provider presentation enums, compact mode selectors, and the sheet/form shell scaffolding now live in focused helper files instead of staying inline in `NewSessionSheet`
 - **App-global ownership cleanup**
   - `ServerManager` and app notification ownership now flow through the app runtime/environment instead of direct singleton grabs in production views and startup coordination
   - `ToastManager.shared` is gone, and startup/runtime tests now cover the injected install-state seam
@@ -101,12 +103,19 @@ This plan is now an active execution document, not just a roadmap.
 - **Project picker phase 1**
   - `ProjectPicker` and `RemoteProjectPicker` now share a dedicated pure planner for recent-project grouping, browse-state transitions, request staleness guards, and browse reset behavior
   - deterministic unit tests now cover grouped project projection, browse history transitions, stale request rejection, and path helper behavior
+  - `RemoteProjectPicker` banner, tab chrome, tab content card, and path preview sheet now live in dedicated shell views instead of staying embedded in the feature root
 - **Pricing boot ownership**
   - app startup no longer kicks off model-pricing fetches through `ModelPricingService.shared`
   - pricing fetch ownership is now injected at the app boundary with deterministic unit coverage
 - **Pricing projection phase 1**
   - dashboard and session-detail cost display now flow through an injected calculator snapshot instead of shared pricing lookups
   - deterministic unit tests now cover dashboard aggregation and session-detail usage fallback without relying on `ModelPricingService.shared`
+- **Library phase 1**
+  - shared library cards, chips, inline stats, and formatting helpers now live in focused helper files instead of staying embedded in `LibraryView`
+  - deterministic unit tests now cover the extracted value-formatting rules
+- **Header phase 1**
+  - compact header presentation rules now live in a dedicated helper instead of staying inline in `HeaderView`
+  - deterministic unit tests now cover compact effort and model-summary formatting
 - **Preview runtime cleanup**
   - preview-specific runtime graphs now flow through a dedicated `PreviewRuntime` helper instead of `ServerRuntimeRegistry.shared` / `NotificationManager.shared`
   - primary and secondary previews now build local runtime state without leaking app-global singletons back into the architecture
@@ -165,8 +174,9 @@ This plan is now an active execution document, not just a roadmap.
   - `QuickSwitcher` now has a real pure core for query planning, session projection, keyboard navigation, command catalog, selection resolution, target capture, and search transitions instead of embedding those rules directly in the view
   - `QuickSwitcher` has also started shedding major row and quick-launch rendering sections into dedicated views, so the remaining work is now mostly shell-level behavior cleanup
   - `SettingsView` now has focused pane views and a pure endpoint-health display seam, but there is still section-specific side-effect cleanup available
+  - `NewSessionSheet`, `RemoteProjectPicker`, `LibraryView`, and `HeaderView` have all started moving shell/presentation details into dedicated helper files, which makes the remaining large-screen work more obviously about orchestration instead of inline chrome
   - `SessionDetailView` now routes review-send, lifecycle, layout, worktree cleanup, conversation chrome, metadata, usage, and diff summary work through local pure planners, but still has shell-level orchestration left to peel away
-  - the remaining work is mostly shell/action cleanup in `QuickSwitcher`, then more screen-specific extractions from `SessionDetailView` and the other large screens
+  - the remaining work is mostly shell/action cleanup in `QuickSwitcher`, `SessionDetailView`, the composer pending-approval surface, and any last review-view polish
 
 ### Next
 
@@ -191,14 +201,14 @@ This plan is now an active execution document, not just a roadmap.
 - **Composer phase 2: Extract pending approval + action boundaries**
   - in progress
   - pending approval presentation state, pure approval/question planning, attachment state/planning, skill resolution, send payload preparation, async send execution, provider controls, workflow menus, provider display rules, and command-deck construction are now extracted
-  - the remaining work is a final pass over display-only helpers and any last provider-specific action drift
+  - the remaining work is a final pass over the pending-approval display shell and any last provider-specific action drift
   - keep the root view focused on rendering bindings into the composer model
   - add deterministic tests for pending-action routing, attachment behavior, and provider-aware send execution
 - **New session phase 1: Extract launch planning + provider state**
   - done
   - session request construction, provider-specific selection sync/reset, and async launch workflow now live in dedicated helpers instead of `NewSessionSheet`
   - deterministic tests now cover request planning, provider reset/sync behavior, and launch action sequencing
-  - the provider configuration surface now lives in a dedicated configuration-card view, so `NewSessionSheet` is moving toward a real feature shell
+  - the provider configuration surface, provider presentation models, compact mode selectors, and the sheet/form shell scaffolding now live in dedicated helper files, so `NewSessionSheet` is moving toward a real feature shell
 - **App-global ownership cleanup**
   - done for production paths and previews
   - the startup coordinator now uses an injected install-state refresh seam
@@ -227,10 +237,19 @@ This plan is now an active execution document, not just a roadmap.
   - done
   - `ProjectPicker` and `RemoteProjectPicker` now share a dedicated pure planner for recent-project grouping, browse-state transitions, request staleness guards, and browse reset behavior
   - deterministic unit tests now cover grouped project projection, browse history transitions, stale request rejection, and path helper behavior
+  - `RemoteProjectPicker` banner, tab chrome, tab content card, and path preview sheet now live in dedicated shell views instead of staying embedded in the feature root
 - **Pricing projection phase 1**
   - done
   - dashboard and session-detail cost display now flow through an injected calculator snapshot instead of shared pricing lookups
   - deterministic unit tests now cover dashboard aggregation and session-detail usage fallback without relying on `ModelPricingService.shared`
+- **Library phase 1**
+  - done
+  - shared library cards, chips, inline stats, and formatting helpers now live in focused helper files instead of staying embedded in `LibraryView`
+  - deterministic unit tests now cover the extracted value-formatting rules
+- **Header phase 1**
+  - done
+  - compact header presentation rules now live in a dedicated helper instead of staying inline in `HeaderView`
+  - deterministic unit tests now cover compact effort and model-summary formatting
 - **Session detail phase 1**
   - in progress
   - review-send planning, lifecycle subscription rules, review layout transitions, review navigation helpers, diff-banner rules, worktree cleanup decisions, conversation chrome, compact metadata, usage projection, diff summary decisions, and action-bar presentation now live in dedicated pure planners instead of inline view logic
