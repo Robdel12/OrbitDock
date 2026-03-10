@@ -8,8 +8,8 @@ OrbitDock is a native SwiftUI app for macOS and iOS — mission control for AI c
 
 ## Project Structure & Module Organization
 
-- `OrbitDock/OrbitDock/` is the macOS and iOS SwiftUI app
-- `OrbitDock/OrbitDockCore/` is the shared Swift package for hook transport and shared models
+- `OrbitDockNative/OrbitDock/` is the macOS and iOS SwiftUI app
+- `OrbitDockNative/OrbitDockCore/` is the shared Swift package for hook transport and shared models
 - `orbitdock-server/crates/cli/` owns the `orbitdock` binary entrypoint and command dispatch
 - `orbitdock-server/crates/server/` is the library-first Rust server runtime
 - `migrations/` contains Rust-server schema migrations using the `VNNN__description.sql` convention
@@ -74,7 +74,7 @@ If a Rust command is missing, add it to `Makefile` first and then run it via `ma
 
 ## Testing Guidelines
 
-- Swift tests live in `OrbitDock/OrbitDockTests/`
+- Swift tests live in `OrbitDockNative/OrbitDockTests/`
 - Prefer `make test-unit` for normal local verification and `make test-ui` when UI automation is needed
 - CLI and hook flows can be tested by piping JSON to stdin and verifying server or database state
 
@@ -109,7 +109,7 @@ The Swift client uses a **hybrid networking model**: REST for client-initiated o
 - Server-pushed events: sessionDelta, messageAppended, approvalRequested, tokensUpdated, etc.
 - Server broadcasts after REST mutations (e.g. `ReviewCommentCreated` after `POST /api/sessions/{id}/review-comments`)
 
-**Key pattern:** REST methods in `ServerConnection.swift` use `Task { @MainActor in ... }` to call the endpoint and invoke the existing callback (e.g. `onWorktreeCreated?`). WS response handlers remain in place because the server still broadcasts events after mutations. The `requestAPIJSON(path:method:body:)` overload handles JSON-body POST/PUT/PATCH requests with `convertToSnakeCase` encoding.
+**Key pattern:** REST work now flows through typed capability clients under `Services/Server/API/`, with `ServerRuntime`, `SessionStore`, and feature coordinators owning the call sites. WebSocket response handlers remain in place because the server still broadcasts events after mutations.
 
 **When adding new client operations:** Default to REST. Only use WS for operations that need the persistent connection (subscriptions, streaming turn interaction). If the server needs to notify all clients after a mutation, add a REST endpoint that broadcasts the result via WS — do not send the mutation itself over WS.
 
@@ -243,7 +243,7 @@ All server paths are resolved via `infrastructure/paths.rs` from a single data d
 - **Rust Server Logs**: `<data_dir>/logs/server.log` (structured JSON logs from orbitdock)
 - **Migrations**: `migrations/` (SQL files embedded at compile time by `refinery`; use `VNNN__description.sql`)
 - **Hook Transport Config**: `<data_dir>/hook-forward.json` (server_url/auth_token for hook-forward)
-- **Shared Models**: `OrbitDock/OrbitDockCore/` (Swift Package with shared code)
+- **Shared Models**: `OrbitDockNative/OrbitDockCore/` (Swift Package with shared code)
 - **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
 - **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
 - **Codex Watcher State**: `<data_dir>/codex-rollout-state.json` (offset tracking)
@@ -418,7 +418,7 @@ grep "rich\[" ~/.orbitdock/logs/timeline.log
 Shared Swift models used by the SwiftUI app. No CLI — hooks go directly via HTTP POST.
 
 ```
-OrbitDock/OrbitDockCore/
+OrbitDockNative/OrbitDockCore/
 ├── Package.swift
 └── Sources/
     └── OrbitDockCore/          # Shared library

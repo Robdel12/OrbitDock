@@ -11,11 +11,11 @@ It is an endpoint-aware UI over a server-authoritative system:
 
 ## Where Things Go
 
-- `OrbitDock/OrbitDock/Views/` contains feature UI
-- `OrbitDock/OrbitDock/Services/Server/` contains endpoint runtimes, transport, and session orchestration
-- `OrbitDock/OrbitDock/Models/` contains app-facing domain and view data
-- `OrbitDock/OrbitDock/Navigation/` contains routing and app shell navigation state
-- `OrbitDock/OrbitDock/Platform/` contains OS-specific glue
+- `OrbitDockNative/OrbitDock/Views/` contains feature UI
+- `OrbitDockNative/OrbitDock/Services/Server/` contains endpoint runtimes, typed transport clients, and session orchestration
+- `OrbitDockNative/OrbitDock/Models/` contains app-facing domain and view data
+- `OrbitDockNative/OrbitDock/Navigation/` contains routing and app shell navigation state
+- `OrbitDockNative/OrbitDock/Platform/` contains OS-specific glue
 
 If a new feature needs durable session truth, change the server contract first. The client should not infer server-owned business state from history.
 
@@ -35,4 +35,4 @@ Client tests should follow the same bar we used for the server:
 - avoid UI tests unless a workflow truly requires them
 - avoid arbitrary sleeps and polling
 
-That means most client coverage should live in `OrbitDock/OrbitDockTests/`, with unit tests for pure policy helpers and integration-style tests for transport, stores, and runtime coordination.
+That means most client coverage should live in `OrbitDockNative/OrbitDockTests/`, with unit tests for pure policy helpers and integration-style tests for transport, stores, and runtime coordination.

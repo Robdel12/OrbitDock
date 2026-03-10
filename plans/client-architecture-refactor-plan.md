@@ -166,14 +166,14 @@ of those rewrite-sized targets land cleanly.
   - shared session-delta projection helpers and the per-session control-state reducer now own the important list/detail/control transitions
   - the remaining work here is thinning `SessionStore`, not another ownership rescue
 - **Phase 4: Make Runtime State Explicit**
-  - runtime readiness and connection state are now much more explicit, but the app shell still owns too much coordination
+  - runtime readiness and connection state are now much more explicit, and the app shell no longer owns the worst startup coordination paths
+  - the remaining work is mostly around simplifying the last runtime-facing surfaces instead of inventing new readiness rules
 - **Phase 5: Fix Control-Plane Reconciliation**
   - the coordinator exists and the worst duplicate-write behavior is gone
-  - we still want to keep simplifying the surrounding runtime ownership
+  - the remaining work is keeping the surrounding runtime ownership small and explicit
 - **Phase 5B: Rebuild the Networking Boundary and Startup Phases**
-  - this is the current architectural focus
-  - the old generic networking center is gone, readiness is explicit, and startup is improving
-  - we still need to keep simplifying boot, query readiness, and background service startup
+  - the old generic networking center is gone, readiness is explicit, startup is coordinated, and the green baseline is back
+  - the remaining work is keeping new startup/background behavior on typed clients and explicit readiness gates instead of letting ad hoc networking creep back in
 - **Phase 6 / Phase 7**
   - service lifecycles and window-local state are moving in the right direction
   - app-internal session refresh now uses typed per-store update streams instead of a global `serverSessionsDidChange` notification
@@ -184,29 +184,28 @@ of those rewrite-sized targets land cleanly.
   - these phases are not finished yet, but the shell now owns much less runtime lifecycle wiring than before
 - **Phase 10: Refactor the Review Feature**
   - workflow, cursor/navigation, projection, comment composition, send coordination, file chrome, routing/editor actions, mouse/composer interactions, diff refresh, and inline presentation are now extracted from `ReviewCanvas`
-  - the root review view is now much closer to a true shell
-  - any remaining work here should be polish-level cleanup, not more architectural rescue
+  - the root review view is now effectively a shell
+  - any remaining work here is polish-level cleanup, not architectural rescue
 - **Phase 11: Decompose Large Screens**
   - `QuickSwitcher` now has a real pure core for query planning, session projection, keyboard navigation, command catalog, selection resolution, target capture, and search transitions instead of embedding those rules directly in the view
-  - `QuickSwitcher` has also started shedding major row and quick-launch rendering sections into dedicated views, so the remaining work is now mostly shell-level behavior cleanup
+  - `QuickSwitcher`, `LibraryView`, `HeaderView`, `RemoteProjectPicker`, and `NewSessionSheet` have all shed major shell and presentation seams into focused helpers
   - `SettingsView` now has focused pane views and a pure endpoint-health display seam, but there is still section-specific side-effect cleanup available
-  - `NewSessionSheet`, `RemoteProjectPicker`, `LibraryView`, and `HeaderView` have all started moving shell/presentation details into dedicated helper files, which makes the remaining large-screen work more obviously about orchestration instead of inline chrome
   - `SessionDetailView` now routes review-send, lifecycle, layout, worktree cleanup, conversation chrome, metadata, usage, and diff summary work through local pure planners, but still has shell-level orchestration left to peel away
-  - the remaining work is mostly shell/action cleanup in `QuickSwitcher`, `SessionDetailView`, the composer pending-approval surface, and any last review-view polish
+  - the remaining work is mostly shell/action cleanup in `SessionDetailView`, the composer pending-approval surface, and any last conversation-host cleanup
 
 ### Next
 
 - finish the remaining rewrite-sized targets in this order:
   - conversation renderer rewrite
   - `SessionDetailView` rewrite
-  - review feature finish
+  - final composer pending-surface cleanup
   - final store / observable ownership cleanup
-- only after those land, do any remaining larger-screen decomposition that still feels worthwhile
+- then do the documentation and guardrail pass that locks in the resulting patterns
 
 ### Active Rewrite Targets
 
 - **Conversation renderer rewrite**
-  - rewrite `ToolCellModels`, `ExpandedToolCellView`, and the platform conversation hosts around cleaner seams:
+  - finish rewriting `ToolCellModels`, `ExpandedToolCellView`, and the platform conversation hosts around cleaner seams:
     - model building / projection
     - pure layout math
     - platform host coordination
@@ -214,9 +213,8 @@ of those rewrite-sized targets land cleanly.
     conversation surface has obvious ownership boundaries.
 - **Session detail rewrite**
   - make `SessionDetailView` a real shell over typed child features instead of a mixed view/orchestration root
-- **Review feature finish**
-  - finish the last review-root cleanup so `ReviewCanvas` becomes a small shell over projection, workflow,
-    routing, and rendering modules
+- **Composer pending surface cleanup**
+  - finish the last pending-approval shell cleanup so the composer root is mostly bindings, feature sections, and typed actions
 - **Final session state ownership pass**
   - make one last deliberate pass over `SessionStore`, `SessionObservable`, and projection ownership so we do not
     carry forward duplicated or leaky state patterns
@@ -229,7 +227,7 @@ of those rewrite-sized targets land cleanly.
   - send-mode and command routing now have a pure planner with unit tests
   - the remaining composer work is pending-approval state, attachments, and provider/action boundaries
 - **Review phase 1: Extract projection + workflow**
-  - mostly done
+  - done in substance
   - review workflow, cursor/navigation, projection/state, comment composition/range-selection state, send coordination, file chrome, routing/editor actions, mouse/composer interactions, diff refresh, and inline presentation are now extracted into dedicated helpers
   - the remaining work is small shell polish and any last display-only cleanup in `ReviewCanvas`
   - unit tests now cover workflow behavior, cursor/navigation, review projection, comment-composer planning, and review send coordination
@@ -1140,7 +1138,7 @@ This refactor splits well if we are disciplined about ownership.
 ### Lane A: Transport split
 
 - `ServerProtocol`
-- `APIClient`
+- typed capability clients under `Services/Server/API/`
 
 ### Lane B: Runtime/store ownership
 
@@ -1212,7 +1210,7 @@ Then do feature lanes once the state/runtime boundaries are cleaner.
 We should call this refactor successful when:
 
 - `ServerProtocol` is no longer a mega-file
-- `APIClient` is split by capability
+- typed clients own capability-specific transport instead of a generic networking hub
 - session detail state has one authoritative mutable owner
 - runtime connection state is explicit and observable
 - `ContentView` is a thin shell

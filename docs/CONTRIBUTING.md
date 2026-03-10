@@ -19,12 +19,12 @@ cd OrbitDock
 ### SwiftUI Clients
 
 ```bash
-open OrbitDock/OrbitDock.xcodeproj
+open OrbitDockNative/OrbitDock.xcodeproj
 ```
 
 Select your team in **Signing & Capabilities** (or "Sign to Run Locally" for a personal team), then run either the `OrbitDock` macOS scheme or `OrbitDock iOS`. The clients can connect to one or many `orbitdock` server endpoints.
 
-Start with [OrbitDock/README.md](../OrbitDock/README.md) for the client module map and feature placement guide.
+Start with [OrbitDockNative/README.md](../OrbitDockNative/README.md) for the client module map and feature placement guide.
 
 For durable client-side guardrails, read [SWIFT_CLIENT_ARCHITECTURE.md](SWIFT_CLIENT_ARCHITECTURE.md) before adding new shared state, routing, or cross-feature coordination.
 
@@ -32,8 +32,8 @@ For durable client-side guardrails, read [SWIFT_CLIENT_ARCHITECTURE.md](SWIFT_CL
 
 ```bash
 cd orbitdock-server
-cargo build
-cargo test
+make rust-build
+make rust-test
 ```
 
 By default the server listens on `ws://127.0.0.1:4000/ws`. For development, run it standalone and add it as an endpoint in app settings.
@@ -41,7 +41,7 @@ By default the server listens on `ws://127.0.0.1:4000/ws`. For development, run 
 ### CLI (standalone)
 
 ```bash
-cd OrbitDock/OrbitDockCore
+cd OrbitDockNative/OrbitDockCore
 swift build
 echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock hook-forward claude_status_event
 ```
@@ -54,7 +54,7 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock h
 │       ├── server/              # Actors, registry, transitions, persistence
 │       ├── protocol/            # Client ↔ server message types
 │       └── connectors/          # Provider connectors (codex-rs)
-├── OrbitDock/                   # Xcode project
+├── OrbitDockNative/             # Xcode project + SwiftUI app
 │   ├── OrbitDock/               # SwiftUI app
 │   │   ├── Views/               # All UI
 │   │   │   ├── Review/          # Review canvas (magit-style diffs)
@@ -66,7 +66,7 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock h
 │   │   │   ├── Toast/           # Notification toasts
 │   │   │   └── Components/      # Shared components
 │   │   ├── Services/            # Endpoint runtimes, transport, session orchestration
-│   │   │   └── Server/          # APIClient, EventStream, SessionStore, runtime registry
+│   │   │   └── Server/          # Typed clients, EventStream, SessionStore, runtime registry
 │   │   └── Models/              # Data models + protocol types
 │   └── OrbitDockCore/           # Swift Package (shared code)
 │       └── Sources/
@@ -100,7 +100,7 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock h
 
 ### Database
 
-**WAL mode required** — All SQLite connections must use `PRAGMA journal_mode = WAL` and `PRAGMA busy_timeout = 5000`. This applies to both the Swift app and the CLI.
+**WAL mode required** — All SQLite connections owned by the Rust server must use `PRAGMA journal_mode = WAL` and `PRAGMA busy_timeout = 5000`.
 
 **Migrations** — The Rust server owns schema changes. OrbitDock uses `refinery`, and migration files live in `migrations/` with the `VNNN__description.sql` naming convention. When adding a migration:
 

@@ -29,21 +29,38 @@ If state must survive view redraws, be shared across screens, or stay consistent
 ## Layer Boundaries
 
 - Views call store and router APIs. They do not coordinate other views directly.
-- Stores talk to transport (`APIClient`, `EventStream`) and translate server events into observable client state.
+- Stores talk to transport (`ServerClients`, `EventStream`, focused capability clients) and translate server events into observable client state.
 - Navigation does not fetch or mutate server data.
 - Models stay transport-friendly and UI-friendly. Keep side effects out of them.
 - Platform code adapts OS behavior into the app. It should not become a second app-state system.
 
 Prefer explicit method calls or shared observable state over ad hoc event fan-out.
 
+## Preferred Client Pattern
+
+The client architecture should feel like SwiftUI at the edges and functional design in the middle.
+
+- Use views as renderers plus small amounts of ephemeral UI state.
+- Use `@Observable` stores, coordinators, and routers as the mutable ownership boundary for shared app state.
+- Use actors for async coordination, serialized side effects, and long-lived runtime processes.
+- Use pure structs and functions for planners, reducers, projections, selectors, and layout math.
+
+That gives us a practical shape:
+
+- **functional core** for decisions and state transforms
+- **observable shell** for app state SwiftUI needs to mutate
+- **actor/service boundary** for network, disk, and async orchestration
+
+If a new rule can be expressed as a pure function, prefer that. If a new feature needs shared mutable state, give it one obvious owner instead of mirroring it across views.
+
 ## Where New Code Goes
 
-- Add endpoint/server transport, runtime, and session orchestration under `OrbitDock/OrbitDock/Services/Server/`.
-- Add provider-specific client behavior under `OrbitDock/OrbitDock/Services/Codex/` or another focused service area.
-- Add reusable app models under `OrbitDock/OrbitDock/Models/`.
-- Add navigation state or routing rules under `OrbitDock/OrbitDock/Navigation/`.
-- Add OS-specific adapters under `OrbitDock/OrbitDock/Platform/`.
-- Add UI under the matching feature area in `OrbitDock/OrbitDock/Views/`.
+- Add endpoint/server transport, runtime, and session orchestration under `OrbitDockNative/OrbitDock/Services/Server/`.
+- Add provider-specific client behavior under `OrbitDockNative/OrbitDock/Services/Codex/` or another focused service area.
+- Add reusable app models under `OrbitDockNative/OrbitDock/Models/`.
+- Add navigation state or routing rules under `OrbitDockNative/OrbitDock/Navigation/`.
+- Add OS-specific adapters under `OrbitDockNative/OrbitDock/Platform/`.
+- Add UI under the matching feature area in `OrbitDockNative/OrbitDock/Views/`.
 
 If you're adding a new feature, default to this split: model or protocol type first, store logic second, view last.
 
@@ -65,3 +82,5 @@ If a new flow needs `NotificationCenter` just so two client-owned components can
 - Keep session state session-scoped. Do not let one session infer another session's truth.
 - Prefer REST for client-initiated actions and WebSocket for server-pushed updates, matching the existing transport split.
 - When the client needs new truth, change the server contract instead of deriving it locally from history.
+- Keep the logic functional where SwiftUI does not need mutability: planners, reducers, projections, selectors, and layout math should prefer pure structs and functions.
+- Keep mutation at explicit boundaries: `@Observable` stores for shared client state, actors for async coordination, and typed clients for network side effects.
