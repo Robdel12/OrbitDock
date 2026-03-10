@@ -43,12 +43,22 @@ struct OrbitDockWindowRoot: View {
       .focusedSceneValue(\.orbitDockRouter, router)
       .preferredColorScheme(.dark)
       .onAppear {
+        windowSessionCoordinator.start(currentScopedId: router.selectedScopedID)
         updateWindowFocus(for: scenePhase)
         consumePendingExternalSelectionIfNeeded()
       }
       .onChange(of: scenePhase, initial: true) { _, newPhase in
         updateWindowFocus(for: newPhase)
         consumePendingExternalSelectionIfNeeded()
+      }
+      .onChange(of: router.selectedScopedID, initial: true) { _, newId in
+        windowSessionCoordinator.selectedSessionDidChange(to: newId)
+      }
+      .onChange(of: appRuntime.runtimeRegistry.connectionStatusByEndpointId) { _, _ in
+        windowSessionCoordinator.runtimeGraphDidChange()
+      }
+      .onChange(of: appRuntime.runtimeRegistry.runtimesByEndpointId.count) { _, _ in
+        windowSessionCoordinator.runtimeGraphDidChange()
       }
       .onChange(of: appRuntime.externalNavigationCenter.pendingSelection?.id) { _, _ in
         consumePendingExternalSelectionIfNeeded()

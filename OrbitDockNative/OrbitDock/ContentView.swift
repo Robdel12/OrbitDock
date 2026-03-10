@@ -100,21 +100,6 @@ struct ContentView: View {
       }
     }
     .background(Color.backgroundPrimary)
-    .onChange(of: router.selectedScopedID, initial: true) { _, newId in
-      windowSessionCoordinator.updateToastSelection(currentScopedId: newId)
-    }
-    .onAppear {
-      windowSessionCoordinator.syncSessionObservers()
-      windowSessionCoordinator.refreshSessions()
-    }
-    .onChange(of: runtimeRegistry.connectionStatusByEndpointId) { _, _ in
-      windowSessionCoordinator.syncSessionObservers()
-      windowSessionCoordinator.refreshSessions()
-    }
-    .onChange(of: runtimeRegistry.runtimesByEndpointId.count) { _, _ in
-      windowSessionCoordinator.syncSessionObservers()
-      windowSessionCoordinator.refreshSessions()
-    }
     // Keyboard shortcuts
     .focusable()
     .onKeyPress(keys: [.escape]) { keyPress in

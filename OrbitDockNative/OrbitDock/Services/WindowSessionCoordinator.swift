@@ -46,6 +46,21 @@ final class WindowSessionCoordinator {
       .contains { !$0.sessionStore.hasReceivedInitialSessionsList }
   }
 
+  func start(currentScopedId: String?) {
+    updateToastSelection(currentScopedId: currentScopedId)
+    syncSessionObservers()
+    refreshSessions()
+  }
+
+  func runtimeGraphDidChange() {
+    syncSessionObservers()
+    refreshSessions()
+  }
+
+  func selectedSessionDidChange(to currentScopedId: String?) {
+    updateToastSelection(currentScopedId: currentScopedId)
+  }
+
   func refreshSessions() {
     let previousMissionControlSessions = missionControlSessions
     let oldWaitingIds = Set(missionControlAttentionSessions.map(\.scopedID))
