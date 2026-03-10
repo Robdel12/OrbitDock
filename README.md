@@ -128,6 +128,7 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, reverse pro
 - [CONTRIBUTING.md](docs/CONTRIBUTING.md) — Development setup and architecture
 - [OrbitDockNative/README.md](OrbitDockNative/README.md) — Swift client overview and placement guide
 - [SWIFT_CLIENT_ARCHITECTURE.md](docs/SWIFT_CLIENT_ARCHITECTURE.md) — Swift client layer boundaries and state ownership guardrails
+- [CLIENT_DESIGN_PRINCIPLES.md](docs/CLIENT_DESIGN_PRINCIPLES.md) — Short guide to the client patterns and habits we want to keep
 - [orbitdock-server/README.md](orbitdock-server/README.md) — Server CLI reference
 
 ## License

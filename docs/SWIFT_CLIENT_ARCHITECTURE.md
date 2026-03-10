@@ -2,6 +2,8 @@
 
 This is the durable guardrails doc for the Swift client. Use it when you're deciding where code belongs, who owns state, and how parts of the app are allowed to talk to each other.
 
+If you want the shorter, more practical version, read [CLIENT_DESIGN_PRINCIPLES.md](CLIENT_DESIGN_PRINCIPLES.md) first and come back here when you need the stricter boundary rules.
+
 ## The Shape Of The Client
 
 The Swift client is a thin, endpoint-aware UI over a server-authoritative system.

@@ -28,6 +28,8 @@ Start with [OrbitDockNative/README.md](../OrbitDockNative/README.md) for the cli
 
 For durable client-side guardrails, read [SWIFT_CLIENT_ARCHITECTURE.md](SWIFT_CLIENT_ARCHITECTURE.md) before adding new shared state, routing, or cross-feature coordination.
 
+For the shorter “how should new client code feel?” version, read [CLIENT_DESIGN_PRINCIPLES.md](CLIENT_DESIGN_PRINCIPLES.md).
+
 ### Rust Server
 
 ```bash
@@ -57,14 +59,19 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock h
 ├── OrbitDockNative/             # Xcode project + SwiftUI app
 │   ├── OrbitDock/               # SwiftUI app
 │   │   ├── Views/               # All UI
+│   │   │   ├── Sessions/        # Shared direct-session UI (composer, capability controls)
+│   │   │   ├── SessionDetail/   # Session detail shell and chrome
+│   │   │   ├── Conversation/    # Conversation hosts and renderers
 │   │   │   ├── Review/          # Review canvas (magit-style diffs)
-│   │   │   ├── Codex/           # Direct Codex session UI
-│   │   │   ├── Server/          # Server connection views
+│   │   │   ├── NewSession/      # Session creation flow
+│   │   │   ├── QuickSwitcher/   # Command palette / session switching
+│   │   │   ├── Settings/        # Settings feature family
+│   │   │   ├── Providers/       # Provider-only controls
 │   │   │   ├── ToolCards/       # Tool execution cards
 │   │   │   ├── Dashboard/       # Dashboard components
 │   │   │   ├── Usage/           # Rate limit gauges
 │   │   │   ├── Toast/           # Notification toasts
-│   │   │   └── Components/      # Shared components
+│   │   │   └── Components/      # Shared presentation components
 │   │   ├── Services/            # Endpoint runtimes, transport, session orchestration
 │   │   │   └── Server/          # Typed clients, EventStream, SessionStore, runtime registry
 │   │   └── Models/              # Data models + protocol types
@@ -73,7 +80,7 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock h
 │           ├── OrbitDockCore/   # Database, git ops, shared models
 │           └── OrbitDockCLI/    # CLI hook handlers
 ├── migrations/                  # Database migrations (SQL)
-└── plans/                       # Design docs and roadmaps
+└── plans/                       # Living design docs and roadmaps
 ```
 
 ## Key Patterns

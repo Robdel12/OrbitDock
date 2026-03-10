@@ -22,6 +22,7 @@ If a new feature needs durable session truth, change the server contract first. 
 ## Architecture Docs
 
 - [docs/SWIFT_CLIENT_ARCHITECTURE.md](../docs/SWIFT_CLIENT_ARCHITECTURE.md) is the source of truth for client layer boundaries, state ownership, and coordination rules
+- [docs/CLIENT_DESIGN_PRINCIPLES.md](../docs/CLIENT_DESIGN_PRINCIPLES.md) is the short, practical guide for how new client code should feel and where it should live
 - [orbitdock-server/docs/API.md](../orbitdock-server/docs/API.md) is the source of truth for the HTTP and WebSocket contract
 - [docs/CONTRIBUTING.md](../docs/CONTRIBUTING.md) covers local setup and development workflow
 
