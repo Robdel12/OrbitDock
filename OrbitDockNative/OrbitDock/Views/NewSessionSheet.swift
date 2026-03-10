@@ -105,6 +105,7 @@ struct NewSessionSheet: View {
   @State var provider: SessionProvider = .claude
   let continuation: SessionContinuation?
   private let availableEndpointsOverride: [ServerEndpoint]?
+  private let endpointSettings: ServerEndpointSettingsClient
 
   // Shared state
   @State private var selectedPath: String = ""
@@ -131,18 +132,24 @@ struct NewSessionSheet: View {
   @State private var selectedAutonomy: AutonomyLevel = .autonomous
   @State private var codexErrorMessage: String?
 
+  @MainActor
   init(
     provider: SessionProvider = .claude,
     continuation: SessionContinuation? = nil,
-    availableEndpointsOverride: [ServerEndpoint]? = nil
+    availableEndpointsOverride: [ServerEndpoint]? = nil,
+    endpointSettings: ServerEndpointSettingsClient? = nil
   ) {
     _provider = State(initialValue: provider)
     self.continuation = continuation
     self.availableEndpointsOverride = availableEndpointsOverride
-    let initialEndpointId = continuation?.endpointId
-      ?? availableEndpointsOverride?.first(where: \.isDefault)?.id
-      ?? availableEndpointsOverride?.first?.id
-      ?? ServerEndpointSettings.defaultEndpoint.id
+    let resolvedEndpointSettings = endpointSettings ?? .live()
+    self.endpointSettings = resolvedEndpointSettings
+    let availableEndpoints = availableEndpointsOverride ?? resolvedEndpointSettings.endpoints()
+    let initialEndpointId = ServerEndpointSelection.initialEndpointID(
+      continuationEndpointID: continuation?.endpointId,
+      availableEndpoints: availableEndpoints,
+      fallbackDefaultEndpointID: resolvedEndpointSettings.defaultEndpoint().id
+    )
     _selectedEndpointId = State(initialValue: initialEndpointId)
   }
 
@@ -188,7 +195,7 @@ struct NewSessionSheet: View {
   }
 
   private var selectableEndpoints: [ServerEndpoint] {
-    let endpoints = availableEndpointsOverride ?? ServerEndpointSettings.endpoints
+    let endpoints = availableEndpointsOverride ?? endpointSettings.endpoints()
     let enabled = endpoints.filter(\.isEnabled)
     return enabled.isEmpty ? endpoints : enabled
   }

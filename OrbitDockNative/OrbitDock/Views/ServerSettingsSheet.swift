@@ -17,7 +17,7 @@ struct ServerSettingsSheet: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
 
-  @State private var endpoints: [ServerEndpoint] = ServerEndpointSettings.endpoints
+  @State private var endpoints: [ServerEndpoint]
   @State private var expandedEndpointId: UUID?
   @State private var showEditor = false
   @State private var editingEndpointId: UUID?
@@ -29,6 +29,14 @@ struct ServerSettingsSheet: View {
   @State private var draftAuthToken = ""
   @State private var editorError: String?
   @State private var endpointPendingDelete: ServerEndpoint?
+  private let endpointSettings: ServerEndpointSettingsClient
+
+  @MainActor
+  init(endpointSettings: ServerEndpointSettingsClient? = nil) {
+    let resolvedEndpointSettings = endpointSettings ?? .live()
+    self.endpointSettings = resolvedEndpointSettings
+    _endpoints = State(initialValue: resolvedEndpointSettings.endpoints())
+  }
 
   private var orderedEndpoints: [ServerEndpoint] {
     endpoints.sorted { lhs, rhs in
@@ -613,7 +621,7 @@ struct ServerSettingsSheet: View {
   private func beginEditing(_ endpoint: ServerEndpoint) {
     editingEndpointId = endpoint.id
     draftName = endpoint.name
-    draftHostInput = ServerEndpointSettings.hostInput(from: endpoint.wsURL) ?? endpoint.wsURL.host ?? ""
+    draftHostInput = endpointSettings.hostInput(endpoint.wsURL) ?? endpoint.wsURL.host ?? ""
     draftAuthToken = endpoint.authToken ?? ""
     draftIsEnabled = endpoint.isEnabled
     draftIsDefault = endpoint.isDefault
@@ -642,9 +650,9 @@ struct ServerSettingsSheet: View {
     let resolvedURL: URL
     if isLocalManaged {
       resolvedURL = existingEndpoint?.wsURL ?? ServerEndpoint
-        .localDefault(defaultPort: ServerEndpointSettings.defaultPort).wsURL
+        .localDefault(defaultPort: endpointSettings.defaultPort).wsURL
     } else {
-      guard let built = ServerEndpointSettings.buildURL(from: draftHostInput) else {
+      guard let built = endpointSettings.buildURL(draftHostInput) else {
         editorError = "Enter a valid host (e.g. 10.0.0.5:4000 or https://host.example)."
         return
       }
@@ -713,13 +721,13 @@ struct ServerSettingsSheet: View {
   }
 
   private func persistEndpoints(_ rawEndpoints: [ServerEndpoint]) {
-    ServerEndpointSettings.saveEndpoints(rawEndpoints)
+    endpointSettings.saveEndpoints(rawEndpoints)
     runtimeRegistry.configureFromSettings(startEnabled: true)
     refreshFromSettings()
   }
 
   private func refreshFromSettings() {
-    endpoints = ServerEndpointSettings.endpoints
+    endpoints = endpointSettings.endpoints()
   }
 }
 

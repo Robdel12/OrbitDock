@@ -41,6 +41,7 @@ struct RemoteProjectPicker: View {
   @Binding var selectedPath: String
   @Binding var selectedPathIsGit: Bool
   let endpointId: UUID?
+  private let endpointSettings: ServerEndpointSettingsClient
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var recentProjects: [ServerRecentProject] = []
   @State private var directoryEntries: [ServerDirectoryEntry] = []
@@ -54,14 +55,17 @@ struct RemoteProjectPicker: View {
   @State private var browseRequestId = UUID()
   @State private var pathPreview: PathPreviewItem?
 
+  @MainActor
   init(
     selectedPath: Binding<String>,
     selectedPathIsGit: Binding<Bool> = .constant(true),
-    endpointId: UUID? = nil
+    endpointId: UUID? = nil,
+    endpointSettings: ServerEndpointSettingsClient? = nil
   ) {
     _selectedPath = selectedPath
     _selectedPathIsGit = selectedPathIsGit
     self.endpointId = endpointId
+    self.endpointSettings = endpointSettings ?? .live()
   }
 
   private enum PickerTab: String, CaseIterable {
@@ -901,10 +905,12 @@ struct RemoteProjectPicker: View {
   }
 
   private func resolvedEndpointID() -> UUID? {
-    endpointId
-      ?? runtimeRegistry.primaryEndpointId
-      ?? runtimeRegistry.activeEndpointId
-      ?? ServerRuntimeRegistry.preferredActiveEndpointID(from: ServerEndpointSettings.endpoints)
+    ServerEndpointSelection.resolvedEndpointID(
+      explicitEndpointID: endpointId,
+      primaryEndpointID: runtimeRegistry.primaryEndpointId,
+      activeEndpointID: runtimeRegistry.activeEndpointId,
+      availableEndpoints: endpointSettings.endpoints()
+    )
   }
 
   private func resetEndpointScopedState() {
