@@ -200,11 +200,12 @@ final class SubscriptionUsageService {
   func refresh() async {
     guard !isLoading else { return }
     guard let context = controlPlaneContext() else {
-      error = .requestFailed("No control-plane server configured")
+      error = nil
       return
     }
 
     switchActiveEndpointIfNeeded(context.endpointId)
+    guard context.isReadyForRequests else { return }
 
     isLoading = true
     lastFetchAttempt = Date()
@@ -263,12 +264,15 @@ final class SubscriptionUsageService {
       guard let self else { return }
       for await _ in primaryEndpointUpdates {
         guard !Task.isCancelled else { break }
+        if let context = self.controlPlaneContext() {
+          self.switchActiveEndpointIfNeeded(context.endpointId)
+        }
         await self.refresh()
       }
     }
   }
 
-  private func controlPlaneContext() -> (endpointId: UUID, apiClient: APIClient)? {
+  private func controlPlaneContext() -> UsageControlPlaneContext? {
     runtimeContext.controlPlaneContext()
   }
 

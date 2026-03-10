@@ -8,15 +8,19 @@
 
 import Foundation
 
-private let liveAPIClientURLSession: URLSession = {
-  let configuration = URLSessionConfiguration.default
-  configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-  configuration.urlCache = nil
-  return URLSession(configuration: configuration)
-}()
+actor APIClientTransport {
+  private let urlSession: URLSession
 
-private func liveAPIClientDataLoader(_ request: URLRequest) async throws -> (Data, URLResponse) {
-  try await liveAPIClientURLSession.data(for: request)
+  init() {
+    let configuration = URLSessionConfiguration.default
+    configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+    configuration.urlCache = nil
+    self.urlSession = URLSession(configuration: configuration)
+  }
+
+  func load(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    try await urlSession.data(for: request)
+  }
 }
 
 // MARK: - Connection Status
@@ -87,6 +91,7 @@ final class APIClient: Sendable {
   let baseURL: URL
   private let authToken: String?
   private let dataLoader: DataLoader
+  private let transport: APIClientTransport?
 
   static let encoder: JSONEncoder = {
     let e = JSONEncoder()
@@ -97,7 +102,15 @@ final class APIClient: Sendable {
   static let decoder = JSONDecoder()
 
   convenience init(serverURL: URL, authToken: String?) {
-    self.init(serverURL: serverURL, authToken: authToken, dataLoader: liveAPIClientDataLoader)
+    let transport = APIClientTransport()
+    self.init(
+      serverURL: serverURL,
+      authToken: authToken,
+      transport: transport,
+      dataLoader: { request in
+        try await transport.load(request)
+      }
+    )
   }
 
   init(
@@ -107,6 +120,20 @@ final class APIClient: Sendable {
   ) {
     self.baseURL = Self.httpBaseURL(from: serverURL)
     self.authToken = authToken
+    self.transport = nil
+    self.dataLoader = dataLoader
+    netLog(.info, cat: .api, "Initialized", data: ["baseURL": self.baseURL.absoluteString])
+  }
+
+  private init(
+    serverURL: URL,
+    authToken: String?,
+    transport: APIClientTransport,
+    dataLoader: @escaping DataLoader
+  ) {
+    self.baseURL = Self.httpBaseURL(from: serverURL)
+    self.authToken = authToken
+    self.transport = transport
     self.dataLoader = dataLoader
     netLog(.info, cat: .api, "Initialized", data: ["baseURL": self.baseURL.absoluteString])
   }
