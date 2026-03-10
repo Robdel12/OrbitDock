@@ -54,7 +54,7 @@ struct APIClientTests {
         return Self.jsonResponse(
           url: request.url!,
           statusCode: 202,
-          json: #"{}"#
+          json: #"{"accepted":true}"#
         )
       }
     )

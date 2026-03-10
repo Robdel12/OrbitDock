@@ -122,13 +122,15 @@ struct ServerControlPlaneCoordinatorTests {
   private func makePort(endpointId: UUID, recorder: ControlPlaneRecorder) -> ServerControlPlanePort {
     ServerControlPlanePort(
       endpointId: endpointId,
-      setServerRole: { isPrimary in
-        await recorder.recordServerRole(endpointId: endpointId, isPrimary: isPrimary)
-        return isPrimary
-      },
-      setClientPrimaryClaim: { _, isPrimary in
-        await recorder.recordClaim(endpointId: endpointId, isPrimary: isPrimary)
-      }
+      client: ControlPlaneClient(
+        setServerRole: { isPrimary in
+          await recorder.recordServerRole(endpointId: endpointId, isPrimary: isPrimary)
+          return isPrimary
+        },
+        setClientPrimaryClaim: { _, isPrimary in
+          await recorder.recordClaim(endpointId: endpointId, isPrimary: isPrimary)
+        }
+      )
     )
   }
 }

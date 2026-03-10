@@ -1,41 +1,4 @@
-//
-//  APIClient.swift
-//  OrbitDock
-//
-//  Standalone HTTP transport for the OrbitDock server.
-//  No state, no callbacks — pure async/await.
-//
-
 import Foundation
-
-final class APIClientTransport: @unchecked Sendable {
-  private let urlSession: URLSession
-
-  init() {
-    let configuration = URLSessionConfiguration.default
-    configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-    configuration.urlCache = nil
-    self.urlSession = URLSession(configuration: configuration)
-  }
-
-  func load(_ request: URLRequest) async throws -> (Data, URLResponse) {
-    try await withCheckedThrowingContinuation { continuation in
-      let task = urlSession.dataTask(with: request) { data, response, error in
-        if let error {
-          continuation.resume(throwing: error)
-        } else if let data, let response {
-          continuation.resume(returning: (data, response))
-        } else {
-          continuation.resume(throwing: ServerRequestError.invalidResponse)
-        }
-      }
-
-      task.resume()
-    }
-  }
-}
-
-// MARK: - Connection Status
 
 enum ConnectionStatus: Equatable, Hashable {
   case disconnected
@@ -44,312 +7,135 @@ enum ConnectionStatus: Equatable, Hashable {
   case failed(String)
 }
 
-// MARK: - Errors
-
-enum ServerRequestError: LocalizedError {
-  case notConnected
-  case connectionLost
-  case invalidEndpoint
-  case invalidResponse
-  case httpStatus(Int, code: String? = nil, message: String? = nil)
-
-  var statusCode: Int? {
-    switch self {
-    case let .httpStatus(status, _, _): status
-    default: nil
-    }
-  }
-
-  var apiErrorCode: String? {
-    switch self {
-    case let .httpStatus(_, code, _): code
-    default: nil
-    }
-  }
-
-  var isConnectorUnavailableConflict: Bool {
-    statusCode == 409 && apiErrorCode == "session_not_found"
-  }
-
-  var errorDescription: String? {
-    switch self {
-    case .notConnected:
-      "Server is not connected."
-    case .connectionLost:
-      "Server connection was lost before the request completed."
-    case .invalidEndpoint:
-      "Server endpoint URL is invalid."
-    case .invalidResponse:
-      "Server returned an invalid response."
-    case let .httpStatus(status, code, message):
-      if let code, let message {
-        "Server request failed with status \(status) (\(code)): \(message)"
-      } else if let code {
-        "Server request failed with status \(status) (\(code))."
-      } else {
-        "Server request failed with status \(status)."
-      }
-    }
-  }
-}
-
-// MARK: - APIClient
-
-/// Pure HTTP transport for the OrbitDock server REST API.
-/// Stateless — callers supply the base URL and auth token on init.
+/// Thin composition root for the OrbitDock REST API.
+///
+/// The shape here is intentionally small:
+/// - request building lives in `HTTPRequestBuilder`
+/// - request execution lives in `HTTPTransport`
+/// - generic decode/validation lives in `ServerHTTPClient`
+/// - feature methods live in the `APIClient+*.swift` files for now
 final class APIClient: Sendable {
   typealias DataLoader = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+  typealias ResponseLoader = @Sendable (URLRequest) async throws -> HTTPResponse
 
   let baseURL: URL
-  private let authToken: String?
-  private let dataLoader: DataLoader
-  private let transport: APIClientTransport?
-
-  static let encoder: JSONEncoder = {
-    let e = JSONEncoder()
-    e.keyEncodingStrategy = .convertToSnakeCase
-    return e
-  }()
-
-  static let decoder = JSONDecoder()
+  let requestBuilder: HTTPRequestBuilder
+  let http: ServerHTTPClient
 
   convenience init(serverURL: URL, authToken: String?) {
-    let transport = APIClientTransport()
+    let baseURL = Self.httpBaseURL(from: serverURL)
+    let requestBuilder = HTTPRequestBuilder(baseURL: baseURL, authToken: authToken)
+    let transport = HTTPTransport()
     self.init(
-      serverURL: serverURL,
-      authToken: authToken,
-      transport: transport,
-      dataLoader: { request in
-        try await transport.load(request)
+      baseURL: baseURL,
+      requestBuilder: requestBuilder,
+      responseLoader: { request in
+        try await transport.execute(request)
+      }
+    )
+  }
+
+  convenience init(
+    serverURL: URL,
+    authToken: String?,
+    dataLoader: @escaping DataLoader
+  ) {
+    let baseURL = Self.httpBaseURL(from: serverURL)
+    let requestBuilder = HTTPRequestBuilder(baseURL: baseURL, authToken: authToken)
+    self.init(
+      baseURL: baseURL,
+      requestBuilder: requestBuilder,
+      responseLoader: { request in
+        let raw = try await dataLoader(request)
+        return try HTTPResponse(data: raw.0, response: raw.1)
       }
     )
   }
 
   init(
-    serverURL: URL,
-    authToken: String?,
-    dataLoader: @escaping DataLoader
+    baseURL: URL,
+    requestBuilder: HTTPRequestBuilder,
+    responseLoader: @escaping ResponseLoader
   ) {
-    self.baseURL = Self.httpBaseURL(from: serverURL)
-    self.authToken = authToken
-    self.transport = nil
-    self.dataLoader = dataLoader
-    netLog(.info, cat: .api, "Initialized", data: ["baseURL": self.baseURL.absoluteString])
-  }
-
-  private init(
-    serverURL: URL,
-    authToken: String?,
-    transport: APIClientTransport,
-    dataLoader: @escaping DataLoader
-  ) {
-    self.baseURL = Self.httpBaseURL(from: serverURL)
-    self.authToken = authToken
-    self.transport = transport
-    self.dataLoader = dataLoader
+    self.baseURL = baseURL
+    self.requestBuilder = requestBuilder
+    self.http = ServerHTTPClient(requestBuilder: requestBuilder, responseLoader: responseLoader)
     netLog(.info, cat: .api, "Initialized", data: ["baseURL": self.baseURL.absoluteString])
   }
 }
 
-// MARK: - HTTP Primitives
-
 extension APIClient {
-
-  /// GET that decodes JSON response.
-  func get<R: Decodable>(
-    _ path: String, query: [URLQueryItem] = []
-  ) async throws -> R {
-    try await request(path: path, method: "GET", query: query)
+  func get<R: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> R {
+    try await http.get(path, query: query)
   }
 
-  /// POST with Encodable body that decodes JSON response.
   func post<B: Encodable, R: Decodable>(
-    _ path: String, body: B, query: [URLQueryItem] = []
-  ) async throws -> R {
-    try await request(path: path, method: "POST", body: body, query: query)
-  }
-
-  /// Request with optional body, decoding JSON response.
-  func request<R: Decodable>(
-    path: String, method: String, query: [URLQueryItem] = []
-  ) async throws -> R {
-    netLog(.debug, cat: .api, "→ \(method) \(path)")
-    guard let url = buildURL(path: path, query: query) else {
-      throw ServerRequestError.invalidEndpoint
-    }
-
-    var req = URLRequest(url: url)
-    req.httpMethod = method
-    req.timeoutInterval = 15
-    applyAuth(to: &req)
-
-    let (data, response) = try await dataLoader(req)
-    try validateHTTPResponse(response, data: data, method: method, path: path)
-    do {
-      return try Self.decoder.decode(R.self, from: data)
-    } catch {
-      netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": error.localizedDescription])
-      throw error
-    }
-  }
-
-  /// Request with Encodable body, decoding JSON response.
-  func request<B: Encodable, R: Decodable>(
-    path: String, method: String, body: B, query: [URLQueryItem] = []
-  ) async throws -> R {
-    netLog(.debug, cat: .api, "→ \(method) \(path)")
-    guard let url = buildURL(path: path, query: query) else {
-      throw ServerRequestError.invalidEndpoint
-    }
-
-    var req = URLRequest(url: url)
-    req.httpMethod = method
-    req.timeoutInterval = 15
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    applyAuth(to: &req)
-    req.httpBody = try Self.encoder.encode(body)
-
-    let (data, response) = try await dataLoader(req)
-    try validateHTTPResponse(response, data: data, method: method, path: path)
-    do {
-      return try Self.decoder.decode(R.self, from: data)
-    } catch {
-      netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": error.localizedDescription])
-      throw error
-    }
-  }
-
-  /// Fire-and-forget: sends body, validates 2xx, discards response body.
-  func fireAndForget<B: Encodable>(
-    _ path: String, method: String, body: B, query: [URLQueryItem] = []
-  ) async throws {
-    netLog(.debug, cat: .api, "→ \(method) \(path)")
-    guard let url = buildURL(path: path, query: query) else {
-      throw ServerRequestError.invalidEndpoint
-    }
-
-    var req = URLRequest(url: url)
-    req.httpMethod = method
-    req.timeoutInterval = 15
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    applyAuth(to: &req)
-    req.httpBody = try Self.encoder.encode(body)
-
-    let (data, response) = try await dataLoader(req)
-    try validateHTTPResponse(response, data: data, method: method, path: path)
-  }
-
-  /// Fire-and-forget with raw Data body.
-  func fireAndForgetRaw(
-    _ path: String, method: String, bodyData: Data, query: [URLQueryItem] = []
-  ) async throws {
-    netLog(.debug, cat: .api, "→ \(method) \(path)")
-    guard let url = buildURL(path: path, query: query) else {
-      throw ServerRequestError.invalidEndpoint
-    }
-
-    var req = URLRequest(url: url)
-    req.httpMethod = method
-    req.timeoutInterval = 15
-    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    applyAuth(to: &req)
-    req.httpBody = bodyData
-
-    let (data, response) = try await dataLoader(req)
-    try validateHTTPResponse(response, data: data, method: method, path: path)
-  }
-
-  /// Send raw Data body with custom content type, decode JSON response.
-  func requestRaw<R: Decodable>(
-    path: String, method: String, bodyData: Data, contentType: String,
+    _ path: String,
+    body: B,
     query: [URLQueryItem] = []
   ) async throws -> R {
-    netLog(.debug, cat: .api, "→ \(method) \(path)")
-    guard let url = buildURL(path: path, query: query) else {
-      throw ServerRequestError.invalidEndpoint
-    }
-
-    var req = URLRequest(url: url)
-    req.httpMethod = method
-    req.timeoutInterval = 30
-    req.setValue(contentType, forHTTPHeaderField: "Content-Type")
-    applyAuth(to: &req)
-    req.httpBody = bodyData
-
-    let (data, response) = try await dataLoader(req)
-    try validateHTTPResponse(response, data: data, method: method, path: path)
-    do {
-      return try Self.decoder.decode(R.self, from: data)
-    } catch {
-      netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": error.localizedDescription])
-      throw error
-    }
+    try await http.post(path, body: body, query: query)
   }
 
-  /// Fetch raw Data (GET).
-  func fetchData(
-    _ path: String, query: [URLQueryItem] = []
-  ) async throws -> Data {
-    netLog(.debug, cat: .api, "→ GET \(path)")
-    guard let url = buildURL(path: path, query: query) else {
-      throw ServerRequestError.invalidEndpoint
-    }
-
-    var req = URLRequest(url: url)
-    req.httpMethod = "GET"
-    req.timeoutInterval = 30
-    applyAuth(to: &req)
-
-    let (data, response) = try await dataLoader(req)
-    try validateHTTPResponse(response, data: data, method: "GET", path: path)
-    return data
+  func request<R: Decodable>(
+    path: String,
+    method: String,
+    query: [URLQueryItem] = []
+  ) async throws -> R {
+    try await http.request(path: path, method: method, query: query)
   }
 
-  private func applyAuth(to request: inout URLRequest) {
-    if let authToken, !authToken.isEmpty {
-      request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
-    }
+  func request<B: Encodable, R: Decodable>(
+    path: String,
+    method: String,
+    body: B,
+    query: [URLQueryItem] = []
+  ) async throws -> R {
+    try await http.request(path: path, method: method, body: body, query: query)
   }
 
-  private func validateHTTPResponse(
-    _ response: URLResponse, data: Data, method: String = "?", path: String = "?"
-  ) throws {
-    guard let http = response as? HTTPURLResponse else {
-      netLog(.error, cat: .api, "Invalid response \(method) \(path)")
-      throw ServerRequestError.invalidResponse
-    }
-    guard (200 ..< 300).contains(http.statusCode) else {
-      let apiError = try? Self.decoder.decode(APIErrorResponse.self, from: data)
-      netLog(.error, cat: .api, "HTTP \(http.statusCode) \(method) \(path)", data: ["code": apiError?.code ?? "-", "error": apiError?.error ?? "-"])
-      throw ServerRequestError.httpStatus(
-        http.statusCode,
-        code: apiError?.code,
-        message: apiError?.error
-      )
-    }
+  func requestRaw<R: Decodable>(
+    path: String,
+    method: String,
+    bodyData: Data,
+    contentType: String,
+    query: [URLQueryItem] = []
+  ) async throws -> R {
+    try await http.requestRaw(
+      path: path,
+      method: method,
+      bodyData: bodyData,
+      contentType: contentType,
+      query: query
+    )
   }
 
-  private func buildURL(path: String, query: [URLQueryItem]) -> URL? {
-    guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-      return nil
-    }
-    let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
-    if components.path.isEmpty || components.path == "/" {
-      components.path = normalizedPath
-    } else {
-      var base = components.path
-      if base.hasSuffix("/") { base.removeLast() }
-      components.path = "\(base)\(normalizedPath)"
-    }
-    components.queryItems = query.isEmpty ? nil : query
-    return components.url
+  func fireAndForget<B: Encodable>(
+    _ path: String,
+    method: String,
+    body: B,
+    query: [URLQueryItem] = []
+  ) async throws {
+    try await http.sendVoid(path, method: method, body: body, query: query)
+  }
+
+  func fireAndForgetRaw(
+    _ path: String,
+    method: String,
+    bodyData: Data,
+    query: [URLQueryItem] = []
+  ) async throws {
+    try await http.sendVoidRaw(path, method: method, bodyData: bodyData, query: query)
+  }
+
+  func fetchData(_ path: String, query: [URLQueryItem] = []) async throws -> Data {
+    try await http.fetchData(path, query: query)
   }
 
   func encode(_ value: String) -> String {
-    value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
+    requestBuilder.encodePathComponent(value)
   }
 
-  /// Convert ws/wss server URL to http/https base URL (stripping /ws path suffix).
   static func httpBaseURL(from serverURL: URL) -> URL {
     guard var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false) else {
       return serverURL
@@ -366,10 +152,7 @@ extension APIClient {
   }
 }
 
-// MARK: - Shared Response Types
-
 extension APIClient {
-
   struct SessionsListResponse: Decodable {
     let sessions: [ServerSessionSummary]
   }
@@ -380,11 +163,6 @@ extension APIClient {
 
   struct AcceptedResponse: Decodable {
     let accepted: Bool
-  }
-
-  struct APIErrorResponse: Decodable {
-    let code: String
-    let error: String
   }
 
   struct UploadedImageAttachmentResponse: Decodable {

@@ -216,7 +216,7 @@ struct ServerRuntimeRegistryTests {
     #expect(claimRequests.isEmpty)
   }
 
-  @Test func configureWhenStartingEmitsOneDeterministicPrimaryClaimPass() async throws {
+  @Test func configureWhenStartingDoesNotEmitPrimaryClaimWritesBeforeRuntimeReadiness() async throws {
     let endpointA = try makeEndpoint(
       id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
       name: "Alpha",
@@ -243,14 +243,7 @@ struct ServerRuntimeRegistryTests {
     await registry.waitForControlPlaneIdleForTests()
 
     let claimRequests = await recorder.requests(matchingPath: "/api/client/primary-claim")
-    #expect(claimRequests.count == 2)
-
-    let requestBodies = try claimRequests.map { request -> [String: Any] in
-      let body = try #require(request.httpBody)
-      return try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
-    }
-
-    #expect(requestBodies.map { $0["is_primary"] as? Bool } == [true, false])
+    #expect(claimRequests.isEmpty)
   }
 
   private func makeMessage(id: String, content: String) -> TranscriptMessage {
@@ -306,7 +299,7 @@ struct ServerRuntimeRegistryTests {
         json = #"{"is_primary":true}"#
         statusCode = 200
       case "/api/client/primary-claim":
-        json = #"{}"#
+        json = #"{"accepted":true}"#
         statusCode = 202
       default:
         json = #"{}"#
