@@ -202,13 +202,15 @@ struct DirectSessionComposer: View {
   }
 
   var hasOverrides: Bool {
-    if obs.isDirectCodex {
-      return selectedEffort != .default || selectedModel != defaultCodexModelSelection
-    }
-    if obs.isDirectClaude {
-      return !selectedClaudeModel.isEmpty && selectedClaudeModel != defaultClaudeModelSelection
-    }
-    return false
+    DirectSessionComposerProviderPlanner.hasOverrides(
+      providerMode: providerMode,
+      selectedCodexModel: selectedModel,
+      selectedClaudeModel: selectedClaudeModel,
+      currentModel: obs.model,
+      selectedEffort: selectedEffort,
+      codexOptions: codexModelOptions,
+      claudeOptions: claudeModelOptions
+    )
   }
 
   var availableSkills: [ServerSkillMetadata] {
@@ -249,34 +251,25 @@ struct DirectSessionComposer: View {
   }
 
   var defaultCodexModelSelection: String {
-    if let current = obs.model,
-       codexModelOptions.contains(where: { $0.model == current })
-    {
-      return current
-    }
-    if let model = codexModelOptions.first(where: { $0.isDefault && !$0.model.isEmpty })?.model {
-      return model
-    }
-    return codexModelOptions.first(where: { !$0.model.isEmpty })?.model ?? ""
+    DirectSessionComposerProviderPlanner.defaultCodexModelSelection(
+      currentModel: obs.model,
+      options: codexModelOptions
+    )
   }
 
   var defaultClaudeModelSelection: String {
-    if let current = obs.model,
-       claudeModelOptions.contains(where: { $0.value == current })
-    {
-      return current
-    }
-    return claudeModelOptions.first?.value ?? obs.model ?? ""
+    DirectSessionComposerProviderPlanner.defaultClaudeModelSelection(
+      currentModel: obs.model,
+      options: claudeModelOptions
+    )
   }
 
   var effectiveClaudeModel: String {
-    if !selectedClaudeModel.isEmpty {
-      return selectedClaudeModel
-    }
-    if let sessionModel = obs.model, !sessionModel.isEmpty {
-      return sessionModel
-    }
-    return defaultClaudeModelSelection
+    DirectSessionComposerProviderPlanner.effectiveClaudeModel(
+      selectedClaudeModel: selectedClaudeModel,
+      sessionModel: obs.model,
+      options: claudeModelOptions
+    )
   }
 
   var projectPath: String? {
@@ -341,169 +334,38 @@ struct DirectSessionComposer: View {
   }
 
   var mcpToolEntries: [ComposerMcpToolEntry] {
-    serverState.session(sessionId).mcpTools.compactMap { key, tool in
-      guard let server = extractMcpServerName(from: key) else { return nil }
-      return ComposerMcpToolEntry(id: key, server: server, tool: tool)
-    }
-    .sorted {
-      if $0.server == $1.server {
-        return $0.tool.name < $1.tool.name
-      }
-      return $0.server < $1.server
-    }
+    DirectSessionComposerCommandDeckPlanner.mcpToolEntries(from: serverState.session(sessionId).mcpTools)
   }
 
   var mcpResourceEntries: [ComposerMcpResourceEntry] {
-    serverState.session(sessionId).mcpResources.flatMap { server, resources in
-      resources.map { resource in
-        ComposerMcpResourceEntry(id: "\(server)|\(resource.uri)", server: server, resource: resource)
-      }
-    }
-    .sorted {
-      if $0.server == $1.server {
-        return $0.resource.uri < $1.resource.uri
-      }
-      return $0.server < $1.server
-    }
+    DirectSessionComposerCommandDeckPlanner.mcpResourceEntries(from: serverState.session(sessionId).mcpResources)
   }
 
   var commandDeckItems: [ComposerCommandDeckItem] {
-    let trimmedQuery = inputState.commandDeck.query.trimmingCharacters(in: .whitespacesAndNewlines)
-    let query = trimmedQuery.lowercased()
-
-    func matches(_ values: [String]) -> Bool {
-      guard !query.isEmpty else { return true }
-      return values.contains { $0.lowercased().contains(query) }
-    }
-
-    var items: [ComposerCommandDeckItem] = []
-
-    if matches(["file", "files", "mention", "attach", "project"]) {
-      items.append(ComposerCommandDeckItem(
-        id: "action:file-picker",
-        section: "Actions",
-        icon: "paperclip",
-        title: "Attach Project Files",
-        subtitle: "Browse project files and add @mentions",
-        tint: .composerPrompt,
-        kind: .openFilePicker
-      ))
-    }
-
-    if hasSkillsPanel, matches(["skill", "skills", "agent", "attach"]) {
-      items.append(ComposerCommandDeckItem(
-        id: "action:skills",
-        section: "Actions",
-        icon: "bolt.fill",
-        title: "Attach Skills",
-        subtitle: "Pick enabled skills for this turn",
-        tint: .toolSkill,
-        kind: .openSkillsPanel
-      ))
-    }
-
-    if matches(["shell", "terminal", "command", "run"]) {
-      items.append(ComposerCommandDeckItem(
-        id: "action:shell-mode",
-        section: "Actions",
-        icon: "terminal",
-        title: manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode",
-        subtitle: "Switch composer into command execution mode",
-        tint: .shellAccent,
-        kind: .toggleShellMode
-      ))
-      items.append(ComposerCommandDeckItem(
-        id: "action:shell-prefix",
-        section: "Actions",
-        icon: "exclamationmark.bubble",
-        title: "Insert ! Shell Prefix",
-        subtitle: "Type !<command> to run shell directly",
-        tint: .shellAccent,
-        kind: .insertText("!")
-      ))
-    }
-
-    if hasMcpData, matches(["mcp", "server", "tools", "refresh"]) {
-      items.append(ComposerCommandDeckItem(
-        id: "action:mcp-refresh",
-        section: "Actions",
-        icon: "arrow.clockwise",
-        title: "Refresh MCP Servers",
-        subtitle: "Reload MCP tools and auth status",
-        tint: .toolMcp,
-        kind: .refreshMcp
-      ))
-    }
-
+    let projectFiles: [ProjectFileIndex.ProjectFile]
     if let path = projectPath {
-      let files = if query.isEmpty {
+      let query = inputState.commandDeck.query.trimmingCharacters(in: .whitespacesAndNewlines)
+      projectFiles = if query.isEmpty {
         Array(fileIndex.files(for: path).prefix(7))
       } else {
         Array(fileIndex.search(query, in: path).prefix(9))
       }
-      for file in files {
-        items.append(ComposerCommandDeckItem(
-          id: "file:\(file.id)",
-          section: "Files",
-          icon: "doc.text",
-          title: file.name,
-          subtitle: file.relativePath,
-          tint: .composerPrompt,
-          kind: .attachFile(file)
-        ))
-      }
+    } else {
+      projectFiles = []
     }
 
-    let matchingSkills = availableSkills.filter { skill in
-      query.isEmpty || matches([skill.name, skill.shortDescription ?? "", skill.description])
-    }
-    for skill in matchingSkills.prefix(8) {
-      items.append(ComposerCommandDeckItem(
-        id: "skill:\(skill.path)",
-        section: "Skills",
-        icon: "bolt.fill",
-        title: "$\(skill.name)",
-        subtitle: skill.shortDescription ?? skill.description,
-        tint: .toolSkill,
-        kind: .attachSkill(skill)
-      ))
-    }
-
-    for entry in mcpToolEntries where query.isEmpty || matches([
-      entry.server,
-      entry.tool.name,
-      entry.tool.title ?? "",
-      entry.tool.description ?? "",
-    ]) {
-      items.append(ComposerCommandDeckItem(
-        id: "mcp-tool:\(entry.id)",
-        section: "MCP Tools",
-        icon: "square.stack.3d.up.fill",
-        title: "\(entry.server).\(entry.tool.name)",
-        subtitle: entry.tool.description ?? "Insert MCP tool reference",
-        tint: .toolMcp,
-        kind: .insertMcpTool(server: entry.server, tool: entry.tool)
-      ))
-    }
-
-    for entry in mcpResourceEntries where query.isEmpty || matches([
-      entry.server,
-      entry.resource.name,
-      entry.resource.uri,
-      entry.resource.description ?? "",
-    ]) {
-      items.append(ComposerCommandDeckItem(
-        id: "mcp-resource:\(entry.id)",
-        section: "MCP Resources",
-        icon: "tray.full.fill",
-        title: "\(entry.server): \(entry.resource.name)",
-        subtitle: entry.resource.uri,
-        tint: .toolMcp,
-        kind: .insertMcpResource(server: entry.server, resource: entry.resource)
-      ))
-    }
-
-    return items.prefix(18).map { $0 }
+    return DirectSessionComposerCommandDeckPlanner.buildItems(
+      DirectSessionComposerCommandDeckContext(
+        query: inputState.commandDeck.query,
+        hasSkillsPanel: hasSkillsPanel,
+        hasMcpData: hasMcpData,
+        manualShellMode: manualShellMode,
+        projectFiles: projectFiles,
+        availableSkills: availableSkills,
+        mcpToolEntries: mcpToolEntries,
+        mcpResourceEntries: mcpResourceEntries
+      )
+    )
   }
 
   var filePickerResults: [ProjectFileIndex.ProjectFile] {
@@ -820,15 +682,17 @@ struct DirectSessionComposer: View {
   // MARK: - Composer Surface
 
   var hasStatusBarContent: Bool {
-    !isConnected
-      || obs.isDirectCodex
-      || obs.isDirectClaude
-      || isSessionWorking
-      || obs.hasTokenUsage
-      || !selectedModel.isEmpty
-      || !effectiveClaudeModel.isEmpty
-      || obs.branch != nil
-      || !obs.projectPath.isEmpty
+    DirectSessionComposerProviderPlanner.hasStatusBarContent(
+      isConnected: isConnected,
+      isDirectCodex: obs.isDirectCodex,
+      isDirectClaude: obs.isDirectClaude,
+      isSessionWorking: isSessionWorking,
+      hasTokenUsage: obs.hasTokenUsage,
+      selectedCodexModel: selectedModel,
+      effectiveClaudeModel: effectiveClaudeModel,
+      branch: obs.branch,
+      projectPath: obs.projectPath
+    )
   }
 
   var composerSurface: some View {

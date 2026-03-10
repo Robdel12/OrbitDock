@@ -44,34 +44,6 @@ extension DirectSessionComposer {
     }
   }
 
-  // MARK: - Model
-
-  func extractMcpServerName(from toolKey: String) -> String? {
-    let parts = toolKey.split(separator: "__")
-    if parts.count >= 2, parts[0] == "mcp" {
-      return String(parts[1])
-    }
-    if parts.count >= 2 {
-      return String(parts[0])
-    }
-    return nil
-  }
-
-  func shortModelName(_ model: String) -> String {
-    // Strip common prefixes to get a compact display name
-    let name = model
-      .replacingOccurrences(of: "openai/", with: "")
-      .replacingOccurrences(of: "anthropic/", with: "")
-    // If it's already short (like "o3"), return as-is
-    if name.count <= 8 { return name }
-    // Take first component before a dash if very long
-    let parts = name.split(separator: "-", maxSplits: 2)
-    if parts.count >= 2 {
-      return String(parts[0]) + "-" + String(parts[1])
-    }
-    return name
-  }
-
   // MARK: - Message
 
   var canSend: Bool {
