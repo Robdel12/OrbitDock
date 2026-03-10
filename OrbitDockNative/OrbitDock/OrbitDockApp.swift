@@ -20,12 +20,15 @@ struct OrbitDockApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   #endif
   @State private var appRuntime: OrbitDockAppRuntime
+  private let modelPricingService: ModelPricingService
 
   init() {
     let appRuntime = OrbitDockAppRuntime.live()
+    let modelPricingService = ModelPricingService.live()
     _appRuntime = State(initialValue: appRuntime)
+    self.modelPricingService = modelPricingService
   #if os(macOS)
-    appDelegate.configure(appRuntime: appRuntime)
+    appDelegate.configure(appRuntime: appRuntime, modelPricingService: modelPricingService)
   #endif
   }
 
@@ -112,9 +115,11 @@ struct OrbitDockWindowCommands: Commands {
   class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var memoryPressureSource: DispatchSourceMemoryPressure?
     private var appRuntime: OrbitDockAppRuntime?
+    private var modelPricingService: ModelPricingService?
 
-    func configure(appRuntime: OrbitDockAppRuntime) {
+    func configure(appRuntime: OrbitDockAppRuntime, modelPricingService: ModelPricingService) {
       self.appRuntime = appRuntime
+      self.modelPricingService = modelPricingService
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -150,7 +155,7 @@ struct OrbitDockWindowCommands: Commands {
       UNUserNotificationCenter.current().setNotificationCategories([category])
 
       // Fetch latest model pricing in background
-      ModelPricingService.shared.fetchPrices()
+      modelPricingService?.fetchPrices()
 
       let memoryPressureSource = DispatchSource.makeMemoryPressureSource(
         eventMask: [.warning, .critical],

@@ -40,6 +40,8 @@ struct ModelPrice: Codable {
   }
 }
 
+typealias ModelPricingAsyncRunner = (@escaping @Sendable () -> Void) -> Void
+
 /// Service for fetching and caching model pricing
 final class ModelPricingService: @unchecked Sendable {
   static let shared = ModelPricingService()
@@ -70,10 +72,28 @@ final class ModelPricingService: @unchecked Sendable {
   private let cacheURL: URL
   private let liteLLMURL =
     URL(string: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")!
+  private let loadRemoteData: @Sendable (URL) throws -> Data
+  private let runAsync: ModelPricingAsyncRunner
 
-  private init() {
-    let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-    cacheURL = cacheDir.appendingPathComponent("model_pricing.json")
+  static func live() -> ModelPricingService {
+    ModelPricingService()
+  }
+
+  init(
+    cacheURL: URL? = nil,
+    loadRemoteData: @escaping @Sendable (URL) throws -> Data = { try Data(contentsOf: $0) },
+    runAsync: @escaping ModelPricingAsyncRunner = { work in
+      DispatchQueue.global(qos: .utility).async(execute: work)
+    }
+  ) {
+    if let cacheURL {
+      self.cacheURL = cacheURL
+    } else {
+      let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+      self.cacheURL = cacheDir.appendingPathComponent("model_pricing.json")
+    }
+    self.loadRemoteData = loadRemoteData
+    self.runAsync = runAsync
     loadCachedPrices()
   }
 
@@ -145,10 +165,9 @@ final class ModelPricingService: @unchecked Sendable {
     _isLoading = true
     lock.unlock()
 
-    // Spawn async work on background queue
-    DispatchQueue.global(qos: .utility).async { [self] in
+    runAsync { [self] in
       do {
-        let data = try Data(contentsOf: liteLLMURL)
+        let data = try loadRemoteData(liteLLMURL)
         let decoded = try JSONDecoder().decode([String: ModelPrice].self, from: data)
 
         // Save to cache
