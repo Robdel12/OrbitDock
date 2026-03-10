@@ -437,151 +437,21 @@ struct QuickSwitcher: View {
   // MARK: - Quick Launch Section
 
   private var quickLaunchSection: some View {
-    let provider = quickLaunchMode!
-
-    return VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.xs) {
-      // Header
-      HStack(spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
-        Image(systemName: provider.icon)
-          .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.meta, weight: .semibold))
-          .foregroundStyle(provider.color)
-
-        Text("NEW \(provider.displayName.uppercased()) SESSION")
-          .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.meta, weight: .bold, design: .rounded))
-          .foregroundStyle(provider.color)
-          .tracking(0.8)
-
-        Spacer()
-
-        // Full sheet option
-        Button {
-          openFullSheet()
-        } label: {
-          HStack(spacing: Spacing.xs) {
-            Text("Full Options")
-              .font(.system(size: isCompactLayout ? TypeScale.meta : TypeScale.micro, weight: .medium))
-            Image(systemName: "arrow.up.right")
-              .font(.system(size: isCompactLayout ? TypeScale.mini : 8, weight: .semibold))
-          }
-          .foregroundStyle(Color.textTertiary)
-          .padding(.horizontal, isCompactLayout ? Spacing.md_ : Spacing.sm)
-          .padding(.vertical, isCompactLayout ? 5 : Spacing.xs)
-          .background(Color.surfaceHover, in: Capsule())
-        }
-        .buttonStyle(.plain)
+    QuickSwitcherQuickLaunchSection(
+      provider: quickLaunchMode!,
+      isCompactLayout: isCompactLayout,
+      isLoadingProjects: isLoadingProjects,
+      recentProjects: recentProjects,
+      selectedIndex: selectedIndex,
+      hoveredIndex: hoveredIndex,
+      onOpenFullSheet: openFullSheet,
+      onHoverChanged: { index, hovered in
+        hoveredIndex = hovered ? index : nil
+      },
+      onOpenProject: { path in
+        quickLaunchSession(path: path)
       }
-      .padding(.horizontal, isCompactLayout ? Spacing.lg_ : Spacing.section)
-      .padding(.top, isCompactLayout ? Spacing.sm_ : Spacing.sm)
-      .padding(.bottom, isCompactLayout ? Spacing.xs : Spacing.sm)
-
-      // Loading state
-      if isLoadingProjects {
-        HStack {
-          Spacer()
-          ProgressView()
-            .controlSize(.small)
-          Spacer()
-        }
-        .padding(.vertical, isCompactLayout ? Spacing.section : Spacing.xl)
-      } else if recentProjects.isEmpty {
-        // Empty state
-        VStack(spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
-          Image(systemName: "folder.badge.plus")
-            .font(.system(size: isCompactLayout ? TypeScale.chatHeading2 : TypeScale.chatHeading1))
-            .foregroundStyle(Color.textQuaternary)
-          Text("No recent projects")
-            .font(.system(size: isCompactLayout ? TypeScale.subhead : TypeScale.body))
-            .foregroundStyle(Color.textTertiary)
-          Text("Use Full Options to browse directories")
-            .font(.system(size: isCompactLayout ? TypeScale.caption : TypeScale.meta))
-            .foregroundStyle(Color.textQuaternary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, isCompactLayout ? Spacing.section : Spacing.xl)
-      } else {
-        // Recent projects list
-        ForEach(Array(recentProjects.enumerated()), id: \.element.id) { index, project in
-          quickLaunchProjectRow(project: project, index: index, provider: provider)
-            .id("row-\(index)")
-        }
-      }
-    }
-  }
-
-  private func quickLaunchProjectRow(
-    project: ServerRecentProject,
-    index: Int,
-    provider: QuickLaunchProvider
-  ) -> some View {
-    let iconSize: CGFloat = isCompactLayout ? 32 : 36
-
-    return Button {
-      quickLaunchSession(path: project.path)
-    } label: {
-      HStack(spacing: isCompactLayout ? Spacing.md_ : Spacing.lg_) {
-        // Folder icon with provider color
-        ZStack {
-          RoundedRectangle(cornerRadius: isCompactLayout ? 7 : 8, style: .continuous)
-            .fill(provider.color.opacity(0.1))
-            .frame(width: iconSize, height: iconSize)
-
-          Image(systemName: "folder.fill")
-            .font(.system(size: isCompactLayout ? TypeScale.subhead : TypeScale.title, weight: .medium))
-            .foregroundStyle(provider.color.opacity(0.8))
-        }
-
-        VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.gap) {
-          Text(URL(fileURLWithPath: project.path).lastPathComponent)
-            .font(.system(size: isCompactLayout ? TypeScale.title : TypeScale.subhead, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-
-          Text(displayPath(project.path))
-            .font(.system(size: isCompactLayout ? TypeScale.caption : TypeScale.meta, design: .monospaced))
-            .foregroundStyle(Color.textTertiary)
-            .lineLimit(1)
-            .truncationMode(.middle)
-        }
-
-        Spacer(minLength: 4)
-
-        // Session count badge
-        HStack(spacing: Spacing.xs) {
-          Image(systemName: "clock")
-            .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.mini))
-          Text("\(project.sessionCount)")
-            .font(.system(size: isCompactLayout ? TypeScale.meta : TypeScale.micro, weight: .medium))
-        }
-        .foregroundStyle(Color.textQuaternary)
-        .padding(.horizontal, isCompactLayout ? Spacing.md_ : Spacing.sm)
-        .padding(.vertical, isCompactLayout ? 5 : Spacing.xs)
-        .background(Color.surfaceHover, in: Capsule())
-      }
-      .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
-      .padding(.vertical, Spacing.md_)
-      .background(
-        QuickSwitcherRowBackground(
-          isSelected: selectedIndex == index,
-          isHovered: hoveredIndex == index
-        )
-      )
-      .padding(.horizontal, isCompactLayout ? Spacing.xs : Spacing.sm)
-      .contentShape(Rectangle())
-    }
-    .buttonStyle(.plain)
-    .onHover { isHovered in
-      guard !isCompactLayout else { return }
-      hoveredIndex = isHovered ? index : nil
-    }
-  }
-
-  private func displayPath(_ path: String) -> String {
-    if path.hasPrefix("/Users/") {
-      let parts = path.split(separator: "/", maxSplits: 3)
-      if parts.count >= 2 {
-        return "~/" + (parts.count > 2 ? String(parts[2...].joined(separator: "/")) : "")
-      }
-    }
-    return path.isEmpty ? "~" : path
+    )
   }
 
   // MARK: - Active Sessions Section
@@ -786,162 +656,34 @@ struct QuickSwitcher: View {
   // MARK: - Switcher Row
 
   private func switcherRow(session: Session, index: Int) -> some View {
-    let isHighlighted = selectedIndex == index || hoveredIndex == index
-    let displayStatus = SessionDisplayStatus.from(session)
-
-    return Button {
-      Platform.services.playHaptic(.navigation)
-      router.navigateToSession(scopedID: session.scopedID)
-      router.closeQuickSwitcher()
-    } label: {
-      HStack(spacing: isCompactLayout ? Spacing.md_ : Spacing.lg_) {
-        // Status indicator - smaller on compact, no glow
-        SessionStatusDot(status: displayStatus, size: isCompactLayout ? 8 : 10, showGlow: !isCompactLayout)
-          .frame(
-            width: isCompactLayout ? Spacing.lg : Spacing.section,
-            height: isCompactLayout ? Spacing.lg : Spacing.section
-          )
-
-        // Content - stacked layout for better hierarchy
-        VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.xs) {
-          // Project name + branch (top line, smaller)
-          HStack(spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
-            Text(projectName(for: session))
-              .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.meta, weight: .medium))
-              .foregroundStyle(Color.textSecondary)
-              .lineLimit(1)
-
-            if !isCompactLayout, session.endpointName != nil {
-              EndpointBadge(
-                endpointName: session.endpointName,
-                isDefault: session.endpointId == runtimeRegistry.activeEndpointId
-              )
-            }
-
-            if let branch = session.branch {
-              HStack(spacing: Spacing.gap) {
-                Image(systemName: "arrow.triangle.branch")
-                  .font(.system(size: isCompactLayout ? 8 : TypeScale.mini))
-                Text(branch)
-                  .font(.system(size: isCompactLayout ? TypeScale.mini : TypeScale.micro, design: .monospaced))
-                  .lineLimit(1)
-              }
-              .foregroundStyle(Color.gitBranch.opacity(0.7))
-            }
-
-            if !isCompactLayout, sessionObservable(for: session).forkedFrom != nil {
-              ForkBadge()
-            }
-          }
-
-          // Agent name (main line, prominent)
-          HStack(spacing: isCompactLayout ? Spacing.sm : Spacing.md_) {
-            Text(agentName(for: session))
-              .font(.system(size: isCompactLayout ? TypeScale.title : TypeScale.subhead, weight: .semibold))
-              .foregroundStyle(.primary)
-              .lineLimit(1)
-
-            // Activity indicator for active sessions
-            if session.showsInMissionControl {
-              activityIndicator(for: session, status: displayStatus)
-            } else {
-              // Ended badge with relative time
-              HStack(spacing: Spacing.xs) {
-                if let endedAt = session.endedAt {
-                  Text(endedAt, style: .relative)
-                    .font(.system(size: isCompactLayout ? TypeScale.meta : TypeScale.micro))
-                }
-              }
-              .foregroundStyle(Color.statusEnded)
-            }
-          }
-        }
-
-        Spacer(minLength: 4)
-
-        // On compact: always show model badge, use context menu for actions
-        // On desktop: show action buttons on hover/selection
-        if isCompactLayout {
-          UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
-        } else if isHighlighted {
-          HStack(spacing: Spacing.xs) {
-            actionButton(icon: "folder", tooltip: "Open in Finder") {
-              performCommandPlan(.openInFinder(path: session.projectPath))
-            }
-            actionButton(icon: "pencil", tooltip: "Rename") {
-              performCommandPlan(.renameSession(session))
-            }
-            actionButton(icon: "doc.on.doc", tooltip: "Copy Resume") {
-              performCommandPlan(.copyResumeCommand("claude --resume \(session.id)"))
-            }
-            if session.showsInMissionControl {
-              actionButton(icon: "xmark.circle", tooltip: "Close Session") {
-                performCommandPlan(.closeSession(session))
-              }
-            }
-          }
-          .transition(.opacity.combined(with: .scale(scale: 0.9)))
-        } else {
-          UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
-        }
-      }
-      .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
-      .padding(.vertical, isCompactLayout ? Spacing.md_ : Spacing.md)
-      .background(
-        QuickSwitcherRowBackground(
-          isSelected: selectedIndex == index,
-          isHovered: hoveredIndex == index
-        )
-      )
-      .padding(.horizontal, isCompactLayout ? Spacing.xs : Spacing.sm)
-      .contentShape(Rectangle())
-      .animation(Motion.hover, value: isHighlighted)
-    }
-    .buttonStyle(.plain)
-    .onHover { isHovered in
-      guard !isCompactLayout else { return }
-      hoveredIndex = isHovered ? index : nil
-    }
-    .modifier(CompactContextMenuModifier(isCompact: isCompactLayout) {
-      Button {
+    QuickSwitcherSessionRow(
+      session: session,
+      index: index,
+      isCompactLayout: isCompactLayout,
+      isSelected: selectedIndex == index,
+      isHovered: hoveredIndex == index,
+      onHoverChanged: { isHovered in
+        hoveredIndex = isHovered ? index : nil
+      },
+      onNavigate: {
+        Platform.services.playHaptic(.navigation)
+        router.navigateToSession(scopedID: session.scopedID)
+        router.closeQuickSwitcher()
+      },
+      onOpenInFinder: {
         performCommandPlan(.openInFinder(path: session.projectPath))
-      } label: {
-        Label("Open in Files", systemImage: "folder")
-      }
-
-      Button {
+      },
+      onRename: {
         performCommandPlan(.renameSession(session))
-      } label: {
-        Label("Rename", systemImage: "pencil")
-      }
-
-      Button {
+      },
+      onCopyResume: {
         performCommandPlan(.copyResumeCommand("claude --resume \(session.id)"))
-      } label: {
-        Label("Copy Resume Command", systemImage: "doc.on.doc")
-      }
-
-      if session.showsInMissionControl {
-        Divider()
-        Button(role: .destructive) {
-          performCommandPlan(.closeSession(session))
-        } label: {
-          Label("Close Session", systemImage: "xmark.circle")
-        }
-      }
-    })
-  }
-
-  private func actionButton(icon: String, tooltip: String, action: @escaping () -> Void) -> some View {
-    Button(action: action) {
-      Image(systemName: icon)
-        .font(.system(size: TypeScale.caption, weight: .medium))
-        .foregroundStyle(.secondary)
-        .frame(width: 28, height: 28)
-        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-    }
-    .buttonStyle(.plain)
-    .help(tooltip)
+      },
+      onClose: session.showsInMissionControl ? {
+        performCommandPlan(.closeSession(session))
+      } : nil,
+      sessionObservable: sessionObservable(for: session)
+    )
   }
   // MARK: - Empty State
 
@@ -1094,76 +836,12 @@ struct QuickSwitcher: View {
     }
   }
 
-  private func projectName(for session: Session) -> String {
-    session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown"
-  }
-
   private func appState(for session: Session) -> SessionStore {
     runtimeRegistry.sessionStore(for: session, fallback: serverState)
   }
 
   private func sessionObservable(for session: Session) -> SessionObservable {
     runtimeRegistry.sessionObservable(for: session, fallback: serverState)
-  }
-
-  private func agentName(for session: Session) -> String {
-    // Use displayName which already strips HTML tags
-    session.displayName
-  }
-
-  @ViewBuilder
-  private func activityIndicator(for session: Session, status: SessionDisplayStatus) -> some View {
-    let color = status.color
-
-    HStack(spacing: Spacing.xs) {
-      Image(systemName: activityIcon(for: session, status: status))
-        .font(.system(size: TypeScale.mini, weight: .medium))
-      Text(activityText(for: session, status: status))
-        .font(.system(size: TypeScale.micro, weight: .medium))
-    }
-    .foregroundStyle(color)
-    .padding(.horizontal, Spacing.sm_)
-    .padding(.vertical, Spacing.xxs)
-    .background(color.opacity(0.12), in: Capsule())
-  }
-
-  private func activityText(for session: Session, status: SessionDisplayStatus) -> String {
-    switch status {
-      case .permission:
-        if let tool = session.pendingToolName {
-          return tool
-        }
-        return "Permission"
-      case .question:
-        return "Question"
-      case .working:
-        if let tool = session.lastTool {
-          return tool
-        }
-        return "Working"
-      case .reply:
-        return "Ready"
-      case .ended:
-        return "Ended"
-    }
-  }
-
-  private func activityIcon(for session: Session, status: SessionDisplayStatus) -> String {
-    switch status {
-      case .permission:
-        return "lock.fill"
-      case .question:
-        return "questionmark.bubble"
-      case .working:
-        if let tool = session.lastTool {
-          return ToolCardStyle.icon(for: tool)
-        }
-        return "bolt.fill"
-      case .reply:
-        return "checkmark.circle"
-      case .ended:
-        return "moon.fill"
-    }
   }
 
   // MARK: - Quick Launch
