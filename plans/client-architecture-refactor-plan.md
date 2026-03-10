@@ -33,6 +33,12 @@ This plan is now an active execution document, not just a roadmap.
   - `DirectSessionComposer` now has a real input state model instead of hand-managed completion/focus flags in the root view
   - send-mode decisions now go through a pure action planner instead of living inline in the feature view
   - deterministic unit tests cover input transitions, completion behavior, and send planning
+- **Review phase 1a**
+  - review workflow extraction is underway with pure workflow helpers for comment send behavior and addressed-file tracking
+  - review cursor and navigation logic now live in dedicated helpers with deterministic tests
+- **Window-local external navigation cleanup**
+  - app-internal `.selectSession` broadcast routing has been replaced with a typed app-level external navigation center
+  - external session selection now enters through a typed channel while actual navigation stays window-local
 - **Testing baseline**
   - `make build` is green
   - `make test-unit` is green
@@ -56,16 +62,20 @@ This plan is now an active execution document, not just a roadmap.
 - **Phase 6 / Phase 7**
   - service lifecycles and window-local state are moving in the right direction
   - app-internal session refresh now uses typed per-store update streams instead of a global `serverSessionsDidChange` notification
+  - external session selection now uses a typed app-level navigation center instead of a process-wide notification hop
   - internal fork navigation is starting to move onto window-local typed paths instead of broadcast notifications
   - approval-card to composer routing is moving onto typed feature callbacks instead of process-wide notifications
   - these phases are not finished yet
+- **Phase 10: Refactor the Review Feature**
+  - workflow, cursor/navigation, and projection are now being peeled out of `ReviewCanvas`
+  - the feature still needs comment composition state and render-section cleanup before the root view becomes a true shell
 
 ### Next
 
 - finish the remaining window-local routing cleanup and remove the last app-internal notification paths
 - keep thinning `SessionStore` and related store/runtime ownership
 - then land complete feature phases in this order:
-  - review projection + workflow extraction
+  - review comment-composition + render-section extraction
   - composer pending-approval, attachment, and action-boundary extraction
   - larger screen decomposition
 
@@ -77,10 +87,10 @@ This plan is now an active execution document, not just a roadmap.
   - send-mode and command routing now have a pure planner with unit tests
   - the remaining composer work is pending-approval state, attachments, and provider/action boundaries
 - **Review phase 1: Extract projection + workflow**
-  - move review projection/state out of `ReviewCanvas.swift`
-  - introduce a workflow/coordinator for comment CRUD and “send review” side effects
-  - keep the current rendering surface, but stop letting the view own the feature’s state machine
-  - add unit tests around projection, review status derivation, and workflow behavior
+  - in progress
+  - review workflow, cursor/navigation, and projection/state are now extracted into dedicated helpers
+  - the remaining work is comment composition/range-selection state and render-section cleanup so `ReviewCanvas` becomes a real feature shell
+  - unit tests now cover workflow behavior, cursor/navigation, and review projection
 - **Composer phase 2: Extract pending approval + action boundaries**
   - move pending approval presentation state and side effects out of `DirectSessionComposer.swift`
   - keep the root view focused on rendering bindings into the composer model
