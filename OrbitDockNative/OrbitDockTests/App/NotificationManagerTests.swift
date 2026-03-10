@@ -97,6 +97,51 @@ struct NotificationManagerTests {
 
     #expect(requestCount == 1)
   }
+
+  @Test func notifyNeedsAttentionSkipsPassiveCodexSessions() {
+    var addedRequest: UNNotificationRequest?
+
+    let manager = NotificationManager(
+      isAuthorized: true,
+      shouldRequestAuthorizationOnStart: false,
+      notificationCenter: NotificationCenterClient(
+        requestAuthorization: { _ in },
+        setDelegate: { _ in },
+        setNotificationCategories: { _ in },
+        addRequest: { request, _ in addedRequest = request },
+        removeDeliveredNotifications: { _ in }
+      ),
+      preferences: NotificationPreferences(
+        stringForKey: { _ in nil },
+        objectForKey: { _ in nil },
+        boolForKey: { _ in false }
+      ),
+      isRunningTestsProcess: false
+    )
+
+    let session = Session(
+      id: "passive-codex-attention",
+      endpointId: UUID(),
+      endpointName: nil,
+      endpointConnectionStatus: .connected,
+      projectPath: "/tmp/project",
+      projectName: nil,
+      branch: nil,
+      model: nil,
+      summary: nil,
+      customName: nil,
+      firstPrompt: nil,
+      status: .active,
+      workStatus: .permission,
+      attentionReason: .awaitingPermission,
+      provider: .codex,
+      codexIntegrationMode: .passive
+    )
+
+    manager.notifyNeedsAttention(session: session)
+
+    #expect(addedRequest == nil)
+  }
 }
 
 private final class TestNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {}

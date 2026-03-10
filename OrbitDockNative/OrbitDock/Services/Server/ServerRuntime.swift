@@ -66,19 +66,23 @@ final class ServerRuntime: Identifiable {
 
   func start() {
     guard endpoint.isEnabled else { return }
+    guard !isStarted else { return }
     sessionStore.startProcessingEvents()
     eventStream.connect(to: endpoint.wsURL)
     isStarted = true
   }
 
   func stop() {
+    guard isStarted else { return }
     eventStream.disconnect()
     sessionStore.stopProcessingEvents()
     isStarted = false
   }
 
   func reconnect() {
-    eventStream.disconnect()
+    guard endpoint.isEnabled else { return }
+    stop()
+    sessionStore.startProcessingEvents()
     eventStream.connect(to: endpoint.wsURL)
     isStarted = true
   }

@@ -50,6 +50,7 @@ final class SessionStore {
   @ObservationIgnored var autoMarkReadSessions: Set<String> = []
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []
   @ObservationIgnored var eventProcessingTask: Task<Void, Never>?
+  @ObservationIgnored private(set) var eventProcessingStartCount = 0
   @ObservationIgnored private let initialSessionsListContinuation: AsyncStream<Bool>.Continuation
   @ObservationIgnored private let sessionListContinuation: AsyncStream<Void>.Continuation
   @ObservationIgnored private let selectionRequestContinuation: AsyncStream<SessionRef>.Continuation
@@ -122,7 +123,8 @@ final class SessionStore {
   // MARK: - Event processing
 
   func startProcessingEvents() {
-    eventProcessingTask?.cancel()
+    guard eventProcessingTask == nil else { return }
+    eventProcessingStartCount += 1
     netLog(.info, cat: .store, "Started event processing", data: ["endpointId": self.endpointId.uuidString])
     eventProcessingTask = Task { [weak self] in
       guard let self else { return }
@@ -134,6 +136,7 @@ final class SessionStore {
   }
 
   func stopProcessingEvents() {
+    guard eventProcessingTask != nil else { return }
     eventProcessingTask?.cancel()
     eventProcessingTask = nil
     netLog(.info, cat: .store, "Stopped event processing", data: ["endpointId": self.endpointId.uuidString])

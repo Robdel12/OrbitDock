@@ -315,6 +315,27 @@ struct ServerRuntimeRegistryTests {
     #expect(claimRequests.isEmpty)
   }
 
+  @Test func repeatedStartupPassesDoNotRestartRuntimeEventProcessing() throws {
+    let endpoint = try makeEndpoint(
+      id: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+      name: "Loop Guard",
+      isEnabled: true,
+      isDefault: true
+    )
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpoint] },
+      runtimeFactory: { ServerRuntime(endpoint: $0) },
+      shouldBootstrapFromSettings: false
+    )
+
+    registry.startEnabledRuntimes()
+    registry.startEnabledRuntimes()
+
+    let runtime = try #require(registry.runtimesByEndpointId[endpoint.id])
+    #expect(runtime.isStarted)
+    #expect(runtime.sessionStore.eventProcessingStartCount == 1)
+  }
+
   private func makeMessage(id: String, content: String) -> TranscriptMessage {
     TranscriptMessage(
       id: id,

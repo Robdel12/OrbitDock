@@ -37,8 +37,10 @@ struct SessionStatusConsistencyTests {
     let permissionSession = Session(
       id: "permission-body",
       endpointId: UUID(),
+      endpointName: nil,
       endpointConnectionStatus: .connected,
       projectPath: "/tmp/project",
+      projectName: nil,
       status: .active,
       workStatus: .waiting,
       attentionReason: .awaitingPermission
@@ -49,8 +51,10 @@ struct SessionStatusConsistencyTests {
     let questionSession = Session(
       id: "question-body",
       endpointId: UUID(),
+      endpointName: nil,
       endpointConnectionStatus: .connected,
       projectPath: "/tmp/project",
+      projectName: nil,
       status: .active,
       workStatus: .waiting,
       attentionReason: .awaitingQuestion
@@ -61,8 +65,10 @@ struct SessionStatusConsistencyTests {
     let replySession = Session(
       id: "reply-body",
       endpointId: UUID(),
+      endpointName: nil,
       endpointConnectionStatus: .connected,
       projectPath: "/tmp/project",
+      projectName: nil,
       status: .active,
       workStatus: .working,
       attentionReason: .awaitingReply
@@ -75,8 +81,10 @@ struct SessionStatusConsistencyTests {
     let activeWorkingSession = Session(
       id: "working",
       endpointId: UUID(),
+      endpointName: nil,
       endpointConnectionStatus: .connected,
       projectPath: "/tmp/project",
+      projectName: nil,
       status: .active,
       workStatus: .working,
       attentionReason: .none
@@ -86,12 +94,34 @@ struct SessionStatusConsistencyTests {
     let replySession = Session(
       id: "reply",
       endpointId: UUID(),
+      endpointName: nil,
       endpointConnectionStatus: .connected,
       projectPath: "/tmp/project",
+      projectName: nil,
       status: .active,
       workStatus: .working,
       attentionReason: .awaitingReply
     )
     #expect(!NotificationManager.shouldTrackAsWorking(replySession))
+  }
+
+  @Test func passiveCodexSessionsDoNotParticipateInNotifications() {
+    let passiveCodex = Session(
+      id: "passive-codex",
+      endpointId: UUID(),
+      endpointName: nil,
+      endpointConnectionStatus: .connected,
+      projectPath: "/tmp/project",
+      projectName: nil,
+      status: .active,
+      workStatus: .working,
+      attentionReason: .none,
+      provider: .codex,
+      codexIntegrationMode: .passive
+    )
+
+    #expect(passiveCodex.isPassiveCodex)
+    #expect(!passiveCodex.allowsUserNotifications)
+    #expect(!NotificationManager.shouldTrackAsWorking(passiveCodex))
   }
 }
