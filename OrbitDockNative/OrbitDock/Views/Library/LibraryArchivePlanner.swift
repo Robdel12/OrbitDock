@@ -281,7 +281,7 @@ enum LibraryArchivePlanner {
     session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
   }
 
-  static func isLiveSession(_ session: Session) -> Bool {
+  nonisolated static func isLiveSession(_ session: Session) -> Bool {
     session.isActive && session.hasLiveEndpointConnection
   }
 }
