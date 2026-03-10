@@ -60,6 +60,7 @@ This plan is now an active execution document, not just a roadmap.
 - **Phase 6 / Phase 7, lifecycle ownership**
   - `WindowSessionCoordinator` now owns startup/runtime-graph refresh behavior instead of `ContentView`
   - the app delegate now talks to `OrbitDockAppRuntime` instead of reaching for global runtime singletons during notifications and shutdown
+  - memory pressure now flows through a typed lifecycle client owned by `OrbitDockAppRuntime` instead of a raw window-level notification observer
 - **Composer phase 2a**
   - pending approval panel state and pure approval/question planning now live in focused composer helpers instead of the root view
   - deterministic unit tests now cover pending answer selection, collection, primary-answer fallback, and per-request state reset
@@ -86,9 +87,18 @@ This plan is now an active execution document, not just a roadmap.
 - **Endpoint settings injection**
   - `NewSessionSheet`, `ProjectPicker`, `RemoteProjectPicker`, and `ServerSettingsSheet` no longer reach straight into `ServerEndpointSettings`
   - endpoint selection/fallback rules now live in a small pure helper with dedicated tests
+- **Settings phase 3**
+  - `ServerSettingsSheet` now delegates endpoint ordering, draft hydration, validation, save behavior, and endpoint mutations to a dedicated pure planner instead of mixing them into the view shell
+  - deterministic unit tests now cover ordering, draft defaults, validation failures, local-managed endpoint preservation, and default/enable semantics
+- **Project picker phase 1**
+  - `ProjectPicker` and `RemoteProjectPicker` now share a dedicated pure planner for recent-project grouping, browse-state transitions, request staleness guards, and browse reset behavior
+  - deterministic unit tests now cover grouped project projection, browse history transitions, stale request rejection, and path helper behavior
 - **Pricing boot ownership**
   - app startup no longer kicks off model-pricing fetches through `ModelPricingService.shared`
   - pricing fetch ownership is now injected at the app boundary with deterministic unit coverage
+- **Pricing projection phase 1**
+  - dashboard and session-detail cost display now flow through an injected calculator snapshot instead of shared pricing lookups
+  - deterministic unit tests now cover dashboard aggregation and session-detail usage fallback without relying on `ModelPricingService.shared`
 - **Preview runtime cleanup**
   - preview-specific runtime graphs now flow through a dedicated `PreviewRuntime` helper instead of `ServerRuntimeRegistry.shared` / `NotificationManager.shared`
   - primary and secondary previews now build local runtime state without leaking app-global singletons back into the architecture
@@ -134,6 +144,7 @@ This plan is now an active execution document, not just a roadmap.
   - external session selection now uses a typed app-level navigation center instead of a process-wide notification hop
   - internal fork navigation is starting to move onto window-local typed paths instead of broadcast notifications
   - approval-card to composer routing is moving onto typed feature callbacks instead of process-wide notifications
+  - memory pressure now enters through the typed app-runtime lifecycle boundary instead of a raw view-level notification hook
   - these phases are not finished yet, but the shell now owns much less runtime lifecycle wiring than before
 - **Phase 10: Refactor the Review Feature**
   - workflow, cursor/navigation, projection, comment composition, send coordination, file chrome, routing/editor actions, mouse/composer interactions, diff refresh, and inline presentation are now extracted from `ReviewCanvas`
@@ -194,9 +205,21 @@ This plan is now an active execution document, not just a roadmap.
   - done
   - `SettingsView` now delegates to focused pane views for workspace, integrations, servers, notifications, and diagnostics
   - shared settings chrome now lives in dedicated components instead of being repeated inline
+- **Settings phase 3**
+  - done
+  - `ServerSettingsSheet` now delegates endpoint ordering, draft hydration, validation, save behavior, and endpoint mutations to a dedicated pure planner instead of mixing them into the shell
+  - deterministic unit tests now cover ordering, draft defaults, validation failures, local-managed endpoint preservation, and default/enable semantics
+- **Project picker phase 1**
+  - done
+  - `ProjectPicker` and `RemoteProjectPicker` now share a dedicated pure planner for recent-project grouping, browse-state transitions, request staleness guards, and browse reset behavior
+  - deterministic unit tests now cover grouped project projection, browse history transitions, stale request rejection, and path helper behavior
+- **Pricing projection phase 1**
+  - done
+  - dashboard and session-detail cost display now flow through an injected calculator snapshot instead of shared pricing lookups
+  - deterministic unit tests now cover dashboard aggregation and session-detail usage fallback without relying on `ModelPricingService.shared`
 - **Session detail phase 1**
   - in progress
-  - review-send planning, lifecycle subscription rules, review layout transitions, review navigation helpers, diff-banner rules, worktree cleanup decisions, conversation chrome, compact metadata, usage projection, and diff summary decisions now live in dedicated pure planners instead of inline view logic
+  - review-send planning, lifecycle subscription rules, review layout transitions, review navigation helpers, diff-banner rules, worktree cleanup decisions, conversation chrome, compact metadata, usage projection, diff summary decisions, and action-bar presentation now live in dedicated pure planners instead of inline view logic
   - deterministic unit tests now cover the current planner seams
   - the remaining work is shrinking the root view into more of a shell and moving any last orchestration side effects behind typed helpers
 
