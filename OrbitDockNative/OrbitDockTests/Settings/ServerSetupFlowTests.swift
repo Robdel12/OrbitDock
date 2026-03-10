@@ -4,7 +4,7 @@ import Testing
 @MainActor
 struct ServerSetupVisibilityTests {
   @Test func showsSetupWhenNotConfiguredAndNoConnectedRuntimes() {
-    let shouldShow = ServerSetupVisibility.shouldShowSetup(
+    let shouldShow = AppWindowPlanner.shouldShowSetup(
       connectedRuntimeCount: 0,
       installState: .notConfigured
     )
@@ -13,7 +13,7 @@ struct ServerSetupVisibilityTests {
   }
 
   @Test func hidesSetupWhenAnyRuntimeIsConnected() {
-    let shouldShow = ServerSetupVisibility.shouldShowSetup(
+    let shouldShow = AppWindowPlanner.shouldShowSetup(
       connectedRuntimeCount: 1,
       installState: .notConfigured
     )
@@ -22,7 +22,7 @@ struct ServerSetupVisibilityTests {
   }
 
   @Test func hidesSetupWhenServerStateIsConfiguredButDisconnected() {
-    let shouldShow = ServerSetupVisibility.shouldShowSetup(
+    let shouldShow = AppWindowPlanner.shouldShowSetup(
       connectedRuntimeCount: 0,
       installState: .installed
     )

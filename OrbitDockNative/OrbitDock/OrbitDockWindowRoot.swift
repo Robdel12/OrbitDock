@@ -68,24 +68,25 @@ struct OrbitDockWindowRoot: View {
   }
 
   private func updateWindowFocus(for phase: ScenePhase) {
-    if phase == .active {
-      appRuntime.externalNavigationCenter.updateFocusedWindow(windowID)
-    } else if appRuntime.externalNavigationCenter.focusedWindowID == windowID {
-      appRuntime.externalNavigationCenter.updateFocusedWindow(nil)
-    }
+    let nextFocusedWindowID = AppWindowPlanner.focusedWindowUpdate(
+      currentFocusedWindowID: appRuntime.externalNavigationCenter.focusedWindowID,
+      windowID: windowID,
+      scenePhase: phase
+    )
+    appRuntime.externalNavigationCenter.updateFocusedWindow(nextFocusedWindowID)
   }
 
   private func handleExternalCommand(_ command: AppExternalCommand) {
-    guard scenePhase == .active else { return }
+    guard let selection = AppWindowPlanner.externalSelection(
+      command: command,
+      scenePhase: scenePhase
+    ) else { return }
 
-    switch command {
-    case let .selectSession(sessionId, endpointId):
-      withAnimation(Motion.standard) {
-        windowSessionCoordinator.handleExternalSelection(
-          sessionID: sessionId,
-          endpointId: endpointId
-        )
-      }
+    withAnimation(Motion.standard) {
+      windowSessionCoordinator.handleExternalSelection(
+        sessionID: selection.sessionID,
+        endpointId: selection.endpointID
+      )
     }
   }
 }

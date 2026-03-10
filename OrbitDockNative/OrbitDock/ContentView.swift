@@ -7,17 +7,6 @@
 
 import SwiftUI
 
-enum ServerSetupVisibility {
-  static func shouldShowSetup(
-    connectedRuntimeCount: Int,
-    installState: ServerInstallState
-  ) -> Bool {
-    if connectedRuntimeCount > 0 { return false }
-    if case .notConfigured = installState { return true }
-    return false
-  }
-}
-
 enum MissionControlNotificationSessions {
   static func merge(previousSessions: [Session], currentSessions: [Session]) -> [Session] {
     var mergedByScopedID: [String: Session] = [:]
@@ -65,9 +54,17 @@ struct ContentView: View {
 
   /// Show setup view when server is not configured and not connected
   private var shouldShowSetup: Bool {
-    ServerSetupVisibility.shouldShowSetup(
+    AppWindowPlanner.shouldShowSetup(
       connectedRuntimeCount: runtimeRegistry.connectedRuntimeCount,
       installState: currentInstallState
+    )
+  }
+
+  private var contentDestination: AppContentDestination {
+    AppWindowPlanner.contentDestination(
+      connectedRuntimeCount: runtimeRegistry.connectedRuntimeCount,
+      installState: currentInstallState,
+      selectedSessionRef: router.selectedSessionRef
     )
   }
 
@@ -127,24 +124,28 @@ struct ContentView: View {
 
   private var mainContent: some View {
     Group {
-      if shouldShowSetup {
+      switch contentDestination {
+      case .setup:
         ServerSetupView()
-      } else if let ref = router.selectedSessionRef {
+      case let .session(ref):
         SessionDetailView(
           sessionId: ref.sessionId,
           endpointId: ref.endpointId
         )
         .id(ref.scopedID)
-      } else {
-        // Dashboard view when no session selected
-        DashboardView(
-          sessions: windowSessionCoordinator.sessions,
-          endpointHealth: windowSessionCoordinator.endpointHealth,
-          isInitialLoading: windowSessionCoordinator.isAnyInitialLoading,
-          isRefreshingCachedSessions: isAnyRefreshingCachedSessions
-        )
+      case .dashboard:
+        dashboardView
       }
     }
+  }
+
+  private var dashboardView: some View {
+    DashboardView(
+      sessions: windowSessionCoordinator.sessions,
+      endpointHealth: windowSessionCoordinator.endpointHealth,
+      isInitialLoading: windowSessionCoordinator.isAnyInitialLoading,
+      isRefreshingCachedSessions: isAnyRefreshingCachedSessions
+    )
   }
 
   // MARK: - Quick Switcher Overlay
