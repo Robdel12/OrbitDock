@@ -76,12 +76,24 @@ This plan is now an active execution document, not just a roadmap.
   - `ServerManager` and app notification ownership now flow through the app runtime/environment instead of direct singleton grabs in production views and startup coordination
   - `ToastManager.shared` is gone, and startup/runtime tests now cover the injected install-state seam
   - `OrbitDockAppRuntime` now builds from an explicit dependency bundle and `live()` composition entrypoint instead of quietly reaching for `.shared` services inside its default initializer
+- **Endpoint settings injection**
+  - `NewSessionSheet`, `ProjectPicker`, `RemoteProjectPicker`, and `ServerSettingsSheet` no longer reach straight into `ServerEndpointSettings`
+  - endpoint selection/fallback rules now live in a small pure helper with dedicated tests
+- **Pricing boot ownership**
+  - app startup no longer kicks off model-pricing fetches through `ModelPricingService.shared`
+  - pricing fetch ownership is now injected at the app boundary with deterministic unit coverage
 - **Preview runtime cleanup**
   - preview-specific runtime graphs now flow through a dedicated `PreviewRuntime` helper instead of `ServerRuntimeRegistry.shared` / `NotificationManager.shared`
   - primary and secondary previews now build local runtime state without leaking app-global singletons back into the architecture
+- **Settings phase 2**
+  - `SettingsView` is now a shell over focused pane views and shared settings components instead of one giant feature blob
+  - diagnostics, notifications, integrations, debug/server controls, and general workspace settings now have clear homes
+- **Session detail review-send extraction**
+  - `SessionDetailView` now uses a local pure review-send planner instead of rebuilding selected-comment filtering and diff merge logic inline
+  - deterministic tests now cover selected-comment sends, send-all fallback, and duplicate-diff suppression
 - **Testing baseline**
   - `make build` is green
-  - `make test-unit` is green
+  - the full unit suite assertions are green again
   - the conversation timeline image-row regression is now covered at the projection boundary
 
 ### In Progress
@@ -112,9 +124,9 @@ This plan is now an active execution document, not just a roadmap.
   - any remaining work here should be polish-level cleanup, not more architectural rescue
 - **Phase 11: Decompose Large Screens**
   - `QuickSwitcher` now has a real pure core for query planning, session projection, keyboard navigation, command catalog, and selection resolution instead of embedding those rules directly in the view
-  - `SettingsView` now has its first real pure display-state seam through `SettingsEndpointHealthSummary`, so runtime health reasoning is no longer duplicated inline across the screen
-  - `SessionDetailView` now routes review-send formatting through the shared review helpers instead of duplicating message construction inline in the screen
-  - the remaining work is action-side effect cleanup in `QuickSwitcher`, then more screen-specific extractions from `SettingsView`, `SessionDetailView`, and the other large screens
+  - `SettingsView` now has focused pane views and a pure endpoint-health display seam, but there is still section-specific side-effect cleanup available
+  - `SessionDetailView` now routes review-send work through a local pure planner, but lifecycle/layout/worktree cleanup still remains
+  - the remaining work is action-side effect cleanup in `QuickSwitcher`, then more screen-specific extractions from `SessionDetailView` and the other large screens
 
 ### Next
 
@@ -160,7 +172,11 @@ This plan is now an active execution document, not just a roadmap.
 - **Settings phase 1**
   - endpoint/runtime health summary logic now lives in a dedicated pure helper instead of duplicated inline calculations inside `SettingsView`
   - deterministic unit tests now cover the display-state copy and tone decisions for enabled/connected endpoint combinations
-  - the remaining work is to keep peeling section-specific reasoning and smaller settings subfeatures out of the root screen
+  - the remaining work is to keep peeling any remaining section-specific side effects and small settings affordances out of the root shell
+- **Settings phase 2**
+  - done
+  - `SettingsView` now delegates to focused pane views for workspace, integrations, servers, notifications, and diagnostics
+  - shared settings chrome now lives in dedicated components instead of being repeated inline
 
 ---
 
