@@ -2,7 +2,7 @@ import Foundation
 @testable import OrbitDock
 import Testing
 
-struct ServerAppStateConversationBootstrapWindowTests {
+struct ConversationBootstrapWindowTests {
   @Test func bootstrapBackfillIsRequiredWhenWindowStartsMidTurn() {
     let messages = [
       TranscriptMessage(
@@ -29,7 +29,7 @@ struct ServerAppStateConversationBootstrapWindowTests {
       ),
     ]
 
-    #expect(ServerAppState.requiresConversationBootstrapBackfill(
+    #expect(requiresConversationBootstrapBackfill(
       messages: messages,
       hasMoreHistoryBefore: true,
       minimumTurnCount: 4
@@ -68,7 +68,7 @@ struct ServerAppStateConversationBootstrapWindowTests {
       ),
     ]
 
-    #expect(ServerAppState.requiresConversationBootstrapBackfill(
+    #expect(requiresConversationBootstrapBackfill(
       messages: messages,
       hasMoreHistoryBefore: true,
       minimumTurnCount: 4
@@ -87,7 +87,7 @@ struct ServerAppStateConversationBootstrapWindowTests {
       TranscriptMessage(id: "assistant-4", sequence: 37, type: .assistant, content: "D", timestamp: Date(timeIntervalSince1970: 37)),
     ]
 
-    #expect(!ServerAppState.requiresConversationBootstrapBackfill(
+    #expect(!requiresConversationBootstrapBackfill(
       messages: messages,
       hasMoreHistoryBefore: true,
       minimumTurnCount: 4
@@ -105,7 +105,7 @@ struct ServerAppStateConversationBootstrapWindowTests {
       )
     ]
 
-    #expect(!ServerAppState.requiresConversationBootstrapBackfill(
+    #expect(!requiresConversationBootstrapBackfill(
       messages: messages,
       hasMoreHistoryBefore: false,
       minimumTurnCount: 4

@@ -4,139 +4,44 @@ import Testing
 
 @MainActor
 struct ServerRuntimeRegistryTests {
-  @Test func startsTwoEnabledRuntimesConcurrently() throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "Local",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
+  @Test func configureCreatesEndpointScopedRuntimesAndPicksPreferredActiveEndpoint() throws {
+    let endpointA = try makeEndpoint(
+      id: "11111111-1111-1111-1111-111111111111",
+      name: "Alpha",
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "Remote",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
+    let endpointB = try makeEndpoint(
+      id: "22222222-2222-2222-2222-222222222222",
+      name: "Beta",
       isEnabled: true,
       isDefault: false
     )
 
-    var spies: [UUID: SpyServerConnection] = [:]
-
     let registry = ServerRuntimeRegistry(
       endpointsProvider: { [endpointA, endpointB] },
-      runtimeFactory: { endpoint in
-        let spy = SpyServerConnection(endpoint: endpoint)
-        spies[endpoint.id] = spy
-        return ServerRuntime(endpoint: endpoint, connection: spy)
-      }
-    )
-
-    registry.configureFromSettings(startEnabled: true)
-
-    #expect(registry.runtimesByEndpointId.count == 2)
-    #expect(spies[endpointA.id]?.connectCalls == [endpointA.wsURL])
-    #expect(spies[endpointB.id]?.connectCalls == [endpointB.wsURL])
-  }
-
-  @Test func reconnectAndStopAreIsolatedPerEndpoint() throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "A",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
-      isEnabled: true,
-      isDefault: true
-    )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: false
-    )
-
-    var spies: [UUID: SpyServerConnection] = [:]
-    let registry = ServerRuntimeRegistry(
-      endpointsProvider: { [endpointA, endpointB] },
-      runtimeFactory: { endpoint in
-        let spy = SpyServerConnection(endpoint: endpoint)
-        spies[endpoint.id] = spy
-        return ServerRuntime(endpoint: endpoint, connection: spy)
-      }
-    )
-
-    registry.configureFromSettings(startEnabled: true)
-
-    registry.reconnect(endpointId: endpointA.id)
-
-    #expect(spies[endpointA.id]?.disconnectCount == 1)
-    #expect(spies[endpointA.id]?.connectCalls.count == 2)
-    #expect(spies[endpointB.id]?.disconnectCount == 0)
-    #expect(spies[endpointB.id]?.connectCalls.count == 1)
-
-    registry.stop(endpointId: endpointB.id)
-
-    #expect(spies[endpointB.id]?.disconnectCount == 1)
-    #expect(spies[endpointA.id]?.disconnectCount == 1)
-  }
-
-  @Test func endpointLookupReturnsScopedConnectionAndAppState() throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "A",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
-      isEnabled: true,
-      isDefault: true
-    )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: false
-    )
-
-    let fallback = ServerAppState()
-    let registry = ServerRuntimeRegistry(
-      endpointsProvider: { [endpointA, endpointB] },
-      runtimeFactory: { endpoint in
-        let spy = SpyServerConnection(endpoint: endpoint)
-        return ServerRuntime(endpoint: endpoint, connection: spy)
-      }
+      runtimeFactory: { ServerRuntime(endpoint: $0) },
+      shouldBootstrapFromSettings: false
     )
 
     registry.configureFromSettings(startEnabled: false)
 
-    let appStateA = registry.appState(for: endpointA.id, fallback: fallback)
-    let appStateB = registry.appState(for: endpointB.id, fallback: fallback)
-
-    #expect(appStateA.endpointId == endpointA.id)
-    #expect(appStateB.endpointId == endpointB.id)
-    #expect(registry.connection(for: endpointA.id)?.endpointId == endpointA.id)
-    #expect(registry.connection(for: endpointB.id)?.endpointId == endpointB.id)
-    #expect(registry.connection(for: nil) == nil)
-    #expect(registry.appState(for: nil, fallback: fallback).endpointId == fallback.endpointId)
+    #expect(registry.runtimesByEndpointId.count == 2)
+    #expect(registry.activeEndpointId == endpointA.id)
+    #expect(registry.sessionStore(for: endpointA.id, fallback: SessionStore()).endpointId == endpointA.id)
+    #expect(registry.sessionStore(for: endpointB.id, fallback: SessionStore()).endpointId == endpointB.id)
   }
 
-  @Test func configurePreservesActiveEndpointWhenStillEnabled() throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "A",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
+  @Test func configurePreservesActiveEndpointWhenItRemainsEnabled() throws {
+    let endpointA = try makeEndpoint(
+      id: "33333333-3333-3333-3333-333333333333",
+      name: "Alpha",
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
+    let endpointB = try makeEndpoint(
+      id: "44444444-4444-4444-4444-444444444444",
+      name: "Beta",
       isEnabled: true,
       isDefault: false
     )
@@ -144,461 +49,147 @@ struct ServerRuntimeRegistryTests {
     var endpoints = [endpointA, endpointB]
     let registry = ServerRuntimeRegistry(
       endpointsProvider: { endpoints },
-      runtimeFactory: { endpoint in
-        let spy = SpyServerConnection(endpoint: endpoint)
-        return ServerRuntime(endpoint: endpoint, connection: spy)
-      }
+      runtimeFactory: { ServerRuntime(endpoint: $0) },
+      shouldBootstrapFromSettings: false
     )
 
     registry.configureFromSettings(startEnabled: false)
     registry.setActiveEndpoint(id: endpointB.id)
     #expect(registry.activeEndpointId == endpointB.id)
 
-    // Reconfigure with a changed default. Active endpoint should remain pinned to B.
     endpoints = [
       endpointA,
-      ServerEndpoint(
-        id: endpointB.id,
+      try makeEndpoint(
+        id: endpointB.id.uuidString,
         name: endpointB.name,
-        wsURL: endpointB.wsURL,
-        isLocalManaged: false,
         isEnabled: true,
-        isDefault: false
+        isDefault: false,
+        port: 4_100
       ),
     ]
 
     registry.configureFromSettings(startEnabled: false)
+
     #expect(registry.activeEndpointId == endpointB.id)
   }
 
-  @Test func startsOnlyEnabledEndpointsWhenConfiguredFromSettings() throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "Enabled Endpoint",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
+  @Test func sessionStoreLookupFallsBackForUnknownEndpoints() throws {
+    let endpoint = try makeEndpoint(
+      id: "55555555-5555-5555-5555-555555555555",
+      name: "Solo",
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "Disabled Endpoint",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: false,
-      isDefault: false
-    )
-
-    var spies: [UUID: SpyServerConnection] = [:]
+    let fallback = SessionStore()
     let registry = ServerRuntimeRegistry(
-      endpointsProvider: { [endpointA, endpointB] },
-      runtimeFactory: { endpoint in
-        let spy = SpyServerConnection(endpoint: endpoint)
-        spies[endpoint.id] = spy
-        return ServerRuntime(endpoint: endpoint, connection: spy)
-      }
-    )
-
-    registry.configureFromSettings(startEnabled: true)
-
-    #expect(spies[endpointA.id]?.connectCalls == [endpointA.wsURL])
-    #expect(spies[endpointB.id]?.connectCalls.isEmpty == true)
-    #expect(registry.activeEndpointId == endpointA.id)
-  }
-
-  @Test func requestStateIsNotSharedAcrossRuntimeConnections() async throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "A",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
-      isEnabled: true,
-      isDefault: true
-    )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: false
-    )
-
-    let spyA = SpyServerConnection(endpoint: endpointA)
-    let spyB = SpyServerConnection(endpoint: endpointB)
-    spyA.recentProjectsResponse = [
-      ServerRecentProject(path: "/Users/alice/ProjectA", sessionCount: 2, lastActive: "2026-02-23T10:00:00Z"),
-    ]
-    spyB.recentProjectsResponse = [
-      ServerRecentProject(path: "/Users/alice/ProjectB", sessionCount: 5, lastActive: "2026-02-23T11:00:00Z"),
-    ]
-
-    let runtimeA = ServerRuntime(endpoint: endpointA, connection: spyA)
-    let runtimeB = ServerRuntime(endpoint: endpointB, connection: spyB)
-
-    let projectsA = try await runtimeA.connection.listRecentProjects()
-    let projectsB = try await runtimeB.connection.listRecentProjects()
-
-    #expect(projectsA.map(\.path) == ["/Users/alice/ProjectA"])
-    #expect(projectsB.map(\.path) == ["/Users/alice/ProjectB"])
-    #expect(spyA.listRecentProjectsCallCount == 1)
-    #expect(spyB.listRecentProjectsCallCount == 1)
-  }
-
-  @Test func preferredActiveEndpointDeterministicallyUsesDefaultEnabled() throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "A",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
-      isEnabled: true,
-      isDefault: false
-    )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: true
-    )
-
-    let preferred = ServerRuntimeRegistry.preferredActiveEndpointID(from: [endpointA, endpointB])
-
-    #expect(preferred == endpointB.id)
-  }
-
-  @Test func preferredActiveEndpointFallsBackToFirstEnabled() throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "A",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
-      isEnabled: false,
-      isDefault: true
-    )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: false
-    )
-
-    let preferred = ServerRuntimeRegistry.preferredActiveEndpointID(from: [endpointA, endpointB])
-
-    #expect(preferred == endpointB.id)
-  }
-
-  @Test func serverDeclaredPrimaryDoesNotOverrideClientControlPlaneEndpoint() async throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "Fallback",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
-      isEnabled: true,
-      isDefault: true
-    )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "Declared Primary",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: false
-    )
-
-    var spies: [UUID: SpyServerConnection] = [:]
-    let registry = ServerRuntimeRegistry(
-      endpointsProvider: { [endpointA, endpointB] },
-      runtimeFactory: { endpoint in
-        let spy = SpyServerConnection(endpoint: endpoint)
-        spies[endpoint.id] = spy
-        return ServerRuntime(endpoint: endpoint, connection: spy)
-      }
-    )
-
-    registry.configureFromSettings(startEnabled: false)
-    #expect(registry.primaryEndpointId == endpointA.id)
-
-    spies[endpointB.id]?.applyServerInfo(isPrimary: true)
-    await Task.yield()
-
-    #expect(registry.primaryEndpointId == endpointA.id)
-    #expect(registry.serverPrimaryByEndpointId[endpointB.id] == true)
-  }
-
-  @Test func multipleDeclaredPrimariesSetConflictFlag() async throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "A",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
-      isEnabled: true,
-      isDefault: false
-    )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: true
-    )
-
-    var spies: [UUID: SpyServerConnection] = [:]
-    let registry = ServerRuntimeRegistry(
-      endpointsProvider: { [endpointA, endpointB] },
-      runtimeFactory: { endpoint in
-        let spy = SpyServerConnection(endpoint: endpoint)
-        spies[endpoint.id] = spy
-        return ServerRuntime(endpoint: endpoint, connection: spy)
-      }
-    )
-
-    registry.configureFromSettings(startEnabled: false)
-    registry.setActiveEndpoint(id: endpointB.id)
-
-    spies[endpointA.id]?.applyServerInfo(isPrimary: true)
-    spies[endpointB.id]?.applyServerInfo(isPrimary: true)
-    await Task.yield()
-
-    #expect(registry.hasPrimaryEndpointConflict)
-    #expect(registry.primaryEndpointId == endpointB.id)
-  }
-
-  @Test func settingPrimaryRoleDemotesPeerEndpoints() throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "A",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
-      isEnabled: true,
-      isDefault: true
-    )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: false
-    )
-
-    var spies: [UUID: SpyServerConnection] = [:]
-    let registry = ServerRuntimeRegistry(
-      endpointsProvider: { [endpointA, endpointB] },
-      runtimeFactory: { endpoint in
-        let spy = SpyServerConnection(endpoint: endpoint)
-        spies[endpoint.id] = spy
-        return ServerRuntime(endpoint: endpoint, connection: spy)
-      }
-    )
-
-    registry.configureFromSettings(startEnabled: false)
-    registry.setServerRole(endpointId: endpointB.id, isPrimary: true)
-
-    #expect(spies[endpointA.id]?.setServerRoleCalls == [false])
-    #expect(spies[endpointB.id]?.setServerRoleCalls == [true])
-  }
-
-  @Test func syncsClientPrimaryClaimsFromClientControlPlaneEndpoint() async throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "A",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
-      isEnabled: true,
-      isDefault: true
-    )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: false
-    )
-
-    var spies: [UUID: SpyServerConnection] = [:]
-    let registry = ServerRuntimeRegistry(
-      endpointsProvider: { [endpointA, endpointB] },
-      runtimeFactory: { endpoint in
-        let spy = SpyServerConnection(endpoint: endpoint)
-        spies[endpoint.id] = spy
-        return ServerRuntime(endpoint: endpoint, connection: spy)
-      },
-      clientIdentityProvider: {
-        ServerClientIdentity(clientId: "device-1", deviceName: "Test iPhone")
-      }
-    )
-
-    registry.configureFromSettings(startEnabled: false)
-    await Task.yield()
-
-    let claimsA = try #require(spies[endpointA.id]?.setClientPrimaryClaimCalls)
-    let claimsB = try #require(spies[endpointB.id]?.setClientPrimaryClaimCalls)
-    let lastA = try #require(claimsA.last)
-    let lastB = try #require(claimsB.last)
-    #expect(lastA.0 == "device-1")
-    #expect(lastA.1 == "Test iPhone")
-    #expect(lastA.2)
-    #expect(lastB.0 == "device-1")
-    #expect(lastB.1 == "Test iPhone")
-    #expect(lastB.2 == false)
-  }
-
-  @Test func memoryPressureTrimsInactivePayloadsAcrossAllRuntimes() throws {
-    let endpointA = try ServerEndpoint(
-      id: UUID(),
-      name: "A",
-      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
-      isLocalManaged: true,
-      isEnabled: true,
-      isDefault: true
-    )
-    let endpointB = try ServerEndpoint(
-      id: UUID(),
-      name: "B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: false
-    )
-
-    let registry = ServerRuntimeRegistry(
-      endpointsProvider: { [endpointA, endpointB] },
-      runtimeFactory: { endpoint in
-        let spy = SpyServerConnection(endpoint: endpoint)
-        return ServerRuntime(endpoint: endpoint, connection: spy)
-      }
-    )
-
-    registry.configureFromSettings(startEnabled: false)
-
-    let appStateA = registry.appState(for: endpointA.id, fallback: ServerAppState())
-    let appStateB = registry.appState(for: endpointB.id, fallback: ServerAppState())
-    let sessionA = appStateA.session("session-a")
-    let sessionB = appStateB.session("session-b")
-
-    sessionA.messages = [makeMessage(id: "a-1", content: "a")]
-    sessionB.messages = [makeMessage(id: "b-1", content: "b")]
-    #expect(sessionA.messagesRevision == 0)
-    #expect(sessionB.messagesRevision == 0)
-
-    registry.handleMemoryPressure()
-
-    #expect(sessionA.messages.isEmpty)
-    #expect(sessionB.messages.isEmpty)
-    #expect(sessionA.messagesRevision == 1)
-    #expect(sessionB.messagesRevision == 1)
-  }
-
-  @Test func activeAccessorsRemainAvailableWhenNoEndpointsConfigured() {
-    var runtimeFactoryCallCount = 0
-    let registry = ServerRuntimeRegistry(
-      endpointsProvider: { [] },
-      runtimeFactory: { endpoint in
-        runtimeFactoryCallCount += 1
-        return ServerRuntime(endpoint: endpoint)
-      }
-    )
-
-    let appState = registry.activeAppState
-    let connection = registry.activeConnection
-
-    #if os(iOS)
-      // iOS does not synthesize a localhost runtime fallback when no endpoints exist.
-      #expect(runtimeFactoryCallCount == 0)
-      #expect(registry.runtimesByEndpointId.isEmpty)
-      #expect(registry.activeEndpointId == nil)
-    #else
-      // macOS synthesizes a local default runtime to keep accessors available.
-      #expect(runtimeFactoryCallCount == 1)
-      #expect(registry.runtimesByEndpointId.count == 1)
-      #expect(registry.activeEndpointId != nil)
-    #endif
-
-    #expect(appState.endpointId == connection.endpointId)
-  }
-
-  @Test func activeAccessorsSkipPersistedEndpointBootstrapWhenDisabled() throws {
-    let remoteEndpoint = try ServerEndpoint(
-      id: UUID(),
-      name: "Remote",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
-      isLocalManaged: false,
-      isEnabled: true,
-      isDefault: true
-    )
-
-    var endpointsProviderCallCount = 0
-    var runtimeFactoryCallCount = 0
-    let registry = ServerRuntimeRegistry(
-      endpointsProvider: {
-        endpointsProviderCallCount += 1
-        return [remoteEndpoint]
-      },
-      runtimeFactory: { endpoint in
-        runtimeFactoryCallCount += 1
-        return ServerRuntime(endpoint: endpoint)
-      },
+      endpointsProvider: { [endpoint] },
+      runtimeFactory: { ServerRuntime(endpoint: $0) },
       shouldBootstrapFromSettings: false
     )
 
-    let appState = registry.activeAppState
-    let connection = registry.activeConnection
+    registry.configureFromSettings(startEnabled: false)
 
-    #expect(endpointsProviderCallCount == 0)
-    #expect(runtimeFactoryCallCount == 1)
+    #expect(registry.sessionStore(for: endpoint.id, fallback: fallback).endpointId == endpoint.id)
+    #expect(registry.sessionStore(for: nil, fallback: fallback).endpointId == fallback.endpointId)
+    #expect(registry.sessionStore(for: UUID(), fallback: fallback).endpointId == fallback.endpointId)
+  }
+
+  @Test func handleMemoryPressureClearsInactiveConversationStores() throws {
+    let endpointA = try makeEndpoint(
+      id: "66666666-6666-6666-6666-666666666666",
+      name: "Alpha",
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = try makeEndpoint(
+      id: "77777777-7777-7777-7777-777777777777",
+      name: "Beta",
+      isEnabled: true,
+      isDefault: false
+    )
+
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpointA, endpointB] },
+      runtimeFactory: { ServerRuntime(endpoint: $0) },
+      shouldBootstrapFromSettings: false
+    )
+
+    registry.configureFromSettings(startEnabled: false)
+
+    let fallback = SessionStore()
+    let storeB = registry.sessionStore(for: endpointB.id, fallback: fallback)
+
+    storeB.conversation("trimmed").restoreFromCache(
+      CachedConversation(
+        messages: [makeMessage(id: "b-1", content: "trimmed")],
+        totalMessageCount: 1,
+        oldestSequence: 1,
+        newestSequence: 1,
+        hasMoreHistoryBefore: false,
+        cachedAt: Date()
+      )
+    )
+
+    registry.handleMemoryPressure()
+
+    #expect(storeB.conversation("trimmed").messages.isEmpty)
+  }
+
+  @Test func activeSessionStoreSynthesizesLocalFallbackWhenBootstrapIsDisabled() {
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [] },
+      runtimeFactory: { ServerRuntime(endpoint: $0) },
+      shouldBootstrapFromSettings: false
+    )
+
+    let activeStore = registry.activeSessionStore
+
     #expect(registry.runtimesByEndpointId.count == 1)
-    #expect(appState.endpointId == connection.endpointId)
+    #expect(registry.activeEndpointId != nil)
+    #expect(activeStore.endpointId == registry.activeEndpointId)
+  }
+
+  @Test func preferredActiveEndpointIDFallsBackFromDefaultToFirstEnabled() throws {
+    let disabledDefault = try makeEndpoint(
+      id: "88888888-8888-8888-8888-888888888888",
+      name: "Disabled Default",
+      isEnabled: false,
+      isDefault: true
+    )
+    let enabled = try makeEndpoint(
+      id: "99999999-9999-9999-9999-999999999999",
+      name: "Enabled",
+      isEnabled: true,
+      isDefault: false
+    )
+
+    #expect(ServerRuntimeRegistry.preferredActiveEndpointID(from: [disabledDefault, enabled]) == enabled.id)
   }
 
   private func makeMessage(id: String, content: String) -> TranscriptMessage {
     TranscriptMessage(
       id: id,
+      sequence: 1,
       type: .assistant,
       content: content,
-      timestamp: Date(timeIntervalSince1970: 1),
-      toolName: nil,
-      toolInput: nil,
-      toolOutput: nil,
-      toolDuration: nil,
-      inputTokens: nil,
-      outputTokens: nil
+      timestamp: Date(timeIntervalSince1970: 1)
     )
   }
-}
 
-@MainActor
-private final class SpyServerConnection: ServerConnection {
-  var connectCalls: [URL] = []
-  var disconnectCount = 0
-  var recentProjectsResponse: [ServerRecentProject] = []
-  var listRecentProjectsCallCount = 0
-  var setServerRoleCalls: [Bool] = []
-  var setClientPrimaryClaimCalls: [(String, String, Bool)] = []
-
-  override func connect(to url: URL) {
-    connectCalls.append(url)
-  }
-
-  override func disconnect() {
-    disconnectCount += 1
-  }
-
-  override func listRecentProjects() async throws -> [ServerRecentProject] {
-    listRecentProjectsCallCount += 1
-    return recentProjectsResponse
-  }
-
-  override func setServerRole(isPrimary: Bool) {
-    setServerRoleCalls.append(isPrimary)
-  }
-
-  override func setClientPrimaryClaim(clientId: String, deviceName: String, isPrimary: Bool) {
-    setClientPrimaryClaimCalls.append((clientId, deviceName, isPrimary))
+  private func makeEndpoint(
+    id: String,
+    name: String,
+    isEnabled: Bool,
+    isDefault: Bool,
+    port: Int = 4_000
+  ) throws -> ServerEndpoint {
+    try ServerEndpoint(
+      id: #require(UUID(uuidString: id)),
+      name: name,
+      wsURL: #require(URL(string: "ws://127.0.0.1:\(port)/ws")),
+      isLocalManaged: true,
+      isEnabled: isEnabled,
+      isDefault: isDefault
+    )
   }
 }

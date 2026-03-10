@@ -218,9 +218,9 @@ struct PermissionInlinePanel: View {
         .frame(height: 0.5)
         .padding(.horizontal, Spacing.sm)
     }
-    .task { try? await serverState.loadPermissionRules(sessionId: sessionId) }
+    .task { _ = try? await serverState.loadPermissionRules(sessionId: sessionId) }
     .onChange(of: isExpanded) { _, on in
-      if on { Task { try? await serverState.loadPermissionRules(sessionId: sessionId) } }
+      if on { Task { _ = try? await serverState.loadPermissionRules(sessionId: sessionId) } }
     }
   }
 

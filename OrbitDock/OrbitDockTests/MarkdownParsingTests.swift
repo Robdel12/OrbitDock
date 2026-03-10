@@ -175,8 +175,8 @@ struct MarkdownParsingTests {
     **What changed**
     - Question answers now carry `questionId` through the app -> websocket protocol path:
       - UI callsites: `OrbitDock/OrbitDock/Views/Conversation/ConversationCollectionView+iOS.swift:357`, `OrbitDock/OrbitDock/Views/Conversation/ConversationCollectionView+macOS.swift:884`
-      - app state + connection: `OrbitDock/OrbitDock/Services/Server/ServerAppState.swift:625`, `OrbitDock/OrbitDock/Services/Server/ServerConnection.swift:589`
-      - Swift wire protocol: `OrbitDock/OrbitDock/Services/Server/ServerProtocol.swift:1689`
+      - session store + event stream: `OrbitDock/OrbitDock/Services/Server/SessionStore.swift:108`, `OrbitDock/OrbitDock/Services/Server/EventStream.swift:197`
+      - Swift wire protocol: `OrbitDock/OrbitDock/Services/Server/Protocol/ClientToServerMessage.swift:13`
       - Rust protocol + websocket handling: `orbitdock-server/crates/protocol/src/client.rs:51`, `orbitdock-server/crates/server/src/websocket.rs:2103`.
     """
 

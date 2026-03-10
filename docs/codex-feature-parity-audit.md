@@ -61,9 +61,9 @@ OrbitDock:
 - `OrbitDock/OrbitDock/Views/Codex/CodexCollaborationModePicker.swift`
 - `OrbitDock/OrbitDock/Views/Codex/SkillsTab.swift`
 - `OrbitDock/OrbitDock/Views/Codex/McpServersTab.swift`
-- `OrbitDock/OrbitDock/Services/Server/ServerAppState.swift`
-- `OrbitDock/OrbitDock/Services/Server/ServerConnection.swift`
-- `OrbitDock/OrbitDock/Services/Server/ServerProtocol.swift`
+- `OrbitDock/OrbitDock/Services/Server/SessionStore.swift`
+- `OrbitDock/OrbitDock/Services/Server/EventStream.swift`
+- `OrbitDock/OrbitDock/Services/Server/Protocol/`
 
 ## Status Legend
 

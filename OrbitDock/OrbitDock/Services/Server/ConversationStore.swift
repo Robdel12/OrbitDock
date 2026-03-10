@@ -13,6 +13,21 @@ private let kPageSize = 50
 private let kBootstrapMinTurns = 4
 private let kBootstrapMaxMessages = 200
 
+func requiresConversationBootstrapBackfill(
+  messages: [TranscriptMessage],
+  hasMoreHistoryBefore: Bool,
+  minimumTurnCount: Int
+) -> Bool {
+  guard hasMoreHistoryBefore else { return false }
+
+  let turnCount = messages.filter { $0.type == .user }.count
+  if turnCount < minimumTurnCount { return true }
+
+  if let first = messages.first, first.type != .user { return true }
+
+  return false
+}
+
 // MARK: - ConversationStore
 
 @Observable
@@ -308,14 +323,11 @@ final class ConversationStore {
   }
 
   private func requiresBackfill() -> Bool {
-    // Backfill if we have fewer than the minimum turn count
-    let turnCount = messages.filter { $0.type == .user }.count
-    if turnCount < kBootstrapMinTurns { return true }
-
-    // Backfill if the first message isn't a user message (mid-turn start)
-    if let first = messages.first, first.type != .user { return true }
-
-    return false
+    requiresConversationBootstrapBackfill(
+      messages: messages,
+      hasMoreHistoryBefore: hasMoreHistoryBefore,
+      minimumTurnCount: kBootstrapMinTurns
+    )
   }
 
   private func updateSequenceCursors(for message: TranscriptMessage) {

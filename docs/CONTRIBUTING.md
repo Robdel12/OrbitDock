@@ -24,6 +24,8 @@ open OrbitDock/OrbitDock.xcodeproj
 
 Select your team in **Signing & Capabilities** (or "Sign to Run Locally" for a personal team), then run either the `OrbitDock` macOS scheme or `OrbitDock iOS`. The clients can connect to one or many `orbitdock` server endpoints.
 
+Start with [OrbitDock/README.md](../OrbitDock/README.md) for the client module map and feature placement guide.
+
 For durable client-side guardrails, read [SWIFT_CLIENT_ARCHITECTURE.md](SWIFT_CLIENT_ARCHITECTURE.md) before adding new shared state, routing, or cross-feature coordination.
 
 ### Rust Server
@@ -63,10 +65,8 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock h
 │   │   │   ├── Usage/           # Rate limit gauges
 │   │   │   ├── Toast/           # Notification toasts
 │   │   │   └── Components/      # Shared components
-│   │   ├── Services/            # Business logic
-│   │   │   ├── ServerAppState.swift      # Server connection + state
-│   │   │   ├── SessionObservable.swift   # Per-session @Observable
-│   │   │   └── ServerConnection.swift    # REST + WebSocket client
+│   │   ├── Services/            # Endpoint runtimes, transport, session orchestration
+│   │   │   └── Server/          # APIClient, EventStream, SessionStore, runtime registry
 │   │   └── Models/              # Data models + protocol types
 │   └── OrbitDockCore/           # Swift Package (shared code)
 │       └── Sources/

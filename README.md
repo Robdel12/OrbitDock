@@ -126,6 +126,7 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, reverse pro
 - [FEATURES.md](docs/FEATURES.md) — Full feature list with keyboard shortcuts
 - [DEPLOYMENT.md](docs/DEPLOYMENT.md) — Server deployment guide (remote, TLS, tunnels)
 - [CONTRIBUTING.md](docs/CONTRIBUTING.md) — Development setup and architecture
+- [OrbitDock/README.md](OrbitDock/README.md) — Swift client overview and placement guide
 - [SWIFT_CLIENT_ARCHITECTURE.md](docs/SWIFT_CLIENT_ARCHITECTURE.md) — Swift client layer boundaries and state ownership guardrails
 - [orbitdock-server/README.md](orbitdock-server/README.md) — Server CLI reference
 
