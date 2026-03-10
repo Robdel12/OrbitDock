@@ -724,7 +724,12 @@ struct ServerSettingsSheet: View {
 }
 
 #Preview {
+  let runtimeRegistry = ServerRuntimeRegistry(
+    endpointsProvider: { [] },
+    runtimeFactory: { ServerRuntime(endpoint: $0) },
+    shouldBootstrapFromSettings: false
+  )
   ServerSettingsSheet()
-    .environment(ServerRuntimeRegistry.shared)
+    .environment(runtimeRegistry)
     .preferredColorScheme(.dark)
 }

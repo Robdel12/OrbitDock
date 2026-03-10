@@ -919,9 +919,14 @@ struct RemoteProjectPicker: View {
 }
 
 #Preview {
+  let runtimeRegistry = ServerRuntimeRegistry(
+    endpointsProvider: { [] },
+    runtimeFactory: { ServerRuntime(endpoint: $0) },
+    shouldBootstrapFromSettings: false
+  )
   RemoteProjectPicker(selectedPath: .constant(""), endpointId: nil)
     .padding()
     .frame(width: 400)
     .background(Color.backgroundSecondary)
-    .environment(ServerRuntimeRegistry.shared)
+    .environment(runtimeRegistry)
 }

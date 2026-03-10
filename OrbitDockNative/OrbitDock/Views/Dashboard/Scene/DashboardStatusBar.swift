@@ -485,6 +485,12 @@ struct DashboardTabSwitcher: View {
 // MARK: - Preview
 
 #Preview {
+  let runtimeRegistry = ServerRuntimeRegistry(
+    endpointsProvider: { [] },
+    runtimeFactory: { ServerRuntime(endpoint: $0) },
+    shouldBootstrapFromSettings: false
+  )
+  let router = AppRouter()
   VStack(spacing: 0) {
     DashboardStatusBar(
       sessions: [
@@ -516,6 +522,6 @@ struct DashboardTabSwitcher: View {
       .frame(height: 200)
   }
   .frame(width: 900)
-  .environment(ServerRuntimeRegistry.shared)
-  .environment(AppRouter())
+  .environment(runtimeRegistry)
+  .environment(router)
 }

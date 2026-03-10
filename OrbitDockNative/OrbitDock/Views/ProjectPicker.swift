@@ -742,11 +742,16 @@ import SwiftUI
   }
 
   #Preview {
+    let runtimeRegistry = ServerRuntimeRegistry(
+      endpointsProvider: { [] },
+      runtimeFactory: { ServerRuntime(endpoint: $0) },
+      shouldBootstrapFromSettings: false
+    )
     ProjectPicker(selectedPath: .constant(""), endpointId: nil)
       .padding()
       .frame(width: 450)
       .background(Color.backgroundSecondary)
-      .environment(ServerRuntimeRegistry.shared)
+      .environment(runtimeRegistry)
   }
 
 #endif

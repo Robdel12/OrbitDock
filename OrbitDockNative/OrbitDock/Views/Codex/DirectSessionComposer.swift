@@ -1018,6 +1018,13 @@ struct DirectSessionComposer: View {
   @Previewable @State var pinned = true
   @Previewable @State var unread = 0
   @Previewable @State var scroll = 0
+  let runtimeRegistry = ServerRuntimeRegistry(
+    endpointsProvider: { [] },
+    runtimeFactory: { ServerRuntime(endpoint: $0) },
+    shouldBootstrapFromSettings: false
+  )
+  let sessionStore = SessionStore()
+  let router = AppRouter()
   DirectSessionComposer(
     sessionId: "test-session",
     selectedSkills: $skills,
@@ -1025,7 +1032,8 @@ struct DirectSessionComposer: View {
     unreadCount: $unread,
     scrollToBottomTrigger: $scroll
   )
-  .environment(SessionStore())
-  .environment(ServerRuntimeRegistry.shared)
+  .environment(sessionStore)
+  .environment(runtimeRegistry)
+  .environment(router)
   .frame(width: 600)
 }

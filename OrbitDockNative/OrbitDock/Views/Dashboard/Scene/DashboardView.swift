@@ -376,6 +376,12 @@ private struct DashboardSidebarResizeHandle: View {
 }
 
 #Preview {
+  let runtimeRegistry = ServerRuntimeRegistry(
+    endpointsProvider: { [] },
+    runtimeFactory: { ServerRuntime(endpoint: $0) },
+    shouldBootstrapFromSettings: false
+  )
+  let router = AppRouter()
   DashboardView(
     sessions: [],
     endpointHealth: [],
@@ -383,6 +389,6 @@ private struct DashboardSidebarResizeHandle: View {
     isRefreshingCachedSessions: false
   )
   .frame(width: 900, height: 500)
-  .environment(ServerRuntimeRegistry.shared)
-  .environment(AppRouter())
+  .environment(runtimeRegistry)
+  .environment(router)
 }
