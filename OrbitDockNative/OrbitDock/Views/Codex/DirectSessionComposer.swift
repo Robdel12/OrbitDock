@@ -54,8 +54,6 @@ struct DirectSessionComposer: View {
   @State var showForkToExistingWorktreeSheet = false
   @State var pendingState = DirectSessionComposerPendingState()
   @State var permissionPanelExpanded = false
-  @State var hoveringSuggestion: String?
-
   var obs: SessionObservable {
     serverState.session(sessionId)
   }
@@ -636,43 +634,10 @@ struct DirectSessionComposer: View {
   // MARK: - Composer Row
 
   var promptSuggestionChips: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: Spacing.sm) {
-        ForEach(obs.promptSuggestions, id: \.self) { suggestion in
-          let isHovered = hoveringSuggestion == suggestion
-          Button {
-            sendSuggestion(suggestion)
-          } label: {
-            Text(suggestion)
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(isHovered ? Color.textPrimary : Color.textSecondary)
-              .lineLimit(1)
-              .padding(.horizontal, Spacing.md_)
-              .padding(.vertical, Spacing.sm_)
-              .background(
-                RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-                  .fill(isHovered ? Color.surfaceHover : Color.backgroundTertiary.opacity(0.5))
-              )
-              .overlay(
-                RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-                  .strokeBorder(
-                    isHovered
-                      ? Color.accent.opacity(OpacityTier.light)
-                      : Color.surfaceBorder.opacity(OpacityTier.subtle),
-                    lineWidth: 1
-                  )
-              )
-              .animation(Motion.hover, value: isHovered)
-          }
-          .buttonStyle(.plain)
-          .onHover { hovering in
-            hoveringSuggestion = hovering ? suggestion : nil
-          }
-        }
-      }
-      .padding(.horizontal, Spacing.md)
-      .padding(.vertical, Spacing.sm_)
-    }
+    DirectSessionComposerPromptSuggestions(
+      suggestions: obs.promptSuggestions,
+      onSelect: sendSuggestion
+    )
   }
 
   func sendSuggestion(_ suggestion: String) {
@@ -810,58 +775,32 @@ struct DirectSessionComposer: View {
   // MARK: - Resume Row (ended session)
 
   var resumeRow: some View {
-    HStack {
-      Button {
+    DirectSessionComposerResumeRow(
+      lastActivityAt: obs.lastActivityAt,
+      onResume: {
         connLog(.info, category: .resume, "Resume button tapped", sessionId: sessionId)
         Task { try? await serverState.resumeSession(sessionId) }
-      } label: {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: "arrow.counterclockwise")
-          Text("Resume")
-        }
       }
-      .buttonStyle(GhostButtonStyle(color: .accent))
-
-      Spacer()
-
-      if let lastActivity = obs.lastActivityAt {
-        Text(lastActivity, style: .relative)
-          .font(.system(size: TypeScale.body, design: .monospaced))
-          .foregroundStyle(Color.textTertiary)
-      }
-    }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.md)
+    )
   }
 
   // MARK: - Error Row
 
   func errorRow(_ error: String) -> some View {
-    HStack(spacing: Spacing.sm) {
-      Image(systemName: "exclamationmark.triangle.fill")
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.feedbackWarning)
-      Text(error)
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textSecondary)
-      Spacer()
-      if shouldShowOpenMicrophoneSettingsAction {
-        Button("Open Settings") {
-          _ = Platform.services.openMicrophonePrivacySettings()
-        }
-        .buttonStyle(GhostButtonStyle(color: .accent, size: .compact))
-      }
-      Button("Dismiss") {
+    DirectSessionComposerErrorRow(
+      error: error,
+      showsOpenSettingsAction: shouldShowOpenMicrophoneSettingsAction,
+      onOpenSettings: {
+        _ = Platform.services.openMicrophonePrivacySettings()
+      },
+      onDismiss: {
         if errorMessage != nil {
           errorMessage = nil
         } else {
           dictationController.clearError()
         }
       }
-      .buttonStyle(GhostButtonStyle(color: .accent, size: .compact))
-    }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.bottom, Spacing.sm)
+    )
   }
 
   var shouldShowOpenMicrophoneSettingsAction: Bool {
