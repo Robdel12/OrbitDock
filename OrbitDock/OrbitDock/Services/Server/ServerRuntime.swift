@@ -24,8 +24,44 @@ final class ServerRuntime: Identifiable {
     )
   }
 
+  init(
+    endpoint: ServerEndpoint,
+    apiClient: APIClient,
+    eventStream: EventStream,
+    sessionStore: SessionStore? = nil
+  ) {
+    self.endpoint = endpoint
+    self.apiClient = apiClient
+    self.eventStream = eventStream
+    self.sessionStore = sessionStore
+      ?? SessionStore(
+        apiClient: apiClient,
+        eventStream: eventStream,
+        endpointId: endpoint.id,
+        endpointName: endpoint.name
+      )
+  }
+
   var id: UUID {
     endpoint.id
+  }
+
+  var controlPlanePort: ServerControlPlanePort {
+    let endpointId = endpoint.id
+    let apiClient = self.apiClient
+    return ServerControlPlanePort(
+      endpointId: endpointId,
+      setServerRole: { isPrimary in
+        try await apiClient.setServerRole(isPrimary: isPrimary)
+      },
+      setClientPrimaryClaim: { identity, isPrimary in
+        try await apiClient.setClientPrimaryClaim(
+          clientId: identity.clientId,
+          deviceName: identity.deviceName,
+          isPrimary: isPrimary
+        )
+      }
+    )
   }
 
   func start() {

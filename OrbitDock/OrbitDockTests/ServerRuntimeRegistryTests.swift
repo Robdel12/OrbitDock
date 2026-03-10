@@ -186,6 +186,73 @@ struct ServerRuntimeRegistryTests {
     ])
   }
 
+  @Test func configureWithoutStartingDoesNotEmitPrimaryClaimWrites() async throws {
+    let endpointA = try makeEndpoint(
+      id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      name: "Alpha",
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = try makeEndpoint(
+      id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      name: "Beta",
+      isEnabled: true,
+      isDefault: false,
+      port: 4_100
+    )
+    let recorder = RuntimeRequestRecorder()
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpointA, endpointB] },
+      runtimeFactory: { endpoint in
+        makeRecordingRuntime(endpoint: endpoint, recorder: recorder)
+      },
+      shouldBootstrapFromSettings: false
+    )
+
+    registry.configureFromSettings(startEnabled: false)
+    await registry.waitForControlPlaneIdleForTests()
+
+    let claimRequests = await recorder.requests(matchingPath: "/api/client/primary-claim")
+    #expect(claimRequests.isEmpty)
+  }
+
+  @Test func configureWhenStartingEmitsOneDeterministicPrimaryClaimPass() async throws {
+    let endpointA = try makeEndpoint(
+      id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      name: "Alpha",
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = try makeEndpoint(
+      id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      name: "Beta",
+      isEnabled: true,
+      isDefault: false,
+      port: 4_100
+    )
+    let recorder = RuntimeRequestRecorder()
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpointA, endpointB] },
+      runtimeFactory: { endpoint in
+        makeRecordingRuntime(endpoint: endpoint, recorder: recorder)
+      },
+      shouldBootstrapFromSettings: false
+    )
+
+    registry.configureFromSettings(startEnabled: true)
+    await registry.waitForControlPlaneIdleForTests()
+
+    let claimRequests = await recorder.requests(matchingPath: "/api/client/primary-claim")
+    #expect(claimRequests.count == 2)
+
+    let requestBodies = try claimRequests.map { request -> [String: Any] in
+      let body = try #require(request.httpBody)
+      return try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    }
+
+    #expect(requestBodies.map { $0["is_primary"] as? Bool } == [true, false])
+  }
+
   private func makeMessage(id: String, content: String) -> TranscriptMessage {
     TranscriptMessage(
       id: id,
@@ -211,5 +278,60 @@ struct ServerRuntimeRegistryTests {
       isEnabled: isEnabled,
       isDefault: isDefault
     )
+  }
+
+  private func makeRecordingRuntime(
+    endpoint: ServerEndpoint,
+    recorder: RuntimeRequestRecorder
+  ) -> ServerRuntime {
+    let apiClient = APIClient(
+      serverURL: APIClient.httpBaseURL(from: endpoint.wsURL),
+      authToken: endpoint.authToken,
+      dataLoader: { request in
+        await recorder.record(request)
+        return Self.response(for: request)
+      }
+    )
+    let eventStream = EventStream(authToken: endpoint.authToken)
+    return ServerRuntime(endpoint: endpoint, apiClient: apiClient, eventStream: eventStream)
+  }
+
+  nonisolated private static func response(for request: URLRequest) -> (Data, URLResponse) {
+    let path = request.url?.path ?? ""
+    let json: String
+    let statusCode: Int
+
+    switch path {
+      case "/api/server/role":
+        json = #"{"is_primary":true}"#
+        statusCode = 200
+      case "/api/client/primary-claim":
+        json = #"{}"#
+        statusCode = 202
+      default:
+        json = #"{}"#
+        statusCode = 200
+    }
+
+    let response = HTTPURLResponse(
+      url: request.url ?? URL(string: "http://127.0.0.1")!,
+      statusCode: statusCode,
+      httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"]
+    )!
+    return (Data(json.utf8), response)
+  }
+}
+
+private actor RuntimeRequestRecorder {
+  private var requestsByPath: [String: [URLRequest]] = [:]
+
+  func record(_ request: URLRequest) {
+    let path = request.url?.path ?? ""
+    requestsByPath[path, default: []].append(request)
+  }
+
+  func requests(matchingPath path: String) -> [URLRequest] {
+    requestsByPath[path] ?? []
   }
 }

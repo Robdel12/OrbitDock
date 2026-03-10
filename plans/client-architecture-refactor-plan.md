@@ -402,6 +402,8 @@ That store should expose an intentional loading model, for example:
 ### Scope
 
 - move connection state ownership into runtime
+- separate derived runtime state from applied remote control-plane state
+- stop letting runtime recomputation paths trigger ad hoc remote mutations
 - reduce view-led refresh orchestration
 - make unified session state derive from runtime/store signals instead of ad hoc shell hooks
 
@@ -415,6 +417,7 @@ That store should expose an intentional loading model, for example:
 ### Expected output
 
 - connection state becomes observable and explicit
+- runtime recomputation becomes deterministic and side-effect aware
 - fewer shell-level `onAppear` / `onChange` coordination hacks
 - runtime setup becomes more testable
 
@@ -426,7 +429,74 @@ That store should expose an intentional loading model, for example:
 
 ---
 
-## Phase 5: Thin the App Shell
+## Phase 5: Fix Control-Plane Reconciliation
+
+This is the runtime ownership phase for endpoint-primary state and client primary claims.
+
+The bug class we are explicitly trying to eliminate here is:
+
+- runtime recomputation spawning overlapping network mutations
+- duplicate `setClientPrimaryClaim` writes during startup or endpoint changes
+- transport crashes or race conditions caused by uncontrolled control-plane reconciliation
+
+This should be solved as an architecture problem, not a request-transport patch.
+
+### Scope
+
+- move primary endpoint / client primary-claim reconciliation out of incidental runtime recomputation paths
+- stop using one fire-and-forget `Task` per endpoint update
+- introduce one explicit owner for control-plane reconciliation
+- separate:
+  - desired primary assignment state
+  - last applied remote state
+  - in-flight reconciliation state
+- remove control-plane mutations from generic session-store paths where possible
+
+### Files
+
+- `ServerRuntimeRegistry.swift`
+- `ServerRuntime.swift`
+- `SessionStore.swift`
+- `API/APIClient.swift`
+- `API/APIClient+Settings.swift`
+
+### Recommended direction
+
+Use a dedicated coordinator for server-role and client primary-claim reconciliation.
+
+That coordinator should:
+
+- accept desired state from runtime planning
+- coalesce repeated recomputations
+- serialize remote writes in a stable order
+- make stale/in-flight reconciliation visible and testable
+
+`ServerRuntimeRegistry` should stay responsible for planning runtime state, not directly spawning mutation tasks from recomputation methods like `recomputePrimaryEndpoint()`.
+
+### Expected output
+
+- one obvious owner for primary-claim reconciliation
+- no duplicate concurrent claim writes during startup or endpoint changes
+- primary endpoint changes become deterministic and easier to reason about
+- transport code stops being the place where control-plane crashes surface first
+
+### Testing
+
+- pure planner tests for desired primary assignment changes
+- coordinator tests that verify:
+  - repeated recomputes are coalesced
+  - duplicate writes are not emitted
+  - writes happen in stable order
+  - stale reconciliation work is ignored
+- runtime integration tests for:
+  - startup bootstrap
+  - endpoint enable/disable changes
+  - default endpoint changes
+  - reconnect flows without duplicate primary-claim writes
+
+---
+
+## Phase 6: Thin the App Shell
 
 ### Scope
 
@@ -447,7 +517,7 @@ That store should expose an intentional loading model, for example:
 
 ---
 
-## Phase 6: Refactor the Composer Feature
+## Phase 7: Refactor the Composer Feature
 
 ### Scope
 
@@ -471,7 +541,7 @@ That store should expose an intentional loading model, for example:
 
 ---
 
-## Phase 7: Refactor the Review Feature
+## Phase 8: Refactor the Review Feature
 
 ### Scope
 
@@ -492,7 +562,7 @@ That store should expose an intentional loading model, for example:
 
 ---
 
-## Phase 8: Decompose Large Screens
+## Phase 9: Decompose Large Screens
 
 ### Scope
 
@@ -515,7 +585,7 @@ That store should expose an intentional loading model, for example:
 
 ---
 
-## Phase 9: Conversation Rendering Architecture Pass
+## Phase 10: Conversation Rendering Architecture Pass
 
 This should happen after the store/runtime work, not before.
 

@@ -489,21 +489,6 @@ final class SessionStore {
     lastServerError = nil
   }
 
-  @discardableResult
-  func setServerRole(isPrimary: Bool) async throws -> Bool {
-    let updatedPrimary = try await apiClient.setServerRole(isPrimary: isPrimary)
-    serverIsPrimary = updatedPrimary
-    return updatedPrimary
-  }
-
-  func setClientPrimaryClaim(clientId: String, deviceName: String, isPrimary: Bool) async throws {
-    try await apiClient.setClientPrimaryClaim(
-      clientId: clientId,
-      deviceName: deviceName,
-      isPrimary: isPrimary
-    )
-  }
-
   /// Whether this endpoint has a remote (non-localhost) server.
   var isRemoteConnection: Bool {
     eventStream.isRemote

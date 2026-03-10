@@ -157,7 +157,7 @@ final class CodexUsageService {
   private let staleThreshold: TimeInterval = 600 // 10 minutes
   private let cacheValidDuration: TimeInterval = 180 // 3 minutes
   private var refreshTask: Task<Void, Never>?
-  private var endpointObserver: NSObjectProtocol?
+  private var endpointObserverTask: Task<Void, Never>?
   private var activeEndpointId: UUID?
 
   private var isTestMode: Bool {
@@ -216,13 +216,13 @@ final class CodexUsageService {
   }
 
   private func observeControlPlaneEndpointChanges() {
-    endpointObserver = NotificationCenter.default.addObserver(
-      forName: .serverPrimaryEndpointDidChange,
-      object: nil,
-      queue: nil
-    ) { [weak self] _ in
-      Task { @MainActor in
-        await self?.refresh()
+    endpointObserverTask?.cancel()
+    let primaryEndpointUpdates = ServerRuntimeRegistry.shared.primaryEndpointUpdates
+    endpointObserverTask = Task { [weak self] in
+      guard let self else { return }
+      for await _ in primaryEndpointUpdates {
+        guard !Task.isCancelled else { break }
+        await self.refresh()
       }
     }
   }

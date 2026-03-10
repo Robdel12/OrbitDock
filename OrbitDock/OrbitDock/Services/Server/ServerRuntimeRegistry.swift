@@ -4,7 +4,7 @@ import Foundation
   import UIKit
 #endif
 
-struct ServerClientIdentity: Equatable {
+struct ServerClientIdentity: Equatable, Sendable {
   let clientId: String
   let deviceName: String
 
@@ -45,25 +45,6 @@ struct ServerClientIdentity: Equatable {
   }
 }
 
-struct ServerPrimaryClaimUpdate: Equatable {
-  let endpointId: UUID
-  let isPrimary: Bool
-}
-
-enum ServerPrimaryClaimPlanner {
-  static func updates(
-    enabledEndpointIds: [UUID],
-    primaryEndpointId: UUID?,
-    previousAssignments: [UUID: Bool]
-  ) -> [ServerPrimaryClaimUpdate] {
-    enabledEndpointIds.compactMap { endpointId in
-      let desired = primaryEndpointId == endpointId
-      guard previousAssignments[endpointId] != desired else { return nil }
-      return ServerPrimaryClaimUpdate(endpointId: endpointId, isPrimary: desired)
-    }
-  }
-}
-
 @Observable
 @MainActor
 final class ServerRuntimeRegistry {
@@ -73,11 +54,14 @@ final class ServerRuntimeRegistry {
   private let runtimeFactory: (ServerEndpoint) -> ServerRuntime
   private let clientIdentityProvider: () -> ServerClientIdentity
   private let shouldBootstrapFromSettings: Bool
+  private let controlPlaneCoordinator = ServerControlPlaneCoordinator()
   private(set) var runtimesByEndpointId: [UUID: ServerRuntime] = [:]
   private(set) var connectionStatusByEndpointId: [UUID: ConnectionStatus] = [:]
   private(set) var activeEndpointId: UUID?
   private(set) var primaryEndpointId: UUID?
   private(set) var hasPrimaryEndpointConflict = false
+  let primaryEndpointUpdates: AsyncStream<UUID?>
+  @ObservationIgnored private let primaryEndpointContinuation: AsyncStream<UUID?>.Continuation
   @ObservationIgnored
   private lazy var fallbackSessionStore: SessionStore = {
     let apiClient = APIClient(serverURL: URL(string: "http://127.0.0.1:3000")!, authToken: nil)
@@ -88,10 +72,11 @@ final class ServerRuntimeRegistry {
     )
   }()
   @ObservationIgnored private var statusObserverTasks: [UUID: Task<Void, Never>] = [:]
-  @ObservationIgnored private var primaryClaimTasks: [UUID: Task<Void, Never>] = [:]
-  @ObservationIgnored private var primaryClaimAssignments: [UUID: Bool] = [:]
 
   init() {
+    var primaryEndpointContinuation: AsyncStream<UUID?>.Continuation!
+    primaryEndpointUpdates = AsyncStream { primaryEndpointContinuation = $0 }
+    self.primaryEndpointContinuation = primaryEndpointContinuation
     endpointsProvider = { ServerEndpointSettings.endpoints }
     runtimeFactory = { ServerRuntime(endpoint: $0) }
     clientIdentityProvider = { ServerClientIdentity.current() }
@@ -103,6 +88,9 @@ final class ServerRuntimeRegistry {
     runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime,
     shouldBootstrapFromSettings: Bool = true
   ) {
+    var primaryEndpointContinuation: AsyncStream<UUID?>.Continuation!
+    primaryEndpointUpdates = AsyncStream { primaryEndpointContinuation = $0 }
+    self.primaryEndpointContinuation = primaryEndpointContinuation
     self.endpointsProvider = endpointsProvider
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = { ServerClientIdentity.current() }
@@ -115,10 +103,17 @@ final class ServerRuntimeRegistry {
     clientIdentityProvider: @escaping () -> ServerClientIdentity,
     shouldBootstrapFromSettings: Bool = true
   ) {
+    var primaryEndpointContinuation: AsyncStream<UUID?>.Continuation!
+    primaryEndpointUpdates = AsyncStream { primaryEndpointContinuation = $0 }
+    self.primaryEndpointContinuation = primaryEndpointContinuation
     self.endpointsProvider = endpointsProvider
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = clientIdentityProvider
     self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
+  }
+
+  deinit {
+    primaryEndpointContinuation.finish()
   }
 
   var runtimes: [ServerRuntime] {
@@ -193,9 +188,6 @@ final class ServerRuntimeRegistry {
       runtimesByEndpointId[id] = nil
       statusObserverTasks[id]?.cancel()
       statusObserverTasks[id] = nil
-      primaryClaimTasks[id]?.cancel()
-      primaryClaimTasks[id] = nil
-      primaryClaimAssignments[id] = nil
       connectionStatusByEndpointId[id] = nil
     }
 
@@ -233,13 +225,14 @@ final class ServerRuntimeRegistry {
       runtimesByEndpointId[endpoint.id]?.start()
     }
 
-    syncClientPrimaryClaims()
+    schedulePrimaryClaimReconciliation()
   }
 
   func setActiveEndpoint(id: UUID) {
     guard runtimesByEndpointId[id] != nil else { return }
     activeEndpointId = id
     recomputePrimaryEndpoint()
+    schedulePrimaryClaimReconciliation()
   }
 
   func reconnect(endpointId: UUID) {
@@ -249,35 +242,13 @@ final class ServerRuntimeRegistry {
   func setServerRole(endpointId: UUID, isPrimary: Bool) {
     ensureInitialized()
     guard let targetRuntime = runtimesByEndpointId[endpointId], targetRuntime.endpoint.isEnabled else { return }
-
-    if isPrimary {
-      for runtime in runtimesByEndpointId.values where runtime.endpoint.id != endpointId && runtime.endpoint.isEnabled {
-        Task {
-          do {
-            _ = try await runtime.sessionStore.setServerRole(isPrimary: false)
-          } catch {
-            netLog(
-              .error,
-              cat: .store,
-              "Set server role failed",
-              data: ["endpointId": runtime.endpoint.id.uuidString, "error": error.localizedDescription]
-            )
-          }
-        }
-      }
-    }
-
+    let ports = enabledControlPlanePorts()
     Task {
-      do {
-        _ = try await targetRuntime.sessionStore.setServerRole(isPrimary: isPrimary)
-      } catch {
-        netLog(
-          .error,
-          cat: .store,
-          "Set server role failed",
-          data: ["endpointId": endpointId.uuidString, "error": error.localizedDescription]
-        )
-      }
+      await controlPlaneCoordinator.applyServerRoleChange(
+        endpointId: targetRuntime.endpoint.id,
+        isPrimary: isPrimary,
+        ports: ports
+      )
     }
   }
 
@@ -299,6 +270,10 @@ final class ServerRuntimeRegistry {
     for runtime in runtimesByEndpointId.values {
       runtime.stop()
     }
+  }
+
+  func waitForControlPlaneIdleForTests() async {
+    await controlPlaneCoordinator.waitUntilIdleForTests()
   }
 
   func sessionStore(for session: Session, fallback: SessionStore) -> SessionStore {
@@ -387,14 +362,8 @@ final class ServerRuntimeRegistry {
     primaryEndpointId = Self.preferredActiveEndpointID(from: configuredEndpoints)
 
     if previousPrimaryEndpointId != primaryEndpointId {
-      NotificationCenter.default.post(
-        name: .serverPrimaryEndpointDidChange,
-        object: nil,
-        userInfo: ["endpointId": primaryEndpointId as Any]
-      )
+      primaryEndpointContinuation.yield(primaryEndpointId)
     }
-
-    syncClientPrimaryClaims()
   }
 
   static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
@@ -403,50 +372,19 @@ final class ServerRuntimeRegistry {
       ?? endpoints.first?.id
   }
 
-  private func syncClientPrimaryClaims() {
+  private func schedulePrimaryClaimReconciliation() {
     let identity = clientIdentityProvider()
-    let enabledRuntimes = runtimesByEndpointId.values
-      .filter(\.endpoint.isEnabled)
-      .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
-    let enabledEndpointIds = enabledRuntimes.map(\.endpoint.id)
-
-    for endpointId in primaryClaimAssignments.keys where !enabledEndpointIds.contains(endpointId) {
-      primaryClaimAssignments[endpointId] = nil
-      primaryClaimTasks[endpointId]?.cancel()
-      primaryClaimTasks[endpointId] = nil
-    }
-
-    let updates = ServerPrimaryClaimPlanner.updates(
-      enabledEndpointIds: enabledEndpointIds,
-      primaryEndpointId: primaryEndpointId,
-      previousAssignments: primaryClaimAssignments
+    let ports = enabledControlPlanePorts()
+    let plan = ServerControlPlanePlan(
+      enabledEndpointIds: ports.map(\.endpointId),
+      primaryEndpointId: primaryEndpointId
     )
-
-    for update in updates {
-      primaryClaimAssignments[update.endpointId] = update.isPrimary
-      primaryClaimTasks[update.endpointId]?.cancel()
-
-      guard let runtime = runtimesByEndpointId[update.endpointId] else { continue }
-      primaryClaimTasks[update.endpointId] = Task {
-        do {
-          try await runtime.sessionStore.setClientPrimaryClaim(
-            clientId: identity.clientId,
-            deviceName: identity.deviceName,
-            isPrimary: update.isPrimary
-          )
-        } catch {
-          netLog(
-            .error,
-            cat: .store,
-            "Set client primary claim failed",
-            data: [
-              "endpointId": update.endpointId.uuidString,
-              "isPrimary": String(update.isPrimary),
-              "error": error.localizedDescription,
-            ]
-          )
-        }
-      }
+    Task {
+      await controlPlaneCoordinator.submitPrimaryClaimPlan(
+        plan,
+        ports: ports,
+        clientIdentity: identity
+      )
     }
   }
 
@@ -461,5 +399,12 @@ final class ServerRuntimeRegistry {
         self.connectionStatusByEndpointId[endpointId] = status
       }
     }
+  }
+
+  private func enabledControlPlanePorts() -> [ServerControlPlanePort] {
+    runtimesByEndpointId.values
+      .filter(\.endpoint.isEnabled)
+      .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
+      .map(\.controlPlanePort)
   }
 }
