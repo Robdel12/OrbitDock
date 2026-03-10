@@ -54,9 +54,11 @@ This plan is now an active execution document, not just a roadmap.
 - **Window-local external navigation cleanup**
   - app-internal `.selectSession` broadcast routing has been replaced with a typed app-level external navigation center
   - external session selection now enters through a typed channel while actual navigation stays window-local
+  - app-router session-ref resolution now lives in a dedicated planner with focused tests instead of staying embedded in the router shell
 - **QuickSwitcher phase 1**
   - query classification, session projection, keyboard navigation, command catalog, selection resolution, target-session capture, and search transition planning now live in dedicated pure helpers instead of inline view logic
   - deterministic unit tests now cover quick-launch intent detection, search filtering, active/recent ordering, navigation counts, wraparound movement, command inventory, selected-item resolution, and search-mode transitions
+  - the root quick switcher view has also shed row presentation and quick-launch section rendering into focused subviews, so the remaining work is mostly shell-level action cleanup
 - **Phase 6 / Phase 7, lifecycle ownership**
   - `WindowSessionCoordinator` now owns startup/runtime-graph refresh behavior instead of `ContentView`
   - the app delegate now talks to `OrbitDockAppRuntime` instead of reaching for global runtime singletons during notifications and shutdown
@@ -79,6 +81,7 @@ This plan is now an active execution document, not just a roadmap.
 - **New session phase 1**
   - launch request planning, provider-state sync/reset, and async launch coordination now live in dedicated helpers instead of `NewSessionSheet`
   - deterministic unit tests now cover request planning, provider model sync, and launch sequencing around git init, worktree creation, and continuation prompts
+  - the provider configuration card now lives in its own view instead of keeping that rendering surface embedded in `NewSessionSheet`
 - **App-global ownership cleanup**
   - `ServerManager` and app notification ownership now flow through the app runtime/environment instead of direct singleton grabs in production views and startup coordination
   - `ToastManager.shared` is gone, and startup/runtime tests now cover the injected install-state seam
@@ -114,14 +117,17 @@ This plan is now an active execution document, not just a roadmap.
 - **Session detail presentation extraction**
   - conversation chrome, compact metadata, usage projection, and diff summary logic now live in dedicated planners instead of `SessionDetailView`
   - deterministic unit tests now cover pinned/following transitions, metadata formatting, usage fallback, and cumulative diff counting
+  - the worktree cleanup banner now lives in its own view instead of keeping another feature-specific section inline in `SessionDetailView`
 - **Phase 2: Fix Session State Ownership**
   - approval/config/detail transitions now flow through a dedicated per-session control-state reducer instead of being hand-mutated across `SessionStore`, `Session`, and `SessionObservable`
   - deterministic reducer and store-sync tests now cover approval version gating, config-derived autonomy, optimistic permission updates, and summary/detail alignment
 - **Testing baseline**
   - `make build` is green
-  - the unit-test action itself is green end-to-end
-  - in this sandboxed CLI environment, `make test-unit` can still exit nonzero because Xcode tries to touch restricted package-cache/CoreSimulator paths even when the `.xcresult` action is marked `succeeded`
+  - `make test-unit` is green end-to-end
   - the conversation timeline image-row regression is now covered at the projection boundary
+- **Test suite organization**
+  - `OrbitDockTests` is now grouped by feature area instead of staying flat at the package root
+  - test files are much easier to navigate while still preserving the current target surface and green baseline
 
 ### In Progress
 
@@ -152,6 +158,7 @@ This plan is now an active execution document, not just a roadmap.
   - any remaining work here should be polish-level cleanup, not more architectural rescue
 - **Phase 11: Decompose Large Screens**
   - `QuickSwitcher` now has a real pure core for query planning, session projection, keyboard navigation, command catalog, selection resolution, target capture, and search transitions instead of embedding those rules directly in the view
+  - `QuickSwitcher` has also started shedding major row and quick-launch rendering sections into dedicated views, so the remaining work is now mostly shell-level behavior cleanup
   - `SettingsView` now has focused pane views and a pure endpoint-health display seam, but there is still section-specific side-effect cleanup available
   - `SessionDetailView` now routes review-send, lifecycle, layout, worktree cleanup, conversation chrome, metadata, usage, and diff summary work through local pure planners, but still has shell-level orchestration left to peel away
   - the remaining work is mostly shell/action cleanup in `QuickSwitcher`, then more screen-specific extractions from `SessionDetailView` and the other large screens
@@ -186,6 +193,7 @@ This plan is now an active execution document, not just a roadmap.
   - done
   - session request construction, provider-specific selection sync/reset, and async launch workflow now live in dedicated helpers instead of `NewSessionSheet`
   - deterministic tests now cover request planning, provider reset/sync behavior, and launch action sequencing
+  - the provider configuration surface now lives in a dedicated configuration-card view, so `NewSessionSheet` is moving toward a real feature shell
 - **App-global ownership cleanup**
   - done for production paths and previews
   - the startup coordinator now uses an injected install-state refresh seam
@@ -197,6 +205,7 @@ This plan is now an active execution document, not just a roadmap.
   - done
   - query classification, session projection, keyboard navigation, command catalog, selection resolution, action-side command planning, target-session capture, and search transitions now live in dedicated pure helpers instead of inline view logic
   - deterministic unit tests now cover quick-launch intent detection, search filtering, active/recent ordering, navigation counts, wraparound movement, command inventory, selected-item resolution, and search transitions
+  - row presentation and quick-launch section rendering now live in dedicated views instead of the root screen
 - **Settings phase 1**
   - endpoint/runtime health summary logic now lives in a dedicated pure helper instead of duplicated inline calculations inside `SettingsView`
   - deterministic unit tests now cover the display-state copy and tone decisions for enabled/connected endpoint combinations
@@ -221,7 +230,7 @@ This plan is now an active execution document, not just a roadmap.
   - in progress
   - review-send planning, lifecycle subscription rules, review layout transitions, review navigation helpers, diff-banner rules, worktree cleanup decisions, conversation chrome, compact metadata, usage projection, diff summary decisions, and action-bar presentation now live in dedicated pure planners instead of inline view logic
   - deterministic unit tests now cover the current planner seams
-  - the remaining work is shrinking the root view into more of a shell and moving any last orchestration side effects behind typed helpers
+  - the worktree cleanup banner has moved into its own view, and the remaining work is shrinking the root view into more of a shell and moving any last orchestration side effects behind typed helpers
 
 ---
 
