@@ -7,52 +7,52 @@ import OSLog
 import SwiftUI
 
 struct SessionDetailView: View {
-  @Environment(SessionStore.self) private var serverState
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(\.modelPricingService) private var modelPricingService
-  @Environment(AppRouter.self) private var router
+  @Environment(SessionStore.self) var serverState
+  @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
+  @Environment(\.horizontalSizeClass) var horizontalSizeClass
+  @Environment(\.modelPricingService) var modelPricingService
+  @Environment(AppRouter.self) var router
   let sessionId: String
   let endpointId: UUID
 
-  private var scopedServerState: SessionStore {
+  var scopedServerState: SessionStore {
     runtimeRegistry.sessionStore(for: endpointId, fallback: serverState)
   }
 
-  private var obs: SessionObservable {
+  var obs: SessionObservable {
     scopedServerState.session(sessionId)
   }
 
-  @State private var copiedResume = false
+  @State var copiedResume = false
 
   // Chat scroll state
-  @State private var isPinned = true
-  @State private var unreadCount = 0
-  @State private var scrollToBottomTrigger = 0
+  @State var isPinned = true
+  @State var unreadCount = 0
+  @State var scrollToBottomTrigger = 0
 
-  @AppStorage("chatViewMode") private var chatViewMode: ChatViewMode = .focused
+  @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "session-detail")
-  @State private var selectedSkills: Set<String> = []
+  @State var selectedSkills: Set<String> = []
 
   // Layout state for review canvas
-  @State private var layoutConfig: LayoutConfiguration = .conversationOnly
-  @State private var showDiffBanner = false
-  @State private var reviewFileId: String?
-  @State private var navigateToComment: ServerReviewComment?
-  @State private var selectedCommentIds: Set<String> = []
-  @State private var pendingApprovalPanelOpenSignal = 0
+  @State var layoutConfig: LayoutConfiguration = .conversationOnly
+  @State var showDiffBanner = false
+  @State var reviewFileId: String?
+  @State var navigateToComment: ServerReviewComment?
+  @State var selectedCommentIds: Set<String> = []
+  @State var pendingApprovalPanelOpenSignal = 0
 
   // Worktree cleanup state
-  @State private var worktreeCleanupDismissed = false
-  @State private var deleteBranchOnCleanup = true
-  @State private var isCleaningUpWorktree = false
-  @State private var worktreeCleanupError: String?
+  @State var worktreeCleanupDismissed = false
+  @State var deleteBranchOnCleanup = true
+  @State var isCleaningUpWorktree = false
+  @State var worktreeCleanupError: String?
 
-  private var isCompactLayout: Bool {
+  var isCompactLayout: Bool {
     horizontalSizeClass == .compact
   }
 
-  private var actionBarState: SessionDetailActionBarState {
+  var actionBarState: SessionDetailActionBarState {
     SessionDetailActionBarPlanner.state(
       branch: obs.branch,
       projectPath: obs.projectPath,
@@ -208,7 +208,7 @@ struct SessionDetailView: View {
     }
   }
 
-  private var sessionDetailWorktreeCleanupState: SessionDetailWorktreeCleanupBannerState? {
+  var sessionDetailWorktreeCleanupState: SessionDetailWorktreeCleanupBannerState? {
     SessionDetailWorktreeCleanupPlanner.bannerState(
       status: obs.status,
       isWorktree: obs.isWorktree,
@@ -221,7 +221,7 @@ struct SessionDetailView: View {
 
   // MARK: - Action Bar
 
-  private var actionBar: some View {
+  var actionBar: some View {
     Group {
       if isCompactLayout {
         compactActionBar
@@ -231,256 +231,18 @@ struct SessionDetailView: View {
     }
   }
 
-  private func openPendingApprovalPanel() {
-    let nextState = SessionDetailConversationChromePlanner.openPendingApprovalPanel(
-      current: conversationChromeState
-    )
-    applyConversationChromeState(nextState, animatePendingApprovalPanel: true)
-  }
-
-  private func jumpConversationToLatest() {
-    applyConversationChromeState(
-      SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
-    )
-  }
-
-  private func toggleConversationPinnedState() {
-    applyConversationChromeState(
-      SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
-    )
-  }
-
-  private var regularActionBar: some View {
-    passiveInstrumentStrip
-  }
-
-  // MARK: - Passive Instrument Strip
-
-  private var passiveInstrumentStrip: some View {
-    SessionDetailRegularActionBar(
-      state: actionBarState,
-      usageStats: usageStats,
-      jumpToLatest: jumpConversationToLatest,
-      togglePinned: toggleConversationPinnedState
-    )
-  }
-
-  private var compactActionBar: some View {
-    SessionDetailCompactActionBar(
-      state: actionBarState,
-      usageStats: usageStats,
-      canRevealInFileBrowser: Platform.services.capabilities.canRevealInFileBrowser,
-      copiedResume: copiedResume,
-      onCopyResume: copyResumeCommand,
-      onRevealInFinder: {
-        _ = Platform.services.revealInFileBrowser(obs.projectPath)
-      },
-      jumpToLatest: jumpConversationToLatest,
-      togglePinned: toggleConversationPinnedState
-    )
-  }
-
-  // MARK: - Conversation Content
-
-  private var conversationContent: some View {
-    SessionDetailConversationSection(
-      sessionId: sessionId,
-      endpointId: endpointId,
-      isSessionActive: obs.isActive,
-      workStatus: obs.workStatus,
-      currentTool: currentTool,
-      pendingToolName: obs.pendingToolName,
-      pendingPermissionDetail: obs.pendingPermissionDetail,
-      provider: obs.provider,
-      model: obs.model,
-      chatViewMode: chatViewMode,
-      onNavigateToReviewFile: { filePath, lineNumber in
-        let plan = SessionDetailLayoutPlanner.reviewFileNavigationPlan(
-          sessionId: sessionId,
-          currentLayout: layoutConfig,
-          filePath: filePath,
-          lineNumber: lineNumber
-        )
-        reviewFileId = plan.reviewFileId
-        navigateToComment = plan.navigateToComment
-        withAnimation(Motion.gentle) {
-          layoutConfig = plan.layoutConfig
-        }
-      },
-      onOpenPendingApprovalPanel: {
-        openPendingApprovalPanel()
-      },
-      openFileInReview: obs.isDirect ? { (filePath: String) in
-        let plan = SessionDetailLayoutPlanner.openFileInReviewPlan(
-          projectPath: obs.projectPath,
-          currentLayout: layoutConfig,
-          filePath: filePath
-        )
-        reviewFileId = plan.reviewFileId
-        withAnimation(Motion.gentle) {
-          layoutConfig = plan.layoutConfig
-        }
-      } : nil,
-      isPinned: $isPinned,
-      unreadCount: $unreadCount,
-      scrollToBottomTrigger: $scrollToBottomTrigger
-    )
-  }
-
-  private var reviewCanvas: some View {
-    SessionDetailReviewSection(
-      sessionId: sessionId,
-      projectPath: obs.projectPath,
-      isSessionActive: obs.isActive,
-      compact: layoutConfig == .split,
-      reviewFileId: $reviewFileId,
-      selectedCommentIds: $selectedCommentIds,
-      navigateToComment: $navigateToComment,
-      onDismiss: {
-        withAnimation(Motion.gentle) {
-          layoutConfig = SessionDetailLayoutPlanner.nextLayout(
-            currentLayout: layoutConfig,
-            intent: .dismissReview
-          )
-        }
-      }
-    )
-  }
-
-  // MARK: - Diff Available Banner
-
-  private var diffAvailableBanner: some View {
-    SessionDetailDiffAvailableBanner(
-      fileCount: diffFileCount,
-      onRevealReview: {
-        let nextLayout = SessionDetailLayoutPlanner.nextLayout(
-          currentLayout: layoutConfig,
-          intent: .revealReviewSplit
-        )
-        withAnimation(Motion.gentle) {
-          layoutConfig = nextLayout
-          showDiffBanner = false
-        }
-      }
-    )
-  }
-
-  private var diffFileCount: Int {
-    SessionDetailDiffPlanner.fileCount(
-      turnDiffs: obs.turnDiffs,
-      currentDiff: obs.diff
-    )
-  }
-
-  // MARK: - Worktree Cleanup
-
-  private var showWorktreeCleanupBanner: Bool {
-    sessionDetailWorktreeCleanupState != nil
-  }
-
-  private var worktreeForSession: ServerWorktreeSummary? {
-    SessionDetailWorktreeCleanupPlanner.resolveWorktree(
-      worktreesByRepo: scopedServerState.worktreesByRepo,
-      worktreeId: obs.worktreeId,
-      projectPath: obs.projectPath
-    )
-  }
-
-  private var worktreeCleanupBanner: some View {
-    SessionDetailWorktreeCleanupBanner(
-      bannerState: sessionDetailWorktreeCleanupState,
-      errorMessage: worktreeCleanupError,
-      deleteBranchOnCleanup: $deleteBranchOnCleanup,
-      isCleaningUp: isCleaningUpWorktree,
-      onKeep: {
-        withAnimation(Motion.gentle) {
-          worktreeCleanupDismissed = true
-        }
-      },
-      onCleanUp: {
-        cleanUpWorktree()
-      }
-    )
-  }
-
-  private func cleanUpWorktree() {
-    guard let request = SessionDetailWorktreeCleanupPlanner.cleanupRequest(
-      worktree: worktreeForSession,
-      deleteBranch: deleteBranchOnCleanup
-    ) else {
-      return
-    }
-    isCleaningUpWorktree = true
-    worktreeCleanupError = nil
-
-    Task {
-      do {
-        try await scopedServerState.clients.worktrees.removeWorktree(
-          worktreeId: request.worktreeId,
-          force: request.force,
-          deleteBranch: request.deleteBranch
-        )
-        withAnimation(Motion.gentle) {
-          worktreeCleanupDismissed = true
-        }
-      } catch {
-        worktreeCleanupError = error.localizedDescription
-      }
-      isCleaningUpWorktree = false
-    }
-  }
-
-  private var currentTool: String? {
-    obs.lastTool
-  }
-
-  private var usageStats: TranscriptUsageStats {
-    SessionDetailUsagePlanner.makeStats(
-      model: obs.model,
-      inputTokens: obs.inputTokens,
-      outputTokens: obs.outputTokens,
-      cachedTokens: obs.cachedTokens,
-      contextUsed: obs.effectiveContextInputTokens,
-      totalTokens: obs.totalTokens,
-      costCalculator: modelPricingService.calculatorSnapshot
-    )
-  }
-
-  private var footerMode: SessionDetailFooterMode {
-    SessionDetailFooterPlanner.mode(
-      isDirect: obs.isDirect,
-      canTakeOver: obs.canTakeOver,
-      needsApprovalOverlay: obs.needsApprovalOverlay
-    )
-  }
+  // Remaining sections and imperative handlers live in companion files so this root
+  // stays focused on feature composition and lifecycle wiring.
 
   // MARK: - Helpers
 
-  private var shouldSubscribeToServerSession: Bool {
+  var shouldSubscribeToServerSession: Bool {
     // The selected route is authoritative. Loading should not depend on the
     // sessions list already being hydrated on this client.
     !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
-  private func copyResumeCommand() {
-    let command = "claude --resume \(sessionId)"
-    Platform.services.copyToClipboard(command)
-    copiedResume = true
-
-    // Reset after visual feedback
-    Task {
-      try? await Task.sleep(for: .seconds(2))
-      await MainActor.run {
-        copiedResume = false
-      }
-    }
-  }
-
-  private func endDirectSession() {
-    Task { try? await scopedServerState.endSession(sessionId) }
-  }
-
-  private var conversationChromeState: SessionDetailConversationChromeState {
+  var conversationChromeState: SessionDetailConversationChromeState {
     SessionDetailConversationChromeState(
       isPinned: isPinned,
       unreadCount: unreadCount,
@@ -489,7 +251,7 @@ struct SessionDetailView: View {
     )
   }
 
-  private func applyConversationChromeState(
+  func applyConversationChromeState(
     _ state: SessionDetailConversationChromeState,
     animatePendingApprovalPanel: Bool = false
   ) {
@@ -506,32 +268,6 @@ struct SessionDetailView: View {
     scrollToBottomTrigger = state.scrollToBottomTrigger
   }
 
-  // MARK: - Send Review
-
-  private func sendReviewToModel() {
-    guard let plan = SessionDetailReviewSendPlanner.makePlan(
-      reviewComments: obs.reviewComments,
-      selectedCommentIds: selectedCommentIds,
-      turnDiffs: obs.turnDiffs,
-      currentDiff: obs.diff
-    ) else {
-      return
-    }
-
-    Task {
-      try? await scopedServerState.sendMessage(sessionId: sessionId, content: plan.message)
-
-      for commentId in plan.commentIdsToResolve {
-        try? await scopedServerState.clients.approvals.updateReviewComment(
-          commentId: commentId,
-          body: ApprovalsClient.UpdateReviewCommentRequest(status: .resolved)
-        )
-      }
-    }
-
-    // Clear selection after send
-    selectedCommentIds.removeAll()
-  }
 }
 
 #Preview {

@@ -44,16 +44,18 @@ struct ExpandedToolLayoutTests {
 
     let items = ExpandedToolLayout.askUserQuestionItems(from: payload)
 
-    #expect(items == [
-      .init(
-        header: "Choice",
-        question: "How should we continue?",
-        options: [
-          .init(label: "Keep going", description: "Continue the current plan"),
-          .init(label: "Pause", description: nil),
-        ]
-      )
-    ])
+    #expect(items?.count == 1)
+    if let item = items?.first {
+      #expect(item.header == "Choice")
+      #expect(item.question == "How should we continue?")
+      #expect(item.options.count == 2)
+      #expect(item.options.first?.label == "Keep going")
+      #expect(item.options.first?.description == "Continue the current plan")
+      #expect(item.options.last?.label == "Pause")
+      #expect(item.options.last?.description == nil)
+    } else {
+      Issue.record("Expected a parsed ask-user question item")
+    }
   }
 
   @Test func diffGutterMetricsReserveColumnsForBothLineNumbers() {
@@ -91,13 +93,16 @@ struct ExpandedToolLayoutTests {
     #expect(questionPlan?.title == "INPUT")
     switch questionPlan?.content {
       case let .askUserQuestions(items):
-        #expect(items == [
-          .init(
-            header: "Choice",
-            question: "How should we continue?",
-            options: [.init(label: "Keep going", description: nil)]
-          )
-        ])
+        #expect(items.count == 1)
+        if let item = items.first {
+          #expect(item.header == "Choice")
+          #expect(item.question == "How should we continue?")
+          #expect(item.options.count == 1)
+          #expect(item.options.first?.label == "Keep going")
+          #expect(item.options.first?.description == nil)
+        } else {
+          Issue.record("Expected a parsed ask-user question item")
+        }
       default:
         Issue.record("Expected question payload to parse as ask-user questions")
     }
@@ -114,10 +119,11 @@ struct ExpandedToolLayoutTests {
     )
     switch jsonPlan?.content {
       case let .structuredEntries(entries):
-        #expect(entries == [
-          .init(keyPath: "command", value: "\"bash\""),
-          .init(keyPath: "options.cwd", value: "\"/tmp/demo\""),
-        ])
+        #expect(entries.count == 2)
+        #expect(entries.first?.keyPath == "command")
+        #expect(entries.first?.value == "\"bash\"")
+        #expect(entries.last?.keyPath == "options.cwd")
+        #expect(entries.last?.value == "\"/tmp/demo\"")
       default:
         Issue.record("Expected JSON payload to parse as structured entries")
     }

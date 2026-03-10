@@ -1,0 +1,168 @@
+import SwiftUI
+
+extension SessionDetailView {
+  var regularActionBar: some View {
+    passiveInstrumentStrip
+  }
+
+  var passiveInstrumentStrip: some View {
+    SessionDetailRegularActionBar(
+      state: actionBarState,
+      usageStats: usageStats,
+      jumpToLatest: jumpConversationToLatest,
+      togglePinned: toggleConversationPinnedState
+    )
+  }
+
+  var compactActionBar: some View {
+    SessionDetailCompactActionBar(
+      state: actionBarState,
+      usageStats: usageStats,
+      canRevealInFileBrowser: Platform.services.capabilities.canRevealInFileBrowser,
+      copiedResume: copiedResume,
+      onCopyResume: copyResumeCommand,
+      onRevealInFinder: {
+        _ = Platform.services.revealInFileBrowser(obs.projectPath)
+      },
+      jumpToLatest: jumpConversationToLatest,
+      togglePinned: toggleConversationPinnedState
+    )
+  }
+
+  var conversationContent: some View {
+    SessionDetailConversationSection(
+      sessionId: sessionId,
+      endpointId: endpointId,
+      isSessionActive: obs.isActive,
+      workStatus: obs.workStatus,
+      currentTool: currentTool,
+      pendingToolName: obs.pendingToolName,
+      pendingPermissionDetail: obs.pendingPermissionDetail,
+      provider: obs.provider,
+      model: obs.model,
+      chatViewMode: chatViewMode,
+      onNavigateToReviewFile: { filePath, lineNumber in
+        let plan = SessionDetailLayoutPlanner.reviewFileNavigationPlan(
+          sessionId: sessionId,
+          currentLayout: layoutConfig,
+          filePath: filePath,
+          lineNumber: lineNumber
+        )
+        reviewFileId = plan.reviewFileId
+        navigateToComment = plan.navigateToComment
+        withAnimation(Motion.gentle) {
+          layoutConfig = plan.layoutConfig
+        }
+      },
+      onOpenPendingApprovalPanel: openPendingApprovalPanel,
+      openFileInReview: obs.isDirect ? { filePath in
+        let plan = SessionDetailLayoutPlanner.openFileInReviewPlan(
+          projectPath: obs.projectPath,
+          currentLayout: layoutConfig,
+          filePath: filePath
+        )
+        reviewFileId = plan.reviewFileId
+        withAnimation(Motion.gentle) {
+          layoutConfig = plan.layoutConfig
+        }
+      } : nil,
+      isPinned: $isPinned,
+      unreadCount: $unreadCount,
+      scrollToBottomTrigger: $scrollToBottomTrigger
+    )
+  }
+
+  var reviewCanvas: some View {
+    SessionDetailReviewSection(
+      sessionId: sessionId,
+      projectPath: obs.projectPath,
+      isSessionActive: obs.isActive,
+      compact: layoutConfig == .split,
+      reviewFileId: $reviewFileId,
+      selectedCommentIds: $selectedCommentIds,
+      navigateToComment: $navigateToComment,
+      onDismiss: {
+        withAnimation(Motion.gentle) {
+          layoutConfig = SessionDetailLayoutPlanner.nextLayout(
+            currentLayout: layoutConfig,
+            intent: .dismissReview
+          )
+        }
+      }
+    )
+  }
+
+  var diffAvailableBanner: some View {
+    SessionDetailDiffAvailableBanner(
+      fileCount: diffFileCount,
+      onRevealReview: {
+        let nextLayout = SessionDetailLayoutPlanner.nextLayout(
+          currentLayout: layoutConfig,
+          intent: .revealReviewSplit
+        )
+        withAnimation(Motion.gentle) {
+          layoutConfig = nextLayout
+          showDiffBanner = false
+        }
+      }
+    )
+  }
+
+  var diffFileCount: Int {
+    SessionDetailDiffPlanner.fileCount(
+      turnDiffs: obs.turnDiffs,
+      currentDiff: obs.diff
+    )
+  }
+
+  var showWorktreeCleanupBanner: Bool {
+    sessionDetailWorktreeCleanupState != nil
+  }
+
+  var worktreeForSession: ServerWorktreeSummary? {
+    SessionDetailWorktreeCleanupPlanner.resolveWorktree(
+      worktreesByRepo: scopedServerState.worktreesByRepo,
+      worktreeId: obs.worktreeId,
+      projectPath: obs.projectPath
+    )
+  }
+
+  var worktreeCleanupBanner: some View {
+    SessionDetailWorktreeCleanupBanner(
+      bannerState: sessionDetailWorktreeCleanupState,
+      errorMessage: worktreeCleanupError,
+      deleteBranchOnCleanup: $deleteBranchOnCleanup,
+      isCleaningUp: isCleaningUpWorktree,
+      onKeep: {
+        withAnimation(Motion.gentle) {
+          worktreeCleanupDismissed = true
+        }
+      },
+      onCleanUp: cleanUpWorktree
+    )
+  }
+
+  var currentTool: String? {
+    obs.lastTool
+  }
+
+  var usageStats: TranscriptUsageStats {
+    SessionDetailUsagePlanner.makeStats(
+      model: obs.model,
+      inputTokens: obs.inputTokens,
+      outputTokens: obs.outputTokens,
+      cachedTokens: obs.cachedTokens,
+      contextUsed: obs.effectiveContextInputTokens,
+      totalTokens: obs.totalTokens,
+      costCalculator: modelPricingService.calculatorSnapshot
+    )
+  }
+
+  var footerMode: SessionDetailFooterMode {
+    SessionDetailFooterPlanner.mode(
+      isDirect: obs.isDirect,
+      canTakeOver: obs.canTakeOver,
+      needsApprovalOverlay: obs.needsApprovalOverlay
+    )
+  }
+}

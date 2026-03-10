@@ -148,6 +148,9 @@ of those rewrite-sized targets land cleanly.
   - conversation chrome, compact metadata, usage projection, and diff summary logic now live in dedicated planners instead of `SessionDetailView`
   - deterministic unit tests now cover pinned/following transitions, metadata formatting, usage fallback, and cumulative diff counting
   - the worktree cleanup banner now lives in its own view instead of keeping another feature-specific section inline in `SessionDetailView`
+- **Session detail shell extraction**
+  - `SessionDetailView` now delegates its major sections and imperative actions to companion shell files instead of keeping them inline in the root feature file
+  - the root now reads much more like composition plus lifecycle wiring, which makes the remaining rewrite work smaller and easier to reason about
 - **Phase 2: Fix Session State Ownership**
   - approval/config/detail transitions now flow through a dedicated per-session control-state reducer instead of being hand-mutated across `SessionStore`, `Session`, and `SessionObservable`
   - deterministic reducer and store-sync tests now cover approval version gating, config-derived autonomy, optimistic permission updates, and summary/detail alignment
@@ -190,15 +193,14 @@ of those rewrite-sized targets land cleanly.
   - `QuickSwitcher` now has a real pure core for query planning, session projection, keyboard navigation, command catalog, selection resolution, target capture, and search transitions instead of embedding those rules directly in the view
   - `QuickSwitcher`, `LibraryView`, `HeaderView`, `RemoteProjectPicker`, and `NewSessionSheet` have all shed major shell and presentation seams into focused helpers
   - `SettingsView` now has focused pane views and a pure endpoint-health display seam, but there is still section-specific side-effect cleanup available
-  - `SessionDetailView` now routes review-send, lifecycle, layout, worktree cleanup, conversation chrome, metadata, usage, and diff summary work through local pure planners, but still has shell-level orchestration left to peel away
-  - the remaining work is mostly shell/action cleanup in `SessionDetailView`, the composer pending-approval surface, and any last conversation-host cleanup
+  - `SessionDetailView` now routes review-send, lifecycle, layout, worktree cleanup, conversation chrome, metadata, usage, and diff summary work through local pure planners, and its major sections/actions now live in companion shell files instead of the root
+  - the remaining work is mostly final shell polish in `SessionDetailView`, plus any last conversation-host cleanup
 
 ### Next
 
 - finish the remaining rewrite-sized targets in this order:
   - conversation renderer rewrite
   - `SessionDetailView` rewrite
-  - final composer pending-surface cleanup
   - final store / observable ownership cleanup
 - then do the documentation and guardrail pass that locks in the resulting patterns
 
@@ -213,8 +215,6 @@ of those rewrite-sized targets land cleanly.
     conversation surface has obvious ownership boundaries.
 - **Session detail rewrite**
   - make `SessionDetailView` a real shell over typed child features instead of a mixed view/orchestration root
-- **Composer pending surface cleanup**
-  - finish the last pending-approval shell cleanup so the composer root is mostly bindings, feature sections, and typed actions
 - **Final session state ownership pass**
   - make one last deliberate pass over `SessionStore`, `SessionObservable`, and projection ownership so we do not
     carry forward duplicated or leaky state patterns
