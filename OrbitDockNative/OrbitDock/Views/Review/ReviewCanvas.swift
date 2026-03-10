@@ -217,154 +217,72 @@ struct ReviewCanvas: View {
 
     return ScrollViewReader { proxy in
       ScrollView(.vertical, showsIndicators: true) {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          // Review round status banner
-          reviewBanner
-
-          ForEach(Array(model.files.enumerated()), id: \.element.id) { fileIdx, file in
-            fileSectionHeader(
-              file: file,
-              fileIndex: fileIdx,
-              isCursor: target == .fileHeader(fileIndex: fileIdx)
+        ReviewCanvasDiffFiles(
+          model: model,
+          target: target,
+          reviewComments: obs.reviewComments,
+          selectedTurnDiffId: selectedTurnDiffId,
+          showResolvedComments: showResolvedComments,
+          selectedCommentIds: $selectedCommentIds,
+          commentInteraction: $commentInteraction,
+          collapsedFiles: $collapsedFiles,
+          collapsedHunks: $collapsedHunks,
+          expandedContextBars: $expandedContextBars,
+          reviewBanner: {
+            reviewBanner
+          },
+          fileHeader: { file, fileIndex, isCursor in
+            fileSectionHeader(file: file, fileIndex: fileIndex, isCursor: isCursor)
+          },
+          onSelectFileHeader: { fileIndex in
+            isFollowing = false
+            if let index = targets.firstIndex(of: .fileHeader(fileIndex: fileIndex)) {
+              cursorIndex = index
+            }
+          },
+          onToggleFileCollapse: { fileIndex in
+            toggleCollapseAtCursor(model: model, fileIdx: fileIndex)
+          },
+          onToggleHunkCollapse: { fileIndex, hunkIndex in
+            toggleHunkCollapse(model: model, fileIdx: fileIndex, hunkIdx: hunkIndex)
+          },
+          mouseSelectionLineIndices: { fileIndex, hunkIndex in
+            mouseSelectionLineIndices(fileIdx: fileIndex, hunkIdx: hunkIndex)
+          },
+          selectionLineIndices: { fileIndex, hunkIndex in
+            selectionLineIndices(fileIdx: fileIndex, hunkIdx: hunkIndex)
+          },
+          composerLineRangeForHunk: { fileIndex, hunkIndex in
+            composerLineRangeForHunk(fileIdx: fileIndex, hunkIdx: hunkIndex)
+          },
+          onLineComment: { fileIndex, hunkIndex, clickedLineIndex, smartRange in
+            handleLineComment(
+              fileIdx: fileIndex,
+              hunkIdx: hunkIndex,
+              clickedIdx: clickedLineIndex,
+              smartRange: smartRange,
+              model: model
             )
-            .id("file-\(fileIdx)")
-            .onTapGesture {
-              isFollowing = false
-              // Move cursor to this file header
-              if let idx = targets.firstIndex(of: .fileHeader(fileIndex: fileIdx)) {
-                cursorIndex = idx
-              }
-              toggleCollapseAtCursor(model: model, fileIdx: fileIdx)
-            }
-
-            if !collapsedFiles.contains(file.id) {
-              let language = ToolCardStyle.detectLanguage(from: file.newPath)
-              let groupedResolved = groupedResolvedComments(forFile: file.newPath)
-
-              ForEach(Array(file.hunks.enumerated()), id: \.element.id) { hunkIdx, hunk in
-                if hunkIdx > 0 {
-                  let gap = gapBetweenHunks(prev: file.hunks[hunkIdx - 1], current: hunk)
-                  if gap > 0 {
-                    let barKey = "\(fileIdx)-\(hunkIdx)"
-                    ContextCollapseBar(
-                      hiddenLineCount: gap,
-                      isExpanded: Binding(
-                        get: { expandedContextBars.contains(barKey) },
-                        set: { val in
-                          if val { expandedContextBars.insert(barKey) }
-                          else { expandedContextBars.remove(barKey) }
-                        }
-                      )
-                    )
-                  }
-                }
-
-                let hunkKey = "\(fileIdx)-\(hunkIdx)"
-                let isHunkCollapsed = collapsedHunks.contains(hunkKey)
-
-                DiffHunkView(
-                  hunk: hunk,
-                  language: language,
-                  hunkIndex: hunk.id,
-                  fileIndex: fileIdx,
-                  cursorLineIndex: ReviewCursorNavigation.cursorLineForHunk(
-                    fileIndex: fileIdx,
-                    hunkIndex: hunkIdx,
-                    target: target
-                  ),
-                  isCursorOnHeader: ReviewCursorNavigation.isCursorOnHunkHeader(
-                    fileIndex: fileIdx,
-                    hunkIndex: hunkIdx,
-                    target: target
-                  ),
-                  isHunkCollapsed: isHunkCollapsed,
-                  commentedLines: commentedNewLineNums(forFile: file.newPath),
-                  selectionLines: mouseSelectionLineIndices(fileIdx: fileIdx, hunkIdx: hunkIdx)
-                    .union(selectionLineIndices(fileIdx: fileIdx, hunkIdx: hunkIdx)),
-                  composerLineRange: composerLineRangeForHunk(fileIdx: fileIdx, hunkIdx: hunkIdx),
-                  onLineComment: { clickedIdx, smartRange in
-                    handleLineComment(
-                      fileIdx: fileIdx,
-                      hunkIdx: hunkIdx,
-                      clickedIdx: clickedIdx,
-                      smartRange: smartRange,
-                      model: model
-                    )
-                  },
-                  onLineDragChanged: { anchor, current in
-                    handleLineDragChanged(fileIdx: fileIdx, hunkIdx: hunkIdx, anchor: anchor, current: current)
-                  },
-                  onLineDragEnded: { startIdx, endIdx in
-                    handleLineDragEnded(
-                      fileIdx: fileIdx,
-                      hunkIdx: hunkIdx,
-                      startIdx: startIdx,
-                      endIdx: endIdx,
-                      model: model
-                    )
-                  }
-                ) { lineIdx, line in
-                  let inlinePresentation = ReviewCanvasInlinePresentationPlanner.presentation(
-                    comments: obs.reviewComments,
-                    filePath: file.newPath,
-                    newLine: line.newLineNum,
-                    activeTurnId: selectedTurnDiffId,
-                    resolvedGroups: groupedResolved,
-                    composerTarget: commentInteraction.composerTarget,
-                    fileIndex: fileIdx,
-                    hunkIndex: hunkIdx,
-                    lineIndex: lineIdx
-                  )
-
-                  // Inline comments: open → full thread, resolved → grouped marker
-                  if !inlinePresentation.openComments.isEmpty {
-                    InlineCommentThread(
-                      comments: inlinePresentation.openComments,
-                      selectedIds: selectedCommentIds,
-                      onResolve: { comment in
-                        resolveComment(comment)
-                      },
-                      onToggleSelection: { comment in
-                        if selectedCommentIds.contains(comment.id) {
-                          selectedCommentIds.remove(comment.id)
-                        } else {
-                          selectedCommentIds.insert(comment.id)
-                        }
-                      }
-                    )
-                    .id("comments-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
-                  }
-
-                  if !inlinePresentation.resolvedComments.isEmpty {
-                    ResolvedCommentMarker(
-                      comments: inlinePresentation.resolvedComments,
-                      onReopen: { comment in
-                        resolveComment(comment)
-                      },
-                      startExpanded: showResolvedComments
-                    )
-                    .id("resolved-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
-                  }
-
-                  // Composer (appears after last line of selection)
-                  if let composerContext = inlinePresentation.composerContext {
-                    CommentComposerView(
-                      commentBody: $commentInteraction.composerBody,
-                      tag: $commentInteraction.composerTag,
-                      fileName: composerContext.fileName,
-                      lineLabel: composerContext.lineLabel,
-                      onSubmit: { submitComment() },
-                      onCancel: { commentInteraction.clearComposer() }
-                    )
-                    .id("composer-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
-                  }
-                }
-              }
-            }
+          },
+          onLineDragChanged: { fileIndex, hunkIndex, anchor, current in
+            handleLineDragChanged(fileIdx: fileIndex, hunkIdx: hunkIndex, anchor: anchor, current: current)
+          },
+          onLineDragEnded: { fileIndex, hunkIndex, startIndex, endIndex in
+            handleLineDragEnded(
+              fileIdx: fileIndex,
+              hunkIdx: hunkIndex,
+              startIdx: startIndex,
+              endIdx: endIndex,
+              model: model
+            )
+          },
+          onSubmitComment: {
+            submitComment()
+          },
+          onResolveComment: { comment in
+            resolveComment(comment)
           }
-
-          Color.clear.frame(height: Spacing.xxl)
-        }
+        )
       }
       .onChange(of: cursorIndex) { _, newIdx in
         let currentTargets = visibleTargets(model)
@@ -430,27 +348,6 @@ struct ReviewCanvas: View {
       filePath: filePath,
       lineNum: lineNum,
       activeTurnId: selectedTurnDiffId
-    )
-  }
-
-  /// Group resolved comments by proximity — adjacent lineEnd values merge into a single marker.
-  /// Returns a map of newLineNum → [comments] where the key is the last line in each contiguous group.
-  private func groupedResolvedComments(forFile filePath: String) -> [Int: [ServerReviewComment]] {
-    ReviewCanvasProjection.groupedResolvedComments(
-      comments: obs.reviewComments,
-      filePath: filePath,
-      activeTurnId: selectedTurnDiffId
-    )
-  }
-
-  /// Set of new-side line numbers that have comments for a given file.
-  /// In normal mode, only marks open comments. In history mode, marks all.
-  private func commentedNewLineNums(forFile filePath: String) -> Set<Int> {
-    ReviewCanvasProjection.commentedNewLineNums(
-      comments: obs.reviewComments,
-      filePath: filePath,
-      activeTurnId: selectedTurnDiffId,
-      showResolvedComments: showResolvedComments
     )
   }
 
@@ -526,16 +423,6 @@ struct ReviewCanvas: View {
       state: reviewRoundTracker,
       turnDiffs: obs.turnDiffs
     )
-  }
-
-  // MARK: - Compact File Strip
-
-  // MARK: - Helpers
-
-  private func gapBetweenHunks(prev: DiffHunk, current: DiffHunk) -> Int {
-    let prevEnd = prev.oldStart + prev.oldCount
-    let currentStart = current.oldStart
-    return max(0, currentStart - prevEnd)
   }
 
 }
