@@ -8,6 +8,17 @@
 
 import Foundation
 
+private let liveAPIClientURLSession: URLSession = {
+  let configuration = URLSessionConfiguration.default
+  configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+  configuration.urlCache = nil
+  return URLSession(configuration: configuration)
+}()
+
+private func liveAPIClientDataLoader(_ request: URLRequest) async throws -> (Data, URLResponse) {
+  try await liveAPIClientURLSession.data(for: request)
+}
+
 // MARK: - Connection Status
 
 enum ConnectionStatus: Equatable, Hashable {
@@ -85,12 +96,14 @@ final class APIClient: Sendable {
 
   static let decoder = JSONDecoder()
 
+  convenience init(serverURL: URL, authToken: String?) {
+    self.init(serverURL: serverURL, authToken: authToken, dataLoader: liveAPIClientDataLoader)
+  }
+
   init(
     serverURL: URL,
     authToken: String?,
-    dataLoader: @escaping DataLoader = { request in
-      try await URLSession.shared.data(for: request)
-    }
+    dataLoader: @escaping DataLoader
   ) {
     self.baseURL = Self.httpBaseURL(from: serverURL)
     self.authToken = authToken

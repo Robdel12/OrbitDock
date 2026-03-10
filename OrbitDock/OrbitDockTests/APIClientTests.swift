@@ -44,6 +44,40 @@ struct APIClientTests {
     #expect(payload["is_primary"] as? Bool == true)
   }
 
+  @Test func setClientPrimaryClaimPostsExpectedBody() async throws {
+    let recorder = RequestRecorder()
+    let client = APIClient(
+      serverURL: try #require(URL(string: "http://localhost:4000")),
+      authToken: "secret-token",
+      dataLoader: { request in
+        await recorder.record(request)
+        return Self.jsonResponse(
+          url: request.url!,
+          statusCode: 202,
+          json: #"{}"#
+        )
+      }
+    )
+
+    try await client.setClientPrimaryClaim(
+      clientId: "client-1",
+      deviceName: "Robert's MacBook Pro",
+      isPrimary: true
+    )
+
+    let request = try #require(await recorder.singleRequest())
+    #expect(request.httpMethod == "POST")
+    #expect(request.url?.path == "/api/client/primary-claim")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret-token")
+    #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+
+    let body = try #require(request.httpBody)
+    let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    #expect(payload["client_id"] as? String == "client-1")
+    #expect(payload["device_name"] as? String == "Robert's MacBook Pro")
+    #expect(payload["is_primary"] as? Bool == true)
+  }
+
   @Test func browseDirectoryPreservesPathQueryAndDecodesListing() async throws {
     let recorder = RequestRecorder()
     let client = APIClient(
