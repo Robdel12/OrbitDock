@@ -30,7 +30,10 @@ struct WindowSessionCoordinatorTests {
     let coordinator = WindowSessionCoordinator(
       runtimeRegistry: registry,
       attentionService: AttentionService(),
-      notificationManager: NotificationManager.shared,
+      notificationManager: NotificationManager(
+        isAuthorized: false,
+        requestsAuthorizationOnInit: false
+      ),
       toastManager: toastManager,
       router: router
     )
@@ -61,7 +64,10 @@ struct WindowSessionCoordinatorTests {
     let coordinator = WindowSessionCoordinator(
       runtimeRegistry: registry,
       attentionService: AttentionService(),
-      notificationManager: NotificationManager.shared,
+      notificationManager: NotificationManager(
+        isAuthorized: false,
+        requestsAuthorizationOnInit: false
+      ),
       toastManager: ToastManager(),
       router: router
     )

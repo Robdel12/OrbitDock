@@ -19,12 +19,32 @@ enum ServerInstallState: Equatable {
   case remote // Remote endpoint configured
 }
 
+enum ServerInstallStateResolver {
+  static func resolve(
+    isHealthy: Bool,
+    launchdPlistExists: Bool,
+    hasRemoteEndpoint: Bool
+  ) -> ServerInstallState {
+    if isHealthy {
+      return .running
+    }
+    if launchdPlistExists {
+      return .installed
+    }
+    if hasRemoteEndpoint {
+      return .remote
+    }
+    return .notConfigured
+  }
+}
+
 #if os(macOS)
   @MainActor
   final class ServerManager: ObservableObject {
     static let shared = ServerManager()
     private nonisolated static let forcedInstallStateEnvKey = "ORBITDOCK_FORCE_SERVER_INSTALL_STATE"
     private let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
+    private let endpointSettings: ServerEndpointSettingsClient
 
     @Published private(set) var installState: ServerInstallState = .unknown
     @Published var isInstalling = false
@@ -41,13 +61,17 @@ enum ServerInstallState: Equatable {
       return URLSession(configuration: config)
     }()
 
-    private init() {}
+    private init(endpointSettings: ServerEndpointSettingsClient? = nil) {
+      self.endpointSettings = endpointSettings ?? .live()
+    }
 
     init(
       previewInstallState: ServerInstallState,
+      endpointSettings: ServerEndpointSettingsClient? = nil,
       isInstalling: Bool = false,
       installError: String? = nil
     ) {
+      self.endpointSettings = endpointSettings ?? .live()
       self.installState = previewInstallState
       self.isInstalling = isInstalling
       self.installError = installError
@@ -66,22 +90,11 @@ enum ServerInstallState: Equatable {
         return
       }
 
-      if await checkHealth() {
-        installState = .running
-        return
-      }
-
-      if launchdPlistExists() {
-        installState = .installed
-        return
-      }
-
-      if ServerEndpointSettings.hasRemoteEndpoint {
-        installState = .remote
-        return
-      }
-
-      installState = .notConfigured
+      installState = ServerInstallStateResolver.resolve(
+        isHealthy: await checkHealth(),
+        launchdPlistExists: launchdPlistExists(),
+        hasRemoteEndpoint: endpointSettings.hasRemoteEndpoint()
+      )
     }
 
     nonisolated static func parseForcedInstallState(_ rawValue: String?) -> ServerInstallState? {
@@ -454,29 +467,34 @@ enum ServerInstallState: Equatable {
   @MainActor
   final class ServerManager: ObservableObject {
     static let shared = ServerManager()
+    private let endpointSettings: ServerEndpointSettingsClient
 
     @Published private(set) var installState: ServerInstallState = .notConfigured
     @Published var isInstalling = false
     @Published var installError: String?
 
-    private init() {}
+    private init(endpointSettings: ServerEndpointSettingsClient? = nil) {
+      self.endpointSettings = endpointSettings ?? .live()
+    }
 
     init(
       previewInstallState: ServerInstallState,
+      endpointSettings: ServerEndpointSettingsClient? = nil,
       isInstalling: Bool = false,
       installError: String? = nil
     ) {
+      self.endpointSettings = endpointSettings ?? .live()
       self.installState = previewInstallState
       self.isInstalling = isInstalling
       self.installError = installError
     }
 
     func refreshState() async {
-      if ServerEndpointSettings.hasRemoteEndpoint {
-        installState = .remote
-      } else {
-        installState = .notConfigured
-      }
+      installState = ServerInstallStateResolver.resolve(
+        isHealthy: false,
+        launchdPlistExists: false,
+        hasRemoteEndpoint: endpointSettings.hasRemoteEndpoint()
+      )
     }
 
     func findServerBinary() -> String? {

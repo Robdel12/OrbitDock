@@ -6,27 +6,92 @@
 import Foundation
 import UserNotifications
 
+struct NotificationPreferences {
+  let stringForKey: (String) -> String?
+  let objectForKey: (String) -> Any?
+  let boolForKey: (String) -> Bool
+
+  static func live(defaults: UserDefaults = .standard) -> NotificationPreferences {
+    NotificationPreferences(
+      stringForKey: { defaults.string(forKey: $0) },
+      objectForKey: { defaults.object(forKey: $0) },
+      boolForKey: { defaults.bool(forKey: $0) }
+    )
+  }
+}
+
+struct NotificationCenterClient {
+  let requestAuthorization: (@escaping (Bool, Error?) -> Void) -> Void
+  let setDelegate: (UNUserNotificationCenterDelegate?) -> Void
+  let setNotificationCategories: (Set<UNNotificationCategory>) -> Void
+  let addRequest: (UNNotificationRequest, @escaping (Error?) -> Void) -> Void
+  let removeDeliveredNotifications: ([String]) -> Void
+
+  static func live(center: UNUserNotificationCenter = .current()) -> NotificationCenterClient {
+    NotificationCenterClient(
+      requestAuthorization: { completion in
+        center.requestAuthorization(options: [.alert, .sound, .badge], completionHandler: completion)
+      },
+      setDelegate: { delegate in
+        center.delegate = delegate
+      },
+      setNotificationCategories: { categories in
+        center.setNotificationCategories(categories)
+      },
+      addRequest: { request, completion in
+        center.add(request, withCompletionHandler: completion)
+      },
+      removeDeliveredNotifications: { identifiers in
+        center.removeDeliveredNotifications(withIdentifiers: identifiers)
+      }
+    )
+  }
+}
+
 @Observable
 class NotificationManager {
-  static let shared = NotificationManager()
-
   private var notifiedSessionIds: Set<String> = []
   private var workingSessionIds: Set<String> = [] // Track sessions that are currently working
   private var isAuthorized = false
+  private let notificationCenter: NotificationCenterClient
+  private let preferences: NotificationPreferences
 
   init(
     isAuthorized: Bool = false,
-    requestsAuthorizationOnInit: Bool = true
+    requestsAuthorizationOnInit: Bool = true,
+    notificationCenter: NotificationCenterClient = .live(),
+    preferences: NotificationPreferences = .live()
   ) {
     self.isAuthorized = isAuthorized
+    self.notificationCenter = notificationCenter
+    self.preferences = preferences
     guard requestsAuthorizationOnInit else { return }
     guard !AppRuntimeMode.isRunningTestsProcess else { return }
     requestAuthorization()
   }
 
+  func configureAppSessionNotifications(delegate: UNUserNotificationCenterDelegate) {
+    notificationCenter.setDelegate(delegate)
+
+    let viewAction = UNNotificationAction(
+      identifier: "VIEW_SESSION",
+      title: "View Session",
+      options: [.foreground]
+    )
+
+    let category = UNNotificationCategory(
+      identifier: "SESSION_ATTENTION",
+      actions: [viewAction],
+      intentIdentifiers: [],
+      options: []
+    )
+
+    notificationCenter.setNotificationCategories([category])
+  }
+
   func requestAuthorization() {
     guard !AppRuntimeMode.isRunningTestsProcess else { return }
-    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+    notificationCenter.requestAuthorization { granted, error in
       DispatchQueue.main.async {
         self.isAuthorized = granted
         if let error {
@@ -38,7 +103,7 @@ class NotificationManager {
 
   /// Get the configured notification sound from user preferences
   private var configuredSound: UNNotificationSound? {
-    let soundName = UserDefaults.standard.string(forKey: "notificationSound") ?? "default"
+    let soundName = preferences.stringForKey("notificationSound") ?? "default"
 
     switch soundName {
       case "none":
@@ -53,19 +118,19 @@ class NotificationManager {
   /// Check if notifications are enabled in user preferences
   private var notificationsEnabled: Bool {
     // Default to true if not set
-    if UserDefaults.standard.object(forKey: "notificationsEnabled") == nil {
+    if preferences.objectForKey("notificationsEnabled") == nil {
       return true
     }
-    return UserDefaults.standard.bool(forKey: "notificationsEnabled")
+    return preferences.boolForKey("notificationsEnabled")
   }
 
   /// Check if "notify when work complete" is enabled
   private var notifyOnWorkComplete: Bool {
     // Default to true if not set
-    if UserDefaults.standard.object(forKey: "notifyOnWorkComplete") == nil {
+    if preferences.objectForKey("notifyOnWorkComplete") == nil {
       return true
     }
-    return UserDefaults.standard.bool(forKey: "notifyOnWorkComplete")
+    return preferences.boolForKey("notifyOnWorkComplete")
   }
 
   func notifyNeedsAttention(session: Session) {
@@ -97,7 +162,7 @@ class NotificationManager {
       trigger: nil // Deliver immediately
     )
 
-    UNUserNotificationCenter.current().add(request) { error in
+    notificationCenter.addRequest(request) { error in
       if let error {
         print("Failed to schedule notification: \(error)")
       }
@@ -106,7 +171,7 @@ class NotificationManager {
 
   func clearNotification(for sessionId: String) {
     notifiedSessionIds.remove(sessionId)
-    UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["attention-\(sessionId)"])
+    notificationCenter.removeDeliveredNotifications(["attention-\(sessionId)"])
   }
 
   func resetNotificationState(for sessionId: String) {
@@ -154,7 +219,7 @@ class NotificationManager {
       trigger: nil
     )
 
-    UNUserNotificationCenter.current().add(request) { error in
+    notificationCenter.addRequest(request) { error in
       if let error {
         print("Failed to schedule notification: \(error)")
       }

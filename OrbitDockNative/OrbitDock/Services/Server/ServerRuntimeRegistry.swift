@@ -50,6 +50,7 @@ struct ServerClientIdentity: Equatable, Sendable {
 final class ServerRuntimeRegistry {
   static let shared = ServerRuntimeRegistry()
 
+  private let endpointSettings: ServerEndpointSettingsClient
   private let endpointsProvider: () -> [ServerEndpoint]
   private let runtimeFactory: (ServerEndpoint) -> ServerRuntime
   private let clientIdentityProvider: () -> ServerClientIdentity
@@ -84,7 +85,9 @@ final class ServerRuntimeRegistry {
     var readinessContinuation: AsyncStream<Void>.Continuation!
     readinessUpdates = AsyncStream { readinessContinuation = $0 }
     self.readinessContinuation = readinessContinuation
-    endpointsProvider = { ServerEndpointSettings.endpoints }
+    let endpointSettings = ServerEndpointSettingsClient.live()
+    self.endpointSettings = endpointSettings
+    endpointsProvider = { endpointSettings.endpoints() }
     runtimeFactory = { ServerRuntime(endpoint: $0) }
     clientIdentityProvider = { ServerClientIdentity.current() }
     shouldBootstrapFromSettings = !AppRuntimeMode.isRunningTestsProcess
@@ -93,6 +96,7 @@ final class ServerRuntimeRegistry {
   init(
     endpointsProvider: @escaping () -> [ServerEndpoint],
     runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime,
+    endpointSettings: ServerEndpointSettingsClient? = nil,
     shouldBootstrapFromSettings: Bool = true
   ) {
     var primaryEndpointContinuation: AsyncStream<UUID?>.Continuation!
@@ -101,6 +105,7 @@ final class ServerRuntimeRegistry {
     var readinessContinuation: AsyncStream<Void>.Continuation!
     readinessUpdates = AsyncStream { readinessContinuation = $0 }
     self.readinessContinuation = readinessContinuation
+    self.endpointSettings = endpointSettings ?? .live()
     self.endpointsProvider = endpointsProvider
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = { ServerClientIdentity.current() }
@@ -111,6 +116,7 @@ final class ServerRuntimeRegistry {
     endpointsProvider: @escaping () -> [ServerEndpoint],
     runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime,
     clientIdentityProvider: @escaping () -> ServerClientIdentity,
+    endpointSettings: ServerEndpointSettingsClient? = nil,
     shouldBootstrapFromSettings: Bool = true
   ) {
     var primaryEndpointContinuation: AsyncStream<UUID?>.Continuation!
@@ -119,6 +125,7 @@ final class ServerRuntimeRegistry {
     var readinessContinuation: AsyncStream<Void>.Continuation!
     readinessUpdates = AsyncStream { readinessContinuation = $0 }
     self.readinessContinuation = readinessContinuation
+    self.endpointSettings = endpointSettings ?? .live()
     self.endpointsProvider = endpointsProvider
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = clientIdentityProvider
@@ -391,7 +398,7 @@ final class ServerRuntimeRegistry {
     #endif
 
     if runtimesByEndpointId.isEmpty {
-      let endpoint = ServerEndpoint.localDefault(defaultPort: ServerEndpointSettings.defaultPort)
+      let endpoint = ServerEndpoint.localDefault(defaultPort: endpointSettings.defaultPort)
       let runtime = runtimeFactory(endpoint)
       runtimesByEndpointId[endpoint.id] = runtime
       bindRuntimeState(runtime)

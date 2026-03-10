@@ -5,10 +5,11 @@ import Testing
 struct OrbitDockAppRuntimeTests {
   @Test func liveDependenciesCreateFreshAppServices() {
     let dependencies = OrbitDockAppRuntimeDependencies.live(shouldConnectServer: false)
+    let otherDependencies = OrbitDockAppRuntimeDependencies.live(shouldConnectServer: false)
 
     #expect(dependencies.runtimeRegistry !== ServerRuntimeRegistry.shared)
     #expect(dependencies.externalNavigationCenter !== AppExternalNavigationCenter.shared)
-    #expect(dependencies.notificationManager !== NotificationManager.shared)
+    #expect(dependencies.notificationManager !== otherDependencies.notificationManager)
     #if os(macOS)
       #expect(dependencies.serverManager === ServerManager.shared)
     #endif

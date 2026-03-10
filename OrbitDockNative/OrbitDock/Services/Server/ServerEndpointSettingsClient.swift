@@ -4,6 +4,7 @@ import Foundation
 struct ServerEndpointSettingsClient {
   let endpoints: () -> [ServerEndpoint]
   let defaultEndpoint: () -> ServerEndpoint
+  let hasRemoteEndpoint: () -> Bool
   let saveEndpoints: ([ServerEndpoint]) -> Void
   let buildURL: (String) -> URL?
   let hostInput: (URL) -> String?
@@ -13,6 +14,7 @@ struct ServerEndpointSettingsClient {
     ServerEndpointSettingsClient(
       endpoints: { ServerEndpointSettings.endpoints },
       defaultEndpoint: { ServerEndpointSettings.defaultEndpoint },
+      hasRemoteEndpoint: { ServerEndpointSettings.hasRemoteEndpoint },
       saveEndpoints: { ServerEndpointSettings.saveEndpoints($0) },
       buildURL: { ServerEndpointSettings.buildURL(from: $0) },
       hostInput: { ServerEndpointSettings.hostInput(from: $0) },

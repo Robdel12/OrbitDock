@@ -135,10 +135,20 @@ struct ServerRuntimeRegistryTests {
     #expect(storeB.conversation("trimmed").messages.isEmpty)
   }
 
-  @Test func activeSessionStoreSynthesizesLocalFallbackWhenBootstrapIsDisabled() {
+  @Test func activeSessionStoreSynthesizesLocalFallbackWhenBootstrapIsDisabled() throws {
+    let endpointSettings = ServerEndpointSettingsClient(
+      endpoints: { [] },
+      defaultEndpoint: { ServerEndpoint.localDefault(defaultPort: 4_321) },
+      hasRemoteEndpoint: { false },
+      saveEndpoints: { _ in },
+      buildURL: { _ in nil },
+      hostInput: { _ in nil },
+      defaultPort: 4_321
+    )
     let registry = ServerRuntimeRegistry(
       endpointsProvider: { [] },
       runtimeFactory: { ServerRuntime(endpoint: $0) },
+      endpointSettings: endpointSettings,
       shouldBootstrapFromSettings: false
     )
 
@@ -147,6 +157,8 @@ struct ServerRuntimeRegistryTests {
     #expect(registry.runtimesByEndpointId.count == 1)
     #expect(registry.activeEndpointId != nil)
     #expect(activeStore.endpointId == registry.activeEndpointId)
+    let fallbackEndpoint = registry.runtimesByEndpointId[try #require(registry.activeEndpointId)]?.endpoint
+    #expect(fallbackEndpoint?.wsURL.port == 4_321)
   }
 
   @Test func preferredActiveEndpointIDFallsBackFromDefaultToFirstEnabled() throws {

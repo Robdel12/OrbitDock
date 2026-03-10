@@ -133,26 +133,8 @@ struct OrbitDockWindowCommands: Commands {
       AppFileLogger.shared.start()
 
       // Set up notification delegate
-      UNUserNotificationCenter.current().delegate = self
-
       // Ensure app-level notification ownership is initialized before we register categories.
-      _ = appRuntime?.notificationManager
-
-      // Define notification actions
-      let viewAction = UNNotificationAction(
-        identifier: "VIEW_SESSION",
-        title: "View Session",
-        options: [.foreground]
-      )
-
-      let category = UNNotificationCategory(
-        identifier: "SESSION_ATTENTION",
-        actions: [viewAction],
-        intentIdentifiers: [],
-        options: []
-      )
-
-      UNUserNotificationCenter.current().setNotificationCategories([category])
+      appRuntime?.notificationManager.configureAppSessionNotifications(delegate: self)
 
       // Fetch latest model pricing in background
       modelPricingService?.fetchPrices()

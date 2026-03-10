@@ -12,13 +12,28 @@ enum AppRuntimeMode: String {
 
   static let environmentKey = "ORBITDOCK_RUNTIME_MODE"
 
+  @MainActor
   static var current: AppRuntimeMode {
-    let environment = ProcessInfo.processInfo.environment
+    current(
+      environment: ProcessInfo.processInfo.environment,
+      endpointSettings: .live(),
+      isRunningTests: isRunningTests(environment: ProcessInfo.processInfo.environment),
+      platform: currentPlatform
+    )
+  }
+
+  @MainActor
+  static func current(
+    environment: [String: String],
+    endpointSettings: ServerEndpointSettingsClient,
+    isRunningTests: Bool,
+    platform: Platform
+  ) -> AppRuntimeMode {
     return resolved(
       environment: environment,
-      hasRemoteEndpoint: isRunningTests(environment: environment) ? false : ServerEndpointSettings.hasRemoteEndpoint,
-      isRunningTests: isRunningTests(environment: environment),
-      platform: currentPlatform
+      hasRemoteEndpoint: isRunningTests ? false : endpointSettings.hasRemoteEndpoint(),
+      isRunningTests: isRunningTests,
+      platform: platform
     )
   }
 

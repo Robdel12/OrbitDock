@@ -1,4 +1,5 @@
 @testable import OrbitDock
+import Foundation
 import Testing
 
 struct AppRuntimeModeTests {
@@ -28,6 +29,30 @@ struct AppRuntimeModeTests {
     let mode = AppRuntimeMode.resolved(
       environment: [:],
       hasRemoteEndpoint: true,
+      isRunningTests: false,
+      platform: .iOS
+    )
+
+    #expect(mode == .remote)
+  }
+
+  @MainActor
+  @Test func currentUsesInjectedEndpointSettingsForRemoteDetection() {
+    let endpointSettings = ServerEndpointSettingsClient(
+      endpoints: { [] },
+      defaultEndpoint: {
+        ServerEndpoint.localDefault()
+      },
+      hasRemoteEndpoint: { true },
+      saveEndpoints: { _ in },
+      buildURL: { _ in nil },
+      hostInput: { _ in nil },
+      defaultPort: 4_000
+    )
+
+    let mode = AppRuntimeMode.current(
+      environment: [:],
+      endpointSettings: endpointSettings,
       isRunningTests: false,
       platform: .iOS
     )

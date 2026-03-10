@@ -63,5 +63,36 @@ struct ServerSetupVisibilityTests {
       #expect(forcedStateLabel(ServerManager.parseForcedInstallState("   ")) == "nil")
       #expect(forcedStateLabel(ServerManager.parseForcedInstallState("garbage")) == "nil")
     }
+
+    @Test func installStateResolverUsesRemoteOnlyAfterHealthAndLaunchd() {
+      #expect(
+        ServerInstallStateResolver.resolve(
+          isHealthy: true,
+          launchdPlistExists: false,
+          hasRemoteEndpoint: true
+        ) == .running
+      )
+      #expect(
+        ServerInstallStateResolver.resolve(
+          isHealthy: false,
+          launchdPlistExists: true,
+          hasRemoteEndpoint: true
+        ) == .installed
+      )
+      #expect(
+        ServerInstallStateResolver.resolve(
+          isHealthy: false,
+          launchdPlistExists: false,
+          hasRemoteEndpoint: true
+        ) == .remote
+      )
+      #expect(
+        ServerInstallStateResolver.resolve(
+          isHealthy: false,
+          launchdPlistExists: false,
+          hasRemoteEndpoint: false
+        ) == .notConfigured
+      )
+    }
   }
 #endif
