@@ -44,11 +44,11 @@ struct ReviewCanvas: View {
   @State var cursorIndex: Int = 0
   @State var collapsedFiles: Set<String> = []
   @State var collapsedHunks: Set<String> = []
-  @State private var expandedContextBars: Set<String> = []
+  @State var expandedContextBars: Set<String> = []
   @State var selectedTurnDiffId: String?
   @State var isFollowing = true
   @State private var previousFileCount = 0
-  @FocusState private var isCanvasFocused: Bool
+  @FocusState var isCanvasFocused: Bool
 
   // Comment interaction state
   @State var commentInteraction = ReviewCommentInteractionState()
@@ -76,7 +76,7 @@ struct ReviewCanvas: View {
     diffParseCache.model(for: rawDiff)
   }
 
-  private var commentCounts: [String: Int] {
+  var commentCounts: [String: Int] {
     ReviewCanvasProjection.commentCounts(
       comments: obs.reviewComments,
       activeTurnId: selectedTurnDiffId
@@ -173,169 +173,6 @@ struct ReviewCanvas: View {
     }
   }
 
-  // MARK: - Full Layout
-
-  private func fullLayout(_ model: DiffModel) -> some View {
-    HStack(spacing: 0) {
-      FileListNavigator(
-        files: model.files,
-        turnDiffs: obs.turnDiffs,
-        selectedFileId: fileListBinding(model),
-        selectedTurnDiffId: $selectedTurnDiffId,
-        commentCounts: commentCounts,
-        addressedFiles: addressedFilePaths,
-        reviewPendingFiles: reviewedFilePaths.subtracting(addressedFilePaths),
-        showResolvedComments: $showResolvedComments,
-        hasResolvedComments: hasResolvedComments
-      )
-
-      Divider()
-        .foregroundStyle(Color.panelBorder)
-
-      VStack(spacing: 0) {
-        fullLayoutToolbar(model)
-        unifiedDiffView(model)
-      }
-    }
-  }
-
-  // MARK: - Compact Layout
-
-  private func compactLayout(_ model: DiffModel) -> some View {
-    VStack(spacing: 0) {
-      compactFileStrip(model)
-      unifiedDiffView(model)
-    }
-  }
-
-  // MARK: - Unified Diff View
-
-  private func unifiedDiffView(_ model: DiffModel) -> some View {
-    let targets = visibleTargets(model)
-    let safeIdx = targets.isEmpty ? 0 : min(cursorIndex, targets.count - 1)
-    let target = targets.isEmpty ? nil : targets[safeIdx]
-
-    return ScrollViewReader { proxy in
-      ScrollView(.vertical, showsIndicators: true) {
-        ReviewCanvasDiffFiles(
-          model: model,
-          target: target,
-          reviewComments: obs.reviewComments,
-          selectedTurnDiffId: selectedTurnDiffId,
-          showResolvedComments: showResolvedComments,
-          selectedCommentIds: $selectedCommentIds,
-          commentInteraction: $commentInteraction,
-          collapsedFiles: $collapsedFiles,
-          collapsedHunks: $collapsedHunks,
-          expandedContextBars: $expandedContextBars,
-          reviewBanner: {
-            reviewBanner
-          },
-          fileHeader: { file, fileIndex, isCursor in
-            fileSectionHeader(file: file, fileIndex: fileIndex, isCursor: isCursor)
-          },
-          onSelectFileHeader: { fileIndex in
-            isFollowing = false
-            if let index = targets.firstIndex(of: .fileHeader(fileIndex: fileIndex)) {
-              cursorIndex = index
-            }
-          },
-          onToggleFileCollapse: { fileIndex in
-            toggleCollapseAtCursor(model: model, fileIdx: fileIndex)
-          },
-          onToggleHunkCollapse: { fileIndex, hunkIndex in
-            toggleHunkCollapse(model: model, fileIdx: fileIndex, hunkIdx: hunkIndex)
-          },
-          mouseSelectionLineIndices: { fileIndex, hunkIndex in
-            mouseSelectionLineIndices(fileIdx: fileIndex, hunkIdx: hunkIndex)
-          },
-          selectionLineIndices: { fileIndex, hunkIndex in
-            selectionLineIndices(fileIdx: fileIndex, hunkIdx: hunkIndex)
-          },
-          composerLineRangeForHunk: { fileIndex, hunkIndex in
-            composerLineRangeForHunk(fileIdx: fileIndex, hunkIdx: hunkIndex)
-          },
-          onLineComment: { fileIndex, hunkIndex, clickedLineIndex, smartRange in
-            handleLineComment(
-              fileIdx: fileIndex,
-              hunkIdx: hunkIndex,
-              clickedIdx: clickedLineIndex,
-              smartRange: smartRange,
-              model: model
-            )
-          },
-          onLineDragChanged: { fileIndex, hunkIndex, anchor, current in
-            handleLineDragChanged(fileIdx: fileIndex, hunkIdx: hunkIndex, anchor: anchor, current: current)
-          },
-          onLineDragEnded: { fileIndex, hunkIndex, startIndex, endIndex in
-            handleLineDragEnded(
-              fileIdx: fileIndex,
-              hunkIdx: hunkIndex,
-              startIdx: startIndex,
-              endIdx: endIndex,
-              model: model
-            )
-          },
-          onSubmitComment: {
-            submitComment()
-          },
-          onResolveComment: { comment in
-            resolveComment(comment)
-          }
-        )
-      }
-      .onChange(of: cursorIndex) { _, newIdx in
-        let currentTargets = visibleTargets(model)
-        guard !currentTargets.isEmpty else { return }
-        let safe = min(newIdx, currentTargets.count - 1)
-        withAnimation(Motion.snappy) {
-          proxy.scrollTo(currentTargets[safe].scrollId, anchor: .center)
-        }
-      }
-    }
-    .focusable()
-    .focused($isCanvasFocused)
-    .onKeyPress(keys: [.escape]) { _ in
-      // Clear mark first, then composer — always consume to prevent closing review
-      commentInteraction.cancelActiveInteraction()
-      // Always handled: q is the close key, not Escape
-      return .handled
-    }
-    .onKeyPress(keys: [.tab]) { _ in
-      guard !commentInteraction.hasComposer else { return .ignored }
-      guard let model = diffModel else { return .ignored }
-      let target = currentTarget(model)
-      switch target {
-        case let .fileHeader(f):
-          toggleCollapseAtCursor(model: model, fileIdx: f)
-        case let .hunkHeader(f, h):
-          toggleHunkCollapse(model: model, fileIdx: f, hunkIdx: h)
-        case let .diffLine(f, h, _):
-          toggleHunkCollapse(model: model, fileIdx: f, hunkIdx: h)
-        case nil:
-          break
-      }
-      return .handled
-    }
-    .onKeyPress(keys: [.return]) { _ in
-      guard !commentInteraction.hasComposer else { return .ignored }
-      guard let model = diffModel, let file = currentFile(model) else { return .ignored }
-      openFileInEditor(file)
-      return .handled
-    }
-    .onKeyPress { keyPress in
-      guard !commentInteraction.hasComposer else { return .ignored }
-      guard let model = diffModel else { return .ignored }
-      return handleKeyPress(keyPress, model: model)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .overlay(alignment: .bottom) {
-      if reviewSendBarState != nil {
-        sendReviewBar
-      }
-    }
-  }
-
   // MARK: - File Section Header
 
   // MARK: - Comment Helpers
@@ -352,7 +189,7 @@ struct ReviewCanvas: View {
   }
 
   /// Set of line indices within a hunk that fall in the mark-to-cursor selection range.
-  private func selectionLineIndices(fileIdx: Int, hunkIdx: Int) -> Set<Int> {
+  func selectionLineIndices(fileIdx: Int, hunkIdx: Int) -> Set<Int> {
     ReviewCommentComposerPlanner.selectionLineIndices(
       mark: commentInteraction.commentMark,
       currentTarget: diffModel.flatMap { currentTarget($0) },
@@ -413,12 +250,12 @@ struct ReviewCanvas: View {
   }
 
   /// Set of file paths that were part of the last review round.
-  private var reviewedFilePaths: Set<String> {
+  var reviewedFilePaths: Set<String> {
     reviewRoundTracker.reviewedFilePaths
   }
 
   /// Set of file paths the model modified after the last review.
-  private var addressedFilePaths: Set<String> {
+  var addressedFilePaths: Set<String> {
     ReviewRoundTracker.addressedFilePaths(
       state: reviewRoundTracker,
       turnDiffs: obs.turnDiffs
