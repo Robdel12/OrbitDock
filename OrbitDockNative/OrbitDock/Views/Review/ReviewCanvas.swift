@@ -1582,19 +1582,16 @@ struct ReviewCanvas: View {
     let openComments = obs.reviewComments.filter { $0.status == .open }
     guard !openComments.isEmpty else { return }
 
-    // Use selected comments if any, otherwise all open
-    let commentsToSend: [ServerReviewComment]
-    if !selectedCommentIds.isEmpty {
-      commentsToSend = openComments.filter { selectedCommentIds.contains($0.id) }
-      guard !commentsToSend.isEmpty else { return }
-    } else {
-      commentsToSend = openComments
-    }
+    let commentsToSend = ReviewWorkflow.commentsToSend(
+      openComments: openComments,
+      selectedCommentIds: selectedCommentIds
+    )
+    guard !commentsToSend.isEmpty else { return }
 
     guard let message = formatReviewMessage(comments: commentsToSend) else { return }
 
     // Record review round before sending
-    let reviewedFiles = Set(commentsToSend.map(\.filePath))
+    let reviewedFiles = ReviewWorkflow.reviewedFilePaths(for: commentsToSend)
     lastReviewRound = ReviewRound(
       sentAt: Date(),
       turnDiffCountAtSend: obs.turnDiffs.count,
@@ -1714,14 +1711,7 @@ struct ReviewCanvas: View {
     guard let round = lastReviewRound else { return nil }
     guard round.reviewedFilePaths.contains(filePath) else { return nil }
 
-    // Check turn diffs that arrived AFTER the review was sent
-    let postReviewDiffs = Array(obs.turnDiffs.dropFirst(round.turnDiffCountAtSend))
-    if postReviewDiffs.isEmpty { return false } // Model hasn't produced changes yet
-
-    for td in postReviewDiffs {
-      if diffMentionsFile(td.diff, filePath: filePath) { return true }
-    }
-    return false
+    return addressedFilePaths.contains(filePath)
   }
 
   /// Set of file paths that were part of the last review round.
@@ -1732,36 +1722,27 @@ struct ReviewCanvas: View {
   /// Set of file paths the model modified after the last review.
   private var addressedFilePaths: Set<String> {
     guard let round = lastReviewRound else { return [] }
-    let postReviewDiffs = Array(obs.turnDiffs.dropFirst(round.turnDiffCountAtSend))
-    guard !postReviewDiffs.isEmpty else { return [] }
-
-    var addressed = Set<String>()
-    for td in postReviewDiffs {
-      for path in round.reviewedFilePaths {
-        if diffMentionsFile(td.diff, filePath: path) {
-          addressed.insert(path)
-        }
-      }
-    }
-    return addressed
+    return ReviewWorkflow.addressedFilePaths(
+      reviewedFilePaths: round.reviewedFilePaths,
+      turnDiffCountAtSend: round.turnDiffCountAtSend,
+      turnDiffs: obs.turnDiffs
+    )
   }
 
   /// Whether the model has produced any new turn diffs since the last review.
   private var hasPostReviewChanges: Bool {
     guard let round = lastReviewRound else { return false }
-    return obs.turnDiffs.count > round.turnDiffCountAtSend
-  }
-
-  /// Quick check if a unified diff string contains changes for a specific file.
-  private func diffMentionsFile(_ diff: String, filePath: String) -> Bool {
-    diff.contains("+++ b/\(filePath)") || diff.contains("--- a/\(filePath)")
+    return ReviewWorkflow.hasPostReviewChanges(
+      turnDiffCountAtSend: round.turnDiffCountAtSend,
+      turnDiffs: obs.turnDiffs
+    )
   }
 
   /// Infer which turn a comment belongs to by finding the latest turn that touched the file.
   /// Used when commenting on "All Changes" — maps the comment to the right edit turn.
   private func inferTurnId(forFile filePath: String) -> String? {
     for turnDiff in obs.turnDiffs.reversed() {
-      if diffMentionsFile(turnDiff.diff, filePath: filePath) {
+      if ReviewWorkflow.diffMentionsFile(turnDiff.diff, filePath: filePath) {
         return turnDiff.turnId
       }
     }
