@@ -216,13 +216,21 @@ struct ServerRuntimeRegistryTests {
     #expect(
       ServerRuntimeRegistryPlanner.displayConnectionStatus(
         connectionStatus: .connected,
-        readiness: .transportReady
+        readiness: ServerRuntimeReadiness(
+          transportReady: true,
+          controlPlaneReady: false,
+          queryReady: false
+        )
       ) == .connecting
     )
     #expect(
       ServerRuntimeRegistryPlanner.displayConnectionStatus(
         connectionStatus: .connected,
-        readiness: .queryReady
+        readiness: ServerRuntimeReadiness(
+          transportReady: true,
+          controlPlaneReady: true,
+          queryReady: true
+        )
       ) == .connected
     )
   }

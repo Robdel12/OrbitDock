@@ -433,6 +433,10 @@ final class ServerRuntimeRegistry {
     }
   }
 
+  static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
+    ServerRuntimeRegistryPlanner.preferredActiveEndpointID(from: endpoints)
+  }
+
   private func schedulePrimaryClaimReconciliation() {
     let identity = clientIdentityProvider()
     let ports = controlPlaneReadyPorts()

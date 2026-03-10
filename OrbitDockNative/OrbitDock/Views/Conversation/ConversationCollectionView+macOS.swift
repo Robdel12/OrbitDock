@@ -182,33 +182,33 @@ import SwiftUI
     var isPinnedToBottom = true
 
     // Derived caches for O(1) cell rendering lookups
-    private var messagesByID: [String: TranscriptMessage] = [:]
-    private var turnsByID: [String: TurnSummary] = [:]
+    var messagesByID: [String: TranscriptMessage] = [:]
+    var turnsByID: [String: TurnSummary] = [:]
 
-    private var programmaticScrollInProgress = false
-    private var pendingPinnedScroll = false
-    private var isNormalizingHorizontalOffset = false
-    private var isLoadingMoreAtTop = false
-    private var loadMoreBaselineMessageCount = 0
-    private var lastKnownWidth: CGFloat = 0
+    var programmaticScrollInProgress = false
+    var pendingPinnedScroll = false
+    var isNormalizingHorizontalOffset = false
+    var isLoadingMoreAtTop = false
+    var loadMoreBaselineMessageCount = 0
+    var lastKnownWidth: CGFloat = 0
 
-    private var tableView: NSTableView!
-    private var scrollView: NSScrollView!
-    private var tableColumn: NSTableColumn!
+    var tableView: NSTableView!
+    var scrollView: NSScrollView!
+    var tableColumn: NSTableColumn!
     var sourceState = ConversationSourceState()
     var uiState = ConversationUIState()
-    private var projectionResult = ProjectionResult.empty
-    private var currentRows: [TimelineRow] = []
-    private var rowIndexByTimelineRowID: [TimelineRowID: Int] = [:]
-    private let heightEngine = ConversationHeightEngine()
-    private let signposter = OSSignposter(
+    var projectionResult = ProjectionResult.empty
+    var currentRows: [TimelineRow] = []
+    var rowIndexByTimelineRowID: [TimelineRowID: Int] = [:]
+    let heightEngine = ConversationHeightEngine()
+    let signposter = OSSignposter(
       subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock",
       category: "conversation-timeline"
     )
-    private let logger = TimelineFileLogger.shared
-    private var needsInitialScroll = true
+    let logger = TimelineFileLogger.shared
+    var needsInitialScroll = true
     /// Tracks which thinking message IDs have been expanded by the user.
-    private var expandedThinkingIDs: Set<String> = []
+    var expandedThinkingIDs: Set<String> = []
 
     override func loadView() {
       view = NSView()
@@ -245,7 +245,7 @@ import SwiftUI
       }
     }
 
-    private var availableRowWidth: CGFloat {
+    var availableRowWidth: CGFloat {
       max(1, scrollView?.contentView.bounds.width ?? view.bounds.width)
     }
 
@@ -718,7 +718,7 @@ import SwiftUI
       return currentRows[row].id
     }
 
-    private func heightCacheKey(forRow row: Int) -> HeightCacheKey? {
+    func heightCacheKey(forRow row: Int) -> HeightCacheKey? {
       guard row >= 0, row < currentRows.count else { return nil }
       let timelineRow = currentRows[row]
       return HeightCacheKey(
@@ -773,7 +773,7 @@ import SwiftUI
       programmaticScrollInProgress = false
     }
 
-    private var rowContext: AppKitConversationRowContext {
+    var rowContext: AppKitConversationRowContext {
       AppKitConversationRowContext(
         rows: currentRows,
         messagesByID: messagesByID,
@@ -787,7 +787,7 @@ import SwiftUI
       )
     }
 
-    private var rowHandlers: AppKitConversationRowHandlers {
+    var rowHandlers: AppKitConversationRowHandlers {
       AppKitConversationRowHandlers(
         toggleThinkingExpansion: { [weak self] messageID, row in
           self?.toggleThinkingExpansion(messageID: messageID, row: row)
@@ -810,176 +810,6 @@ import SwiftUI
         loadMore: onLoadMore,
         openPendingApprovalPanel: onOpenPendingApprovalPanel
       )
-    }
-
-    // MARK: - Thinking Expansion
-
-    private func toggleThinkingExpansion(messageID: String, row: Int) {
-      if expandedThinkingIDs.contains(messageID) {
-        expandedThinkingIDs.remove(messageID)
-      } else {
-        expandedThinkingIDs.insert(messageID)
-      }
-
-      guard row < currentRows.count else { return }
-      let rowID = currentRows[row].id
-      heightEngine.invalidate(rowID: rowID)
-
-      // Recalculate height and reconfigure the cell
-      NSAnimationContext.runAnimationGroup { context in
-        context.allowsImplicitAnimation = true
-        context.duration = 0.2
-        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
-      }
-
-      // Reconfigure the cell with updated model
-      if let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
-        as? NativeRichMessageCellView,
-        let timelineRow = row < currentRows.count ? currentRows[row] : nil,
-        let model = rowContext.richMessageModel(for: timelineRow)
-      {
-        let width = max(100, tableView.bounds.width)
-        cell.configure(model: model, width: width)
-      }
-    }
-
-    // MARK: - Approval Card Model
-
-    private func buildApprovalCardModel() -> ApprovalCardModel? {
-      guard let sid = sessionId,
-            let serverState,
-            let session = serverState.sessions.first(where: { $0.id == sid })
-      else { return nil }
-      let pendingId = session.pendingApprovalId?.trimmingCharacters(in: .whitespacesAndNewlines)
-      let pendingApproval: ServerApprovalRequest? = {
-        guard let pendingId, !pendingId.isEmpty else { return nil }
-        guard let candidate = serverState.session(sid).pendingApproval else { return nil }
-        let candidateId = candidate.id.trimmingCharacters(in: .whitespacesAndNewlines)
-        return candidateId == pendingId ? candidate : nil
-      }()
-      return ApprovalCardModelBuilder.build(
-        session: session,
-        pendingApproval: pendingApproval,
-        approvalHistory: serverState.session(sid).approvalHistory,
-        transcriptMessages: serverState.conversation(sid).messages
-      )
-    }
-
-    // MARK: - NSTableViewDataSource / NSTableViewDelegate
-
-    func numberOfRows(in tableView: NSTableView) -> Int {
-      currentRows.count
-    }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-      AppKitConversationRowFactory.makeView(
-        tableView: tableView,
-        row: row,
-        context: rowContext,
-        handlers: rowHandlers,
-        logger: logger
-      )
-    }
-
-    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-      AppKitConversationRowFactory.makeRowView(
-        tableView: tableView,
-        row: row,
-        context: rowContext
-      )
-    }
-
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-      guard row >= 0, row < currentRows.count else { return 1 }
-      let width = availableRowWidth
-      let measurementWidth = width > 1
-        ? width
-        : max(lastKnownWidth, tableColumn.width, tableView.bounds.width, view.bounds.width)
-
-      // During early layout/rebuild passes NSTableView can ask for heights before
-      // the clip view has a valid width. Never cache these placeholder values.
-      if measurementWidth <= 1 {
-        return tableView.rowHeight
-      }
-
-      // ── Tier 2: Measured rows (native rich message / expanded tool) ──
-      guard let cacheKey = heightCacheKey(forRow: row) else { return 1 }
-      if let cachedHeight = heightEngine.height(for: cacheKey) {
-        signposter.emitEvent("timeline-height-cache-hit")
-        return cachedHeight
-      }
-      signposter.emitEvent("timeline-height-cache-miss")
-
-      let measuredHeight = AppKitConversationRowFactory.height(
-        for: row,
-        context: rowContext,
-        measurementWidth: measurementWidth
-      )
-      heightEngine.store(measuredHeight, for: cacheKey)
-      return measuredHeight
-    }
-
-    private func setToolRowExpansion(messageID: String, expanded: Bool) {
-      let isExpanded = uiState.expandedToolCards.contains(messageID)
-      guard isExpanded != expanded else { return }
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleToolCard(messageID))
-      applyProjectionUpdate(preserveAnchor: true)
-    }
-
-    private func toggleRollup(id: String) {
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleRollup(id))
-      applyProjectionUpdate(preserveAnchor: true)
-    }
-
-    private func toggleTurnExpansion(turnID: String) {
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleTurnExpansion(turnID))
-      applyProjectionUpdate(preserveAnchor: true)
-    }
-
-    private func cancelShellCommand(requestID: String) {
-      guard let serverState, let sessionId else { return }
-      Task {
-        // Route to stopTask for task/subagent cards, cancelShell for bash
-        if let msg = messagesByID[requestID], msg.toolName?.lowercased() == "task" {
-          try? await serverState.stopTask(sessionId, taskId: requestID)
-        } else {
-          try? await serverState.cancelShell(sessionId, requestId: requestID)
-        }
-      }
-    }
-
-    // MARK: - Scroll
-
-    private func requestPinnedScroll() {
-      guard isPinnedToBottom else { return }
-      guard !pendingPinnedScroll else { return }
-      pendingPinnedScroll = true
-      DispatchQueue.main.async { [weak self] in
-        guard let self else { return }
-        self.scrollToBottom(animated: false)
-        self.pendingPinnedScroll = false
-      }
-    }
-
-    func scrollToBottom(animated: Bool) {
-      guard tableView.numberOfRows > 0 else { return }
-      let targetY = max(0, tableView.bounds.height - scrollView.contentView.bounds.height)
-
-      programmaticScrollInProgress = true
-      if animated {
-        NSAnimationContext.runAnimationGroup { context in
-          context.duration = 0.18
-          self.scrollView.contentView.animator().setBoundsOrigin(NSPoint(x: 0, y: targetY))
-        } completionHandler: { [weak self] in
-          guard let self else { return }
-          self.scrollView.reflectScrolledClipView(self.scrollView.contentView)
-          self.programmaticScrollInProgress = false
-        }
-      } else {
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
-        programmaticScrollInProgress = false
-      }
     }
 
     deinit {

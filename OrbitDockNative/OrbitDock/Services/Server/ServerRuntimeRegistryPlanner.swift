@@ -1,13 +1,14 @@
 import Foundation
 
+@MainActor
 enum ServerRuntimeRegistryPlanner {
-  nonisolated static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
+  static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
     endpoints.first(where: { $0.isDefault && $0.isEnabled })?.id
       ?? endpoints.first(where: \.isEnabled)?.id
       ?? endpoints.first?.id
   }
 
-  nonisolated static func resolvedActiveEndpointID(
+  static func resolvedActiveEndpointID(
     currentActiveEndpointId: UUID?,
     configuredEndpoints: [ServerEndpoint]
   ) -> UUID? {
@@ -20,7 +21,7 @@ enum ServerRuntimeRegistryPlanner {
     return preferredActiveEndpointID(from: configuredEndpoints)
   }
 
-  nonisolated static func displayConnectionStatus(
+  static func displayConnectionStatus(
     connectionStatus: ConnectionStatus,
     readiness: ServerRuntimeReadiness
   ) -> ConnectionStatus {
@@ -32,7 +33,7 @@ enum ServerRuntimeRegistryPlanner {
     }
   }
 
-  nonisolated static func shouldBroadcastRuntimeStateChange(
+  static func shouldBroadcastRuntimeStateChange(
     previousStatus: ConnectionStatus?,
     previousReadiness: ServerRuntimeReadiness,
     nextStatus: ConnectionStatus,
@@ -41,7 +42,7 @@ enum ServerRuntimeRegistryPlanner {
     previousStatus != nextStatus || previousReadiness != nextReadiness
   }
 
-  nonisolated static func controlPlanePorts(
+  static func controlPlanePorts(
     runtimes: [ServerRuntime],
     readinessByEndpointId: [UUID: ServerRuntimeReadiness],
     requireControlPlaneReady: Bool
@@ -52,6 +53,6 @@ enum ServerRuntimeRegistryPlanner {
         !requireControlPlaneReady || readinessByEndpointId[runtime.endpoint.id]?.controlPlaneReady == true
       }
       .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
-      .map(\.controlPlanePort)
+      .map { $0.controlPlanePort }
   }
 }

@@ -44,6 +44,6 @@ enum ServerEndpointSelection {
     explicitEndpointID
       ?? primaryEndpointID
       ?? activeEndpointID
-      ?? ServerRuntimeRegistry.preferredActiveEndpointID(from: availableEndpoints)
+      ?? ServerRuntimeRegistryPlanner.preferredActiveEndpointID(from: availableEndpoints)
   }
 }
