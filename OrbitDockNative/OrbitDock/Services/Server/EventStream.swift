@@ -335,7 +335,6 @@ final class EventStream {
     switch connectionStatus {
     case .connected, .connecting:
       netLog(.warning, cat: .ws, "Disconnected unexpectedly, will reconnect", data: ["url": serverURL?.absoluteString ?? "?"])
-      setStatus(.disconnected)
       attemptConnect()
     case .disconnected, .failed:
       break
@@ -501,6 +500,7 @@ final class EventStream {
   }
 
   private func setStatus(_ status: ConnectionStatus) {
+    guard connectionStatus != status else { return }
     netLog(.info, cat: .ws, "Status → \(status)")
     connectionStatus = status
     statusContinuation.yield(status)
