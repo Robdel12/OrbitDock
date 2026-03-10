@@ -72,6 +72,9 @@ This plan is now an active execution document, not just a roadmap.
 - **Composer phase 2d**
   - provider controls and workflow overflow menus now live in dedicated composer helpers instead of the main footer file
   - the remaining composer cleanup is now mostly display-only polish and any last provider-specific action drift
+- **Composer phase 2e**
+  - provider/model display rules and command-deck construction now live in dedicated pure planners instead of the root composer view
+  - deterministic unit tests now cover default model selection, compact model labels, command filtering, and MCP command normalization
 - **New session phase 1**
   - launch request planning, provider-state sync/reset, and async launch coordination now live in dedicated helpers instead of `NewSessionSheet`
   - deterministic unit tests now cover request planning, provider model sync, and launch sequencing around git init, worktree creation, and continuation prompts
@@ -79,6 +82,7 @@ This plan is now an active execution document, not just a roadmap.
   - `ServerManager` and app notification ownership now flow through the app runtime/environment instead of direct singleton grabs in production views and startup coordination
   - `ToastManager.shared` is gone, and startup/runtime tests now cover the injected install-state seam
   - `OrbitDockAppRuntime` now builds from an explicit dependency bundle and `live()` composition entrypoint instead of quietly reaching for `.shared` services inside its default initializer
+  - `OrbitDockAppRuntime` now composes a live `ServerManager` dependency explicitly instead of defaulting back to the shared singleton
 - **Endpoint settings injection**
   - `NewSessionSheet`, `ProjectPicker`, `RemoteProjectPicker`, and `ServerSettingsSheet` no longer reach straight into `ServerEndpointSettings`
   - endpoint selection/fallback rules now live in a small pure helper with dedicated tests
@@ -97,18 +101,24 @@ This plan is now an active execution document, not just a roadmap.
 - **Session detail lifecycle/layout extraction**
   - session-detail lifecycle subscription rules, review layout transitions, review navigation helpers, diff-banner reveal rules, and worktree cleanup planning now live in a dedicated planner instead of the root view
   - deterministic unit tests now cover subscribe/unsubscribe planning, review navigation behavior, and worktree cleanup/banner rules
+- **Session detail presentation extraction**
+  - conversation chrome, compact metadata, usage projection, and diff summary logic now live in dedicated planners instead of `SessionDetailView`
+  - deterministic unit tests now cover pinned/following transitions, metadata formatting, usage fallback, and cumulative diff counting
+- **Phase 2: Fix Session State Ownership**
+  - approval/config/detail transitions now flow through a dedicated per-session control-state reducer instead of being hand-mutated across `SessionStore`, `Session`, and `SessionObservable`
+  - deterministic reducer and store-sync tests now cover approval version gating, config-derived autonomy, optimistic permission updates, and summary/detail alignment
 - **Testing baseline**
   - `make build` is green
-  - `make test-unit` is green again end-to-end
+  - the unit-test action itself is green end-to-end
+  - in this sandboxed CLI environment, `make test-unit` can still exit nonzero because Xcode tries to touch restricted package-cache/CoreSimulator paths even when the `.xcresult` action is marked `succeeded`
   - the conversation timeline image-row regression is now covered at the projection boundary
 
 ### In Progress
 
 - **Phase 2: Fix Session State Ownership**
   - session/detail mirroring is much better than before
-  - shared session-delta projection helpers now own a real chunk of list/detail state application
-  - `SessionStore` still has too much approval/config/detail mutation logic spread across `Session`, `SessionObservable`, and store caches
-  - the next high-leverage cut here is a pure per-session control-state reducer
+  - shared session-delta projection helpers and the per-session control-state reducer now own the important list/detail/control transitions
+  - the remaining work here is thinning `SessionStore`, not another ownership rescue
 - **Phase 4: Make Runtime State Explicit**
   - runtime readiness and connection state are now much more explicit, but the app shell still owns too much coordination
 - **Phase 5: Fix Control-Plane Reconciliation**
@@ -126,20 +136,19 @@ This plan is now an active execution document, not just a roadmap.
   - approval-card to composer routing is moving onto typed feature callbacks instead of process-wide notifications
   - these phases are not finished yet, but the shell now owns much less runtime lifecycle wiring than before
 - **Phase 10: Refactor the Review Feature**
-  - workflow, cursor/navigation, projection, comment composition, send coordination, file chrome, routing/editor actions, and mouse/composer interactions are now extracted from `ReviewCanvas`
+  - workflow, cursor/navigation, projection, comment composition, send coordination, file chrome, routing/editor actions, mouse/composer interactions, diff refresh, and inline presentation are now extracted from `ReviewCanvas`
   - the root review view is now much closer to a true shell
   - any remaining work here should be polish-level cleanup, not more architectural rescue
 - **Phase 11: Decompose Large Screens**
   - `QuickSwitcher` now has a real pure core for query planning, session projection, keyboard navigation, command catalog, selection resolution, target capture, and search transitions instead of embedding those rules directly in the view
   - `SettingsView` now has focused pane views and a pure endpoint-health display seam, but there is still section-specific side-effect cleanup available
-  - `SessionDetailView` now routes review-send, lifecycle, layout, and worktree cleanup work through local pure planners, but still has shell-level orchestration left to peel away
+  - `SessionDetailView` now routes review-send, lifecycle, layout, worktree cleanup, conversation chrome, metadata, usage, and diff summary work through local pure planners, but still has shell-level orchestration left to peel away
   - the remaining work is mostly shell/action cleanup in `QuickSwitcher`, then more screen-specific extractions from `SessionDetailView` and the other large screens
 
 ### Next
 
 - finish the remaining window-local routing cleanup and remove the last app-internal notification paths
-- land the per-session control-state reducer so approval/config/detail state stops being hand-mutated in three places
-- keep thinning `SessionStore` and related store/runtime ownership
+- keep thinning `SessionStore` and related store/runtime ownership now that the control-state reducer is in place
 - then land complete feature phases in this order:
   - larger screen decomposition
   - app shell / session-detail cleanup
@@ -153,12 +162,12 @@ This plan is now an active execution document, not just a roadmap.
   - the remaining composer work is pending-approval state, attachments, and provider/action boundaries
 - **Review phase 1: Extract projection + workflow**
   - mostly done
-  - review workflow, cursor/navigation, projection/state, comment composition/range-selection state, send coordination, file chrome, routing/editor actions, and mouse/composer interactions are now extracted into dedicated helpers
+  - review workflow, cursor/navigation, projection/state, comment composition/range-selection state, send coordination, file chrome, routing/editor actions, mouse/composer interactions, diff refresh, and inline presentation are now extracted into dedicated helpers
   - the remaining work is small shell polish and any last display-only cleanup in `ReviewCanvas`
   - unit tests now cover workflow behavior, cursor/navigation, review projection, comment-composer planning, and review send coordination
 - **Composer phase 2: Extract pending approval + action boundaries**
   - in progress
-  - pending approval presentation state, pure approval/question planning, attachment state/planning, skill resolution, send payload preparation, async send execution, provider controls, and workflow menus are now extracted
+  - pending approval presentation state, pure approval/question planning, attachment state/planning, skill resolution, send payload preparation, async send execution, provider controls, workflow menus, provider display rules, and command-deck construction are now extracted
   - the remaining work is a final pass over display-only helpers and any last provider-specific action drift
   - keep the root view focused on rendering bindings into the composer model
   - add deterministic tests for pending-action routing, attachment behavior, and provider-aware send execution
@@ -187,7 +196,7 @@ This plan is now an active execution document, not just a roadmap.
   - shared settings chrome now lives in dedicated components instead of being repeated inline
 - **Session detail phase 1**
   - in progress
-  - review-send planning, lifecycle subscription rules, review layout transitions, review navigation helpers, diff-banner rules, and worktree cleanup decisions now live in dedicated pure planners instead of inline view logic
+  - review-send planning, lifecycle subscription rules, review layout transitions, review navigation helpers, diff-banner rules, worktree cleanup decisions, conversation chrome, compact metadata, usage projection, and diff summary decisions now live in dedicated pure planners instead of inline view logic
   - deterministic unit tests now cover the current planner seams
   - the remaining work is shrinking the root view into more of a shell and moving any last orchestration side effects behind typed helpers
 
