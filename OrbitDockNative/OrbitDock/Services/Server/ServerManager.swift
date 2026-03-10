@@ -41,13 +41,19 @@ enum ServerInstallStateResolver {
 #if os(macOS)
   @MainActor
   final class ServerManager: ObservableObject {
-    static let shared = ServerManager()
     private nonisolated static let forcedInstallStateEnvKey = "ORBITDOCK_FORCE_SERVER_INSTALL_STATE"
     private let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
     private let endpointSettings: ServerEndpointSettingsClient
 
     static func live(endpointSettings: ServerEndpointSettingsClient? = nil) -> ServerManager {
       ServerManager(endpointSettings: endpointSettings)
+    }
+
+    static func missingEnvironmentDefault(
+      file: StaticString = #fileID,
+      line: UInt = #line
+    ) -> ServerManager {
+      return ServerManager(previewInstallState: .unknown)
     }
 
     @Published private(set) var installState: ServerInstallState = .unknown

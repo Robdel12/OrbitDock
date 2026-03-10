@@ -14,14 +14,20 @@ struct NotificationManagerTests {
 
     let manager = NotificationManager(
       isAuthorized: false,
-      requestsAuthorizationOnInit: false,
+      shouldRequestAuthorizationOnStart: false,
       notificationCenter: NotificationCenterClient(
         requestAuthorization: { _ in },
         setDelegate: { assignedDelegate = $0 },
         setNotificationCategories: { registeredCategories = $0 },
         addRequest: { _, _ in },
         removeDeliveredNotifications: { _ in }
-      )
+      ),
+      preferences: NotificationPreferences(
+        stringForKey: { _ in nil },
+        objectForKey: { _ in nil },
+        boolForKey: { _ in false }
+      ),
+      isRunningTestsProcess: false
     )
 
     let delegate = TestNotificationDelegate()
@@ -39,14 +45,20 @@ struct NotificationManagerTests {
 
     let manager = NotificationManager(
       isAuthorized: true,
-      requestsAuthorizationOnInit: false,
+      shouldRequestAuthorizationOnStart: false,
       notificationCenter: NotificationCenterClient(
         requestAuthorization: { _ in },
         setDelegate: { _ in },
         setNotificationCategories: { _ in },
         addRequest: { request, _ in addedRequest = request },
         removeDeliveredNotifications: { _ in }
-      )
+      ),
+      preferences: NotificationPreferences(
+        stringForKey: { _ in nil },
+        objectForKey: { _ in nil },
+        boolForKey: { _ in false }
+      ),
+      isRunningTestsProcess: false
     )
 
     manager.sendTestNotification(soundID: "default")
@@ -54,6 +66,36 @@ struct NotificationManagerTests {
     #expect(addedRequest?.content.title == "Test Notification")
     #expect(addedRequest?.content.subtitle == "OrbitDock")
     #expect(addedRequest?.content.categoryIdentifier == "SESSION_ATTENTION")
+  }
+
+  @Test func startIfNeededRequestsAuthorizationAtTheBoundary() {
+    var requestCount = 0
+
+    let manager = NotificationManager(
+      isAuthorized: false,
+      shouldRequestAuthorizationOnStart: true,
+      notificationCenter: NotificationCenterClient(
+        requestAuthorization: { completion in
+          requestCount += 1
+          completion(false, nil)
+        },
+        setDelegate: { _ in },
+        setNotificationCategories: { _ in },
+        addRequest: { _, _ in },
+        removeDeliveredNotifications: { _ in }
+      ),
+      preferences: NotificationPreferences(
+        stringForKey: { _ in nil },
+        objectForKey: { _ in nil },
+        boolForKey: { _ in false }
+      ),
+      isRunningTestsProcess: false
+    )
+
+    manager.startIfNeeded()
+    manager.startIfNeeded()
+
+    #expect(requestCount == 1)
   }
 }
 

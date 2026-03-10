@@ -48,8 +48,6 @@ struct ServerClientIdentity: Equatable, Sendable {
 @Observable
 @MainActor
 final class ServerRuntimeRegistry {
-  static let shared = ServerRuntimeRegistry()
-
   private let endpointSettings: ServerEndpointSettingsClient
   private let endpointsProvider: () -> [ServerEndpoint]
   private let runtimeFactory: (ServerEndpoint) -> ServerRuntime

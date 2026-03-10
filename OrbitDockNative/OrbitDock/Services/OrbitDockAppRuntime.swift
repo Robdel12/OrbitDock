@@ -3,7 +3,7 @@ import SwiftUI
 
 #if os(macOS)
   private struct ServerManagerEnvironmentKey: EnvironmentKey {
-    static let defaultValue = ServerManager.live()
+    static let defaultValue = ServerManager.missingEnvironmentDefault()
   }
 
   extension EnvironmentValues {
@@ -38,7 +38,7 @@ struct OrbitDockAppRuntimeDependencies {
       return OrbitDockAppRuntimeDependencies(
         runtimeRegistry: runtimeRegistry,
         externalNavigationCenter: AppExternalNavigationCenter(),
-        notificationManager: NotificationManager(),
+        notificationManager: .live(),
         appLifecycleClient: .live(),
         handleMemoryPressure: {
           runtimeRegistry.handleMemoryPressure()
@@ -61,7 +61,7 @@ struct OrbitDockAppRuntimeDependencies {
       return OrbitDockAppRuntimeDependencies(
         runtimeRegistry: runtimeRegistry,
         externalNavigationCenter: AppExternalNavigationCenter(),
-        notificationManager: NotificationManager(),
+        notificationManager: .live(),
         appLifecycleClient: .live(),
         handleMemoryPressure: {
           runtimeRegistry.handleMemoryPressure()
@@ -109,22 +109,6 @@ final class OrbitDockAppRuntime {
     )
   }
 
-  static func live(
-  ) -> OrbitDockAppRuntime {
-    OrbitDockAppRuntime(
-      dependencies: OrbitDockAppRuntimeDependencies.live()
-    )
-  }
-
-  static func live(
-    shouldConnectServer: Bool
-  ) -> OrbitDockAppRuntime {
-    OrbitDockAppRuntime(
-      dependencies: OrbitDockAppRuntimeDependencies.live(
-        shouldConnectServer: shouldConnectServer
-      )
-    )
-  }
   #else
     init(dependencies: OrbitDockAppRuntimeDependencies) {
       self.runtimeRegistry = dependencies.runtimeRegistry
@@ -141,25 +125,10 @@ final class OrbitDockAppRuntime {
       )
     }
 
-    static func live(
-    ) -> OrbitDockAppRuntime {
-      OrbitDockAppRuntime(
-        dependencies: OrbitDockAppRuntimeDependencies.live()
-      )
-    }
-
-    static func live(
-      shouldConnectServer: Bool
-    ) -> OrbitDockAppRuntime {
-      OrbitDockAppRuntime(
-        dependencies: OrbitDockAppRuntimeDependencies.live(
-          shouldConnectServer: shouldConnectServer
-        )
-      )
-    }
   #endif
 
   func startIfNeeded() async {
+    notificationManager.startIfNeeded()
     startLifecycleObserversIfNeeded()
     await startupCoordinator.startIfNeeded()
   }

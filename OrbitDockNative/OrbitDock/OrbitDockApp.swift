@@ -23,7 +23,9 @@ struct OrbitDockApp: App {
   private let modelPricingService: ModelPricingService
 
   init() {
-    let appRuntime = OrbitDockAppRuntime.live()
+    let appRuntime = OrbitDockAppRuntime(
+      dependencies: OrbitDockAppRuntimeDependencies.live()
+    )
     let modelPricingService = ModelPricingService.live()
     _appRuntime = State(initialValue: appRuntime)
     self.modelPricingService = modelPricingService

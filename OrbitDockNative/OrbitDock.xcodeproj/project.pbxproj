@@ -70,11 +70,6 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		800E7CB72F46B778007CADF5 /* OrbitDock iOS */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "OrbitDock iOS";
-			sourceTree = "<group>";
-		};
 		800E7CC52F46B778007CADF5 /* OrbitDock iOSTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "OrbitDock iOSTests";
@@ -161,7 +156,6 @@
 				80BCD0C22F2C834F00D91F91 /* OrbitDock */,
 				80BCD0D02F2C834F00D91F91 /* OrbitDockTests */,
 				80BCD0DA2F2C834F00D91F91 /* OrbitDockUITests */,
-				800E7CB72F46B778007CADF5 /* OrbitDock iOS */,
 				800E7CC52F46B778007CADF5 /* OrbitDock iOSTests */,
 				800E7CCF2F46B778007CADF5 /* OrbitDock iOSUITests */,
 				80BCD0C12F2C834F00D91F91 /* Products */,

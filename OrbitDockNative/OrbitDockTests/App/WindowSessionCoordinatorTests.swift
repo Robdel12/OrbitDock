@@ -32,7 +32,7 @@ struct WindowSessionCoordinatorTests {
       attentionService: AttentionService(),
       notificationManager: NotificationManager(
         isAuthorized: false,
-        requestsAuthorizationOnInit: false
+        shouldRequestAuthorizationOnStart: false
       ),
       toastManager: toastManager,
       router: router
@@ -40,7 +40,7 @@ struct WindowSessionCoordinatorTests {
 
     coordinator.start(currentScopedId: session.scopedID)
 
-    #expect(coordinator.sessions.map(\.id) == ["session-1"])
+    #expect(coordinator.sessions.map { $0.id } == ["session-1"])
     #expect(toastManager.currentSessionId == session.scopedID)
     #expect(coordinator.isAnyInitialLoading == false)
   }
@@ -66,7 +66,7 @@ struct WindowSessionCoordinatorTests {
       attentionService: AttentionService(),
       notificationManager: NotificationManager(
         isAuthorized: false,
-        requestsAuthorizationOnInit: false
+        shouldRequestAuthorizationOnStart: false
       ),
       toastManager: ToastManager(),
       router: router

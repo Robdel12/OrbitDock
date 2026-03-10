@@ -7,11 +7,10 @@ struct OrbitDockAppRuntimeTests {
     let dependencies = OrbitDockAppRuntimeDependencies.live(shouldConnectServer: false)
     let otherDependencies = OrbitDockAppRuntimeDependencies.live(shouldConnectServer: false)
 
-    #expect(dependencies.runtimeRegistry !== ServerRuntimeRegistry.shared)
+    #expect(dependencies.runtimeRegistry !== otherDependencies.runtimeRegistry)
     #expect(dependencies.externalNavigationCenter !== otherDependencies.externalNavigationCenter)
     #expect(dependencies.notificationManager !== otherDependencies.notificationManager)
     #if os(macOS)
-      #expect(dependencies.serverManager !== ServerManager.shared)
       #expect(dependencies.serverManager !== otherDependencies.serverManager)
     #endif
   }
@@ -25,7 +24,7 @@ struct OrbitDockAppRuntimeTests {
     let externalNavigationCenter = AppExternalNavigationCenter()
     let notificationManager = NotificationManager(
       isAuthorized: false,
-      requestsAuthorizationOnInit: false
+      shouldRequestAuthorizationOnStart: false
     )
 
     #if os(macOS)
@@ -73,7 +72,7 @@ struct OrbitDockAppRuntimeTests {
     let externalNavigationCenter = AppExternalNavigationCenter()
     let notificationManager = NotificationManager(
       isAuthorized: false,
-      requestsAuthorizationOnInit: false
+      shouldRequestAuthorizationOnStart: false
     )
     var memoryWarningContinuation: AsyncStream<Void>.Continuation?
     let memoryWarningStream = AsyncStream<Void> { continuation in

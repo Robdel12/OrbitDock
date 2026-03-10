@@ -11,6 +11,7 @@ struct NotificationPreferences {
   let objectForKey: (String) -> Any?
   let boolForKey: (String) -> Bool
 
+  @MainActor
   static func live(defaults: UserDefaults = .standard) -> NotificationPreferences {
     NotificationPreferences(
       stringForKey: { defaults.string(forKey: $0) },
@@ -21,12 +22,13 @@ struct NotificationPreferences {
 }
 
 struct NotificationCenterClient {
-  let requestAuthorization: (@escaping (Bool, Error?) -> Void) -> Void
+  let requestAuthorization: (@Sendable @escaping (Bool, Error?) -> Void) -> Void
   let setDelegate: (UNUserNotificationCenterDelegate?) -> Void
   let setNotificationCategories: (Set<UNNotificationCategory>) -> Void
-  let addRequest: (UNNotificationRequest, @escaping (Error?) -> Void) -> Void
+  let addRequest: (UNNotificationRequest, @Sendable @escaping (Error?) -> Void) -> Void
   let removeDeliveredNotifications: ([String]) -> Void
 
+  @MainActor
   static func live(center: UNUserNotificationCenter = .current()) -> NotificationCenterClient {
     NotificationCenterClient(
       requestAuthorization: { completion in
@@ -49,24 +51,76 @@ struct NotificationCenterClient {
 }
 
 @Observable
+@MainActor
 class NotificationManager {
   private var notifiedSessionIds: Set<String> = []
   private var workingSessionIds: Set<String> = [] // Track sessions that are currently working
   private var isAuthorized = false
+  private let shouldRequestAuthorizationOnStart: Bool
+  private var hasStarted = false
   private let notificationCenter: NotificationCenterClient
   private let preferences: NotificationPreferences
+  private let isRunningTestsProcess: Bool
 
   init(
     isAuthorized: Bool = false,
-    requestsAuthorizationOnInit: Bool = true,
-    notificationCenter: NotificationCenterClient = .live(),
-    preferences: NotificationPreferences = .live()
+    shouldRequestAuthorizationOnStart: Bool = true,
+    notificationCenter: NotificationCenterClient,
+    preferences: NotificationPreferences,
+    isRunningTestsProcess: Bool
   ) {
     self.isAuthorized = isAuthorized
+    self.shouldRequestAuthorizationOnStart = shouldRequestAuthorizationOnStart
     self.notificationCenter = notificationCenter
     self.preferences = preferences
-    guard requestsAuthorizationOnInit else { return }
-    guard !AppRuntimeMode.isRunningTestsProcess else { return }
+    self.isRunningTestsProcess = isRunningTestsProcess
+  }
+
+  convenience init(
+    isAuthorized: Bool = false,
+    shouldRequestAuthorizationOnStart: Bool = true
+  ) {
+    self.init(
+      isAuthorized: isAuthorized,
+      shouldRequestAuthorizationOnStart: shouldRequestAuthorizationOnStart,
+      notificationCenter: .live(),
+      preferences: .live(),
+      isRunningTestsProcess: AppRuntimeMode.isRunningTestsProcess
+    )
+  }
+
+  convenience init(
+    isAuthorized: Bool = false,
+    shouldRequestAuthorizationOnStart: Bool = true,
+    notificationCenter: NotificationCenterClient,
+    preferences: NotificationPreferences
+  ) {
+    self.init(
+      isAuthorized: isAuthorized,
+      shouldRequestAuthorizationOnStart: shouldRequestAuthorizationOnStart,
+      notificationCenter: notificationCenter,
+      preferences: preferences,
+      isRunningTestsProcess: AppRuntimeMode.isRunningTestsProcess
+    )
+  }
+
+  @MainActor
+  static func live(
+    isAuthorized: Bool = false,
+    shouldRequestAuthorizationOnStart: Bool = true
+  ) -> NotificationManager {
+    NotificationManager(
+      isAuthorized: isAuthorized,
+      shouldRequestAuthorizationOnStart: shouldRequestAuthorizationOnStart,
+      notificationCenter: .live(),
+      preferences: .live()
+    )
+  }
+
+  func startIfNeeded() {
+    guard !hasStarted else { return }
+    hasStarted = true
+    guard shouldRequestAuthorizationOnStart else { return }
     requestAuthorization()
   }
 
@@ -90,9 +144,9 @@ class NotificationManager {
   }
 
   func requestAuthorization() {
-    guard !AppRuntimeMode.isRunningTestsProcess else { return }
+    guard !isRunningTestsProcess else { return }
     notificationCenter.requestAuthorization { granted, error in
-      DispatchQueue.main.async {
+      Task { @MainActor in
         self.isAuthorized = granted
         if let error {
           print("Notification authorization error: \(error)")

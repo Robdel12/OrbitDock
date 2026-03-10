@@ -76,7 +76,19 @@ struct PreviewRuntime {
     self.toastManager = ToastManager()
     self.notificationManager = NotificationManager(
       isAuthorized: false,
-      requestsAuthorizationOnInit: false
+      shouldRequestAuthorizationOnStart: false,
+      notificationCenter: NotificationCenterClient(
+        requestAuthorization: { completion in completion(false, nil) },
+        setDelegate: { _ in },
+        setNotificationCategories: { _ in },
+        addRequest: { _, completion in completion(nil) },
+        removeDeliveredNotifications: { _ in }
+      ),
+      preferences: NotificationPreferences(
+        stringForKey: { _ in nil },
+        objectForKey: { _ in nil },
+        boolForKey: { _ in false }
+      )
     )
     self.externalNavigationCenter = AppExternalNavigationCenter()
     self.windowSessionCoordinator = WindowSessionCoordinator(

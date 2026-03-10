@@ -79,6 +79,7 @@ of those rewrite-sized targets land cleanly.
   - deterministic unit tests now cover quick-launch intent detection, search filtering, active/recent ordering, navigation counts, wraparound movement, command inventory, selected-item resolution, and search-mode transitions
   - the root quick switcher view has also shed row presentation and quick-launch section rendering into focused subviews, so the remaining work is mostly shell-level action cleanup
   - command rows, the dashboard row, empty-state rendering, and footer hints now live in dedicated shell views instead of staying inline in `QuickSwitcher`
+  - the entire QuickSwitcher feature family now lives under `Views/QuickSwitcher/` instead of scattering files across the root `Views/` folder
 - **Phase 6 / Phase 7, lifecycle ownership**
   - `WindowSessionCoordinator` now owns startup/runtime-graph refresh behavior instead of `ContentView`
   - the app delegate now talks to `OrbitDockAppRuntime` instead of reaching for global runtime singletons during notifications and shutdown
@@ -110,6 +111,14 @@ of those rewrite-sized targets land cleanly.
   - `ToastManager.shared` is gone, and startup/runtime tests now cover the injected install-state seam
   - `OrbitDockAppRuntime` now builds from an explicit dependency bundle and `live()` composition entrypoint instead of quietly reaching for `.shared` services inside its default initializer
   - `OrbitDockAppRuntime` now composes a live `ServerManager` dependency explicitly instead of defaulting back to the shared singleton
+  - `ServerRuntimeRegistry.shared` and `ServerManager.shared` are gone, so production code now has to come through the app runtime/environment graph instead of reaching for process-global entry points
+  - `NotificationManager` now has explicit startup ownership and injected dependencies instead of hiding auth side effects behind construction
+- **Session detail organization**
+  - the Session Detail feature family now lives under `Views/SessionDetail/` instead of scattering shells, planners, and banners across the root `Views/` folder
+  - the root session detail surface is now much closer to a real feature shell over companion sections, actions, and planners
+- **Test tree organization**
+  - `WindowSessionCoordinatorTests` now lives under `OrbitDockTests/App/`, and the old `Shared/` bucket has started shrinking into feature-owned homes like `Conversation/`, `Composer/`, and `ToolCards/`
+  - the test tree is now teaching the same ownership boundaries we want in production code instead of keeping a vague junk-drawer structure around
 - **Endpoint settings injection**
   - `NewSessionSheet`, `ProjectPicker`, `RemoteProjectPicker`, and `ServerSettingsSheet` no longer reach straight into `ServerEndpointSettings`
   - endpoint selection/fallback rules now live in a small pure helper with dedicated tests
