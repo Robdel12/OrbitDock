@@ -167,34 +167,21 @@ struct SessionDetailView: View {
     }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
-      guard obs.isDirect else { return .ignored }
-
-      // Cmd+D: Toggle conversation ↔ split
-      if keyPress.modifiers == .command, keyPress.key == KeyEquivalent("d") {
-        withAnimation(Motion.gentle) {
-          layoutConfig = SessionDetailLayoutPlanner.nextLayout(
-            currentLayout: layoutConfig,
-            intent: .toggleSplitShortcut
-          )
-        }
-        return .handled
+      guard let command = SessionDetailShortcutPlanner.command(
+        isDirect: obs.isDirect,
+        modifiers: keyPress.modifiers,
+        key: keyPress.key
+      ) else {
+        return .ignored
       }
 
-      // Cmd+Shift+D: Review only
-      if keyPress.modifiers == [.command, .shift], keyPress.key == KeyEquivalent("d") {
-        withAnimation(Motion.gentle) {
-          layoutConfig = SessionDetailLayoutPlanner.nextLayout(
-            currentLayout: layoutConfig,
-            intent: .showReviewOnlyShortcut
-          )
-        }
-        return .handled
+      withAnimation(Motion.gentle) {
+        layoutConfig = SessionDetailShortcutPlanner.nextLayout(
+          currentLayout: layoutConfig,
+          command: command
+        )
       }
-
-      // Note: Escape intentionally not used here — ReviewCanvas uses q to close,
-      // and Escape is reserved for canceling mark/composer within the canvas.
-
-      return .ignored
+      return .handled
     }
     // Diff-available banner trigger
     .onChange(of: scopedServerState.session(sessionId).diff) { oldDiff, newDiff in
@@ -251,6 +238,18 @@ struct SessionDetailView: View {
     applyConversationChromeState(nextState, animatePendingApprovalPanel: true)
   }
 
+  private func jumpConversationToLatest() {
+    applyConversationChromeState(
+      SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
+    )
+  }
+
+  private func toggleConversationPinnedState() {
+    applyConversationChromeState(
+      SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
+    )
+  }
+
   private var regularActionBar: some View {
     passiveInstrumentStrip
   }
@@ -261,16 +260,8 @@ struct SessionDetailView: View {
     SessionDetailRegularActionBar(
       state: actionBarState,
       usageStats: usageStats,
-      jumpToLatest: {
-        applyConversationChromeState(
-          SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
-        )
-      },
-      togglePinned: {
-        applyConversationChromeState(
-          SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
-        )
-      }
+      jumpToLatest: jumpConversationToLatest,
+      togglePinned: toggleConversationPinnedState
     )
   }
 
@@ -284,23 +275,15 @@ struct SessionDetailView: View {
       onRevealInFinder: {
         _ = Platform.services.revealInFileBrowser(obs.projectPath)
       },
-      jumpToLatest: {
-        applyConversationChromeState(
-          SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
-        )
-      },
-      togglePinned: {
-        applyConversationChromeState(
-          SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
-        )
-      }
+      jumpToLatest: jumpConversationToLatest,
+      togglePinned: toggleConversationPinnedState
     )
   }
 
   // MARK: - Conversation Content
 
   private var conversationContent: some View {
-    ConversationView(
+    SessionDetailConversationSection(
       sessionId: sessionId,
       endpointId: endpointId,
       isSessionActive: obs.isActive,
@@ -327,31 +310,32 @@ struct SessionDetailView: View {
       onOpenPendingApprovalPanel: {
         openPendingApprovalPanel()
       },
+      openFileInReview: obs.isDirect ? { (filePath: String) in
+        let plan = SessionDetailLayoutPlanner.openFileInReviewPlan(
+          projectPath: obs.projectPath,
+          currentLayout: layoutConfig,
+          filePath: filePath
+        )
+        reviewFileId = plan.reviewFileId
+        withAnimation(Motion.gentle) {
+          layoutConfig = plan.layoutConfig
+        }
+      } : nil,
       isPinned: $isPinned,
       unreadCount: $unreadCount,
       scrollToBottomTrigger: $scrollToBottomTrigger
     )
-    .environment(\.openFileInReview, obs.isDirect ? { filePath in
-      let plan = SessionDetailLayoutPlanner.openFileInReviewPlan(
-        projectPath: obs.projectPath,
-        currentLayout: layoutConfig,
-        filePath: filePath
-      )
-      reviewFileId = plan.reviewFileId
-      withAnimation(Motion.gentle) {
-        layoutConfig = plan.layoutConfig
-      }
-    } : nil)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
   private var reviewCanvas: some View {
-    ReviewCanvas(
+    SessionDetailReviewSection(
       sessionId: sessionId,
       projectPath: obs.projectPath,
       isSessionActive: obs.isActive,
       compact: layoutConfig == .split,
-      navigateToFileId: $reviewFileId,
+      reviewFileId: $reviewFileId,
+      selectedCommentIds: $selectedCommentIds,
+      navigateToComment: $navigateToComment,
       onDismiss: {
         withAnimation(Motion.gentle) {
           layoutConfig = SessionDetailLayoutPlanner.nextLayout(
@@ -359,9 +343,7 @@ struct SessionDetailView: View {
             intent: .dismissReview
           )
         }
-      },
-      selectedCommentIds: $selectedCommentIds,
-      navigateToComment: $navigateToComment
+      }
     )
   }
 
