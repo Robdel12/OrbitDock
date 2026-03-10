@@ -9,6 +9,7 @@ import SwiftUI
 
 struct MenuBarView: View {
   @Environment(SessionStore.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
   @Environment(\.colorScheme) private var colorScheme
 
@@ -132,7 +133,7 @@ struct MenuBarView: View {
           Spacer()
 
           Button {
-            serverState.refreshSessionsList()
+            runtimeRegistry.refreshEnabledSessionLists()
           } label: {
             Image(systemName: "arrow.clockwise")
               .font(.system(size: TypeScale.meta, weight: .semibold))
