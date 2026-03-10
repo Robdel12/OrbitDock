@@ -9,7 +9,7 @@ struct SessionsClient: Sendable {
     let session: ServerSessionState
   }
 
-  struct CreateSessionRequest: Encodable {
+  struct CreateSessionRequest: Encodable, Sendable {
     let provider: String
     let cwd: String
     var model: String?

@@ -10,8 +10,8 @@ private actor NewSessionLaunchRecorder {
     initializedPaths.append(path)
   }
 
-  func recordCreatedSession(request: SessionsClient.CreateSessionRequest) {
-    createdSessions.append((provider: request.provider, cwd: request.cwd, model: request.model))
+  func recordCreatedSession(provider: String, cwd: String, model: String?) {
+    createdSessions.append((provider: provider, cwd: cwd, model: model))
   }
 
   func recordSentPrompt(sessionId: String, prompt: String) {
@@ -19,6 +19,7 @@ private actor NewSessionLaunchRecorder {
   }
 }
 
+@MainActor
 struct NewSessionLaunchCoordinatorTests {
   @Test func initializeGitReturnsUpdatedPathState() async throws {
     let recorder = NewSessionLaunchRecorder()
@@ -99,7 +100,11 @@ struct NewSessionLaunchCoordinatorTests {
         return ""
       },
       createSession: { request in
-        await recorder.recordCreatedSession(request: request)
+        await recorder.recordCreatedSession(
+          provider: request.provider,
+          cwd: request.cwd,
+          model: request.model
+        )
         return "session-123"
       },
       sendBootstrapPrompt: { sessionId, prompt in
@@ -137,7 +142,11 @@ struct NewSessionLaunchCoordinatorTests {
         return ""
       },
       createSession: { request in
-        await recorder.recordCreatedSession(request: request)
+        await recorder.recordCreatedSession(
+          provider: request.provider,
+          cwd: request.cwd,
+          model: request.model
+        )
         return "session-456"
       },
       sendBootstrapPrompt: { sessionId, prompt in
@@ -167,7 +176,11 @@ struct NewSessionLaunchCoordinatorTests {
         return ""
       },
       createSession: { request in
-        await recorder.recordCreatedSession(request: request)
+        await recorder.recordCreatedSession(
+          provider: request.provider,
+          cwd: request.cwd,
+          model: request.model
+        )
         return nil
       },
       sendBootstrapPrompt: { sessionId, prompt in

@@ -1,6 +1,6 @@
 import Foundation
 
-enum QuickSwitcherSelectionKind: Equatable {
+enum QuickSwitcherSelectionKind: Equatable, Sendable {
   case none
   case quickLaunchProject(index: Int)
   case command(index: Int)

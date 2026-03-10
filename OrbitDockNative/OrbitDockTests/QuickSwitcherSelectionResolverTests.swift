@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import OrbitDock
 
+@MainActor
 struct QuickSwitcherSelectionResolverTests {
   @Test func quickLaunchSelectionPrefersProjectIndexes() {
     let selection = QuickSwitcherSelectionResolver.selectedKind(
