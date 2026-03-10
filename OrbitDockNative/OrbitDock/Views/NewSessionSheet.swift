@@ -192,25 +192,11 @@ struct NewSessionSheet: View {
   // MARK: - Body
 
   var body: some View {
-    VStack(spacing: 0) {
-      header
-
-      Divider()
-        .overlay(Color.surfaceBorder)
-
-      formContent
-
-      Divider()
-        .overlay(Color.surfaceBorder)
-
-      footer
-    }
-    #if os(iOS)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    #else
-    .frame(minWidth: 500, idealWidth: 600, maxWidth: 700)
-    #endif
-    .background(Color.backgroundSecondary)
+    NewSessionSheetShell(
+      header: { header },
+      formContent: { formContent },
+      footer: { footer }
+    )
     .onAppear {
       applyLifecyclePlan(
         NewSessionLifecyclePlanner.onAppear(
@@ -259,41 +245,27 @@ struct NewSessionSheet: View {
 
   @ViewBuilder
   private var formContent: some View {
-    #if os(iOS)
-      ScrollView(showsIndicators: false) {
-        formSections
-          .padding(.horizontal, Spacing.lg)
-          .padding(.vertical, Spacing.lg)
-          .padding(.bottom, Spacing.sm)
-      }
-    #else
-      ScrollView(showsIndicators: true) {
-        formSections
-          .padding(.horizontal, Spacing.xl)
-          .padding(.vertical, Spacing.lg)
-      }
-    #endif
+    NewSessionFormShell {
+      formSections
+    }
   }
 
   private var formSections: some View {
-    VStack(alignment: .leading, spacing: formSectionSpacing) {
-      providerPicker
-
-      if shouldShowEndpointSection {
-        endpointSection
-      }
-
-      if let continuation {
-        continuationSection(continuation)
-      }
-
-      if provider == .codex, endpointAppState.codexAccountStatus?.account == nil {
-        authGateSection
-      }
-
-      directorySection
-
-      if !selectedPath.isEmpty {
+    NewSessionFormSections(
+      formSectionSpacing: formSectionSpacing,
+      shouldShowEndpointSection: shouldShowEndpointSection,
+      continuation: continuation,
+      isCodexProvider: provider == .codex,
+      isClaudeProvider: provider == .claude,
+      shouldShowAuthGate: endpointAppState.codexAccountStatus?.account == nil,
+      hasSelectedPath: !selectedPath.isEmpty,
+      hasCodexError: provider == .codex && codexErrorMessage != nil,
+      providerPicker: { providerPicker },
+      endpointSection: { endpointSection },
+      continuationSection: { continuationSection($0) },
+      authGateSection: { authGateSection },
+      directorySection: { directorySection },
+      worktreeSection: {
         WorktreeFormSection(
           useWorktree: $useWorktree,
           worktreeBranch: $worktreeBranch,
@@ -303,19 +275,15 @@ struct NewSessionSheet: View {
           selectedPathIsGit: selectedPathIsGit,
           onGitInit: { initGitAndEnableWorktree() }
         )
+      },
+      configurationCard: { configurationCard },
+      toolRestrictionsCard: { toolRestrictionsCard },
+      errorBanner: {
+        if let error = codexErrorMessage {
+          errorBanner(error)
+        }
       }
-
-      configurationCard
-
-      if provider == .claude {
-        toolRestrictionsCard
-      }
-
-      if provider == .codex, let error = codexErrorMessage {
-        errorBanner(error)
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
+    )
   }
 
   // MARK: - Provider Picker
