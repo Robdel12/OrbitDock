@@ -420,23 +420,19 @@ struct DirectSessionComposer: View {
   // MARK: - Body
 
   var body: some View {
-    VStack(spacing: 0) {
-      composerLeadingSections
-
-      // ━━━ Composer area ━━━
-      if isSessionActive {
-        composerSurface
-      } else {
-        // Ended session — resume button
-        resumeRow
+    DirectSessionComposerShell(
+      isSessionActive: isSessionActive,
+      isCompactLayout: isCompactLayout,
+      hasError: composerErrorMessage != nil,
+      leading: { composerLeadingSections },
+      activeSurface: { composerSurface },
+      resume: { resumeRow },
+      errorRow: {
+        if let error = composerErrorMessage {
+          errorRow(error)
+        }
       }
-
-      // ━━━ Error message ━━━
-      if let error = composerErrorMessage {
-        errorRow(error)
-      }
-    }
-    .background(isCompactLayout ? Color.backgroundSecondary : Color.clear)
+    )
     .sheet(isPresented: $showForkToWorktreeSheet) {
       forkToWorktreeSheet
     }
@@ -661,31 +657,27 @@ struct DirectSessionComposer: View {
   }
 
   var composerSurface: some View {
-    VStack(spacing: 0) {
-      composerSurfaceTopSections
-
-      // Text input
-      composerTextInput
-        .padding(.horizontal, Spacing.md_)
-        .padding(.top, pendingApprovalModel != nil ? Spacing.xs : Spacing.sm)
-        .padding(.bottom, Spacing.xs)
-
-      // Unified footer: actions + metadata + send
-      composerFooter
-
-      composerSurfaceBottomSections
-    }
-    .background(composerSurfaceBackground)
-    .overlay(composerSurfaceBorder)
-    .overlay(composerDropTargetOverlay)
-    .animation(Motion.gentle, value: inputMode)
-    .animation(Motion.standard, value: pendingApprovalIdentity)
-    .animation(Motion.standard, value: pendingState.isExpanded)
-    .animation(Motion.standard, value: permissionPanelExpanded)
-    .animation(Motion.hover, value: inputState.focus.isFocused)
-    .animation(Motion.standard, value: attachmentState.isImageDropTargeted)
-    .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
-    .padding(.vertical, Spacing.sm)
+    DirectSessionComposerSurface(
+      composerBorderColor: composerBorderColor,
+      inputMode: inputMode,
+      pendingApprovalIdentity: pendingApprovalIdentity,
+      pendingPanelExpanded: pendingState.isExpanded,
+      permissionPanelExpanded: permissionPanelExpanded,
+      isFocused: inputState.focus.isFocused,
+      isDropTargeted: attachmentState.isImageDropTargeted,
+      isCompactLayout: isCompactLayout,
+      idleBorderOpacity: isCompactLayout ? 0.35 : (canSend ? 0.34 : 0.18),
+      topSections: { composerSurfaceTopSections },
+      input: {
+        composerTextInput
+          .padding(.horizontal, Spacing.md_)
+          .padding(.top, pendingApprovalModel != nil ? Spacing.xs : Spacing.sm)
+          .padding(.bottom, Spacing.xs)
+      },
+      footer: { composerFooter },
+      bottomSections: { composerSurfaceBottomSections },
+      dropOverlay: { composerDropTargetOverlay }
+    )
   }
 
   @ViewBuilder
@@ -747,29 +739,6 @@ struct DirectSessionComposer: View {
         .padding(Spacing.xs)
         .transition(.opacity)
     }
-  }
-
-  var composerSurfaceBackground: some View {
-    RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-      .fill(
-        isCompactLayout
-          ? composerBorderColor.opacity(0.04)
-          : Color.backgroundTertiary.opacity(0.17)
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-          .fill(composerBorderColor.opacity(OpacityTier.tint))
-      )
-  }
-
-  var composerSurfaceBorder: some View {
-    RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-      .strokeBorder(
-        inputState.focus.isFocused || inputMode != .prompt
-          ? composerBorderColor.opacity(0.5)
-          : Color.surfaceBorder.opacity(isCompactLayout ? 0.35 : (canSend ? 0.34 : 0.18)),
-        lineWidth: inputState.focus.isFocused || inputMode != .prompt ? 1.5 : 1
-      )
   }
 
   // MARK: - Resume Row (ended session)
