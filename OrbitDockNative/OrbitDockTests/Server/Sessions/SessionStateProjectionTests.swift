@@ -406,6 +406,34 @@ struct SessionStateProjectionTests {
     #expect(observable.tokenUsageSnapshotKind == .lifetimeTotals)
   }
 
+  @Test func sessionAndObservableShareTokenUsageSemantics() {
+    let session = Session(
+      id: "session-1",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .working,
+      provider: .claude,
+      inputTokens: 2_400,
+      outputTokens: 100,
+      cachedTokens: 600,
+      contextWindow: 8_000,
+      tokenUsageSnapshotKind: .mixedLegacy
+    )
+    let observable = SessionObservable(id: "session-1")
+
+    observable.applySession(session)
+
+    #expect(observable.effectiveContextInputTokens == session.effectiveContextInputTokens)
+    #expect(observable.contextFillPercent == session.contextFillPercent)
+    #expect(observable.effectiveCacheHitPercent == session.effectiveCacheHitPercent)
+    #expect(observable.hasTokenUsage)
+    #expect(SessionTokenUsageSemantics.hasTokenUsage(
+      inputTokens: session.inputTokens,
+      outputTokens: session.outputTokens,
+      cachedTokens: session.cachedTokens
+    ))
+  }
+
   private func execApprovalRequest() -> ServerApprovalRequest {
     ServerApprovalRequest(
       id: "req-1",

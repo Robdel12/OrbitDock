@@ -365,134 +365,8 @@ import SwiftUI
     private func configureHeader(model: NativeExpandedToolModel, cardWidth: CGFloat, headerH: CGFloat) {
       let leftEdge = Self.accentBarWidth + Self.headerHPad + 20 + 8 // after accent + pad + icon + gap
       let rightEdge = cardWidth - Self.headerHPad - 12 - 8 - 60 // before chevron + duration
-
-      switch model.content {
-        case let .bash(command, _, _):
-          let bashColor = model.hasError ? NSColor(Color.statusError) : model.toolColor
-          let bashAttr = NSMutableAttributedString()
-          bashAttr.append(NSAttributedString(
-            string: "$ ",
-            attributes: [
-              .font: NSFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .bold),
-              .foregroundColor: bashColor,
-            ]
-          ))
-          bashAttr.append(NSAttributedString(
-            string: command,
-            attributes: [
-              .font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular),
-              .foregroundColor: Self.textPrimary,
-            ]
-          ))
-          titleField.attributedStringValue = bashAttr
-          titleField.lineBreakMode = .byCharWrapping
-          titleField.maximumNumberOfLines = 0
-          subtitleField.isHidden = true
-          statsField.isHidden = true
-
-        case let .edit(filename, path, additions, deletions, _, _):
-          titleField.stringValue = filename ?? "Edit"
-          titleField.font = Self.headerFont
-          titleField.textColor = Self.textPrimary
-          subtitleField.isHidden = path == nil
-          subtitleField.stringValue = path.map { ToolCardStyle.shortenPath($0) } ?? ""
-          configureEditStats(additions: additions, deletions: deletions, cardWidth: cardWidth)
-          return
-
-        case let .read(filename, path, language, lines):
-          titleField.stringValue = filename ?? "Read"
-          titleField.font = NSFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .semibold)
-          titleField.textColor = Self.textPrimary
-          subtitleField.isHidden = path == nil
-          subtitleField.stringValue = path.map { ToolCardStyle.shortenPath($0) } ?? ""
-          statsField.isHidden = false
-          statsField.stringValue = "\(lines.count) lines" + (language.isEmpty ? "" : " · \(language)")
-
-        case let .glob(pattern, grouped):
-          let fileCount = grouped.reduce(0) { $0 + $1.files.count }
-          titleField.stringValue = "Glob"
-          titleField.font = Self.headerFont
-          titleField.textColor = model.toolColor
-          subtitleField.isHidden = false
-          subtitleField.stringValue = pattern
-          statsField.isHidden = false
-          statsField.stringValue = "\(fileCount) \(fileCount == 1 ? "file" : "files")"
-
-        case let .grep(pattern, grouped):
-          let matchCount = grouped.reduce(0) { $0 + max(1, $1.matches.count) }
-          titleField.stringValue = "Grep"
-          titleField.font = Self.headerFont
-          titleField.textColor = model.toolColor
-          subtitleField.isHidden = false
-          subtitleField.stringValue = pattern
-          statsField.isHidden = false
-          statsField.stringValue = "\(matchCount) in \(grouped.count) \(grouped.count == 1 ? "file" : "files")"
-
-        case let .task(agentLabel, _, description, _, isComplete):
-          titleField.stringValue = agentLabel
-          titleField.font = Self.headerFont
-          titleField.textColor = model.toolColor
-          subtitleField.isHidden = description.isEmpty
-          subtitleField.stringValue = description
-          statsField.isHidden = false
-          statsField.stringValue = isComplete ? "Complete" : "Running..."
-          statsField.textColor = Self.textTertiary
-
-        case let .todo(title, subtitle, items, _):
-          let completedCount = items.filter { $0.status == .completed }.count
-          let activeCount = items.filter { $0.status == .inProgress }.count
-          titleField.stringValue = title
-          titleField.font = Self.headerFont
-          titleField.textColor = model.toolColor
-          subtitleField.stringValue = subtitle ?? ""
-          subtitleField.isHidden = subtitle?.isEmpty ?? true
-          if !items.isEmpty {
-            var statusParts = ["\(completedCount)/\(items.count) done"]
-            if activeCount > 0 {
-              statusParts.append("\(activeCount) active")
-            }
-            statsField.stringValue = statusParts.joined(separator: " · ")
-            statsField.isHidden = false
-          } else if model.isInProgress {
-            statsField.stringValue = "Syncing..."
-            statsField.isHidden = false
-          } else {
-            statsField.isHidden = true
-          }
-          statsField.textColor = Self.textTertiary
-
-        case let .mcp(server, displayTool, subtitle, _, _):
-          titleField.stringValue = displayTool
-          titleField.font = Self.headerFont
-          titleField.textColor = model.toolColor
-          subtitleField.isHidden = subtitle == nil
-          subtitleField.stringValue = subtitle ?? ""
-          statsField.isHidden = false
-          statsField.stringValue = server
-
-        case let .webFetch(domain, _, _, _):
-          titleField.stringValue = "WebFetch"
-          titleField.font = Self.headerFont
-          titleField.textColor = model.toolColor
-          subtitleField.isHidden = false
-          subtitleField.stringValue = domain
-          statsField.isHidden = true
-
-        case let .webSearch(query, _, _):
-          titleField.stringValue = "WebSearch"
-          titleField.font = Self.headerFont
-          titleField.textColor = model.toolColor
-          subtitleField.isHidden = false
-          subtitleField.stringValue = query
-          statsField.isHidden = true
-
-        case let .generic(toolName, _, _):
-          titleField.stringValue = toolName
-          titleField.font = Self.headerFont
-          titleField.textColor = model.toolColor
-          subtitleField.isHidden = true
-          statsField.isHidden = true
-      }
+      let plan = ExpandedToolHeaderPlanning.plan(for: model)
+      applyHeaderPlan(plan, model: model)
 
       // Layout title + subtitle
       let hasSubtitle = !subtitleField.isHidden
@@ -520,28 +394,74 @@ import SwiftUI
       }
     }
 
-    private func configureEditStats(additions: Int, deletions: Int, cardWidth: CGFloat) {
-      subtitleField.isHidden = subtitleField.stringValue.isEmpty
+    private func applyHeaderPlan(_ plan: ExpandedToolHeaderPlan, model: NativeExpandedToolModel) {
+      switch plan.title {
+        case let .bash(command):
+          let bashColor = model.hasError ? NSColor(Color.statusError) : model.toolColor
+          let bashAttr = NSMutableAttributedString()
+          bashAttr.append(NSAttributedString(
+            string: "$ ",
+            attributes: [
+              .font: NSFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .bold),
+              .foregroundColor: bashColor,
+            ]
+          ))
+          bashAttr.append(NSAttributedString(
+            string: command,
+            attributes: [
+              .font: NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular),
+              .foregroundColor: Self.textPrimary,
+            ]
+          ))
+          titleField.attributedStringValue = bashAttr
+          titleField.lineBreakMode = .byCharWrapping
+          titleField.maximumNumberOfLines = 0
 
-      let leftEdge = Self.accentBarWidth + Self.headerHPad + 20 + 8
-      let rightEdge = cardWidth - Self.headerHPad - 60
-
-      // Layout title + subtitle for edit
-      titleField.frame = NSRect(x: leftEdge, y: Self.headerVPad, width: rightEdge - leftEdge, height: 18)
-      if !subtitleField.isHidden {
-        subtitleField.frame = NSRect(x: leftEdge, y: Self.headerVPad + 20, width: rightEdge - leftEdge, height: 14)
+        case let .plain(text, style):
+          titleField.attributedStringValue = NSAttributedString(string: text)
+          titleField.stringValue = text
+          titleField.font = titleFont(for: style)
+          titleField.textColor = titleColor(for: style, model: model)
+          titleField.lineBreakMode = .byTruncatingTail
+          titleField.maximumNumberOfLines = 1
       }
 
-      // Use statsField for combined diff stats
-      var parts: [String] = []
-      if deletions > 0 { parts.append("−\(deletions)") }
-      if additions > 0 { parts.append("+\(additions)") }
-      if !parts.isEmpty {
+      subtitleField.stringValue = plan.subtitle ?? ""
+      subtitleField.isHidden = plan.subtitle == nil
+
+      if let statsText = plan.statsText {
         statsField.isHidden = false
-        statsField.stringValue = parts.joined(separator: " ")
-        statsField.textColor = additions > 0 ? Self.addedAccentColor : Self.removedAccentColor
+        statsField.stringValue = statsText
+        statsField.textColor = statsColor(for: plan.statsTone)
       } else {
         statsField.isHidden = true
+      }
+    }
+
+    private func titleFont(for style: ExpandedToolHeaderTitleStyle) -> NSFont {
+      switch style {
+        case .primary, .toolTint:
+          Self.headerFont
+        case .fileName:
+          NSFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .semibold)
+      }
+    }
+
+    private func titleColor(for style: ExpandedToolHeaderTitleStyle, model: NativeExpandedToolModel) -> NSColor {
+      switch style {
+        case .primary, .fileName:
+          Self.textPrimary
+        case .toolTint:
+          model.toolColor
+      }
+    }
+
+    private func statsColor(for tone: ExpandedToolHeaderStatsTone) -> NSColor {
+      switch tone {
+        case .secondary:
+          Self.textTertiary
+        case let .diff(additions, _):
+          additions > 0 ? Self.addedAccentColor : Self.removedAccentColor
       }
     }
 

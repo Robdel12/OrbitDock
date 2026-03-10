@@ -206,40 +206,19 @@ final class SessionObservable {
   }
 
   var effectiveContextInputTokens: Int {
-    Int(Self.effectiveInput(
-      input: UInt64(max(inputTokens ?? 0, 0)),
-      cached: UInt64(max(cachedTokens ?? 0, 0)),
+    SessionTokenUsageSemantics.effectiveContextInputTokens(
+      inputTokens: inputTokens,
+      cachedTokens: cachedTokens,
       snapshotKind: tokenUsageSnapshotKind,
       provider: provider
-    ))
-  }
-
-  /// Shared logic for computing effective context input tokens.
-  /// Used by the popover per-turn timeline and the header pill.
-  static func effectiveInput(
-    input: UInt64,
-    cached: UInt64,
-    snapshotKind: ServerTokenUsageSnapshotKind,
-    provider: Provider
-  ) -> UInt64 {
-    switch snapshotKind {
-      case .mixedLegacy:
-        return input + cached
-      case .compactionReset:
-        return 0
-      case .contextTurn:
-        return provider == .claude ? input + cached : input
-      case .lifetimeTotals:
-        return input
-      case .unknown:
-        return provider == .codex ? input : input + cached
-    }
+    )
   }
 
   var contextFillFraction: Double {
-    guard let window = contextWindow, window > 0 else { return 0 }
-    guard effectiveContextInputTokens > 0 else { return 0 }
-    return min(Double(effectiveContextInputTokens) / Double(window), 1.0)
+    SessionTokenUsageSemantics.contextFillFraction(
+      contextWindow: contextWindow,
+      effectiveContextInputTokens: effectiveContextInputTokens
+    )
   }
 
   var contextFillPercent: Double {
@@ -247,25 +226,20 @@ final class SessionObservable {
   }
 
   var effectiveCacheHitPercent: Double {
-    let cached = max(cachedTokens ?? 0, 0)
-    guard cached > 0 else { return 0 }
-
-    switch tokenUsageSnapshotKind {
-      case .mixedLegacy:
-        let denominator = effectiveContextInputTokens
-        guard denominator > 0 else { return 0 }
-        return Double(cached) / Double(denominator) * 100
-      case .compactionReset:
-        return 0
-      case .contextTurn, .lifetimeTotals, .unknown:
-        let input = max(inputTokens ?? 0, 0)
-        guard input > 0 else { return 0 }
-        return Double(cached) / Double(input) * 100
-    }
+    SessionTokenUsageSemantics.effectiveCacheHitPercent(
+      inputTokens: inputTokens,
+      cachedTokens: cachedTokens,
+      snapshotKind: tokenUsageSnapshotKind,
+      effectiveContextInputTokens: effectiveContextInputTokens
+    )
   }
 
   var hasTokenUsage: Bool {
-    (inputTokens ?? 0) > 0 || (outputTokens ?? 0) > 0 || (cachedTokens ?? 0) > 0
+    SessionTokenUsageSemantics.hasTokenUsage(
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cachedTokens: cachedTokens
+    )
   }
 
   func applySession(_ session: Session) {

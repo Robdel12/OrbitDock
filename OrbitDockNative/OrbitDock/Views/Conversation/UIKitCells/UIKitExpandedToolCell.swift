@@ -314,144 +314,8 @@
     private func configureHeader(model: NativeExpandedToolModel, cardWidth: CGFloat, headerH: CGFloat) {
       let leftEdge = EL.accentBarWidth + EL.headerHPad + 20 + 8
       let rightEdge = cardWidth - EL.headerHPad - 12 - 8 - 60
-
-      switch model.content {
-        case let .bash(command, _, _):
-          let bashColor: UIColor = model.hasError ? UIColor(Color.statusError) : model.toolColor
-          let bashAttr = NSMutableAttributedString()
-          bashAttr.append(NSAttributedString(
-            string: "$ ",
-            attributes: [
-              .font: UIFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .bold),
-              .foregroundColor: bashColor,
-            ]
-          ))
-          bashAttr.append(NSAttributedString(
-            string: command,
-            attributes: [
-              .font: UIFont.monospacedSystemFont(ofSize: 11.5, weight: .regular),
-              .foregroundColor: EL.textPrimary,
-            ]
-          ))
-          titleLabel.attributedText = bashAttr
-          titleLabel.lineBreakMode = .byCharWrapping
-          titleLabel.numberOfLines = 0
-          subtitleLabel.isHidden = true
-          statsLabel.isHidden = true
-
-        case let .edit(filename, path, additions, deletions, _, _):
-          titleLabel.attributedText = nil
-          titleLabel.text = filename ?? "Edit"
-          titleLabel.font = EL.headerFont
-          titleLabel.textColor = EL.textPrimary
-          subtitleLabel.isHidden = path == nil
-          subtitleLabel.text = path.map { ToolCardStyle.shortenPath($0) }
-          configureEditStats(additions: additions, deletions: deletions, cardWidth: cardWidth)
-          return
-
-        case let .read(filename, path, language, lines):
-          titleLabel.attributedText = nil
-          titleLabel.text = filename ?? "Read"
-          titleLabel.font = UIFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .semibold)
-          titleLabel.textColor = EL.textPrimary
-          subtitleLabel.isHidden = path == nil
-          subtitleLabel.text = path.map { ToolCardStyle.shortenPath($0) }
-          statsLabel.isHidden = false
-          statsLabel.text = "\(lines.count) lines" + (language.isEmpty ? "" : " · \(language)")
-
-        case let .glob(pattern, grouped):
-          let fileCount = grouped.reduce(0) { $0 + $1.files.count }
-          titleLabel.attributedText = nil
-          titleLabel.text = "Glob"
-          titleLabel.font = EL.headerFont
-          titleLabel.textColor = model.toolColor
-          subtitleLabel.isHidden = false
-          subtitleLabel.text = pattern
-          statsLabel.isHidden = false
-          statsLabel.text = "\(fileCount) \(fileCount == 1 ? "file" : "files")"
-
-        case let .grep(pattern, grouped):
-          let matchCount = grouped.reduce(0) { $0 + max(1, $1.matches.count) }
-          titleLabel.attributedText = nil
-          titleLabel.text = "Grep"
-          titleLabel.font = EL.headerFont
-          titleLabel.textColor = model.toolColor
-          subtitleLabel.isHidden = false
-          subtitleLabel.text = pattern
-          statsLabel.isHidden = false
-          statsLabel.text = "\(matchCount) in \(grouped.count) \(grouped.count == 1 ? "file" : "files")"
-
-        case let .task(agentLabel, _, description, _, isComplete):
-          titleLabel.attributedText = nil
-          titleLabel.text = agentLabel
-          titleLabel.font = EL.headerFont
-          titleLabel.textColor = model.toolColor
-          subtitleLabel.isHidden = description.isEmpty
-          subtitleLabel.text = description
-          statsLabel.isHidden = false
-          statsLabel.text = isComplete ? "Complete" : "Running..."
-          statsLabel.textColor = EL.textTertiary
-
-        case let .todo(title, subtitle, items, _):
-          let completedCount = items.filter { $0.status == .completed }.count
-          let activeCount = items.filter { $0.status == .inProgress }.count
-          titleLabel.attributedText = nil
-          titleLabel.text = title
-          titleLabel.font = EL.headerFont
-          titleLabel.textColor = model.toolColor
-          subtitleLabel.text = subtitle
-          subtitleLabel.isHidden = subtitle?.isEmpty ?? true
-          if !items.isEmpty {
-            var statusParts = ["\(completedCount)/\(items.count) done"]
-            if activeCount > 0 {
-              statusParts.append("\(activeCount) active")
-            }
-            statsLabel.text = statusParts.joined(separator: " · ")
-            statsLabel.isHidden = false
-          } else if model.isInProgress {
-            statsLabel.text = "Syncing..."
-            statsLabel.isHidden = false
-          } else {
-            statsLabel.isHidden = true
-          }
-          statsLabel.textColor = EL.textTertiary
-
-        case let .mcp(server, displayTool, subtitle, _, _):
-          titleLabel.attributedText = nil
-          titleLabel.text = displayTool
-          titleLabel.font = EL.headerFont
-          titleLabel.textColor = model.toolColor
-          subtitleLabel.isHidden = subtitle == nil
-          subtitleLabel.text = subtitle
-          statsLabel.isHidden = false
-          statsLabel.text = server
-
-        case let .webFetch(domain, _, _, _):
-          titleLabel.attributedText = nil
-          titleLabel.text = "WebFetch"
-          titleLabel.font = EL.headerFont
-          titleLabel.textColor = model.toolColor
-          subtitleLabel.isHidden = false
-          subtitleLabel.text = domain
-          statsLabel.isHidden = true
-
-        case let .webSearch(query, _, _):
-          titleLabel.attributedText = nil
-          titleLabel.text = "WebSearch"
-          titleLabel.font = EL.headerFont
-          titleLabel.textColor = model.toolColor
-          subtitleLabel.isHidden = false
-          subtitleLabel.text = query
-          statsLabel.isHidden = true
-
-        case let .generic(toolName, _, _):
-          titleLabel.attributedText = nil
-          titleLabel.text = toolName
-          titleLabel.font = EL.headerFont
-          titleLabel.textColor = model.toolColor
-          subtitleLabel.isHidden = true
-          statsLabel.isHidden = true
-      }
+      let plan = ExpandedToolHeaderPlanning.plan(for: model)
+      applyHeaderPlan(plan, model: model)
 
       // Layout title + subtitle
       let hasSubtitle = !subtitleLabel.isHidden
@@ -479,26 +343,74 @@
       }
     }
 
-    private func configureEditStats(additions: Int, deletions: Int, cardWidth: CGFloat) {
-      subtitleLabel.isHidden = (subtitleLabel.text ?? "").isEmpty
+    private func applyHeaderPlan(_ plan: ExpandedToolHeaderPlan, model: NativeExpandedToolModel) {
+      switch plan.title {
+        case let .bash(command):
+          let bashColor: UIColor = model.hasError ? UIColor(Color.statusError) : model.toolColor
+          let bashAttr = NSMutableAttributedString()
+          bashAttr.append(NSAttributedString(
+            string: "$ ",
+            attributes: [
+              .font: UIFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .bold),
+              .foregroundColor: bashColor,
+            ]
+          ))
+          bashAttr.append(NSAttributedString(
+            string: command,
+            attributes: [
+              .font: UIFont.monospacedSystemFont(ofSize: 11.5, weight: .regular),
+              .foregroundColor: EL.textPrimary,
+            ]
+          ))
+          titleLabel.attributedText = bashAttr
+          titleLabel.lineBreakMode = .byCharWrapping
+          titleLabel.numberOfLines = 0
 
-      let leftEdge = EL.accentBarWidth + EL.headerHPad + 20 + 8
-      let rightEdge = cardWidth - EL.headerHPad - 60
-
-      titleLabel.frame = CGRect(x: leftEdge, y: EL.headerVPad, width: rightEdge - leftEdge, height: 18)
-      if !subtitleLabel.isHidden {
-        subtitleLabel.frame = CGRect(x: leftEdge, y: EL.headerVPad + 20, width: rightEdge - leftEdge, height: 14)
+        case let .plain(text, style):
+          titleLabel.attributedText = nil
+          titleLabel.text = text
+          titleLabel.font = titleFont(for: style)
+          titleLabel.textColor = titleColor(for: style, model: model)
+          titleLabel.lineBreakMode = .byTruncatingTail
+          titleLabel.numberOfLines = 1
       }
 
-      var parts: [String] = []
-      if deletions > 0 { parts.append("−\(deletions)") }
-      if additions > 0 { parts.append("+\(additions)") }
-      if !parts.isEmpty {
+      subtitleLabel.text = plan.subtitle
+      subtitleLabel.isHidden = plan.subtitle == nil
+
+      if let statsText = plan.statsText {
         statsLabel.isHidden = false
-        statsLabel.text = parts.joined(separator: " ")
-        statsLabel.textColor = additions > 0 ? EL.addedAccentColor : EL.removedAccentColor
+        statsLabel.text = statsText
+        statsLabel.textColor = statsColor(for: plan.statsTone)
       } else {
         statsLabel.isHidden = true
+      }
+    }
+
+    private func titleFont(for style: ExpandedToolHeaderTitleStyle) -> UIFont {
+      switch style {
+        case .primary, .toolTint:
+          EL.headerFont
+        case .fileName:
+          UIFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .semibold)
+      }
+    }
+
+    private func titleColor(for style: ExpandedToolHeaderTitleStyle, model: NativeExpandedToolModel) -> UIColor {
+      switch style {
+        case .primary, .fileName:
+          EL.textPrimary
+        case .toolTint:
+          model.toolColor
+      }
+    }
+
+    private func statsColor(for tone: ExpandedToolHeaderStatsTone) -> UIColor {
+      switch tone {
+        case .secondary:
+          EL.textTertiary
+        case let .diff(additions, _):
+          additions > 0 ? EL.addedAccentColor : EL.removedAccentColor
       }
     }
 
@@ -811,52 +723,26 @@
 
         for item in items {
           let style = EL.todoStatusStyle(item.status)
-          let statusText = item.status.label.uppercased()
-          let badgeTextWidth = ceil((statusText as NSString).size(withAttributes: [.font: EL.statsFont as Any]).width)
-          let badgeWidth = min(
-            EL.todoBadgeMaxWidth,
-            max(
-              EL.todoBadgeMinWidth,
-              badgeTextWidth + EL.todoBadgeSidePadding * 2
-            )
-          )
+          let metrics = ExpandedToolRenderPlanning.todoRowMetrics(for: item, contentWidth: contentWidth)
 
           let rowX = EL.headerHPad
           let rowW = contentWidth
           let iconAndGap = EL.todoIconWidth + 8
           let textX = rowX + EL.todoRowHorizontalPadding + iconAndGap
-          let badgeX = rowX + rowW - EL.todoRowHorizontalPadding - badgeWidth
-          let textW = max(90, badgeX - textX - 8)
-          let primaryHeight = EL.measuredTextHeight(
-            item.primaryText,
-            font: EL.todoTitleFont,
-            maxWidth: textW
-          )
-          let secondaryHeight = item.secondaryText.map {
-            EL.measuredTextHeight(
-              $0,
-              font: EL.todoSecondaryFont,
-              maxWidth: textW
-            )
-          } ?? 0
-          let textHeight = primaryHeight + (secondaryHeight > 0 ? 2 + secondaryHeight : 0)
-          let rowHeight = max(
-            EL.todoBadgeHeight + EL.todoRowVerticalPadding * 2,
-            textHeight + EL.todoRowVerticalPadding * 2
-          )
+          let badgeX = rowX + rowW - EL.todoRowHorizontalPadding - metrics.badgeWidth
 
-          let rowBackground = UIView(frame: CGRect(x: rowX, y: y, width: rowW, height: rowHeight))
+          let rowBackground = UIView(frame: CGRect(x: rowX, y: y, width: rowW, height: metrics.rowHeight))
           rowBackground.backgroundColor = style.rowBackground
           rowBackground.layer.cornerRadius = 8
           contentContainer.addSubview(rowBackground)
 
           let icon = UIImageView()
           let iconConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-          icon.image = UIImage(systemName: todoStatusIconName(for: item.status))?.withConfiguration(iconConfig)
+          icon.image = UIImage(systemName: metrics.iconName)?.withConfiguration(iconConfig)
           icon.tintColor = style.tint
           icon.frame = CGRect(
             x: rowX + EL.todoRowHorizontalPadding,
-            y: y + (rowHeight - 14) / 2,
+            y: y + (metrics.rowHeight - 14) / 2,
             width: 14,
             height: 14
           )
@@ -871,8 +757,8 @@
           primaryLabel.frame = CGRect(
             x: textX,
             y: y + EL.todoRowVerticalPadding,
-            width: textW,
-            height: primaryHeight
+            width: metrics.textWidth,
+            height: metrics.primaryHeight
           )
           contentContainer.addSubview(primaryLabel)
 
@@ -886,15 +772,15 @@
             secondaryLabel.frame = CGRect(
               x: textX,
               y: primaryLabel.frame.maxY + 2,
-              width: textW,
-              height: secondaryHeight
+              width: metrics.textWidth,
+              height: metrics.secondaryHeight
             )
             contentContainer.addSubview(secondaryLabel)
           }
 
           let badgeHeight = EL.todoBadgeHeight
-          let badgeY = y + (rowHeight - badgeHeight) / 2
-          let badgeView = UIView(frame: CGRect(x: badgeX, y: badgeY, width: badgeWidth, height: badgeHeight))
+          let badgeY = y + (metrics.rowHeight - badgeHeight) / 2
+          let badgeView = UIView(frame: CGRect(x: badgeX, y: badgeY, width: metrics.badgeWidth, height: badgeHeight))
           badgeView.backgroundColor = style.badgeBackground
           badgeView.layer.cornerRadius = 6
           contentContainer.addSubview(badgeView)
@@ -903,11 +789,11 @@
           badgeLabel.font = EL.statsFont
           badgeLabel.textColor = EL.textPrimary
           badgeLabel.textAlignment = .center
-          badgeLabel.text = statusText
-          badgeLabel.frame = CGRect(x: 0, y: 3, width: badgeWidth, height: 14)
+          badgeLabel.text = metrics.statusText
+          badgeLabel.frame = CGRect(x: 0, y: 3, width: metrics.badgeWidth, height: 14)
           badgeView.addSubview(badgeLabel)
 
-          y += rowHeight + EL.todoRowSpacing
+          y += metrics.rowHeight + EL.todoRowSpacing
         }
 
         y += EL.sectionPadding
@@ -931,18 +817,6 @@
         }
       }
     }
-
-    private func todoStatusIconName(for status: NativeTodoStatus) -> String {
-      switch status {
-        case .pending: "circle"
-        case .inProgress: "arrow.triangle.2.circlepath"
-        case .completed: "checkmark.circle.fill"
-        case .blocked: "exclamationmark.triangle.fill"
-        case .canceled: "xmark.circle.fill"
-        case .unknown: "questionmark.circle"
-      }
-    }
-
     // ── Generic (input + output) ──
 
     private func buildGenericContent(toolName: String? = nil, input: String?, output: String?, width: CGFloat) {

@@ -225,12 +225,12 @@ struct ContextualStatusStrip: View {
   // MARK: - Helpers
 
   private func effectiveContextInput(_ usage: ServerTokenUsage, _ snapshotKind: ServerTokenUsageSnapshotKind) -> UInt64 {
-    SessionObservable.effectiveInput(
-      input: usage.inputTokens,
-      cached: usage.cachedTokens,
+    UInt64(SessionTokenUsageSemantics.effectiveContextInputTokens(
+      inputTokens: Int(usage.inputTokens),
+      cachedTokens: Int(usage.cachedTokens),
       snapshotKind: snapshotKind,
       provider: obs.provider
-    )
+    ))
   }
 
   private func fillColor(for percent: Double) -> Color {
@@ -597,12 +597,12 @@ private struct ContextPopoverContent: View {
     usage: ServerTokenUsage,
     snapshotKind: ServerTokenUsageSnapshotKind
   ) -> UInt64 {
-    SessionObservable.effectiveInput(
-      input: usage.inputTokens,
-      cached: usage.cachedTokens,
+    UInt64(SessionTokenUsageSemantics.effectiveContextInputTokens(
+      inputTokens: Int(usage.inputTokens),
+      cachedTokens: Int(usage.cachedTokens),
       snapshotKind: snapshotKind,
       provider: obs.provider
-    )
+    ))
   }
 
   private func contextFillPercent(

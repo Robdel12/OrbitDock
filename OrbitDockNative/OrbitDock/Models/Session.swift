@@ -356,36 +356,6 @@ struct Session: Identifiable, Hashable, Sendable {
     return attentionReason == .awaitingPermission || attentionReason == .awaitingQuestion
   }
 
-  var statusIcon: String {
-    if !isActive { return "moon.fill" }
-    switch workStatus {
-      case .working: return "bolt.fill"
-      case .waiting: return "hand.raised.fill"
-      case .permission: return "lock.fill"
-      case .unknown: return "questionmark.circle"
-    }
-  }
-
-  var statusColor: String {
-    if !isActive { return "secondary" }
-    switch workStatus {
-      case .working: return "green"
-      case .waiting: return "orange"
-      case .permission: return "yellow"
-      case .unknown: return "secondary"
-    }
-  }
-
-  var statusLabel: String {
-    if !isActive { return "Ended" }
-    switch workStatus {
-      case .working: return "Working"
-      case .waiting: return "Waiting"
-      case .permission: return "Permission"
-      case .unknown: return "Active"
-    }
-  }
-
   var duration: TimeInterval? {
     guard let start = startedAt else { return nil }
     let end = endedAt ?? Date()
@@ -409,19 +379,53 @@ struct Session: Identifiable, Hashable, Sendable {
     return "--"
   }
 
-  var lastToolDisplay: String? {
-    guard let tool = lastTool, !tool.isEmpty else { return nil }
-    return tool
-  }
-
   // MARK: - Token Usage Computed Properties
 
   /// Effective context input tokens using provider + snapshot semantics.
   var effectiveContextInputTokens: Int {
+    SessionTokenUsageSemantics.effectiveContextInputTokens(
+      inputTokens: inputTokens,
+      cachedTokens: cachedTokens,
+      snapshotKind: tokenUsageSnapshotKind,
+      provider: provider
+    )
+  }
+
+  /// Effective context fill fraction (0-1).
+  var contextFillFraction: Double {
+    SessionTokenUsageSemantics.contextFillFraction(
+      contextWindow: contextWindow,
+      effectiveContextInputTokens: effectiveContextInputTokens
+    )
+  }
+
+  /// Effective context fill percent (0-100).
+  var contextFillPercent: Double {
+    contextFillFraction * 100
+  }
+
+  /// Effective cache share based on snapshot semantics.
+  var effectiveCacheHitPercent: Double {
+    SessionTokenUsageSemantics.effectiveCacheHitPercent(
+      inputTokens: inputTokens,
+      cachedTokens: cachedTokens,
+      snapshotKind: tokenUsageSnapshotKind,
+      effectiveContextInputTokens: effectiveContextInputTokens
+    )
+  }
+}
+
+enum SessionTokenUsageSemantics {
+  static func effectiveContextInputTokens(
+    inputTokens: Int?,
+    cachedTokens: Int?,
+    snapshotKind: ServerTokenUsageSnapshotKind,
+    provider: Provider
+  ) -> Int {
     let input = max(inputTokens ?? 0, 0)
     let cached = max(cachedTokens ?? 0, 0)
 
-    switch tokenUsageSnapshotKind {
+    switch snapshotKind {
       case .mixedLegacy:
         return input + cached
       case .compactionReset:
@@ -435,28 +439,28 @@ struct Session: Identifiable, Hashable, Sendable {
     }
   }
 
-  /// Effective context fill fraction (0-1).
-  var contextFillFraction: Double {
-    guard let window = contextWindow, window > 0 else { return 0 }
+  static func contextFillFraction(
+    contextWindow: Int?,
+    effectiveContextInputTokens: Int
+  ) -> Double {
+    guard let contextWindow, contextWindow > 0 else { return 0 }
     guard effectiveContextInputTokens > 0 else { return 0 }
-    return min(Double(effectiveContextInputTokens) / Double(window), 1.0)
+    return min(Double(effectiveContextInputTokens) / Double(contextWindow), 1.0)
   }
 
-  /// Effective context fill percent (0-100).
-  var contextFillPercent: Double {
-    contextFillFraction * 100
-  }
-
-  /// Effective cache share based on snapshot semantics.
-  var effectiveCacheHitPercent: Double {
+  static func effectiveCacheHitPercent(
+    inputTokens: Int?,
+    cachedTokens: Int?,
+    snapshotKind: ServerTokenUsageSnapshotKind,
+    effectiveContextInputTokens: Int
+  ) -> Double {
     let cached = max(cachedTokens ?? 0, 0)
     guard cached > 0 else { return 0 }
 
-    switch tokenUsageSnapshotKind {
+    switch snapshotKind {
       case .mixedLegacy:
-        let denominator = effectiveContextInputTokens
-        guard denominator > 0 else { return 0 }
-        return Double(cached) / Double(denominator) * 100
+        guard effectiveContextInputTokens > 0 else { return 0 }
+        return Double(cached) / Double(effectiveContextInputTokens) * 100
       case .compactionReset:
         return 0
       case .contextTurn, .lifetimeTotals, .unknown:
@@ -466,29 +470,12 @@ struct Session: Identifiable, Hashable, Sendable {
     }
   }
 
-  /// Total tokens used (input + output)
-  var totalTokensUsed: Int {
-    (inputTokens ?? 0) + (outputTokens ?? 0)
-  }
-
-  /// Percentage of context window used (0-100)
-  var contextUsagePercent: Double {
-    contextFillPercent
-  }
-
-  /// Whether token usage data is available
-  var hasTokenUsage: Bool {
+  static func hasTokenUsage(
+    inputTokens: Int?,
+    outputTokens: Int?,
+    cachedTokens: Int?
+  ) -> Bool {
     (inputTokens ?? 0) > 0 || (outputTokens ?? 0) > 0 || (cachedTokens ?? 0) > 0
-  }
-
-  /// Formatted token count string
-  var formattedTokenUsage: String {
-    guard hasTokenUsage else { return "--" }
-    let total = totalTokensUsed
-    if total >= 1_000 {
-      return String(format: "%.1fk", Double(total) / 1_000)
-    }
-    return "\(total)"
   }
 }
 

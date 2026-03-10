@@ -207,6 +207,9 @@ of those rewrite-sized targets land cleanly.
 ### Active Rewrite Targets
 
 - **Conversation renderer rewrite**
+  - `ExpandedToolCellView` and the platform tool hosts now share extracted expanded-tool render planning instead of rebuilding payload/layout logic inline
+  - rich-message layout and presentation rules now live in a shared planner instead of being duplicated across AppKit/UIKit hosts
+  - `UserBashCard` parsing has been split into a dedicated pure parser with unit tests, reducing mixed parsing/rendering concerns in tool-card views
   - finish rewriting `ToolCellModels`, `ExpandedToolCellView`, and the platform conversation hosts around cleaner seams:
     - model building / projection
     - pure layout math

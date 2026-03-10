@@ -156,7 +156,9 @@ enum ExpandedToolRenderPlanning {
   static func payloadTextRows(
     for items: [ExpandedToolPayloadRenderItem]
   ) -> [ExpandedToolPayloadTextRowPlan] {
-    items.flatMap(payloadTextRows(for:))
+    items.flatMap { item in
+      payloadTextRows(for: item)
+    }
   }
 
   private static func payloadTextRows(
