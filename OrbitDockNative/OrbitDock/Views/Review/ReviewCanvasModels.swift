@@ -55,7 +55,7 @@ struct ReviewComposerLineRange: Equatable {
 
 /// Records the state when a batch of review comments was sent to the model.
 /// Used to detect which files the model modified in response to review feedback.
-struct ReviewRound {
+struct ReviewRound: Equatable {
   let sentAt: Date
   let turnDiffCountAtSend: Int
   let reviewedFilePaths: Set<String>

@@ -54,8 +54,7 @@ struct ReviewCanvas: View {
   @State private var commentInteraction = ReviewCommentInteractionState()
 
   // Review round tracking — detects which files the model modified after feedback
-  @State private var lastReviewRound: ReviewRound?
-  @State private var showReviewBanner: Bool = true
+  @State private var reviewRoundTracker = ReviewRoundTrackerState()
   @State private var showResolvedComments: Bool = false
 
   /// Diff parsing cache — avoids re-parsing on every body evaluation
@@ -113,9 +112,8 @@ struct ReviewCanvas: View {
   }
 
   private var reviewBannerState: ReviewBannerState? {
-    ReviewCanvasProjection.bannerState(
-      lastReviewRound: lastReviewRound,
-      showReviewBanner: showReviewBanner,
+    ReviewRoundTracker.bannerState(
+      state: reviewRoundTracker,
       turnDiffs: obs.turnDiffs
     )
   }
@@ -1196,93 +1194,6 @@ struct ReviewCanvas: View {
 
   // MARK: - Send Review to Model
 
-  /// Format all open comments into a structured review message the model can act on.
-  /// Includes actual diff content so the model sees exactly what's being commented on.
-  private func formatReviewMessage(comments commentsToSend: [ServerReviewComment]) -> String? {
-    guard !commentsToSend.isEmpty else { return nil }
-
-    let model = diffModel
-
-    // Group by file path, preserving order of first appearance
-    var fileOrder: [String] = []
-    var grouped: [String: [ServerReviewComment]] = [:]
-    for comment in commentsToSend {
-      if grouped[comment.filePath] == nil {
-        fileOrder.append(comment.filePath)
-      }
-      grouped[comment.filePath, default: []].append(comment)
-    }
-
-    var lines: [String] = ["## Code Review Feedback", ""]
-
-    for filePath in fileOrder {
-      let comments = grouped[filePath] ?? []
-      let ext = filePath.components(separatedBy: ".").last ?? ""
-      lines.append("### \(filePath)")
-
-      for comment in comments.sorted(by: { $0.lineStart < $1.lineStart }) {
-        let lineRef = if let end = comment.lineEnd, end != comment.lineStart {
-          "Lines \(comment.lineStart)–\(end)"
-        } else {
-          "Line \(comment.lineStart)"
-        }
-
-        let tagStr = comment.tag.map { " [\($0.rawValue)]" } ?? ""
-        lines.append("")
-        lines.append("**\(lineRef)**\(tagStr):")
-
-        // Include actual diff content for this line range
-        if let diffContent = extractDiffLines(
-          model: model,
-          filePath: filePath,
-          lineStart: Int(comment.lineStart),
-          lineEnd: comment.lineEnd.map { Int($0) }
-        ) {
-          lines.append("```\(ext)")
-          lines.append(diffContent)
-          lines.append("```")
-        }
-
-        lines.append("> \(comment.body)")
-      }
-
-      lines.append("")
-    }
-
-    // Embed comment IDs as HTML comment for transcript traceability
-    // Invisible to the model but parseable from stored messages
-    let ids = commentsToSend.map(\.id).joined(separator: ",")
-    lines.append("<!-- review-comment-ids: \(ids) -->")
-
-    return lines.joined(separator: "\n")
-  }
-
-  /// Extract actual diff lines for a comment's file + line range from the parsed diff model.
-  private func extractDiffLines(model: DiffModel?, filePath: String, lineStart: Int, lineEnd: Int?) -> String? {
-    guard let model else { return nil }
-    guard let file = model.files.first(where: { $0.newPath == filePath }) else { return nil }
-
-    let end = lineEnd ?? lineStart
-    var extracted: [String] = []
-
-    for hunk in file.hunks {
-      for line in hunk.lines {
-        guard let newNum = line.newLineNum else {
-          // Removed lines adjacent to the range — include for context
-          if !extracted.isEmpty, line.type == .removed {
-            extracted.append("\(line.prefix)\(line.content)")
-          }
-          continue
-        }
-        if newNum >= lineStart, newNum <= end {
-          extracted.append("\(line.prefix)\(line.content)")
-        }
-      }
-    }
-
-    return extracted.isEmpty ? nil : extracted.joined(separator: "\n")
-  }
-
   /// Send review comments as structured feedback to the model, then resolve them.
   /// If comments are selected (via `x`), sends only those. Otherwise sends all open.
   /// Records a review round to track which files the model modifies in response.
@@ -1291,35 +1202,25 @@ struct ReviewCanvas: View {
       from: obs.reviewComments,
       activeTurnId: selectedTurnDiffId
     )
-    guard !openComments.isEmpty else { return }
 
-    let commentsToSend = ReviewWorkflow.commentsToSend(
+    guard let plan = ReviewSendCoordinator.makePlan(
       openComments: openComments,
-      selectedCommentIds: selectedCommentIds
-    )
-    guard !commentsToSend.isEmpty else { return }
+      selectedCommentIds: selectedCommentIds,
+      diffModel: diffModel,
+      turnDiffs: obs.turnDiffs
+    ) else { return }
 
-    guard let message = formatReviewMessage(comments: commentsToSend) else { return }
-
-    // Record review round before sending
-    let reviewedFiles = ReviewWorkflow.reviewedFilePaths(for: commentsToSend)
-    lastReviewRound = ReviewRound(
-      sentAt: Date(),
-      turnDiffCountAtSend: obs.turnDiffs.count,
-      reviewedFilePaths: reviewedFiles,
-      commentCount: commentsToSend.count
-    )
-    showReviewBanner = true
+    reviewRoundTracker.record(plan.reviewRound)
 
     Task {
-      try? await serverState.sendMessage(sessionId: sessionId, content: message)
+      try? await serverState.sendMessage(sessionId: sessionId, content: plan.message)
     }
 
     // Mark sent comments as resolved
-    for comment in commentsToSend {
+    for commentId in plan.commentIdsToResolve {
       Task {
         try? await serverState.clients.approvals.updateReviewComment(
-          commentId: comment.id,
+          commentId: commentId,
           body: ApprovalsClient.UpdateReviewCommentRequest(status: .resolved)
         )
       }
@@ -1364,7 +1265,7 @@ struct ReviewCanvas: View {
           // Dismiss button
           Button {
             withAnimation(Motion.hover) {
-              showReviewBanner = false
+              reviewRoundTracker.dismissBanner()
             }
           } label: {
             Image(systemName: "xmark")
@@ -1395,24 +1296,22 @@ struct ReviewCanvas: View {
   /// Check if a file was reviewed and subsequently modified by the model.
   /// Returns: nil (not reviewed), false (reviewed but not yet modified), true (reviewed and addressed).
   private func fileAddressedStatus(for filePath: String) -> Bool? {
-    ReviewCanvasProjection.addressedFileStatus(
+    ReviewRoundTracker.addressedFileStatus(
       filePath: filePath,
-      lastReviewRound: lastReviewRound,
+      state: reviewRoundTracker,
       turnDiffs: obs.turnDiffs
     )
   }
 
   /// Set of file paths that were part of the last review round.
   private var reviewedFilePaths: Set<String> {
-    lastReviewRound?.reviewedFilePaths ?? []
+    reviewRoundTracker.reviewedFilePaths
   }
 
   /// Set of file paths the model modified after the last review.
   private var addressedFilePaths: Set<String> {
-    guard let round = lastReviewRound else { return [] }
-    return ReviewWorkflow.addressedFilePaths(
-      reviewedFilePaths: round.reviewedFilePaths,
-      turnDiffCountAtSend: round.turnDiffCountAtSend,
+    ReviewRoundTracker.addressedFilePaths(
+      state: reviewRoundTracker,
       turnDiffs: obs.turnDiffs
     )
   }
