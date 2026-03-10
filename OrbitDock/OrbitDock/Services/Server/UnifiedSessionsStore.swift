@@ -172,10 +172,6 @@ final class UnifiedSessionsStore {
     self.runtimeRegistry = runtimeRegistry
   }
 
-  convenience init() {
-    self.init(runtimeRegistry: .shared)
-  }
-
   func setEndpointFilter(_ filter: UnifiedEndpointFilter) {
     selectedEndpointFilter = filter
     refresh()

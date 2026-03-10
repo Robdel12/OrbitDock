@@ -1,22 +1,41 @@
 import SwiftUI
 
 struct OrbitDockWindowRoot: View {
-  @State private var attentionService = AttentionService()
-  @State private var router = AppRouter()
   let runtimeRegistry: ServerRuntimeRegistry
   let usageServiceRegistry: UsageServiceRegistry
+  @State private var attentionService: AttentionService
+  @State private var router: AppRouter
+  @State private var toastManager: ToastManager
+  @State private var windowSessionCoordinator: WindowSessionCoordinator
 
-  private var sessionStore: SessionStore {
-    runtimeRegistry.activeSessionStore
+  init(runtimeRegistry: ServerRuntimeRegistry, usageServiceRegistry: UsageServiceRegistry) {
+    self.runtimeRegistry = runtimeRegistry
+    self.usageServiceRegistry = usageServiceRegistry
+
+    let attentionService = AttentionService()
+    let router = AppRouter()
+    let toastManager = ToastManager()
+    _attentionService = State(initialValue: attentionService)
+    _router = State(initialValue: router)
+    _toastManager = State(initialValue: toastManager)
+    _windowSessionCoordinator = State(
+      initialValue: WindowSessionCoordinator(
+        runtimeRegistry: runtimeRegistry,
+        attentionService: attentionService,
+        toastManager: toastManager,
+        router: router
+      )
+    )
   }
 
   var body: some View {
     ContentView()
-      .environment(sessionStore)
+      .environment(runtimeRegistry.activeSessionStore)
       .environment(runtimeRegistry)
       .environment(usageServiceRegistry)
       .environment(attentionService)
       .environment(router)
+      .environment(windowSessionCoordinator)
       .preferredColorScheme(.dark)
       .onReceive(NotificationCenter.default.publisher(for: .navigateToDashboard)) { _ in
         router.goToDashboard()

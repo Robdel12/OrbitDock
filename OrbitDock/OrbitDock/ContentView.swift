@@ -45,28 +45,9 @@ enum MissionControlNotificationSessions {
 struct ContentView: View {
   @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  @Environment(AttentionService.self) private var attentionService
   @Environment(AppRouter.self) private var router
+  @Environment(WindowSessionCoordinator.self) private var windowSessionCoordinator
   @StateObject private var serverManager = ServerManager.shared
-  @State private var unifiedSessionsStore = UnifiedSessionsStore()
-  @State private var sessions: [Session] = []
-  @StateObject private var toastManager = ToastManager()
-
-  var missionControlSessions: [Session] {
-    sessions.filter(\.showsInMissionControl)
-  }
-
-  var missionControlAttentionSessions: [Session] {
-    missionControlSessions.filter(\.needsAttention)
-  }
-
-  private var enabledRuntimes: [ServerRuntime] {
-    runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
-  }
-
-  private var isAnyInitialLoading: Bool {
-    enabledRuntimes.contains { !$0.sessionStore.hasReceivedInitialSessionsList }
-  }
 
   private var isAnyRefreshingCachedSessions: Bool {
     false
@@ -112,21 +93,37 @@ struct ContentView: View {
         HStack {
           Spacer()
           ToastContainer(
-            toastManager: toastManager
+            toastManager: windowSessionCoordinator.toastManager
           )
         }
         Spacer()
       }
     }
     .background(Color.backgroundPrimary)
-    .onChange(of: router.selectedScopedID, initial: true, updateToastSessionSelection)
-    .onAppear {
-      Task { await loadSessions() }
+    .onChange(of: router.selectedScopedID, initial: true) { _, newId in
+      windowSessionCoordinator.updateToastSelection(currentScopedId: newId)
     }
-    .onChange(of: runtimeRegistry.connectionStatusByEndpointId, reloadSessions)
-    .onChange(of: runtimeRegistry.runtimesByEndpointId.count, reloadSessions)
-    .onReceive(NotificationCenter.default.publisher(for: .serverSessionsDidChange), perform: handleSessionsDidChange)
-    .onReceive(NotificationCenter.default.publisher(for: .selectSession), perform: handleSelectSessionNotification)
+    .onAppear {
+      windowSessionCoordinator.refreshSessions()
+    }
+    .onChange(of: runtimeRegistry.connectionStatusByEndpointId) { _, _ in
+      windowSessionCoordinator.refreshSessions()
+    }
+    .onChange(of: runtimeRegistry.runtimesByEndpointId.count) { _, _ in
+      windowSessionCoordinator.refreshSessions()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .serverSessionsDidChange)) { _ in
+      windowSessionCoordinator.refreshSessions()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .selectSession)) { notification in
+      guard let sessionID = notification.userInfo?["sessionId"] as? String else { return }
+      withAnimation(Motion.standard) {
+        windowSessionCoordinator.handleExternalSelection(
+          sessionID: sessionID,
+          endpointId: endpointId(from: notification)
+        )
+      }
+    }
     // Keyboard shortcuts
     .focusable()
     .onKeyPress(keys: [.escape]) { keyPress in
@@ -155,9 +152,9 @@ struct ContentView: View {
       } else {
         // Dashboard view when no session selected
         DashboardView(
-          sessions: sessions,
-          endpointHealth: unifiedSessionsStore.endpointHealth,
-          isInitialLoading: isAnyInitialLoading,
+          sessions: windowSessionCoordinator.sessions,
+          endpointHealth: windowSessionCoordinator.endpointHealth,
+          isInitialLoading: windowSessionCoordinator.isAnyInitialLoading,
           isRefreshingCachedSessions: isAnyRefreshingCachedSessions
         )
       }
@@ -179,16 +176,16 @@ struct ContentView: View {
 
       // Quick Switcher
       QuickSwitcher(
-        sessions: sessions,
+        sessions: windowSessionCoordinator.sessions,
         onQuickLaunchClaude: { path in
           Task {
-            try? await creationAppState().createSession(
+            try? await windowSessionCoordinator.creationStore(fallback: serverState).createSession(
               APIClient.CreateSessionRequest(provider: "claude", cwd: path)
             )
           }
         },
         onQuickLaunchCodex: { path in
-          let targetState = creationAppState()
+          let targetState = windowSessionCoordinator.creationStore(fallback: serverState)
           let defaultModel = targetState.codexModels.first(where: { $0.isDefault })?.model
             ?? targetState.codexModels.first?.model ?? ""
           Task {
@@ -220,94 +217,6 @@ struct ContentView: View {
     #endif
   }
 
-  // MARK: - Setup
-
-  private func loadSessions() async {
-    let previousMissionControlSessions = missionControlSessions
-    let oldWaitingIds = Set(missionControlAttentionSessions.map(\.scopedID))
-    let oldSessions = sessions
-
-    unifiedSessionsStore.refresh()
-    sessions = unifiedSessionsStore.sessions
-
-    if let selectedScopedID = router.selectedScopedID,
-       !unifiedSessionsStore.containsSession(scopedID: selectedScopedID)
-    {
-      router.goToDashboard()
-    }
-
-    // Track work status for "agent finished" notifications. Feed both current
-    // and previously-live sessions so offline transitions clear out correctly.
-    let notificationSessions = MissionControlNotificationSessions.merge(
-      previousSessions: previousMissionControlSessions,
-      currentSessions: sessions
-    )
-
-    for session in notificationSessions {
-      NotificationManager.shared.updateSessionWorkStatus(session: session)
-    }
-
-    // Check for new sessions needing attention
-    for session in missionControlAttentionSessions {
-      if !oldWaitingIds.contains(session.scopedID) {
-        NotificationManager.shared.notifyNeedsAttention(session: session)
-      }
-    }
-
-    // Clear notifications for sessions no longer needing attention
-    for oldId in oldWaitingIds {
-      if !missionControlAttentionSessions.contains(where: { $0.scopedID == oldId }) {
-        NotificationManager.shared.resetNotificationState(for: oldId)
-      }
-    }
-
-    // Check for in-app toast notifications
-    toastManager.checkForAttentionChanges(
-      sessions: missionControlSessions,
-      previousSessions: oldSessions.filter(\.showsInMissionControl)
-    )
-
-    // Update attention service for cross-session urgency strip
-    attentionService.update(sessions: missionControlSessions) { session in
-      guard let ref = session.sessionRef else { return nil }
-      guard let runtime = runtimeRegistry.runtimesByEndpointId[ref.endpointId] else { return nil }
-      return runtime.sessionStore.session(ref.sessionId)
-    }
-  }
-
-  private func creationAppState() -> SessionStore {
-    let fallbackStore = runtimeRegistry.primarySessionStore(fallback: serverState)
-    return runtimeRegistry.sessionStore(
-      for: router.selectedEndpointId ?? router.selectedSessionRef?.endpointId,
-      fallback: fallbackStore
-    )
-  }
-
-  private func updateToastSessionSelection(_: String?, _ newId: String?) {
-    toastManager.currentSessionId = newId
-  }
-
-  private func reloadSessions<T>(_: T, _: T) {
-    Task { await loadSessions() }
-  }
-
-  private func handleSessionsDidChange(_: Notification) {
-    Task { await loadSessions() }
-  }
-
-  private func handleSelectSessionNotification(_ notification: Notification) {
-    guard let sessionID = notification.userInfo?["sessionId"] as? String else { return }
-
-    withAnimation(Motion.standard) {
-      router.handleExternalNavigation(
-        sessionID: sessionID,
-        endpointId: endpointId(from: notification),
-        store: unifiedSessionsStore,
-        fallbackEndpointId: runtimeRegistry.primaryEndpointId ?? runtimeRegistry.activeEndpointId
-      )
-    }
-  }
-
   private func endpointId(from notification: Notification) -> UUID? {
     if let endpointId = notification.userInfo?["endpointId"] as? UUID {
       return endpointId
@@ -329,11 +238,22 @@ struct ContentView: View {
 
 #Preview {
   let runtimeRegistry = ServerRuntimeRegistry.shared
+  let attentionService = AttentionService()
+  let router = AppRouter()
+  let toastManager = ToastManager()
   ContentView()
     .environment(SessionStore())
     .environment(runtimeRegistry)
     .environment(UsageServiceRegistry(runtimeRegistry: runtimeRegistry))
-    .environment(AttentionService())
-    .environment(AppRouter())
+    .environment(attentionService)
+    .environment(router)
+    .environment(
+      WindowSessionCoordinator(
+        runtimeRegistry: runtimeRegistry,
+        attentionService: attentionService,
+        toastManager: toastManager,
+        router: router
+      )
+    )
     .frame(width: 1_000, height: 700)
 }
