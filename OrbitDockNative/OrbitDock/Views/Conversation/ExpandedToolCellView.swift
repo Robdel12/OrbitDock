@@ -906,41 +906,15 @@ import SwiftUI
 
         for item in items {
           let style = ExpandedToolLayout.todoStatusStyle(item.status)
-          let statusText = item.status.label.uppercased()
-          let badgeTextWidth = ceil((statusText as NSString).size(withAttributes: [.font: Self.statsFont as Any]).width)
-          let badgeWidth = min(
-            ExpandedToolLayout.todoBadgeMaxWidth,
-            max(
-              ExpandedToolLayout.todoBadgeMinWidth,
-              badgeTextWidth + ExpandedToolLayout.todoBadgeSidePadding * 2
-            )
-          )
+          let metrics = ExpandedToolRenderPlanning.todoRowMetrics(for: item, contentWidth: contentWidth)
 
           let rowX = Self.headerHPad
           let rowW = contentWidth
           let iconAndGap = ExpandedToolLayout.todoIconWidth + 8
           let textX = rowX + ExpandedToolLayout.todoRowHorizontalPadding + iconAndGap
-          let badgeX = rowX + rowW - ExpandedToolLayout.todoRowHorizontalPadding - badgeWidth
-          let textW = max(90, badgeX - textX - 8)
-          let primaryHeight = ExpandedToolLayout.measuredTextHeight(
-            item.primaryText,
-            font: ExpandedToolLayout.todoTitleFont,
-            maxWidth: textW
-          )
-          let secondaryHeight = item.secondaryText.map {
-            ExpandedToolLayout.measuredTextHeight(
-              $0,
-              font: ExpandedToolLayout.todoSecondaryFont,
-              maxWidth: textW
-            )
-          } ?? 0
-          let textHeight = primaryHeight + (secondaryHeight > 0 ? 2 + secondaryHeight : 0)
-          let rowHeight = max(
-            ExpandedToolLayout.todoBadgeHeight + ExpandedToolLayout.todoRowVerticalPadding * 2,
-            textHeight + ExpandedToolLayout.todoRowVerticalPadding * 2
-          )
+          let badgeX = rowX + rowW - ExpandedToolLayout.todoRowHorizontalPadding - metrics.badgeWidth
 
-          let rowBackground = NSView(frame: NSRect(x: rowX, y: y, width: rowW, height: rowHeight))
+          let rowBackground = NSView(frame: NSRect(x: rowX, y: y, width: rowW, height: metrics.rowHeight))
           rowBackground.wantsLayer = true
           rowBackground.layer?.cornerRadius = 8
           rowBackground.layer?.backgroundColor = style.rowBackground.cgColor
@@ -949,14 +923,14 @@ import SwiftUI
           let iconConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
           let iconView = NSImageView()
           iconView.image = NSImage(
-            systemSymbolName: todoStatusIconName(for: item.status),
+            systemSymbolName: metrics.iconName,
             accessibilityDescription: nil
           )?
             .withSymbolConfiguration(iconConfig)
           iconView.contentTintColor = style.tint
           iconView.frame = NSRect(
             x: rowX + ExpandedToolLayout.todoRowHorizontalPadding,
-            y: y + (rowHeight - 14) / 2,
+            y: y + (metrics.rowHeight - 14) / 2,
             width: 14,
             height: 14
           )
@@ -971,8 +945,8 @@ import SwiftUI
           primaryLabel.frame = NSRect(
             x: textX,
             y: y + ExpandedToolLayout.todoRowVerticalPadding,
-            width: textW,
-            height: primaryHeight
+            width: metrics.textWidth,
+            height: metrics.primaryHeight
           )
           contentContainer.addSubview(primaryLabel)
 
@@ -986,28 +960,28 @@ import SwiftUI
             secondaryLabel.frame = NSRect(
               x: textX,
               y: primaryLabel.frame.maxY + 2,
-              width: textW,
-              height: secondaryHeight
+              width: metrics.textWidth,
+              height: metrics.secondaryHeight
             )
             contentContainer.addSubview(secondaryLabel)
           }
 
           let badgeHeight = ExpandedToolLayout.todoBadgeHeight
-          let badgeY = y + (rowHeight - badgeHeight) / 2
-          let badgeView = NSView(frame: NSRect(x: badgeX, y: badgeY, width: badgeWidth, height: badgeHeight))
+          let badgeY = y + (metrics.rowHeight - badgeHeight) / 2
+          let badgeView = NSView(frame: NSRect(x: badgeX, y: badgeY, width: metrics.badgeWidth, height: badgeHeight))
           badgeView.wantsLayer = true
           badgeView.layer?.cornerRadius = 6
           badgeView.layer?.backgroundColor = style.badgeBackground.cgColor
           contentContainer.addSubview(badgeView)
 
-          let badgeLabel = NSTextField(labelWithString: statusText)
+          let badgeLabel = NSTextField(labelWithString: metrics.statusText)
           badgeLabel.font = Self.statsFont
           badgeLabel.textColor = Self.textPrimary
           badgeLabel.alignment = .center
-          badgeLabel.frame = NSRect(x: 0, y: 3, width: badgeWidth, height: 14)
+          badgeLabel.frame = NSRect(x: 0, y: 3, width: metrics.badgeWidth, height: 14)
           badgeView.addSubview(badgeLabel)
 
-          y += rowHeight + ExpandedToolLayout.todoRowSpacing
+          y += metrics.rowHeight + ExpandedToolLayout.todoRowSpacing
         }
 
         y += Self.sectionPadding
@@ -1045,17 +1019,6 @@ import SwiftUI
       }
     }
 
-    private func todoStatusIconName(for status: NativeTodoStatus) -> String {
-      switch status {
-        case .pending: "circle"
-        case .inProgress: "arrow.triangle.2.circlepath"
-        case .completed: "checkmark.circle.fill"
-        case .blocked: "exclamationmark.triangle.fill"
-        case .canceled: "xmark.circle.fill"
-        case .unknown: "questionmark.circle"
-      }
-    }
-
     // ── Generic (input + output) ──
 
     private func buildGenericContent(toolName: String? = nil, input: String?, output: String?, width: CGFloat) {
@@ -1072,7 +1035,11 @@ import SwiftUI
       width: CGFloat,
       y: inout CGFloat
     ) {
-      guard let payload, !payload.isEmpty else { return }
+      guard let section = ExpandedToolRenderPlanning.payloadSectionPlan(
+        title: title,
+        payload: payload,
+        toolName: toolName
+      ) else { return }
 
       let header = NSTextField(labelWithString: "")
       let attrs: [NSAttributedString.Key: Any] = [
@@ -1080,16 +1047,15 @@ import SwiftUI
         .font: Self.sectionLabelFont as Any,
         .foregroundColor: Self.textQuaternary,
       ]
-      header.attributedStringValue = NSAttributedString(string: title, attributes: attrs)
+      header.attributedStringValue = NSAttributedString(string: section.title, attributes: attrs)
       header.frame = NSRect(x: Self.headerHPad, y: y + Self.sectionPadding, width: 80, height: 14)
       contentContainer.addSubview(header)
       y += Self.sectionHeaderHeight + Self.sectionPadding
 
       let textWidth = width - Self.headerHPad * 2
-      if toolName?.lowercased() == "question",
-         let questions = ExpandedToolLayout.askUserQuestionItems(from: payload)
-      {
-        for (index, question) in questions.enumerated() {
+      switch section.content {
+        case let .askUserQuestions(questions):
+          for (index, question) in questions.enumerated() {
           if let headerText = question.header, !headerText.isEmpty {
             let headerLabel = NSTextField(labelWithString: headerText.uppercased())
             headerLabel.font = NSFont.systemFont(ofSize: TypeScale.mini, weight: .bold)
@@ -1173,8 +1139,8 @@ import SwiftUI
             y += 8
           }
         }
-      } else if let entries = ExpandedToolLayout.structuredPayloadEntries(from: payload) {
-        for entry in entries {
+        case let .structuredEntries(entries):
+          for entry in entries {
           let label = NSTextField(labelWithAttributedString: payloadAttributedLine(
             key: entry.keyPath,
             value: entry.value
@@ -1188,9 +1154,8 @@ import SwiftUI
           contentContainer.addSubview(label)
           y += lineH
         }
-      } else {
-        let lines = ExpandedToolLayout.payloadDisplayLines(from: payload)
-        for line in lines {
+        case let .textLines(lines):
+          for line in lines {
           let text = line.isEmpty ? " " : line
           let label = NSTextField(labelWithString: text)
           label.font = Self.codeFont
