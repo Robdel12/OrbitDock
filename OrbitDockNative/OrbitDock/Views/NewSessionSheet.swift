@@ -104,11 +104,12 @@ struct NewSessionSheet: View {
   /// Pre-selected provider (set by caller)
   @State var provider: SessionProvider = .claude
   let continuation: SessionContinuation?
+  private let availableEndpointsOverride: [ServerEndpoint]?
 
   // Shared state
   @State private var selectedPath: String = ""
   @State private var selectedPathIsGit: Bool = true
-  @State private var selectedEndpointId: UUID = ServerEndpointSettings.defaultEndpoint.id
+  @State private var selectedEndpointId: UUID
   @State private var isCreating = false
   @State private var useWorktree = false
   @State private var worktreeBranch = ""
@@ -130,9 +131,19 @@ struct NewSessionSheet: View {
   @State private var selectedAutonomy: AutonomyLevel = .autonomous
   @State private var codexErrorMessage: String?
 
-  init(provider: SessionProvider = .claude, continuation: SessionContinuation? = nil) {
+  init(
+    provider: SessionProvider = .claude,
+    continuation: SessionContinuation? = nil,
+    availableEndpointsOverride: [ServerEndpoint]? = nil
+  ) {
     _provider = State(initialValue: provider)
     self.continuation = continuation
+    self.availableEndpointsOverride = availableEndpointsOverride
+    let initialEndpointId = continuation?.endpointId
+      ?? availableEndpointsOverride?.first(where: \.isDefault)?.id
+      ?? availableEndpointsOverride?.first?.id
+      ?? ServerEndpointSettings.defaultEndpoint.id
+    _selectedEndpointId = State(initialValue: initialEndpointId)
   }
 
   // MARK: - Computed Properties
@@ -177,8 +188,9 @@ struct NewSessionSheet: View {
   }
 
   private var selectableEndpoints: [ServerEndpoint] {
-    let enabled = ServerEndpointSettings.endpoints.filter(\.isEnabled)
-    return enabled.isEmpty ? ServerEndpointSettings.endpoints : enabled
+    let endpoints = availableEndpointsOverride ?? ServerEndpointSettings.endpoints
+    let enabled = endpoints.filter(\.isEnabled)
+    return enabled.isEmpty ? endpoints : enabled
   }
 
   private var endpointAppState: SessionStore {
@@ -1482,7 +1494,8 @@ private struct CompactModeButton: View {
 }
 
 #Preview {
-  NewSessionSheet()
-    .environment(SessionStore())
-    .environment(ServerRuntimeRegistry.shared)
+  let preview = PreviewRuntime(scenario: .newSession)
+  preview.inject(
+    NewSessionSheet(availableEndpointsOverride: preview.endpoints)
+  )
 }

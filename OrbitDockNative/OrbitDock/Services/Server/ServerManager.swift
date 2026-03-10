@@ -43,6 +43,16 @@ enum ServerInstallState: Equatable {
 
     private init() {}
 
+    init(
+      previewInstallState: ServerInstallState,
+      isInstalling: Bool = false,
+      installError: String? = nil
+    ) {
+      self.installState = previewInstallState
+      self.isInstalling = isInstalling
+      self.installError = installError
+    }
+
     // MARK: - State Detection
 
     /// Refresh install state. Priority order:
@@ -450,6 +460,16 @@ enum ServerInstallState: Equatable {
     @Published var installError: String?
 
     private init() {}
+
+    init(
+      previewInstallState: ServerInstallState,
+      isInstalling: Bool = false,
+      installError: String? = nil
+    ) {
+      self.installState = previewInstallState
+      self.isInstalling = isInstalling
+      self.installError = installError
+    }
 
     func refreshState() async {
       if ServerEndpointSettings.hasRemoteEndpoint {

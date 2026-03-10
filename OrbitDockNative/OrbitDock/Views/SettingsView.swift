@@ -1567,7 +1567,7 @@ struct DiagnosticsSettingsView: View {
 // MARK: - Preview
 
 #Preview {
-  SettingsView()
-    .environment(ServerRuntimeRegistry.shared)
+  let preview = PreviewRuntime(scenario: .settings)
+  preview.inject(SettingsView())
     .preferredColorScheme(.dark)
 }

@@ -75,6 +75,9 @@ This plan is now an active execution document, not just a roadmap.
 - **App-global ownership cleanup**
   - `ServerManager` and app notification ownership now flow through the app runtime/environment instead of direct singleton grabs in production views and startup coordination
   - `ToastManager.shared` is gone, and startup/runtime tests now cover the injected install-state seam
+- **Preview runtime cleanup**
+  - preview-specific runtime graphs now flow through a dedicated `PreviewRuntime` helper instead of `ServerRuntimeRegistry.shared` / `NotificationManager.shared`
+  - primary and secondary previews now build local runtime state without leaking app-global singletons back into the architecture
 - **Testing baseline**
   - `make build` is green
   - `make test-unit` is green
@@ -106,15 +109,17 @@ This plan is now an active execution document, not just a roadmap.
   - workflow, cursor/navigation, projection, comment composition, send coordination, file chrome, routing/editor actions, and mouse/composer interactions are now extracted from `ReviewCanvas`
   - the root review view is now much closer to a true shell
   - any remaining work here should be polish-level cleanup, not more architectural rescue
+- **Phase 11: Decompose Large Screens**
+  - `QuickSwitcher` now has a real pure core for query planning, session projection, and keyboard navigation instead of embedding those rules directly in the view
+  - the remaining work is command/action extraction and then moving on to the next large screens from this cleaner base
 
 ### Next
 
 - finish the remaining window-local routing cleanup and remove the last app-internal notification paths
 - keep thinning `SessionStore` and related store/runtime ownership
-- clean up the last obvious app-global leftovers, especially dead singletons and preview/runtime `.shared` leakage
 - then land complete feature phases in this order:
-  - preview runtime cleanup
   - larger screen decomposition
+  - app shell / session-detail cleanup
 
 ### Next complete phases
 
@@ -139,11 +144,15 @@ This plan is now an active execution document, not just a roadmap.
   - session request construction, provider-specific selection sync/reset, and async launch workflow now live in dedicated helpers instead of `NewSessionSheet`
   - deterministic tests now cover request planning, provider reset/sync behavior, and launch action sequencing
 - **App-global ownership cleanup**
-  - done for production paths
+  - done for production paths and previews
   - the startup coordinator now uses an injected install-state refresh seam
   - `ContentView`, `ServerSetupView`, and debug settings now read `ServerManager` from the runtime/environment instead of `ServerManager.shared`
   - app/window notification ownership now comes from `OrbitDockAppRuntime`, not direct singleton grabs in production code
-  - preview/test `.shared` usage is intentionally left for the next preview-runtime cleanup phase
+  - preview/test runtime setup now goes through a dedicated helper instead of `.shared` globals
+- **QuickSwitcher phase 1**
+  - query classification, session projection, and keyboard navigation now live in dedicated pure helpers instead of inline view logic
+  - deterministic unit tests now cover quick-launch intent detection, search filtering, active/recent ordering, navigation counts, and wraparound movement
+  - the remaining work is command/action extraction and trimming the remaining workflow/UI wiring in `QuickSwitcher`
 
 ---
 

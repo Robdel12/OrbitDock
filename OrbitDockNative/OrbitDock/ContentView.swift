@@ -213,28 +213,7 @@ struct ContentView: View {
 }
 
 #Preview {
-  let runtimeRegistry = ServerRuntimeRegistry.shared
-  let attentionService = AttentionService()
-  let notificationManager = NotificationManager.shared
-  let router = AppRouter()
-  let toastManager = ToastManager()
-  ContentView()
-    .environment(SessionStore())
-    .environment(runtimeRegistry)
-    .environment(UsageServiceRegistry(runtimeRegistry: runtimeRegistry))
-    .environment(attentionService)
-    .environment(router)
-    .environment(
-      WindowSessionCoordinator(
-        runtimeRegistry: runtimeRegistry,
-        attentionService: attentionService,
-        notificationManager: notificationManager,
-        toastManager: toastManager,
-        router: router
-      )
-    )
-    #if os(macOS)
-      .environment(\.serverManager, .shared)
-    #endif
+  let preview = PreviewRuntime(scenario: .dashboard)
+  preview.inject(ContentView())
     .frame(width: 1_000, height: 700)
 }

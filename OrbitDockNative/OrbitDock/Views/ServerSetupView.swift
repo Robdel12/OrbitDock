@@ -169,11 +169,8 @@ struct ServerSetupView: View {
 }
 
 #Preview {
-  ServerSetupView()
-    .environment(ServerRuntimeRegistry.shared)
-    #if os(macOS)
-      .environment(\.serverManager, .shared)
-    #endif
+  let preview = PreviewRuntime(scenario: .serverSetup)
+  preview.inject(ServerSetupView())
     .frame(width: 600, height: 500)
     .preferredColorScheme(.dark)
 }

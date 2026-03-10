@@ -14,7 +14,12 @@ class NotificationManager {
   private var workingSessionIds: Set<String> = [] // Track sessions that are currently working
   private var isAuthorized = false
 
-  private init() {
+  init(
+    isAuthorized: Bool = false,
+    requestsAuthorizationOnInit: Bool = true
+  ) {
+    self.isAuthorized = isAuthorized
+    guard requestsAuthorizationOnInit else { return }
     guard !AppRuntimeMode.isRunningTestsProcess else { return }
     requestAuthorization()
   }

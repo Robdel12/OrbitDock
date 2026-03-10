@@ -16,6 +16,15 @@ enum QuickLaunchProvider: Equatable {
   case claude
   case codex
 
+  init(intent: QuickLaunchProviderIntent) {
+    switch intent {
+      case .claude:
+        self = .claude
+      case .codex:
+        self = .codex
+    }
+  }
+
   var displayName: String {
     switch self {
       case .claude: "Claude"
@@ -138,7 +147,11 @@ struct QuickSwitcher: View {
   }
 
   private var searchQuery: String {
-    searchText.trimmingCharacters(in: .whitespaces).lowercased()
+    queryPlan.normalizedQuery
+  }
+
+  private var queryPlan: QuickSwitcherQueryPlan {
+    QuickSwitcherQueryPlanner.plan(searchText: searchText)
   }
 
   // MARK: - Commands
@@ -212,48 +225,27 @@ struct QuickSwitcher: View {
 
   // MARK: - Sessions
 
-  private var filteredSessions: [Session] {
-    guard !searchQuery.isEmpty else { return sessions }
-    return sessions.filter {
-      $0.displayName.localizedCaseInsensitiveContains(searchQuery) ||
-        $0.projectPath.localizedCaseInsensitiveContains(searchQuery) ||
-        ($0.summary ?? "").localizedCaseInsensitiveContains(searchQuery) ||
-        ($0.customName ?? "").localizedCaseInsensitiveContains(searchQuery) ||
-        ($0.branch ?? "").localizedCaseInsensitiveContains(searchQuery)
-    }
+  private var projection: QuickSwitcherProjection {
+    QuickSwitcherProjection.make(
+      sessions: sessions,
+      normalizedQuery: searchQuery,
+      isRecentExpanded: isRecentExpanded,
+      commandCount: filteredCommands.count,
+      quickLaunchProjectCount: quickLaunchMode != nil ? recentProjects.count : nil
+    )
   }
 
-  /// All active sessions sorted by start time (newest first)
-  private var activeSessions: [Session] {
-    filteredSessions
-      .filter(\.showsInMissionControl)
-      .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
-  }
+  private var filteredSessions: [Session] { projection.filteredSessions }
+  private var activeSessions: [Session] { projection.activeSessions }
+  private var recentSessions: [Session] { projection.recentSessions }
+  private var allVisibleSessions: [Session] { projection.allVisibleSessions }
+  private var totalItems: Int { projection.totalItems }
+  private var commandCount: Int { projection.commandCount }
+  private var dashboardIndex: Int { projection.dashboardIndex }
+  private var sessionStartIndex: Int { projection.sessionStartIndex }
 
-  /// Recent inactive sessions, including sessions cached from offline endpoints.
-  private var recentSessions: [Session] {
-    filteredSessions
-      .filter { !$0.showsInMissionControl }
-      .sorted { recentSessionDate(for: $0) > recentSessionDate(for: $1) }
-      .prefix(20)
-      .map { $0 }
-  }
-
-  /// Flat list for keyboard navigation (matches display order)
-  /// Only includes recent sessions if searching or if the section is expanded
-  private var allVisibleSessions: [Session] {
-    let showRecent = !searchQuery.isEmpty || isRecentExpanded
-    return showRecent ? activeSessions + recentSessions : activeSessions
-  }
-
-  // Total items for navigation
-  // Order: Commands (if searching) → Dashboard → Sessions
-  // In quick launch mode: just recent projects
-  private var totalItems: Int {
-    if quickLaunchMode != nil {
-      return recentProjects.count
-    }
-    return filteredCommands.count + 1 + allVisibleSessions.count // commands + dashboard + sessions
+  private var shouldShowRecentSessions: Bool {
+    projection.shouldShowRecentSessions
   }
 
   var body: some View {
@@ -265,9 +257,17 @@ struct QuickSwitcher: View {
       .modifier(KeyboardNavigationModifier(
         onMoveUp: { moveSelection(by: -1) },
         onMoveDown: { moveSelection(by: 1) },
-        onMoveToFirst: { selectedIndex = 0 },
+        onMoveToFirst: {
+          selectedIndex = QuickSwitcherNavigationModel.moveToFirst(
+            currentIndex: selectedIndex,
+            totalItems: totalItems
+          )
+        },
         onMoveToLast: {
-          if totalItems > 0 { selectedIndex = totalItems - 1 }
+          selectedIndex = QuickSwitcherNavigationModel.moveToLast(
+            currentIndex: selectedIndex,
+            totalItems: totalItems
+          )
         },
         onSelect: { selectCurrent() },
         onRename: { renameCurrentSelection() },
@@ -288,25 +288,19 @@ struct QuickSwitcher: View {
         selectedIndex = 0
         hoveredIndex = nil
 
-        // Detect quick launch mode
-        let query = newValue.lowercased().trimmingCharacters(in: .whitespaces)
         let oldMode = quickLaunchMode
-
-        if query.hasPrefix("new c") || query.hasPrefix("claude") || query == "nc" {
-          quickLaunchMode = .claude
-        } else if query.hasPrefix("new o") || query.hasPrefix("new codex") || query
-          .hasPrefix("codex") || query == "no"
-        {
-          quickLaunchMode = .codex
-        } else if query.hasPrefix("new") || query == "n" {
-          // Just "new" - show both options, not quick launch mode
-          quickLaunchMode = nil
-        } else {
-          quickLaunchMode = nil
-        }
+        let newMode: QuickLaunchProvider? = {
+          switch QuickSwitcherQueryPlanner.plan(searchText: newValue).mode {
+            case .standard:
+              return nil
+            case .quickLaunch(let intent):
+              return QuickLaunchProvider(intent: intent)
+          }
+        }()
+        quickLaunchMode = newMode
 
         // Load recent projects when entering quick launch mode
-        if quickLaunchMode != nil, oldMode == nil {
+        if newMode != nil, oldMode == nil {
           loadRecentProjects()
         }
       }
@@ -485,19 +479,6 @@ struct QuickSwitcher: View {
   }
 
   // MARK: - Results View
-
-  /// Index offset: commands come first, then dashboard, then sessions
-  private var commandCount: Int {
-    filteredCommands.count
-  }
-
-  private var dashboardIndex: Int {
-    commandCount
-  }
-
-  private var sessionStartIndex: Int {
-    commandCount + 1
-  }
 
   private var resultsView: some View {
     ScrollViewReader { proxy in
@@ -772,7 +753,7 @@ struct QuickSwitcher: View {
       .disabled(isSearching) // Can't collapse while searching
 
       // Session Rows - shown when expanded OR searching
-      if isRecentExpanded || isSearching {
+      if shouldShowRecentSessions {
         ForEach(Array(recentSessions.enumerated()), id: \.element.scopedID) { index, session in
           let globalIndex = sessionStartIndex + activeSessions.count + index
           switcherRow(session: session, index: globalIndex)
@@ -1056,11 +1037,6 @@ struct QuickSwitcher: View {
     .buttonStyle(.plain)
     .help(tooltip)
   }
-
-  private func recentSessionDate(for session: Session) -> Date {
-    session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
-  }
-
   // MARK: - Empty State
 
   private var emptyState: some View {
@@ -1146,16 +1122,11 @@ struct QuickSwitcher: View {
   // MARK: - Helpers
 
   private func moveSelection(by delta: Int) {
-    guard totalItems > 0 else { return }
-
-    let newIndex = selectedIndex + delta
-    if newIndex < 0 {
-      selectedIndex = totalItems - 1
-    } else if newIndex >= totalItems {
-      selectedIndex = 0
-    } else {
-      selectedIndex = newIndex
-    }
+    selectedIndex = QuickSwitcherNavigationModel.moveSelection(
+      currentIndex: selectedIndex,
+      delta: delta,
+      totalItems: totalItems
+    )
   }
 
   private func selectCurrent() {
