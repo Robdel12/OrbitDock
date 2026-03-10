@@ -342,137 +342,69 @@ extension DirectSessionComposer {
   ) -> some View {
     let approveActions = ApprovalCardConfiguration.approveMenuActions(for: model)
     let denyActions = ApprovalCardConfiguration.denyMenuActions(for: model)
-    let denyPrimary = denyActions.first
-    let approvePrimary = approveActions.first
+    let footerState = DirectSessionComposerPendingPlanner.permissionFooterState(
+      denyActions: denyActions,
+      approveActions: approveActions,
+      showsDenyReason: pendingState.showsDenyReason,
+      hasDenyReason: pendingState.hasDenyReason
+    )
     let buttonSize: CGFloat = isCompactLayout ? 34 : 28
 
-    HStack(spacing: Spacing.sm_) {
-      if pendingState.showsDenyReason {
-        // Cancel deny reason
-        Button {
-          pendingState.cancelDenyReason()
+    DirectSessionComposerPendingPermissionFooter(
+      state: footerState,
+      alternateDenyActions: Array(denyActions.dropFirst()),
+      alternateApproveActions: Array(approveActions.dropFirst()),
+      buttonSize: buttonSize,
+      modeColor: modeColor,
+      isCompactLayout: isCompactLayout,
+      onCancelDenyReason: {
+        pendingState.cancelDenyReason()
+        Platform.services.playHaptic(.selection)
+      },
+      onSubmitDenyReason: {
+        let reason = pendingState.denyReason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reason.isEmpty else { return }
+        sendPendingDecision(
+          model: model, decision: "denied", message: reason, interrupt: nil
+        )
+        pendingState.cancelDenyReason()
+      },
+      onPrimaryDeny: {
+        let action = footerState.primaryDenyAction
+        if action?.decision == "deny_reason" {
+          pendingState.showsDenyReason = true
           Platform.services.playHaptic(.selection)
-        } label: {
-          Text("Cancel")
-            .font(.system(size: TypeScale.caption, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-        }
-        .buttonStyle(.plain)
-
-        // Send denial
-        let denyEmpty = !pendingState.hasDenyReason
-
-        DirectSessionComposerPendingFooterIconButton(
-          systemName: "xmark",
-          iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
-          dimension: buttonSize,
-          fillColor: denyEmpty ? Color.surfaceHover : Color.feedbackNegative.opacity(0.85),
-          isDisabled: denyEmpty
-        ) {
-          let reason = pendingState.denyReason.trimmingCharacters(in: .whitespacesAndNewlines)
-          guard !reason.isEmpty else { return }
+        } else {
           sendPendingDecision(
-            model: model, decision: "denied", message: reason, interrupt: nil
+            model: model,
+            decision: action?.decision ?? "denied",
+            message: nil,
+            interrupt: nil
           )
-          pendingState.cancelDenyReason()
         }
-      } else {
-        // Deny
-        Button {
-          if let denyPrimary {
-            if denyPrimary.decision == "deny_reason" {
-              pendingState.showsDenyReason = true
-              Platform.services.playHaptic(.selection)
-            } else {
-              sendPendingDecision(
-                model: model, decision: denyPrimary.decision, message: nil, interrupt: nil
-              )
-            }
-          } else {
-            sendPendingDecision(
-              model: model, decision: "denied", message: nil, interrupt: nil
-            )
-          }
-        } label: {
-          Text(denyPrimary?.title ?? "Deny")
-            .font(.system(size: TypeScale.caption, weight: .medium))
-            .foregroundStyle(Color.feedbackNegative)
-        }
-        .buttonStyle(.plain)
-
-        // Approve (replaces send button position)
-        DirectSessionComposerPendingFooterIconButton(
-          systemName: "checkmark",
-          iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
-          dimension: buttonSize,
-          fillColor: modeColor.opacity(0.85),
-          isDisabled: false
-        ) {
-          if let approvePrimary {
-            sendPendingDecision(
-              model: model, decision: approvePrimary.decision, message: nil, interrupt: nil
-            )
-          } else {
-            sendPendingDecision(
-              model: model, decision: "approved", message: nil, interrupt: nil
-            )
-          }
-        }
-
-        // Overflow for alternate actions
-        if denyActions.count > 1 || approveActions.count > 1 {
-          Menu {
-            if denyActions.count > 1 {
-              Section("Deny") {
-                ForEach(
-                  Array(denyActions.dropFirst().enumerated()), id: \.offset
-                ) { _, action in
-                  Button(role: action.isDestructive ? .destructive : nil) {
-                    if action.decision == "deny_reason" {
-                      pendingState.showsDenyReason = true
-                      Platform.services.playHaptic(.selection)
-                    } else {
-                      sendPendingDecision(
-                        model: model, decision: action.decision,
-                        message: nil, interrupt: nil
-                      )
-                    }
-                  } label: {
-                    Label(action.title, systemImage: action.iconName ?? "xmark")
-                  }
-                }
-              }
-            }
-            if approveActions.count > 1 {
-              Section("Approve") {
-                ForEach(
-                  Array(approveActions.dropFirst().enumerated()), id: \.offset
-                ) { _, action in
-                  Button {
-                    sendPendingDecision(
-                      model: model, decision: action.decision,
-                      message: nil, interrupt: nil
-                    )
-                  } label: {
-                    Label(action.title, systemImage: action.iconName ?? "checkmark")
-                  }
-                }
-              }
-            }
-          } label: {
-            Image(systemName: "ellipsis")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
-              .frame(
-                width: isCompactLayout ? 28 : 22,
-                height: isCompactLayout ? 28 : 22
-              )
-              .background(Circle().fill(Color.surfaceHover))
-          }
-          .menuStyle(.borderlessButton)
+      },
+      onPrimaryApprove: {
+        sendPendingDecision(
+          model: model,
+          decision: footerState.primaryApproveAction?.decision ?? "approved",
+          message: nil,
+          interrupt: nil
+        )
+      },
+      onOverflowAction: { action in
+        if action.decision == "deny_reason" {
+          pendingState.showsDenyReason = true
+          Platform.services.playHaptic(.selection)
+        } else {
+          sendPendingDecision(
+            model: model,
+            decision: action.decision,
+            message: nil,
+            interrupt: nil
+          )
         }
       }
-    }
+    )
   }
 
   // MARK: Question Footer
@@ -517,31 +449,30 @@ extension DirectSessionComposer {
         }
       }
     } else {
-      let boundedIndex = min(
-        max(pendingState.promptIndex, 0), max(0, prompts.count - 1)
+      let footerState = DirectSessionComposerPendingPlanner.questionFooterState(
+        prompts: prompts,
+        promptIndex: pendingState.promptIndex,
+        answers: pendingState.answers,
+        drafts: pendingState.drafts
       )
-      let prompt = prompts[boundedIndex]
-      let isDisabled = boundedIndex >= prompts.count - 1
-        ? !pendingAllPromptsAnswered(prompts)
-        : !pendingPromptIsAnswered(prompt)
 
       DirectSessionComposerPendingQuestionFooter(
         prompts: prompts,
-        activeIndex: boundedIndex,
-        submitDisabled: isDisabled,
+        activeIndex: footerState.activeIndex,
+        submitDisabled: footerState.submitDisabled,
         isCompactLayout: isCompactLayout,
         onDismiss: {
           sendPendingDecision(model: model, decision: "denied", message: "Dismissed", interrupt: nil)
         },
         onBack: {
           withAnimation(Motion.gentle) {
-            pendingState.promptIndex = max(0, boundedIndex - 1)
+            pendingState.promptIndex = max(0, footerState.activeIndex - 1)
           }
           Platform.services.playHaptic(.selection)
         },
         onAdvance: {
           withAnimation(Motion.gentle) {
-            pendingState.promptIndex = boundedIndex + 1
+            pendingState.promptIndex = footerState.activeIndex + 1
           }
           Platform.services.playHaptic(.selection)
         },
@@ -555,20 +486,13 @@ extension DirectSessionComposer {
   // MARK: Takeover Footer
 
   private func takeoverFooterActions(_ model: ApprovalCardModel) -> some View {
-    Button {
-      Platform.services.playHaptic(.success)
-      Task { try? await serverState.takeoverSession(model.sessionId) }
-    } label: {
-      Text(ApprovalCardConfiguration.takeoverButtonTitle(for: model))
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-        .foregroundStyle(.white)
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm_)
-        .background(
-          Capsule().fill(Color.accent.opacity(0.85))
-        )
-    }
-    .buttonStyle(.plain)
+    DirectSessionComposerPendingTakeoverFooter(
+      title: ApprovalCardConfiguration.takeoverButtonTitle(for: model),
+      onTakeover: {
+        Platform.services.playHaptic(.success)
+        Task { try? await serverState.takeoverSession(model.sessionId) }
+      }
+    )
   }
 
   // MARK: - State Management Helpers
@@ -678,13 +602,6 @@ extension DirectSessionComposer {
   }
 
   private func hapticForPendingDecision(_ decision: String) -> AppHaptic {
-    switch decision {
-      case "approved", "approved_for_session", "approved_always":
-        .success
-      case "abort":
-        .destructive
-      default:
-        .warning
-    }
+    DirectSessionComposerPendingPlanner.hapticForDecision(decision)
   }
 }

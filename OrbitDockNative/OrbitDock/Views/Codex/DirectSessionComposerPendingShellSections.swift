@@ -515,3 +515,112 @@ struct DirectSessionComposerPendingQuestionFooter: View {
     activeIndex >= prompts.count - 1
   }
 }
+
+struct DirectSessionComposerPendingPermissionFooter: View {
+  let state: DirectSessionComposerPendingPermissionFooterState
+  let alternateDenyActions: [ApprovalCardConfiguration.MenuAction]
+  let alternateApproveActions: [ApprovalCardConfiguration.MenuAction]
+  let buttonSize: CGFloat
+  let modeColor: Color
+  let isCompactLayout: Bool
+  let onCancelDenyReason: () -> Void
+  let onSubmitDenyReason: () -> Void
+  let onPrimaryDeny: () -> Void
+  let onPrimaryApprove: () -> Void
+  let onOverflowAction: (ApprovalCardConfiguration.MenuAction) -> Void
+
+  var body: some View {
+    HStack(spacing: Spacing.sm_) {
+      if state.showsDenyReason {
+        Button(action: onCancelDenyReason) {
+          Text("Cancel")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+        }
+        .buttonStyle(.plain)
+
+        DirectSessionComposerPendingFooterIconButton(
+          systemName: "xmark",
+          iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
+          dimension: buttonSize,
+          fillColor: state.denySubmitDisabled ? Color.surfaceHover : Color.feedbackNegative.opacity(0.85),
+          isDisabled: state.denySubmitDisabled,
+          action: onSubmitDenyReason
+        )
+      } else {
+        Button(action: onPrimaryDeny) {
+          Text(state.primaryDenyAction?.title ?? "Deny")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.feedbackNegative)
+        }
+        .buttonStyle(.plain)
+
+        DirectSessionComposerPendingFooterIconButton(
+          systemName: "checkmark",
+          iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
+          dimension: buttonSize,
+          fillColor: modeColor.opacity(0.85),
+          isDisabled: false,
+          action: onPrimaryApprove
+        )
+
+        if state.hasOverflowActions {
+          Menu {
+            if !alternateDenyActions.isEmpty {
+              Section("Deny") {
+                ForEach(alternateDenyActions, id: \.self) { action in
+                  Button(role: action.isDestructive ? .destructive : nil) {
+                    onOverflowAction(action)
+                  } label: {
+                    Label(action.title, systemImage: action.iconName ?? "xmark")
+                  }
+                }
+              }
+            }
+
+            if !alternateApproveActions.isEmpty {
+              Section("Approve") {
+                ForEach(alternateApproveActions, id: \.self) { action in
+                  Button {
+                    onOverflowAction(action)
+                  } label: {
+                    Label(action.title, systemImage: action.iconName ?? "checkmark")
+                  }
+                }
+              }
+            }
+          } label: {
+            Image(systemName: "ellipsis")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+              .frame(
+                width: isCompactLayout ? 28 : 22,
+                height: isCompactLayout ? 28 : 22
+              )
+              .background(Circle().fill(Color.surfaceHover))
+          }
+          .menuStyle(.borderlessButton)
+        }
+      }
+    }
+  }
+}
+
+struct DirectSessionComposerPendingTakeoverFooter: View {
+  let title: String
+  let onTakeover: () -> Void
+
+  var body: some View {
+    Button(action: onTakeover) {
+      Text(title)
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm_)
+        .background(
+          Capsule().fill(Color.accent.opacity(0.85))
+        )
+    }
+    .buttonStyle(.plain)
+  }
+}

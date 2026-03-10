@@ -1,5 +1,18 @@
 import Foundation
 
+struct DirectSessionComposerPendingPermissionFooterState: Equatable {
+  let showsDenyReason: Bool
+  let primaryDenyAction: ApprovalCardConfiguration.MenuAction?
+  let primaryApproveAction: ApprovalCardConfiguration.MenuAction?
+  let hasOverflowActions: Bool
+  let denySubmitDisabled: Bool
+}
+
+struct DirectSessionComposerPendingQuestionFooterState: Equatable {
+  let activeIndex: Int
+  let submitDisabled: Bool
+}
+
 enum DirectSessionComposerPendingPlanner {
   static func title(for model: ApprovalCardModel) -> String {
     switch model.mode {
@@ -146,5 +159,54 @@ enum DirectSessionComposerPendingPlanner {
     guard let value else { return nil }
     let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
     return normalized.isEmpty ? nil : normalized
+  }
+
+  static func permissionFooterState(
+    denyActions: [ApprovalCardConfiguration.MenuAction],
+    approveActions: [ApprovalCardConfiguration.MenuAction],
+    showsDenyReason: Bool,
+    hasDenyReason: Bool
+  ) -> DirectSessionComposerPendingPermissionFooterState {
+    DirectSessionComposerPendingPermissionFooterState(
+      showsDenyReason: showsDenyReason,
+      primaryDenyAction: denyActions.first,
+      primaryApproveAction: approveActions.first,
+      hasOverflowActions: denyActions.count > 1 || approveActions.count > 1,
+      denySubmitDisabled: showsDenyReason && !hasDenyReason
+    )
+  }
+
+  static func questionFooterState(
+    prompts: [ApprovalQuestionPrompt],
+    promptIndex: Int,
+    answers: [String: [String]],
+    drafts: [String: String]
+  ) -> DirectSessionComposerPendingQuestionFooterState {
+    let boundedIndex = min(max(promptIndex, 0), max(0, prompts.count - 1))
+    let submitDisabled = if prompts.isEmpty {
+      !(drafts["default"] ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .isEmpty
+    } else if boundedIndex >= prompts.count - 1 {
+      !allPromptsAnswered(prompts: prompts, answers: answers, drafts: drafts)
+    } else {
+      !promptIsAnswered(prompt: prompts[boundedIndex], answers: answers, drafts: drafts)
+    }
+
+    return DirectSessionComposerPendingQuestionFooterState(
+      activeIndex: boundedIndex,
+      submitDisabled: submitDisabled
+    )
+  }
+
+  static func hapticForDecision(_ decision: String) -> AppHaptic {
+    switch decision {
+      case "approved", "approved_for_session", "approved_always":
+        .success
+      case "abort":
+        .destructive
+      default:
+        .warning
+    }
   }
 }

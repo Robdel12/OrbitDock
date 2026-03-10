@@ -2,6 +2,7 @@ import Foundation
 @testable import OrbitDock
 import Testing
 
+@MainActor
 struct DirectSessionComposerPendingPlannerTests {
   @Test func toggledAnswersSupportsSingleAndMultiSelect() {
     let single = DirectSessionComposerPendingPlanner.toggledAnswers(
@@ -139,5 +140,83 @@ struct DirectSessionComposerPendingPlannerTests {
     #expect(state.denyReason.isEmpty)
     #expect(state.measuredContentHeight == 0)
     #expect(state.lastHapticApprovalIdentity == "keep-me")
+  }
+
+  @Test func questionFooterStateBoundsIndexAndLocksSubmitUntilAnswersExist() {
+    let first = ApprovalQuestionPrompt(
+      id: "q1",
+      header: nil,
+      question: "First",
+      options: [ApprovalQuestionOption(label: "A", description: nil)],
+      allowsMultipleSelection: false,
+      allowsOther: false,
+      isSecret: false
+    )
+    let second = ApprovalQuestionPrompt(
+      id: "q2",
+      header: nil,
+      question: "Second",
+      options: [],
+      allowsMultipleSelection: false,
+      allowsOther: true,
+      isSecret: false
+    )
+
+    let initial = DirectSessionComposerPendingPlanner.questionFooterState(
+      prompts: [first, second],
+      promptIndex: 99,
+      answers: ["q1": ["A"]],
+      drafts: [:]
+    )
+    #expect(initial.activeIndex == 1)
+    #expect(initial.submitDisabled)
+
+    let ready = DirectSessionComposerPendingPlanner.questionFooterState(
+      prompts: [first, second],
+      promptIndex: 99,
+      answers: ["q1": ["A"]],
+      drafts: ["q2": "done"]
+    )
+    #expect(ready.activeIndex == 1)
+    #expect(ready.submitDisabled == false)
+  }
+
+  @Test func permissionFooterStateTracksDenyComposerAndOverflow() {
+    let denyActions = [
+      ApprovalCardConfiguration.MenuAction(title: "Deny", decision: "denied"),
+      ApprovalCardConfiguration.MenuAction(title: "Deny with Reason", decision: "deny_reason"),
+    ]
+    let approveActions = [
+      ApprovalCardConfiguration.MenuAction(title: "Approve Once", decision: "approved"),
+      ApprovalCardConfiguration.MenuAction(title: "Approve Always", decision: "approved_always"),
+    ]
+
+    let composingDeny = DirectSessionComposerPendingPlanner.permissionFooterState(
+      denyActions: denyActions,
+      approveActions: approveActions,
+      showsDenyReason: true,
+      hasDenyReason: false
+    )
+    #expect(composingDeny.showsDenyReason)
+    #expect(composingDeny.denySubmitDisabled)
+    #expect(composingDeny.hasOverflowActions)
+
+    let normal = DirectSessionComposerPendingPlanner.permissionFooterState(
+      denyActions: denyActions,
+      approveActions: approveActions,
+      showsDenyReason: false,
+      hasDenyReason: true
+    )
+    #expect(normal.showsDenyReason == false)
+    #expect(normal.denySubmitDisabled == false)
+    #expect(normal.primaryDenyAction?.decision == "denied")
+    #expect(normal.primaryApproveAction?.decision == "approved")
+  }
+
+  @Test func hapticForDecisionMapsApprovalOutcomesDeterministically() {
+    #expect(DirectSessionComposerPendingPlanner.hapticForDecision("approved") == .success)
+    #expect(DirectSessionComposerPendingPlanner.hapticForDecision("approved_always") == .success)
+    #expect(DirectSessionComposerPendingPlanner.hapticForDecision("abort") == .destructive)
+    #expect(DirectSessionComposerPendingPlanner.hapticForDecision("denied") == .warning)
   }
 }

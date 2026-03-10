@@ -150,7 +150,7 @@ enum ApprovalCardConfiguration {
 
   // MARK: - Menu Action Definitions
 
-  struct MenuAction {
+  struct MenuAction: Equatable, Hashable {
     let title: String
     let iconName: String?
     let keyEquivalent: String
