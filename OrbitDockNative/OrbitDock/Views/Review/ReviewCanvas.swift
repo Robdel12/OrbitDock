@@ -39,28 +39,28 @@ struct ReviewCanvas: View {
   @Binding var selectedCommentIds: Set<String>
   var navigateToComment: Binding<ServerReviewComment?>?
 
-  @Environment(SessionStore.self) private var serverState
+  @Environment(SessionStore.self) var serverState
 
-  @State private var cursorIndex: Int = 0
-  @State private var collapsedFiles: Set<String> = []
-  @State private var collapsedHunks: Set<String> = []
+  @State var cursorIndex: Int = 0
+  @State var collapsedFiles: Set<String> = []
+  @State var collapsedHunks: Set<String> = []
   @State private var expandedContextBars: Set<String> = []
-  @State private var selectedTurnDiffId: String?
-  @State private var isFollowing = true
+  @State var selectedTurnDiffId: String?
+  @State var isFollowing = true
   @State private var previousFileCount = 0
   @FocusState private var isCanvasFocused: Bool
 
   // Comment interaction state
-  @State private var commentInteraction = ReviewCommentInteractionState()
+  @State var commentInteraction = ReviewCommentInteractionState()
 
   // Review round tracking — detects which files the model modified after feedback
-  @State private var reviewRoundTracker = ReviewRoundTrackerState()
+  @State var reviewRoundTracker = ReviewRoundTrackerState()
   @State private var showResolvedComments: Bool = false
 
   /// Diff parsing cache — avoids re-parsing on every body evaluation
   @State private var diffParseCache = ReviewDiffParseCache()
 
-  private var obs: SessionObservable {
+  var obs: SessionObservable {
     serverState.session(sessionId)
   }
 
@@ -120,7 +120,7 @@ struct ReviewCanvas: View {
 
   // MARK: - Cursor Helpers
 
-  private func visibleTargets(_ model: DiffModel) -> [ReviewCursorTarget] {
+  func visibleTargets(_ model: DiffModel) -> [ReviewCursorTarget] {
     ReviewCursorNavigation.visibleTargets(
       in: model,
       collapsedFiles: collapsedFiles,
@@ -128,15 +128,15 @@ struct ReviewCanvas: View {
     )
   }
 
-  private func currentTarget(_ model: DiffModel) -> ReviewCursorTarget? {
+  func currentTarget(_ model: DiffModel) -> ReviewCursorTarget? {
     ReviewCursorNavigation.currentTarget(cursorIndex: cursorIndex, targets: visibleTargets(model))
   }
 
-  private func currentFileIndex(_ model: DiffModel) -> Int {
+  func currentFileIndex(_ model: DiffModel) -> Int {
     ReviewCursorNavigation.currentFileIndex(target: currentTarget(model))
   }
 
-  private func currentFile(_ model: DiffModel) -> FileDiff? {
+  func currentFile(_ model: DiffModel) -> FileDiff? {
     ReviewCursorNavigation.currentFile(in: model, target: currentTarget(model))
   }
 
@@ -685,197 +685,6 @@ struct ReviewCanvas: View {
     .lineLimit(1)
   }
 
-  // MARK: - Keyboard Handling (magit-style)
-
-  //
-  // C-n / C-p    — move cursor one line (Emacs line nav)
-  // C-f / C-b    — jump cursor to next/prev section (file + hunk headers)
-  // C-space      — set mark for range selection
-  // n / p        — jump cursor to next/prev section (file + hunk headers)
-  // c            — open comment composer (range if mark, single line otherwise)
-  // ] / [        — jump to next/prev unresolved comment
-  // r            — toggle resolve on comment at cursor
-  // TAB          — toggle collapse at cursor (file header → file, hunk → hunk)
-  // RET          — open file in editor (dedicated handler)
-  // q            — close review pane
-  // f            — toggle follow mode
-
-  private func handleKeyPress(_ keyPress: KeyPress, model: DiffModel) -> KeyPress.Result {
-    // Emacs: C-n (next line)
-    if keyPress.key == "n", keyPress.modifiers.contains(.control) {
-      moveCursor(by: 1, in: model)
-      return .handled
-    }
-    // Emacs: C-p (previous line)
-    if keyPress.key == "p", keyPress.modifiers.contains(.control) {
-      moveCursor(by: -1, in: model)
-      return .handled
-    }
-    // Emacs: C-f (forward — next hunk)
-    if keyPress.key == "f", keyPress.modifiers.contains(.control) {
-      jumpToNextHunk(forward: true, in: model)
-      return .handled
-    }
-    // Emacs: C-b (backward — prev hunk)
-    if keyPress.key == "b", keyPress.modifiers.contains(.control) {
-      jumpToNextHunk(forward: false, in: model)
-      return .handled
-    }
-    // Emacs: C-g — abort / cancel mark / cancel composer
-    if keyPress.key == "g", keyPress.modifiers.contains(.control) {
-      commentInteraction.cancelActiveInteraction()
-      return .handled
-    }
-    // C-space — set mark for range selection
-    if keyPress.key == " ", keyPress.modifiers.contains(.control) {
-      let target = currentTarget(model)
-      if ReviewCommentComposerPlanner.canSetMark(for: target, model: model) {
-        commentInteraction.commentMark = target
-      }
-      return .handled
-    }
-
-    // Shift+S — send review comments to model (selected if any, else all open)
-    if keyPress.key == "S", keyPress.modifiers == .shift {
-      sendReview()
-      return .handled
-    }
-
-    // Shift+X — clear all comment selections
-    if keyPress.key == "X", keyPress.modifiers == .shift {
-      selectedCommentIds.removeAll()
-      return .handled
-    }
-
-    // Bare keys (no modifiers)
-    guard keyPress.modifiers.isEmpty else { return .ignored }
-
-    switch keyPress.key {
-      // n / p — section navigation (file headers + hunk headers)
-      case "n":
-        jumpToNextHunk(forward: true, in: model)
-        return .handled
-
-      case "p":
-        jumpToNextHunk(forward: false, in: model)
-        return .handled
-
-      // c — open comment composer
-      case "c":
-        return openComposer(model: model)
-
-      // ] — jump to next unresolved comment
-      case "]":
-        jumpToNextComment(forward: true, in: model)
-        return .handled
-
-      // [ — jump to previous unresolved comment
-      case "[":
-        jumpToNextComment(forward: false, in: model)
-        return .handled
-
-      // r — toggle resolve on comment at cursor
-      case "r":
-        resolveCommentAtCursor(model: model)
-        return .handled
-
-      // x — toggle selection on comment at cursor
-      case "x":
-        toggleSelectionAtCursor(model: model)
-        return .handled
-
-      // q — dismiss review pane
-      case "q":
-        onDismiss?()
-        return onDismiss != nil ? .handled : .ignored
-
-      // f — toggle follow mode
-      case "f":
-        isFollowing.toggle()
-        if isFollowing {
-          let targets = visibleTargets(model)
-          if let lastFile = targets.lastIndex(where: { $0.isFileHeader }) {
-            cursorIndex = lastFile
-          }
-        }
-        return .handled
-
-      default:
-        return .ignored
-    }
-  }
-
-  // MARK: - Cursor Movement
-
-  /// Move cursor by delta lines (C-n/C-p — line-by-line).
-  private func moveCursor(by delta: Int, in model: DiffModel) {
-    let targets = visibleTargets(model)
-    guard let nextIndex = ReviewCursorNavigation.movedCursor(
-      currentIndex: cursorIndex,
-      delta: delta,
-      targets: targets
-    ) else { return }
-    isFollowing = false
-    cursorIndex = nextIndex
-  }
-
-  /// Jump cursor to next/prev section header — file headers + hunk headers.
-  private func jumpToNextHunk(forward: Bool, in model: DiffModel) {
-    let targets = visibleTargets(model)
-    guard let nextIndex = ReviewCursorNavigation.jumpedToNextSection(
-      currentIndex: cursorIndex,
-      forward: forward,
-      targets: targets
-    ) else { return }
-    isFollowing = false
-    cursorIndex = nextIndex
-  }
-
-  // MARK: - Collapse
-
-  /// Toggle collapse of the file at the given file index, repositioning cursor to the file header.
-  private func toggleCollapseAtCursor(model: DiffModel, fileIdx: Int) {
-    guard fileIdx < model.files.count else { return }
-    let fileId = model.files[fileIdx].id
-
-    withAnimation(Motion.snappy) {
-      collapsedFiles = ReviewCursorNavigation.toggledFileCollapse(
-        fileId: fileId,
-        collapsedFiles: collapsedFiles
-      )
-    }
-
-    let newTargets = visibleTargets(model)
-    if let idx = ReviewCursorNavigation.fileHeaderIndex(fileIndex: fileIdx, targets: newTargets) {
-      cursorIndex = idx
-    } else if !newTargets.isEmpty {
-      cursorIndex = min(cursorIndex, newTargets.count - 1)
-    }
-  }
-
-  /// Toggle collapse of a specific hunk, repositioning cursor to the hunk header.
-  private func toggleHunkCollapse(model: DiffModel, fileIdx: Int, hunkIdx: Int) {
-    let hunkKey = ReviewCursorNavigation.hunkCollapseKey(fileIndex: fileIdx, hunkIndex: hunkIdx)
-
-    withAnimation(Motion.snappy) {
-      collapsedHunks = ReviewCursorNavigation.toggledHunkCollapse(
-        hunkKey: hunkKey,
-        collapsedHunks: collapsedHunks
-      )
-    }
-
-    let newTargets = visibleTargets(model)
-    if let idx = ReviewCursorNavigation.hunkHeaderIndex(
-      fileIndex: fileIdx,
-      hunkIndex: hunkIdx,
-      targets: newTargets
-    ) {
-      cursorIndex = idx
-    } else if !newTargets.isEmpty {
-      cursorIndex = min(cursorIndex, newTargets.count - 1)
-    }
-  }
-
   // MARK: - Comment Helpers
 
   /// Get all comments whose range ends at this line (so thread appears after the last selected line).
@@ -998,7 +807,7 @@ struct ReviewCanvas: View {
   }
 
   /// Open the comment composer for the current cursor position or mark range.
-  private func openComposer(model: DiffModel) -> KeyPress.Result {
+  func openComposer(model: DiffModel) -> KeyPress.Result {
     let composerTarget = ReviewCommentComposerPlanner.openComposerTarget(
       mark: commentInteraction.commentMark,
       currentTarget: currentTarget(model),
@@ -1040,7 +849,7 @@ struct ReviewCanvas: View {
   }
 
   /// Resolve/unresolve a comment.
-  private func resolveComment(_ comment: ServerReviewComment) {
+  func resolveComment(_ comment: ServerReviewComment) {
     let newStatus: ServerReviewCommentStatus = comment.status == .open ? .resolved : .open
     Task {
       try? await serverState.clients.approvals.updateReviewComment(
@@ -1051,7 +860,7 @@ struct ReviewCanvas: View {
   }
 
   /// Toggle resolve on the first open comment at the current cursor line.
-  private func resolveCommentAtCursor(model: DiffModel) {
+  func resolveCommentAtCursor(model: DiffModel) {
     guard let target = currentTarget(model),
           case let .diffLine(f, _, _) = target else { return }
 
@@ -1069,7 +878,7 @@ struct ReviewCanvas: View {
   }
 
   /// Toggle selection on the open comment at cursor for partial sends.
-  private func toggleSelectionAtCursor(model: DiffModel) {
+  func toggleSelectionAtCursor(model: DiffModel) {
     guard let target = currentTarget(model),
           case let .diffLine(f, _, _) = target else { return }
 
@@ -1088,116 +897,12 @@ struct ReviewCanvas: View {
     }
   }
 
-  /// Jump cursor to the next/prev diff line that has an unresolved comment.
-  private func jumpToNextComment(forward: Bool, in model: DiffModel) {
-    let targets = visibleTargets(model)
-    guard !targets.isEmpty else { return }
-    let safeIdx = min(cursorIndex, targets.count - 1)
-
-    let unresolvedFiles = buildUnresolvedCommentLineMap(model: model)
-
-    let range = forward
-      ? Array((safeIdx + 1) ..< targets.count) + Array(0 ..< safeIdx)
-      : (Array(stride(from: safeIdx - 1, through: 0, by: -1)) + Array(stride(
-        from: targets.count - 1,
-        through: safeIdx + 1,
-        by: -1
-      )))
-
-    for i in range {
-      guard case let .diffLine(f, h, l) = targets[i] else { continue }
-      let file = model.files[f]
-      let line = file.hunks[h].lines[l]
-      guard let newLine = line.newLineNum else { continue }
-
-      if let fileSet = unresolvedFiles[file.newPath], fileSet.contains(newLine) {
-        // Auto-expand collapsed file/hunk
-        let fileId = file.id
-        if collapsedFiles.contains(fileId) {
-          _ = withAnimation(Motion.snappy) {
-            collapsedFiles.remove(fileId)
-          }
-        }
-        let hunkKey = "\(f)-\(h)"
-        if collapsedHunks.contains(hunkKey) {
-          _ = withAnimation(Motion.snappy) {
-            collapsedHunks.remove(hunkKey)
-          }
-        }
-
-        // Recompute targets after expansion and find the right index
-        let newTargets = visibleTargets(model)
-        if let newIdx = newTargets.firstIndex(of: .diffLine(fileIndex: f, hunkIndex: h, lineIndex: l)) {
-          isFollowing = false
-          cursorIndex = newIdx
-        } else {
-          isFollowing = false
-          cursorIndex = i
-        }
-        return
-      }
-    }
-  }
-
-  /// Build a map of filePath → Set<newLineNum> for unresolved comments.
-  /// Respects the active turn view scope.
-  private func buildUnresolvedCommentLineMap(model _: DiffModel) -> [String: Set<Int>] {
-    ReviewCanvasProjection.unresolvedCommentLineMap(
-      comments: obs.reviewComments,
-      activeTurnId: selectedTurnDiffId
-    )
-  }
-
-  // MARK: - Navigate to Comment
-
-  private func handleNavigateToComment(_ model: DiffModel) {
-    guard let comment = navigateToComment?.wrappedValue else { return }
-
-    // Find the file
-    guard let fileIdx = model.files.firstIndex(where: { $0.newPath == comment.filePath }) else { return }
-    let file = model.files[fileIdx]
-
-    // Expand file if collapsed
-    if collapsedFiles.contains(file.id) {
-      _ = withAnimation(Motion.snappy) {
-        collapsedFiles.remove(file.id)
-      }
-    }
-
-    // Find the hunk and line
-    for (hunkIdx, hunk) in file.hunks.enumerated() {
-      for (lineIdx, line) in hunk.lines.enumerated() {
-        if let newLine = line.newLineNum, newLine == Int(comment.lineStart) {
-          // Expand hunk if collapsed
-          let hunkKey = "\(fileIdx)-\(hunkIdx)"
-          if collapsedHunks.contains(hunkKey) {
-            _ = withAnimation(Motion.snappy) {
-              collapsedHunks.remove(hunkKey)
-            }
-          }
-
-          // Move cursor
-          let targets = visibleTargets(model)
-          if let idx = targets.firstIndex(of: .diffLine(fileIndex: fileIdx, hunkIndex: hunkIdx, lineIndex: lineIdx)) {
-            isFollowing = false
-            cursorIndex = idx
-          }
-
-          navigateToComment?.wrappedValue = nil
-          return
-        }
-      }
-    }
-
-    navigateToComment?.wrappedValue = nil
-  }
-
   // MARK: - Send Review to Model
 
   /// Send review comments as structured feedback to the model, then resolve them.
   /// If comments are selected (via `x`), sends only those. Otherwise sends all open.
   /// Records a review round to track which files the model modifies in response.
-  private func sendReview() {
+  func sendReview() {
     let openComments = ReviewCanvasProjection.openComments(
       from: obs.reviewComments,
       activeTurnId: selectedTurnDiffId
