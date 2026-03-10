@@ -15,6 +15,7 @@ import UniformTypeIdentifiers
 struct DirectSessionComposer: View {
   let sessionId: String
   @Binding var selectedSkills: Set<String>
+  var pendingPanelOpenSignal: Int = 0
   @Binding var isPinned: Bool
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
@@ -629,15 +630,11 @@ struct DirectSessionComposer: View {
       lastHapticPendingApprovalIdentity = newValue
       Platform.services.playHaptic(.warning)
     }
-    .onReceive(NotificationCenter.default.publisher(for: .openPendingActionPanel)) { notification in
-      guard let requestedSessionId = notification.userInfo?["sessionId"] as? String else { return }
-      guard requestedSessionId == sessionId else { return }
+    .onChange(of: pendingPanelOpenSignal) { _, newValue in
+      guard newValue > 0 else { return }
       withAnimation(Motion.standard) {
         pendingPanelExpanded = true
       }
-      isPinned = true
-      unreadCount = 0
-      scrollToBottomTrigger += 1
     }
     .onChange(of: codexModelOptionsSignature) { _, _ in
       guard obs.isDirectCodex else { return }

@@ -39,6 +39,7 @@ struct SessionDetailView: View {
   @State private var reviewFileId: String?
   @State private var navigateToComment: ServerReviewComment?
   @State private var selectedCommentIds: Set<String> = []
+  @State private var pendingApprovalPanelOpenSignal = 0
 
   // Worktree cleanup state
   @State private var worktreeCleanupDismissed = false
@@ -121,6 +122,7 @@ struct SessionDetailView: View {
         DirectSessionComposer(
           sessionId: sessionId,
           selectedSkills: $selectedSkills,
+          pendingPanelOpenSignal: pendingApprovalPanelOpenSignal,
           isPinned: $isPinned,
           unreadCount: $unreadCount,
           scrollToBottomTrigger: $scrollToBottomTrigger
@@ -216,6 +218,15 @@ struct SessionDetailView: View {
         regularActionBar
       }
     }
+  }
+
+  private func openPendingApprovalPanel() {
+    withAnimation(Motion.standard) {
+      pendingApprovalPanelOpenSignal += 1
+    }
+    isPinned = true
+    unreadCount = 0
+    scrollToBottomTrigger += 1
   }
 
   private var regularActionBar: some View {
@@ -471,6 +482,9 @@ struct SessionDetailView: View {
             layoutConfig = .split
           }
         }
+      },
+      onOpenPendingApprovalPanel: {
+        openPendingApprovalPanel()
       },
       isPinned: $isPinned,
       unreadCount: $unreadCount,

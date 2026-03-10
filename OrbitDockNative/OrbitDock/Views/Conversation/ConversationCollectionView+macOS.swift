@@ -51,6 +51,7 @@ import SwiftUI
     let openFileInReview: ((String) -> Void)?
     let onLoadMore: () -> Void
     let onNavigateToReviewFile: ((String, Int) -> Void)?
+    let onOpenPendingApprovalPanel: (() -> Void)?
 
     @Binding var isPinned: Bool
     @Binding var unreadCount: Int
@@ -70,6 +71,7 @@ import SwiftUI
       vc.sessionId = sessionId
       vc.onLoadMore = onLoadMore
       vc.onNavigateToReviewFile = onNavigateToReviewFile
+      vc.onOpenPendingApprovalPanel = onOpenPendingApprovalPanel
       vc.isPinnedToBottom = isPinned
 
       vc.applyFullState(
@@ -97,6 +99,7 @@ import SwiftUI
       vc.sessionId = sessionId
       vc.onLoadMore = onLoadMore
       vc.onNavigateToReviewFile = onNavigateToReviewFile
+      vc.onOpenPendingApprovalPanel = onOpenPendingApprovalPanel
 
       let oldMode = vc.sourceState.metadata.chatViewMode
       let oldMessageCount = vc.sourceState.messages.count
@@ -175,6 +178,7 @@ import SwiftUI
     var sessionId: String?
     var onLoadMore: (() -> Void)?
     var onNavigateToReviewFile: ((String, Int) -> Void)?
+    var onOpenPendingApprovalPanel: (() -> Void)?
     var isPinnedToBottom = true
 
     // Derived caches for O(1) cell rendering lookups
@@ -888,6 +892,7 @@ import SwiftUI
             let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeApprovalCardCellView)
               ?? NativeApprovalCardCellView(frame: .zero)
             cell.identifier = id
+            cell.onTap = onOpenPendingApprovalPanel
             cell.configure(model: model)
             return cell
           }

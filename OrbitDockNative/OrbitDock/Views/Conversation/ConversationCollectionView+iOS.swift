@@ -51,6 +51,7 @@ import SwiftUI
     let openFileInReview: ((String) -> Void)?
     let onLoadMore: () -> Void
     let onNavigateToReviewFile: ((String, Int) -> Void)?
+    let onOpenPendingApprovalPanel: (() -> Void)?
 
     @Binding var isPinned: Bool
     @Binding var unreadCount: Int
@@ -70,6 +71,7 @@ import SwiftUI
       vc.sessionId = sessionId
       vc.onLoadMore = onLoadMore
       vc.onNavigateToReviewFile = onNavigateToReviewFile
+      vc.onOpenPendingApprovalPanel = onOpenPendingApprovalPanel
       vc.isPinnedToBottom = isPinned
 
       vc.applyFullState(
@@ -97,6 +99,7 @@ import SwiftUI
       vc.sessionId = sessionId
       vc.onLoadMore = onLoadMore
       vc.onNavigateToReviewFile = onNavigateToReviewFile
+      vc.onOpenPendingApprovalPanel = onOpenPendingApprovalPanel
 
       let oldMode = vc.chatViewMode
 
@@ -171,6 +174,7 @@ import SwiftUI
     var sessionId: String?
     var onLoadMore: (() -> Void)?
     var onNavigateToReviewFile: ((String, Int) -> Void)?
+    var onOpenPendingApprovalPanel: (() -> Void)?
     var isPinnedToBottom = true
 
     // Timeline state — mirrors macOS VC pattern
@@ -351,6 +355,7 @@ import SwiftUI
       approvalCardCellReg = UICollectionView.CellRegistration<UIKitApprovalCardCell, Void> {
         [weak self] cell, _, _ in
         guard let self, let model = self.buildApprovalCardModel() else { return }
+        cell.onTap = self.onOpenPendingApprovalPanel
         cell.configure(model: model)
       }
 

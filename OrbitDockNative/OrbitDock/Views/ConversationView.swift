@@ -23,6 +23,7 @@ struct ConversationView: View {
   var model: String?
   var chatViewMode: ChatViewMode = .focused
   var onNavigateToReviewFile: ((String, Int) -> Void)? // (filePath, lineNumber) deep link from review card
+  var onOpenPendingApprovalPanel: (() -> Void)?
 
   @Environment(SessionStore.self) private var serverState
 
@@ -143,6 +144,7 @@ struct ConversationView: View {
         serverState.loadOlderMessages(sessionId: sid, limit: pageSize)
       },
       onNavigateToReviewFile: onNavigateToReviewFile,
+      onOpenPendingApprovalPanel: onOpenPendingApprovalPanel,
       isPinned: $isPinned,
       unreadCount: $unreadCount,
       scrollToBottomTrigger: $scrollToBottomTrigger

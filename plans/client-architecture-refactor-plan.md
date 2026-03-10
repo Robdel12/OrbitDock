@@ -29,6 +29,10 @@ This plan is now an active execution document, not just a roadmap.
 - **Core conversation recovery outcome from Phase 3**
   - reopening a previously broken Claude session now loads the real conversation instead of a sparse subset
   - the server conversation bootstrap contract is now authoritative and covered by regression tests
+- **Phase 9, composer phase 1**
+  - `DirectSessionComposer` now has a real input state model instead of hand-managed completion/focus flags in the root view
+  - send-mode decisions now go through a pure action planner instead of living inline in the feature view
+  - deterministic unit tests cover input transitions, completion behavior, and send planning
 - **Testing baseline**
   - `make build` is green
   - `make test-unit` is green
@@ -53,6 +57,7 @@ This plan is now an active execution document, not just a roadmap.
   - service lifecycles and window-local state are moving in the right direction
   - app-internal session refresh now uses typed per-store update streams instead of a global `serverSessionsDidChange` notification
   - internal fork navigation is starting to move onto window-local typed paths instead of broadcast notifications
+  - approval-card to composer routing is moving onto typed feature callbacks instead of process-wide notifications
   - these phases are not finished yet
 
 ### Next
@@ -60,22 +65,27 @@ This plan is now an active execution document, not just a roadmap.
 - finish the remaining window-local routing cleanup and remove the last app-internal notification paths
 - keep thinning `SessionStore` and related store/runtime ownership
 - then land complete feature phases in this order:
-  - composer input + command engine extraction
   - review projection + workflow extraction
+  - composer pending-approval, attachment, and action-boundary extraction
   - larger screen decomposition
 
 ### Next complete phases
 
 - **Composer phase 1: Extract the input + command engine**
-  - move input/completion/attachment state out of `DirectSessionComposer.swift`
-  - introduce a dedicated composer model and action/coordinator layer
-  - keep pending approval and dictation as follow-up slices
-  - add deterministic unit tests around input transitions, completion behavior, and send-mode decisions
+  - done
+  - input/completion state now lives in a dedicated composer model
+  - send-mode and command routing now have a pure planner with unit tests
+  - the remaining composer work is pending-approval state, attachments, and provider/action boundaries
 - **Review phase 1: Extract projection + workflow**
   - move review projection/state out of `ReviewCanvas.swift`
   - introduce a workflow/coordinator for comment CRUD and “send review” side effects
   - keep the current rendering surface, but stop letting the view own the feature’s state machine
   - add unit tests around projection, review status derivation, and workflow behavior
+- **Composer phase 2: Extract pending approval + action boundaries**
+  - move pending approval presentation state and side effects out of `DirectSessionComposer.swift`
+  - keep the root view focused on rendering bindings into the composer model
+  - continue shrinking provider-specific branching behind typed action/coordinator seams
+  - add deterministic tests for pending-action routing and provider-aware send execution
 
 ---
 

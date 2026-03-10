@@ -26,6 +26,7 @@
     private let chevronView = NSImageView()
     private var trackingArea: NSTrackingArea?
     private var currentModel: ApprovalCardModel?
+    var onTap: (() -> Void)?
     private var isHovering = false {
       didSet {
         guard isHovering != oldValue else { return }
@@ -189,12 +190,8 @@
     }
 
     @objc private func stripClicked() {
-      guard let model = currentModel else { return }
-      NotificationCenter.default.post(
-        name: .openPendingActionPanel,
-        object: nil,
-        userInfo: ["sessionId": model.sessionId]
-      )
+      guard currentModel != nil else { return }
+      onTap?()
     }
 
     static func requiredHeight(for model: ApprovalCardModel?, availableWidth: CGFloat) -> CGFloat {

@@ -26,6 +26,7 @@
     private let chevronView = UIImageView()
 
     private var currentModel: ApprovalCardModel?
+    var onTap: (() -> Void)?
 
     override init(frame: CGRect) {
       super.init(frame: frame)
@@ -153,12 +154,8 @@
     }
 
     @objc private func stripTapped() {
-      guard let model = currentModel else { return }
-      NotificationCenter.default.post(
-        name: .openPendingActionPanel,
-        object: nil,
-        userInfo: ["sessionId": model.sessionId]
-      )
+      guard currentModel != nil else { return }
+      onTap?()
     }
 
     static func requiredHeight(for model: ApprovalCardModel?, availableWidth: CGFloat) -> CGFloat {
