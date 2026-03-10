@@ -40,7 +40,7 @@ enum SessionProvider: String, CaseIterable, Identifiable {
 
 // MARK: - Effort Level (Claude)
 
-private enum ClaudeEffortLevel: String, CaseIterable, Identifiable {
+enum ClaudeEffortLevel: String, CaseIterable, Identifiable {
   case `default` = ""
   case low
   case medium
@@ -170,13 +170,6 @@ struct NewSessionSheet: View {
       return trimmed.isEmpty ? nil : trimmed
     }
     return claudeModelId.isEmpty ? nil : claudeModelId
-  }
-
-  private var defaultCodexModel: String {
-    if let model = codexModels.first(where: { $0.isDefault && !$0.model.isEmpty })?.model {
-      return model
-    }
-    return codexModels.first(where: { !$0.model.isEmpty })?.model ?? ""
   }
 
   private var codexModelOptionsSignature: String {
@@ -1160,12 +1153,6 @@ struct NewSessionSheet: View {
     .background(Color.statusPermission.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.md))
   }
 
-  private func parseToolList(_ text: String) -> [String] {
-    text.split(separator: ",")
-      .map { $0.trimmingCharacters(in: .whitespaces) }
-      .filter { !$0.isEmpty }
-  }
-
   // MARK: - Actions
 
   private func normalizeEndpointSelection() {
@@ -1190,18 +1177,18 @@ struct NewSessionSheet: View {
   }
 
   private func resetProviderState() {
-    // Reset provider-specific state when switching
-    claudeModelId = ""
-    customModelInput = ""
-    useCustomModel = false
-    selectedPermissionMode = .default
-    allowedToolsText = ""
-    disallowedToolsText = ""
-    showToolConfig = false
-    selectedEffort = .default
-    codexModel = ""
-    selectedAutonomy = .autonomous
-    codexErrorMessage = nil
+    let state = NewSessionProviderStatePlanner.reset()
+    claudeModelId = state.claudeModelId
+    customModelInput = state.customModelInput
+    useCustomModel = state.useCustomModel
+    selectedPermissionMode = state.selectedPermissionMode
+    allowedToolsText = state.allowedToolsText
+    disallowedToolsText = state.disallowedToolsText
+    showToolConfig = state.showToolConfig
+    selectedEffort = state.selectedEffort
+    codexModel = state.codexModel
+    selectedAutonomy = state.selectedAutonomy
+    codexErrorMessage = state.codexErrorMessage
   }
 
   private func syncModelSelections() {
@@ -1210,18 +1197,20 @@ struct NewSessionSheet: View {
   }
 
   private func syncClaudeModelSelection() {
-    if claudeModels.isEmpty {
-      useCustomModel = true
-    } else if claudeModelId.isEmpty || !claudeModels.contains(where: { $0.value == claudeModelId }) {
-      claudeModelId = claudeModels.first?.value ?? ""
-      useCustomModel = false
-    }
+    let selection = NewSessionProviderStatePlanner.syncClaudeModelSelection(
+      currentModelId: claudeModelId,
+      useCustomModel: useCustomModel,
+      models: claudeModels
+    )
+    claudeModelId = selection.modelId
+    useCustomModel = selection.useCustomModel
   }
 
   private func syncCodexModelSelection() {
-    if codexModel.isEmpty || !codexModels.contains(where: { $0.model == codexModel }) {
-      codexModel = defaultCodexModel
-    }
+    codexModel = NewSessionProviderStatePlanner.syncCodexModelSelection(
+      currentModel: codexModel,
+      models: codexModels
+    )
   }
 
   private func initGitAndEnableWorktree() {
@@ -1230,9 +1219,12 @@ struct NewSessionSheet: View {
     Task { @MainActor in
       defer { isCreating = false }
       do {
-        _ = try await runtime.clients.worktrees.gitInit(path: selectedPath)
-        selectedPathIsGit = true
-        useWorktree = true
+        let state = try await NewSessionLaunchCoordinator.initializeGit(
+          at: selectedPath,
+          using: launchPorts(store: endpointAppState, runtime: runtime)
+        )
+        selectedPathIsGit = state.selectedPathIsGit
+        useWorktree = state.useWorktree
       } catch {
         worktreeError = "Failed to initialize git: \(error.localizedDescription)"
       }
@@ -1240,30 +1232,53 @@ struct NewSessionSheet: View {
   }
 
   private func createSession() {
-    guard !selectedPath.isEmpty else { return }
+    guard let plan = NewSessionRequestPlanner.planLaunch(
+      selectedPath: selectedPath,
+      useWorktree: useWorktree,
+      worktreeBranch: worktreeBranch,
+      worktreeBaseBranch: worktreeBaseBranch,
+      providerConfiguration: NewSessionProviderConfiguration(
+        provider: provider,
+        claudeModel: resolvedClaudeModel,
+        claudePermissionMode: selectedPermissionMode,
+        allowedToolsText: allowedToolsText,
+        disallowedToolsText: disallowedToolsText,
+        claudeEffort: selectedEffort.serialized,
+        codexModel: codexModel,
+        codexAutonomy: selectedAutonomy
+      ),
+      bootstrapPrompt: continuationPrompt
+    ) else {
+      return
+    }
 
-    let branch = worktreeBranch.trimmingCharacters(in: .whitespaces)
-
-    if useWorktree, !branch.isEmpty {
-      createSessionWithWorktree(branch: branch)
-    } else {
-      createSessionDirect()
+    switch plan.target {
+      case let .worktree(repoPath, branch, baseBranch):
+        createSessionWithWorktree(plan: plan, repoPath: repoPath, branch: branch, baseBranch: baseBranch)
+      case .direct:
+        createSessionDirect(plan: plan)
     }
   }
 
-  private func createSessionWithWorktree(branch: String) {
+  private func createSessionWithWorktree(
+    plan: NewSessionLaunchPlan,
+    repoPath: String,
+    branch: String,
+    baseBranch: String?
+  ) {
+    guard let runtime = runtimeRegistry.runtimesByEndpointId[selectedEndpointId] else { return }
     isCreating = true
     worktreeError = nil
-    guard let runtime = runtimeRegistry.runtimesByEndpointId[selectedEndpointId] else { return }
+    let store = endpointAppState
     Task { @MainActor in
       do {
-        let baseBranch = worktreeBaseBranch.trimmingCharacters(in: .whitespaces)
-        let worktree = try await runtime.clients.worktrees.createWorktree(
-          repoPath: selectedPath,
+        let worktreePath = try await NewSessionLaunchCoordinator.createWorktree(
+          repoPath: repoPath,
           branchName: branch,
-          baseBranch: baseBranch.isEmpty ? nil : baseBranch
+          baseBranch: baseBranch,
+          using: launchPorts(store: store, runtime: runtime)
         )
-        launchSession(cwd: worktree.worktreePath)
+        launchSession(plan: plan, cwd: worktreePath, store: store, runtime: runtime)
         dismiss()
       } catch {
         isCreating = false
@@ -1272,54 +1287,55 @@ struct NewSessionSheet: View {
     }
   }
 
-  private func createSessionDirect() {
-    launchSession(cwd: selectedPath)
+  private func createSessionDirect(plan: NewSessionLaunchPlan) {
+    guard case let .direct(cwd) = plan.target else { return }
+    launchSession(plan: plan, cwd: cwd, store: endpointAppState, runtime: nil)
     dismiss()
   }
 
-  private func launchSession(cwd: String) {
-    let store = endpointAppState
-    let prompt = continuationPrompt
+  private func launchSession(
+    plan: NewSessionLaunchPlan,
+    cwd: String,
+    store: SessionStore,
+    runtime: ServerRuntime?
+  ) {
+    let request = plan.requestTemplate.makeRequest(cwd: cwd)
 
-    switch provider {
-      case .claude:
-        let request = SessionsClient.CreateSessionRequest(
-          provider: "claude",
-          cwd: cwd,
-          model: resolvedClaudeModel,
-          permissionMode: selectedPermissionMode == .default ? nil : selectedPermissionMode.rawValue,
-          allowedTools: parseToolList(allowedToolsText),
-          disallowedTools: parseToolList(disallowedToolsText),
-          effort: selectedEffort.serialized
-        )
-        Task {
-          let response = try? await store.createSession(request)
-          if let prompt, let sessionId = response?.sessionId {
-            try? await store.clients.conversation.sendMessage(
-              sessionId,
-              request: ConversationClient.SendMessageRequest(content: prompt)
-            )
-          }
-        }
-
-      case .codex:
-        let request = SessionsClient.CreateSessionRequest(
-          provider: "codex",
-          cwd: cwd,
-          model: codexModel,
-          approvalPolicy: selectedAutonomy.approvalPolicy,
-          sandboxMode: selectedAutonomy.sandboxMode
-        )
-        Task {
-          let response = try? await store.createSession(request)
-          if let prompt, let sessionId = response?.sessionId {
-            try? await store.clients.conversation.sendMessage(
-              sessionId,
-              request: ConversationClient.SendMessageRequest(content: prompt)
-            )
-          }
-        }
+    Task {
+      _ = try? await NewSessionLaunchCoordinator.launchSession(
+        request: request,
+        continuationPrompt: plan.bootstrapPrompt,
+        using: launchPorts(store: store, runtime: runtime)
+      )
     }
+  }
+
+  private func launchPorts(store: SessionStore, runtime: ServerRuntime?) -> NewSessionLaunchPorts {
+    NewSessionLaunchPorts(
+      gitInit: { path in
+        guard let runtime else { throw NewSessionLaunchCoordinatorError.runtimeUnavailable }
+        _ = try await runtime.clients.worktrees.gitInit(path: path)
+      },
+      createWorktree: { repoPath, branchName, baseBranch in
+        guard let runtime else { throw NewSessionLaunchCoordinatorError.runtimeUnavailable }
+        let worktree = try await runtime.clients.worktrees.createWorktree(
+          repoPath: repoPath,
+          branchName: branchName,
+          baseBranch: baseBranch
+        )
+        return worktree.worktreePath
+      },
+      createSession: { request in
+        let response = try await store.createSession(request)
+        return response.sessionId
+      },
+      sendBootstrapPrompt: { sessionId, prompt in
+        try await store.clients.conversation.sendMessage(
+          sessionId,
+          request: ConversationClient.SendMessageRequest(content: prompt)
+        )
+      }
+    )
   }
 
   private func applyContinuationDefaultsIfNeeded() {

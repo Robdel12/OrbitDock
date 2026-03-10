@@ -69,6 +69,9 @@ This plan is now an active execution document, not just a roadmap.
 - **Composer phase 2d**
   - provider controls and workflow overflow menus now live in dedicated composer helpers instead of the main footer file
   - the remaining composer cleanup is now mostly display-only polish and any last provider-specific action drift
+- **New session phase 1**
+  - launch request planning, provider-state sync/reset, and async launch coordination now live in dedicated helpers instead of `NewSessionSheet`
+  - deterministic unit tests now cover request planning, provider model sync, and launch sequencing around git init, worktree creation, and continuation prompts
 - **Testing baseline**
   - `make build` is green
   - `make test-unit` is green
@@ -107,7 +110,6 @@ This plan is now an active execution document, not just a roadmap.
 - keep thinning `SessionStore` and related store/runtime ownership
 - clean up the last obvious app-global leftovers, especially dead singletons and preview/runtime `.shared` leakage
 - then land complete feature phases in this order:
-  - new session launch/state decomposition
   - app-global ownership cleanup
   - larger screen decomposition
 
@@ -130,9 +132,9 @@ This plan is now an active execution document, not just a roadmap.
   - keep the root view focused on rendering bindings into the composer model
   - add deterministic tests for pending-action routing, attachment behavior, and provider-aware send execution
 - **New session phase 1: Extract launch planning + provider state**
-  - next
-  - move session request construction, provider-specific selection sync, and launch workflow decisions out of `NewSessionSheet`
-  - add deterministic tests for request planning, provider reset/sync behavior, and launch action selection
+  - done
+  - session request construction, provider-specific selection sync/reset, and async launch workflow now live in dedicated helpers instead of `NewSessionSheet`
+  - deterministic tests now cover request planning, provider reset/sync behavior, and launch action sequencing
 
 ---
 
