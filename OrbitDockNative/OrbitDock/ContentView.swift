@@ -239,6 +239,7 @@ struct ContentView: View {
 #Preview {
   let runtimeRegistry = ServerRuntimeRegistry.shared
   let attentionService = AttentionService()
+  let notificationManager = NotificationManager.shared
   let router = AppRouter()
   let toastManager = ToastManager()
   ContentView()
@@ -251,6 +252,7 @@ struct ContentView: View {
       WindowSessionCoordinator(
         runtimeRegistry: runtimeRegistry,
         attentionService: attentionService,
+        notificationManager: notificationManager,
         toastManager: toastManager,
         router: router
       )
