@@ -3,7 +3,7 @@ import SwiftUI
 
 #if os(macOS)
   private struct ServerManagerEnvironmentKey: EnvironmentKey {
-    static let defaultValue = ServerManager.shared
+    static let defaultValue = ServerManager.live()
   }
 
   extension EnvironmentValues {
@@ -37,7 +37,7 @@ struct OrbitDockAppRuntimeDependencies {
         externalNavigationCenter: AppExternalNavigationCenter(),
         notificationManager: NotificationManager(),
         shouldConnectServer: shouldConnectServer,
-        serverManager: .shared
+        serverManager: .live()
       )
     }
   #else

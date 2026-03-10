@@ -1,6 +1,7 @@
 @testable import OrbitDock
 import Testing
 
+@MainActor
 struct ServerSetupVisibilityTests {
   @Test func showsSetupWhenNotConfiguredAndNoConnectedRuntimes() {
     let shouldShow = ServerSetupVisibility.shouldShowSetup(
@@ -42,6 +43,7 @@ struct ServerSetupVisibilityTests {
     }
   }
 
+  @MainActor
   struct ServerManagerForcedStateParsingTests {
     @Test func parsesNotConfiguredAliases() {
       #expect(forcedStateLabel(ServerManager.parseForcedInstallState("not_configured")) == "notConfigured")

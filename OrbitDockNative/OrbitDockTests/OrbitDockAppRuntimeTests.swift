@@ -11,7 +11,8 @@ struct OrbitDockAppRuntimeTests {
     #expect(dependencies.externalNavigationCenter !== otherDependencies.externalNavigationCenter)
     #expect(dependencies.notificationManager !== otherDependencies.notificationManager)
     #if os(macOS)
-      #expect(dependencies.serverManager === ServerManager.shared)
+      #expect(dependencies.serverManager !== ServerManager.shared)
+      #expect(dependencies.serverManager !== otherDependencies.serverManager)
     #endif
   }
 

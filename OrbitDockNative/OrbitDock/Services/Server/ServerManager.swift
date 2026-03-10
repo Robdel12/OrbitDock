@@ -46,6 +46,10 @@ enum ServerInstallStateResolver {
     private let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
     private let endpointSettings: ServerEndpointSettingsClient
 
+    static func live(endpointSettings: ServerEndpointSettingsClient? = nil) -> ServerManager {
+      ServerManager(endpointSettings: endpointSettings)
+    }
+
     @Published private(set) var installState: ServerInstallState = .unknown
     @Published var isInstalling = false
     @Published var installError: String?
@@ -468,6 +472,10 @@ enum ServerInstallStateResolver {
   final class ServerManager: ObservableObject {
     static let shared = ServerManager()
     private let endpointSettings: ServerEndpointSettingsClient
+
+    static func live(endpointSettings: ServerEndpointSettingsClient? = nil) -> ServerManager {
+      ServerManager(endpointSettings: endpointSettings)
+    }
 
     @Published private(set) var installState: ServerInstallState = .notConfigured
     @Published var isInstalling = false
