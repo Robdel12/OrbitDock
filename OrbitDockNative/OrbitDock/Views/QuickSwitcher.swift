@@ -25,6 +25,15 @@ enum QuickLaunchProvider: Equatable {
     }
   }
 
+  var intent: QuickLaunchProviderIntent {
+    switch self {
+      case .claude:
+        .claude
+      case .codex:
+        .codex
+    }
+  }
+
   var displayName: String {
     switch self {
       case .claude: "Claude"
@@ -163,28 +172,26 @@ struct QuickSwitcher: View {
         onShiftSelect: quickLaunchMode != nil ? { openFullSheet() } : nil
       ))
       .onChange(of: searchText) { oldValue, newValue in
-        targetSession = QuickSwitcherActionPlanner.capturedTargetSession(
+        let transition = QuickSwitcherSearchTransitionPlanner.transition(
           oldSearchText: oldValue,
           newSearchText: newValue,
+          previousMode: quickLaunchMode.map { .quickLaunch($0.intent) } ?? .standard,
           selectedKind: selectedKind,
           visibleSessions: allVisibleSessions
         )
-        selectedIndex = 0
-        hoveredIndex = nil
-
-        let oldMode = quickLaunchMode
-        let newMode: QuickLaunchProvider? = {
-          switch QuickSwitcherQueryPlanner.plan(searchText: newValue).mode {
+        targetSession = transition.targetSession
+        selectedIndex = transition.selectedIndex
+        hoveredIndex = transition.hoveredIndex
+        quickLaunchMode = {
+          switch transition.mode {
             case .standard:
               return nil
             case .quickLaunch(let intent):
               return QuickLaunchProvider(intent: intent)
           }
         }()
-        quickLaunchMode = newMode
 
-        // Load recent projects when entering quick launch mode
-        if newMode != nil, oldMode == nil {
+        if transition.shouldLoadRecentProjects {
           loadRecentProjects()
         }
       }
