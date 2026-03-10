@@ -18,17 +18,7 @@ import Markdown
 import SwiftUI
 
 enum MarkdownSystemParser {
-  private struct ParseCacheKey: Hashable {
-    let markdown: String
-    let style: ContentStyle
-  }
-
-  private struct ParseCacheEntry {
-    let blocks: [MarkdownBlock]
-    var accessTick: UInt64
-  }
-
-  private static var parseCache: [ParseCacheKey: ParseCacheEntry] = [:]
+  private static var parseCache: [MarkdownParseCacheKey: MarkdownParseCacheEntry] = [:]
   private static var parseCacheTick: UInt64 = 0
   #if os(iOS)
     private static let maxCacheSize = 160
@@ -75,63 +65,13 @@ enum MarkdownSystemParser {
   //   - Thinking mode should be noticeably compact, not just smaller.
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  private enum Typography {
-    enum BlockKind {
-      case body
-      case blockquote
-      case list
-    }
-
-    static let listMarkerMinWidth: CGFloat = 14
-    static let listMarkerGap = "  "
-
-    static func lineSpacing(for kind: BlockKind, style: ContentStyle) -> CGFloat {
-      switch (kind, style) {
-        case (.body, .standard), (.blockquote, .standard), (.list, .standard): 6
-        case (.body, .thinking), (.blockquote, .thinking), (.list, .thinking): 4
-      }
-    }
-
-    static func paragraphSpacing(for kind: BlockKind, style: ContentStyle) -> CGFloat {
-      switch (kind, style) {
-        case (.body, .standard): 16
-        case (.body, .thinking): 12
-        case (.blockquote, .standard): 12
-        case (.blockquote, .thinking): 8
-        case (.list, .standard): 8
-        case (.list, .thinking): 4
-      }
-    }
-
-    static func continuationParagraphSpacing(style: ContentStyle) -> CGFloat {
-      switch style {
-        case .standard: 4
-        case .thinking: 2
-      }
-    }
-
-    static func listLeadingInset(style: ContentStyle) -> CGFloat {
-      switch style {
-        case .standard: 12
-        case .thinking: 8
-      }
-    }
-
-    static func listBlankLineSpacing(style: ContentStyle) -> CGFloat {
-      switch style {
-        case .standard: 2
-        case .thinking: 1
-      }
-    }
-  }
-
   enum TextRole {
     case body
     case blockquote
   }
 
   static func parse(_ markdown: String, style: ContentStyle = .standard) -> [MarkdownBlock] {
-    let key = ParseCacheKey(markdown: markdown, style: style)
+    let key = MarkdownParseCacheKey(markdown: markdown, style: style)
     if var cached = parseCache[key] {
       cached.accessTick = nextParseCacheTick()
       parseCache[key] = cached
@@ -166,12 +106,12 @@ enum MarkdownSystemParser {
     return parseCacheTick
   }
 
-  private static func insertCacheValue(_ value: [MarkdownBlock], for key: ParseCacheKey) {
+  private static func insertCacheValue(_ value: [MarkdownBlock], for key: MarkdownParseCacheKey) {
     if parseCache[key] == nil {
       evictIfNeeded()
     }
 
-    parseCache[key] = ParseCacheEntry(blocks: value, accessTick: nextParseCacheTick())
+    parseCache[key] = MarkdownParseCacheEntry(blocks: value, accessTick: nextParseCacheTick())
   }
 
   private static func evictIfNeeded() {
@@ -468,8 +408,8 @@ enum MarkdownSystemParser {
     let fullRange = NSRange(location: 0, length: mutable.length)
     if fullRange.length > 0 {
       let paragraph = NSMutableParagraphStyle()
-      paragraph.lineSpacing = Typography.lineSpacing(for: .list, style: style)
-      paragraph.paragraphSpacing = Typography.paragraphSpacing(for: .list, style: style)
+      paragraph.lineSpacing = MarkdownTypography.lineSpacing(for: .list, style: style)
+      paragraph.paragraphSpacing = MarkdownTypography.paragraphSpacing(for: .list, style: style)
       mutable.addAttribute(.paragraphStyle, value: paragraph, range: fullRange)
       applyListParagraphIndents(to: mutable, style: style)
     }
@@ -540,9 +480,9 @@ enum MarkdownSystemParser {
 
   private static func fallbackText(_ text: String, style: ContentStyle, role: TextRole) -> NSAttributedString {
     let paragraph = NSMutableParagraphStyle()
-    let kind: Typography.BlockKind = role == .blockquote ? .blockquote : .body
-    paragraph.lineSpacing = Typography.lineSpacing(for: kind, style: style)
-    paragraph.paragraphSpacing = Typography.paragraphSpacing(for: kind, style: style)
+    let kind: MarkdownTypography.BlockKind = role == .blockquote ? .blockquote : .body
+    paragraph.lineSpacing = MarkdownTypography.lineSpacing(for: kind, style: style)
+    paragraph.paragraphSpacing = MarkdownTypography.paragraphSpacing(for: kind, style: style)
     let color = role == .blockquote
       ? PlatformColor(Color.textSecondary).withAlphaComponent(style == .thinking ? 0.8 : 0.9)
       : PlatformColor(style == .thinking ? Color.textSecondary : Color.textPrimary)
@@ -585,9 +525,9 @@ enum MarkdownSystemParser {
     role: TextRole
   ) -> NSMutableParagraphStyle {
     let paragraph = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
-    let kind: Typography.BlockKind = role == .blockquote ? .blockquote : .body
-    paragraph.lineSpacing = Typography.lineSpacing(for: kind, style: style)
-    let defaultSpacing: CGFloat = Typography.paragraphSpacing(for: kind, style: style)
+    let kind: MarkdownTypography.BlockKind = role == .blockquote ? .blockquote : .body
+    paragraph.lineSpacing = MarkdownTypography.lineSpacing(for: kind, style: style)
+    let defaultSpacing: CGFloat = MarkdownTypography.paragraphSpacing(for: kind, style: style)
     paragraph.paragraphSpacing = max(defaultSpacing, paragraph.paragraphSpacing)
     return paragraph
   }
@@ -718,14 +658,14 @@ enum MarkdownSystemParser {
       let paragraph = (existing?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
       var shouldApplyListStyle = false
       var isMarkerLine = false
-      let listInset = Typography.listLeadingInset(style: style)
+      let listInset = MarkdownTypography.listLeadingInset(style: style)
 
       if trimmed.isEmpty {
         if let previousHeadIndent {
           paragraph.firstLineHeadIndent = previousHeadIndent
           paragraph.headIndent = previousHeadIndent
-          paragraph.lineSpacing = Typography.lineSpacing(for: .list, style: style)
-          paragraph.paragraphSpacing = Typography.listBlankLineSpacing(style: style)
+          paragraph.lineSpacing = MarkdownTypography.lineSpacing(for: .list, style: style)
+          paragraph.paragraphSpacing = MarkdownTypography.listBlankLineSpacing(style: style)
           paragraph.paragraphSpacingBefore = 0
           attributed.addAttribute(.paragraphStyle, value: paragraph, range: paragraphRange)
         }
@@ -740,7 +680,7 @@ enum MarkdownSystemParser {
         }
         let leadingPrefixWidth = leadingIndentWidth(in: line, style: style)
         let markerWidth = max(
-          Typography.listMarkerMinWidth,
+          MarkdownTypography.listMarkerMinWidth,
           markerDisplayWidth(markerText, style: style)
         )
 
@@ -766,10 +706,10 @@ enum MarkdownSystemParser {
       }
 
       guard shouldApplyListStyle else { return }
-      paragraph.lineSpacing = Typography.lineSpacing(for: .list, style: style)
+      paragraph.lineSpacing = MarkdownTypography.lineSpacing(for: .list, style: style)
       paragraph.paragraphSpacing = isMarkerLine
-        ? Typography.paragraphSpacing(for: .list, style: style)
-        : Typography.continuationParagraphSpacing(style: style)
+        ? MarkdownTypography.paragraphSpacing(for: .list, style: style)
+        : MarkdownTypography.continuationParagraphSpacing(style: style)
       paragraph.paragraphSpacingBefore = 0
       attributed.addAttribute(.paragraphStyle, value: paragraph, range: paragraphRange)
     }
@@ -777,7 +717,7 @@ enum MarkdownSystemParser {
 
   private static func markerDisplayWidth(_ marker: String, style: ContentStyle) -> CGFloat {
     let font = bodyFont(style: style)
-    let measured = (marker + Typography.listMarkerGap) as NSString
+    let measured = (marker + MarkdownTypography.listMarkerGap) as NSString
     return ceil(measured.size(withAttributes: [.font: font]).width)
   }
 
@@ -815,22 +755,22 @@ enum MarkdownSystemParser {
     normalized = renumberOrderedListMarkers(in: normalized)
     normalized = normalized.replacingOccurrences(
       of: #"(?m)^(\s*)[-+*]\s+\[(?:x|X)\]\s+"#,
-      with: "$1☑\(Typography.listMarkerGap)",
+      with: "$1☑\(MarkdownTypography.listMarkerGap)",
       options: .regularExpression
     )
     normalized = normalized.replacingOccurrences(
       of: #"(?m)^(\s*)[-+*]\s+\[\s\]\s+"#,
-      with: "$1☐\(Typography.listMarkerGap)",
+      with: "$1☐\(MarkdownTypography.listMarkerGap)",
       options: .regularExpression
     )
     normalized = normalized.replacingOccurrences(
       of: #"(?m)^(\s*)[-+*]\s+"#,
-      with: "$1•\(Typography.listMarkerGap)",
+      with: "$1•\(MarkdownTypography.listMarkerGap)",
       options: .regularExpression
     )
     normalized = normalized.replacingOccurrences(
       of: #"(?m)^(\s*)(\d+)[.)]\s+"#,
-      with: "$1$2.\(Typography.listMarkerGap)",
+      with: "$1$2.\(MarkdownTypography.listMarkerGap)",
       options: .regularExpression
     )
     normalized = collapseContinuationBlankLines(in: normalized)

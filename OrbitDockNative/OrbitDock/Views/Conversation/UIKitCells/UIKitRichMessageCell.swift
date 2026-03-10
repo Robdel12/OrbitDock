@@ -42,14 +42,12 @@
     private static let userAccentBarWidth = ConversationRichMessageLayout.userAccentBarWidth
 
     // Image gallery
-    private static let imageMaxWidth: CGFloat = 400
-    private static let imageMaxHeight: CGFloat = 300
-    private static let imageCornerRadius: CGFloat = 10
-    private static let imageSpacing: CGFloat = 8
-    private static let imageThumbnailSize: CGFloat = 150
-    private static let imageHeaderHeight: CGFloat = 32
-    private static let imageDimensionLabelHeight: CGFloat = 16
-    private static let imageDimensionSpacing: CGFloat = 6
+    private static let imageCornerRadius = ConversationImageLayout.cornerRadius
+    private static let imageSpacing = ConversationImageLayout.spacing
+    private static let imageThumbnailSize = ConversationImageLayout.thumbnailSize
+    private static let imageHeaderHeight = ConversationImageLayout.headerHeight
+    private static let imageDimensionLabelHeight = ConversationImageLayout.dimensionLabelHeight
+    private static let imageDimensionSpacing = ConversationImageLayout.dimensionSpacing
 
     // Thinking containment
     private static let thinkingCornerRadius: CGFloat = Radius.lg
@@ -695,7 +693,7 @@
       if images.count == 1 {
         let image = images[0]
         let cached = ImageCache.shared.cachedImage(for: image)
-        let metrics = Self.imageDisplayMetrics(
+        let metrics = ConversationImageLayout.displayMetrics(
           for: image,
           availableWidth: availableWidth,
           displaySize: cached?.displayImage.size
@@ -848,7 +846,7 @@
       bar.addSubview(icon)
 
       let countText = imageCount == 1 ? "1 image" : "\(imageCount) images"
-      let sizeText = Self.formatBytes(totalBytes)
+      let sizeText = ConversationImageLayout.formattedByteCount(totalBytes)
       let label = UILabel()
       label.text = "\(countText)  \u{00B7}  \(sizeText)"
       label.font = .systemFont(ofSize: TypeScale.caption, weight: .medium)
@@ -891,7 +889,7 @@
     }
 
     private static func formatDimensions(width: Int, height: Int, bytes: Int) -> String {
-      "\(width) \u{00D7} \(height)  \u{00B7}  \(formatBytes(bytes))"
+      "\(width) \u{00D7} \(height)  \u{00B7}  \(ConversationImageLayout.formattedByteCount(bytes))"
     }
 
     private static func formatImageMetadata(
@@ -902,39 +900,9 @@
       let width = originalWidth ?? image.pixelWidth
       let height = originalHeight ?? image.pixelHeight
       guard let width, let height, width > 0, height > 0 else {
-        return formatBytes(image.byteCount)
+        return ConversationImageLayout.formattedByteCount(image.byteCount)
       }
       return formatDimensions(width: width, height: height, bytes: image.byteCount)
-    }
-
-    private static func imageDisplayMetrics(
-      for image: MessageImage,
-      availableWidth: CGFloat,
-      displaySize: CGSize?
-    ) -> (width: CGFloat, height: CGFloat) {
-      let aspect: CGFloat
-      if let displaySize, displaySize.height > 0 {
-        aspect = displaySize.width / displaySize.height
-      } else if let width = image.pixelWidth, let height = image.pixelHeight, height > 0 {
-        aspect = CGFloat(width) / CGFloat(height)
-      } else {
-        aspect = 4.0 / 3.0
-      }
-
-      let displayWidth = min(imageMaxWidth, availableWidth)
-      let displayHeight = min(imageMaxHeight, displayWidth / max(aspect, 0.1))
-      let finalWidth = min(displayWidth, displayHeight * aspect)
-      return (finalWidth, displayHeight)
-    }
-
-    private static func formatBytes(_ bytes: Int) -> String {
-      if bytes < 1_024 {
-        "\(bytes) B"
-      } else if bytes < 1_024 * 1_024 {
-        String(format: "%.1f KB", Double(bytes) / 1_024)
-      } else {
-        String(format: "%.1f MB", Double(bytes) / (1_024 * 1_024))
-      }
     }
 
     private func addFullscreenTap(to container: UIView, imageIndex: Int) {
@@ -969,24 +937,8 @@
     }
 
     static func imageBlockHeight(for images: [MessageImage], availableWidth: CGFloat) -> CGFloat {
-      guard !images.isEmpty else { return 0 }
-
-      let headerTotal = imageSpacing + imageHeaderHeight + imageSpacing
-
-      if images.count == 1 {
-        let image = images[0]
-        let metrics = imageDisplayMetrics(
-          for: image,
-          availableWidth: availableWidth,
-          displaySize: ImageCache.shared.image(for: image)?.size
-        )
-        return headerTotal + metrics.height + imageDimensionSpacing + imageDimensionLabelHeight
-      } else {
-        let size = imageThumbnailSize
-        let cols = max(1, Int((availableWidth + imageSpacing) / (size + imageSpacing)))
-        let rows = (images.count + cols - 1) / cols
-        let gridHeight = CGFloat(rows) * size + CGFloat(max(0, rows - 1)) * imageSpacing
-        return headerTotal + gridHeight
+      ConversationImageLayout.blockHeight(for: images, availableWidth: availableWidth) { image in
+        ImageCache.shared.image(for: image)?.size
       }
     }
 
