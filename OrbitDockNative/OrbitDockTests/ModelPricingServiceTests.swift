@@ -1,8 +1,9 @@
-import XCTest
+import Foundation
+import Testing
 @testable import OrbitDock
 
-final class ModelPricingServiceTests: XCTestCase {
-  func testFetchPricesUsesInjectedLoaderAndUpdatesOnlyThatInstance() throws {
+struct ModelPricingServiceTests {
+  @Test func fetchPricesUsesInjectedLoaderAndUpdatesOnlyThatInstance() throws {
     let cacheRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: cacheRoot, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: cacheRoot) }
@@ -29,8 +30,8 @@ final class ModelPricingServiceTests: XCTestCase {
 
     injectedService.fetchPrices()
 
-    XCTAssertNotNil(injectedService.price(for: customModel))
-    XCTAssertNil(untouchedService.price(for: customModel))
-    XCTAssertFalse(injectedService.isLoading)
+    #expect(injectedService.price(for: customModel) != nil)
+    #expect(untouchedService.price(for: customModel) == nil)
+    #expect(injectedService.isLoading == false)
   }
 }
