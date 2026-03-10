@@ -81,13 +81,13 @@ struct HeaderView: View {
       // Model badge
       UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
 
-      if let effort = effortLabel(for: obs.effort) {
+      if let effort = HeaderCompactPresentation.effortLabel(for: obs.effort) {
         Text(effort)
           .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
-          .foregroundStyle(effortColor(for: obs.effort))
+          .foregroundStyle(HeaderCompactPresentation.effortColor(for: obs.effort))
           .padding(.horizontal, Spacing.sm)
           .padding(.vertical, Spacing.xxs)
-          .background(effortColor(for: obs.effort).opacity(0.12), in: Capsule())
+          .background(HeaderCompactPresentation.effortColor(for: obs.effort).opacity(0.12), in: Capsule())
       }
 
       Spacer()
@@ -285,33 +285,14 @@ struct HeaderView: View {
   }
 
   private var compactStatusSummaryBadge: some View {
-    HStack(spacing: Spacing.sm) {
-      Image(systemName: compactStatusIcon)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-        .foregroundStyle(statusColor)
-
-      Text(compactStatusLabel)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-        .foregroundStyle(Color.textSecondary)
-        .lineLimit(1)
-
-      Rectangle()
-        .fill(Color.surfaceBorder)
-        .frame(width: 1, height: 11)
-
-      Text(compactModelSummary)
-        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-        .foregroundStyle(Color.textTertiary)
-        .lineLimit(1)
-        .truncationMode(.tail)
-    }
-    .padding(.horizontal, Spacing.sm)
-    .padding(.vertical, Spacing.sm_)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .fill(Color.backgroundTertiary.opacity(0.58))
+    HeaderCompactStatusBadge(
+      presentation: HeaderCompactPresentation.build(
+        workStatus: obs.workStatus,
+        provider: obs.provider,
+        model: obs.model,
+        effort: obs.effort
+      )
     )
-    .themeShadow(Shadow.md)
   }
 
   private var compactModeControls: some View {
@@ -368,59 +349,6 @@ struct HeaderView: View {
       return false
     }
     return true
-  }
-
-  private var compactStatusIcon: String {
-    switch obs.workStatus {
-      case .working: "bolt.fill"
-      case .waiting: "clock.fill"
-      case .permission: "lock.fill"
-      case .unknown: "circle.fill"
-    }
-  }
-
-  private var compactStatusLabel: String {
-    switch obs.workStatus {
-      case .working: "Working"
-      case .waiting: "Waiting"
-      case .permission: "Approval"
-      case .unknown: "Active"
-    }
-  }
-
-  private var compactModelSummary: String {
-    let raw = obs.model?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let label: String = if let raw, !raw.isEmpty {
-      raw
-    } else {
-      obs.provider.rawValue
-    }
-    let effortSuffix = effortLabel(for: obs.effort).map { " • \($0)" } ?? ""
-    let combined = "\(label)\(effortSuffix)"
-    guard combined.count > 18 else { return combined }
-    return String(combined.prefix(17)) + "..."
-  }
-
-  private func effortLabel(for effort: String?) -> String? {
-    guard let trimmed = effort?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-          !trimmed.isEmpty
-    else { return nil }
-    if trimmed == "default" { return nil }
-    return trimmed.capitalized
-  }
-
-  private func effortColor(for effort: String?) -> Color {
-    guard let trimmed = effort?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-          !trimmed.isEmpty
-    else { return .textSecondary }
-
-    switch trimmed {
-      case "low": return .effortLow
-      case "medium": return .effortMedium
-      case "high": return .effortHigh
-      case "max": return .effortXHigh
-      default: return .textSecondary
-    }
   }
 
   private var compactOverflowMenu: some View {
