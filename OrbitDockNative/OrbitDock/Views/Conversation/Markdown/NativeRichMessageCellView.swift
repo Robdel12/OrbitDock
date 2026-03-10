@@ -238,7 +238,13 @@ import SwiftUI
 
     func configure(model: NativeRichMessageRowModel, width: CGFloat) {
       currentModel = model
-      let presentation = ConversationRichMessageLayout.presentation(for: model)
+      let renderState = RichMessageRenderPlanning.renderState(
+        for: width,
+        model: model
+      ) { availableWidth in
+        Self.imageBlockHeight(for: model.images, availableWidth: availableWidth)
+      }
+      let presentation = renderState.presentation
 
       // Configure header
       configureHeader(model: model, presentation: presentation)
@@ -252,19 +258,13 @@ import SwiftUI
         bodyTopConstraint?.constant = 0
       }
 
-      currentBlocks = RichMessageRenderPlanning.parsedBlocks(for: model, presentation: presentation)
+      currentBlocks = renderState.blocks
 
       // Configure body based on message type
-      rebuildBody(model: model, presentation: presentation, width: width)
+      rebuildBody(model: model, presentation: presentation, renderPlan: renderState.body)
 
       // ── Diagnostic: detect body overflow ──
-      let expectedTotal = ConversationRichMessageLayout.requiredHeight(
-        for: width,
-        model: model,
-        blocks: currentBlocks
-      ) { availableWidth in
-        Self.imageBlockHeight(for: model.images, availableWidth: availableWidth)
-      }
+      let expectedTotal = renderState.totalHeight
       let maxBodyBottom = bodyContainer.subviews
         .map(\.frame.maxY)
         .max() ?? 0
@@ -349,7 +349,11 @@ import SwiftUI
 
     // MARK: - Body Layout
 
-    private func rebuildBody(model: NativeRichMessageRowModel, presentation: RichMessagePresentation, width: CGFloat) {
+    private func rebuildBody(
+      model: NativeRichMessageRowModel,
+      presentation: RichMessagePresentation,
+      renderPlan: RichMessageBodyRenderPlan
+    ) {
       bodyContainer.subviews.forEach { $0.removeFromSuperview() }
       bubbleBackground.isHidden = true
       accentBar.isHidden = true
@@ -358,16 +362,6 @@ import SwiftUI
       errorAccentBar.isHidden = true
       markdownContentView.layer?.mask = nil
       streamingTextView.layer?.mask = nil
-
-      let renderPlan = RichMessageRenderPlanning.bodyRenderPlan(
-        for: model,
-        presentation: presentation,
-        width: width,
-        blocks: currentBlocks,
-        imageHeightProvider: { availableWidth in
-          Self.imageBlockHeight(for: model.images, availableWidth: availableWidth)
-        }
-      )
 
       switch renderPlan.layoutPlan {
         case let .assistant(contentFrame, imagePlacement):
@@ -853,28 +847,17 @@ import SwiftUI
     /// Fully deterministic — no SwiftUI measurement involved.
     static func requiredHeight(for width: CGFloat, model: NativeRichMessageRowModel) -> CGFloat {
       guard width > 1 else { return 1 }
-
-      let presentation = ConversationRichMessageLayout.presentation(for: model)
-      let blocks = RichMessageRenderPlanning.parsedBlocks(for: model, presentation: presentation)
-      return requiredHeight(for: width, model: model, blocks: blocks)
-    }
-
-    private static func requiredHeight(
-      for width: CGFloat,
-      model: NativeRichMessageRowModel,
-      blocks: [MarkdownBlock]
-    ) -> CGFloat {
-      let totalHeight = RichMessageRenderPlanning.requiredHeight(
+      let renderState = RichMessageRenderPlanning.renderState(
         for: width,
-        model: model,
-        blocks: blocks
+        model: model
       ) { availableWidth in
         imageBlockHeight(for: model.images, availableWidth: availableWidth)
       }
+      let totalHeight = renderState.totalHeight
       logger.debug(
         "requiredHeight-rich[\(model.messageID)] \(model.messageType) "
           + "total=\(f(totalHeight)) w=\(f(width)) "
-          + "blocks=\(blocks.count) chars=\(model.displayContent.count)"
+          + "blocks=\(renderState.blocks.count) chars=\(model.displayContent.count)"
       )
       return totalHeight
     }

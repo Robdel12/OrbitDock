@@ -221,6 +221,58 @@ struct SessionDetailPlanningTests {
     #expect(state.compactFollowIcon == "arrow.down.to.line")
   }
 
+  @Test func statusStripPlannerBuildsPlanChangesAndContextSummaries() {
+    let status = SessionDetailStatusStripPlanner.state(
+      steps: [
+        Session.PlanStep(step: "Inspect", status: "completed"),
+        Session.PlanStep(step: "Fix", status: "inProgress"),
+      ],
+      diff: """
+      diff --git a/Sources/App.swift b/Sources/App.swift
+      index 1111111..2222222 100644
+      --- a/Sources/App.swift
+      +++ b/Sources/App.swift
+      @@ -1 +1,2 @@
+      -old
+      +new
+      +extra
+      """,
+      reviewComments: [
+        makeReviewComment(id: "open", status: .open),
+        makeReviewComment(id: "resolved", status: .resolved),
+      ],
+      tokenUsage: ServerTokenUsage(
+        inputTokens: 80,
+        outputTokens: 20,
+        cachedTokens: 10,
+        contextWindow: 200
+      ),
+      snapshotKind: .lifetimeTotals,
+      provider: .claude
+    )
+
+    #expect(status.plan?.completedCount == 1)
+    #expect(status.plan?.totalCount == 2)
+    #expect(status.changes?.badgeText == "+2 −1")
+    #expect(status.changes?.openCommentCount == 1)
+    #expect(status.context?.fillPercent == 40)
+  }
+
+  @Test func statusStripPlannerOmitsEmptySections() {
+    let status = SessionDetailStatusStripPlanner.state(
+      steps: [],
+      diff: nil,
+      reviewComments: [],
+      tokenUsage: nil,
+      snapshotKind: .lifetimeTotals,
+      provider: .claude
+    )
+
+    #expect(!status.showsPlan)
+    #expect(!status.showsChanges)
+    #expect(!status.showsContext)
+  }
+
   @Test func usagePlannerPrefersServerUsageAndFallsBackToTotalTokens() {
     let serverStats = SessionDetailUsagePlanner.makeStats(
       model: "claude-opus-4",
@@ -393,5 +445,21 @@ struct SessionDetailPlanningTests {
   private func isPassiveOnlyFooterMode(_ mode: SessionDetailFooterMode) -> Bool {
     if case .passiveOnly = mode { return true }
     return false
+  }
+
+  private func makeReviewComment(id: String, status: ServerReviewCommentStatus) -> ServerReviewComment {
+    ServerReviewComment(
+      id: id,
+      sessionId: "session-1",
+      turnId: nil,
+      filePath: "Sources/App.swift",
+      lineStart: 10,
+      lineEnd: nil,
+      body: "comment",
+      tag: nil,
+      status: status,
+      createdAt: "",
+      updatedAt: nil
+    )
   }
 }

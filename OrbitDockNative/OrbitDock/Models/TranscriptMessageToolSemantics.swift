@@ -1,33 +1,71 @@
 import Foundation
 
-extension TranscriptMessage {
-  var toolIcon: String {
-    guard let tool = toolName?.lowercased() else { return "gearshape" }
-    switch tool {
-      case "read": return "doc.text"
-      case "edit": return "pencil"
-      case "write": return "square.and.pencil"
-      case "bash": return "terminal"
-      case "glob": return "folder.badge.gearshape"
-      case "grep": return "magnifyingglass"
-      case "task": return "person.2"
-      case "webfetch": return "globe"
-      case "websearch": return "magnifyingglass.circle"
-      default: return "gearshape"
+enum TranscriptMessageToolKind: String, Sendable {
+  case read
+  case edit
+  case write
+  case bash
+  case glob
+  case grep
+  case task
+  case webFetch
+  case webSearch
+  case unknown
+
+  init(toolName: String?) {
+    switch toolName?.lowercased() {
+      case "read": self = .read
+      case "edit": self = .edit
+      case "write": self = .write
+      case "bash": self = .bash
+      case "glob": self = .glob
+      case "grep": self = .grep
+      case "task": self = .task
+      case "webfetch": self = .webFetch
+      case "websearch": self = .webSearch
+      default: self = .unknown
     }
   }
 
-  var toolColor: String {
-    guard let tool = toolName?.lowercased() else { return "secondary" }
-    switch tool {
-      case "read": return "blue"
-      case "edit", "write": return "orange"
-      case "bash": return "green"
-      case "glob", "grep": return "purple"
-      case "task": return "indigo"
-      case "webfetch", "websearch": return "teal"
-      default: return "secondary"
+  var iconName: String {
+    switch self {
+      case .read: return "doc.text"
+      case .edit: return "pencil"
+      case .write: return "square.and.pencil"
+      case .bash: return "terminal"
+      case .glob: return "folder.badge.gearshape"
+      case .grep: return "magnifyingglass"
+      case .task: return "person.2"
+      case .webFetch: return "globe"
+      case .webSearch: return "magnifyingglass.circle"
+      case .unknown: return "gearshape"
     }
+  }
+
+  var colorName: String {
+    switch self {
+      case .read: return "blue"
+      case .edit, .write: return "orange"
+      case .bash: return "green"
+      case .glob, .grep: return "purple"
+      case .task: return "indigo"
+      case .webFetch, .webSearch: return "teal"
+      case .unknown: return "secondary"
+    }
+  }
+}
+
+extension TranscriptMessage {
+  var toolKind: TranscriptMessageToolKind {
+    TranscriptMessageToolKind(toolName: toolName)
+  }
+
+  var toolIcon: String {
+    toolKind.iconName
+  }
+
+  var toolColor: String {
+    toolKind.colorName
   }
 
   var filePath: String? {
@@ -68,17 +106,17 @@ extension TranscriptMessage {
   }
 
   var editOldString: String? {
-    guard toolName?.lowercased() == "edit", let input = toolInput else { return nil }
+    guard toolKind == .edit, let input = toolInput else { return nil }
     return input["old_string"] as? String
   }
 
   var editNewString: String? {
-    guard toolName?.lowercased() == "edit", let input = toolInput else { return nil }
+    guard toolKind == .edit, let input = toolInput else { return nil }
     return input["new_string"] as? String
   }
 
   var writeContent: String? {
-    guard toolName?.lowercased() == "write", let input = toolInput else { return nil }
+    guard toolKind == .write, let input = toolInput else { return nil }
     return input["content"] as? String
   }
 
@@ -95,22 +133,22 @@ extension TranscriptMessage {
   }
 
   var globPattern: String? {
-    guard toolName?.lowercased() == "glob", let input = toolInput else { return nil }
+    guard toolKind == .glob, let input = toolInput else { return nil }
     return input["pattern"] as? String
   }
 
   var grepPattern: String? {
-    guard toolName?.lowercased() == "grep", let input = toolInput else { return nil }
+    guard toolKind == .grep, let input = toolInput else { return nil }
     return input["pattern"] as? String
   }
 
   var taskPrompt: String? {
-    guard toolName?.lowercased() == "task", let input = toolInput else { return nil }
+    guard toolKind == .task, let input = toolInput else { return nil }
     return input["prompt"] as? String
   }
 
   var taskDescription: String? {
-    guard toolName?.lowercased() == "task", let input = toolInput else { return nil }
+    guard toolKind == .task, let input = toolInput else { return nil }
     return input["description"] as? String
   }
 
@@ -176,12 +214,12 @@ extension TranscriptMessage {
   }
 
   var globMatchCount: Int? {
-    guard toolName?.lowercased() == "glob", let output = toolOutput else { return nil }
+    guard toolKind == .glob, let output = toolOutput else { return nil }
     return output.components(separatedBy: "\n").filter { !$0.isEmpty }.count
   }
 
   var grepMatchCount: Int? {
-    guard toolName?.lowercased() == "grep", let output = toolOutput else { return nil }
+    guard toolKind == .grep, let output = toolOutput else { return nil }
     return output.components(separatedBy: "\n").filter { !$0.isEmpty }.count
   }
 
@@ -218,14 +256,14 @@ extension TranscriptMessage {
       return truncateToolText(raw, maxLength: maxLength)
     }
 
-    switch toolName?.lowercased() {
-      case "bash":
+    switch toolKind {
+      case .bash:
         guard let command = bashCommand else { return nil }
         return truncateToolText(command, maxLength: maxLength)
-      case "read":
+      case .read:
         guard let path = filePath else { return nil }
         return truncateToolText(path, maxLength: maxLength)
-      case "edit":
+      case .edit:
         if let old = editOldString, let new = editNewString {
           let oldPreview = old.count > 200 ? String(old.prefix(200)) + "..." : old
           let newPreview = new.count > 200 ? String(new.prefix(200)) + "..." : new
@@ -235,7 +273,7 @@ extension TranscriptMessage {
           return truncateToolText(path, maxLength: maxLength)
         }
         return nil
-      case "write":
+      case .write:
         if let content = writeContent {
           return truncateToolText(content, maxLength: maxLength)
         }
@@ -243,13 +281,13 @@ extension TranscriptMessage {
           return truncateToolText(path, maxLength: maxLength)
         }
         return nil
-      case "glob":
+      case .glob:
         guard let pattern = globPattern else { return nil }
         return truncateToolText(pattern, maxLength: maxLength)
-      case "grep":
+      case .grep:
         guard let pattern = grepPattern else { return nil }
         return truncateToolText(pattern, maxLength: maxLength)
-      case "task":
+      case .task:
         if let description = taskDescription {
           return truncateToolText(description, maxLength: maxLength)
         }
@@ -257,7 +295,7 @@ extension TranscriptMessage {
           return truncateToolText(prompt, maxLength: maxLength)
         }
         return nil
-      default:
+      case .webFetch, .webSearch, .unknown:
         if let data = try? JSONSerialization.data(withJSONObject: input, options: .prettyPrinted),
            let str = String(data: data, encoding: .utf8)
         {

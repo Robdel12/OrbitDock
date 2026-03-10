@@ -5,6 +5,51 @@
 
 import Foundation
 
+enum SessionSemantics {
+  static func displayName(
+    customName: String?,
+    summary: String?,
+    firstPrompt: String?,
+    projectName: String?,
+    projectPath: String
+  ) -> String {
+    [
+      customName,
+      summary,
+      firstPrompt,
+      projectName,
+      projectPath.components(separatedBy: "/").last,
+    ]
+    .compactMap { value -> String? in
+      guard let value else { return nil }
+      let cleaned = value.strippingXMLTags().trimmingCharacters(in: .whitespacesAndNewlines)
+      return cleaned.isEmpty ? nil : cleaned
+    }
+    .first ?? "Unknown"
+  }
+
+  static func groupingPath(repositoryRoot: String?, projectPath: String) -> String {
+    repositoryRoot ?? projectPath
+  }
+
+  static func hasLiveEndpointConnection(_ status: ConnectionStatus?) -> Bool {
+    guard let status else { return true }
+    return status == .connected
+  }
+
+  static func showsInMissionControl(status: Session.SessionStatus, endpointConnectionStatus: ConnectionStatus?) -> Bool {
+    status == .active && hasLiveEndpointConnection(endpointConnectionStatus)
+  }
+
+  static func needsAttention(status: Session.SessionStatus, attentionReason: Session.AttentionReason) -> Bool {
+    status == .active && attentionReason != .none && attentionReason != .awaitingReply
+  }
+
+  static func isReady(status: Session.SessionStatus, attentionReason: Session.AttentionReason) -> Bool {
+    status == .active && attentionReason == .awaitingReply
+  }
+}
+
 // MARK: - Codex Integration Mode
 
 /// Distinguishes passive (file watching) from direct (app-server JSON-RPC) Codex sessions
@@ -250,24 +295,18 @@ struct Session: Identifiable, Hashable, Sendable {
   }
 
   var displayName: String {
-    [
-      customName,
-      summary,
-      firstPrompt,
-      projectName,
-      projectPath.components(separatedBy: "/").last,
-    ]
-    .compactMap { value -> String? in
-      guard let value else { return nil }
-      let cleaned = value.strippingXMLTags().trimmingCharacters(in: .whitespacesAndNewlines)
-      return cleaned.isEmpty ? nil : cleaned
-    }
-    .first ?? "Unknown"
+    SessionSemantics.displayName(
+      customName: customName,
+      summary: summary,
+      firstPrompt: firstPrompt,
+      projectName: projectName,
+      projectPath: projectPath
+    )
   }
 
   /// Path used for project grouping — worktree sessions group with their parent repo.
   var groupingPath: String {
-    repositoryRoot ?? projectPath
+    SessionSemantics.groupingPath(repositoryRoot: repositoryRoot, projectPath: projectPath)
   }
 
   /// For backward compatibility
@@ -281,14 +320,13 @@ struct Session: Identifiable, Hashable, Sendable {
   }
 
   var hasLiveEndpointConnection: Bool {
-    guard let endpointConnectionStatus else { return true }
-    return endpointConnectionStatus == .connected
+    SessionSemantics.hasLiveEndpointConnection(endpointConnectionStatus)
   }
 
   /// Active dashboard surfaces should only treat sessions as live when their
   /// source endpoint is currently connected.
   var showsInMissionControl: Bool {
-    isActive && hasLiveEndpointConnection
+    SessionSemantics.showsInMissionControl(status: status, endpointConnectionStatus: endpointConnectionStatus)
   }
 
   var hasUnreadMessages: Bool {
@@ -296,12 +334,12 @@ struct Session: Identifiable, Hashable, Sendable {
   }
 
   var needsAttention: Bool {
-    isActive && attentionReason != .none && attentionReason != .awaitingReply
+    SessionSemantics.needsAttention(status: status, attentionReason: attentionReason)
   }
 
   /// Returns true if session is waiting but not blocking (just needs a reply)
   var isReady: Bool {
-    isActive && attentionReason == .awaitingReply
+    SessionSemantics.isReady(status: status, attentionReason: attentionReason)
   }
 
   // MARK: - Direct Integration
@@ -415,70 +453,6 @@ struct Session: Identifiable, Hashable, Sendable {
   }
 }
 
-enum SessionTokenUsageSemantics {
-  static func effectiveContextInputTokens(
-    inputTokens: Int?,
-    cachedTokens: Int?,
-    snapshotKind: ServerTokenUsageSnapshotKind,
-    provider: Provider
-  ) -> Int {
-    let input = max(inputTokens ?? 0, 0)
-    let cached = max(cachedTokens ?? 0, 0)
-
-    switch snapshotKind {
-      case .mixedLegacy:
-        return input + cached
-      case .compactionReset:
-        return 0
-      case .contextTurn:
-        return provider == .claude ? input + cached : input
-      case .lifetimeTotals:
-        return input
-      case .unknown:
-        return provider == .codex ? input : input + cached
-    }
-  }
-
-  static func contextFillFraction(
-    contextWindow: Int?,
-    effectiveContextInputTokens: Int
-  ) -> Double {
-    guard let contextWindow, contextWindow > 0 else { return 0 }
-    guard effectiveContextInputTokens > 0 else { return 0 }
-    return min(Double(effectiveContextInputTokens) / Double(contextWindow), 1.0)
-  }
-
-  static func effectiveCacheHitPercent(
-    inputTokens: Int?,
-    cachedTokens: Int?,
-    snapshotKind: ServerTokenUsageSnapshotKind,
-    effectiveContextInputTokens: Int
-  ) -> Double {
-    let cached = max(cachedTokens ?? 0, 0)
-    guard cached > 0 else { return 0 }
-
-    switch snapshotKind {
-      case .mixedLegacy:
-        guard effectiveContextInputTokens > 0 else { return 0 }
-        return Double(cached) / Double(effectiveContextInputTokens) * 100
-      case .compactionReset:
-        return 0
-      case .contextTurn, .lifetimeTotals, .unknown:
-        let input = max(inputTokens ?? 0, 0)
-        guard input > 0 else { return 0 }
-        return Double(cached) / Double(input) * 100
-    }
-  }
-
-  static func hasTokenUsage(
-    inputTokens: Int?,
-    outputTokens: Int?,
-    cachedTokens: Int?
-  ) -> Bool {
-    (inputTokens ?? 0) > 0 || (outputTokens ?? 0) > 0 || (cachedTokens ?? 0) > 0
-  }
-}
-
 extension Session {
   mutating func applyPendingApprovalSummary(_ request: ServerApprovalRequest) {
     applyPendingApprovalProjection(SessionPendingApprovalProjection(request: request))
@@ -499,363 +473,5 @@ extension Session {
     if workStatus == .permission {
       workStatus = .working
     }
-  }
-}
-
-// MARK: - String Extensions
-
-extension String {
-  /// Strips XML/HTML tags from a string
-  /// e.g., "<bash-input>git checkout</bash-input>" → "git checkout"
-  func strippingXMLTags() -> String {
-    // Remove XML/HTML tags using regex
-    guard let regex = try? NSRegularExpression(pattern: "<[^>]+>", options: []) else {
-      return self
-    }
-    let range = NSRange(startIndex ..< endIndex, in: self)
-    let stripped = regex.stringByReplacingMatches(in: self, options: [], range: range, withTemplate: "")
-
-    // Clean up any extra whitespace
-    return stripped.trimmingCharacters(in: .whitespacesAndNewlines)
-  }
-
-  /// Strips shell wrapper prefixes used by tooling so UI can show the actual command.
-  /// e.g., "/bin/zsh -lc git status" -> "git status"
-  nonisolated func strippingShellWrapperPrefix() -> String {
-    let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return trimmed }
-
-    let tokens = ShellWrapperParser.tokenize(trimmed)
-    guard !tokens.isEmpty else { return trimmed }
-    guard let commandTokens = ShellWrapperParser.extractWrappedCommandTokens(from: tokens) else {
-      return trimmed
-    }
-
-    let command = commandTokens
-      .joined(separator: " ")
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-
-    return command.isEmpty ? trimmed : command
-  }
-
-  /// Build a display-friendly shell command from either a raw string or an argv-style array.
-  nonisolated static func shellCommandDisplay(from value: Any?) -> String? {
-    guard let value else { return nil }
-
-    if let command = value as? String {
-      let cleaned = command.strippingShellWrapperPrefix()
-      return cleaned.isEmpty ? nil : cleaned
-    }
-
-    if let commandParts = value as? [String] {
-      return shellCommandDisplay(fromParts: commandParts)
-    }
-
-    if let commandParts = value as? [Any] {
-      let parts = commandParts.compactMap { $0 as? String }
-      guard parts.count == commandParts.count else { return nil }
-      return shellCommandDisplay(fromParts: parts)
-    }
-
-    return nil
-  }
-
-  nonisolated private static func shellCommandDisplay(fromParts parts: [String]) -> String? {
-    guard !parts.isEmpty else { return nil }
-
-    if let wrapped = ShellWrapperParser.extractWrappedCommand(from: parts) {
-      return wrapped.isEmpty ? nil : wrapped
-    }
-
-    let joined = parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-    return joined.isEmpty ? nil : joined
-  }
-}
-
-nonisolated private enum ShellWrapperParser {
-  struct Token {
-    let value: String
-  }
-
-  private static let shellExecutables: Set<String> = [
-    "sh", "bash", "zsh", "fish", "ksh", "dash", "csh", "tcsh",
-    "nu", "xonsh", "pwsh", "pwsh.exe", "powershell", "powershell.exe",
-    "cmd", "cmd.exe",
-  ]
-
-  nonisolated static func extractWrappedCommandTokens(from tokens: [Token]) -> [String]? {
-    guard let shellIndex = shellTokenIndex(in: tokens) else { return nil }
-    let shell = executableName(from: tokens[shellIndex].value)
-
-    if isCommandPromptExecutable(shell) {
-      return commandTokensForCommandPrompt(from: tokens, shellIndex: shellIndex)
-    }
-
-    if isPowerShellExecutable(shell) {
-      return commandTokensForPowerShell(from: tokens, shellIndex: shellIndex)
-    }
-
-    return commandTokensForPosixShell(from: tokens, shellIndex: shellIndex)
-  }
-
-  nonisolated static func extractWrappedCommand(from parts: [String]) -> String? {
-    let tokens = parts.map { Token(value: $0) }
-    guard let commandTokens = extractWrappedCommandTokens(from: tokens) else { return nil }
-    let command = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-    return command.isEmpty ? nil : command
-  }
-
-  nonisolated static func tokenize(_ command: String) -> [Token] {
-    var tokens: [Token] = []
-    var index = command.startIndex
-
-    func advance(_ i: inout String.Index) {
-      i = command.index(after: i)
-    }
-
-    while index < command.endIndex {
-      while index < command.endIndex, command[index].isWhitespace {
-        advance(&index)
-      }
-      guard index < command.endIndex else { break }
-
-      var value = ""
-      var consumed = false
-      var inSingleQuotes = false
-      var inDoubleQuotes = false
-
-      while index < command.endIndex {
-        let ch = command[index]
-
-        if inSingleQuotes {
-          consumed = true
-          if ch == "'" {
-            inSingleQuotes = false
-            advance(&index)
-            continue
-          }
-          value.append(ch)
-          advance(&index)
-          continue
-        }
-
-        if inDoubleQuotes {
-          consumed = true
-          if ch == "\"" {
-            inDoubleQuotes = false
-            advance(&index)
-            continue
-          }
-
-          if ch == "\\" {
-            let next = command.index(after: index)
-            if next < command.endIndex {
-              value.append(command[next])
-              index = command.index(after: next)
-            } else {
-              index = next
-            }
-            continue
-          }
-
-          value.append(ch)
-          advance(&index)
-          continue
-        }
-
-        if ch.isWhitespace {
-          break
-        }
-
-        consumed = true
-        if ch == "'" {
-          inSingleQuotes = true
-          advance(&index)
-          continue
-        }
-        if ch == "\"" {
-          inDoubleQuotes = true
-          advance(&index)
-          continue
-        }
-        if ch == "\\" {
-          let next = command.index(after: index)
-          if next < command.endIndex {
-            value.append(command[next])
-            index = command.index(after: next)
-          } else {
-            index = next
-          }
-          continue
-        }
-
-        value.append(ch)
-        advance(&index)
-      }
-
-      if consumed {
-        tokens.append(Token(value: value))
-      }
-    }
-
-    return tokens
-  }
-
-  private static func shellTokenIndex(in tokens: [Token]) -> Int? {
-    guard !tokens.isEmpty else { return nil }
-    var index = 0
-
-    if executableName(from: tokens[0].value) == "env" {
-      index = 1
-      while index < tokens.count {
-        let token = tokens[index].value
-        let lowercased = token.lowercased()
-
-        if lowercased == "--" {
-          index += 1
-          break
-        }
-
-        if lowercased.hasPrefix("-") || isEnvironmentAssignment(token) {
-          index += 1
-          continue
-        }
-
-        break
-      }
-    }
-
-    guard index < tokens.count else { return nil }
-    return isShellExecutable(tokens[index].value) ? index : nil
-  }
-
-  private static func commandTokensForPosixShell(from tokens: [Token], shellIndex: Int) -> [String]? {
-    var index = shellIndex + 1
-    while index < tokens.count {
-      let option = tokens[index].value.lowercased()
-
-      if option == "-c" || option == "--command" {
-        return tokensAfter(index + 1, in: tokens)
-      }
-
-      if isCompactCommandSwitch(option) {
-        return tokensAfter(index + 1, in: tokens)
-      }
-
-      if !option.hasPrefix("-") {
-        return nil
-      }
-
-      index += 1
-    }
-
-    return nil
-  }
-
-  private static func commandTokensForPowerShell(from tokens: [Token], shellIndex: Int) -> [String]? {
-    var index = shellIndex + 1
-    while index < tokens.count {
-      let option = tokens[index].value.lowercased()
-      if option == "-command" || option == "--command" || option == "-c" || option == "-encodedcommand" || option ==
-        "-ec"
-      {
-        return tokensAfter(index + 1, in: tokens)
-      }
-
-      if !option.hasPrefix("-") {
-        return nil
-      }
-
-      index += 1
-    }
-
-    return nil
-  }
-
-  private static func commandTokensForCommandPrompt(from tokens: [Token], shellIndex: Int) -> [String]? {
-    var index = shellIndex + 1
-    while index < tokens.count {
-      let option = tokens[index].value.lowercased()
-
-      if option == "/c" || option == "/k" {
-        return tokensAfter(index + 1, in: tokens)
-      }
-
-      if option.hasPrefix("/c"), option.count > 2 {
-        let remainder = String(tokens[index].value.dropFirst(2))
-        var commandTokens: [String] = []
-        if !remainder.isEmpty {
-          commandTokens.append(remainder)
-        }
-        if index + 1 < tokens.count {
-          commandTokens.append(contentsOf: tokens[(index + 1)...].map(\.value))
-        }
-        return commandTokens.isEmpty ? nil : commandTokens
-      }
-
-      if option.hasPrefix("/k"), option.count > 2 {
-        let remainder = String(tokens[index].value.dropFirst(2))
-        var commandTokens: [String] = []
-        if !remainder.isEmpty {
-          commandTokens.append(remainder)
-        }
-        if index + 1 < tokens.count {
-          commandTokens.append(contentsOf: tokens[(index + 1)...].map(\.value))
-        }
-        return commandTokens.isEmpty ? nil : commandTokens
-      }
-
-      if !option.hasPrefix("/") {
-        return nil
-      }
-
-      index += 1
-    }
-
-    return nil
-  }
-
-  private static func tokensAfter(_ index: Int, in tokens: [Token]) -> [String]? {
-    guard index < tokens.count else { return nil }
-    return tokens[index...].map(\.value)
-  }
-
-  private static func isCompactCommandSwitch(_ option: String) -> Bool {
-    guard option.hasPrefix("-"), option.count > 2 else { return false }
-    let flags = option.dropFirst()
-    guard flags.contains("c") else { return false }
-    return flags.allSatisfy { $0 == "c" || $0 == "i" || $0 == "l" }
-  }
-
-  private static func isPowerShellExecutable(_ shell: String) -> Bool {
-    shell == "pwsh" || shell == "pwsh.exe" || shell == "powershell" || shell == "powershell.exe"
-  }
-
-  private static func isCommandPromptExecutable(_ shell: String) -> Bool {
-    shell == "cmd" || shell == "cmd.exe"
-  }
-
-  private static func isShellExecutable(_ token: String) -> Bool {
-    shellExecutables.contains(executableName(from: token))
-  }
-
-  private static func executableName(from token: String) -> String {
-    token
-      .split(whereSeparator: { $0 == "/" || $0 == "\\" })
-      .last
-      .map { String($0).lowercased() } ?? token.lowercased()
-  }
-
-  private static func isEnvironmentAssignment(_ token: String) -> Bool {
-    guard let separatorIndex = token.firstIndex(of: "="), separatorIndex != token.startIndex else {
-      return false
-    }
-
-    let name = token[..<separatorIndex]
-    guard let first = name.first, first == "_" || first.isLetter else {
-      return false
-    }
-
-    return name.dropFirst().allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
   }
 }

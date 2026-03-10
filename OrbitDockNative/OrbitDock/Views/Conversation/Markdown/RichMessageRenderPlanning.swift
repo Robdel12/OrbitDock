@@ -12,6 +12,13 @@ struct RichMessageBodyRenderPlan {
   let content: RichMessageRenderableContent
 }
 
+struct RichMessageCellRenderState {
+  let presentation: RichMessagePresentation
+  let blocks: [MarkdownBlock]
+  let body: RichMessageBodyRenderPlan
+  let totalHeight: CGFloat
+}
+
 @MainActor
 enum RichMessageRenderPlanning {
   static func parsedBlocks(
@@ -34,6 +41,35 @@ enum RichMessageRenderPlanning {
       blocks: blocks,
       imageHeightProvider: imageHeightProvider
     ).totalHeight
+  }
+
+  static func renderState(
+    for width: CGFloat,
+    model: NativeRichMessageRowModel,
+    imageHeightProvider: (CGFloat) -> CGFloat
+  ) -> RichMessageCellRenderState {
+    let presentation = ConversationRichMessageLayout.presentation(for: model)
+    let blocks = parsedBlocks(for: model, presentation: presentation)
+    let body = bodyRenderPlan(
+      for: model,
+      presentation: presentation,
+      width: width,
+      blocks: blocks,
+      imageHeightProvider: imageHeightProvider
+    )
+    let totalHeight = requiredHeight(
+      for: width,
+      model: model,
+      blocks: blocks,
+      imageHeightProvider: imageHeightProvider
+    )
+
+    return RichMessageCellRenderState(
+      presentation: presentation,
+      blocks: blocks,
+      body: body,
+      totalHeight: totalHeight
+    )
   }
 
   static func bodyRenderPlan(

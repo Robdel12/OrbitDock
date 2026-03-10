@@ -15,36 +15,10 @@ struct NewSessionSheet: View {
   @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  /// Pre-selected provider (set by caller)
-  @State var provider: SessionProvider = .claude
   let continuation: SessionContinuation?
   private let availableEndpointsOverride: [ServerEndpoint]?
   private let endpointSettings: ServerEndpointSettingsClient
-
-  // Shared state
-  @State private var selectedPath: String = ""
-  @State private var selectedPathIsGit: Bool = true
-  @State private var selectedEndpointId: UUID
-  @State private var isCreating = false
-  @State private var useWorktree = false
-  @State private var worktreeBranch = ""
-  @State private var worktreeBaseBranch = ""
-  @State private var worktreeError: String?
-
-  // Claude-specific state
-  @State private var claudeModelId: String = ""
-  @State private var customModelInput: String = ""
-  @State private var useCustomModel = false
-  @State private var selectedPermissionMode: ClaudePermissionMode = .default
-  @State private var allowedToolsText: String = ""
-  @State private var disallowedToolsText: String = ""
-  @State private var showToolConfig = false
-  @State private var selectedEffort: ClaudeEffortLevel = .default
-
-  // Codex-specific state
-  @State private var codexModel: String = ""
-  @State private var selectedAutonomy: AutonomyLevel = .autonomous
-  @State private var codexErrorMessage: String?
+  @State private var model: NewSessionModel
 
   @MainActor
   init(
@@ -53,7 +27,6 @@ struct NewSessionSheet: View {
     availableEndpointsOverride: [ServerEndpoint]? = nil,
     endpointSettings: ServerEndpointSettingsClient? = nil
   ) {
-    _provider = State(initialValue: provider)
     self.continuation = continuation
     self.availableEndpointsOverride = availableEndpointsOverride
     let resolvedEndpointSettings = endpointSettings ?? .live()
@@ -64,23 +37,17 @@ struct NewSessionSheet: View {
       availableEndpoints: availableEndpoints,
       fallbackDefaultEndpointID: resolvedEndpointSettings.defaultEndpoint().id
     )
-    _selectedEndpointId = State(initialValue: initialEndpointId)
+    _model = State(initialValue: NewSessionModel(provider: provider, selectedEndpointId: initialEndpointId))
   }
 
   // MARK: - Computed Properties
 
   private var canCreateSession: Bool {
-    let pathReady = !selectedPath.isEmpty
-    let worktreeReady = !useWorktree || !worktreeBranch.trimmingCharacters(in: .whitespaces).isEmpty
-    let continuationReady = continuation == nil || selectedEndpointSupportsContinuation
-
-    switch provider {
-      case .claude:
-        return pathReady && worktreeReady && !isCreating && isEndpointConnected && continuationReady
-      case .codex:
-        return pathReady && !codexModel.isEmpty && worktreeReady && !isCreating && !requiresCodexLogin
-          && isEndpointConnected && continuationReady
-    }
+    model.canCreateSession(
+      isEndpointConnected: isEndpointConnected,
+      requiresCodexLogin: requiresCodexLogin,
+      continuationSupported: continuation == nil || selectedEndpointSupportsContinuation
+    )
   }
 
   private var requiresCodexLogin: Bool {
@@ -97,11 +64,7 @@ struct NewSessionSheet: View {
   }
 
   private var resolvedClaudeModel: String? {
-    if useCustomModel {
-      let trimmed = customModelInput.trimmingCharacters(in: .whitespacesAndNewlines)
-      return trimmed.isEmpty ? nil : trimmed
-    }
-    return claudeModelId.isEmpty ? nil : claudeModelId
+    model.resolvedClaudeModel
   }
 
   private var codexModelOptionsSignature: String {
@@ -115,7 +78,7 @@ struct NewSessionSheet: View {
   }
 
   private var endpointAppState: SessionStore {
-    runtimeRegistry.sessionStore(for: selectedEndpointId, fallback: serverState)
+    runtimeRegistry.sessionStore(for: model.selectedEndpointId, fallback: serverState)
   }
 
   private var continuationDefaults: NewSessionContinuationDefaults? {
@@ -127,34 +90,11 @@ struct NewSessionSheet: View {
   }
 
   private var lifecycleState: NewSessionLifecycleState {
-    NewSessionLifecycleState(
-      selectedEndpointId: selectedEndpointId,
-      selectedPath: selectedPath,
-      selectedPathIsGit: selectedPathIsGit,
-      providerState: NewSessionProviderState(
-        claudeModelId: claudeModelId,
-        customModelInput: customModelInput,
-        useCustomModel: useCustomModel,
-        selectedPermissionMode: selectedPermissionMode,
-        allowedToolsText: allowedToolsText,
-        disallowedToolsText: disallowedToolsText,
-        showToolConfig: showToolConfig,
-        selectedEffort: selectedEffort,
-        codexModel: codexModel,
-        selectedAutonomy: selectedAutonomy,
-        codexErrorMessage: codexErrorMessage
-      ),
-      worktreeState: NewSessionWorktreeState(
-        useWorktree: useWorktree,
-        branch: worktreeBranch,
-        baseBranch: worktreeBaseBranch,
-        error: worktreeError
-      )
-    )
+    model.lifecycleState
   }
 
   private var endpointStatus: ConnectionStatus {
-    runtimeRegistry.displayConnectionStatus(for: selectedEndpointId)
+    runtimeRegistry.displayConnectionStatus(for: model.selectedEndpointId)
   }
 
   private var isEndpointConnected: Bool {
@@ -167,7 +107,7 @@ struct NewSessionSheet: View {
   private var selectedEndpointSupportsContinuation: Bool {
     guard let continuation else { return true }
     return continuation.isSupported(
-      on: selectedEndpointId,
+      on: model.selectedEndpointId,
       isRemoteConnection: endpointAppState.isRemoteConnection
     )
   }
@@ -208,7 +148,7 @@ struct NewSessionSheet: View {
         )
       )
     }
-    .onChange(of: selectedPath) { _, newPath in
+    .onChange(of: model.selectedPath) { _, newPath in
       applyLifecyclePlan(
         NewSessionLifecyclePlanner.pathChanged(
           current: lifecycleState,
@@ -216,7 +156,7 @@ struct NewSessionSheet: View {
         )
       )
     }
-    .onChange(of: selectedEndpointId) { _, newEndpointId in
+    .onChange(of: model.selectedEndpointId) { _, newEndpointId in
       applyLifecyclePlan(
         NewSessionLifecyclePlanner.endpointChanged(
           current: lifecycleState,
@@ -228,7 +168,7 @@ struct NewSessionSheet: View {
         )
       )
     }
-    .onChange(of: provider) { _, _ in
+    .onChange(of: model.provider) { _, _ in
       applyLifecyclePlan(NewSessionLifecyclePlanner.providerChanged(current: lifecycleState))
     }
     // Claude model sync
@@ -255,11 +195,11 @@ struct NewSessionSheet: View {
       formSectionSpacing: formSectionSpacing,
       shouldShowEndpointSection: shouldShowEndpointSection,
       continuation: continuation,
-      isCodexProvider: provider == .codex,
-      isClaudeProvider: provider == .claude,
+      isCodexProvider: model.provider == .codex,
+      isClaudeProvider: model.provider == .claude,
       shouldShowAuthGate: endpointAppState.codexAccountStatus?.account == nil,
-      hasSelectedPath: !selectedPath.isEmpty,
-      hasCodexError: provider == .codex && codexErrorMessage != nil,
+      hasSelectedPath: !model.selectedPath.isEmpty,
+      hasCodexError: model.provider == .codex && model.codexErrorMessage != nil,
       providerPicker: { providerPicker },
       endpointSection: { endpointSection },
       continuationSection: { continuationSection($0) },
@@ -267,19 +207,19 @@ struct NewSessionSheet: View {
       directorySection: { directorySection },
       worktreeSection: {
         WorktreeFormSection(
-          useWorktree: $useWorktree,
-          worktreeBranch: $worktreeBranch,
-          worktreeBaseBranch: $worktreeBaseBranch,
-          worktreeError: $worktreeError,
-          selectedPath: selectedPath,
-          selectedPathIsGit: selectedPathIsGit,
+          useWorktree: $model.useWorktree,
+          worktreeBranch: $model.worktreeBranch,
+          worktreeBaseBranch: $model.worktreeBaseBranch,
+          worktreeError: $model.worktreeError,
+          selectedPath: model.selectedPath,
+          selectedPathIsGit: model.selectedPathIsGit,
           onGitInit: { initGitAndEnableWorktree() }
         )
       },
       configurationCard: { configurationCard },
       toolRestrictionsCard: { toolRestrictionsCard },
       errorBanner: {
-        if let error = codexErrorMessage {
+        if let error = model.codexErrorMessage {
           errorBanner(error)
         }
       }
@@ -290,8 +230,8 @@ struct NewSessionSheet: View {
 
   private var providerPicker: some View {
     NewSessionProviderPicker(
-      provider: provider,
-      onSelect: { provider = $0 }
+      provider: model.provider,
+      onSelect: { model.provider = $0 }
     )
   }
 
@@ -299,8 +239,8 @@ struct NewSessionSheet: View {
 
   private var header: some View {
     NewSessionHeader(
-      provider: provider,
-      codexAccount: provider == .codex ? endpointAppState.codexAccountStatus?.account : nil,
+      provider: model.provider,
+      codexAccount: model.provider == .codex ? endpointAppState.codexAccountStatus?.account : nil,
       onDismiss: { dismiss() }
     )
   }
@@ -335,7 +275,7 @@ struct NewSessionSheet: View {
       endpoints: selectableEndpoints,
       statusByEndpointId: runtimeRegistry.displayConnectionStatusByEndpointId,
       serverPrimaryByEndpointId: runtimeRegistry.serverPrimaryByEndpointId,
-      selectedEndpointId: $selectedEndpointId,
+      selectedEndpointId: $model.selectedEndpointId,
       onReconnect: { endpointId in
         runtimeRegistry.reconnect(endpointId: endpointId)
       }
@@ -345,15 +285,15 @@ struct NewSessionSheet: View {
   private var directorySection: some View {
     #if os(iOS)
       RemoteProjectPicker(
-        selectedPath: $selectedPath,
-        selectedPathIsGit: $selectedPathIsGit,
-        endpointId: selectedEndpointId
+        selectedPath: $model.selectedPath,
+        selectedPathIsGit: $model.selectedPathIsGit,
+        endpointId: model.selectedEndpointId
       )
     #else
       ProjectPicker(
-        selectedPath: $selectedPath,
-        selectedPathIsGit: $selectedPathIsGit,
-        endpointId: selectedEndpointId
+        selectedPath: $model.selectedPath,
+        selectedPathIsGit: $model.selectedPathIsGit,
+        endpointId: model.selectedEndpointId
       )
     #endif
   }
@@ -362,16 +302,16 @@ struct NewSessionSheet: View {
 
   private var configurationCard: some View {
     NewSessionConfigurationCard(
-      provider: provider,
+      provider: model.provider,
       claudeModels: claudeModels,
       codexModels: codexModels,
-      claudeModelId: $claudeModelId,
-      customModelInput: $customModelInput,
-      useCustomModel: $useCustomModel,
-      selectedPermissionMode: $selectedPermissionMode,
-      selectedEffort: $selectedEffort,
-      codexModel: $codexModel,
-      selectedAutonomy: $selectedAutonomy
+      claudeModelId: $model.claudeModelId,
+      customModelInput: $model.customModelInput,
+      useCustomModel: $model.useCustomModel,
+      selectedPermissionMode: $model.selectedPermissionMode,
+      selectedEffort: $model.selectedEffort,
+      codexModel: $model.codexModel,
+      selectedAutonomy: $model.selectedAutonomy
     )
   }
 
@@ -379,9 +319,9 @@ struct NewSessionSheet: View {
 
   private var toolRestrictionsCard: some View {
     NewSessionToolRestrictionsCard(
-      showToolConfig: $showToolConfig,
-      allowedToolsText: $allowedToolsText,
-      disallowedToolsText: $disallowedToolsText
+      showToolConfig: $model.showToolConfig,
+      allowedToolsText: $model.allowedToolsText,
+      disallowedToolsText: $model.disallowedToolsText
     )
   }
 
@@ -389,9 +329,9 @@ struct NewSessionSheet: View {
 
   private var footer: some View {
     NewSessionFooter(
-      provider: provider,
+      provider: model.provider,
       codexAccount: endpointAppState.codexAccountStatus?.account,
-      isCreating: isCreating,
+      isCreating: model.isCreating,
       canCreateSession: canCreateSession,
       onSignOut: {
         endpointAppState.logoutCodexAccount()
@@ -419,18 +359,7 @@ struct NewSessionSheet: View {
   }
 
   private func resetProviderState() {
-    let state = NewSessionProviderStatePlanner.reset()
-    claudeModelId = state.claudeModelId
-    customModelInput = state.customModelInput
-    useCustomModel = state.useCustomModel
-    selectedPermissionMode = state.selectedPermissionMode
-    allowedToolsText = state.allowedToolsText
-    disallowedToolsText = state.disallowedToolsText
-    showToolConfig = state.showToolConfig
-    selectedEffort = state.selectedEffort
-    codexModel = state.codexModel
-    selectedAutonomy = state.selectedAutonomy
-    codexErrorMessage = state.codexErrorMessage
+    model.resetProviderState()
   }
 
   private func syncModelSelections() {
@@ -439,56 +368,38 @@ struct NewSessionSheet: View {
   }
 
   private func syncClaudeModelSelection() {
-    let selection = NewSessionProviderStatePlanner.syncClaudeModelSelection(
-      currentModelId: claudeModelId,
-      useCustomModel: useCustomModel,
-      models: claudeModels
-    )
-    claudeModelId = selection.modelId
-    useCustomModel = selection.useCustomModel
+    model.syncClaudeModelSelection(models: claudeModels)
   }
 
   private func syncCodexModelSelection() {
-    codexModel = NewSessionProviderStatePlanner.syncCodexModelSelection(
-      currentModel: codexModel,
-      models: codexModels
-    )
+    model.syncCodexModelSelection(models: codexModels)
   }
 
   private func initGitAndEnableWorktree() {
-    guard let runtime = runtimeRegistry.runtimesByEndpointId[selectedEndpointId] else { return }
-    isCreating = true
+    guard let runtime = runtimeRegistry.runtimesByEndpointId[model.selectedEndpointId] else { return }
+    model.isCreating = true
     Task { @MainActor in
-      defer { isCreating = false }
+      defer { model.isCreating = false }
       do {
         let state = try await NewSessionLaunchCoordinator.initializeGit(
-          at: selectedPath,
+          at: model.selectedPath,
           using: launchPorts(store: endpointAppState, runtime: runtime)
         )
-        selectedPathIsGit = state.selectedPathIsGit
-        useWorktree = state.useWorktree
+        model.selectedPathIsGit = state.selectedPathIsGit
+        model.useWorktree = state.useWorktree
       } catch {
-        worktreeError = "Failed to initialize git: \(error.localizedDescription)"
+        model.worktreeError = "Failed to initialize git: \(error.localizedDescription)"
       }
     }
   }
 
   private func createSession() {
     guard let plan = NewSessionRequestPlanner.planLaunch(
-      selectedPath: selectedPath,
-      useWorktree: useWorktree,
-      worktreeBranch: worktreeBranch,
-      worktreeBaseBranch: worktreeBaseBranch,
-      providerConfiguration: NewSessionProviderConfiguration(
-        provider: provider,
-        claudeModel: resolvedClaudeModel,
-        claudePermissionMode: selectedPermissionMode,
-        allowedToolsText: allowedToolsText,
-        disallowedToolsText: disallowedToolsText,
-        claudeEffort: selectedEffort.serialized,
-        codexModel: codexModel,
-        codexAutonomy: selectedAutonomy
-      ),
+      selectedPath: model.selectedPath,
+      useWorktree: model.useWorktree,
+      worktreeBranch: model.worktreeBranch,
+      worktreeBaseBranch: model.worktreeBaseBranch,
+      providerConfiguration: model.providerConfiguration,
       bootstrapPrompt: continuationPrompt
     ) else {
       return
@@ -508,9 +419,9 @@ struct NewSessionSheet: View {
     branch: String,
     baseBranch: String?
   ) {
-    guard let runtime = runtimeRegistry.runtimesByEndpointId[selectedEndpointId] else { return }
-    isCreating = true
-    worktreeError = nil
+    guard let runtime = runtimeRegistry.runtimesByEndpointId[model.selectedEndpointId] else { return }
+    model.isCreating = true
+    model.worktreeError = nil
     let store = endpointAppState
     Task { @MainActor in
       do {
@@ -523,8 +434,8 @@ struct NewSessionSheet: View {
         launchSession(plan: plan, cwd: worktreePath, store: store, runtime: runtime)
         dismiss()
       } catch {
-        isCreating = false
-        worktreeError = error.localizedDescription
+        model.isCreating = false
+        model.worktreeError = error.localizedDescription
       }
     }
   }
@@ -581,28 +492,7 @@ struct NewSessionSheet: View {
   }
 
   private func applyLifecyclePlan(_ plan: NewSessionLifecyclePlan) {
-    selectedEndpointId = plan.nextState.selectedEndpointId
-    selectedPath = plan.nextState.selectedPath
-    selectedPathIsGit = plan.nextState.selectedPathIsGit
-
-    let providerState = plan.nextState.providerState
-    claudeModelId = providerState.claudeModelId
-    customModelInput = providerState.customModelInput
-    useCustomModel = providerState.useCustomModel
-    selectedPermissionMode = providerState.selectedPermissionMode
-    allowedToolsText = providerState.allowedToolsText
-    disallowedToolsText = providerState.disallowedToolsText
-    showToolConfig = providerState.showToolConfig
-    selectedEffort = providerState.selectedEffort
-    codexModel = providerState.codexModel
-    selectedAutonomy = providerState.selectedAutonomy
-    codexErrorMessage = providerState.codexErrorMessage
-
-    let worktreeState = plan.nextState.worktreeState
-    useWorktree = worktreeState.useWorktree
-    worktreeBranch = worktreeState.branch
-    worktreeBaseBranch = worktreeState.baseBranch
-    worktreeError = worktreeState.error
+    model.applyLifecyclePlan(plan)
 
     if plan.shouldRefreshEndpointData {
       refreshEndpointData()

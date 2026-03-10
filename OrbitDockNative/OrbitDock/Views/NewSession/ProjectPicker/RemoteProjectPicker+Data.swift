@@ -3,13 +3,17 @@ import SwiftUI
 
 extension RemoteProjectPicker {
   func loadRecentProjects() {
-    guard let requestEndpointId = resolvedEndpointID(),
-          let clients = runtimeRegistry.runtimesByEndpointId[requestEndpointId]?.clients
+    guard let resolved = ProjectPickerDataAccess.filesystemPort(
+      explicitEndpointID: endpointId,
+      endpointSettings: endpointSettings,
+      runtimeRegistry: runtimeRegistry
+    )
     else {
       recentProjects = []
       isLoadingRecent = false
       return
     }
+    let requestEndpointId = resolved.endpointId
 
     isLoadingRecent = true
     let requestId = UUID()
@@ -21,14 +25,18 @@ extension RemoteProjectPicker {
           requestId: requestId,
           activeRequestId: recentProjectsRequestId,
           requestEndpointId: requestEndpointId,
-          activeEndpointId: resolvedEndpointID()
+          activeEndpointId: ProjectPickerDataAccess.filesystemPort(
+            explicitEndpointID: endpointId,
+            endpointSettings: endpointSettings,
+            runtimeRegistry: runtimeRegistry
+          )?.endpointId
         ) {
           isLoadingRecent = false
         }
       }
 
       do {
-        let projects = try await clients.filesystem.listRecentProjects()
+        let projects = try await resolved.port.listRecentProjects()
         guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: recentProjectsRequestId)
         else { return }
         recentProjects = projects
@@ -42,13 +50,17 @@ extension RemoteProjectPicker {
   }
 
   func browseDirectory(_ path: String?) {
-    guard let requestEndpointId = resolvedEndpointID(),
-          let clients = runtimeRegistry.runtimesByEndpointId[requestEndpointId]?.clients
+    guard let resolved = ProjectPickerDataAccess.filesystemPort(
+      explicitEndpointID: endpointId,
+      endpointSettings: endpointSettings,
+      runtimeRegistry: runtimeRegistry
+    )
     else {
       directoryEntries = []
       isLoadingDirectory = false
       return
     }
+    let requestEndpointId = resolved.endpointId
 
     isLoadingDirectory = true
     let requestId = UUID()
@@ -61,14 +73,18 @@ extension RemoteProjectPicker {
           requestId: requestId,
           activeRequestId: browseRequestId,
           requestEndpointId: requestEndpointId,
-          activeEndpointId: resolvedEndpointID()
+          activeEndpointId: ProjectPickerDataAccess.filesystemPort(
+            explicitEndpointID: endpointId,
+            endpointSettings: endpointSettings,
+            runtimeRegistry: runtimeRegistry
+          )?.endpointId
         ) {
           isLoadingDirectory = false
         }
       }
 
       do {
-        let (browsedPath, entries) = try await clients.filesystem.browseDirectory(path: path ?? "")
+        let (browsedPath, entries) = try await resolved.port.browseDirectory(path ?? "")
         guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: browseRequestId)
         else { return }
 
@@ -91,13 +107,17 @@ extension RemoteProjectPicker {
 
   func navigateBack() {
     guard let previous = browseHistory.last else { return }
-    guard let requestEndpointId = resolvedEndpointID(),
-          let clients = runtimeRegistry.runtimesByEndpointId[requestEndpointId]?.clients
+    guard let resolved = ProjectPickerDataAccess.filesystemPort(
+      explicitEndpointID: endpointId,
+      endpointSettings: endpointSettings,
+      runtimeRegistry: runtimeRegistry
+    )
     else {
       directoryEntries = []
       isLoadingDirectory = false
       return
     }
+    let requestEndpointId = resolved.endpointId
 
     isLoadingDirectory = true
     let requestId = UUID()
@@ -109,14 +129,18 @@ extension RemoteProjectPicker {
           requestId: requestId,
           activeRequestId: browseRequestId,
           requestEndpointId: requestEndpointId,
-          activeEndpointId: resolvedEndpointID()
+          activeEndpointId: ProjectPickerDataAccess.filesystemPort(
+            explicitEndpointID: endpointId,
+            endpointSettings: endpointSettings,
+            runtimeRegistry: runtimeRegistry
+          )?.endpointId
         ) {
           isLoadingDirectory = false
         }
       }
 
       do {
-        let (browsedPath, entries) = try await clients.filesystem.browseDirectory(path: previous.isEmpty ? "" : previous)
+        let (browsedPath, entries) = try await resolved.port.browseDirectory(previous.isEmpty ? "" : previous)
         guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: browseRequestId)
         else { return }
         guard let projection = ProjectPickerPlanner.applyNavigateBackResponse(
@@ -132,15 +156,6 @@ extension RemoteProjectPicker {
         directoryEntries = []
       }
     }
-  }
-
-  func resolvedEndpointID() -> UUID? {
-    ServerEndpointSelection.resolvedEndpointID(
-      explicitEndpointID: endpointId,
-      primaryEndpointID: runtimeRegistry.primaryEndpointId,
-      activeEndpointID: runtimeRegistry.activeEndpointId,
-      availableEndpoints: endpointSettings.endpoints()
-    )
   }
 
   func resetEndpointScopedState() {
@@ -162,7 +177,11 @@ extension RemoteProjectPicker {
       requestId: requestId,
       activeRequestId: activeRequestId,
       requestEndpointId: requestEndpointId,
-      activeEndpointId: resolvedEndpointID()
+      activeEndpointId: ProjectPickerDataAccess.filesystemPort(
+        explicitEndpointID: endpointId,
+        endpointSettings: endpointSettings,
+        runtimeRegistry: runtimeRegistry
+      )?.endpointId
     )
   }
 }

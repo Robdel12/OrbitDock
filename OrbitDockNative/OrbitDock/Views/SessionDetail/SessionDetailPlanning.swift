@@ -42,6 +42,102 @@ enum SessionDetailConversationChromePlanner {
   }
 }
 
+struct SessionDetailPlanPillState: Equatable {
+  let completedCount: Int
+  let totalCount: Int
+
+  var isComplete: Bool {
+    totalCount > 0 && completedCount == totalCount
+  }
+
+  var badgeText: String {
+    "\(completedCount)/\(totalCount)"
+  }
+}
+
+struct SessionDetailChangesPillState: Equatable {
+  let badgeText: String
+  let openCommentCount: Int
+}
+
+struct SessionDetailContextPillState: Equatable {
+  let fillPercent: Double
+}
+
+struct SessionDetailStatusStripState: Equatable {
+  let plan: SessionDetailPlanPillState?
+  let changes: SessionDetailChangesPillState?
+  let context: SessionDetailContextPillState?
+
+  var showsPlan: Bool { plan != nil }
+  var showsChanges: Bool { changes != nil }
+  var showsContext: Bool { context != nil }
+}
+
+enum SessionDetailStatusStripPlanner {
+  static func planState(steps: [Session.PlanStep]?) -> SessionDetailPlanPillState? {
+    guard let steps, !steps.isEmpty else { return nil }
+    return SessionDetailPlanPillState(
+      completedCount: steps.filter(\.isCompleted).count,
+      totalCount: steps.count
+    )
+  }
+
+  static func changesState(
+    diff: String?,
+    reviewComments: [ServerReviewComment]
+  ) -> SessionDetailChangesPillState? {
+    let openCommentCount = reviewComments.filter { $0.status == .open }.count
+    let hasComments = !reviewComments.isEmpty
+    let diffState = diff.flatMap { SessionDetailDiffPlanner.changeSummary($0) }
+
+    guard diffState != nil || hasComments else { return nil }
+
+    let badgeText =
+      if let diffState {
+        diffState.badgeText
+      } else {
+        "\(openCommentCount) comment\(openCommentCount == 1 ? "" : "s")"
+      }
+
+    return SessionDetailChangesPillState(
+      badgeText: badgeText,
+      openCommentCount: openCommentCount
+    )
+  }
+
+  static func contextState(
+    tokenUsage: ServerTokenUsage?,
+    snapshotKind: ServerTokenUsageSnapshotKind,
+    provider: Provider
+  ) -> SessionDetailContextPillState? {
+    guard let tokenUsage, tokenUsage.contextWindow > 0 else { return nil }
+    let input = SessionTokenUsageSemantics.effectiveContextInputTokens(
+      inputTokens: Int(tokenUsage.inputTokens),
+      cachedTokens: Int(tokenUsage.cachedTokens),
+      snapshotKind: snapshotKind,
+      provider: provider
+    )
+    let fillPercent = min(Double(input) / Double(tokenUsage.contextWindow) * 100, 100)
+    return SessionDetailContextPillState(fillPercent: fillPercent)
+  }
+
+  static func state(
+    steps: [Session.PlanStep]?,
+    diff: String?,
+    reviewComments: [ServerReviewComment],
+    tokenUsage: ServerTokenUsage?,
+    snapshotKind: ServerTokenUsageSnapshotKind,
+    provider: Provider
+  ) -> SessionDetailStatusStripState {
+    SessionDetailStatusStripState(
+      plan: planState(steps: steps),
+      changes: changesState(diff: diff, reviewComments: reviewComments),
+      context: contextState(tokenUsage: tokenUsage, snapshotKind: snapshotKind, provider: provider)
+    )
+  }
+}
+
 struct SessionDetailOnAppearPlan: Equatable {
   let shouldSubscribe: Bool
   let autoMarkReadEnabled: Bool
@@ -112,6 +208,16 @@ struct SessionDetailReviewNavigationPlan {
   let reviewFileId: String
   let navigateToComment: ServerReviewComment?
   let layoutConfig: LayoutConfiguration
+}
+
+struct SessionDetailDiffSummaryState: Equatable {
+  let fileCount: Int
+  let totalAdditions: Int
+  let totalDeletions: Int
+
+  var badgeText: String {
+    "+\(totalAdditions) −\(totalDeletions)"
+  }
 }
 
 struct SessionDetailActionBarState: Equatable {
@@ -241,6 +347,33 @@ enum SessionDetailLayoutPlanner {
   }
 }
 
+enum SessionDetailDiffPlanner {
+  static func changeSummary(_ diff: String?) -> SessionDetailDiffSummaryState? {
+    guard let diff, !diff.isEmpty else { return nil }
+    let model = DiffModel.parse(unifiedDiff: diff)
+    return SessionDetailDiffSummaryState(
+      fileCount: model.files.count,
+      totalAdditions: model.files.reduce(0) { $0 + $1.stats.additions },
+      totalDeletions: model.files.reduce(0) { $0 + $1.stats.deletions }
+    )
+  }
+
+  static func fileCount(
+    turnDiffs: [ServerTurnDiff],
+    currentDiff: String?
+  ) -> Int {
+    var parts = turnDiffs.map(\.diff)
+
+    if let currentDiff, !currentDiff.isEmpty, turnDiffs.last?.diff != currentDiff {
+      parts.append(currentDiff)
+    }
+
+    let combined = parts.joined(separator: "\n")
+    guard !combined.isEmpty else { return 0 }
+    return DiffModel.parse(unifiedDiff: combined).files.count
+  }
+}
+
 enum SessionDetailFooterPlanner {
   static func mode(
     isDirect: Bool,
@@ -300,23 +433,6 @@ enum SessionDetailUsagePlanner {
     )
 
     return stats
-  }
-}
-
-enum SessionDetailDiffPlanner {
-  static func fileCount(
-    turnDiffs: [ServerTurnDiff],
-    currentDiff: String?
-  ) -> Int {
-    var parts = turnDiffs.map(\.diff)
-
-    if let currentDiff, !currentDiff.isEmpty, turnDiffs.last?.diff != currentDiff {
-      parts.append(currentDiff)
-    }
-
-    let combined = parts.joined(separator: "\n")
-    guard !combined.isEmpty else { return 0 }
-    return DiffModel.parse(unifiedDiff: combined).files.count
   }
 }
 

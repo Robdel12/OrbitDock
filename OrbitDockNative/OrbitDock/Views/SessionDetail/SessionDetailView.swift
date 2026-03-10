@@ -123,47 +123,10 @@ struct SessionDetailView: View {
     }
     .background(Color.backgroundPrimary)
     .environment(scopedServerState)
-    .onAppear {
-      let plan = SessionDetailLifecyclePlanner.onAppearPlan(
-        shouldSubscribeToServerSession: shouldSubscribeToServerSession,
-        isDirect: obs.isDirect,
-        isPinned: isPinned
-      )
-
-      if plan.shouldSubscribe {
-        // Let SessionStore choose the best recovery path: retained state, cached restore,
-        // or full-history recovery when the detail view needs to rebuild after being away.
-        scopedServerState.subscribeToSession(sessionId, recoveryGoal: .completeHistory)
-        scopedServerState.setSessionAutoMarkRead(sessionId, enabled: plan.autoMarkReadEnabled)
-        if plan.shouldLoadApprovalHistory {
-          Task {
-            if let resp = try? await scopedServerState.clients.approvals.listApprovals(sessionId: sessionId) {
-              scopedServerState.session(sessionId).approvalHistory = resp.approvals
-            }
-          }
-        }
-      }
-    }
-    .onDisappear {
-      let plan = SessionDetailLifecyclePlanner.onDisappearPlan(
-        shouldSubscribeToServerSession: shouldSubscribeToServerSession
-      )
-
-      if plan.shouldSetAutoMarkRead {
-        scopedServerState.setSessionAutoMarkRead(sessionId, enabled: plan.autoMarkReadEnabled)
-      }
-      if plan.shouldUnsubscribe {
-        scopedServerState.unsubscribeFromSession(sessionId)
-      }
-    }
+    .onAppear(perform: handleOnAppear)
+    .onDisappear(perform: handleOnDisappear)
     .onChange(of: isPinned) { _, pinned in
-      guard let enabled = SessionDetailLifecyclePlanner.autoMarkReadEnabled(
-        shouldSubscribeToServerSession: shouldSubscribeToServerSession,
-        isPinned: pinned
-      ) else {
-        return
-      }
-      scopedServerState.setSessionAutoMarkRead(sessionId, enabled: enabled)
+      handlePinnedChange(pinned)
     }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
@@ -185,26 +148,7 @@ struct SessionDetailView: View {
     }
     // Diff-available banner trigger
     .onChange(of: scopedServerState.session(sessionId).diff) { oldDiff, newDiff in
-      guard SessionDetailLifecyclePlanner.shouldRevealDiffBanner(
-        isDirect: obs.isDirect,
-        oldDiff: oldDiff,
-        newDiff: newDiff,
-        layoutConfig: layoutConfig
-      ) else {
-        return
-      }
-      withAnimation(Motion.standard) {
-        showDiffBanner = true
-      }
-      // Auto-dismiss after 8 seconds
-      Task {
-        try? await Task.sleep(for: .seconds(8))
-        await MainActor.run {
-          withAnimation(Motion.standard) {
-            showDiffBanner = false
-          }
-        }
-      }
+      handleDiffChange(oldDiff: oldDiff, newDiff: newDiff)
     }
   }
 

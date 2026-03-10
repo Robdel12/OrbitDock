@@ -28,17 +28,17 @@ struct HeaderView: View {
     serverState.session(sessionId)
   }
 
-  private var statusColor: Color {
-    switch obs.workStatus {
-      case .working: .statusWorking
-      case .waiting: .statusReply
-      case .permission: .statusPermission
-      case .unknown: .statusWorking.opacity(0.6)
-    }
-  }
-
   private var isCompactLayout: Bool {
     horizontalSizeClass == .compact
+  }
+
+  private var presentation: HeaderViewPresentation {
+    HeaderViewPlanner.presentation(
+      effort: obs.effort,
+      hasLayoutToggle: layoutConfig != nil,
+      hasChatModeToggle: chatViewMode != nil,
+      compactLayout: layoutConfig?.wrappedValue
+    )
   }
 
   private var currentContinuation: SessionContinuation {
@@ -72,13 +72,13 @@ struct HeaderView: View {
         SessionStatusDot(status: obs.displayStatus, size: 10)
         sessionTitleDropdown
         UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
-        if let effort = HeaderCompactPresentation.effortLabel(for: obs.effort) {
+        if let effort = presentation.effortLabel {
           Text(effort)
             .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
-            .foregroundStyle(HeaderCompactPresentation.effortColor(for: obs.effort))
+            .foregroundStyle(presentation.effortColor)
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, Spacing.xxs)
-            .background(HeaderCompactPresentation.effortColor(for: obs.effort).opacity(0.12), in: Capsule())
+            .background(presentation.effortColor.opacity(0.12), in: Capsule())
         }
       },
       intelligence: {
@@ -173,7 +173,14 @@ struct HeaderView: View {
         }
       }
       Divider()
-      debugContextMenu
+      HeaderDebugContextMenu(
+        sessionId: sessionId,
+        threadId: obs.codexThreadId,
+        projectPath: obs.projectPath,
+        provider: obs.provider,
+        codexIntegrationMode: obs.codexIntegrationMode.map { String(describing: $0) },
+        claudeIntegrationMode: obs.claudeIntegrationMode.map { String(describing: $0) }
+      )
     }
   }
 
@@ -181,7 +188,7 @@ struct HeaderView: View {
 
   private var overflowMenu: some View {
     Menu {
-      continueMenuSection
+      HeaderContinuationMenuSection(continuation: currentContinuation)
 
       if obs.isDirect, obs.isActive, let onEnd = onEndSession {
         Divider()
@@ -243,7 +250,14 @@ struct HeaderView: View {
       .buttonStyle(.plain)
       .onHover { isHoveringProject = $0 }
       .contextMenu {
-        debugContextMenu
+        HeaderDebugContextMenu(
+          sessionId: sessionId,
+          threadId: obs.codexThreadId,
+          projectPath: obs.projectPath,
+          provider: obs.provider,
+          codexIntegrationMode: obs.codexIntegrationMode.map { String(describing: $0) },
+          claudeIntegrationMode: obs.claudeIntegrationMode.map { String(describing: $0) }
+        )
       }
       .layoutPriority(1)
 
@@ -330,11 +344,7 @@ struct HeaderView: View {
   }
 
   private var showsConversationModeToggleInCompact: Bool {
-    guard chatViewMode != nil else { return false }
-    if let layoutMode = layoutConfig?.wrappedValue, layoutMode == .reviewOnly {
-      return false
-    }
-    return true
+    presentation.showsConversationModeToggleInCompact
   }
 
   private var compactOverflowMenu: some View {
@@ -353,7 +363,7 @@ struct HeaderView: View {
         }
       }
 
-      continueMenuSection
+      HeaderContinuationMenuSection(continuation: currentContinuation)
 
       if obs.isDirect, obs.isActive, let onEnd = onEndSession {
         Divider()
@@ -371,23 +381,6 @@ struct HeaderView: View {
         .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     }
     .help("More")
-  }
-
-  @ViewBuilder
-  private var continueMenuSection: some View {
-    Section("Continue In New Session") {
-      Button {
-        router.openNewSession(provider: .claude, continuation: currentContinuation)
-      } label: {
-        Label("Claude Session", systemImage: "sparkles")
-      }
-
-      Button {
-        router.openNewSession(provider: .codex, continuation: currentContinuation)
-      } label: {
-        Label("Codex Session", systemImage: "chevron.left.forwardslash.chevron.right")
-      }
-    }
   }
 
   // MARK: - Nav Button Helper
@@ -439,56 +432,6 @@ struct HeaderView: View {
       Color.backgroundTertiary.opacity(0.5),
       in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
     )
-  }
-
-  // MARK: - Debug Context Menu
-
-  @ViewBuilder
-  private var debugContextMenu: some View {
-    Button("Copy Session ID") {
-      copyToClipboard(sessionId)
-    }
-
-    if let threadId = obs.codexThreadId {
-      Button("Copy Thread ID") {
-        copyToClipboard(threadId)
-      }
-    }
-
-    Button("Copy Project Path") {
-      copyToClipboard(obs.projectPath)
-    }
-
-    Divider()
-
-    if let mode = obs.codexIntegrationMode {
-      Text("Integration: \(String(describing: mode))")
-    }
-    if let mode = obs.claudeIntegrationMode {
-      Text("Integration: \(String(describing: mode))")
-    }
-    Text("Provider: \(obs.provider.rawValue)")
-
-    Divider()
-
-    Button("Open Server Log") {
-      _ = Platform.services.openURL(URL(fileURLWithPath: NSString("~/.orbitdock/logs/server.log").expandingTildeInPath))
-    }
-
-    if obs.provider == .codex {
-      Button("Open Codex Log") {
-        _ = Platform.services
-          .openURL(URL(fileURLWithPath: NSString("~/.orbitdock/logs/codex.log").expandingTildeInPath))
-      }
-    }
-
-    Button("Open Database") {
-      _ = Platform.services.openURL(URL(fileURLWithPath: NSString("~/.orbitdock/orbitdock.db").expandingTildeInPath))
-    }
-  }
-
-  private func copyToClipboard(_ text: String) {
-    Platform.services.copyToClipboard(text)
   }
 
   // MARK: - Helpers
