@@ -21,12 +21,14 @@ struct ServerSettingsSheet: View {
   @State private var expandedEndpointId: UUID?
   @State private var showEditor = false
   @State private var editingEndpointId: UUID?
-  @State private var draftName = ""
-  @State private var draftHostInput = ""
-  @State private var draftIsEnabled = true
-  @State private var draftIsDefault = false
-  @State private var draftIsLocalManaged = false
-  @State private var draftAuthToken = ""
+  @State private var draft = ServerEndpointEditorDraft(
+    name: "",
+    hostInput: "",
+    isEnabled: true,
+    isDefault: false,
+    isLocalManaged: false,
+    authToken: ""
+  )
   @State private var editorError: String?
   @State private var endpointPendingDelete: ServerEndpoint?
   private let endpointSettings: ServerEndpointSettingsClient
@@ -39,22 +41,7 @@ struct ServerSettingsSheet: View {
   }
 
   private var orderedEndpoints: [ServerEndpoint] {
-    endpoints.sorted { lhs, rhs in
-      if lhs.isDefault != rhs.isDefault {
-        return lhs.isDefault && !rhs.isDefault
-      }
-      if lhs.isEnabled != rhs.isEnabled {
-        return lhs.isEnabled && !rhs.isEnabled
-      }
-      if lhs.isLocalManaged != rhs.isLocalManaged {
-        return lhs.isLocalManaged && !rhs.isLocalManaged
-      }
-      let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
-      if nameOrder != .orderedSame {
-        return nameOrder == .orderedAscending
-      }
-      return lhs.id.uuidString < rhs.id.uuidString
-    }
+    ServerSettingsSheetPlanner.orderedEndpoints(endpoints)
   }
 
   // MARK: - Body
@@ -358,7 +345,7 @@ struct ServerSettingsSheet: View {
           VStack(alignment: .leading, spacing: 0) {
             // Name field
             editorField(label: "Name") {
-              TextField("My Server", text: $draftName)
+              TextField("My Server", text: $draft.name)
                 .textFieldStyle(.plain)
                 .font(.system(size: TypeScale.body))
               #if os(iOS)
@@ -371,17 +358,17 @@ struct ServerSettingsSheet: View {
 
             // Host field
             editorField(label: "Host") {
-              TextField("10.0.0.5:4000 or https://host.example", text: $draftHostInput)
+              TextField("10.0.0.5:4000 or https://host.example", text: $draft.hostInput)
                 .textFieldStyle(.plain)
                 .font(.system(size: TypeScale.body, design: .monospaced))
               #if os(iOS)
                 .textInputAutocapitalization(.never)
               #endif
                 .autocorrectionDisabled()
-                .disabled(draftIsLocalManaged)
+                .disabled(draft.isLocalManaged)
             }
 
-            if draftIsLocalManaged {
+            if draft.isLocalManaged {
               Text("Host is managed automatically for local endpoints.")
                 .font(.system(size: TypeScale.caption))
                 .foregroundStyle(Color.textTertiary)
@@ -390,13 +377,13 @@ struct ServerSettingsSheet: View {
                 .padding(.top, -Spacing.xs)
             }
 
-            if !draftIsLocalManaged {
+            if !draft.isLocalManaged {
               Divider()
                 .overlay(Color.panelBorder)
 
               // Auth token field
               editorField(label: "Auth Token") {
-                SecureField("Paste token", text: $draftAuthToken)
+                SecureField("Paste token", text: $draft.authToken)
                   .textFieldStyle(.plain)
                   .font(.system(size: TypeScale.body, design: .monospaced))
                 #if os(iOS)
@@ -412,7 +399,7 @@ struct ServerSettingsSheet: View {
             // Enabled toggle
             editorField(label: "Enabled") {
               Spacer()
-              Toggle(isOn: $draftIsEnabled) {
+              Toggle(isOn: $draft.isEnabled) {
                 EmptyView()
               }
               .toggleStyle(.switch)
@@ -428,14 +415,14 @@ struct ServerSettingsSheet: View {
             VStack(alignment: .leading, spacing: Spacing.xs) {
               editorField(label: "Control Plane") {
                 Spacer()
-                Toggle(isOn: $draftIsDefault) {
+                Toggle(isOn: $draft.isDefault) {
                   EmptyView()
                 }
                 .toggleStyle(.switch)
                 .tint(Color.accent)
                 .labelsHidden()
                 .fixedSize()
-                .disabled(!draftIsEnabled)
+                .disabled(!draft.isEnabled)
               }
 
               Text("Route usage and dashboard data through this endpoint.")
@@ -488,7 +475,7 @@ struct ServerSettingsSheet: View {
               saveEditor()
             }
             .foregroundStyle(Color.accent)
-            .disabled(draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
           }
         }
     }
@@ -608,24 +595,17 @@ struct ServerSettingsSheet: View {
 
   private func beginAddingEndpoint() {
     editingEndpointId = nil
-    draftName = ""
-    draftHostInput = ""
-    draftAuthToken = ""
-    draftIsEnabled = true
-    draftIsDefault = endpoints.first(where: \.isDefault) == nil
-    draftIsLocalManaged = false
+    draft = ServerSettingsSheetPlanner.addDraft(existingEndpoints: endpoints)
     editorError = nil
     showEditor = true
   }
 
   private func beginEditing(_ endpoint: ServerEndpoint) {
     editingEndpointId = endpoint.id
-    draftName = endpoint.name
-    draftHostInput = endpointSettings.hostInput(endpoint.wsURL) ?? endpoint.wsURL.host ?? ""
-    draftAuthToken = endpoint.authToken ?? ""
-    draftIsEnabled = endpoint.isEnabled
-    draftIsDefault = endpoint.isDefault
-    draftIsLocalManaged = endpoint.isLocalManaged
+    draft = ServerSettingsSheetPlanner.editDraft(
+      endpoint: endpoint,
+      hostInput: endpointSettings.hostInput(endpoint.wsURL) ?? endpoint.wsURL.host ?? ""
+    )
     editorError = nil
     showEditor = true
   }
@@ -633,90 +613,52 @@ struct ServerSettingsSheet: View {
   private func closeEditor() {
     showEditor = false
     editorError = nil
-    draftAuthToken = ""
+    draft.authToken = ""
   }
 
   private func saveEditor() {
-    let trimmedName = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedName.isEmpty else {
-      editorError = "Endpoint name is required."
-      return
+    switch ServerSettingsSheetPlanner.save(
+      currentEndpoints: endpoints,
+      editingEndpointID: editingEndpointId,
+      draft: draft,
+      defaultPort: endpointSettings.defaultPort,
+      buildURL: endpointSettings.buildURL
+    ) {
+      case let .success(updated):
+        persistEndpoints(updated)
+        closeEditor()
+        if let saved = updated.first(where: { $0.id == editingEndpointId }) ?? updated.last {
+          logger.info("Saved endpoint: \(saved.name, privacy: .public)")
+        }
+      case let .failure(error):
+        editorError = error.message
     }
-
-    let endpointId = editingEndpointId ?? UUID()
-    let existingEndpoint = endpoints.first(where: { $0.id == endpointId })
-    let isLocalManaged = existingEndpoint?.isLocalManaged ?? draftIsLocalManaged
-
-    let resolvedURL: URL
-    if isLocalManaged {
-      resolvedURL = existingEndpoint?.wsURL ?? ServerEndpoint
-        .localDefault(defaultPort: endpointSettings.defaultPort).wsURL
-    } else {
-      guard let built = endpointSettings.buildURL(draftHostInput) else {
-        editorError = "Enter a valid host (e.g. 10.0.0.5:4000 or https://host.example)."
-        return
-      }
-      resolvedURL = built
-    }
-
-    var updated = endpoints
-    let trimmedToken = draftAuthToken.trimmingCharacters(in: .whitespacesAndNewlines)
-    let endpoint = ServerEndpoint(
-      id: endpointId,
-      name: trimmedName,
-      wsURL: resolvedURL,
-      isLocalManaged: isLocalManaged,
-      isEnabled: draftIsEnabled,
-      isDefault: draftIsEnabled && draftIsDefault,
-      authToken: trimmedToken.isEmpty ? nil : trimmedToken
-    )
-
-    if let index = updated.firstIndex(where: { $0.id == endpointId }) {
-      updated[index] = endpoint
-    } else {
-      updated.append(endpoint)
-    }
-
-    if endpoint.isDefault {
-      for idx in updated.indices {
-        updated[idx].isDefault = updated[idx].id == endpoint.id
-      }
-    }
-
-    persistEndpoints(updated)
-    closeEditor()
-    logger.info("Saved endpoint: \(endpoint.name, privacy: .public)")
   }
 
   private func removeEndpoint(_ endpoint: ServerEndpoint) {
     endpointPendingDelete = nil
-    guard !endpoint.isLocalManaged else { return }
-    let updated = endpoints.filter { $0.id != endpoint.id }
+    let updated = ServerSettingsSheetPlanner.removedEndpoints(
+      currentEndpoints: endpoints,
+      removing: endpoint
+    )
     persistEndpoints(updated)
     logger.info("Removed endpoint: \(endpoint.name, privacy: .public)")
   }
 
   private func setDefaultEndpoint(_ endpointId: UUID) {
-    var updated = endpoints
-    guard let index = updated.firstIndex(where: { $0.id == endpointId }) else { return }
-
-    updated[index].isEnabled = true
-    for idx in updated.indices {
-      updated[idx].isDefault = updated[idx].id == endpointId
-    }
-
+    let updated = ServerSettingsSheetPlanner.defaultedEndpoints(
+      currentEndpoints: endpoints,
+      endpointID: endpointId
+    )
     persistEndpoints(updated)
   }
 
   private func updateEndpointEnabled(_ endpointId: UUID, isEnabled: Bool) {
-    var updated = endpoints
-    guard let index = updated.firstIndex(where: { $0.id == endpointId }) else { return }
-
-    updated[index].isEnabled = isEnabled
-    if !isEnabled {
-      updated[index].isDefault = false
-    }
-
+    let updated = ServerSettingsSheetPlanner.enabledEndpoints(
+      currentEndpoints: endpoints,
+      endpointID: endpointId,
+      isEnabled: isEnabled
+    )
     persistEndpoints(updated)
   }
 
