@@ -3,6 +3,54 @@ import Testing
 @testable import OrbitDock
 
 struct SessionDetailPlanningTests {
+  @Test func openingPendingApprovalPanelPinsConversationAndClearsUnreadState() {
+    let next = SessionDetailConversationChromePlanner.openPendingApprovalPanel(
+      current: SessionDetailConversationChromeState(
+        isPinned: false,
+        unreadCount: 6,
+        scrollToBottomTrigger: 2,
+        pendingApprovalPanelOpenSignal: 4
+      )
+    )
+
+    #expect(next.isPinned)
+    #expect(next.unreadCount == 0)
+    #expect(next.scrollToBottomTrigger == 3)
+    #expect(next.pendingApprovalPanelOpenSignal == 5)
+  }
+
+  @Test func togglingPinnedFromPausedJumpsToLatest() {
+    let next = SessionDetailConversationChromePlanner.togglePinned(
+      current: SessionDetailConversationChromeState(
+        isPinned: false,
+        unreadCount: 3,
+        scrollToBottomTrigger: 9,
+        pendingApprovalPanelOpenSignal: 1
+      )
+    )
+
+    #expect(next.isPinned)
+    #expect(next.unreadCount == 0)
+    #expect(next.scrollToBottomTrigger == 10)
+    #expect(next.pendingApprovalPanelOpenSignal == 1)
+  }
+
+  @Test func togglingPinnedFromFollowingOnlyPauses() {
+    let next = SessionDetailConversationChromePlanner.togglePinned(
+      current: SessionDetailConversationChromeState(
+        isPinned: true,
+        unreadCount: 2,
+        scrollToBottomTrigger: 7,
+        pendingApprovalPanelOpenSignal: 3
+      )
+    )
+
+    #expect(!next.isPinned)
+    #expect(next.unreadCount == 2)
+    #expect(next.scrollToBottomTrigger == 7)
+    #expect(next.pendingApprovalPanelOpenSignal == 3)
+  }
+
   @Test func onAppearPlanSubscribesAndLoadsApprovalsForDirectSessions() {
     let plan = SessionDetailLifecyclePlanner.onAppearPlan(
       shouldSubscribeToServerSession: true,
@@ -68,6 +116,97 @@ struct SessionDetailPlanningTests {
     #expect(plan.navigateToComment == nil)
   }
 
+  @Test func metadataPlannerTruncatesLongBranchNamesAndKeepsShortPathsReadable() {
+    #expect(
+      SessionDetailMetadataPlanner.compactBranchLabel("feature/super-long-branch-name")
+        == "feature/super…"
+    )
+    #expect(
+      SessionDetailMetadataPlanner.compactProjectPath("/tmp/repo/feature-a")
+        == "repo/feature-a"
+    )
+    #expect(SessionDetailMetadataPlanner.compactProjectPath("repo") == "repo")
+  }
+
+  @Test func usagePlannerPrefersServerUsageAndFallsBackToTotalTokens() {
+    let serverStats = SessionDetailUsagePlanner.makeStats(
+      model: "claude-opus",
+      inputTokens: 120,
+      outputTokens: 45,
+      cachedTokens: 10,
+      contextUsed: 300,
+      totalTokens: 999
+    )
+    #expect(serverStats.model == "claude-opus")
+    #expect(serverStats.inputTokens == 120)
+    #expect(serverStats.outputTokens == 45)
+    #expect(serverStats.cacheReadTokens == 10)
+    #expect(serverStats.contextUsed == 300)
+
+    let fallbackStats = SessionDetailUsagePlanner.makeStats(
+      model: "claude-opus",
+      inputTokens: nil,
+      outputTokens: nil,
+      cachedTokens: nil,
+      contextUsed: 0,
+      totalTokens: 88
+    )
+    #expect(fallbackStats.inputTokens == 0)
+    #expect(fallbackStats.outputTokens == 88)
+    #expect(fallbackStats.cacheReadTokens == 0)
+    #expect(fallbackStats.contextUsed == 0)
+  }
+
+  @Test func diffPlannerCountsCombinedTurnSnapshotsWithoutDuplicatingCurrentSnapshot() {
+    let count = SessionDetailDiffPlanner.fileCount(
+      turnDiffs: [
+        makeTurnDiff(
+          diff: """
+          diff --git a/Sources/App.swift b/Sources/App.swift
+          --- a/Sources/App.swift
+          +++ b/Sources/App.swift
+          @@ -1 +1 @@
+          -old
+          +new
+          """
+        ),
+      ],
+      currentDiff: """
+        diff --git a/Sources/Feature.swift b/Sources/Feature.swift
+        --- a/Sources/Feature.swift
+        +++ b/Sources/Feature.swift
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+    )
+    #expect(count == 2)
+
+    let dedupedCount = SessionDetailDiffPlanner.fileCount(
+      turnDiffs: [
+        makeTurnDiff(
+          diff: """
+          diff --git a/Sources/App.swift b/Sources/App.swift
+          --- a/Sources/App.swift
+          +++ b/Sources/App.swift
+          @@ -1 +1 @@
+          -old
+          +new
+          """
+        ),
+      ],
+      currentDiff: """
+        diff --git a/Sources/App.swift b/Sources/App.swift
+        --- a/Sources/App.swift
+        +++ b/Sources/App.swift
+        @@ -1 +1 @@
+        -old
+        +new
+        """
+    )
+    #expect(dedupedCount == 1)
+  }
+
   @Test func worktreeCleanupPlannerResolvesByIdBeforePathAndBuildsRequest() {
     let matchingById = makeWorktree(id: "wt-1", path: "/tmp/repo/worktree-a", branch: "feature/a")
     let matchingByPath = makeWorktree(id: "wt-2", path: "/tmp/repo/worktree-b", branch: "feature/b")
@@ -129,6 +268,18 @@ struct SessionDetailPlanningTests {
       autoPrune: true,
       customName: nil,
       createdBy: .agent
+    )
+  }
+
+  private func makeTurnDiff(diff: String) -> ServerTurnDiff {
+    ServerTurnDiff(
+      turnId: "turn-1",
+      diff: diff,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
+      contextWindow: nil,
+      snapshotKind: nil
     )
   }
 }

@@ -264,12 +264,10 @@ struct SessionDetailView: View {
   }
 
   private func openPendingApprovalPanel() {
-    withAnimation(Motion.standard) {
-      pendingApprovalPanelOpenSignal += 1
-    }
-    isPinned = true
-    unreadCount = 0
-    scrollToBottomTrigger += 1
+    let nextState = SessionDetailConversationChromePlanner.openPendingApprovalPanel(
+      current: conversationChromeState
+    )
+    applyConversationChromeState(nextState, animatePendingApprovalPanel: true)
   }
 
   private var regularActionBar: some View {
@@ -285,7 +283,7 @@ struct SessionDetailView: View {
         HStack(spacing: Spacing.xs) {
           Image(systemName: "arrow.triangle.branch")
             .font(.system(size: TypeScale.micro, weight: .semibold))
-          Text(compactBranchLabel(branch))
+          Text(SessionDetailMetadataPlanner.compactBranchLabel(branch))
             .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
         }
         .foregroundStyle(Color.gitBranch)
@@ -295,7 +293,7 @@ struct SessionDetailView: View {
       }
 
       // Project path
-      Text(compactProjectPath(obs.projectPath))
+      Text(SessionDetailMetadataPlanner.compactProjectPath(obs.projectPath))
         .font(.system(size: TypeScale.caption, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
         .lineLimit(1)
@@ -322,9 +320,9 @@ struct SessionDetailView: View {
       // Scroll state / new messages
       if !isPinned, unreadCount > 0 {
         Button {
-          isPinned = true
-          unreadCount = 0
-          scrollToBottomTrigger += 1
+          applyConversationChromeState(
+            SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
+          )
         } label: {
           HStack(spacing: Spacing.xs) {
             Image(systemName: "arrow.down")
@@ -343,11 +341,9 @@ struct SessionDetailView: View {
       }
 
       Button {
-        isPinned.toggle()
-        if isPinned {
-          unreadCount = 0
-          scrollToBottomTrigger += 1
-        }
+        applyConversationChromeState(
+          SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
+        )
       } label: {
         Text(isPinned ? "Following" : "Paused")
           .font(.system(size: TypeScale.caption, weight: .medium))
@@ -400,9 +396,9 @@ struct SessionDetailView: View {
 
         if !isPinned, unreadCount > 0 {
           Button {
-            isPinned = true
-            unreadCount = 0
-            scrollToBottomTrigger += 1
+            applyConversationChromeState(
+              SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
+            )
           } label: {
             HStack(spacing: Spacing.xs) {
               Image(systemName: "arrow.down")
@@ -420,11 +416,9 @@ struct SessionDetailView: View {
         }
 
         Button {
-          isPinned.toggle()
-          if isPinned {
-            unreadCount = 0
-            scrollToBottomTrigger += 1
-          }
+          applyConversationChromeState(
+            SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
+          )
         } label: {
           HStack(spacing: Spacing.xs) {
             Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
@@ -461,7 +455,7 @@ struct SessionDetailView: View {
             HStack(spacing: Spacing.xs) {
               Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: TypeScale.caption, weight: .semibold))
-              Text(compactBranchLabel(branch))
+              Text(SessionDetailMetadataPlanner.compactBranchLabel(branch))
                 .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
             }
             .foregroundStyle(Color.gitBranch)
@@ -572,19 +566,10 @@ struct SessionDetailView: View {
   }
 
   private var diffFileCount: Int {
-    // Build cumulative diff from all turn snapshots + current live diff
-    var parts: [String] = []
-    for td in obs.turnDiffs {
-      parts.append(td.diff)
-    }
-    if let current = obs.diff, !current.isEmpty {
-      if obs.turnDiffs.last?.diff != current {
-        parts.append(current)
-      }
-    }
-    let combined = parts.joined(separator: "\n")
-    guard !combined.isEmpty else { return 0 }
-    return DiffModel.parse(unifiedDiff: combined).files.count
+    SessionDetailDiffPlanner.fileCount(
+      turnDiffs: obs.turnDiffs,
+      currentDiff: obs.diff
+    )
   }
 
   // MARK: - Worktree Cleanup
@@ -698,41 +683,15 @@ struct SessionDetailView: View {
     obs.lastTool
   }
 
-  private func compactBranchLabel(_ branch: String) -> String {
-    let maxLength = 14
-    guard branch.count > maxLength else { return branch }
-    return String(branch.prefix(maxLength - 1)) + "…"
-  }
-
-  private func compactProjectPath(_ path: String) -> String {
-    // Show last two path components: "parent/project"
-    let components = path.split(separator: "/")
-    if components.count >= 2 {
-      return components.suffix(2).joined(separator: "/")
-    }
-    return path
-  }
-
   private var usageStats: TranscriptUsageStats {
-    var stats = TranscriptUsageStats()
-    stats.model = obs.model
-
-    let input = obs.inputTokens ?? 0
-    let output = obs.outputTokens ?? 0
-    let cached = obs.cachedTokens ?? 0
-    let context = obs.effectiveContextInputTokens
-    let hasServerUsage = input > 0 || output > 0 || cached > 0 || context > 0
-
-    if hasServerUsage {
-      stats.inputTokens = input
-      stats.outputTokens = output
-      stats.cacheReadTokens = cached
-      stats.contextUsed = context
-    } else {
-      stats.outputTokens = max(obs.totalTokens, 0)
-    }
-
-    return stats
+    SessionDetailUsagePlanner.makeStats(
+      model: obs.model,
+      inputTokens: obs.inputTokens,
+      outputTokens: obs.outputTokens,
+      cachedTokens: obs.cachedTokens,
+      contextUsed: obs.effectiveContextInputTokens,
+      totalTokens: obs.totalTokens
+    )
   }
 
   // MARK: - Helpers
@@ -759,6 +718,32 @@ struct SessionDetailView: View {
 
   private func endDirectSession() {
     Task { try? await scopedServerState.endSession(sessionId) }
+  }
+
+  private var conversationChromeState: SessionDetailConversationChromeState {
+    SessionDetailConversationChromeState(
+      isPinned: isPinned,
+      unreadCount: unreadCount,
+      scrollToBottomTrigger: scrollToBottomTrigger,
+      pendingApprovalPanelOpenSignal: pendingApprovalPanelOpenSignal
+    )
+  }
+
+  private func applyConversationChromeState(
+    _ state: SessionDetailConversationChromeState,
+    animatePendingApprovalPanel: Bool = false
+  ) {
+    if animatePendingApprovalPanel {
+      withAnimation(Motion.standard) {
+        pendingApprovalPanelOpenSignal = state.pendingApprovalPanelOpenSignal
+      }
+    } else {
+      pendingApprovalPanelOpenSignal = state.pendingApprovalPanelOpenSignal
+    }
+
+    isPinned = state.isPinned
+    unreadCount = state.unreadCount
+    scrollToBottomTrigger = state.scrollToBottomTrigger
   }
 
   // MARK: - Send Review

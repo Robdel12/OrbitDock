@@ -1,5 +1,47 @@
 import Foundation
 
+struct SessionDetailConversationChromeState: Equatable {
+  var isPinned: Bool
+  var unreadCount: Int
+  var scrollToBottomTrigger: Int
+  var pendingApprovalPanelOpenSignal: Int
+}
+
+enum SessionDetailConversationChromePlanner {
+  static func openPendingApprovalPanel(
+    current: SessionDetailConversationChromeState
+  ) -> SessionDetailConversationChromeState {
+    var next = current
+    next.pendingApprovalPanelOpenSignal += 1
+    next.isPinned = true
+    next.unreadCount = 0
+    next.scrollToBottomTrigger += 1
+    return next
+  }
+
+  static func jumpToLatest(
+    current: SessionDetailConversationChromeState
+  ) -> SessionDetailConversationChromeState {
+    var next = current
+    next.isPinned = true
+    next.unreadCount = 0
+    next.scrollToBottomTrigger += 1
+    return next
+  }
+
+  static func togglePinned(
+    current: SessionDetailConversationChromeState
+  ) -> SessionDetailConversationChromeState {
+    guard current.isPinned else {
+      return jumpToLatest(current: current)
+    }
+
+    var next = current
+    next.isPinned = false
+    return next
+  }
+}
+
 struct SessionDetailOnAppearPlan: Equatable {
   let shouldSubscribe: Bool
   let autoMarkReadEnabled: Bool
@@ -64,6 +106,22 @@ struct SessionDetailReviewNavigationPlan {
   let reviewFileId: String
   let navigateToComment: ServerReviewComment?
   let layoutConfig: LayoutConfiguration
+}
+
+enum SessionDetailMetadataPlanner {
+  static func compactBranchLabel(_ branch: String) -> String {
+    let maxLength = 14
+    guard branch.count > maxLength else { return branch }
+    return String(branch.prefix(maxLength - 1)) + "…"
+  }
+
+  static func compactProjectPath(_ path: String) -> String {
+    let components = path.split(separator: "/")
+    if components.count >= 2 {
+      return components.suffix(2).joined(separator: "/")
+    }
+    return path
+  }
 }
 
 enum SessionDetailLayoutPlanner {
@@ -137,6 +195,53 @@ struct SessionDetailWorktreeCleanupRequest: Equatable {
   let worktreeId: String
   let force: Bool
   let deleteBranch: Bool
+}
+
+enum SessionDetailUsagePlanner {
+  static func makeStats(
+    model: String?,
+    inputTokens: Int?,
+    outputTokens: Int?,
+    cachedTokens: Int?,
+    contextUsed: Int,
+    totalTokens: Int
+  ) -> TranscriptUsageStats {
+    var stats = TranscriptUsageStats()
+    stats.model = model
+
+    let input = inputTokens ?? 0
+    let output = outputTokens ?? 0
+    let cached = cachedTokens ?? 0
+    let hasServerUsage = input > 0 || output > 0 || cached > 0 || contextUsed > 0
+
+    if hasServerUsage {
+      stats.inputTokens = input
+      stats.outputTokens = output
+      stats.cacheReadTokens = cached
+      stats.contextUsed = contextUsed
+    } else {
+      stats.outputTokens = max(totalTokens, 0)
+    }
+
+    return stats
+  }
+}
+
+enum SessionDetailDiffPlanner {
+  static func fileCount(
+    turnDiffs: [ServerTurnDiff],
+    currentDiff: String?
+  ) -> Int {
+    var parts = turnDiffs.map(\.diff)
+
+    if let currentDiff, !currentDiff.isEmpty, turnDiffs.last?.diff != currentDiff {
+      parts.append(currentDiff)
+    }
+
+    let combined = parts.joined(separator: "\n")
+    guard !combined.isEmpty else { return 0 }
+    return DiffModel.parse(unifiedDiff: combined).files.count
+  }
 }
 
 enum SessionDetailWorktreeCleanupPlanner {
