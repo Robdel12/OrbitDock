@@ -204,6 +204,41 @@ struct NewSessionSheet: View {
     runtimeRegistry.sessionStore(for: selectedEndpointId, fallback: serverState)
   }
 
+  private var continuationDefaults: NewSessionContinuationDefaults? {
+    guard let continuation else { return nil }
+    return NewSessionContinuationDefaults(
+      projectPath: continuation.projectPath,
+      hasGitRepository: continuation.hasGitRepository
+    )
+  }
+
+  private var lifecycleState: NewSessionLifecycleState {
+    NewSessionLifecycleState(
+      selectedEndpointId: selectedEndpointId,
+      selectedPath: selectedPath,
+      selectedPathIsGit: selectedPathIsGit,
+      providerState: NewSessionProviderState(
+        claudeModelId: claudeModelId,
+        customModelInput: customModelInput,
+        useCustomModel: useCustomModel,
+        selectedPermissionMode: selectedPermissionMode,
+        allowedToolsText: allowedToolsText,
+        disallowedToolsText: disallowedToolsText,
+        showToolConfig: showToolConfig,
+        selectedEffort: selectedEffort,
+        codexModel: codexModel,
+        selectedAutonomy: selectedAutonomy,
+        codexErrorMessage: codexErrorMessage
+      ),
+      worktreeState: NewSessionWorktreeState(
+        useWorktree: useWorktree,
+        branch: worktreeBranch,
+        baseBranch: worktreeBaseBranch,
+        error: worktreeError
+      )
+    )
+  }
+
   private var endpointStatus: ConnectionStatus {
     runtimeRegistry.displayConnectionStatus(for: selectedEndpointId)
   }
@@ -263,38 +298,38 @@ struct NewSessionSheet: View {
     #endif
     .background(Color.backgroundSecondary)
     .onAppear {
-      if let primaryEndpointId = runtimeRegistry.primaryEndpointId,
-         selectableEndpoints.contains(where: { $0.id == primaryEndpointId })
-      {
-        selectedEndpointId = primaryEndpointId
-      }
-      if let continuation,
-         selectableEndpoints.contains(where: { $0.id == continuation.endpointId })
-      {
-        selectedEndpointId = continuation.endpointId
-      }
-      normalizeEndpointSelection()
-      refreshEndpointData()
-      applyContinuationDefaultsIfNeeded()
-      syncModelSelections()
+      applyLifecyclePlan(
+        NewSessionLifecyclePlanner.onAppear(
+          current: lifecycleState,
+          selectableEndpoints: selectableEndpoints,
+          primaryEndpointId: runtimeRegistry.primaryEndpointId,
+          continuationEndpointId: continuation?.endpointId,
+          continuationDefaults: continuationDefaults
+        )
+      )
     }
-    .onChange(of: selectedPath) { _, _ in
-      useWorktree = false
-      worktreeBranch = ""
-      worktreeBaseBranch = ""
-      worktreeError = nil
+    .onChange(of: selectedPath) { _, newPath in
+      applyLifecyclePlan(
+        NewSessionLifecyclePlanner.pathChanged(
+          current: lifecycleState,
+          newPath: newPath
+        )
+      )
     }
-    .onChange(of: selectedEndpointId) { _, _ in
-      selectedPath = ""
-      resetProviderState()
-      normalizeEndpointSelection()
-      refreshEndpointData()
-      applyContinuationDefaultsIfNeeded()
+    .onChange(of: selectedEndpointId) { _, newEndpointId in
+      applyLifecyclePlan(
+        NewSessionLifecyclePlanner.endpointChanged(
+          current: lifecycleState,
+          requestedEndpointId: newEndpointId,
+          selectableEndpoints: selectableEndpoints,
+          primaryEndpointId: runtimeRegistry.primaryEndpointId,
+          continuationEndpointId: continuation?.endpointId,
+          continuationDefaults: continuationDefaults
+        )
+      )
     }
     .onChange(of: provider) { _, _ in
-      resetProviderState()
-      refreshEndpointData()
-      syncModelSelections()
+      applyLifecyclePlan(NewSessionLifecyclePlanner.providerChanged(current: lifecycleState))
     }
     // Claude model sync
     .onChange(of: claudeModels.count) { _, _ in
@@ -1174,22 +1209,6 @@ struct NewSessionSheet: View {
 
   // MARK: - Actions
 
-  private func normalizeEndpointSelection() {
-    guard !selectableEndpoints.isEmpty else { return }
-    if selectableEndpoints.contains(where: { $0.id == selectedEndpointId }) {
-      return
-    }
-    if let primaryEndpointId = runtimeRegistry.primaryEndpointId,
-       selectableEndpoints.contains(where: { $0.id == primaryEndpointId })
-    {
-      selectedEndpointId = primaryEndpointId
-      return
-    }
-    selectedEndpointId = selectableEndpoints.first(where: \.isDefault)?.id
-      ?? selectableEndpoints.first?.id
-      ?? selectedEndpointId
-  }
-
   private func refreshEndpointData() {
     // Models arrive via the event stream; only codex account needs an explicit refresh
     endpointAppState.refreshCodexAccount()
@@ -1357,13 +1376,36 @@ struct NewSessionSheet: View {
     )
   }
 
-  private func applyContinuationDefaultsIfNeeded() {
-    guard let continuation else { return }
-    guard continuation.endpointId == selectedEndpointId else { return }
-    guard selectedPath.isEmpty else { return }
+  private func applyLifecyclePlan(_ plan: NewSessionLifecyclePlan) {
+    selectedEndpointId = plan.nextState.selectedEndpointId
+    selectedPath = plan.nextState.selectedPath
+    selectedPathIsGit = plan.nextState.selectedPathIsGit
 
-    selectedPath = continuation.projectPath
-    selectedPathIsGit = continuation.hasGitRepository
+    let providerState = plan.nextState.providerState
+    claudeModelId = providerState.claudeModelId
+    customModelInput = providerState.customModelInput
+    useCustomModel = providerState.useCustomModel
+    selectedPermissionMode = providerState.selectedPermissionMode
+    allowedToolsText = providerState.allowedToolsText
+    disallowedToolsText = providerState.disallowedToolsText
+    showToolConfig = providerState.showToolConfig
+    selectedEffort = providerState.selectedEffort
+    codexModel = providerState.codexModel
+    selectedAutonomy = providerState.selectedAutonomy
+    codexErrorMessage = providerState.codexErrorMessage
+
+    let worktreeState = plan.nextState.worktreeState
+    useWorktree = worktreeState.useWorktree
+    worktreeBranch = worktreeState.branch
+    worktreeBaseBranch = worktreeState.baseBranch
+    worktreeError = worktreeState.error
+
+    if plan.shouldRefreshEndpointData {
+      refreshEndpointData()
+    }
+    if plan.shouldSyncModelSelections {
+      syncModelSelections()
+    }
   }
 }
 
