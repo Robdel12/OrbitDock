@@ -127,6 +127,45 @@ struct SessionDetailPlanningTests {
     #expect(plan.navigateToComment == nil)
   }
 
+  @Test func footerPlannerOnlyShowsTakeoverForPassiveSessionsWithoutApprovalOverlay() {
+    #expect(
+      isDirectFooterMode(
+        SessionDetailFooterPlanner.mode(
+          isDirect: true,
+          canTakeOver: true,
+          needsApprovalOverlay: false
+        )
+      )
+    )
+    #expect(
+      isPassiveWithTakeOverFooterMode(
+        SessionDetailFooterPlanner.mode(
+          isDirect: false,
+          canTakeOver: true,
+          needsApprovalOverlay: false
+        )
+      )
+    )
+    #expect(
+      isPassiveOnlyFooterMode(
+        SessionDetailFooterPlanner.mode(
+          isDirect: false,
+          canTakeOver: true,
+          needsApprovalOverlay: true
+        )
+      )
+    )
+    #expect(
+      isPassiveOnlyFooterMode(
+        SessionDetailFooterPlanner.mode(
+          isDirect: false,
+          canTakeOver: false,
+          needsApprovalOverlay: false
+        )
+      )
+    )
+  }
+
   @Test func metadataPlannerTruncatesLongBranchNamesAndKeepsShortPathsReadable() {
     #expect(
       SessionDetailMetadataPlanner.compactBranchLabel("feature/super-long-branch-name")
@@ -339,5 +378,20 @@ struct SessionDetailPlanningTests {
       contextWindow: nil,
       snapshotKind: nil
     )
+  }
+
+  private func isDirectFooterMode(_ mode: SessionDetailFooterMode) -> Bool {
+    if case .direct = mode { return true }
+    return false
+  }
+
+  private func isPassiveWithTakeOverFooterMode(_ mode: SessionDetailFooterMode) -> Bool {
+    if case .passiveWithTakeOver = mode { return true }
+    return false
+  }
+
+  private func isPassiveOnlyFooterMode(_ mode: SessionDetailFooterMode) -> Bool {
+    if case .passiveOnly = mode { return true }
+    return false
   }
 }

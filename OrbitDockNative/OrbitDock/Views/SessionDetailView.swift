@@ -98,43 +98,13 @@ struct SessionDetailView: View {
         worktreeCleanupBanner
       }
 
-      // Main content area — stable structure so ConversationView preserves @State
-      HStack(spacing: 0) {
-        // Conversation stays in a stable position across layout switches
-        if layoutConfig != .reviewOnly {
-          conversationContent
-            .frame(maxWidth: .infinity)
-        }
-
-        // Review canvas (split or full)
-        if layoutConfig != .conversationOnly {
-          Divider()
-            .foregroundStyle(Color.panelBorder)
-
-          ReviewCanvas(
-            sessionId: sessionId,
-            projectPath: obs.projectPath,
-            isSessionActive: obs.isActive,
-            compact: layoutConfig == .split,
-            navigateToFileId: $reviewFileId,
-            onDismiss: {
-              withAnimation(Motion.gentle) {
-                layoutConfig = SessionDetailLayoutPlanner.nextLayout(
-                  currentLayout: layoutConfig,
-                  intent: .dismissReview
-                )
-              }
-            },
-            selectedCommentIds: $selectedCommentIds,
-            navigateToComment: $navigateToComment
-          )
-          .frame(maxWidth: .infinity)
-        }
-
+      SessionDetailMainContentArea(layoutConfig: layoutConfig) {
+        conversationContent
+      } review: {
+        reviewCanvas
       }
 
-      // Action bar (unified composer for direct sessions, simpler bar for passive sessions)
-      if obs.isDirect {
+      SessionDetailFooter(mode: footerMode) {
         DirectSessionComposer(
           sessionId: sessionId,
           selectedSkills: $selectedSkills,
@@ -143,12 +113,11 @@ struct SessionDetailView: View {
           unreadCount: $unreadCount,
           scrollToBottomTrigger: $scrollToBottomTrigger
         )
-      } else {
-        if obs.canTakeOver, !obs.needsApprovalOverlay {
-          TakeOverInputBar {
-            Task { try? await scopedServerState.takeoverSession(sessionId) }
-          }
+      } takeOverBar: {
+        TakeOverInputBar {
+          Task { try? await scopedServerState.takeoverSession(sessionId) }
         }
+      } passiveActionBar: {
         actionBar
       }
     }
@@ -376,6 +345,26 @@ struct SessionDetailView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 
+  private var reviewCanvas: some View {
+    ReviewCanvas(
+      sessionId: sessionId,
+      projectPath: obs.projectPath,
+      isSessionActive: obs.isActive,
+      compact: layoutConfig == .split,
+      navigateToFileId: $reviewFileId,
+      onDismiss: {
+        withAnimation(Motion.gentle) {
+          layoutConfig = SessionDetailLayoutPlanner.nextLayout(
+            currentLayout: layoutConfig,
+            intent: .dismissReview
+          )
+        }
+      },
+      selectedCommentIds: $selectedCommentIds,
+      navigateToComment: $navigateToComment
+    )
+  }
+
   // MARK: - Diff Available Banner
 
   private var diffAvailableBanner: some View {
@@ -472,6 +461,14 @@ struct SessionDetailView: View {
       contextUsed: obs.effectiveContextInputTokens,
       totalTokens: obs.totalTokens,
       costCalculator: modelPricingService.calculatorSnapshot
+    )
+  }
+
+  private var footerMode: SessionDetailFooterMode {
+    SessionDetailFooterPlanner.mode(
+      isDirect: obs.isDirect,
+      canTakeOver: obs.canTakeOver,
+      needsApprovalOverlay: obs.needsApprovalOverlay
     )
   }
 

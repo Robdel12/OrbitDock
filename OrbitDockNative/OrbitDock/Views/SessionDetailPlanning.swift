@@ -102,6 +102,12 @@ enum SessionDetailLayoutIntent {
   case revealReviewSplit
 }
 
+enum SessionDetailFooterMode: Equatable {
+  case direct
+  case passiveWithTakeOver
+  case passiveOnly
+}
+
 struct SessionDetailReviewNavigationPlan {
   let reviewFileId: String
   let navigateToComment: ServerReviewComment?
@@ -232,6 +238,18 @@ enum SessionDetailLayoutPlanner {
       navigateToComment: nil,
       layoutConfig: nextLayout(currentLayout: currentLayout, intent: .revealReviewSplit)
     )
+  }
+}
+
+enum SessionDetailFooterPlanner {
+  static func mode(
+    isDirect: Bool,
+    canTakeOver: Bool,
+    needsApprovalOverlay: Bool
+  ) -> SessionDetailFooterMode {
+    guard !isDirect else { return .direct }
+    guard canTakeOver, !needsApprovalOverlay else { return .passiveOnly }
+    return .passiveWithTakeOver
   }
 }
 
