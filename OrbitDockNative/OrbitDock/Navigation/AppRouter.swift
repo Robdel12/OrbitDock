@@ -128,22 +128,13 @@ final class AppRouter {
     store: UnifiedSessionsStore,
     fallbackEndpointId: UUID?
   ) {
-    // Strategy 1: Look up by scopedID in the unified store
-    if let ref = store.sessionRef(for: sessionID) {
-      selectSession(ref)
-      return
-    }
-
-    // Strategy 2: Build ref from explicit endpointId
-    if let endpointId {
-      let ref = SessionRef(endpointId: endpointId, sessionId: sessionID)
-      selectSession(ref)
-      return
-    }
-
-    // Strategy 3: Fall back to the window's endpoint context.
-    if let fallbackEndpointId = selectedEndpointId ?? fallbackEndpointId {
-      let ref = SessionRef(endpointId: fallbackEndpointId, sessionId: sessionID)
+    if let ref = AppExternalNavigationPlanner.resolvedSessionRef(
+      sessionID: sessionID,
+      explicitEndpointId: endpointId,
+      selectedEndpointId: selectedEndpointId,
+      fallbackEndpointId: fallbackEndpointId,
+      unifiedSessionsStore: store
+    ) {
       selectSession(ref)
     }
   }
