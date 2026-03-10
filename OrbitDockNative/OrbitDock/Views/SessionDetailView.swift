@@ -379,35 +379,19 @@ struct SessionDetailView: View {
   // MARK: - Diff Available Banner
 
   private var diffAvailableBanner: some View {
-    let fileCount = diffFileCount
-    return Button {
-      let nextLayout = SessionDetailLayoutPlanner.nextLayout(
-        currentLayout: layoutConfig,
-        intent: .revealReviewSplit
-      )
-      withAnimation(Motion.gentle) {
-        layoutConfig = nextLayout
-        showDiffBanner = false
+    SessionDetailDiffAvailableBanner(
+      fileCount: diffFileCount,
+      onRevealReview: {
+        let nextLayout = SessionDetailLayoutPlanner.nextLayout(
+          currentLayout: layoutConfig,
+          intent: .revealReviewSplit
+        )
+        withAnimation(Motion.gentle) {
+          layoutConfig = nextLayout
+          showDiffBanner = false
+        }
       }
-    } label: {
-      HStack(spacing: Spacing.sm) {
-        Image(systemName: "doc.badge.plus")
-          .font(.system(size: TypeScale.body, weight: .medium))
-        Text("\(fileCount) file\(fileCount == 1 ? "" : "s") changed — Review Diffs")
-          .font(.system(size: TypeScale.body, weight: .medium))
-        Image(systemName: "arrow.right")
-          .font(.system(size: TypeScale.micro, weight: .bold))
-      }
-      .foregroundStyle(Color.accent)
-      .padding(.horizontal, Spacing.md)
-      .padding(.vertical, Spacing.sm)
-      .background(Color.accent.opacity(OpacityTier.subtle), in: Capsule())
-    }
-    .buttonStyle(.plain)
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, Spacing.xs)
-    .background(Color.backgroundSecondary)
-    .transition(.move(edge: .top).combined(with: .opacity))
+    )
   }
 
   private var diffFileCount: Int {
