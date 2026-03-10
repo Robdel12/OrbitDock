@@ -11,7 +11,7 @@ import SwiftUI
 
 private let approvalLog = Logger(subsystem: "com.orbitdock", category: "approval-panel")
 
-private struct PendingPanelContentHeightPreferenceKey: PreferenceKey {
+struct PendingPanelContentHeightPreferenceKey: PreferenceKey {
   static var defaultValue: CGFloat = 0
 
   static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -27,75 +27,59 @@ extension DirectSessionComposer {
     let header = ApprovalCardConfiguration.headerConfig(for: model, mode: model.mode)
     let modeColor = pendingPanelModeColor(model)
 
-    VStack(spacing: 0) {
-      PendingPanelInlineHeader(
-        title: pendingPanelTitle(model),
-        statusText: pendingPanelStatusBadgeText(model),
-        promptCountText: model.mode == .question && model.questions.count > 1 ? "\(model.questions.count) prompts" : nil,
-        header: header,
-        modeColor: modeColor,
-        isExpanded: pendingState.isExpanded,
-        isHovering: pendingState.isHovering,
-        onToggle: {
-          withAnimation(Motion.standard) {
-            pendingState.isExpanded.toggle()
+    DirectSessionComposerPendingInlineZone(
+      modeColor: modeColor,
+      isExpanded: pendingState.isExpanded,
+      contentHeight: pendingPanelClampedContentHeight(for: model),
+      onMeasuredHeightChanged: { normalizedHeight in
+        guard abs(normalizedHeight - pendingState.measuredContentHeight) > 0.5 else { return }
+        pendingState.measuredContentHeight = normalizedHeight
+      },
+      header: {
+        PendingPanelInlineHeader(
+          title: pendingPanelTitle(model),
+          statusText: pendingPanelStatusBadgeText(model),
+          promptCountText: model.mode == .question && model.questions.count > 1 ? "\(model.questions.count) prompts" : nil,
+          header: header,
+          modeColor: modeColor,
+          isExpanded: pendingState.isExpanded,
+          isHovering: pendingState.isHovering,
+          onToggle: {
+            withAnimation(Motion.standard) {
+              pendingState.isExpanded.toggle()
+            }
+            Platform.services.playHaptic(.expansion)
+          },
+          onHoverChanged: { hovering in
+            pendingState.isHovering = hovering
+            #if os(macOS)
+              if hovering {
+                NSCursor.pointingHand.push()
+              } else {
+                NSCursor.pop()
+              }
+            #endif
           }
-          Platform.services.playHaptic(.expansion)
-        },
-        onHoverChanged: { hovering in
-          pendingState.isHovering = hovering
-          #if os(macOS)
-            if hovering {
-              NSCursor.pointingHand.push()
-            } else {
-              NSCursor.pop()
-            }
-          #endif
-        }
-      )
-
-      // Expandable content
-      if pendingState.isExpanded {
-        ScrollView(.vertical, showsIndicators: true) {
-          VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
-            switch model.mode {
-              case .permission:
-                pendingPermissionInlineContent(model)
-              case .question:
-                pendingQuestionInlineContent(model)
-              case .takeover:
-                pendingTakeOverInlineContent(model)
-              case .none:
-                EmptyView()
-            }
+        )
+      },
+      content: {
+        VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.sm_ : Spacing.sm) {
+          switch model.mode {
+            case .permission:
+              pendingPermissionInlineContent(model)
+            case .question:
+              pendingQuestionInlineContent(model)
+            case .takeover:
+              pendingTakeOverInlineContent(model)
+            case .none:
+              EmptyView()
           }
-          .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
-          .padding(.top, isCompactLayout ? Spacing.xs : Spacing.sm_)
-          .padding(.bottom, isCompactLayout ? Spacing.sm_ : Spacing.sm_)
-          .background(
-            GeometryReader { geometry in
-              Color.clear.preference(
-                key: PendingPanelContentHeightPreferenceKey.self,
-                value: geometry.size.height
-              )
-            }
-          )
         }
-        .frame(height: pendingPanelClampedContentHeight(for: model))
-        .onPreferenceChange(PendingPanelContentHeightPreferenceKey.self) { measuredHeight in
-          let normalizedHeight = max(0, measuredHeight)
-          guard abs(normalizedHeight - pendingState.measuredContentHeight) > 0.5 else { return }
-          pendingState.measuredContentHeight = normalizedHeight
-        }
-        .transition(.opacity.animation(Motion.gentle.delay(0.05)))
+        .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
+        .padding(.top, isCompactLayout ? Spacing.xs : Spacing.sm_)
+        .padding(.bottom, isCompactLayout ? Spacing.sm_ : Spacing.sm_)
       }
-
-      // Divider between pending zone and text input
-      Rectangle()
-        .fill(modeColor.opacity(OpacityTier.light))
-        .frame(height: 0.5)
-        .padding(.horizontal, Spacing.sm)
-    }
+    )
   }
 
   // MARK: - Helpers
@@ -276,25 +260,18 @@ extension DirectSessionComposer {
       VStack(alignment: .leading, spacing: Spacing.sm) {
         // ━━━ Progress header (multi-question) ━━━
         if prompts.count > 1 {
-          HStack(alignment: .center, spacing: Spacing.sm) {
-            Text("Question \(boundedIndex + 1) of \(prompts.count)")
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-              .foregroundStyle(Color.textTertiary)
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: Spacing.xs) {
-              ForEach(0 ..< prompts.count, id: \.self) { i in
-                let dotColor: Color = pendingPromptIsAnswered(prompts[i])
-                  ? .statusQuestion
-                  : i == boundedIndex
-                  ? Color.statusQuestion.opacity(0.4) : Color.textQuaternary.opacity(0.3)
-                Circle()
-                  .fill(dotColor)
-                  .frame(width: 6, height: 6)
-              }
+          DirectSessionComposerPendingQuestionProgress(
+            currentIndex: boundedIndex,
+            totalCount: prompts.count,
+            isCompactLayout: isCompactLayout,
+            dotColors: (0 ..< prompts.count).map { i in
+              pendingPromptIsAnswered(prompts[i])
+                ? .statusQuestion
+                : i == boundedIndex
+                ? Color.statusQuestion.opacity(0.4)
+                : Color.textQuaternary.opacity(0.3)
             }
-          }
+          )
 
           pendingQuestionMap(prompts: prompts, activeIndex: boundedIndex)
         }
@@ -366,7 +343,7 @@ extension DirectSessionComposer {
         VStack(spacing: Spacing.xs) {
           ForEach(Array(prompt.options.enumerated()), id: \.offset) { _, option in
             let isSelected = (pendingState.answers[prompt.id] ?? []).contains(option.label)
-            Button {
+            DirectSessionComposerPendingQuestionOptionRow(option: option, isSelected: isSelected) {
               pendingToggleAnswer(
                 questionId: prompt.id,
                 optionLabel: option.label,
@@ -377,48 +354,7 @@ extension DirectSessionComposer {
                   pendingState.promptIndex = index + 1
                 }
               }
-            } label: {
-              HStack(spacing: Spacing.sm) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                  .font(.system(size: TypeScale.caption, weight: .medium))
-                  .foregroundStyle(isSelected ? Color.statusQuestion : Color.textQuaternary)
-
-                VStack(alignment: .leading, spacing: Spacing.xxs) {
-                  Text(option.label)
-                    .font(.system(size: TypeScale.caption, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                  if let description = option.description, !description.isEmpty {
-                    Text(description)
-                      .font(.system(size: TypeScale.micro, weight: .regular))
-                      .foregroundStyle(Color.textTertiary)
-                      .fixedSize(horizontal: false, vertical: true)
-                      .multilineTextAlignment(.leading)
-                      .frame(maxWidth: .infinity, alignment: .leading)
-                  }
-                }
-              }
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.sm_)
-              .background(
-                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                  .fill(isSelected ? Color.statusQuestion.opacity(OpacityTier.medium) : Color.clear)
-              )
-              .overlay(
-                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                  .strokeBorder(
-                    isSelected
-                      ? Color.statusQuestion.opacity(OpacityTier.strong)
-                      : Color.surfaceBorder.opacity(OpacityTier.subtle),
-                    lineWidth: isSelected ? 1.5 : 1
-                  )
-              )
             }
-            .buttonStyle(.plain)
           }
         }
       }
@@ -579,29 +515,20 @@ extension DirectSessionComposer {
         // Send denial
         let denyEmpty = !pendingState.hasDenyReason
 
-        Button {
+        DirectSessionComposerPendingFooterIconButton(
+          systemName: "xmark",
+          iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
+          dimension: buttonSize,
+          fillColor: denyEmpty ? Color.surfaceHover : Color.feedbackNegative.opacity(0.85),
+          isDisabled: denyEmpty
+        ) {
           let reason = pendingState.denyReason.trimmingCharacters(in: .whitespacesAndNewlines)
           guard !reason.isEmpty else { return }
           sendPendingDecision(
             model: model, decision: "denied", message: reason, interrupt: nil
           )
           pendingState.cancelDenyReason()
-        } label: {
-          Image(systemName: "xmark")
-            .font(.system(
-              size: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
-              weight: .bold
-            ))
-            .foregroundStyle(.white)
-            .frame(width: buttonSize, height: buttonSize)
-            .background(
-              Circle().fill(
-                denyEmpty ? Color.surfaceHover : Color.feedbackNegative.opacity(0.85)
-              )
-            )
         }
-        .buttonStyle(.plain)
-        .disabled(denyEmpty)
       } else {
         // Deny
         Button {
@@ -627,7 +554,13 @@ extension DirectSessionComposer {
         .buttonStyle(.plain)
 
         // Approve (replaces send button position)
-        Button {
+        DirectSessionComposerPendingFooterIconButton(
+          systemName: "checkmark",
+          iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
+          dimension: buttonSize,
+          fillColor: modeColor.opacity(0.85),
+          isDisabled: false
+        ) {
           if let approvePrimary {
             sendPendingDecision(
               model: model, decision: approvePrimary.decision, message: nil, interrupt: nil
@@ -637,17 +570,7 @@ extension DirectSessionComposer {
               model: model, decision: "approved", message: nil, interrupt: nil
             )
           }
-        } label: {
-          Image(systemName: "checkmark")
-            .font(.system(
-              size: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
-              weight: .bold
-            ))
-            .foregroundStyle(.white)
-            .frame(width: buttonSize, height: buttonSize)
-            .background(Circle().fill(modeColor.opacity(0.85)))
         }
-        .buttonStyle(.plain)
 
         // Overflow for alternate actions
         if denyActions.count > 1 || approveActions.count > 1 {
@@ -727,7 +650,13 @@ extension DirectSessionComposer {
         }
         .buttonStyle(.plain)
 
-        Button {
+        DirectSessionComposerPendingFooterIconButton(
+          systemName: "arrow.up",
+          iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
+          dimension: buttonSize,
+          fillColor: submitDisabled ? Color.surfaceHover : Color.statusQuestion.opacity(0.85),
+          isDisabled: submitDisabled
+        ) {
           let answer = (pendingState.drafts["default"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
           guard let requestId = model.approvalId, !answer.isEmpty else { return }
@@ -738,24 +667,7 @@ extension DirectSessionComposer {
               answer: answer
             )
           }
-        } label: {
-          Image(systemName: "arrow.up")
-            .font(.system(
-              size: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
-              weight: .bold
-            ))
-            .foregroundStyle(.white)
-            .frame(width: buttonSize, height: buttonSize)
-            .background(
-              Circle().fill(
-                submitDisabled
-                  ? Color.surfaceHover
-                  : Color.statusQuestion.opacity(0.85)
-              )
-            )
         }
-        .buttonStyle(.plain)
-        .disabled(submitDisabled)
       }
     } else {
       let boundedIndex = min(
@@ -793,7 +705,13 @@ extension DirectSessionComposer {
           .opacity(boundedIndex == 0 ? 0.4 : 1.0)
         }
 
-        Button {
+        DirectSessionComposerPendingFooterIconButton(
+          systemName: isLastQuestion ? "arrow.up" : "arrow.right",
+          iconSize: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
+          dimension: buttonSize,
+          fillColor: isDisabled ? Color.surfaceHover : Color.statusQuestion.opacity(0.85),
+          isDisabled: isDisabled
+        ) {
           if !isLastQuestion {
             withAnimation(Motion.gentle) {
               pendingState.promptIndex = boundedIndex + 1
@@ -802,24 +720,7 @@ extension DirectSessionComposer {
           } else {
             sendPendingQuestionAnswers(model: model, prompts: prompts)
           }
-        } label: {
-          Image(systemName: isLastQuestion ? "arrow.up" : "arrow.right")
-            .font(.system(
-              size: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
-              weight: .bold
-            ))
-            .foregroundStyle(.white)
-            .frame(width: buttonSize, height: buttonSize)
-            .background(
-              Circle().fill(
-                isDisabled
-                  ? Color.surfaceHover
-                  : Color.statusQuestion.opacity(0.85)
-              )
-            )
         }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
       }
     }
   }
