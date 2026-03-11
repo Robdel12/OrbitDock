@@ -33,6 +33,10 @@ struct SessionRowView: View {
             ForkBadge()
           }
 
+          if session.isPassiveCodex {
+            PassiveBadge()
+          }
+
           if session.isActive, session.workStatus != .unknown {
             CompactStatusBadge(workStatus: session.workStatus)
           }
@@ -212,6 +216,21 @@ struct PlanModeBadge: View {
     .padding(.horizontal, 5)
     .padding(.vertical, Spacing.xxs)
     .background(Color.statusQuestion.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+  }
+}
+
+struct PassiveBadge: View {
+  var body: some View {
+    HStack(spacing: Spacing.gap) {
+      Image(systemName: "eye")
+        .font(.system(size: 8, weight: .bold))
+      Text("Passive")
+        .font(.system(size: TypeScale.mini, weight: .medium))
+    }
+    .foregroundStyle(Color.textTertiary)
+    .padding(.horizontal, 5)
+    .padding(.vertical, Spacing.xxs)
+    .background(Color.textTertiary.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
   }
 }
 

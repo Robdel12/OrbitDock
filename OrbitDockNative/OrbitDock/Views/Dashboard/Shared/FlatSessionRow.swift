@@ -159,6 +159,10 @@ struct FlatSessionRow: View {
             PlanModeBadge()
           }
 
+          if session.isPassiveCodex {
+            passivePill
+          }
+
           // Branch badge — subtle, after the name
           if let branch = inlineBranch {
             HStack(spacing: Spacing.gap) {
@@ -246,6 +250,9 @@ struct FlatSessionRow: View {
         if session.isDirect {
           directPill
         }
+        if session.isPassiveCodex {
+          passivePill
+        }
         if let activityRecency {
           recencyBadge(activityRecency)
         }
@@ -257,11 +264,17 @@ struct FlatSessionRow: View {
         if session.isDirect {
           directPill
         }
+        if session.isPassiveCodex {
+          passivePill
+        }
       }
 
       HStack(spacing: Spacing.xs) {
         SessionStatusBadge(status: displayStatus, showIcon: true, size: .compact)
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+        if session.isPassiveCodex {
+          passivePill
+        }
       }
     }
   }
@@ -302,6 +315,15 @@ struct FlatSessionRow: View {
       .padding(.horizontal, 5)
       .padding(.vertical, Spacing.xxs)
       .background(Color.accent.opacity(0.10), in: Capsule())
+  }
+
+  private var passivePill: some View {
+    Text("passive")
+      .font(.system(size: TypeScale.micro, weight: .semibold))
+      .foregroundStyle(Color.textTertiary)
+      .padding(.horizontal, 5)
+      .padding(.vertical, Spacing.xxs)
+      .background(Color.textTertiary.opacity(0.10), in: Capsule())
   }
 
   private func recencyBadge(_ value: String) -> some View {

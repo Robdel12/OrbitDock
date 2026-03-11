@@ -349,6 +349,17 @@ struct Session: Identifiable, Hashable, Sendable {
     provider == .codex && codexIntegrationMode == .direct
   }
 
+  /// Passive Codex sessions come from rollout watching and should stay quiet:
+  /// visible for discovery/takeover, but not treated like managed live sessions
+  /// for user notifications.
+  var isPassiveCodex: Bool {
+    provider == .codex && codexIntegrationMode == .passive
+  }
+
+  var allowsUserNotifications: Bool {
+    !isPassiveCodex
+  }
+
   /// Returns true if this is a direct Claude session (server-managed)
   var isDirectClaude: Bool {
     provider == .claude && claudeIntegrationMode == .direct

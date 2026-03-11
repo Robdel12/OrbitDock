@@ -47,6 +47,15 @@ struct AttentionCard: View {
     return "Needs your attention"
   }
 
+  private var passiveBadge: some View {
+    Text("passive")
+      .font(.system(size: TypeScale.micro, weight: .semibold))
+      .foregroundStyle(Color.textTertiary)
+      .padding(.horizontal, 5)
+      .padding(.vertical, Spacing.xxs)
+      .background(Color.textTertiary.opacity(0.10), in: Capsule())
+  }
+
   var body: some View {
     Button {
       Platform.services.playHaptic(.navigation)
@@ -86,6 +95,11 @@ struct AttentionCard: View {
             Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.gitBranch.opacity(0.7))
+          }
+
+          if session.isPassiveCodex {
+            metadataDivider
+            passiveBadge
           }
         }
 
@@ -159,6 +173,15 @@ struct WorkingCard: View {
     SessionCardHelpers.agentLabel(for: session)
   }
 
+  private var passiveBadge: some View {
+    Text("passive")
+      .font(.system(size: TypeScale.micro, weight: .semibold))
+      .foregroundStyle(Color.textTertiary)
+      .padding(.horizontal, 5)
+      .padding(.vertical, Spacing.xxs)
+      .background(Color.textTertiary.opacity(0.10), in: Capsule())
+  }
+
   var body: some View {
     Button {
       Platform.services.playHaptic(.navigation)
@@ -199,6 +222,13 @@ struct WorkingCard: View {
             Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.gitBranch.opacity(0.7))
+          }
+
+          if session.isPassiveCodex {
+            Text(" \u{2022} ")
+              .font(.system(size: TypeScale.mini))
+              .foregroundStyle(Color.textQuaternary)
+            passiveBadge
           }
         }
 
@@ -260,6 +290,15 @@ struct CompactSessionRow: View {
     SessionCardHelpers.agentLabel(for: session)
   }
 
+  private var passiveBadge: some View {
+    Text("passive")
+      .font(.system(size: TypeScale.micro, weight: .semibold))
+      .foregroundStyle(Color.textTertiary)
+      .padding(.horizontal, 5)
+      .padding(.vertical, Spacing.xxs)
+      .background(Color.textTertiary.opacity(0.10), in: Capsule())
+  }
+
   private var isPhoneCompact: Bool {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass).isPhoneCompact
   }
@@ -312,6 +351,13 @@ struct CompactSessionRow: View {
             Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.gitBranch.opacity(0.7))
+          }
+
+          if session.isPassiveCodex {
+            Text(" \u{2022} ")
+              .font(.system(size: TypeScale.mini))
+              .foregroundStyle(Color.textQuaternary)
+            passiveBadge
           }
         }
 
@@ -383,6 +429,13 @@ struct CompactSessionRow: View {
             Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.gitBranch.opacity(0.7))
+          }
+
+          if session.isPassiveCodex {
+            Text(" \u{2022} ")
+              .font(.system(size: TypeScale.mini))
+              .foregroundStyle(Color.textQuaternary)
+            passiveBadge
           }
 
           Spacer(minLength: Spacing.sm)

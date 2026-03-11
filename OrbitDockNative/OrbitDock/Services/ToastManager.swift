@@ -31,6 +31,10 @@ class ToastManager: ObservableObject {
     let scopedID = session.scopedID
 
     guard session.showsInMissionControl else { return }
+    guard session.allowsUserNotifications else {
+      clearNotification(for: scopedID)
+      return
+    }
 
     // Don't show if viewing this session
     guard scopedID != currentSessionId else { return }
@@ -86,6 +90,11 @@ class ToastManager: ObservableObject {
       let scopedID = session.scopedID
       let currentStatus = SessionDisplayStatus.from(session)
       let previousStatus = previousStates[scopedID]
+
+      if !session.allowsUserNotifications {
+        clearNotification(for: scopedID)
+        continue
+      }
 
       // Session transitioned TO needing attention
       if currentStatus == .permission || currentStatus == .question,

@@ -193,6 +193,10 @@ class NotificationManager {
     guard isAuthorized else { return }
     guard notificationsEnabled else { return }
     guard session.showsInMissionControl else { return }
+    guard session.allowsUserNotifications else {
+      resetNotificationState(for: scopedID)
+      return
+    }
     guard !notifiedSessionIds.contains(scopedID) else { return }
 
     notifiedSessionIds.insert(scopedID)
@@ -262,6 +266,12 @@ class NotificationManager {
     let scopedID = session.scopedID
     let wasWorking = workingSessionIds.contains(scopedID)
     let isWorking = Self.shouldTrackAsWorking(session)
+
+    guard session.allowsUserNotifications else {
+      workingSessionIds.remove(scopedID)
+      resetNotificationState(for: scopedID)
+      return
+    }
 
     if isWorking {
       workingSessionIds.insert(scopedID)
@@ -337,6 +347,8 @@ class NotificationManager {
   }
 
   static func shouldTrackAsWorking(_ session: Session) -> Bool {
-    session.showsInMissionControl && SessionDisplayStatus.from(session) == .working
+    session.showsInMissionControl
+      && session.allowsUserNotifications
+      && SessionDisplayStatus.from(session) == .working
   }
 }
