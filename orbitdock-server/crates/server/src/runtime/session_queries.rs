@@ -497,31 +497,61 @@ async fn hydrate_subagents(state: &mut SessionState, session_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     use rusqlite::{params, Connection};
+    use tokio::sync::mpsc;
 
     use orbitdock_protocol::{Message, MessageType, Provider};
 
     use crate::domain::sessions::session::SessionHandle;
     use crate::infrastructure::migration_runner;
     use crate::infrastructure::paths;
-    use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
+    use crate::runtime::session_registry::SessionRegistry;
 
     use super::*;
 
     fn new_test_state() -> Arc<SessionRegistry> {
-        new_test_session_registry(true)
+        let db_path = init_isolated_session_query_test_data_dir().join("orbitdock.db");
+        let mut conn = Connection::open(&db_path).expect("open isolated session query db");
+        migration_runner::run_migrations(&mut conn)
+            .expect("run migrations for isolated session query db");
+        let (persist_tx, _persist_rx) = mpsc::channel(128);
+        Arc::new(SessionRegistry::new_with_primary_and_db_path(
+            persist_tx,
+            paths::db_path(),
+            true,
+        ))
+    }
+
+    fn init_isolated_session_query_test_data_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "orbitdock-session-queries-{}",
+            orbitdock_protocol::new_id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create isolated session query test data dir");
+        paths::init_data_dir(Some(&dir))
     }
 
     fn seed_message_history(session_id: &str, messages: &[Message]) {
-        ensure_server_test_data_dir();
         let db_path = paths::db_path();
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).expect("create session history test data dir");
         }
         let mut conn = Connection::open(&db_path).expect("open db");
-        migration_runner::run_migrations(&mut conn).expect("run migrations");
+        let has_sessions_table: bool = conn
+            .query_row(
+                "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|count| count > 0)
+            .unwrap_or(false);
+        if !has_sessions_table {
+            migration_runner::run_migrations(&mut conn).expect("run migrations");
+        }
         conn.execute(
             "INSERT OR REPLACE INTO sessions (id, project_path, project_name, provider, status, work_status, codex_integration_mode, started_at, last_activity_at)
              VALUES (?1, ?2, ?3, 'codex', 'active', 'waiting', 'direct', ?4, ?4)",
