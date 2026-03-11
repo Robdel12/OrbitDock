@@ -14,7 +14,7 @@ fn intentionally_ignored_eventmsg_variants() -> BTreeSet<&'static str> {
 
 #[test]
 fn connector_eventmsg_handlers_match_codex_protocol_variants() {
-    let connector_source = include_str!("../src/lib.rs");
+    let connector_source = connector_source_bundle();
     let connector_variants = parse_connector_eventmsg_variants(connector_source);
 
     let protocol_path = find_codex_protocol_rs().unwrap_or_else(|| {
@@ -76,10 +76,10 @@ fn connector_eventmsg_handlers_match_codex_protocol_variants() {
 
 #[test]
 fn connector_plan_update_emits_tool_message_and_plan_state_update() {
-    let source = include_str!("../src/lib.rs");
+    let source = include_str!("../src/event_mapping/runtime_signals.rs");
     let arm_start = source
-        .find("EventMsg::PlanUpdate(e) => {")
-        .expect("missing EventMsg::PlanUpdate handler");
+        .find("fn handle_plan_update(")
+        .expect("missing plan-update handler");
     let arm = &source[arm_start..source.len().min(arm_start + 2400)];
 
     assert!(
@@ -98,11 +98,11 @@ fn connector_plan_update_emits_tool_message_and_plan_state_update() {
 
 #[test]
 fn connector_hook_events_emit_timeline_hook_messages() {
-    let source = include_str!("../src/lib.rs");
+    let source = include_str!("../src/event_mapping/runtime_signals.rs");
 
     let started_start = source
-        .find("EventMsg::HookStarted(e) => {")
-        .expect("missing EventMsg::HookStarted handler");
+        .find("fn handle_hook_started(")
+        .expect("missing hook-started handler");
     let started_arm = &source[started_start..source.len().min(started_start + 2200)];
     assert!(
         started_arm.contains("tool_name: Some(\"hook\".to_string())"),
@@ -114,11 +114,11 @@ fn connector_hook_events_emit_timeline_hook_messages() {
     );
 
     let completed_start = source
-        .find("EventMsg::HookCompleted(e) => vec![ConnectorEvent::MessageUpdated {")
-        .expect("missing EventMsg::HookCompleted handler");
+        .find("fn handle_hook_completed(")
+        .expect("missing hook-completed handler");
     let completed_arm = &source[completed_start..source.len().min(completed_start + 1200)];
     assert!(
-        completed_arm.contains("message_id: format!(\"hook-{}\", e.run.id)"),
+        completed_arm.contains("message_id: format!(\"hook-{}\", event.run.id)"),
         "HookCompleted handler must update the started hook row by run id"
     );
     assert!(
@@ -129,11 +129,11 @@ fn connector_hook_events_emit_timeline_hook_messages() {
 
 #[test]
 fn connector_question_events_emit_timeline_tool_messages() {
-    let source = include_str!("../src/lib.rs");
+    let source = include_str!("../src/event_mapping/approvals.rs");
 
     let request_start = source
-        .find("EventMsg::RequestUserInput(e) => {")
-        .expect("missing EventMsg::RequestUserInput handler");
+        .find("fn handle_request_user_input(")
+        .expect("missing request-user-input handler");
     let request_arm = &source[request_start..source.len().min(request_start + 2600)];
     assert!(
         request_arm.contains("tool_name: Some(\"askuserquestion\".to_string())"),
@@ -144,13 +144,13 @@ fn connector_question_events_emit_timeline_tool_messages() {
         "RequestUserInput handler must emit a timeline message"
     );
     assert!(
-        request_arm.contains("request_id: event.id.clone()"),
+        request_arm.contains("request_id: event_id.to_string()"),
         "RequestUserInput approvals must use event.id (submission id) so Op::UserInputAnswer resolves"
     );
 
     let elicitation_start = source
-        .find("EventMsg::ElicitationRequest(e) => {")
-        .expect("missing EventMsg::ElicitationRequest handler");
+        .find("fn handle_elicitation_request(")
+        .expect("missing elicitation handler");
     let elicitation_arm = &source[elicitation_start..source.len().min(elicitation_start + 2800)];
     assert!(
         elicitation_arm.contains("tool_name: Some(\"mcp_approval\".to_string())"),
@@ -160,6 +160,28 @@ fn connector_question_events_emit_timeline_tool_messages() {
         elicitation_arm.contains("ConnectorEvent::MessageCreated(message)"),
         "ElicitationRequest handler must emit a timeline message"
     );
+}
+
+fn connector_source_bundle() -> &'static str {
+    concat!(
+        include_str!("../src/lib.rs"),
+        "\n",
+        include_str!("../src/event_mapping/lifecycle.rs"),
+        "\n",
+        include_str!("../src/event_mapping/messages.rs"),
+        "\n",
+        include_str!("../src/event_mapping/tools.rs"),
+        "\n",
+        include_str!("../src/event_mapping/collab.rs"),
+        "\n",
+        include_str!("../src/event_mapping/approvals.rs"),
+        "\n",
+        include_str!("../src/event_mapping/capabilities.rs"),
+        "\n",
+        include_str!("../src/event_mapping/runtime_signals.rs"),
+        "\n",
+        include_str!("../src/event_mapping/streaming.rs"),
+    )
 }
 
 fn parse_protocol_eventmsg_variants(source: &str) -> BTreeSet<String> {
