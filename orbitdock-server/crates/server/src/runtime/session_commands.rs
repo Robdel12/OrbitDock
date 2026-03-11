@@ -2,7 +2,8 @@
 
 use orbitdock_protocol::{
     ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, Message,
-    ServerMessage, SessionState, SessionStatus, SessionSummary, StateChanges, WorkStatus,
+    ServerMessage, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo,
+    WorkStatus,
 };
 use tokio::sync::{broadcast, oneshot};
 
@@ -104,6 +105,14 @@ pub enum SessionCommand {
     },
     SetLastTool {
         tool: Option<String>,
+    },
+    SetSubagents {
+        subagents: Vec<SubagentInfo>,
+    },
+    SetPendingAttention {
+        pending_tool_name: Option<String>,
+        pending_tool_input: Option<String>,
+        pending_question: Option<String>,
     },
 
     // -- Compound operations --

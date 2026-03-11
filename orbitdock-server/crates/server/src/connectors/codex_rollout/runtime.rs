@@ -17,7 +17,9 @@ use tracing::info;
 
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::session_naming::name_from_first_prompt;
-use crate::infrastructure::persistence::{is_direct_thread_owned_async, PersistCommand};
+use crate::infrastructure::persistence::{
+    is_direct_thread_owned_async, load_subagents_for_session, PersistCommand,
+};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use tokio::sync::oneshot;
@@ -188,10 +190,21 @@ impl WatcherRuntime {
                     session_id,
                     message_type,
                     content,
+                    tool_name,
+                    tool_input,
+                    is_error,
                     images,
                 } => {
-                    self.append_chat_message(&session_id, message_type, content, images)
-                        .await;
+                    self.append_chat_message(
+                        &session_id,
+                        message_type,
+                        content,
+                        tool_name,
+                        tool_input,
+                        is_error,
+                        images,
+                    )
+                    .await;
                 }
                 RolloutEvent::ShellCommandBegin {
                     session_id,
@@ -230,6 +243,12 @@ impl WatcherRuntime {
                 }
                 RolloutEvent::ThreadNameUpdated { session_id, name } => {
                     self.set_custom_name(&session_id, Some(name)).await;
+                }
+                RolloutEvent::SubagentsUpdated {
+                    session_id,
+                    subagents,
+                } => {
+                    self.update_subagents(&session_id, subagents).await;
                 }
             }
         }
@@ -443,6 +462,9 @@ impl WatcherRuntime {
         session_id: &str,
         message_type: MessageType,
         content: String,
+        tool_name: Option<String>,
+        tool_input: Option<String>,
+        is_error: bool,
         images: Vec<orbitdock_protocol::ImageInput>,
     ) {
         let content = content.trim().to_string();
@@ -471,10 +493,10 @@ impl WatcherRuntime {
             sequence: Some(next_seq),
             message_type,
             content,
-            tool_name: None,
-            tool_input: None,
+            tool_name,
+            tool_input,
             tool_output: None,
-            is_error: false,
+            is_error,
             is_in_progress: false,
             timestamp: current_time_rfc3339(),
             duration_ms: None,
@@ -498,6 +520,58 @@ impl WatcherRuntime {
                 message,
             })
             .await;
+    }
+
+    async fn update_subagents(
+        &mut self,
+        session_id: &str,
+        subagents: Vec<orbitdock_protocol::SubagentInfo>,
+    ) {
+        if subagents.is_empty() {
+            return;
+        }
+
+        let fallback_subagents = subagents.clone();
+
+        for info in subagents {
+            let _ = self
+                .persist_tx
+                .send(PersistCommand::UpsertSubagent {
+                    session_id: session_id.to_string(),
+                    info,
+                })
+                .await;
+        }
+
+        let loaded_subagents = match load_subagents_for_session(session_id).await {
+            Ok(loaded) if !loaded.is_empty() => loaded,
+            _ => fallback_subagents,
+        };
+
+        let Some(actor) = self.app_state.get_session(session_id) else {
+            return;
+        };
+
+        actor
+            .send(SessionCommand::SetSubagents {
+                subagents: loaded_subagents,
+            })
+            .await;
+        actor
+            .send(SessionCommand::SetLastActivityAt {
+                ts: Some(current_time_unix_z()),
+            })
+            .await;
+
+        if let Ok(state) = actor.retained_state().await {
+            actor
+                .send(SessionCommand::Broadcast {
+                    msg: ServerMessage::SessionSnapshot { session: state },
+                })
+                .await;
+        }
+
+        self.schedule_session_timeout(session_id);
     }
 
     async fn append_rollout_shell_message(
@@ -688,6 +762,16 @@ impl WatcherRuntime {
                 custom_name: None,
             })
             .await;
+
+        if let Some(actor) = self.app_state.get_session(session_id) {
+            actor
+                .send(SessionCommand::SetPendingAttention {
+                    pending_tool_name: None,
+                    pending_tool_input: None,
+                    pending_question: None,
+                })
+                .await;
+        }
     }
 
     async fn mark_tool_completed(&mut self, session_id: &str, tool: Option<String>) {
@@ -717,6 +801,16 @@ impl WatcherRuntime {
                 custom_name: None,
             })
             .await;
+
+        if let Some(actor) = self.app_state.get_session(session_id) {
+            actor
+                .send(SessionCommand::SetPendingAttention {
+                    pending_tool_name: None,
+                    pending_tool_input: None,
+                    pending_question: None,
+                })
+                .await;
+        }
 
         if tool.is_some() {
             self.broadcast_session_delta(
@@ -781,7 +875,23 @@ impl WatcherRuntime {
         last_tool_at: Option<Option<String>>,
         status: Option<SessionStatus>,
     ) {
+        if let Some(actor) = self.app_state.get_session(session_id) {
+            actor
+                .send(SessionCommand::SetPendingAttention {
+                    pending_tool_name: pending_tool_name.clone().flatten(),
+                    pending_tool_input: pending_tool_input.clone().flatten(),
+                    pending_question: pending_question.clone().flatten(),
+                })
+                .await;
+        }
+
         let status = status.or(Some(SessionStatus::Active));
+        let attention_pending_tool_name = pending_tool_name.clone().flatten();
+        let attention_pending_tool_input = pending_tool_input.clone().flatten();
+        let attention_pending_question = pending_question.clone().flatten();
+        let has_attention_payload = pending_tool_name.is_some()
+            || pending_tool_input.is_some()
+            || pending_question.is_some();
         let _ = self
             .persist_tx
             .send(PersistCommand::RolloutSessionUpdate {
@@ -801,6 +911,16 @@ impl WatcherRuntime {
             })
             .await;
 
+        if let Some(actor) = self.app_state.get_session(session_id) {
+            actor
+                .send(SessionCommand::SetPendingAttention {
+                    pending_tool_name: attention_pending_tool_name,
+                    pending_tool_input: attention_pending_tool_input,
+                    pending_question: attention_pending_question,
+                })
+                .await;
+        }
+
         self.broadcast_session_delta(
             session_id,
             StateChanges {
@@ -811,6 +931,18 @@ impl WatcherRuntime {
             },
         )
         .await;
+
+        if let Some(actor) = self.app_state.get_session(session_id) {
+            if has_attention_payload {
+                if let Ok(state) = actor.retained_state().await {
+                    actor
+                        .send(SessionCommand::Broadcast {
+                            msg: ServerMessage::SessionSnapshot { session: state },
+                        })
+                        .await;
+                }
+            }
+        }
 
         self.schedule_session_timeout(session_id);
     }
@@ -1010,6 +1142,62 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(tmp_dir.join("state.json"));
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[tokio::test]
+    async fn rollout_subagent_updates_refresh_passive_session_snapshot() {
+        ensure_server_test_data_dir();
+        let session_id = format!("passive-subagents-{}", std::process::id());
+        let (persist_tx, _persist_rx) = mpsc::channel(32);
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+        {
+            let mut handle =
+                SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            app_state.add_session(handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = make_test_runtime(
+            app_state.clone(),
+            persist_tx,
+            watcher_tx,
+            std::env::temp_dir().join(format!("orbitdock-subagents-{}.json", session_id)),
+            HashMap::new(),
+        );
+
+        runtime
+            .handle_rollout_events(vec![RolloutEvent::SubagentsUpdated {
+                session_id: session_id.clone(),
+                subagents: vec![orbitdock_protocol::SubagentInfo {
+                    id: "worker-1".to_string(),
+                    agent_type: "explorer".to_string(),
+                    started_at: "2026-03-11T00:00:00Z".to_string(),
+                    ended_at: None,
+                    provider: Some(Provider::Codex),
+                    label: Some("Scout".to_string()),
+                    status: orbitdock_protocol::SubagentStatus::Running,
+                    task_summary: Some("Inspect the auth flow".to_string()),
+                    result_summary: None,
+                    error_summary: None,
+                    parent_subagent_id: Some("parent-1".to_string()),
+                    model: None,
+                    last_activity_at: Some("2026-03-11T00:00:00Z".to_string()),
+                }],
+            }])
+            .await
+            .expect("handle rollout subagent event");
+
+        let snapshot = {
+            let actor = app_state.get_session(&session_id).expect("session exists");
+            actor.retained_state().await.expect("retained state")
+        };
+
+        assert_eq!(snapshot.subagents.len(), 1);
+        let subagent = &snapshot.subagents[0];
+        assert_eq!(subagent.id, "worker-1");
+        assert_eq!(subagent.label.as_deref(), Some("Scout"));
+        assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Running);
     }
 
     #[tokio::test]
@@ -1482,6 +1670,99 @@ mod tests {
         assert!(
             has_user_message,
             "response_item user message should be appended to passive session"
+        );
+
+        let _ = std::fs::remove_file(&rollout_path);
+        let _ = std::fs::remove_file(tmp_dir.join("state.json"));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[tokio::test]
+    async fn passive_request_permissions_event_updates_attention_state_and_timeline() {
+        ensure_server_test_data_dir();
+        let session_id = format!("passive-permissions-{}", std::process::id());
+        let tmp_dir =
+            std::env::temp_dir().join(format!("orbitdock-rollout-permissions-{}", session_id));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let rollout_path = tmp_dir.join("rollout.jsonl");
+        std::fs::write(
+            &rollout_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+                session_id
+            ),
+        )
+        .expect("write rollout seed");
+        let initial_size = std::fs::metadata(&rollout_path)
+            .expect("stat rollout")
+            .len();
+
+        let (persist_tx, _persist_rx) = mpsc::channel(128);
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+        {
+            let mut handle =
+                SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
+            app_state.add_session(handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let file_states = HashMap::from([(
+            rollout_path.to_string_lossy().to_string(),
+            FileState {
+                project_path: Some("/tmp/repo".to_string()),
+                model_provider: Some("openai".to_string()),
+                ..default_file_state(Some(session_id.clone()), initial_size)
+            },
+        )]);
+        let mut runtime = make_test_runtime(
+            app_state.clone(),
+            persist_tx,
+            watcher_tx,
+            tmp_dir.join("state.json"),
+            file_states,
+        );
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&rollout_path)
+            .expect("open rollout")
+            .write_all(
+                b"{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"request_permissions\",\"call_id\":\"call-1\",\"turn_id\":\"turn-1\",\"reason\":\"Need network access for package metadata\",\"permissions\":{\"network\":null,\"file_system\":null,\"macos\":null}}}\n",
+            )
+            .expect("append request_permissions event");
+
+        runtime
+            .process_file(PathBuf::from(&rollout_path))
+            .await
+            .expect("process rollout");
+
+        let state = {
+            let actor = app_state.get_session(&session_id).expect("session exists");
+            actor.retained_state().await.expect("get state")
+        };
+
+        assert_eq!(state.work_status, WorkStatus::Permission);
+        assert_eq!(
+            state.pending_tool_name.as_deref(),
+            Some("RequestPermissions")
+        );
+        assert_eq!(
+            state.pending_question.as_deref(),
+            Some("Need network access for package metadata")
+        );
+
+        let has_permissions_message = state.messages.iter().any(|msg| {
+            msg.message_type == MessageType::Tool
+                && msg.tool_name.as_deref() == Some("request_permissions")
+                && msg
+                    .content
+                    .contains("Need network access for package metadata")
+        });
+        assert!(
+            has_permissions_message,
+            "passive request_permissions should append a visible tool message"
         );
 
         let _ = std::fs::remove_file(&rollout_path);

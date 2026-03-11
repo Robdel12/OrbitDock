@@ -11,7 +11,6 @@ fn intentionally_ignored_eventmsg_variants() -> BTreeSet<&'static str> {
         "HookStarted",
         "ImageGenerationBegin",
         "ImageGenerationEnd",
-        "RequestPermissions",
     ])
 }
 

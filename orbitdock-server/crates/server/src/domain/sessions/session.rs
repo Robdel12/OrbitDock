@@ -935,6 +935,19 @@ impl SessionHandle {
         self.subagents = subagents;
     }
 
+    pub fn set_pending_attention(
+        &mut self,
+        pending_tool_name: Option<String>,
+        pending_tool_input: Option<String>,
+        pending_question: Option<String>,
+    ) {
+        self.pending_tool_name = pending_tool_name;
+        self.pending_tool_input = pending_tool_input;
+        self.pending_question = pending_question;
+        self.pending_approval_id = None;
+        self.refresh_snapshot();
+    }
+
     /// Subscribe to session updates
     pub fn subscribe(&self) -> broadcast::Receiver<orbitdock_protocol::ServerMessage> {
         self.broadcast_tx.subscribe()

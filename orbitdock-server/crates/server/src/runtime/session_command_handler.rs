@@ -157,15 +157,7 @@ pub async fn handle_session_command(
             approval_policy,
             sandbox_mode,
         } => {
-            handle.set_config(
-                approval_policy,
-                sandbox_mode,
-                None,
-                None,
-                None,
-                None,
-                None,
-            );
+            handle.set_config(approval_policy, sandbox_mode, None, None, None, None, None);
         }
         SessionCommand::SetTranscriptPath { path } => {
             handle.set_transcript_path(path);
@@ -193,6 +185,16 @@ pub async fn handle_session_command(
         }
         SessionCommand::SetLastTool { tool } => {
             handle.set_last_tool(tool);
+        }
+        SessionCommand::SetSubagents { subagents } => {
+            handle.set_subagents(subagents);
+        }
+        SessionCommand::SetPendingAttention {
+            pending_tool_name,
+            pending_tool_input,
+            pending_question,
+        } => {
+            handle.set_pending_attention(pending_tool_name, pending_tool_input, pending_question);
         }
 
         // -- Compound operations --
