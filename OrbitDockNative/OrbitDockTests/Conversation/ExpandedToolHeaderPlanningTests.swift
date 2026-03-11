@@ -12,6 +12,7 @@ struct ExpandedToolHeaderPlanningTests {
       isInProgress: false,
       canCancel: false,
       duration: nil,
+      linkedWorkerID: nil,
       content: .edit(
         filename: "Notes.md",
         path: "/tmp/project/docs/Notes.md",
@@ -57,6 +58,7 @@ struct ExpandedToolHeaderPlanningTests {
       isInProgress: false,
       canCancel: false,
       duration: nil,
+      linkedWorkerID: nil,
       content: .todo(title: "Todos", subtitle: "Current pass", items: items, output: nil)
     )
 
@@ -88,6 +90,7 @@ struct ExpandedToolHeaderPlanningTests {
       isInProgress: true,
       canCancel: true,
       duration: nil,
+      linkedWorkerID: nil,
       content: .bash(command: "git status", input: nil, output: nil)
     )
 

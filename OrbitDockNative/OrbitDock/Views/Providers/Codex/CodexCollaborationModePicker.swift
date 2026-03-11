@@ -29,15 +29,159 @@ enum CodexCollaborationMode: String, CaseIterable, Identifiable {
     }
   }
 
-  var permissionMode: ClaudePermissionMode {
+  var description: String {
     switch self {
-      case .default: .default
-      case .plan: .plan
+      case .default:
+        "Standard Codex flow for direct coding, edits, and worker coordination."
+      case .plan:
+        "Planner-first mode that favors structured thinking and explicit coordination."
     }
   }
 
-  static func from(permissionMode: ClaudePermissionMode) -> CodexCollaborationMode {
-    permissionMode == .plan ? .plan : .default
+  static func from(rawValue: String?, permissionMode: ClaudePermissionMode? = nil) -> CodexCollaborationMode {
+    if let rawValue, let mode = CodexCollaborationMode(rawValue: rawValue) {
+      return mode
+    }
+    if permissionMode == .plan {
+      return .plan
+    }
+    return .default
+  }
+}
+
+enum CodexPersonalityPreset: String, CaseIterable, Identifiable {
+  case automatic
+  case neutral
+  case friendly
+  case pragmatic
+
+  var id: String {
+    rawValue
+  }
+
+  var requestValue: String? {
+    switch self {
+      case .automatic: nil
+      case .neutral: "none"
+      case .friendly: "friendly"
+      case .pragmatic: "pragmatic"
+    }
+  }
+
+  var displayName: String {
+    switch self {
+      case .automatic: "Auto"
+      case .neutral: "Neutral"
+      case .friendly: "Friendly"
+      case .pragmatic: "Pragmatic"
+    }
+  }
+
+  var icon: String {
+    switch self {
+      case .automatic: "circle.dashed"
+      case .neutral: "text.bubble"
+      case .friendly: "hand.wave.fill"
+      case .pragmatic: "hammer.fill"
+    }
+  }
+
+  var color: Color {
+    switch self {
+      case .automatic: .textQuaternary
+      case .neutral: .statusReply
+      case .friendly: .feedbackPositive
+      case .pragmatic: .feedbackCaution
+    }
+  }
+
+  var description: String {
+    switch self {
+      case .automatic:
+        "Use the model's default communication style."
+      case .neutral:
+        "Keep responses straightforward without a stronger style layer."
+      case .friendly:
+        "Make the assistant warmer and a little more conversational."
+      case .pragmatic:
+        "Bias toward concise, practical guidance and action."
+    }
+  }
+
+  static func from(serverValue: String?) -> CodexPersonalityPreset {
+    switch serverValue {
+      case "none":
+        .neutral
+      case "friendly":
+        .friendly
+      case "pragmatic":
+        .pragmatic
+      default:
+        .automatic
+    }
+  }
+}
+
+enum CodexServiceTierPreset: String, CaseIterable, Identifiable {
+  case automatic
+  case fast
+  case flex
+
+  var id: String {
+    rawValue
+  }
+
+  var requestValue: String? {
+    switch self {
+      case .automatic: nil
+      case .fast, .flex: rawValue
+    }
+  }
+
+  var displayName: String {
+    switch self {
+      case .automatic: "Auto"
+      case .fast: "Fast"
+      case .flex: "Flex"
+    }
+  }
+
+  var icon: String {
+    switch self {
+      case .automatic: "circle.dashed"
+      case .fast: "bolt.fill"
+      case .flex: "dial.high"
+    }
+  }
+
+  var color: Color {
+    switch self {
+      case .automatic: .textQuaternary
+      case .fast: .feedbackPositive
+      case .flex: .feedbackCaution
+    }
+  }
+
+  var description: String {
+    switch self {
+      case .automatic:
+        "Let Codex choose the service tier for this session."
+      case .fast:
+        "Prefer the fast tier when it is available."
+      case .flex:
+        "Prefer the flex tier when the session can wait a little."
+    }
+  }
+
+  static func from(serverValue: String?) -> CodexServiceTierPreset {
+    switch serverValue {
+      case "fast":
+        .fast
+      case "flex":
+        .flex
+      default:
+        .automatic
+    }
   }
 }
 
@@ -77,7 +221,8 @@ struct CodexModePill: View {
   @State private var showPopover = false
 
   private var currentMode: CodexCollaborationMode {
-    CodexCollaborationMode.from(permissionMode: serverState.session(sessionId).permissionMode)
+    let session = serverState.session(sessionId)
+    return CodexCollaborationMode.from(rawValue: session.collaborationMode, permissionMode: session.permissionMode)
   }
 
   var body: some View {
@@ -99,31 +244,50 @@ struct CodexModePill: View {
     .buttonStyle(.plain)
     .fixedSize()
     .platformPopover(isPresented: $showPopover) {
-      VStack(alignment: .leading, spacing: 8) {
-        Text("Codex Mode")
+      VStack(alignment: .leading, spacing: Spacing.md) {
+        Text("Collaboration")
           .font(.system(size: TypeScale.subhead, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
 
         ForEach(CodexCollaborationMode.allCases) { mode in
           Button {
-            Task { try? await serverState.updateClaudePermissionMode(sessionId, mode: mode.permissionMode) }
+            Task {
+              try? await serverState.updateSessionConfig(sessionId, collaborationMode: mode.rawValue)
+            }
             showPopover = false
           } label: {
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: Spacing.sm) {
               Image(systemName: mode.icon)
-              Text(mode.displayName)
-              Spacer()
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+                .foregroundStyle(mode.color)
+                .frame(width: 18, height: 18)
+
+              VStack(alignment: .leading, spacing: Spacing.xxs) {
+                Text(mode.displayName)
+                  .font(.system(size: TypeScale.body, weight: .semibold))
+                  .foregroundStyle(Color.textPrimary)
+
+                Text(mode.description)
+                  .font(.system(size: TypeScale.caption))
+                  .foregroundStyle(Color.textTertiary)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+
+              Spacer(minLength: Spacing.sm)
+
               if mode == currentMode {
-                Image(systemName: "checkmark")
+                Image(systemName: "checkmark.circle.fill")
+                  .font(.system(size: TypeScale.caption, weight: .semibold))
+                  .foregroundStyle(Color.accent)
               }
             }
+            .padding(.vertical, Spacing.xs)
           }
           .buttonStyle(.plain)
-          .foregroundStyle(Color.textPrimary)
-          .padding(.vertical, Spacing.xs)
         }
       }
       .padding(Spacing.lg)
-      .ifMacOS { $0.frame(width: 220) }
+      .ifMacOS { $0.frame(width: 280) }
       .background(Color.backgroundSecondary)
     }
   }

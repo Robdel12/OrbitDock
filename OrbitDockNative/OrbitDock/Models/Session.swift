@@ -122,6 +122,11 @@ struct Session: Identifiable, Hashable, Sendable {
   var gitSha: String? // Git commit SHA
   var currentCwd: String? // Agent's current working directory
   var effort: String? // Last-used reasoning effort level
+  var collaborationMode: String? // Codex collaboration preset, if configured
+  var multiAgent: Bool? // Codex worker spawning preference, if configured
+  var personality: String? // Codex personality override, if configured
+  var serviceTier: String? // Codex service tier preference, if configured
+  var developerInstructions: String? // Durable session instructions, if configured
 
   // MARK: - Worktree Detection
 
@@ -281,6 +286,11 @@ struct Session: Identifiable, Hashable, Sendable {
     self.cachedTokens = cachedTokens
     self.contextWindow = contextWindow
     self.tokenUsageSnapshotKind = tokenUsageSnapshotKind
+    collaborationMode = nil
+    multiAgent = nil
+    personality = nil
+    serviceTier = nil
+    developerInstructions = nil
   }
 
   var scopedID: String {

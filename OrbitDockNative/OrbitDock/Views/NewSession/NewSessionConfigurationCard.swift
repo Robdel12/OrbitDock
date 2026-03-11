@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct NewSessionConfigurationCard: View {
+  @State private var showCodexAdvancedSettings = false
+
   let provider: SessionProvider
   let claudeModels: [ServerClaudeModelOption]
   let codexModels: [ServerCodexModelOption]
@@ -11,6 +13,11 @@ struct NewSessionConfigurationCard: View {
   @Binding var selectedEffort: ClaudeEffortLevel
   @Binding var codexModel: String
   @Binding var selectedAutonomy: AutonomyLevel
+  @Binding var codexCollaborationMode: CodexCollaborationMode
+  @Binding var codexMultiAgentEnabled: Bool
+  @Binding var codexPersonality: CodexPersonalityPreset
+  @Binding var codexServiceTier: CodexServiceTierPreset
+  @Binding var codexInstructions: String
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -30,6 +37,21 @@ struct NewSessionConfigurationCard: View {
 
         case .codex:
           codexAutonomyRow
+
+          Divider()
+            .padding(.horizontal, Spacing.lg)
+
+          codexCollaborationRow
+
+          Divider()
+            .padding(.horizontal, Spacing.lg)
+
+          codexMultiAgentRow
+
+          Divider()
+            .padding(.horizontal, Spacing.lg)
+
+          codexAdvancedSettingsSection
       }
     }
     .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
@@ -288,5 +310,274 @@ struct NewSessionConfigurationCard: View {
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.sm)
+  }
+
+  private var codexCollaborationRow: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: codexCollaborationMode.icon)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(codexCollaborationMode.color)
+          Text("Collaboration")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+        }
+
+        Spacer()
+
+        Picker("Collaboration", selection: $codexCollaborationMode) {
+          ForEach(CodexCollaborationMode.allCases) { mode in
+            Text(mode.displayName).tag(mode)
+          }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
+      }
+
+      HStack(alignment: .top, spacing: Spacing.sm) {
+        Capsule()
+          .fill(codexCollaborationMode.color.opacity(0.4))
+          .frame(width: 2, height: 20)
+          .padding(.top, Spacing.xxs)
+
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          Text(codexCollaborationMode.displayName)
+            .font(.system(size: TypeScale.body, weight: .semibold))
+            .foregroundStyle(codexCollaborationMode.color)
+
+          Text(codexCollaborationMode.description)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .padding(.leading, Spacing.lg)
+      .animation(Motion.bouncy, value: codexCollaborationMode)
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.sm)
+  }
+
+  private var codexMultiAgentRow: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(alignment: .top, spacing: Spacing.md) {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: codexMultiAgentEnabled ? "person.3.fill" : "person.3")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(codexMultiAgentEnabled ? Color.providerCodex : Color.textTertiary)
+          Text("Workers")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+        }
+
+        Spacer()
+
+        Toggle("", isOn: $codexMultiAgentEnabled)
+          .labelsHidden()
+          .toggleStyle(.switch)
+      }
+
+      HStack(alignment: .top, spacing: Spacing.sm) {
+        Capsule()
+          .fill((codexMultiAgentEnabled ? Color.providerCodex : Color.textQuaternary).opacity(0.35))
+          .frame(width: 2, height: 20)
+          .padding(.top, Spacing.xxs)
+
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          Text(codexMultiAgentEnabled ? "Worker spawning enabled" : "Single-agent session")
+            .font(.system(size: TypeScale.body, weight: .semibold))
+            .foregroundStyle(codexMultiAgentEnabled ? Color.providerCodex : Color.textSecondary)
+
+          Text(
+            codexMultiAgentEnabled
+              ? "Let Codex spin up helper workers for parallel research, planning, and follow-up tasks in this session."
+              : "Keep Codex focused in one thread. You can still change this later from the session controls."
+          )
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+          .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .padding(.leading, Spacing.lg)
+      .animation(Motion.bouncy, value: codexMultiAgentEnabled)
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.sm)
+  }
+
+  private var codexAdvancedSettingsSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      Button {
+        withAnimation(Motion.standard) {
+          showCodexAdvancedSettings.toggle()
+        }
+      } label: {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "slider.horizontal.below.rectangle")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.providerCodex)
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Codex Advanced")
+              .font(.system(size: TypeScale.body, weight: .semibold))
+              .foregroundStyle(Color.textPrimary)
+            Text(codexAdvancedSummary)
+              .font(.system(size: TypeScale.caption))
+              .foregroundStyle(Color.textTertiary)
+              .lineLimit(2)
+          }
+
+          Spacer()
+
+          Image(systemName: showCodexAdvancedSettings ? "chevron.up" : "chevron.down")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textQuaternary)
+        }
+      }
+      .buttonStyle(.plain)
+
+      if showCodexAdvancedSettings {
+        VStack(alignment: .leading, spacing: Spacing.md) {
+          HStack(alignment: .top, spacing: Spacing.md) {
+            codexAdvancedPickerCard(
+              title: "Personality",
+              icon: codexPersonality.icon,
+              tint: codexPersonality.color
+            ) {
+              Picker("Personality", selection: $codexPersonality) {
+                ForEach(CodexPersonalityPreset.allCases) { preset in
+                  Text(preset.displayName).tag(preset)
+                }
+              }
+              .pickerStyle(.menu)
+              .labelsHidden()
+            } description: {
+              Text(codexPersonality.description)
+            }
+
+            codexAdvancedPickerCard(
+              title: "Service Tier",
+              icon: codexServiceTier.icon,
+              tint: codexServiceTier.color
+            ) {
+              Picker("Service Tier", selection: $codexServiceTier) {
+                ForEach(CodexServiceTierPreset.allCases) { preset in
+                  Text(preset.displayName).tag(preset)
+                }
+              }
+              .pickerStyle(.menu)
+              .labelsHidden()
+            } description: {
+              Text(codexServiceTier.description)
+            }
+          }
+
+          VStack(alignment: .leading, spacing: Spacing.sm) {
+            HStack(spacing: Spacing.sm) {
+              Image(systemName: "text.append")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.accent)
+              Text("Durable Instructions")
+                .font(.system(size: TypeScale.body, weight: .semibold))
+                .foregroundStyle(Color.textPrimary)
+            }
+
+            ZStack(alignment: .topLeading) {
+              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .fill(Color.backgroundSecondary)
+                .overlay(
+                  RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                    .stroke(Color.surfaceBorder, lineWidth: 1)
+                )
+
+              if codexInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Persistent guidance for the whole session, like house rules, code style, or team tone.")
+                  .font(.system(size: TypeScale.caption))
+                  .foregroundStyle(Color.textQuaternary)
+                  .padding(.horizontal, Spacing.md)
+                  .padding(.vertical, Spacing.sm)
+              }
+
+              TextEditor(text: $codexInstructions)
+                .font(.system(size: TypeScale.body))
+                .foregroundStyle(Color.textPrimary)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 92, maxHeight: 120)
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, Spacing.xs)
+            }
+
+            Text("Use this for durable session behavior. For one-off guidance later, steer the active turn from the composer.")
+              .font(.system(size: TypeScale.caption))
+              .foregroundStyle(Color.textTertiary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+        .transition(.move(edge: .top).combined(with: .opacity))
+      }
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.md)
+  }
+
+  private var codexAdvancedSummary: String {
+    var summary: [String] = []
+
+    if codexPersonality != .automatic {
+      summary.append(codexPersonality.displayName)
+    }
+    if codexServiceTier != .automatic {
+      summary.append(codexServiceTier.displayName)
+    }
+    if codexMultiAgentEnabled {
+      summary.append("Workers on")
+    }
+    if !codexInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      summary.append("Instructions ready")
+    }
+
+    if summary.isEmpty {
+      return "Personality, service tier, and session instructions"
+    }
+
+    return summary.joined(separator: " • ")
+  }
+
+  private func codexAdvancedPickerCard<Control: View, Description: View>(
+    title: String,
+    icon: String,
+    tint: Color,
+    @ViewBuilder control: () -> Control,
+    @ViewBuilder description: () -> Description
+  ) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: icon)
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(tint)
+        Text(title)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+      }
+
+      control()
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+      description()
+        .font(.system(size: TypeScale.micro))
+        .foregroundStyle(Color.textTertiary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(Spacing.md)
+    .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(Color.surfaceBorder, lineWidth: 1)
+    )
   }
 }

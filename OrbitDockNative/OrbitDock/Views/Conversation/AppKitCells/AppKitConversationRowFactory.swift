@@ -186,7 +186,13 @@
             cell.identifier = id
             cell.configure(model: toolModel)
             if case let .tool(messageID) = timelineRow.payload {
-              cell.onTap = { handlers.expandToolRow(messageID) }
+              cell.onTap = {
+                if let workerID = toolModel.linkedWorkerID {
+                  handlers.focusWorkerInDeck(workerID)
+                } else {
+                  handlers.expandToolRow(messageID)
+                }
+              }
             }
             return cell
           }

@@ -28,6 +28,11 @@ pub(crate) struct TakeoverSessionInputs {
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
     pub permission_mode: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
     pub allowed_tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
 }
@@ -137,6 +142,11 @@ pub(crate) async fn takeover_passive_session(
                     effective_effort: takeover_plan.effective_effort,
                     effective_approval: takeover_plan.effective_approval_policy,
                     effective_sandbox: takeover_plan.effective_sandbox_mode,
+                    collaboration_mode: inputs.collaboration_mode,
+                    multi_agent: inputs.multi_agent,
+                    personality: inputs.personality,
+                    service_tier: inputs.service_tier,
+                    developer_instructions: inputs.developer_instructions,
                 },
             )
             .await?;
@@ -232,12 +242,26 @@ async fn complete_codex_takeover(
         effective_effort,
         effective_approval,
         effective_sandbox,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
     } = request;
     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
     if let Some(ref model) = effective_model {
         handle.set_model(Some(model.clone()));
     }
-    handle.set_config(effective_approval.clone(), effective_sandbox.clone());
+    handle.set_config(
+        effective_approval.clone(),
+        effective_sandbox.clone(),
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
+    );
+    let control_plane = handle.summary();
 
     let thread_id = state.codex_thread_for_session(&session_id);
     let session_id = session_id.to_string();
@@ -247,35 +271,56 @@ async fn complete_codex_takeover(
     let task_session_id = session_id.clone();
     let mut connector_task = tokio::spawn(async move {
         if let Some(ref thread_id) = thread_id {
-            match CodexSession::resume(
+            match CodexSession::resume_with_control_plane(
                 task_session_id.clone(),
                 &project_path,
                 thread_id,
                 model.as_deref(),
                 approval.as_deref(),
                 sandbox.as_deref(),
+                orbitdock_connector_codex::CodexControlPlane {
+                    collaboration_mode: control_plane.collaboration_mode.clone(),
+                    multi_agent: control_plane.multi_agent,
+                    personality: control_plane.personality.clone(),
+                    service_tier: control_plane.service_tier.clone(),
+                    developer_instructions: control_plane.developer_instructions.clone(),
+                },
             )
             .await
             {
                 Ok(codex) => Ok(codex),
                 Err(_) => {
-                    CodexSession::new(
+                    CodexSession::new_with_control_plane(
                         task_session_id.clone(),
                         &project_path,
                         model.as_deref(),
                         approval.as_deref(),
                         sandbox.as_deref(),
+                        orbitdock_connector_codex::CodexControlPlane {
+                            collaboration_mode: control_plane.collaboration_mode.clone(),
+                            multi_agent: control_plane.multi_agent,
+                            personality: control_plane.personality.clone(),
+                            service_tier: control_plane.service_tier.clone(),
+                            developer_instructions: control_plane.developer_instructions.clone(),
+                        },
                     )
                     .await
                 }
             }
         } else {
-            CodexSession::new(
+            CodexSession::new_with_control_plane(
                 task_session_id.clone(),
                 &project_path,
                 model.as_deref(),
                 approval.as_deref(),
                 sandbox.as_deref(),
+                orbitdock_connector_codex::CodexControlPlane {
+                    collaboration_mode: control_plane.collaboration_mode.clone(),
+                    multi_agent: control_plane.multi_agent,
+                    personality: control_plane.personality.clone(),
+                    service_tier: control_plane.service_tier.clone(),
+                    developer_instructions: control_plane.developer_instructions.clone(),
+                },
             )
             .await
         }
@@ -380,6 +425,11 @@ struct CodexTakeoverRequest {
     effective_effort: Option<String>,
     effective_approval: Option<String>,
     effective_sandbox: Option<String>,
+    collaboration_mode: Option<String>,
+    multi_agent: Option<bool>,
+    personality: Option<String>,
+    service_tier: Option<String>,
+    developer_instructions: Option<String>,
 }
 
 async fn complete_claude_takeover(
@@ -537,6 +587,11 @@ fn takeover_permission_persist_op(
         approval_policy: None,
         sandbox_mode: None,
         permission_mode: Some(permission_mode),
+        collaboration_mode: None,
+        multi_agent: None,
+        personality: None,
+        service_tier: None,
+        developer_instructions: None,
     })
 }
 
@@ -560,6 +615,7 @@ mod tests {
                 approval_policy,
                 sandbox_mode,
                 permission_mode,
+                ..
             } => {
                 assert_eq!(session_id, "session-1");
                 assert!(approval_policy.is_none());

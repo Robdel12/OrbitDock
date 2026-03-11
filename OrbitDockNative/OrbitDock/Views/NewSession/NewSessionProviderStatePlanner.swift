@@ -11,6 +11,11 @@ struct NewSessionProviderState: Equatable {
   var selectedEffort: ClaudeEffortLevel
   var codexModel: String
   var selectedAutonomy: AutonomyLevel
+  var codexCollaborationMode: CodexCollaborationMode
+  var codexMultiAgentEnabled: Bool
+  var codexPersonality: CodexPersonalityPreset
+  var codexServiceTier: CodexServiceTierPreset
+  var codexInstructions: String
   var codexErrorMessage: String?
 
   static let `default` = NewSessionProviderState(
@@ -24,6 +29,11 @@ struct NewSessionProviderState: Equatable {
     selectedEffort: .default,
     codexModel: "",
     selectedAutonomy: .autonomous,
+    codexCollaborationMode: .default,
+    codexMultiAgentEnabled: false,
+    codexPersonality: .automatic,
+    codexServiceTier: .automatic,
+    codexInstructions: "",
     codexErrorMessage: nil
   )
 }

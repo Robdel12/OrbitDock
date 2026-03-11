@@ -99,6 +99,15 @@ impl SessionRegistry {
         is_primary: bool,
     ) -> Self {
         let (list_tx, _) = broadcast::channel(64);
+        #[cfg(test)]
+        let codex_auth = {
+            let codex_home = db_path
+                .parent()
+                .map(|path| path.join("codex-home"))
+                .unwrap_or_else(|| std::env::temp_dir().join("orbitdock-codex-home-tests"));
+            Arc::new(CodexAuthService::new_with_file_store(list_tx.clone(), codex_home))
+        };
+        #[cfg(not(test))]
         let codex_auth = Arc::new(CodexAuthService::new(list_tx.clone()));
         Self {
             sessions: DashMap::new(),
@@ -236,6 +245,11 @@ impl SessionRegistry {
                     approval_policy: snap.approval_policy.clone(),
                     sandbox_mode: snap.sandbox_mode.clone(),
                     permission_mode: snap.permission_mode.clone(),
+                    collaboration_mode: snap.collaboration_mode.clone(),
+                    multi_agent: snap.multi_agent,
+                    personality: snap.personality.clone(),
+                    service_tier: snap.service_tier.clone(),
+                    developer_instructions: snap.developer_instructions.clone(),
                     pending_tool_name: snap.pending_tool_name.clone(),
                     pending_tool_input: snap.pending_tool_input.clone(),
                     pending_question: snap.pending_question.clone(),

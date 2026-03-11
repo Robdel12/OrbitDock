@@ -284,6 +284,16 @@
       metaField.isHidden = !hasMeta
       metaField.stringValue = model.rightMeta ?? ""
 
+      if model.linkedWorkerID != nil {
+        chevronView.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Show worker")
+        chevronView.contentTintColor = NSColor(Color.accent)
+        chevronView.alphaValue = 0.75
+      } else {
+        chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
+        chevronView.contentTintColor = NSColor(Color.textQuaternary)
+        chevronView.alphaValue = 0.25
+      }
+
       if let preview = model.diffPreview {
         configureDiffPreview(preview)
       } else if let livePreview = model.liveOutputPreview {
@@ -304,6 +314,8 @@
       super.prepareForReuse()
       onTap = nil
       stripContainer.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.035).cgColor
+      chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
+      chevronView.contentTintColor = NSColor(Color.textQuaternary)
       chevronView.alphaValue = 0.25
     }
 

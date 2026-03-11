@@ -60,6 +60,11 @@ extension ServerSessionSummary {
     session.gitSha = gitSha
     session.currentCwd = currentCwd
     session.effort = effort
+    session.collaborationMode = collaborationMode
+    session.multiAgent = multiAgent
+    session.personality = personality
+    session.serviceTier = serviceTier
+    session.developerInstructions = developerInstructions
     session.repositoryRoot = repositoryRoot
     session.isWorktree = isWorktree ?? false
     session.worktreeId = worktreeId
@@ -121,6 +126,11 @@ extension ServerSessionState {
     session.gitSha = gitSha
     session.currentCwd = currentCwd
     session.effort = effort
+    session.collaborationMode = collaborationMode
+    session.multiAgent = multiAgent
+    session.personality = personality
+    session.serviceTier = serviceTier
+    session.developerInstructions = developerInstructions
     session.terminalSessionId = terminalSessionId
     session.terminalApp = terminalApp
     session.repositoryRoot = repositoryRoot

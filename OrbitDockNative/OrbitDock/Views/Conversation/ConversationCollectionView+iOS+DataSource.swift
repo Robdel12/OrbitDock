@@ -21,7 +21,11 @@
         guard let model = buildCompactToolModel(for: messageId) else { return }
         cell.configure(model: model)
         cell.onTap = { [weak self] in
-          self?.toggleToolExpansion(messageID: messageId)
+          if let workerID = model.linkedWorkerID {
+            self?.focusWorkerInDeck?(workerID)
+          } else {
+            self?.toggleToolExpansion(messageID: messageId)
+          }
         }
       }
 

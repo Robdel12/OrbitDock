@@ -282,6 +282,11 @@ pub struct SessionSnapshot {
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
     pub permission_mode: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
     pub has_pending_approval: bool,
     pub pending_tool_name: Option<String>,
     pub pending_tool_input: Option<String>,
@@ -339,6 +344,11 @@ pub struct SessionHandle {
     summary: Option<String>,
     approval_policy: Option<String>,
     sandbox_mode: Option<String>,
+    collaboration_mode: Option<String>,
+    multi_agent: Option<bool>,
+    personality: Option<String>,
+    service_tier: Option<String>,
+    developer_instructions: Option<String>,
     codex_integration_mode: Option<CodexIntegrationMode>,
     claude_integration_mode: Option<ClaudeIntegrationMode>,
     status: SessionStatus,
@@ -525,6 +535,11 @@ impl SessionHandle {
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             has_pending_approval: false,
             pending_tool_name: None,
             pending_tool_input: None,
@@ -560,6 +575,11 @@ impl SessionHandle {
             summary: None,
             approval_policy: None,
             sandbox_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             codex_integration_mode: None,
             claude_integration_mode: None,
             status: SessionStatus::Active,
@@ -622,6 +642,11 @@ impl SessionHandle {
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
         permission_mode: Option<String>,
+        collaboration_mode: Option<String>,
+        multi_agent: Option<bool>,
+        personality: Option<String>,
+        service_tier: Option<String>,
+        developer_instructions: Option<String>,
         token_usage: TokenUsage,
         token_usage_snapshot_kind: TokenUsageSnapshotKind,
         started_at: Option<String>,
@@ -662,6 +687,11 @@ impl SessionHandle {
             approval_policy: approval_policy.clone(),
             sandbox_mode: sandbox_mode.clone(),
             permission_mode: permission_mode.clone(),
+            collaboration_mode: collaboration_mode.clone(),
+            multi_agent,
+            personality: personality.clone(),
+            service_tier: service_tier.clone(),
+            developer_instructions: developer_instructions.clone(),
             has_pending_approval: pending_tool_name.is_some()
                 || pending_question.is_some()
                 || pending_approval_id.is_some(),
@@ -701,6 +731,11 @@ impl SessionHandle {
             summary,
             approval_policy,
             sandbox_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
             claude_integration_mode: None,
             status,
@@ -796,6 +831,11 @@ impl SessionHandle {
             approval_policy: self.approval_policy.clone(),
             sandbox_mode: self.sandbox_mode.clone(),
             permission_mode: self.permission_mode.clone(),
+            collaboration_mode: self.collaboration_mode.clone(),
+            multi_agent: self.multi_agent,
+            personality: self.personality.clone(),
+            service_tier: self.service_tier.clone(),
+            developer_instructions: self.developer_instructions.clone(),
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
@@ -839,6 +879,11 @@ impl SessionHandle {
             newest_sequence: self.newest_retained_sequence(),
             pending_approval: self.pending_approval.clone(),
             permission_mode: self.permission_mode.clone(),
+            collaboration_mode: self.collaboration_mode.clone(),
+            multi_agent: self.multi_agent,
+            personality: self.personality.clone(),
+            service_tier: self.service_tier.clone(),
+            developer_instructions: self.developer_instructions.clone(),
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
@@ -987,9 +1032,37 @@ impl SessionHandle {
     }
 
     /// Set autonomy configuration
-    pub fn set_config(&mut self, approval_policy: Option<String>, sandbox_mode: Option<String>) {
-        self.approval_policy = approval_policy;
-        self.sandbox_mode = sandbox_mode;
+    pub fn set_config(
+        &mut self,
+        approval_policy: Option<String>,
+        sandbox_mode: Option<String>,
+        collaboration_mode: Option<String>,
+        multi_agent: Option<bool>,
+        personality: Option<String>,
+        service_tier: Option<String>,
+        developer_instructions: Option<String>,
+    ) {
+        if let Some(approval_policy) = approval_policy {
+            self.approval_policy = Some(approval_policy);
+        }
+        if let Some(sandbox_mode) = sandbox_mode {
+            self.sandbox_mode = Some(sandbox_mode);
+        }
+        if let Some(collaboration_mode) = collaboration_mode {
+            self.collaboration_mode = Some(collaboration_mode);
+        }
+        if let Some(multi_agent) = multi_agent {
+            self.multi_agent = Some(multi_agent);
+        }
+        if let Some(personality) = personality {
+            self.personality = Some(personality);
+        }
+        if let Some(service_tier) = service_tier {
+            self.service_tier = Some(service_tier);
+        }
+        if let Some(developer_instructions) = developer_instructions {
+            self.developer_instructions = Some(developer_instructions);
+        }
         self.refresh_snapshot();
     }
 
@@ -1457,6 +1530,21 @@ impl SessionHandle {
         if let Some(ref permission_mode) = changes.permission_mode {
             self.permission_mode = permission_mode.clone();
         }
+        if let Some(ref collaboration_mode) = changes.collaboration_mode {
+            self.collaboration_mode = collaboration_mode.clone();
+        }
+        if let Some(multi_agent) = changes.multi_agent {
+            self.multi_agent = multi_agent;
+        }
+        if let Some(ref personality) = changes.personality {
+            self.personality = personality.clone();
+        }
+        if let Some(ref service_tier) = changes.service_tier {
+            self.service_tier = service_tier.clone();
+        }
+        if let Some(ref developer_instructions) = changes.developer_instructions {
+            self.developer_instructions = developer_instructions.clone();
+        }
         if let Some(ref codex_integration_mode) = changes.codex_integration_mode {
             self.codex_integration_mode = *codex_integration_mode;
         }
@@ -1537,6 +1625,11 @@ impl SessionHandle {
             approval_policy: self.approval_policy.clone(),
             sandbox_mode: self.sandbox_mode.clone(),
             permission_mode: self.permission_mode.clone(),
+            collaboration_mode: self.collaboration_mode.clone(),
+            multi_agent: self.multi_agent,
+            personality: self.personality.clone(),
+            service_tier: self.service_tier.clone(),
+            developer_instructions: self.developer_instructions.clone(),
             has_pending_approval: self.pending_approval.is_some()
                 || self.pending_tool_name.is_some()
                 || self.pending_question.is_some()

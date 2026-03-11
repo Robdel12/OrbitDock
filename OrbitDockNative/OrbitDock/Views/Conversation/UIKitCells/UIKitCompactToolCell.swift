@@ -293,6 +293,9 @@
       super.prepareForReuse()
       cardBg.reset()
       onTap = nil
+      chevronView.image = UIImage(systemName: "chevron.right")
+      chevronView.tintColor = PlatformColor(Color.textQuaternary)
+      chevronView.alpha = 0.25
       dotSeparator.isHidden = true
       subtitleField.isHidden = true
       contextLabel.isHidden = true
@@ -339,6 +342,16 @@
         metaLabel.text = meta
       } else {
         metaLabel.isHidden = true
+      }
+
+      if model.linkedWorkerID != nil {
+        chevronView.image = UIImage(systemName: "sidebar.right")
+        chevronView.tintColor = UIColor(Color.accent)
+        chevronView.alpha = 0.75
+      } else {
+        chevronView.image = UIImage(systemName: "chevron.right")
+        chevronView.tintColor = PlatformColor(Color.textQuaternary)
+        chevronView.alpha = 0.25
       }
 
       // Detail area

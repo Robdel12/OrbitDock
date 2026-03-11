@@ -10,7 +10,7 @@ use orbitdock_connector_core::ConnectorError;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-use crate::CodexConnector;
+use crate::{CodexConnector, CodexControlPlane};
 
 /// Actions that can be sent to a Codex session
 pub enum CodexAction {
@@ -59,6 +59,11 @@ pub enum CodexAction {
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
         permission_mode: Option<String>,
+        collaboration_mode: Option<String>,
+        multi_agent: Option<bool>,
+        personality: Option<String>,
+        service_tier: Option<String>,
+        developer_instructions: Option<String>,
     },
     SetThreadName {
         name: String,
@@ -156,11 +161,24 @@ impl std::fmt::Debug for CodexAction {
                 approval_policy,
                 sandbox_mode,
                 permission_mode,
+                collaboration_mode,
+                multi_agent,
+                personality,
+                service_tier,
+                developer_instructions,
             } => f
                 .debug_struct("UpdateConfig")
                 .field("approval_policy", approval_policy)
                 .field("sandbox_mode", sandbox_mode)
                 .field("permission_mode", permission_mode)
+                .field("collaboration_mode", collaboration_mode)
+                .field("multi_agent", multi_agent)
+                .field("personality", personality)
+                .field("service_tier", service_tier)
+                .field(
+                    "developer_instructions",
+                    &developer_instructions.as_ref().map(|_| "[set]"),
+                )
                 .finish(),
             Self::SetThreadName { name } => {
                 f.debug_struct("SetThreadName").field("name", name).finish()
@@ -212,6 +230,30 @@ impl CodexSession {
         })
     }
 
+    /// Create a new Codex session with explicit control-plane settings.
+    pub async fn new_with_control_plane(
+        session_id: String,
+        cwd: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        control_plane: CodexControlPlane,
+    ) -> Result<Self, ConnectorError> {
+        let connector = CodexConnector::new_with_control_plane(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            control_plane,
+        )
+        .await?;
+
+        Ok(Self {
+            session_id,
+            connector,
+        })
+    }
+
     /// Resume an existing Codex session from its rollout file (preserves conversation history)
     pub async fn resume(
         session_id: String,
@@ -223,6 +265,32 @@ impl CodexSession {
     ) -> Result<Self, ConnectorError> {
         let connector =
             CodexConnector::resume(cwd, thread_id, model, approval_policy, sandbox_mode).await?;
+
+        Ok(Self {
+            session_id,
+            connector,
+        })
+    }
+
+    /// Resume an existing Codex session with explicit control-plane settings.
+    pub async fn resume_with_control_plane(
+        session_id: String,
+        cwd: &str,
+        thread_id: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        control_plane: CodexControlPlane,
+    ) -> Result<Self, ConnectorError> {
+        let connector = CodexConnector::resume_with_control_plane(
+            cwd,
+            thread_id,
+            model,
+            approval_policy,
+            sandbox_mode,
+            control_plane,
+        )
+        .await?;
 
         Ok(Self {
             session_id,
@@ -309,12 +377,22 @@ impl CodexSession {
                 approval_policy,
                 sandbox_mode,
                 permission_mode,
+                collaboration_mode,
+                multi_agent,
+                personality,
+                service_tier,
+                developer_instructions,
             } => {
                 connector
                     .update_config(
                         approval_policy.as_deref(),
                         sandbox_mode.as_deref(),
                         permission_mode.as_deref(),
+                        collaboration_mode.as_deref(),
+                        multi_agent,
+                        personality.as_deref(),
+                        service_tier.as_deref(),
+                        developer_instructions.as_deref(),
                     )
                     .await?;
             }

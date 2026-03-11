@@ -103,7 +103,31 @@ extension SessionStore {
   }
 
   func takeoverSession(_ sessionId: String) async throws {
-    _ = try await clients.sessions.takeoverSession(sessionId, request: SessionsClient.TakeoverRequest())
+    let observable = session(sessionId)
+    let currentRules = observable.permissionRules
+
+    let approvalPolicy: String?
+    let sandboxMode: String?
+    if case let .codex(currentApprovalPolicy, currentSandboxMode) = currentRules {
+      approvalPolicy = currentApprovalPolicy
+      sandboxMode = currentSandboxMode
+    } else {
+      approvalPolicy = nil
+      sandboxMode = nil
+    }
+
+    let request = SessionsClient.TakeoverRequest(
+      model: observable.model,
+      approvalPolicy: approvalPolicy,
+      sandboxMode: sandboxMode,
+      permissionMode: observable.provider == .claude ? observable.permissionMode.rawValue : nil,
+      collaborationMode: observable.collaborationMode,
+      multiAgent: observable.multiAgent,
+      personality: observable.personality,
+      serviceTier: observable.serviceTier,
+      developerInstructions: observable.developerInstructions
+    )
+    _ = try await clients.sessions.takeoverSession(sessionId, request: request)
   }
 
   func renameSession(_ sessionId: String, name: String?) async throws {
@@ -114,12 +138,22 @@ extension SessionStore {
     _ sessionId: String,
     approvalPolicy: String? = nil,
     sandboxMode: String? = nil,
-    permissionMode: String? = nil
+    permissionMode: String? = nil,
+    collaborationMode: String? = nil,
+    multiAgent: Bool? = nil,
+    personality: String? = nil,
+    serviceTier: String? = nil,
+    developerInstructions: String? = nil
   ) async throws {
     let config = SessionsClient.UpdateSessionConfigRequest(
       approvalPolicy: approvalPolicy,
       sandboxMode: sandboxMode,
-      permissionMode: permissionMode
+      permissionMode: permissionMode,
+      collaborationMode: collaborationMode,
+      multiAgent: multiAgent,
+      personality: personality,
+      serviceTier: serviceTier,
+      developerInstructions: developerInstructions
     )
     try await clients.sessions.updateSessionConfig(sessionId, config: config)
   }

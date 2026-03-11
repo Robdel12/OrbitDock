@@ -240,10 +240,22 @@ struct AutonomyPill: View {
       AutonomyPopover(selection: Binding(
         get: { currentLevel },
         set: { newLevel in
-          Task { try? await serverState.updateSessionConfig(sessionId, approvalPolicy: newLevel.rawValue) }
+          Task {
+            try? await serverState.updateSessionConfig(
+              sessionId,
+              approvalPolicy: newLevel.approvalPolicy,
+              sandboxMode: newLevel.sandboxMode
+            )
+          }
         }
       ), isConfiguredOnServer: isConfiguredOnServer) {
-        Task { try? await serverState.updateSessionConfig(sessionId, approvalPolicy: currentLevel.rawValue) }
+        Task {
+          try? await serverState.updateSessionConfig(
+            sessionId,
+            approvalPolicy: currentLevel.approvalPolicy,
+            sandboxMode: currentLevel.sandboxMode
+          )
+        }
       }
     }
   }

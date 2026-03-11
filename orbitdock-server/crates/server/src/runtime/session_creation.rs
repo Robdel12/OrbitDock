@@ -22,6 +22,11 @@ pub(crate) struct DirectSessionCreationInputs {
     pub model: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
     pub effort: Option<String>,
 }
 
@@ -43,6 +48,11 @@ pub(crate) struct DirectSessionRequest {
     pub allowed_tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
     pub effort: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
 }
 
 pub(crate) struct PreparedPersistedDirectSession {
@@ -63,6 +73,11 @@ struct PersistDirectSessionCreate {
     approval_policy: Option<String>,
     sandbox_mode: Option<String>,
     permission_mode: Option<String>,
+    collaboration_mode: Option<String>,
+    multi_agent: Option<bool>,
+    personality: Option<String>,
+    service_tier: Option<String>,
+    developer_instructions: Option<String>,
     effort: Option<String>,
 }
 
@@ -80,7 +95,15 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
 
     if input.provider == Provider::Codex {
         handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-        handle.set_config(input.approval_policy, input.sandbox_mode);
+        handle.set_config(
+            input.approval_policy,
+            input.sandbox_mode,
+            input.collaboration_mode,
+            input.multi_agent,
+            input.personality,
+            input.service_tier,
+            input.developer_instructions,
+        );
     } else if input.provider == Provider::Claude {
         handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
     }
@@ -110,6 +133,11 @@ async fn persist_direct_session_create(
         approval_policy,
         sandbox_mode,
         permission_mode,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
         effort,
     } = request;
     let _ = persist_tx
@@ -123,6 +151,11 @@ async fn persist_direct_session_create(
             approval_policy,
             sandbox_mode,
             permission_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
             forked_from_session_id: None,
         })
         .await;
@@ -151,6 +184,11 @@ pub(crate) async fn prepare_persist_direct_session(
         model: request.model.clone(),
         approval_policy: request.approval_policy.clone(),
         sandbox_mode: request.sandbox_mode.clone(),
+        collaboration_mode: request.collaboration_mode.clone(),
+        multi_agent: request.multi_agent,
+        personality: request.personality.clone(),
+        service_tier: request.service_tier.clone(),
+        developer_instructions: request.developer_instructions.clone(),
         effort: request.effort.clone(),
     });
 
@@ -167,6 +205,11 @@ pub(crate) async fn prepare_persist_direct_session(
             approval_policy: request.approval_policy.clone(),
             sandbox_mode: request.sandbox_mode.clone(),
             permission_mode: request.permission_mode.clone(),
+            collaboration_mode: request.collaboration_mode.clone(),
+            multi_agent: request.multi_agent,
+            personality: request.personality.clone(),
+            service_tier: request.service_tier.clone(),
+            developer_instructions: request.developer_instructions.clone(),
             effort: request.effort.clone(),
         },
     )
@@ -199,6 +242,11 @@ pub(crate) async fn launch_prepared_direct_session(
                 request.model.as_deref(),
                 request.approval_policy.as_deref(),
                 request.sandbox_mode.as_deref(),
+                request.collaboration_mode.as_deref(),
+                request.multi_agent,
+                request.personality.as_deref(),
+                request.service_tier.as_deref(),
+                request.developer_instructions.as_deref(),
             )
             .await
         }
@@ -245,6 +293,11 @@ mod tests {
             model: Some("gpt-5".into()),
             approval_policy: Some("on-request".into()),
             sandbox_mode: Some("workspace-write".into()),
+            collaboration_mode: Some("workers".into()),
+            multi_agent: Some(true),
+            personality: Some("mentor".into()),
+            service_tier: Some("priority".into()),
+            developer_instructions: Some("Stay focused".into()),
             effort: Some("high".into()),
         });
 
@@ -259,6 +312,14 @@ mod tests {
             prepared.snapshot.approval_policy.as_deref(),
             Some("on-request")
         );
+        assert_eq!(prepared.snapshot.collaboration_mode.as_deref(), Some("workers"));
+        assert_eq!(prepared.snapshot.multi_agent, Some(true));
+        assert_eq!(prepared.snapshot.personality.as_deref(), Some("mentor"));
+        assert_eq!(prepared.snapshot.service_tier.as_deref(), Some("priority"));
+        assert_eq!(
+            prepared.snapshot.developer_instructions.as_deref(),
+            Some("Stay focused")
+        );
     }
 
     #[test]
@@ -271,6 +332,11 @@ mod tests {
             model: Some("claude-opus".into()),
             approval_policy: Some("ignored".into()),
             sandbox_mode: Some("ignored".into()),
+            collaboration_mode: Some("ignored".into()),
+            multi_agent: Some(true),
+            personality: Some("ignored".into()),
+            service_tier: Some("ignored".into()),
+            developer_instructions: Some("ignored".into()),
             effort: Some("medium".into()),
         });
 
@@ -294,6 +360,11 @@ mod tests {
             allowed_tools: vec!["Read".into()],
             disallowed_tools: vec!["Edit".into()],
             effort: Some("medium".into()),
+            collaboration_mode: Some("workers".into()),
+            multi_agent: Some(true),
+            personality: Some("mentor".into()),
+            service_tier: Some("priority".into()),
+            developer_instructions: Some("Stay focused".into()),
         };
         let prepared = prepare_direct_session(DirectSessionCreationInputs {
             id: "session-3".into(),
@@ -303,6 +374,11 @@ mod tests {
             model: request.model.clone(),
             approval_policy: request.approval_policy.clone(),
             sandbox_mode: request.sandbox_mode.clone(),
+            collaboration_mode: request.collaboration_mode.clone(),
+            multi_agent: request.multi_agent,
+            personality: request.personality.clone(),
+            service_tier: request.service_tier.clone(),
+            developer_instructions: request.developer_instructions.clone(),
             effort: request.effort.clone(),
         });
 
@@ -318,5 +394,7 @@ mod tests {
         assert_eq!(persisted.snapshot.id, "session-3");
         assert_eq!(persisted.request.permission_mode.as_deref(), Some("plan"));
         assert_eq!(persisted.request.allowed_tools, vec!["Read"]);
+        assert_eq!(persisted.request.collaboration_mode.as_deref(), Some("workers"));
+        assert_eq!(persisted.request.multi_agent, Some(true));
     }
 }

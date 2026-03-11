@@ -8,7 +8,7 @@
 import SwiftUI
 
 nonisolated enum CompactToolType: Hashable, Sendable {
-  case bash, read, edit, glob, grep, task, todo, mcp, web, plan, question, skill, generic
+  case bash, read, edit, glob, grep, task, todo, mcp, web, plan, question, skill, handoff, generic
 }
 
 struct CompactTodoItem: Hashable {
@@ -39,6 +39,7 @@ struct NativeCompactToolRowModel {
   let summary: String
   let subtitle: String?
   let rightMeta: String?
+  let linkedWorkerID: String?
   let isInProgress: Bool
   let diffPreview: DiffPreviewInfo?
   let liveOutputPreview: String?
@@ -92,6 +93,8 @@ struct ToolGlyphInfo {
       case "glob", "grep":
         return ToolGlyphInfo(symbol: "magnifyingglass", color: PlatformColor(Color.toolSearch))
       case "task": return ToolGlyphInfo(symbol: "bolt.fill", color: PlatformColor(Color.toolTask))
+      case "handoff":
+        return ToolGlyphInfo(symbol: "arrow.triangle.branch", color: PlatformColor(Color.statusReply))
       case "compactcontext":
         return ToolGlyphInfo(symbol: "arrow.triangle.2.circlepath", color: PlatformColor(Color.accent))
       case "webfetch", "websearch": return ToolGlyphInfo(symbol: "globe", color: PlatformColor(Color.toolWeb))

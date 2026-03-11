@@ -62,6 +62,11 @@ struct NewSessionModelTests {
           selectedEffort: .high,
           codexModel: "gpt-5-codex",
           selectedAutonomy: .open,
+          codexCollaborationMode: .plan,
+          codexMultiAgentEnabled: true,
+          codexPersonality: .friendly,
+          codexServiceTier: .flex,
+          codexInstructions: "Keep things calm.",
           codexErrorMessage: "oops"
         ),
         worktreeState: NewSessionWorktreeState(
@@ -85,5 +90,10 @@ struct NewSessionModelTests {
     #expect(model.worktreeBranch == "feature/printer")
     #expect(model.worktreeBaseBranch == "main")
     #expect(model.worktreeError == "bad branch")
+    #expect(model.codexCollaborationMode == .plan)
+    #expect(model.codexMultiAgentEnabled == true)
+    #expect(model.codexPersonality == .friendly)
+    #expect(model.codexServiceTier == .flex)
+    #expect(model.codexInstructions == "Keep things calm.")
   }
 }

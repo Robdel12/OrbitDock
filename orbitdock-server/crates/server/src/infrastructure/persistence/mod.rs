@@ -77,6 +77,11 @@ pub(super) fn execute_command(
             approval_policy,
             sandbox_mode,
             permission_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
             forked_from_session_id,
         } => {
             let provider_str = match provider {
@@ -95,14 +100,14 @@ pub(super) fn execute_command(
             };
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, started_at, last_activity_at, forked_from_session_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?7, ?7, ?11)
+                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, started_at, last_activity_at, forked_from_session_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?7, ?7, ?11)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    branch = COALESCE(?4, branch),
                    model = COALESCE(?5, model),
                    last_activity_at = ?7",
-                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode],
+                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions],
             )?;
         }
 
@@ -517,10 +522,40 @@ pub(super) fn execute_command(
             approval_policy,
             sandbox_mode,
             permission_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
         } => {
             conn.execute(
-                "UPDATE sessions SET approval_policy = COALESCE(?, approval_policy), sandbox_mode = COALESCE(?, sandbox_mode), permission_mode = COALESCE(?, permission_mode), last_activity_at = ? WHERE id = ?",
-                params![approval_policy, sandbox_mode, permission_mode, chrono_now(), session_id],
+                "UPDATE sessions
+                 SET approval_policy = COALESCE(?1, approval_policy),
+                     sandbox_mode = COALESCE(?2, sandbox_mode),
+                     permission_mode = COALESCE(?3, permission_mode),
+                     collaboration_mode = COALESCE(?4, collaboration_mode),
+                     multi_agent = COALESCE(?5, multi_agent),
+                     personality = COALESCE(?6, personality),
+                     service_tier = COALESCE(?7, service_tier),
+                     developer_instructions = CASE
+                         WHEN ?8 IS NULL THEN developer_instructions
+                         WHEN trim(?8) = '' THEN NULL
+                         ELSE ?8
+                     END,
+                     last_activity_at = ?9
+                 WHERE id = ?10",
+                params![
+                    approval_policy,
+                    sandbox_mode,
+                    permission_mode,
+                    collaboration_mode,
+                    multi_agent,
+                    personality,
+                    service_tier,
+                    developer_instructions,
+                    chrono_now(),
+                    session_id
+                ],
             )?;
         }
 

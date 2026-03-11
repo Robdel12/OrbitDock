@@ -29,6 +29,11 @@ pub struct RestoredSession {
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
     pub permission_mode: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub cached_tokens: i64,
@@ -405,6 +410,26 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     )
                     .unwrap_or(None);
 
+                let (
+                    collaboration_mode,
+                    multi_agent,
+                    personality,
+                    service_tier,
+                    developer_instructions,
+                ): (
+                    Option<String>,
+                    Option<bool>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                ) = conn
+                    .query_row(
+                        "SELECT collaboration_mode, multi_agent, personality, service_tier, developer_instructions FROM sessions WHERE id = ?1",
+                        params![id],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                    )
+                    .unwrap_or((None, None, None, None, None));
+
                 let (terminal_session_id, terminal_app): (Option<String>, Option<String>) = conn
                     .query_row(
                         "SELECT terminal_session_id, terminal_app FROM sessions WHERE id = ?1",
@@ -479,6 +504,11 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     approval_policy,
                     sandbox_mode,
                     permission_mode,
+                    collaboration_mode,
+                    multi_agent,
+                    personality,
+                    service_tier,
+                    developer_instructions,
                     input_tokens,
                     output_tokens,
                     cached_tokens,
@@ -698,6 +728,26 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 )
                 .unwrap_or(None);
 
+            let (
+                collaboration_mode,
+                multi_agent,
+                personality,
+                service_tier,
+                developer_instructions,
+            ): (
+                Option<String>,
+                Option<bool>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+            ) = conn
+                .query_row(
+                    "SELECT collaboration_mode, multi_agent, personality, service_tier, developer_instructions FROM sessions WHERE id = ?1",
+                    params![&id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                )
+                .unwrap_or((None, None, None, None, None));
+
             let pending_approval_id: Option<String> = conn
                 .query_row(
                     "SELECT pending_approval_id FROM sessions WHERE id = ?1",
@@ -742,6 +792,11 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 approval_policy,
                 sandbox_mode,
                 permission_mode,
+                collaboration_mode,
+                multi_agent,
+                personality,
+                service_tier,
+                developer_instructions,
                 input_tokens,
                 output_tokens,
                 cached_tokens,

@@ -15,6 +15,11 @@ pub(crate) struct PreparedResumeSession {
     pub model: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
     pub claude_sdk_session_id: Option<String>,
     pub message_count: usize,
     pub transcript_loaded: bool,
@@ -110,6 +115,11 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         newest_sequence,
         pending_approval: None,
         permission_mode: restored.permission_mode,
+        collaboration_mode: restored.collaboration_mode,
+        multi_agent: restored.multi_agent,
+        personality: restored.personality,
+        service_tier: restored.service_tier,
+        developer_instructions: restored.developer_instructions,
         pending_tool_name: restored.pending_tool_name,
         pending_tool_input: restored.pending_tool_input,
         pending_question: restored.pending_question,
@@ -194,6 +204,11 @@ pub(crate) fn restored_session_to_handle(
         restored.approval_policy,
         restored.sandbox_mode,
         restored.permission_mode,
+        restored.collaboration_mode,
+        restored.multi_agent,
+        restored.personality,
+        restored.service_tier,
+        restored.developer_instructions,
         TokenUsage {
             input_tokens: restored.input_tokens.max(0) as u64,
             output_tokens: restored.output_tokens.max(0) as u64,
@@ -265,6 +280,11 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     let model = restored.model.clone();
     let approval_policy = restored.approval_policy.clone();
     let sandbox_mode = restored.sandbox_mode.clone();
+    let collaboration_mode = restored.collaboration_mode.clone();
+    let multi_agent = restored.multi_agent;
+    let personality = restored.personality.clone();
+    let service_tier = restored.service_tier.clone();
+    let developer_instructions = restored.developer_instructions.clone();
     let claude_sdk_session_id = restored.claude_sdk_session_id.clone();
     let message_count = restored.messages.len();
 
@@ -283,6 +303,11 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
         model,
         approval_policy,
         sandbox_mode,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
         claude_sdk_session_id,
         message_count,
         transcript_loaded,
@@ -359,6 +384,11 @@ mod tests {
             approval_policy: Some("on-request".into()),
             sandbox_mode: Some("workspace-write".into()),
             permission_mode: Some("acceptEdits".into()),
+            collaboration_mode: Some("workers".into()),
+            multi_agent: Some(true),
+            personality: Some("mentor".into()),
+            service_tier: Some("priority".into()),
+            developer_instructions: Some("Stay focused".into()),
             input_tokens: 10,
             output_tokens: 5,
             cached_tokens: 2,
@@ -423,6 +453,13 @@ mod tests {
         assert_eq!(
             state.codex_integration_mode,
             Some(CodexIntegrationMode::Passive)
+        );
+        assert_eq!(state.collaboration_mode.as_deref(), Some("workers"));
+        assert_eq!(state.personality.as_deref(), Some("mentor"));
+        assert_eq!(state.service_tier.as_deref(), Some("priority"));
+        assert_eq!(
+            state.developer_instructions.as_deref(),
+            Some("Stay focused")
         );
         assert_eq!(state.approval_version, Some(3));
         assert_eq!(state.unread_count, 4);

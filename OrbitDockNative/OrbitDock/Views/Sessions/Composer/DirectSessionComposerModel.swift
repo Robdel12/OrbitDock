@@ -17,6 +17,7 @@ struct DirectSessionComposerState: Equatable {
   var selectedEffort: EffortLevel = .default
   var showModelEffortPopover = false
   var showClaudeModelPopover = false
+  var showCodexSettingsPopover = false
   var showFilePickerPopover = false
   var filePickerQuery = ""
   var manualReviewMode = false

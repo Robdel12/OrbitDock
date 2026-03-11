@@ -9,6 +9,11 @@ struct NewSessionProviderConfiguration: Equatable, Sendable {
   let claudeEffort: String?
   let codexModel: String
   let codexAutonomy: AutonomyLevel
+  let codexCollaborationMode: String?
+  let codexMultiAgentEnabled: Bool
+  let codexPersonality: String?
+  let codexServiceTier: String?
+  let codexInstructions: String?
 }
 
 enum NewSessionLaunchTarget: Equatable, Sendable {
@@ -27,7 +32,12 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
   case codex(
     model: String,
     approvalPolicy: String?,
-    sandboxMode: String?
+    sandboxMode: String?,
+    collaborationMode: String?,
+    multiAgent: Bool?,
+    personality: String?,
+    serviceTier: String?,
+    developerInstructions: String?
   )
 
   func makeRequest(cwd: String) -> SessionsClient.CreateSessionRequest {
@@ -42,13 +52,18 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
           disallowedTools: disallowedTools,
           effort: effort
         )
-      case let .codex(model, approvalPolicy, sandboxMode):
+      case let .codex(model, approvalPolicy, sandboxMode, collaborationMode, multiAgent, personality, serviceTier, developerInstructions):
         return SessionsClient.CreateSessionRequest(
           provider: "codex",
           cwd: cwd,
           model: model,
           approvalPolicy: approvalPolicy,
-          sandboxMode: sandboxMode
+          sandboxMode: sandboxMode,
+          collaborationMode: collaborationMode,
+          multiAgent: multiAgent,
+          personality: personality,
+          serviceTier: serviceTier,
+          developerInstructions: developerInstructions
         )
     }
   }
@@ -120,7 +135,12 @@ enum NewSessionRequestPlanner {
         return .codex(
           model: normalizedModel,
           approvalPolicy: configuration.codexAutonomy.approvalPolicy,
-          sandboxMode: configuration.codexAutonomy.sandboxMode
+          sandboxMode: configuration.codexAutonomy.sandboxMode,
+          collaborationMode: normalizeOptionalText(configuration.codexCollaborationMode),
+          multiAgent: configuration.codexMultiAgentEnabled,
+          personality: normalizeOptionalText(configuration.codexPersonality),
+          serviceTier: normalizeOptionalText(configuration.codexServiceTier),
+          developerInstructions: normalizeOptionalText(configuration.codexInstructions)
         )
     }
   }

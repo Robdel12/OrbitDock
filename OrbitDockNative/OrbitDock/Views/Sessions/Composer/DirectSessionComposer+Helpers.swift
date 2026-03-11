@@ -207,6 +207,30 @@ extension DirectSessionComposer {
     requestComposerFocus()
   }
 
+  @MainActor
+  func applyCodexSessionSettings(
+    collaborationMode: CodexCollaborationMode,
+    multiAgentEnabled: Bool,
+    personality: CodexPersonalityPreset,
+    serviceTier: CodexServiceTierPreset,
+    developerInstructions: String?
+  ) async {
+    do {
+      try await serverState.updateSessionConfig(
+        sessionId,
+        collaborationMode: collaborationMode.rawValue,
+        multiAgent: multiAgentEnabled,
+        personality: personality.requestValue,
+        serviceTier: serviceTier.requestValue,
+        developerInstructions: developerInstructions
+      )
+      Platform.services.playHaptic(.action)
+    } catch {
+      Platform.services.playHaptic(.error)
+      errorMessage = "Couldn't update Codex session settings just now."
+    }
+  }
+
   // MARK: - Dictation
 
   @MainActor

@@ -312,7 +312,12 @@ struct NewSessionSheet: View {
       selectedPermissionMode: $model.selectedPermissionMode,
       selectedEffort: $model.selectedEffort,
       codexModel: $model.codexModel,
-      selectedAutonomy: $model.selectedAutonomy
+      selectedAutonomy: $model.selectedAutonomy,
+      codexCollaborationMode: $model.codexCollaborationMode,
+      codexMultiAgentEnabled: $model.codexMultiAgentEnabled,
+      codexPersonality: $model.codexPersonality,
+      codexServiceTier: $model.codexServiceTier,
+      codexInstructions: $model.codexInstructions
     )
   }
 
@@ -356,6 +361,7 @@ struct NewSessionSheet: View {
 
   private func refreshEndpointData() {
     endpointAppState.refreshClaudeModels()
+    guard model.provider == .codex else { return }
     endpointAppState.refreshCodexModels()
     endpointAppState.refreshCodexAccount()
   }

@@ -23,6 +23,11 @@ struct NewSessionModel {
 
   var codexModel: String
   var selectedAutonomy: AutonomyLevel
+  var codexCollaborationMode: CodexCollaborationMode
+  var codexMultiAgentEnabled: Bool
+  var codexPersonality: CodexPersonalityPreset
+  var codexServiceTier: CodexServiceTierPreset
+  var codexInstructions: String
   var codexErrorMessage: String?
 
   init(provider: SessionProvider, selectedEndpointId: UUID) {
@@ -45,6 +50,11 @@ struct NewSessionModel {
     self.selectedEffort = .default
     self.codexModel = ""
     self.selectedAutonomy = .autonomous
+    self.codexCollaborationMode = .default
+    self.codexMultiAgentEnabled = false
+    self.codexPersonality = .automatic
+    self.codexServiceTier = .automatic
+    self.codexInstructions = ""
     self.codexErrorMessage = nil
   }
 
@@ -72,6 +82,11 @@ struct NewSessionModel {
         selectedEffort: selectedEffort,
         codexModel: codexModel,
         selectedAutonomy: selectedAutonomy,
+        codexCollaborationMode: codexCollaborationMode,
+        codexMultiAgentEnabled: codexMultiAgentEnabled,
+        codexPersonality: codexPersonality,
+        codexServiceTier: codexServiceTier,
+        codexInstructions: codexInstructions,
         codexErrorMessage: codexErrorMessage
       ),
       worktreeState: NewSessionWorktreeState(
@@ -92,7 +107,12 @@ struct NewSessionModel {
       disallowedToolsText: disallowedToolsText,
       claudeEffort: selectedEffort.serialized,
       codexModel: codexModel,
-      codexAutonomy: selectedAutonomy
+      codexAutonomy: selectedAutonomy,
+      codexCollaborationMode: codexCollaborationMode.rawValue,
+      codexMultiAgentEnabled: codexMultiAgentEnabled,
+      codexPersonality: codexPersonality.requestValue,
+      codexServiceTier: codexServiceTier.requestValue,
+      codexInstructions: codexInstructions
     )
   }
 
@@ -130,6 +150,11 @@ struct NewSessionModel {
     selectedEffort = providerState.selectedEffort
     codexModel = providerState.codexModel
     selectedAutonomy = providerState.selectedAutonomy
+    codexCollaborationMode = providerState.codexCollaborationMode
+    codexMultiAgentEnabled = providerState.codexMultiAgentEnabled
+    codexPersonality = providerState.codexPersonality
+    codexServiceTier = providerState.codexServiceTier
+    codexInstructions = providerState.codexInstructions
     codexErrorMessage = providerState.codexErrorMessage
 
     let worktreeState = plan.nextState.worktreeState
@@ -151,6 +176,11 @@ struct NewSessionModel {
     selectedEffort = state.selectedEffort
     codexModel = state.codexModel
     selectedAutonomy = state.selectedAutonomy
+    codexCollaborationMode = state.codexCollaborationMode
+    codexMultiAgentEnabled = state.codexMultiAgentEnabled
+    codexPersonality = state.codexPersonality
+    codexServiceTier = state.codexServiceTier
+    codexInstructions = state.codexInstructions
     codexErrorMessage = state.codexErrorMessage
   }
 

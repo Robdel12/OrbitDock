@@ -5,6 +5,7 @@ use tracing::{info, warn};
 
 use crate::connectors::claude_session::{ClaudeAction, ClaudeSession};
 use crate::connectors::codex_session::CodexSession;
+use orbitdock_connector_codex::CodexControlPlane;
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::SessionCommand;
@@ -19,23 +20,40 @@ pub(crate) async fn start_direct_codex_session(
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
+    collaboration_mode: Option<&str>,
+    multi_agent: Option<bool>,
+    personality: Option<&str>,
+    service_tier: Option<&str>,
+    developer_instructions: Option<&str>,
 ) -> Result<(), String> {
     let session_id = session_id.to_string();
     let cwd = cwd.to_string();
     let model = model.map(ToOwned::to_owned);
     let approval_policy = approval_policy.map(ToOwned::to_owned);
     let sandbox_mode = sandbox_mode.map(ToOwned::to_owned);
+    let collaboration_mode = collaboration_mode.map(ToOwned::to_owned);
+    let multi_agent = multi_agent;
+    let personality = personality.map(ToOwned::to_owned);
+    let service_tier = service_tier.map(ToOwned::to_owned);
+    let developer_instructions = developer_instructions.map(ToOwned::to_owned);
     let persist_tx = state.persist().clone();
     let connector_timeout = Duration::from_secs(15);
     let task_session_id = session_id.clone();
 
     let mut connector_task = tokio::spawn(async move {
-        CodexSession::new(
+        CodexSession::new_with_control_plane(
             task_session_id,
             &cwd,
             model.as_deref(),
             approval_policy.as_deref(),
             sandbox_mode.as_deref(),
+            CodexControlPlane {
+                collaboration_mode,
+                multi_agent,
+                personality,
+                service_tier,
+                developer_instructions,
+            },
         )
         .await
     });

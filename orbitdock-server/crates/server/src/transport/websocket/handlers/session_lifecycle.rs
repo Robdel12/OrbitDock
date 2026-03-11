@@ -411,6 +411,7 @@ pub(crate) async fn handle(
             permission_mode,
             allowed_tools,
             disallowed_tools,
+            ..
         } => {
             info!(
                 component = "session",
@@ -578,7 +579,15 @@ pub(crate) async fn handle(
                 if let Some(ref m) = effective_model {
                     handle.set_model(Some(m.clone()));
                 }
-                handle.set_config(effective_approval.clone(), effective_sandbox.clone());
+                handle.set_config(
+                    effective_approval.clone(),
+                    effective_sandbox.clone(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                );
 
                 let thread_id = state.codex_thread_for_session(&session_id);
                 let sid = session_id.clone();
@@ -838,6 +847,11 @@ pub(crate) async fn handle(
                                                 approval_policy: None,
                                                 sandbox_mode: None,
                                                 permission_mode: Some(mode.clone()),
+                                                collaboration_mode: None,
+                                                multi_agent: None,
+                                                personality: None,
+                                                service_tier: None,
+                                                developer_instructions: None,
                                             })
                                         } else {
                                             None

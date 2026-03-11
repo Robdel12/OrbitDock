@@ -25,6 +25,11 @@ pub(crate) struct CreateSessionRequest {
     pub allowed_tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
     pub effort: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
 }
 
 pub(crate) async fn handle_create_session(
@@ -59,6 +64,11 @@ pub(crate) async fn handle_create_session(
             allowed_tools: request.allowed_tools.clone(),
             disallowed_tools: request.disallowed_tools.clone(),
             effort: request.effort.clone(),
+            collaboration_mode: request.collaboration_mode.clone(),
+            multi_agent: request.multi_agent,
+            personality: request.personality.clone(),
+            service_tier: request.service_tier.clone(),
+            developer_instructions: request.developer_instructions.clone(),
         },
     )
     .await;
@@ -151,6 +161,11 @@ pub(crate) async fn handle_update_session_config(
     approval_policy: Option<String>,
     sandbox_mode: Option<String>,
     permission_mode: Option<String>,
+    collaboration_mode: Option<String>,
+    multi_agent: Option<bool>,
+    personality: Option<String>,
+    service_tier: Option<String>,
+    developer_instructions: Option<String>,
     state: &Arc<SessionRegistry>,
     conn_id: u64,
 ) {
@@ -162,6 +177,11 @@ pub(crate) async fn handle_update_session_config(
         approval_policy = ?approval_policy,
         sandbox_mode = ?sandbox_mode,
         permission_mode = ?permission_mode,
+        collaboration_mode = ?collaboration_mode,
+        multi_agent = ?multi_agent,
+        personality = ?personality,
+        service_tier = ?service_tier,
+        developer_instructions = ?developer_instructions.as_ref().map(|_| "[set]"),
         "Session config update requested"
     );
 
@@ -171,6 +191,11 @@ pub(crate) async fn handle_update_session_config(
         approval_policy,
         sandbox_mode,
         permission_mode,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
     )
     .await;
 }
@@ -193,7 +218,7 @@ mod tests {
 
         handle_create_session(
             CreateSessionRequest {
-                provider: Provider::Codex,
+                provider: Provider::Claude,
                 cwd: cwd.clone(),
                 model: None,
                 approval_policy: None,
@@ -202,6 +227,11 @@ mod tests {
                 allowed_tools: vec![],
                 disallowed_tools: vec![],
                 effort: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
             },
             &client_tx,
             &state,
@@ -211,7 +241,7 @@ mod tests {
 
         match recv_json(&mut client_rx).await {
             ServerMessage::SessionSnapshot { session } => {
-                assert_eq!(session.provider, Provider::Codex);
+                assert_eq!(session.provider, Provider::Claude);
                 assert_eq!(session.project_path, cwd);
             }
             other => panic!("expected SessionSnapshot first, got {other:?}"),

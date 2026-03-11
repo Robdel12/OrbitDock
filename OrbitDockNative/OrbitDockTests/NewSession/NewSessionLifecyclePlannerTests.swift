@@ -45,6 +45,11 @@ struct NewSessionLifecyclePlannerTests {
         selectedEffort: .high,
         codexModel: "gpt-5-codex",
         selectedAutonomy: .fullAuto,
+        codexCollaborationMode: .plan,
+        codexMultiAgentEnabled: true,
+        codexPersonality: .friendly,
+        codexServiceTier: .fast,
+        codexInstructions: "Stay tidy.",
         codexErrorMessage: "oops"
       ),
       worktreeState: NewSessionWorktreeState(
@@ -116,6 +121,11 @@ struct NewSessionLifecyclePlannerTests {
         selectedEffort: .medium,
         codexModel: "gpt-5-codex",
         selectedAutonomy: .fullAuto,
+        codexCollaborationMode: .plan,
+        codexMultiAgentEnabled: true,
+        codexPersonality: .pragmatic,
+        codexServiceTier: .flex,
+        codexInstructions: "Be concise.",
         codexErrorMessage: "bad"
       ),
       worktreeState: NewSessionWorktreeState(

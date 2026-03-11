@@ -36,6 +36,8 @@ pub fn run_migrations(conn: &mut Connection) -> anyhow::Result<()> {
         .run(conn)
         .context("run refinery migrations")?;
 
+    ensure_session_control_plane_columns(conn)?;
+
     info!(
         component = "migrations",
         event = "migrations.complete",
@@ -44,6 +46,53 @@ pub fn run_migrations(conn: &mut Connection) -> anyhow::Result<()> {
     );
 
     Ok(())
+}
+
+fn ensure_session_control_plane_columns(conn: &Connection) -> anyhow::Result<()> {
+    if !table_exists(conn, "sessions")? {
+        return Ok(());
+    }
+
+    ensure_column(conn, "sessions", "collaboration_mode", "TEXT")?;
+    ensure_column(conn, "sessions", "multi_agent", "INTEGER")?;
+    ensure_column(conn, "sessions", "personality", "TEXT")?;
+    ensure_column(conn, "sessions", "service_tier", "TEXT")?;
+    ensure_column(conn, "sessions", "developer_instructions", "TEXT")?;
+
+    Ok(())
+}
+
+fn ensure_column(
+    conn: &Connection,
+    table_name: &str,
+    column_name: &str,
+    column_def: &str,
+) -> anyhow::Result<()> {
+    if column_exists(conn, table_name, column_name)? {
+        return Ok(());
+    }
+
+    conn.execute(
+        &format!("ALTER TABLE {table_name} ADD COLUMN {column_name} {column_def}"),
+        [],
+    )
+    .with_context(|| format!("add missing column {table_name}.{column_name}"))?;
+
+    Ok(())
+}
+
+fn column_exists(conn: &Connection, table_name: &str, column_name: &str) -> anyhow::Result<bool> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table_name})"))
+        .with_context(|| format!("prepare pragma table_info for {table_name}"))?;
+
+    let exists = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .with_context(|| format!("query pragma table_info for {table_name}"))?
+        .filter_map(Result::ok)
+        .any(|name| name == column_name);
+
+    Ok(exists)
 }
 
 fn import_legacy_history(conn: &mut Connection) -> anyhow::Result<()> {
@@ -231,6 +280,26 @@ mod tests {
             assert!(
                 columns.iter().any(|column| column == expected),
                 "expected approval_history to include column {expected}"
+            );
+        }
+
+        let mut session_stmt = conn
+            .prepare("PRAGMA table_info(sessions)")
+            .expect("prepare sessions pragma");
+        let session_columns: Vec<String> = session_stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query session columns")
+            .filter_map(Result::ok)
+            .collect();
+        for expected in [
+            "collaboration_mode",
+            "personality",
+            "service_tier",
+            "developer_instructions",
+        ] {
+            assert!(
+                session_columns.iter().any(|column| column == expected),
+                "expected sessions to include column {expected}"
             );
         }
     }

@@ -183,6 +183,30 @@ extension DirectSessionComposer {
     serverState.codexModels
   }
 
+  var currentCodexCollaborationMode: CodexCollaborationMode {
+    CodexCollaborationMode.from(rawValue: obs.collaborationMode, permissionMode: obs.permissionMode)
+  }
+
+  var currentCodexMultiAgentEnabled: Bool {
+    obs.multiAgent ?? false
+  }
+
+  var currentCodexPersonality: CodexPersonalityPreset {
+    CodexPersonalityPreset.from(serverValue: obs.personality)
+  }
+
+  var currentCodexServiceTier: CodexServiceTierPreset {
+    CodexServiceTierPreset.from(serverValue: obs.serviceTier)
+  }
+
+  var hasCodexControlOverrides: Bool {
+    currentCodexCollaborationMode != .default
+      || currentCodexMultiAgentEnabled
+      || currentCodexPersonality != .automatic
+      || currentCodexServiceTier != .automatic
+      || !(obs.developerInstructions?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+  }
+
   var codexModelOptionsSignature: String {
     codexModelOptions.map(\.model).joined(separator: "|")
   }

@@ -607,6 +607,8 @@ enum CompactToolHelpers {
           return description.count > 60 ? String(description.prefix(60)) + "…" : description
         }
         return nil
+      case .handoff:
+        return "Realtime"
       case .todo: return rightMeta
       case .mcp: return mcpPrimaryParameter(message: message)
       default: return nil
@@ -632,6 +634,7 @@ enum CompactToolHelpers {
       case "glob": return .glob
       case "grep": return .grep
       case "task": return .task
+      case "handoff": return .handoff
       case "webfetch", "websearch": return .web
       case "enterplanmode", "exitplanmode": return .plan
       case "askuserquestion": return .question
@@ -655,6 +658,8 @@ enum CompactToolHelpers {
         return firstGrepMatch(output)
       case .task:
         return message.taskDescription ?? message.taskPrompt
+      case .handoff:
+        return nil
       case .mcp:
         return mcpPrimaryParameter(message: message)
       default:

@@ -88,6 +88,34 @@ struct CompactToolHelpersTests {
     #expect(ToolGlyphInfo.from(message: message).symbol == "checklist")
   }
 
+  @Test func compactToolModelCarriesLinkedWorkerIDForWorkerMessages() {
+    let message = makeToolMessage(
+      toolName: "spawn_agent",
+      toolInput: ["receiver_thread_id": "worker-123"]
+    )
+
+    let model = SharedModelBuilders.compactToolModel(from: message, supportsRichToolingCards: true)
+
+    #expect(model.linkedWorkerID == "worker-123")
+  }
+
+  @Test func compactToolModelCarriesLinkedWorkerIDFromTaskPayload() {
+    let message = makeToolMessage(
+      toolName: "task",
+      toolInput: [
+        "description": "Inspect the current Swift worker deck UI",
+        "subagent_id": "worker-123",
+      ]
+    )
+
+    let model = SharedModelBuilders.compactToolModel(
+      from: message,
+      supportsRichToolingCards: true
+    )
+
+    #expect(model.linkedWorkerID == "worker-123")
+  }
+
   private func makeToolMessage(
     toolName: String,
     toolInput: [String: Any],

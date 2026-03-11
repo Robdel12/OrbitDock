@@ -16,6 +16,11 @@ struct SessionsClient: Sendable {
     var approvalPolicy: String?
     var sandboxMode: String?
     var permissionMode: String?
+    var collaborationMode: String?
+    var multiAgent: Bool?
+    var personality: String?
+    var serviceTier: String?
+    var developerInstructions: String?
     var allowedTools: [String] = []
     var disallowedTools: [String] = []
     var effort: String?
@@ -46,6 +51,11 @@ struct SessionsClient: Sendable {
     var approvalPolicy: String?
     var sandboxMode: String?
     var permissionMode: String?
+    var collaborationMode: String?
+    var multiAgent: Bool?
+    var personality: String?
+    var serviceTier: String?
+    var developerInstructions: String?
     var allowedTools: [String] = []
     var disallowedTools: [String] = []
   }
@@ -64,6 +74,11 @@ struct SessionsClient: Sendable {
     var approvalPolicy: String?
     var sandboxMode: String?
     var permissionMode: String?
+    var collaborationMode: String?
+    var multiAgent: Bool?
+    var personality: String?
+    var serviceTier: String?
+    var developerInstructions: String?
   }
 
   struct ForkRequest: Encodable {

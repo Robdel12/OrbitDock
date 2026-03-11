@@ -17,7 +17,12 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: " Write, Edit ",
         claudeEffort: " high ",
         codexModel: "",
-        codexAutonomy: .autonomous
+        codexAutonomy: .autonomous,
+        codexCollaborationMode: nil,
+        codexMultiAgentEnabled: false,
+        codexPersonality: nil,
+        codexServiceTier: nil,
+        codexInstructions: nil
       ),
       bootstrapPrompt: " Continue work "
     )
@@ -57,7 +62,12 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: "",
         codexModel: "",
-        codexAutonomy: .autonomous
+        codexAutonomy: .autonomous,
+        codexCollaborationMode: nil,
+        codexMultiAgentEnabled: false,
+        codexPersonality: nil,
+        codexServiceTier: nil,
+        codexInstructions: nil
       ),
       bootstrapPrompt: nil
     )
@@ -98,7 +108,12 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "Edit",
         claudeEffort: "max",
         codexModel: " gpt-5-codex ",
-        codexAutonomy: .open
+        codexAutonomy: .open,
+        codexCollaborationMode: "plan",
+        codexMultiAgentEnabled: true,
+        codexPersonality: "friendly",
+        codexServiceTier: "fast",
+        codexInstructions: " Stay grounded. "
       ),
       bootstrapPrompt: nil
     )
@@ -112,10 +127,24 @@ struct NewSessionRequestPlannerTests {
     } else {
       Issue.record("Expected a direct launch target")
     }
-    if case let .codex(model, approvalPolicy, sandboxMode) = plan.requestTemplate {
+    if case let .codex(
+      model,
+      approvalPolicy,
+      sandboxMode,
+      collaborationMode,
+      multiAgent,
+      personality,
+      serviceTier,
+      developerInstructions
+    ) = plan.requestTemplate {
       #expect(model == "gpt-5-codex")
       #expect(approvalPolicy == "on-request")
       #expect(sandboxMode == "danger-full-access")
+      #expect(collaborationMode == "plan")
+      #expect(multiAgent == true)
+      #expect(personality == "friendly")
+      #expect(serviceTier == "fast")
+      #expect(developerInstructions == "Stay grounded.")
     } else {
       Issue.record("Expected a Codex request template")
     }
@@ -135,7 +164,12 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: nil,
         codexModel: "",
-        codexAutonomy: .autonomous
+        codexAutonomy: .autonomous,
+        codexCollaborationMode: nil,
+        codexMultiAgentEnabled: false,
+        codexPersonality: nil,
+        codexServiceTier: nil,
+        codexInstructions: nil
       ),
       bootstrapPrompt: nil
     )
@@ -165,7 +199,12 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: nil,
         codexModel: "",
-        codexAutonomy: .autonomous
+        codexAutonomy: .autonomous,
+        codexCollaborationMode: nil,
+        codexMultiAgentEnabled: false,
+        codexPersonality: nil,
+        codexServiceTier: nil,
+        codexInstructions: nil
       ),
       bootstrapPrompt: nil
     )
@@ -187,7 +226,12 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: nil,
         codexModel: " ",
-        codexAutonomy: .autonomous
+        codexAutonomy: .autonomous,
+        codexCollaborationMode: nil,
+        codexMultiAgentEnabled: false,
+        codexPersonality: nil,
+        codexServiceTier: nil,
+        codexInstructions: nil
       ),
       bootstrapPrompt: nil
     )

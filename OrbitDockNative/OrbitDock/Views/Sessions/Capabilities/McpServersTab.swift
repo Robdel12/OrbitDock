@@ -8,6 +8,57 @@
 
 import SwiftUI
 
+struct McpCapabilityNotice: Equatable {
+  enum Style: Equatable {
+    case informational
+    case success
+    case caution
+  }
+
+  let title: String
+  let message: String
+  let badge: String
+  let iconName: String
+  let style: Style
+}
+
+enum McpServersTabPlanner {
+  static func capabilityNotice(
+    provider: Provider,
+    codexAccountStatus: ServerCodexAccountStatus?
+  ) -> McpCapabilityNotice? {
+    guard provider == .codex else { return nil }
+
+    switch codexAccountStatus?.account {
+      case .apiKey?:
+        return McpCapabilityNotice(
+          title: "API Key Session",
+          message: "Some Codex app-backed MCP servers only show up with ChatGPT sign-in. If a capability feels missing, check your Codex account mode first.",
+          badge: "API Key",
+          iconName: "key.fill",
+          style: .caution
+        )
+      case .chatgpt?:
+        return McpCapabilityNotice(
+          title: "ChatGPT Connected",
+          message: "This session is using your ChatGPT-linked Codex account, so app-backed MCP availability should match what Codex can access.",
+          badge: "ChatGPT",
+          iconName: "sparkles",
+          style: .success
+        )
+      case .none:
+        guard codexAccountStatus?.requiresOpenaiAuth == true else { return nil }
+        return McpCapabilityNotice(
+          title: "ChatGPT Sign-In Needed",
+          message: "Sign in with ChatGPT to unlock Codex-managed apps and MCP servers in OrbitDock.",
+          badge: "Not Connected",
+          iconName: "person.crop.circle.badge.exclamationmark",
+          style: .informational
+        )
+    }
+  }
+}
+
 struct McpServersTab: View {
   let sessionId: String
 
@@ -24,6 +75,17 @@ struct McpServersTab: View {
 
   private var authStatuses: [String: ServerMcpAuthStatus] {
     serverState.session(sessionId).mcpAuthStatuses
+  }
+
+  private var provider: Provider {
+    serverState.session(sessionId).provider
+  }
+
+  private var capabilityNotice: McpCapabilityNotice? {
+    McpServersTabPlanner.capabilityNotice(
+      provider: provider,
+      codexAccountStatus: serverState.codexAccountStatus
+    )
   }
 
   /// All known server names from startup state + tools
@@ -87,6 +149,13 @@ struct McpServersTab: View {
       Divider()
         .foregroundStyle(Color.panelBorder.opacity(0.5))
 
+      if let capabilityNotice {
+        capabilityNoticeView(capabilityNotice)
+
+        Divider()
+          .foregroundStyle(Color.panelBorder.opacity(0.3))
+      }
+
       // Server list
       ScrollView(.vertical, showsIndicators: true) {
         LazyVStack(alignment: .leading, spacing: 0) {
@@ -98,6 +167,54 @@ struct McpServersTab: View {
       }
     }
     .background(Color.backgroundPrimary)
+  }
+
+  private func capabilityNoticeView(_ notice: McpCapabilityNotice) -> some View {
+    HStack(alignment: .top, spacing: Spacing.sm) {
+      ZStack {
+        Circle()
+          .fill(noticeTint(notice.style).opacity(0.16))
+          .frame(width: 28, height: 28)
+
+        Image(systemName: notice.iconName)
+          .font(.system(size: TypeScale.meta, weight: .semibold))
+          .foregroundStyle(noticeTint(notice.style))
+      }
+
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        HStack(spacing: Spacing.xs) {
+          Text(notice.title)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+
+          Text(notice.badge)
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
+            .foregroundStyle(noticeTint(notice.style))
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, Spacing.xxs)
+            .background(noticeTint(notice.style).opacity(0.14), in: Capsule())
+        }
+
+        Text(notice.message)
+          .font(.system(size: TypeScale.meta))
+          .foregroundStyle(Color.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .fill(Color.backgroundSecondary.opacity(0.72))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(noticeTint(notice.style).opacity(0.18), lineWidth: 1)
+    )
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
   }
 
   // MARK: - Server Row
@@ -325,6 +442,17 @@ struct McpServersTab: View {
       case .notLoggedIn: Color.statusPermission
       case .bearerToken: Color.feedbackPositive
       case .oauth: Color.accent
+    }
+  }
+
+  private func noticeTint(_ style: McpCapabilityNotice.Style) -> Color {
+    switch style {
+      case .informational:
+        .accent
+      case .success:
+        .feedbackPositive
+      case .caution:
+        .feedbackCaution
     }
   }
 }

@@ -80,6 +80,11 @@ struct DirectSessionComposer: View {
     nonmutating set { composerState.showClaudeModelPopover = newValue }
   }
 
+  var showCodexSettingsPopover: Bool {
+    get { composerState.showCodexSettingsPopover }
+    nonmutating set { composerState.showCodexSettingsPopover = newValue }
+  }
+
   var showFilePickerPopover: Bool {
     get { composerState.showFilePickerPopover }
     nonmutating set { composerState.showFilePickerPopover = newValue }

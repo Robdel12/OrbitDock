@@ -104,6 +104,11 @@ pub(crate) async fn launch_resumed_session(
                     model: prepared.model,
                     approval_policy: prepared.approval_policy,
                     sandbox_mode: prepared.sandbox_mode,
+                    collaboration_mode: prepared.collaboration_mode,
+                    multi_agent: prepared.multi_agent,
+                    personality: prepared.personality,
+                    service_tier: prepared.service_tier,
+                    developer_instructions: prepared.developer_instructions,
                     handle: prepared.handle,
                     message_count: prepared.message_count,
                 },
@@ -234,6 +239,11 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
         model,
         approval_policy,
         sandbox_mode,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
         mut handle,
         message_count,
     } = request;
@@ -245,12 +255,19 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
         let connector_timeout = Duration::from_secs(15);
         let task_session_id = session_id.clone();
         let mut connector_task = tokio::spawn(async move {
-            CodexSession::new(
+            CodexSession::new_with_control_plane(
                 task_session_id,
                 &project_path,
                 model.as_deref(),
                 approval_policy.as_deref(),
                 sandbox_mode.as_deref(),
+                orbitdock_connector_codex::CodexControlPlane {
+                    collaboration_mode,
+                    multi_agent,
+                    personality,
+                    service_tier,
+                    developer_instructions,
+                },
             )
             .await
         });
@@ -314,6 +331,11 @@ struct CodexResumeRequest {
     model: Option<String>,
     approval_policy: Option<String>,
     sandbox_mode: Option<String>,
+    collaboration_mode: Option<String>,
+    multi_agent: Option<bool>,
+    personality: Option<String>,
+    service_tier: Option<String>,
+    developer_instructions: Option<String>,
     handle: crate::domain::sessions::session::SessionHandle,
     message_count: usize,
 }

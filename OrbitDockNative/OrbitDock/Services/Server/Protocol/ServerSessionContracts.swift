@@ -68,6 +68,11 @@ struct ServerSessionSummary: Codable, Identifiable {
   let approvalPolicy: String?
   let sandboxMode: String?
   let permissionMode: String?
+  let collaborationMode: String?
+  let multiAgent: Bool?
+  let personality: String?
+  let serviceTier: String?
+  let developerInstructions: String?
   let pendingToolName: String?
   let pendingToolInput: String?
   let pendingQuestion: String?
@@ -105,6 +110,11 @@ struct ServerSessionSummary: Codable, Identifiable {
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
     case permissionMode = "permission_mode"
+    case collaborationMode = "collaboration_mode"
+    case multiAgent = "multi_agent"
+    case personality
+    case serviceTier = "service_tier"
+    case developerInstructions = "developer_instructions"
     case pendingToolName = "pending_tool_name"
     case pendingToolInput = "pending_tool_input"
     case pendingQuestion = "pending_question"
@@ -307,6 +317,11 @@ struct ServerSessionState: Codable, Identifiable {
   let approvalPolicy: String?
   let sandboxMode: String?
   let permissionMode: String?
+  let collaborationMode: String?
+  let multiAgent: Bool?
+  let personality: String?
+  let serviceTier: String?
+  let developerInstructions: String?
   let pendingToolName: String?
   let pendingToolInput: String?
   let pendingQuestion: String?
@@ -359,6 +374,11 @@ struct ServerSessionState: Codable, Identifiable {
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
     case permissionMode = "permission_mode"
+    case collaborationMode = "collaboration_mode"
+    case multiAgent = "multi_agent"
+    case personality
+    case serviceTier = "service_tier"
+    case developerInstructions = "developer_instructions"
     case pendingToolName = "pending_tool_name"
     case pendingToolInput = "pending_tool_input"
     case pendingQuestion = "pending_question"
@@ -417,6 +437,11 @@ struct ServerSessionState: Codable, Identifiable {
     approvalPolicy = try container.decodeIfPresent(String.self, forKey: .approvalPolicy)
     sandboxMode = try container.decodeIfPresent(String.self, forKey: .sandboxMode)
     permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+    collaborationMode = try container.decodeIfPresent(String.self, forKey: .collaborationMode)
+    multiAgent = try container.decodeIfPresent(Bool.self, forKey: .multiAgent)
+    personality = try container.decodeIfPresent(String.self, forKey: .personality)
+    serviceTier = try container.decodeIfPresent(String.self, forKey: .serviceTier)
+    developerInstructions = try container.decodeIfPresent(String.self, forKey: .developerInstructions)
     pendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
     pendingToolInput = try container.decodeIfPresent(String.self, forKey: .pendingToolInput)
     pendingQuestion = try container.decodeIfPresent(String.self, forKey: .pendingQuestion)
@@ -461,6 +486,11 @@ struct ServerStateChanges: Codable {
   let claudeIntegrationMode: ServerClaudeIntegrationMode??
   let approvalPolicy: String??
   let sandboxMode: String??
+  let collaborationMode: String??
+  let multiAgent: Bool??
+  let personality: String??
+  let serviceTier: String??
+  let developerInstructions: String??
   let lastActivityAt: String?
   let currentTurnId: String??
   let turnCount: UInt64?
@@ -491,6 +521,11 @@ struct ServerStateChanges: Codable {
     case claudeIntegrationMode = "claude_integration_mode"
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
+    case collaborationMode = "collaboration_mode"
+    case multiAgent = "multi_agent"
+    case personality
+    case serviceTier = "service_tier"
+    case developerInstructions = "developer_instructions"
     case lastActivityAt = "last_activity_at"
     case currentTurnId = "current_turn_id"
     case turnCount = "turn_count"
@@ -523,6 +558,11 @@ struct ServerStateChanges: Codable {
     claudeIntegrationMode = try container.decodePatchValue(ServerClaudeIntegrationMode.self, forKey: .claudeIntegrationMode)
     approvalPolicy = try container.decodePatchValue(String.self, forKey: .approvalPolicy)
     sandboxMode = try container.decodePatchValue(String.self, forKey: .sandboxMode)
+    collaborationMode = try container.decodePatchValue(String.self, forKey: .collaborationMode)
+    multiAgent = try container.decodePatchValue(Bool.self, forKey: .multiAgent)
+    personality = try container.decodePatchValue(String.self, forKey: .personality)
+    serviceTier = try container.decodePatchValue(String.self, forKey: .serviceTier)
+    developerInstructions = try container.decodePatchValue(String.self, forKey: .developerInstructions)
     lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
     currentTurnId = try container.decodePatchValue(String.self, forKey: .currentTurnId)
     turnCount = try container.decodeIfPresent(UInt64.self, forKey: .turnCount)

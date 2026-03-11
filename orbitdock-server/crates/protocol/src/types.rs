@@ -367,6 +367,16 @@ pub struct SessionSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub collaboration_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multi_agent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub personality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub developer_instructions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_tool_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_tool_input: Option<String>,
@@ -505,6 +515,16 @@ pub struct SessionState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub collaboration_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multi_agent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub personality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub developer_instructions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_tool_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_tool_input: Option<String>,
@@ -603,6 +623,16 @@ pub struct StateChanges {
     pub sandbox_mode: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collaboration_mode: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multi_agent: Option<Option<bool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub personality: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub developer_instructions: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

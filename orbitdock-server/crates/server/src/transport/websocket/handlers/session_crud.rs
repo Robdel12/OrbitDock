@@ -14,6 +14,26 @@ use crate::transport::websocket::handlers::session_management::{
 };
 use crate::transport::websocket::OutboundMessage;
 
+fn resolve_developer_instructions(
+    developer_instructions: Option<String>,
+    system_prompt: Option<String>,
+    append_system_prompt: Option<String>,
+) -> Option<String> {
+    if developer_instructions.is_some() {
+        return developer_instructions;
+    }
+
+    match (
+        system_prompt.filter(|value| !value.trim().is_empty()),
+        append_system_prompt.filter(|value| !value.trim().is_empty()),
+    ) {
+        (Some(base), Some(append)) => Some(format!("{base}\n\n{append}")),
+        (Some(base), None) => Some(base),
+        (None, Some(append)) => Some(append),
+        (None, None) => None,
+    }
+}
+
 pub(crate) async fn handle(
     msg: ClientMessage,
     client_tx: &mpsc::Sender<OutboundMessage>,
@@ -31,8 +51,13 @@ pub(crate) async fn handle(
             allowed_tools,
             disallowed_tools,
             effort,
-            system_prompt: _system_prompt,
-            append_system_prompt: _append_system_prompt,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
+            system_prompt,
+            append_system_prompt,
         } => {
             handle_create_session(
                 CreateSessionRequest {
@@ -45,6 +70,15 @@ pub(crate) async fn handle(
                     allowed_tools,
                     disallowed_tools,
                     effort,
+                    collaboration_mode,
+                    multi_agent,
+                    personality,
+                    service_tier,
+                    developer_instructions: resolve_developer_instructions(
+                        developer_instructions,
+                        system_prompt,
+                        append_system_prompt,
+                    ),
                 },
                 client_tx,
                 state,
@@ -63,12 +97,22 @@ pub(crate) async fn handle(
             approval_policy,
             sandbox_mode,
             permission_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
         } => {
             handle_update_session_config(
                 session_id,
                 approval_policy,
                 sandbox_mode,
                 permission_mode,
+                collaboration_mode,
+                multi_agent,
+                personality,
+                service_tier,
+                developer_instructions,
                 state,
                 conn_id,
             )
@@ -116,6 +160,7 @@ pub(crate) async fn handle(
             permission_mode,
             allowed_tools,
             disallowed_tools,
+            ..
         } => {
             handle_fork_session(
                 source_session_id,

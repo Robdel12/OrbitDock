@@ -35,20 +35,6 @@ fn iso_minutes_ago(minutes: u64) -> String {
     time_to_iso8601(secs)
 }
 
-fn find_migrations_dir() -> PathBuf {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    for ancestor in manifest_dir.ancestors() {
-        let candidate = ancestor.join("migrations");
-        if candidate.is_dir() {
-            return candidate;
-        }
-    }
-    panic!(
-        "Could not locate migrations directory from {:?}",
-        manifest_dir
-    );
-}
-
 fn create_test_home() -> PathBuf {
     let home = std::env::temp_dir().join(format!("orbitdock-server-test-{}", Uuid::new_v4()));
     fs::create_dir_all(home.join(".orbitdock")).expect("create .orbitdock");
@@ -56,27 +42,15 @@ fn create_test_home() -> PathBuf {
 }
 
 fn run_all_migrations(db_path: &Path) {
-    let conn = Connection::open(db_path).expect("open db");
+    let mut conn = Connection::open(db_path).expect("open db");
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
              PRAGMA busy_timeout = 5000;",
     )
     .expect("set pragmas");
 
-    let migrations_dir = find_migrations_dir();
-    let mut files: Vec<PathBuf> = fs::read_dir(&migrations_dir)
-        .expect("read migrations")
-        .filter_map(|entry| entry.ok().map(|e| e.path()))
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("sql"))
-        .collect();
-    files.sort();
-
-    for file in files {
-        let sql = fs::read_to_string(&file).expect("read migration");
-        conn.execute_batch(&sql).unwrap_or_else(|err| {
-            panic!("migration failed for {}: {}", file.display(), err);
-        });
-    }
+    crate::infrastructure::migration_runner::run_migrations(&mut conn)
+        .expect("run test migrations");
 }
 
 #[test]
@@ -105,6 +79,11 @@ fn message_update_sets_last_message_from_completed_conversation_messages_only() 
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: None,
         }],
     )
@@ -235,6 +214,11 @@ fn approval_requested_upserts_existing_unresolved_row_for_same_request_id() {
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: None,
         }],
     )
@@ -324,6 +308,11 @@ async fn approval_requested_persists_rich_payload_and_list_approvals_decodes_it(
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: Some("plan".into()),
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: None,
         }],
     )
@@ -418,6 +407,11 @@ fn approval_decision_resolves_all_unresolved_duplicates_for_request_id() {
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: None,
         }],
     )
@@ -526,6 +520,11 @@ fn tokens_update_writes_usage_tables() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::TokensUpdate {
@@ -614,6 +613,11 @@ async fn startup_restore_prefers_usage_session_state_snapshot_values() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::TokensUpdate {
@@ -683,6 +687,11 @@ async fn load_session_by_id_prefers_usage_turns_and_turn_seq_order() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::TokensUpdate {
@@ -779,6 +788,11 @@ async fn load_session_permission_mode_returns_persisted_value() {
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: Some("bypassPermissions".into()),
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: None,
         }],
     )
@@ -818,6 +832,11 @@ async fn startup_restore_includes_active_and_ended_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::RolloutSessionUpsert {
@@ -841,6 +860,11 @@ async fn startup_restore_includes_active_and_ended_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::SessionEnd {
@@ -911,6 +935,11 @@ async fn startup_restore_prefers_messages_table_for_last_message_over_stale_sess
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::MessageAppend {
@@ -1236,6 +1265,11 @@ async fn rollout_upsert_does_not_convert_direct_session_to_passive() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::SetThreadId {
@@ -1405,6 +1439,11 @@ async fn startup_restores_first_prompt_for_claude_and_codex() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::CodexPromptIncrement {
@@ -1673,6 +1712,11 @@ async fn startup_ends_ghost_direct_claude_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             // Initialized: direct Claude session with SDK ID — should survive
@@ -1686,6 +1730,11 @@ async fn startup_ends_ghost_direct_claude_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::SetClaudeSdkSessionId {
@@ -1703,6 +1752,11 @@ async fn startup_ends_ghost_direct_claude_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::MessageAppend {
@@ -1788,6 +1842,11 @@ async fn startup_ends_ghost_direct_codex_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             // Initialized: direct Codex session with thread_id — should survive
@@ -1801,6 +1860,11 @@ async fn startup_ends_ghost_direct_codex_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::SetThreadId {
@@ -1860,6 +1924,11 @@ async fn cleanup_stale_permission_state_repairs_orphaned_permission_sessions() {
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: None,
         }],
     )
@@ -2010,6 +2079,11 @@ async fn subagent_metadata_round_trips_from_persistence() {
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: None,
         }],
     )
@@ -2101,6 +2175,11 @@ async fn upsert_subagent_preserves_completed_result_over_later_shutdown_update()
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: None,
         }],
     )
@@ -2189,6 +2268,11 @@ async fn upsert_subagent_preserves_completed_result_over_later_not_found_update(
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: None,
         }],
     )
@@ -2278,6 +2362,11 @@ async fn upsert_subagent_preserves_completed_result_over_later_failed_update() {
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: None,
         }],
     )

@@ -13,6 +13,7 @@ struct ExpandedToolCellPlanningTests {
       isInProgress: true,
       canCancel: true,
       duration: "1.2s",
+      linkedWorkerID: nil,
       content: .task(agentLabel: "Build", agentColor: accent, description: "Running", output: nil, isComplete: false)
     )
 

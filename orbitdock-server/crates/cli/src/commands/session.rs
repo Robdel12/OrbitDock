@@ -324,6 +324,11 @@ async fn create(
             allowed_tools: vec![],
             disallowed_tools: vec![],
             effort: effort.map(|e| e.as_str().to_string()),
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             system_prompt: system_prompt.map(str::to_string),
             append_system_prompt: None,
         })
@@ -729,6 +734,11 @@ async fn fork(
             permission_mode: None,
             allowed_tools: vec![],
             disallowed_tools: vec![],
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
         })
         .await
     {

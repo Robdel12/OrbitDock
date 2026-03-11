@@ -90,6 +90,11 @@ pub(crate) async fn start_claude_fork_session(
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: permission_mode.map(ToOwned::to_owned),
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: Some(source_session_id.to_string()),
         })
         .await;
@@ -141,6 +146,11 @@ pub(crate) async fn finalize_codex_fork_session(
     handle.set_config(
         effective_approval_policy.map(ToOwned::to_owned),
         effective_sandbox_mode.map(ToOwned::to_owned),
+        None,
+        None,
+        None,
+        None,
+        None,
     );
     handle.set_forked_from(source_session_id.to_string());
 
@@ -180,6 +190,11 @@ pub(crate) async fn finalize_codex_fork_session(
             approval_policy: effective_approval_policy.map(ToOwned::to_owned),
             sandbox_mode: effective_sandbox_mode.map(ToOwned::to_owned),
             permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
             forked_from_session_id: Some(source_session_id.to_string()),
         })
         .await;

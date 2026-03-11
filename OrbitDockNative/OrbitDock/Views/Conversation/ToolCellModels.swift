@@ -113,6 +113,7 @@ enum SharedModelBuilders {
       summary: summary,
       subtitle: subtitle,
       rightMeta: meta,
+      linkedWorkerID: linkedWorkerID(for: message),
       isInProgress: message.isInProgress,
       diffPreview: preview,
       liveOutputPreview: liveOutputPreview,

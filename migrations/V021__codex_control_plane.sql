@@ -1,0 +1,6 @@
+-- Intentionally empty.
+--
+-- Fresh installs already get these columns from the current baseline schema.
+-- Existing installs are upgraded by `ensure_session_control_plane_columns()` in
+-- the Rust migration runner, which can add them conditionally without tripping
+-- over duplicate-column errors on newer databases.

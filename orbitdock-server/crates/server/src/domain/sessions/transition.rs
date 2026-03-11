@@ -157,6 +157,11 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             approval_policy: None,
             sandbox_mode: None,
             permission_mode: Some(permission_mode),
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
         },
     }
 }

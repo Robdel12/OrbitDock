@@ -74,6 +74,28 @@ impl CodexAuthService {
         }
     }
 
+    pub fn new_with_store_mode(
+        list_tx: broadcast::Sender<ServerMessage>,
+        codex_home: PathBuf,
+        credentials_store_mode: AuthCredentialsStoreMode,
+    ) -> Self {
+        Self {
+            state: StdMutex::new(ServiceState::Deferred {
+                codex_home,
+                credentials_store_mode,
+            }),
+            list_tx,
+            active_login: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn new_with_file_store(
+        list_tx: broadcast::Sender<ServerMessage>,
+        codex_home: PathBuf,
+    ) -> Self {
+        Self::new_with_store_mode(list_tx, codex_home, AuthCredentialsStoreMode::File)
+    }
+
     pub async fn read_account(&self, refresh_token: bool) -> Result<CodexAccountStatus, String> {
         let auth_manager = self.auth_manager()?;
 
@@ -314,5 +336,27 @@ mod tests {
 
         let state = service.state.lock().expect("state lock");
         assert!(matches!(&*state, ServiceState::Deferred { .. }));
+    }
+
+    #[test]
+    fn test_service_uses_file_credentials_store_mode() {
+        let (list_tx, _) = broadcast::channel(1);
+        let service = CodexAuthService::new_with_store_mode(
+            list_tx,
+            PathBuf::from("/tmp/orbitdock-codex-tests"),
+            AuthCredentialsStoreMode::File,
+        );
+
+        let state = service.state.lock().expect("state lock");
+        match &*state {
+            ServiceState::Deferred {
+                codex_home,
+                credentials_store_mode,
+            } => {
+                assert_eq!(codex_home, &PathBuf::from("/tmp/orbitdock-codex-tests"));
+                assert_eq!(*credentials_store_mode, AuthCredentialsStoreMode::File);
+            }
+            _ => panic!("expected deferred test auth service"),
+        }
     }
 }

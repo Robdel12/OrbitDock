@@ -153,6 +153,11 @@ mod tests {
                 permission_mode: None,
                 allowed_tools: vec![],
                 disallowed_tools: vec![],
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
             }),
             None
         );

@@ -15,6 +15,15 @@ let kConversationCacheMax = 8
 @Observable
 @MainActor
 final class SessionStore {
+  nonisolated static func shouldAutoRefreshCodexAccount(
+    environment: [String: String] = ProcessInfo.processInfo.environment
+  ) -> Bool {
+    environment["XCTestConfigurationFilePath"] == nil
+      && environment["XCTestBundlePath"] == nil
+      && environment["XCTestSessionIdentifier"] == nil
+      && environment["ORBITDOCK_TEST_DB"] == nil
+  }
+
   let clients: ServerClients
   let eventStream: EventStream
   let endpointId: UUID
@@ -242,6 +251,7 @@ final class SessionStore {
   // MARK: - Codex Account Actions
 
   func refreshCodexAccount() {
+    guard Self.shouldAutoRefreshCodexAccount() else { return }
     Task {
       do {
         let status = try await clients.usage.readCodexAccount()

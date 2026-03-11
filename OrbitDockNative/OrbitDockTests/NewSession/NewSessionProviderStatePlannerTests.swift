@@ -16,6 +16,11 @@ struct NewSessionProviderStatePlannerTests {
     #expect(state.selectedEffort == .default)
     #expect(state.codexModel.isEmpty)
     #expect(state.selectedAutonomy == .autonomous)
+    #expect(state.codexCollaborationMode == .default)
+    #expect(state.codexMultiAgentEnabled == false)
+    #expect(state.codexPersonality == .automatic)
+    #expect(state.codexServiceTier == .automatic)
+    #expect(state.codexInstructions.isEmpty)
     #expect(state.codexErrorMessage == nil)
   }
 

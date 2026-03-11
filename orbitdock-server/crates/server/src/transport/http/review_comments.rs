@@ -364,6 +364,11 @@ mod tests {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             }],
         )

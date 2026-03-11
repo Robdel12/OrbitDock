@@ -92,6 +92,16 @@ pub enum ClientMessage {
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
         permission_mode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collaboration_mode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        multi_agent: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        personality: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        service_tier: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        developer_instructions: Option<String>,
     },
 
     // Session naming
@@ -116,6 +126,16 @@ pub enum ClientMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         effort: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        collaboration_mode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        multi_agent: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        personality: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        service_tier: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        developer_instructions: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         system_prompt: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         append_system_prompt: Option<String>,
@@ -137,6 +157,16 @@ pub enum ClientMessage {
         allowed_tools: Vec<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         disallowed_tools: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collaboration_mode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        multi_agent: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        personality: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        service_tier: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        developer_instructions: Option<String>,
     },
     ForkSession {
         source_session_id: String,
@@ -156,6 +186,16 @@ pub enum ClientMessage {
         allowed_tools: Vec<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         disallowed_tools: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        collaboration_mode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        multi_agent: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        personality: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        service_tier: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        developer_instructions: Option<String>,
     },
     ForkSessionToWorktree {
         source_session_id: String,

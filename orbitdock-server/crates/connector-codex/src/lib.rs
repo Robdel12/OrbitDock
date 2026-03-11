@@ -22,11 +22,14 @@ use codex_core::config::{find_codex_home, Config, ConfigOverrides};
 use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_core::models_manager::manager::RefreshStrategy;
 use codex_core::{AuthManager, CodexThread, SteerInputError, ThreadManager};
-use codex_protocol::config_types::{CollaborationMode, ModeKind, ReasoningSummary, Settings};
+use codex_protocol::config_types::{
+    CollaborationMode, CollaborationModeMask, ModeKind, Personality, ReasoningSummary, ServiceTier,
+    Settings,
+};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
     AskForApproval, CodexErrorInfo, Event, EventMsg, FileChange, McpServerRefreshConfig, Op,
-    ReviewDecision, SandboxPolicy, SessionSource, StreamErrorEvent,
+    RealtimeHandoffRequested, ReviewDecision, SandboxPolicy, SessionSource, StreamErrorEvent,
 };
 use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissionsResponse};
 use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
@@ -158,6 +161,15 @@ pub struct CodexConnector {
     current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CodexControlPlane {
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
+}
+
 impl CodexConnector {
     /// Create a new Codex connector with direct codex-core integration
     pub async fn new(
@@ -165,6 +177,23 @@ impl CodexConnector {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
+    ) -> Result<Self, ConnectorError> {
+        Self::new_with_control_plane(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            CodexControlPlane::default(),
+        )
+        .await
+    }
+
+    pub async fn new_with_control_plane(
+        cwd: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        control_plane: CodexControlPlane,
     ) -> Result<Self, ConnectorError> {
         info!("Creating codex-core connector for {}", cwd);
 
@@ -180,7 +209,8 @@ impl CodexConnector {
             AuthCredentialsStoreMode::Auto,
         ));
 
-        let mut config = Self::build_config(cwd, model, approval_policy, sandbox_mode).await?;
+        let mut config =
+            Self::build_config(cwd, model, approval_policy, sandbox_mode, &control_plane).await?;
 
         // ThreadManager now derives Codex home, model catalog, and bundled skill
         // behavior from the session config.
@@ -193,12 +223,17 @@ impl CodexConnector {
         Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
 
         // Start a thread
+        let configured_model = config.model.clone();
         let new_thread = thread_manager
             .start_thread(config)
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to start thread: {}", e)))?;
 
-        Self::from_thread(new_thread, thread_manager, codex_home)
+        let connector = Self::from_thread(new_thread, thread_manager, codex_home)?;
+        connector
+            .apply_post_start_control_plane(control_plane, configured_model, None)
+            .await?;
+        Ok(connector)
     }
 
     /// Resume a Codex session from an existing rollout file (preserves conversation history)
@@ -208,6 +243,25 @@ impl CodexConnector {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
+    ) -> Result<Self, ConnectorError> {
+        Self::resume_with_control_plane(
+            cwd,
+            thread_id,
+            model,
+            approval_policy,
+            sandbox_mode,
+            CodexControlPlane::default(),
+        )
+        .await
+    }
+
+    pub async fn resume_with_control_plane(
+        cwd: &str,
+        thread_id: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        control_plane: CodexControlPlane,
     ) -> Result<Self, ConnectorError> {
         info!(
             "Resuming codex-core connector for {} with thread {}",
@@ -239,7 +293,8 @@ impl CodexConnector {
             AuthCredentialsStoreMode::Auto,
         ));
 
-        let mut config = Self::build_config(cwd, model, approval_policy, sandbox_mode).await?;
+        let mut config =
+            Self::build_config(cwd, model, approval_policy, sandbox_mode, &control_plane).await?;
 
         let thread_manager = Arc::new(ThreadManager::new(
             &config,
@@ -249,6 +304,7 @@ impl CodexConnector {
         ));
         Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
 
+        let configured_model = config.model.clone();
         let new_thread = thread_manager
             .resume_thread_from_rollout(config, rollout_path, auth_manager)
             .await
@@ -256,7 +312,11 @@ impl CodexConnector {
                 ConnectorError::ProviderError(format!("Failed to resume thread: {}", e))
             })?;
 
-        Self::from_thread(new_thread, thread_manager, codex_home)
+        let connector = Self::from_thread(new_thread, thread_manager, codex_home)?;
+        connector
+            .apply_post_start_control_plane(control_plane, configured_model, None)
+            .await?;
+        Ok(connector)
     }
 
     /// Build a Config with optional overrides
@@ -265,6 +325,7 @@ impl CodexConnector {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
+        control_plane: &CodexControlPlane,
     ) -> Result<Config, ConnectorError> {
         let mut cli_overrides = Vec::new();
 
@@ -313,9 +374,19 @@ impl CodexConnector {
             toml::Value::String(reasoning_summary),
         ));
 
+        if let Some(multi_agent) = control_plane.multi_agent {
+            cli_overrides.push((
+                "features.multi_agent".to_string(),
+                toml::Value::Boolean(multi_agent),
+            ));
+        }
+
         // cwd is a ConfigOverrides field, not a TOML config field
         let harness_overrides = ConfigOverrides {
             cwd: Some(std::path::PathBuf::from(cwd)),
+            service_tier: parse_service_tier_override(control_plane.service_tier.as_deref()),
+            developer_instructions: control_plane.developer_instructions.clone(),
+            personality: parse_personality(control_plane.personality.as_deref()),
             codex_linux_sandbox_exe: None,
             ..Default::default()
         };
@@ -417,8 +488,14 @@ impl CodexConnector {
 
         // Build config with overrides — use source session's cwd as fallback
         let effective_cwd = cwd.unwrap_or(".");
-        let mut config =
-            Self::build_config(effective_cwd, model, approval_policy, sandbox_mode).await?;
+        let mut config = Self::build_config(
+            effective_cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            &CodexControlPlane::default(),
+        )
+        .await?;
         Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
 
         // Convert nth_user_message: None means full history (usize::MAX)
@@ -1743,84 +1820,29 @@ impl CodexConnector {
                 vec![ConnectorEvent::MessageCreated(message)]
             }
 
-            EventMsg::RealtimeConversationStarted(e) => {
-                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-                let content = match e.session_id {
-                    Some(session_id) if !session_id.is_empty() => {
-                        format!("Realtime conversation started ({session_id})")
-                    }
-                    _ => "Realtime conversation started".to_string(),
-                };
-                let message = orbitdock_protocol::Message {
-                    id: format!("realtime-start-{}-{}", event.id, seq),
-                    session_id: String::new(),
-                    sequence: None,
-                    message_type: orbitdock_protocol::MessageType::Assistant,
-                    content,
-                    tool_name: None,
-                    tool_input: None,
-                    tool_output: None,
-                    is_error: false,
-                    is_in_progress: false,
-                    timestamp: iso_now(),
-                    duration_ms: None,
-                    images: vec![],
-                };
-                vec![ConnectorEvent::MessageCreated(message)]
-            }
+            // Realtime lifecycle is noisy and not especially useful as transcript content.
+            // We keep actual failures visible below, but treat start/close bookkeeping as
+            // ephemeral state rather than assistant messages.
+            EventMsg::RealtimeConversationStarted(_) => vec![],
 
             EventMsg::RealtimeConversationRealtime(e) => match e.payload {
-                codex_protocol::protocol::RealtimeEvent::SessionUpdated {
-                    session_id,
-                    instructions,
-                } => {
-                    let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-                    let content = match instructions {
-                        Some(instructions) if !instructions.trim().is_empty() => {
-                            format!(
-                                "Realtime session updated ({session_id})\n\n{}",
-                                truncate_for_display(&instructions, 300)
-                            )
-                        }
-                        _ => format!("Realtime session updated ({session_id})"),
-                    };
-                    let message = orbitdock_protocol::Message {
-                        id: format!("realtime-session-updated-{}-{}", event.id, seq),
-                        session_id: String::new(),
-                        sequence: None,
-                        message_type: orbitdock_protocol::MessageType::Assistant,
-                        content,
-                        tool_name: None,
-                        tool_input: None,
-                        tool_output: None,
-                        is_error: false,
-                        is_in_progress: false,
-                        timestamp: iso_now(),
-                        duration_ms: None,
-                        images: vec![],
-                    };
-                    vec![ConnectorEvent::MessageCreated(message)]
-                }
-                codex_protocol::protocol::RealtimeEvent::InputTranscriptDelta(_)
+                codex_protocol::protocol::RealtimeEvent::SessionUpdated { .. }
+                | codex_protocol::protocol::RealtimeEvent::InputTranscriptDelta(_)
                 | codex_protocol::protocol::RealtimeEvent::OutputTranscriptDelta(_)
-                | codex_protocol::protocol::RealtimeEvent::ConversationItemDone { .. }
-                | codex_protocol::protocol::RealtimeEvent::HandoffRequested(_) => vec![],
-                codex_protocol::protocol::RealtimeEvent::ConversationItemAdded(item) => {
+                | codex_protocol::protocol::RealtimeEvent::ConversationItemDone { .. } => vec![],
+                codex_protocol::protocol::RealtimeEvent::HandoffRequested(handoff) => {
+                    let Some(content) = realtime_text_from_handoff_request(&handoff) else {
+                        return vec![];
+                    };
                     let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-                    let item_text = serde_json::to_string_pretty(&item)
-                        .or_else(|_| serde_json::to_string(&item))
-                        .unwrap_or_default();
                     let message = orbitdock_protocol::Message {
-                        id: format!("realtime-item-added-{}-{}", event.id, seq),
+                        id: format!("realtime-handoff-{}-{}", event.id, seq),
                         session_id: String::new(),
                         sequence: None,
-                        message_type: orbitdock_protocol::MessageType::Assistant,
-                        content: format!(
-                            "Realtime conversation item added\n\n{}",
-                            truncate_for_display(&item_text, 500)
-                        ),
-                        tool_name: None,
-                        tool_input: None,
+                        message_type: orbitdock_protocol::MessageType::Tool,
+                        content,
+                        tool_name: Some("handoff".to_string()),
+                        tool_input: serde_json::to_string(&handoff).ok(),
                         tool_output: None,
                         is_error: false,
                         is_in_progress: false,
@@ -1830,6 +1852,9 @@ impl CodexConnector {
                     };
                     vec![ConnectorEvent::MessageCreated(message)]
                 }
+                // Raw conversation items are internal realtime transport details; surfacing them
+                // verbatim clutters the timeline more than it helps.
+                codex_protocol::protocol::RealtimeEvent::ConversationItemAdded(_) => vec![],
                 // Audio frames are intentionally omitted from the timeline to avoid
                 // flooding the UI with high-frequency events.
                 codex_protocol::protocol::RealtimeEvent::AudioOut(_) => vec![],
@@ -1854,31 +1879,7 @@ impl CodexConnector {
                 }
             },
 
-            EventMsg::RealtimeConversationClosed(e) => {
-                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-                let content = match e.reason {
-                    Some(reason) if !reason.trim().is_empty() => {
-                        format!("Realtime conversation closed: {}", reason)
-                    }
-                    _ => "Realtime conversation closed".to_string(),
-                };
-                let message = orbitdock_protocol::Message {
-                    id: format!("realtime-closed-{}-{}", event.id, seq),
-                    session_id: String::new(),
-                    sequence: None,
-                    message_type: orbitdock_protocol::MessageType::Assistant,
-                    content,
-                    tool_name: None,
-                    tool_input: None,
-                    tool_output: None,
-                    is_error: false,
-                    is_in_progress: false,
-                    timestamp: iso_now(),
-                    duration_ms: None,
-                    images: vec![],
-                };
-                vec![ConnectorEvent::MessageCreated(message)]
-            }
+            EventMsg::RealtimeConversationClosed(_) => vec![],
 
             EventMsg::DeprecationNotice(e) => {
                 let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
@@ -3197,6 +3198,11 @@ impl CodexConnector {
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
         permission_mode: Option<&str>,
+        collaboration_mode: Option<&str>,
+        multi_agent: Option<bool>,
+        personality: Option<&str>,
+        service_tier: Option<&str>,
+        developer_instructions: Option<&str>,
     ) -> Result<(), ConnectorError> {
         let policy = approval_policy.map(|p| match p {
             "untrusted" => AskForApproval::UnlessTrusted,
@@ -3236,8 +3242,15 @@ impl CodexConnector {
             let current = self.current_reasoning_effort.lock().await;
             *current
         };
-        let collaboration_mode =
-            collaboration_mode_from_permission_mode(permission_mode, model, effort);
+        let collaboration_mode = collaboration_mode_for_update(
+            self.thread_manager.as_ref(),
+            collaboration_mode,
+            permission_mode,
+            model,
+            effort,
+            developer_instructions,
+        );
+        let collaboration_mode_log = collaboration_mode.clone();
 
         let op = Op::OverrideTurnContext {
             cwd: None,
@@ -3247,9 +3260,9 @@ impl CodexConnector {
             model: None,
             effort: None,
             summary: None,
-            service_tier: None,
+            service_tier: parse_service_tier_override(service_tier),
             collaboration_mode,
-            personality: None,
+            personality: parse_personality(personality),
         };
 
         self.thread.submit(op).await.map_err(|e| {
@@ -3257,9 +3270,65 @@ impl CodexConnector {
         })?;
 
         info!(
-            "Updated session config: approval={:?}, sandbox={:?}, permission_mode={:?}",
-            approval_policy, sandbox_mode, permission_mode
+            "Updated session config: approval={:?}, sandbox={:?}, permission_mode={:?}, collaboration_mode={:?}, multi_agent={:?}, personality={:?}, service_tier={:?}, developer_instructions={:?}",
+            approval_policy,
+            sandbox_mode,
+            permission_mode,
+            collaboration_mode_log,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions.map(|_| "[set]")
         );
+        Ok(())
+    }
+
+    async fn apply_post_start_control_plane(
+        &self,
+        control_plane: CodexControlPlane,
+        configured_model: Option<String>,
+        configured_effort: Option<ReasoningEffort>,
+    ) -> Result<(), ConnectorError> {
+        let collaboration_mode = collaboration_mode_for_update(
+            self.thread_manager.as_ref(),
+            control_plane.collaboration_mode.as_deref(),
+            None,
+            configured_model.unwrap_or_else(|| "gpt-5-codex".to_string()),
+            configured_effort,
+            control_plane.developer_instructions.as_deref(),
+        );
+        let service_tier = parse_service_tier_override(control_plane.service_tier.as_deref());
+        let personality = parse_personality(control_plane.personality.as_deref());
+
+        if collaboration_mode.is_none()
+            && service_tier.is_none()
+            && personality.is_none()
+            && control_plane.multi_agent.is_none()
+        {
+            return Ok(());
+        }
+
+        self.thread
+            .submit(Op::OverrideTurnContext {
+                cwd: None,
+                approval_policy: None,
+                sandbox_policy: None,
+                windows_sandbox_level: None,
+                model: None,
+                effort: None,
+                summary: None,
+                service_tier,
+                collaboration_mode,
+                personality,
+            })
+            .await
+            .map_err(|e| {
+                ConnectorError::ProviderError(format!(
+                    "Failed to apply Codex control plane settings: {}",
+                    e
+                ))
+            })?;
+
         Ok(())
     }
 
@@ -3489,28 +3558,160 @@ fn should_disable_reasoning_summary(
     !supports_reasoning_summaries || model_rejects_reasoning_summary(model)
 }
 
+fn collaboration_mode_for_update(
+    thread_manager: &ThreadManager,
+    explicit_collaboration_mode: Option<&str>,
+    permission_mode: Option<&str>,
+    model: String,
+    effort: Option<ReasoningEffort>,
+    developer_instructions: Option<&str>,
+) -> Option<CollaborationMode> {
+    let explicit_mode = explicit_collaboration_mode
+        .and_then(|value| parse_mode_kind(value))
+        .map(|mode| {
+            collaboration_mode_from_name_or_mode(
+                thread_manager.list_collaboration_modes(),
+                mode_kind_name(mode),
+                model.clone(),
+                effort,
+                developer_instructions,
+            )
+        });
+
+    if explicit_mode.is_some() {
+        return explicit_mode.flatten();
+    }
+
+    let shim_mode = permission_mode
+        .and_then(|value| parse_mode_kind(value))
+        .map(|mode| {
+            collaboration_mode_from_name_or_mode(
+                thread_manager.list_collaboration_modes(),
+                mode_kind_name(mode),
+                model.clone(),
+                effort,
+                developer_instructions,
+            )
+        });
+
+    if shim_mode.is_some() {
+        return shim_mode.flatten();
+    }
+
+    developer_instructions.map(|instructions| CollaborationMode {
+        mode: ModeKind::Default,
+        settings: Settings {
+            model,
+            reasoning_effort: effort,
+            developer_instructions: Some(instructions.to_string()),
+        },
+    })
+}
+
+#[cfg(test)]
 fn collaboration_mode_from_permission_mode(
     permission_mode: Option<&str>,
     model: String,
     effort: Option<ReasoningEffort>,
 ) -> Option<CollaborationMode> {
-    let mode = permission_mode
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-        .and_then(|m| match m {
-            "plan" => Some(ModeKind::Plan),
-            "default" => Some(ModeKind::Default),
-            _ => None,
-        })?;
+    let mode = permission_mode.and_then(|value| parse_mode_kind(value))?;
 
-    Some(CollaborationMode {
+    Some(build_collaboration_mode(
+        mode,
+        model,
+        effort,
+        None::<String>,
+    ))
+}
+
+fn collaboration_mode_from_name_or_mode(
+    masks: Vec<CollaborationModeMask>,
+    mode_name: &str,
+    model: String,
+    effort: Option<ReasoningEffort>,
+    developer_instructions: Option<&str>,
+) -> Option<CollaborationMode> {
+    let normalized = mode_name.trim().to_ascii_lowercase();
+    let parsed_mode = parse_mode_kind(normalized.as_str())?;
+    let base = build_collaboration_mode(
+        parsed_mode,
+        model,
+        effort,
+        developer_instructions.map(ToOwned::to_owned),
+    );
+
+    let matched_mask = masks.into_iter().find(|mask| {
+        mask.name.trim().eq_ignore_ascii_case(normalized.as_str())
+            || mask
+                .mode
+                .map(|mode| mode_kind_name(mode).eq_ignore_ascii_case(normalized.as_str()))
+                .unwrap_or(false)
+    });
+
+    let resolved = matched_mask
+        .map(|mask| base.apply_mask(&mask))
+        .unwrap_or(base);
+
+    let developer_override = developer_instructions.map(|value| Some(value.to_string()));
+    Some(resolved.with_updates(None, None, developer_override))
+}
+
+fn build_collaboration_mode(
+    mode: ModeKind,
+    model: String,
+    effort: Option<ReasoningEffort>,
+    developer_instructions: impl Into<Option<String>>,
+) -> CollaborationMode {
+    CollaborationMode {
         mode,
         settings: Settings {
             model,
             reasoning_effort: effort,
-            developer_instructions: None,
+            developer_instructions: developer_instructions.into(),
         },
-    })
+    }
+}
+
+fn mode_kind_name(mode: ModeKind) -> &'static str {
+    match mode {
+        ModeKind::Plan => "plan",
+        ModeKind::Default | ModeKind::PairProgramming | ModeKind::Execute => "default",
+    }
+}
+
+fn parse_mode_kind(value: &str) -> Option<ModeKind> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "plan" => Some(ModeKind::Plan),
+        "default" => Some(ModeKind::Default),
+        _ => None,
+    }
+}
+
+fn parse_personality(value: Option<&str>) -> Option<Personality> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+        .and_then(|value| match value {
+            "none" => Some(Personality::None),
+            "friendly" => Some(Personality::Friendly),
+            "pragmatic" => Some(Personality::Pragmatic),
+            _ => None,
+        })
+}
+
+fn parse_service_tier_override(value: Option<&str>) -> Option<Option<ServiceTier>> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .and_then(|value| match value.as_str() {
+            "none" | "off" => Some(None),
+            "fast" => Some(Some(ServiceTier::Fast)),
+            "flex" => Some(Some(ServiceTier::Flex)),
+            _ => None,
+        })
 }
 
 fn tool_input_with_arguments(
@@ -3894,17 +4095,50 @@ fn iso_now() -> String {
     )
 }
 
+fn realtime_text_from_handoff_request(handoff: &RealtimeHandoffRequested) -> Option<String> {
+    let messages = handoff
+        .active_transcript
+        .iter()
+        .map(|message| {
+            let role = message.role.trim();
+            let text = message.text.trim();
+            if role.is_empty() {
+                text.to_string()
+            } else {
+                format!("{role}: {text}")
+            }
+        })
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+
+    if !messages.is_empty() {
+        return Some(messages.join("\n"));
+    }
+
+    let input = handoff.input_transcript.trim();
+    if input.is_empty() {
+        None
+    } else {
+        Some(input.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         build_authoritative_codex_subagent, build_inflight_codex_subagent,
-        collaboration_mode_from_permission_mode, model_rejects_reasoning_summary,
-        parse_reasoning_summary, reasoning_summary_for_model, should_disable_reasoning_summary,
+        collaboration_mode_from_name_or_mode, collaboration_mode_from_permission_mode,
+        model_rejects_reasoning_summary, parse_personality, parse_reasoning_summary,
+        parse_service_tier_override, reasoning_summary_for_model, realtime_text_from_handoff_request,
+        should_disable_reasoning_summary,
         stream_error_should_surface_to_timeline,
     };
-    use codex_protocol::config_types::{ModeKind, ReasoningSummary};
+    use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
     use codex_protocol::openai_models::ReasoningEffort;
-    use codex_protocol::protocol::{AgentStatus, CodexErrorInfo, StreamErrorEvent};
+    use codex_protocol::protocol::{
+        AgentStatus, CodexErrorInfo, RealtimeHandoffRequested, RealtimeTranscriptEntry,
+        StreamErrorEvent,
+    };
 
     #[test]
     fn collaboration_mode_maps_plan() {
@@ -3938,6 +4172,130 @@ mod tests {
         let result =
             collaboration_mode_from_permission_mode(Some("acceptEdits"), "model".to_string(), None);
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn collaboration_mode_preserves_explicit_developer_instructions() {
+        let result = collaboration_mode_from_name_or_mode(
+            Vec::new(),
+            "plan",
+            "openai/gpt-5.3-codex".to_string(),
+            Some(ReasoningEffort::High),
+            Some("Keep updates crisp."),
+        )
+        .expect("expected mode");
+
+        assert_eq!(result.mode, ModeKind::Plan);
+        assert_eq!(
+            result.settings.developer_instructions.as_deref(),
+            Some("Keep updates crisp.")
+        );
+    }
+
+    #[test]
+    fn collaboration_mode_from_name_or_mode_supports_default_mode() {
+        let result = collaboration_mode_from_name_or_mode(
+            Vec::new(),
+            "default",
+            "openai/gpt-5.3-codex".to_string(),
+            None,
+            None,
+        )
+        .expect("expected mode");
+
+        assert_eq!(result.mode, ModeKind::Default);
+    }
+
+    #[test]
+    fn collaboration_mode_from_name_or_mode_supports_default_instructions() {
+        let result = collaboration_mode_from_name_or_mode(
+            Vec::new(),
+            "default",
+            "openai/gpt-5.3-codex".to_string(),
+            Some(ReasoningEffort::Medium),
+            Some("Always explain the tradeoffs."),
+        )
+        .expect("expected synthesized mode");
+
+        assert_eq!(result.mode, ModeKind::Default);
+        assert_eq!(
+            result.settings.developer_instructions.as_deref(),
+            Some("Always explain the tradeoffs.")
+        );
+        assert_eq!(
+            result.settings.reasoning_effort,
+            Some(ReasoningEffort::Medium)
+        );
+    }
+
+    #[test]
+    fn parse_personality_maps_known_values() {
+        assert_eq!(
+            parse_personality(Some("friendly")),
+            Some(codex_protocol::config_types::Personality::Friendly)
+        );
+        assert_eq!(
+            parse_personality(Some("Pragmatic")),
+            Some(codex_protocol::config_types::Personality::Pragmatic)
+        );
+        assert_eq!(
+            parse_personality(Some("none")),
+            Some(codex_protocol::config_types::Personality::None)
+        );
+        assert_eq!(parse_personality(Some("unknown")), None);
+    }
+
+    #[test]
+    fn parse_service_tier_override_supports_set_and_clear() {
+        assert_eq!(
+            parse_service_tier_override(Some("fast")),
+            Some(Some(ServiceTier::Fast))
+        );
+        assert_eq!(
+            parse_service_tier_override(Some("flex")),
+            Some(Some(ServiceTier::Flex))
+        );
+        assert_eq!(parse_service_tier_override(Some("none")), Some(None));
+        assert_eq!(parse_service_tier_override(Some("bogus")), None);
+    }
+
+    #[test]
+    fn realtime_handoff_text_prefers_messages() {
+        let handoff = RealtimeHandoffRequested {
+            handoff_id: "handoff-1".to_string(),
+            item_id: "item-1".to_string(),
+            input_transcript: "fallback".to_string(),
+            active_transcript: vec![
+                RealtimeTranscriptEntry {
+                    role: "user".to_string(),
+                    text: "delegate now".to_string(),
+                },
+                RealtimeTranscriptEntry {
+                    role: "assistant".to_string(),
+                    text: "working on it".to_string(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            realtime_text_from_handoff_request(&handoff),
+            Some("user: delegate now\nassistant: working on it".to_string())
+        );
+    }
+
+    #[test]
+    fn realtime_handoff_text_falls_back_to_input_transcript() {
+        let handoff = RealtimeHandoffRequested {
+            handoff_id: "handoff-1".to_string(),
+            item_id: "item-1".to_string(),
+            input_transcript: "delegate now".to_string(),
+            active_transcript: vec![],
+        };
+
+        assert_eq!(
+            realtime_text_from_handoff_request(&handoff),
+            Some("delegate now".to_string())
+        );
     }
 
     #[test]

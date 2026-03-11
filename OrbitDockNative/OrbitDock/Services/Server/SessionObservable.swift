@@ -35,6 +35,11 @@ final class SessionObservable {
   var autonomy: AutonomyLevel = .autonomous
   var autonomyConfiguredOnServer: Bool = true
   var permissionMode: ClaudePermissionMode = .default
+  var collaborationMode: String?
+  var multiAgent: Bool?
+  var personality: String?
+  var serviceTier: String?
+  var developerInstructions: String?
   var permissionRules: ServerSessionPermissionRules?
   var permissionRulesLoading: Bool = false
   var skills: [ServerSkillMetadata] = []

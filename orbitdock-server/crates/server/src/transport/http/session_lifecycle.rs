@@ -23,6 +23,26 @@ use crate::runtime::session_takeover::{
 use orbitdock_protocol::{Provider, ServerMessage};
 use tracing::error;
 
+fn resolve_developer_instructions(
+    developer_instructions: Option<String>,
+    system_prompt: Option<String>,
+    append_system_prompt: Option<String>,
+) -> Option<String> {
+    if developer_instructions.is_some() {
+        return developer_instructions;
+    }
+
+    match (
+        system_prompt.filter(|value| !value.trim().is_empty()),
+        append_system_prompt.filter(|value| !value.trim().is_empty()),
+    ) {
+        (Some(base), Some(append)) => Some(format!("{base}\n\n{append}")),
+        (Some(base), None) => Some(base),
+        (None, Some(append)) => Some(append),
+        (None, None) => None,
+    }
+}
+
 fn lifecycle_error(
     status: StatusCode,
     code: &'static str,
@@ -70,6 +90,16 @@ pub struct UpdateSessionConfigRequest {
     pub sandbox_mode: Option<String>,
     #[serde(default)]
     pub permission_mode: Option<String>,
+    #[serde(default)]
+    pub collaboration_mode: Option<String>,
+    #[serde(default)]
+    pub multi_agent: Option<bool>,
+    #[serde(default)]
+    pub personality: Option<String>,
+    #[serde(default)]
+    pub service_tier: Option<String>,
+    #[serde(default)]
+    pub developer_instructions: Option<String>,
 }
 
 pub async fn rename_session(
@@ -95,6 +125,11 @@ pub async fn update_session_config(
         body.approval_policy,
         body.sandbox_mode,
         body.permission_mode,
+        body.collaboration_mode,
+        body.multi_agent,
+        body.personality,
+        body.service_tier,
+        body.developer_instructions,
     )
     .await
     .map_err(map_session_mutation_error)?;
@@ -129,6 +164,20 @@ pub struct CreateSessionRequest {
     pub disallowed_tools: Vec<String>,
     #[serde(default)]
     pub effort: Option<String>,
+    #[serde(default)]
+    pub collaboration_mode: Option<String>,
+    #[serde(default)]
+    pub multi_agent: Option<bool>,
+    #[serde(default)]
+    pub personality: Option<String>,
+    #[serde(default)]
+    pub service_tier: Option<String>,
+    #[serde(default)]
+    pub developer_instructions: Option<String>,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub append_system_prompt: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -142,6 +191,11 @@ pub async fn create_session(
     Json(body): Json<CreateSessionRequest>,
 ) -> Result<Json<CreateSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
     let session_id = orbitdock_protocol::new_id();
+    let developer_instructions = resolve_developer_instructions(
+        body.developer_instructions.clone(),
+        body.system_prompt.clone(),
+        body.append_system_prompt.clone(),
+    );
     let prepared = prepare_persist_direct_session(
         &state,
         session_id.clone(),
@@ -155,6 +209,11 @@ pub async fn create_session(
             allowed_tools: body.allowed_tools.clone(),
             disallowed_tools: body.disallowed_tools.clone(),
             effort: body.effort.clone(),
+            collaboration_mode: body.collaboration_mode.clone(),
+            multi_agent: body.multi_agent,
+            personality: body.personality.clone(),
+            service_tier: body.service_tier.clone(),
+            developer_instructions,
         },
     )
     .await;
@@ -231,6 +290,16 @@ pub struct TakeoverSessionRequest {
     #[serde(default)]
     pub permission_mode: Option<String>,
     #[serde(default)]
+    pub collaboration_mode: Option<String>,
+    #[serde(default)]
+    pub multi_agent: Option<bool>,
+    #[serde(default)]
+    pub personality: Option<String>,
+    #[serde(default)]
+    pub service_tier: Option<String>,
+    #[serde(default)]
+    pub developer_instructions: Option<String>,
+    #[serde(default)]
     pub allowed_tools: Vec<String>,
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
@@ -255,6 +324,11 @@ pub async fn takeover_session(
             approval_policy: body.approval_policy,
             sandbox_mode: body.sandbox_mode,
             permission_mode: body.permission_mode,
+            collaboration_mode: body.collaboration_mode,
+            multi_agent: body.multi_agent,
+            personality: body.personality,
+            service_tier: body.service_tier,
+            developer_instructions: body.developer_instructions,
             allowed_tools: body.allowed_tools,
             disallowed_tools: body.disallowed_tools,
         },

@@ -46,11 +46,21 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
             approval_policy,
             sandbox_mode,
             permission_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
         } => PersistCommand::SetSessionConfig {
             session_id,
             approval_policy,
             sandbox_mode,
             permission_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
         },
     };
     let _ = persist_tx.send(cmd).await;
@@ -147,7 +157,15 @@ pub async fn handle_session_command(
             approval_policy,
             sandbox_mode,
         } => {
-            handle.set_config(approval_policy, sandbox_mode);
+            handle.set_config(
+                approval_policy,
+                sandbox_mode,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
         }
         SessionCommand::SetTranscriptPath { path } => {
             handle.set_transcript_path(path);

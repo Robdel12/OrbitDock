@@ -30,6 +30,11 @@ struct SessionDetailSnapshotProjection {
   let branch: String?
   let model: String?
   let effort: String?
+  let collaborationMode: String?
+  let multiAgent: Bool?
+  let personality: String?
+  let serviceTier: String?
+  let developerInstructions: String?
   let summary: String?
   let customName: String?
   let firstPrompt: String?
@@ -79,6 +84,11 @@ struct SessionDetailSnapshotProjection {
       branch: session.branch,
       model: session.model,
       effort: session.effort,
+      collaborationMode: session.collaborationMode,
+      multiAgent: session.multiAgent,
+      personality: session.personality,
+      serviceTier: session.serviceTier,
+      developerInstructions: session.developerInstructions,
       summary: session.summary,
       customName: session.customName,
       firstPrompt: session.firstPrompt,
@@ -143,6 +153,11 @@ struct SessionStateProjection {
   let currentCwd: String??
   let model: String??
   let effort: String??
+  let collaborationMode: String??
+  let multiAgent: Bool??
+  let personality: String??
+  let serviceTier: String??
+  let developerInstructions: String??
   let lastActivityAt: Date?
   let repositoryRoot: String??
   let isWorktree: Bool?
@@ -170,6 +185,11 @@ struct SessionStateProjection {
       currentCwd: changes.currentCwd,
       model: changes.model,
       effort: changes.effort,
+      collaborationMode: changes.collaborationMode,
+      multiAgent: changes.multiAgent,
+      personality: changes.personality,
+      serviceTier: changes.serviceTier,
+      developerInstructions: changes.developerInstructions,
       lastActivityAt: Self.parseLastActivityAt(changes.lastActivityAt),
       repositoryRoot: changes.repositoryRoot,
       isWorktree: changes.isWorktree,
@@ -286,6 +306,21 @@ extension Session {
     if let effort = projection.effort {
       self.effort = effort
     }
+    if let collaborationMode = projection.collaborationMode {
+      self.collaborationMode = collaborationMode
+    }
+    if let multiAgent = projection.multiAgent {
+      self.multiAgent = multiAgent
+    }
+    if let personality = projection.personality {
+      self.personality = personality
+    }
+    if let serviceTier = projection.serviceTier {
+      self.serviceTier = serviceTier
+    }
+    if let developerInstructions = projection.developerInstructions {
+      self.developerInstructions = developerInstructions
+    }
     if let lastActivityAt = projection.lastActivityAt {
       self.lastActivityAt = lastActivityAt
     }
@@ -333,6 +368,11 @@ extension SessionObservable {
     branch = projection.branch
     model = projection.model
     effort = projection.effort
+    collaborationMode = projection.collaborationMode
+    multiAgent = projection.multiAgent
+    personality = projection.personality
+    serviceTier = projection.serviceTier
+    developerInstructions = projection.developerInstructions
     summary = projection.summary
     customName = projection.customName
     firstPrompt = projection.firstPrompt
@@ -441,6 +481,21 @@ extension SessionObservable {
     }
     if let effort = projection.effort {
       self.effort = effort
+    }
+    if let collaborationMode = projection.collaborationMode {
+      self.collaborationMode = collaborationMode
+    }
+    if let multiAgent = projection.multiAgent {
+      self.multiAgent = multiAgent
+    }
+    if let personality = projection.personality {
+      self.personality = personality
+    }
+    if let serviceTier = projection.serviceTier {
+      self.serviceTier = serviceTier
+    }
+    if let developerInstructions = projection.developerInstructions {
+      self.developerInstructions = developerInstructions
     }
     if let lastActivityAt = projection.lastActivityAt {
       self.lastActivityAt = lastActivityAt
