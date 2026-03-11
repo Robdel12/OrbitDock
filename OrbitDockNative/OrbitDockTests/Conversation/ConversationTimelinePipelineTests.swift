@@ -320,6 +320,51 @@ struct ConversationTimelinePipelineTests {
     #expect(expanded.dirtyRowIDs.contains(.tool("t1")))
   }
 
+  @Test func projectorInjectsWorkerOrchestrationRowForFocusedTurnsWithLinkedWorkers() {
+    let messages = [
+      makeMessage(id: "u1", type: .user, content: "spawn a worker"),
+      makeMessage(
+        id: "t1",
+        type: .tool,
+        content: "",
+        toolName: "Task",
+        toolInput: ["subagent_id": "worker-1"],
+        toolOutput: "spawned"
+      ),
+      makeMessage(
+        id: "t2",
+        type: .tool,
+        content: "",
+        toolName: "Wait",
+        toolInput: ["receiver_thread_ids": ["worker-1", "worker-2"]],
+        toolOutput: "completed"
+      ),
+      makeMessage(id: "a1", type: .assistant, content: "both workers finished"),
+    ]
+    let turn = makeTurn(id: "turn-workers", number: 1, messages: messages)
+    let source = makeSource(messages: messages, turns: [turn], chatViewMode: .focused)
+
+    let projected = ConversationTimelineProjector.project(source: source, ui: ConversationUIState(widthBucket: 12))
+
+    #expect(projected.rows.map { $0.kind } == [
+      TimelineRowKind.turnHeader,
+      TimelineRowKind.workerOrchestration,
+      TimelineRowKind.message,
+      TimelineRowKind.workerEvent,
+      TimelineRowKind.tool,
+      TimelineRowKind.message,
+      TimelineRowKind.bottomSpacer,
+    ])
+
+    guard case let .workerOrchestration(turnID, workerIDs) = projected.rows[1].payload else {
+      Issue.record("Expected second row to be worker orchestration payload")
+      return
+    }
+
+    #expect(turnID == "turn-workers")
+    #expect(workerIDs == ["worker-1"])
+  }
+
   @Test func projectorTreatsShellMessagesAsToolRows() {
     let messages = [
       makeMessage(id: "u1", type: .user, content: "run it"),
@@ -330,6 +375,39 @@ struct ConversationTimelinePipelineTests {
 
     let projected = ConversationTimelineProjector.project(source: source, ui: ConversationUIState(widthBucket: 12))
     #expect(projected.rows.map(\.id) == [.message("u1"), .tool("s1"), .message("a1"), .bottomSpacer])
+  }
+
+  @Test func projectorElevatesWorkerLinkedToolMessagesIntoWorkerRows() {
+    let messages = [
+      makeMessage(id: "u1", type: .user, content: "spawn a worker"),
+      makeMessage(
+        id: "t1",
+        type: .tool,
+        content: "",
+        toolName: "Task",
+        toolInput: ["subagent_id": "worker-1"],
+        toolOutput: "spawned"
+      ),
+      makeMessage(
+        id: "t2",
+        type: .tool,
+        content: "",
+        toolName: "Wait",
+        toolInput: ["receiver_thread_id": "worker-1"],
+        toolOutput: "completed"
+      ),
+      makeMessage(id: "a1", type: .assistant, content: "worker finished"),
+    ]
+    let source = makeSource(messages: messages, chatViewMode: .verbose)
+
+    let projected = ConversationTimelineProjector.project(source: source, ui: ConversationUIState(widthBucket: 12))
+    #expect(projected.rows.map { $0.id } == [
+      TimelineRowID.message("u1"),
+      TimelineRowID.workerEvent("t1"),
+      TimelineRowID.workerEvent("t2"),
+      TimelineRowID.message("a1"),
+      TimelineRowID.bottomSpacer,
+    ])
   }
 
   @Test func projectorSuppressesRedundantEscalatedApprovalNarrationWhenCardIsVisible() {
@@ -568,6 +646,7 @@ struct ConversationTimelinePipelineTests {
     type: TranscriptMessage.MessageType = .assistant,
     content: String,
     toolName: String? = nil,
+    toolInput: [String: Any]? = nil,
     toolOutput: String? = nil,
     images: [MessageImage] = []
   ) -> TranscriptMessage {
@@ -577,7 +656,7 @@ struct ConversationTimelinePipelineTests {
       content: content,
       timestamp: Date(timeIntervalSince1970: 1),
       toolName: toolName,
-      toolInput: nil,
+      toolInput: toolInput,
       toolOutput: toolOutput,
       toolDuration: nil,
       inputTokens: nil,

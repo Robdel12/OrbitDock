@@ -40,6 +40,16 @@
       )
     }
 
+    func workerEventModel(for row: TimelineRow) -> NativeCompactToolRowModel? {
+      guard case let .workerEvent(id) = row.payload else { return nil }
+      guard let message = messagesByID[id] else { return nil }
+
+      return SharedModelBuilders.workerEventModel(
+        from: message,
+        subagentsByID: subagentsByID
+      )
+    }
+
     func expandedToolModel(for row: TimelineRow) -> NativeExpandedToolModel? {
       guard case let .tool(id) = row.payload else { return nil }
       guard uiState.expandedToolCards.contains(id) else { return nil }
@@ -49,6 +59,14 @@
         from: message,
         messageID: id,
         supportsRichToolingCards: metadata.supportsRichToolingCards,
+        subagentsByID: subagentsByID
+      )
+    }
+
+    func workerOrchestrationModel(for row: TimelineRow) -> ConversationUtilityRowModels.WorkerOrchestrationModel? {
+      guard case let .workerOrchestration(_, workerIDs) = row.payload else { return nil }
+      return ConversationUtilityRowModels.workerOrchestration(
+        workerIDs: workerIDs,
         subagentsByID: subagentsByID
       )
     }
@@ -180,6 +198,37 @@
           )
           cell.configure(model: model)
           return cell
+
+        case .workerOrchestration:
+          if let model = context.workerOrchestrationModel(for: timelineRow) {
+            let id = NativeWorkerOrchestrationCellView.reuseIdentifier
+            let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? NativeWorkerOrchestrationCellView)
+              ?? NativeWorkerOrchestrationCellView(frame: .zero)
+            cell.identifier = id
+            cell.onSelectWorker = handlers.focusWorkerInDeck
+            cell.configure(model: model)
+            return cell
+          }
+
+        case .workerEvent:
+          if let workerModel = context.workerEventModel(for: timelineRow) {
+            let id = NativeCompactToolCellView.reuseIdentifier
+            let cell = (tableView.makeView(withIdentifier: id, owner: nil) as? NativeCompactToolCellView)
+              ?? NativeCompactToolCellView(frame: .zero)
+            cell.identifier = id
+            cell.configure(model: workerModel)
+            cell.onFocusWorker = {
+              if let workerID = workerModel.linkedWorkerID {
+                handlers.focusWorkerInDeck(workerID)
+              }
+            }
+            cell.onTap = {
+              if let workerID = workerModel.linkedWorkerID {
+                handlers.focusWorkerInDeck(workerID)
+              }
+            }
+            return cell
+          }
 
         case .tool:
           if let toolModel = context.compactToolModel(for: timelineRow) {
@@ -333,6 +382,16 @@
           )
         case .liveIndicator:
           return ConversationLayout.liveIndicatorHeight
+        case .workerOrchestration:
+          return ConversationLayout.workerOrchestrationHeight + spacing.heightExtra
+        case .workerEvent:
+          if let workerModel = context.workerEventModel(for: timelineRow) {
+            let compactHeight = NativeCompactToolCellView.requiredHeight(
+              model: workerModel,
+              width: context.tableWidth
+            )
+            return compactHeight + spacing.heightExtra
+          }
         case .liveProgress:
           return ConversationLayout.liveProgressHeight + spacing.heightExtra
         case .collapsedTurn:

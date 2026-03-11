@@ -28,6 +28,9 @@ nonisolated enum ConversationUtilityRowModels {
     case steer
     case reply
     case permission
+    case positive
+    case caution
+    case negative
   }
 
   nonisolated enum BarStyle: Hashable, Sendable {
@@ -71,6 +74,19 @@ nonisolated enum ConversationUtilityRowModels {
     let detailColorKey: ColorKey
   }
 
+  nonisolated struct WorkerChipModel: Hashable, Sendable {
+    let id: String
+    let title: String
+    let statusText: String
+    let statusColorKey: ColorKey
+  }
+
+  nonisolated struct WorkerOrchestrationModel: Hashable, Sendable {
+    let titleText: String
+    let subtitleText: String
+    let workers: [WorkerChipModel]
+  }
+
   nonisolated struct CollapsedTurnModel: Hashable, Sendable {
     let userPreview: String
     let assistantPreview: String
@@ -101,6 +117,9 @@ nonisolated enum ConversationUtilityRowModels {
       case .steer: .composerSteer
       case .reply: .statusReply
       case .permission: .statusPermission
+      case .positive: .feedbackPositive
+      case .caution: .feedbackCaution
+      case .negative: .feedbackNegative
     }
   }
 
@@ -275,6 +294,49 @@ nonisolated enum ConversationUtilityRowModels {
     )
   }
 
+  static func workerOrchestration(
+    workerIDs: [String],
+    subagentsByID: [String: ServerSubagentInfo]
+  ) -> WorkerOrchestrationModel {
+    let workers = workerIDs.prefix(4).map { workerID in
+      let worker = subagentsByID[workerID]
+      let title = trimmed(worker?.label)
+        ?? trimmed(worker?.taskSummary)
+        ?? trimmed(worker?.resultSummary)
+        ?? "Worker"
+      let status = workerStatusPresentation(worker?.status)
+      return WorkerChipModel(
+        id: workerID,
+        title: title,
+        statusText: status.label,
+        statusColorKey: status.colorKey
+      )
+    }
+
+    let activeCount = workerIDs.reduce(into: 0) { count, workerID in
+      if workerStatusPresentation(subagentsByID[workerID]?.status).isActive {
+        count += 1
+      }
+    }
+
+    let extraCount = max(0, workerIDs.count - workers.count)
+    let subtitle = if activeCount > 0 {
+      extraCount > 0
+        ? "\(activeCount) active · +\(extraCount) more in this turn"
+        : "\(activeCount) active in this turn"
+    } else if extraCount > 0 {
+      "Completed this turn · +\(extraCount) more"
+    } else {
+      "Completed this turn"
+    }
+
+    return WorkerOrchestrationModel(
+      titleText: workerIDs.count == 1 ? "Worker activity" : "Workers engaged",
+      subtitleText: subtitle,
+      workers: Array(workers)
+    )
+  }
+
   private static func relativeTimeText(from timestamp: Date?) -> String? {
     guard let timestamp else { return nil }
 
@@ -328,5 +390,34 @@ nonisolated enum ConversationUtilityRowModels {
       case "plan": .plan
       default: .textTertiary
     }
+  }
+
+  private static func workerStatusPresentation(_ status: ServerSubagentStatus?) -> (
+    label: String, colorKey: ColorKey, isActive: Bool
+  ) {
+    switch status {
+      case .pending:
+        ("Pending", .caution, true)
+      case .running:
+        ("Running", .working, true)
+      case .completed:
+        ("Complete", .positive, false)
+      case .failed:
+        ("Failed", .negative, false)
+      case .cancelled:
+        ("Cancelled", .permission, false)
+      case .shutdown:
+        ("Stopped", .textTertiary, false)
+      case .notFound:
+        ("Unavailable", .negative, false)
+      case nil:
+        ("Worker", .textTertiary, false)
+    }
+  }
+
+  private static func trimmed(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 }

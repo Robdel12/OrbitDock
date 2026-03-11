@@ -48,7 +48,7 @@ struct SessionWorkerRosterPlannerTests {
     )
 
     let worker = try! #require(presentation?.workers.first)
-    #expect(worker.title == "reviewer")
+    #expect(worker.title == "Reviewer")
     #expect(worker.subtitle == "sandbox denied")
     #expect(worker.statusLabel == "Failed")
   }

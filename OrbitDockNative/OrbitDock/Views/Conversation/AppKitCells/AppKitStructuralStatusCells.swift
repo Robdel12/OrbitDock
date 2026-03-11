@@ -260,6 +260,131 @@
     }
   }
 
+  final class NativeWorkerOrchestrationCellView: NSTableCellView {
+    static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeWorkerOrchestrationCell")
+
+    private let capsuleBackground = NSView()
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let subtitleLabel = NSTextField(labelWithString: "")
+    private let chipsStack = NSStackView()
+    private var chipButtons: [NSButton] = []
+    private var chipWorkerIDs: [String] = []
+    var onSelectWorker: ((String) -> Void)?
+
+    override init(frame frameRect: NSRect) {
+      super.init(frame: frameRect)
+      setup()
+    }
+
+    required init?(coder: NSCoder) {
+      super.init(coder: coder)
+      setup()
+    }
+
+    private func setup() {
+      wantsLayer = true
+      layer?.backgroundColor = NSColor.clear.cgColor
+
+      let inset = ConversationLayout.laneHorizontalInset
+      capsuleBackground.wantsLayer = true
+      capsuleBackground.layer?.cornerRadius = ConversationLayout.cardCornerRadius
+      capsuleBackground.layer?.backgroundColor = NSColor(Color.accent).withAlphaComponent(0.08).cgColor
+      capsuleBackground.layer?.borderWidth = 1
+      capsuleBackground.layer?.borderColor = NSColor(Color.accent).withAlphaComponent(0.12).cgColor
+      capsuleBackground.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(capsuleBackground)
+
+      titleLabel.translatesAutoresizingMaskIntoConstraints = false
+      titleLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
+      titleLabel.textColor = NSColor(Color.textPrimary)
+      addSubview(titleLabel)
+
+      subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+      subtitleLabel.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
+      subtitleLabel.textColor = NSColor(Color.textTertiary)
+      addSubview(subtitleLabel)
+
+      chipsStack.orientation = .horizontal
+      chipsStack.alignment = .centerY
+      chipsStack.spacing = Spacing.xs
+      chipsStack.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(chipsStack)
+
+      NSLayoutConstraint.activate([
+        capsuleBackground.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
+        capsuleBackground.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
+        capsuleBackground.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+        capsuleBackground.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
+
+        titleLabel.leadingAnchor.constraint(equalTo: capsuleBackground.leadingAnchor, constant: Spacing.md),
+        titleLabel.topAnchor.constraint(equalTo: capsuleBackground.topAnchor, constant: Spacing.sm),
+
+        subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+        subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+
+        chipsStack.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+        chipsStack.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: Spacing.sm_),
+        chipsStack.trailingAnchor.constraint(lessThanOrEqualTo: capsuleBackground.trailingAnchor, constant: -Spacing.md),
+      ])
+    }
+
+    func configure(model: ConversationUtilityRowModels.WorkerOrchestrationModel) {
+      titleLabel.stringValue = model.titleText
+      subtitleLabel.stringValue = model.subtitleText
+      chipWorkerIDs = model.workers.map(\.id)
+
+      for button in chipButtons {
+        chipsStack.removeArrangedSubview(button)
+        button.removeFromSuperview()
+      }
+      chipButtons.removeAll(keepingCapacity: true)
+
+      for (index, worker) in model.workers.enumerated() {
+        let button = NSButton(title: "", target: self, action: #selector(handleChipTap(_:)))
+        button.tag = index
+        button.isBordered = false
+        button.bezelStyle = .regularSquare
+        button.wantsLayer = true
+        button.layer?.cornerRadius = ConversationLayout.capsuleCornerRadius
+        button.layer?.backgroundColor = NSColor(
+          ConversationUtilityRowModels.color(for: worker.statusColorKey)
+        ).withAlphaComponent(0.12).cgColor
+        button.contentTintColor = NSColor(ConversationUtilityRowModels.color(for: worker.statusColorKey))
+        button.attributedTitle = NSAttributedString(
+          string: "\(worker.title) · \(worker.statusText)",
+          attributes: [
+            .font: NSFont.systemFont(ofSize: TypeScale.micro, weight: .semibold),
+            .foregroundColor: NSColor(Color.textSecondary),
+          ]
+        )
+        button.image = NSImage(systemSymbolName: "person.2.fill", accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+          button.heightAnchor.constraint(equalToConstant: 22),
+        ])
+        chipButtons.append(button)
+        chipsStack.addArrangedSubview(button)
+      }
+    }
+
+    override func prepareForReuse() {
+      super.prepareForReuse()
+      chipWorkerIDs = []
+      onSelectWorker = nil
+      for button in chipButtons {
+        chipsStack.removeArrangedSubview(button)
+        button.removeFromSuperview()
+      }
+      chipButtons.removeAll(keepingCapacity: true)
+    }
+
+    @objc private func handleChipTap(_ sender: NSButton) {
+      guard sender.tag >= 0, sender.tag < chipWorkerIDs.count else { return }
+      onSelectWorker?(chipWorkerIDs[sender.tag])
+    }
+  }
+
   final class NativeLiveIndicatorCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeLiveIndicatorCell")
     private static let labelSpacing = Spacing.sm

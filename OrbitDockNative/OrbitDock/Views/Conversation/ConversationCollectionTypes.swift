@@ -157,6 +157,9 @@ nonisolated struct TimelineRowID: Hashable, Sendable, RawRepresentable, Expressi
   static let liveIndicator: Self = "timeline:live-indicator"
   static let approvalCard: Self = "timeline:approval-card"
   static let bottomSpacer: Self = "timeline:bottom-spacer"
+  static func workerOrchestration(_ turnID: String) -> Self {
+    Self(rawValue: "timeline:workers:\(turnID)")
+  }
 
   static func message(_ messageID: String) -> Self {
     Self(rawValue: "timeline:message:\(messageID)")
@@ -168,6 +171,10 @@ nonisolated struct TimelineRowID: Hashable, Sendable, RawRepresentable, Expressi
 
   static func tool(_ toolID: String) -> Self {
     Self(rawValue: "timeline:tool:\(toolID)")
+  }
+
+  static func workerEvent(_ messageID: String) -> Self {
+    Self(rawValue: "timeline:worker-event:\(messageID)")
   }
 
   static func rollupSummary(_ rollupID: String) -> Self {
@@ -191,9 +198,11 @@ nonisolated enum TimelineRowKind: Hashable, Sendable {
   case turnHeader
   case message
   case tool
+  case workerEvent
   case rollupSummary
   case liveIndicator
   case approvalCard
+  case workerOrchestration
   case bottomSpacer
   case liveProgress
   case collapsedTurn
@@ -212,12 +221,14 @@ nonisolated enum TimelineRowPayload: Hashable, Sendable {
   case message(id: String, showHeader: Bool)
   case turnHeader(turnID: String, turnNumber: Int, timestamp: Date?)
   case tool(id: String)
+  case workerEvent(id: String)
   case rollupSummary(
     id: String, hiddenCount: Int, totalToolCount: Int, isExpanded: Bool,
     breakdown: [ToolBreakdownEntry],
     hiddenMessageIDs: [String]
   )
   case approvalCard(mode: ApprovalCardMode)
+  case workerOrchestration(turnID: String, workerIDs: [String])
   case liveProgress(
     currentTool: String,
     completedCount: Int,

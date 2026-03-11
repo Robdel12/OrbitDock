@@ -66,10 +66,14 @@
           return ConversationLayout.messageCountHeight
         case .tool:
           return toolRowHeight(for: row, at: indexPath, width: width)
+        case .workerEvent:
+          return workerEventRowHeight(for: row, at: indexPath, width: width)
         case .message:
           return messageRowHeight(for: row, at: indexPath, width: width)
         case .liveIndicator:
           return ConversationLayout.liveIndicatorHeight
+        case .workerOrchestration:
+          return ConversationLayout.workerOrchestrationHeight
         case .approvalCard:
           return UIKitApprovalCardCell.requiredHeight(for: buildApprovalCardModel(), availableWidth: width)
         case .liveProgress:
@@ -99,6 +103,17 @@
       }
       logger.debug("sizeForItem[\(indexPath.item)] tool[\(id.prefix(8))] compact h=\(Self.formatHeight(height))")
       return height
+    }
+
+    private func workerEventRowHeight(for row: TimelineRow, at indexPath: IndexPath, width: CGFloat) -> CGFloat {
+      if let model = buildWorkerEventModel(for: row) {
+        let height = UIKitCompactToolCell.requiredHeight(model: model, width: width)
+        logger.debug("sizeForItem[\(indexPath.item)] worker-event h=\(Self.formatHeight(height))")
+        return height
+      }
+
+      logger.debug("sizeForItem[\(indexPath.item)] worker-event fallback h=\(Self.formatHeight(ConversationLayout.compactToolRowHeight))")
+      return ConversationLayout.compactToolRowHeight
     }
 
     private func messageRowHeight(for row: TimelineRow, at indexPath: IndexPath, width: CGFloat) -> CGFloat {
@@ -179,6 +194,8 @@
         case let c as UIKitExpandedToolCell:
           c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
         case let c as UIKitRollupSummaryCell:
+          c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
+        case let c as UIKitWorkerOrchestrationCell:
           c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
         case let c as UIKitLiveProgressCell:
           c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)

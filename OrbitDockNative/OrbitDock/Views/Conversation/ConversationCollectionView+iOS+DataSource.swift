@@ -82,6 +82,33 @@
         cell.configure(model: buildLiveIndicatorModel())
       }
 
+      workerEventCellReg = UICollectionView.CellRegistration<UIKitCompactToolCell, String> {
+        [weak self] cell, indexPath, _ in
+        guard let self else { return }
+        guard indexPath.item < currentRows.count else { return }
+        guard let model = buildWorkerEventModel(for: currentRows[indexPath.item]) else { return }
+        cell.configure(model: model)
+        cell.onFocusWorker = { [weak self] in
+          guard let workerID = model.linkedWorkerID else { return }
+          self?.focusWorkerInDeck?(workerID)
+        }
+        cell.onTap = { [weak self] in
+          guard let workerID = model.linkedWorkerID else { return }
+          self?.focusWorkerInDeck?(workerID)
+        }
+      }
+
+      workerOrchestrationCellReg = UICollectionView.CellRegistration<UIKitWorkerOrchestrationCell, String> {
+        [weak self] cell, indexPath, turnID in
+        guard let self else { return }
+        guard indexPath.item < currentRows.count else { return }
+        guard let model = buildWorkerOrchestrationModel(for: currentRows[indexPath.item]) else { return }
+        cell.configure(model: model)
+        cell.onSelectWorker = { [weak self] workerID in
+          self?.focusWorkerInDeck?(workerID)
+        }
+      }
+
       liveProgressCellReg = UICollectionView.CellRegistration<UIKitLiveProgressCell, Void> {
         [weak self] cell, indexPath, _ in
         guard let self else { return }
@@ -166,6 +193,16 @@
         case .liveIndicator:
           return collectionView.dequeueConfiguredReusableCell(
             using: liveIndicatorCellReg, for: indexPath, item: ()
+          )
+        case .workerEvent:
+          guard case let .workerEvent(messageID) = row.payload else { return nil }
+          return collectionView.dequeueConfiguredReusableCell(
+            using: workerEventCellReg, for: indexPath, item: messageID
+          )
+        case .workerOrchestration:
+          guard case let .workerOrchestration(turnID, _) = row.payload else { return nil }
+          return collectionView.dequeueConfiguredReusableCell(
+            using: workerOrchestrationCellReg, for: indexPath, item: turnID
           )
         case .approvalCard:
           return collectionView.dequeueConfiguredReusableCell(

@@ -198,6 +198,8 @@ import SwiftUI
     var loadMoreCellReg: UICollectionView.CellRegistration<UIKitLoadMoreCell, Void>!
     var messageCountCellReg: UICollectionView.CellRegistration<UIKitMessageCountCell, Void>!
     var liveIndicatorCellReg: UICollectionView.CellRegistration<UIKitLiveIndicatorCell, Void>!
+    var workerEventCellReg: UICollectionView.CellRegistration<UIKitCompactToolCell, String>!
+    var workerOrchestrationCellReg: UICollectionView.CellRegistration<UIKitWorkerOrchestrationCell, String>!
     var liveProgressCellReg: UICollectionView.CellRegistration<UIKitLiveProgressCell, Void>!
     var approvalCardCellReg: UICollectionView.CellRegistration<UIKitApprovalCardCell, Void>!
     var collapsedTurnCellReg: UICollectionView.CellRegistration<UIKitCollapsedTurnCell, String>!

@@ -67,6 +67,14 @@
       )
     }
 
+    func buildWorkerOrchestrationModel(for row: TimelineRow) -> ConversationUtilityRowModels.WorkerOrchestrationModel? {
+      guard case let .workerOrchestration(_, workerIDs) = row.payload else { return nil }
+      return ConversationUtilityRowModels.workerOrchestration(
+        workerIDs: workerIDs,
+        subagentsByID: subagentsByID
+      )
+    }
+
     func buildCollapsedTurnModel(for turnID: String) -> ConversationUtilityRowModels.CollapsedTurnModel? {
       guard let row = currentRows.first(where: { $0.id == .collapsedTurn(turnID) }),
             case let .collapsedTurn(_, userPreview, assistantPreview, toolCount, totalDuration) = row.payload
@@ -96,6 +104,17 @@
       return SharedModelBuilders.compactToolModel(
         from: message,
         supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards,
+        subagentsByID: subagentsByID
+      )
+    }
+
+    func buildWorkerEventModel(for row: TimelineRow) -> NativeCompactToolRowModel? {
+      guard case let .workerEvent(messageID) = row.payload,
+            let message = messagesByID[messageID]
+      else { return nil }
+
+      return SharedModelBuilders.workerEventModel(
+        from: message,
         subagentsByID: subagentsByID
       )
     }

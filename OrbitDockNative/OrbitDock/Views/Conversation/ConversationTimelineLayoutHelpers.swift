@@ -123,7 +123,7 @@ enum ConversationTimelineLayoutHelpers {
     messageLookup: (String) -> TranscriptMessage?
   ) -> Bool {
     switch row.kind {
-      case .tool, .rollupSummary, .liveProgress:
+      case .tool, .workerEvent, .rollupSummary, .workerOrchestration, .liveProgress:
         return true
       case .message:
         guard case let .message(messageID, _) = row.payload,

@@ -95,6 +95,9 @@ enum ConversationLayout {
   /// Activity capsule row height
   static let activityCapsuleHeight: CGFloat = 36
 
+  /// Worker orchestration strip row height
+  static let workerOrchestrationHeight: CGFloat = 64
+
   /// Activity capsule corner radius (pill shape)
   static let capsuleCornerRadius: CGFloat = 16
 

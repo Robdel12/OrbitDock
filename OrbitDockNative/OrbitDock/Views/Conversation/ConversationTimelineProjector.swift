@@ -105,6 +105,10 @@ nonisolated enum ConversationTimelineProjector {
       )
     )
 
+    if let workerRow = workerOrchestrationRow(for: turn, context: context) {
+      rows.append(workerRow)
+    }
+
     let split = splitFocusedTurnMessages(turn.messages)
 
     for message in split.leading {
@@ -138,6 +142,26 @@ nonisolated enum ConversationTimelineProjector {
     for message in split.trailing {
       appendMessageRow(message, toolRowsEnabled: true, context: context, rows: &rows)
     }
+  }
+
+  private static func workerOrchestrationRow(
+    for turn: TurnSummary,
+    context: ProjectionContext
+  ) -> TimelineRow? {
+    let workerIDs = turn.messages.reduce(into: [String]()) { result, message in
+      guard let workerID = SharedModelBuilders.linkedWorkerID(for: message) else { return }
+      guard !result.contains(workerID) else { return }
+      result.append(workerID)
+    }
+
+    guard !workerIDs.isEmpty else { return nil }
+
+    return makeRow(
+      id: .workerOrchestration(turn.id),
+      kind: .workerOrchestration,
+      payload: .workerOrchestration(turnID: turn.id, workerIDs: workerIDs),
+      context: context
+    )
   }
 
   private static func appendFocusedWorkGroup(
@@ -241,13 +265,16 @@ nonisolated enum ConversationTimelineProjector {
       return
     }
 
-    let isToolRow = toolRowsEnabled && isToolLikeMessage(message)
+    let isWorkerRow = toolRowsEnabled && isWorkerLinkedToolMessage(message)
+    let isToolRow = toolRowsEnabled && isToolLikeMessage(message) && !isWorkerRow
     let showHeader = isToolRow ? true : shouldShowHeader(for: message, previousRow: rows.last, context: context)
     rows.append(
       makeRow(
-        id: isToolRow ? .tool(message.id) : .message(message.id),
-        kind: isToolRow ? .tool : .message,
-        payload: isToolRow ? .tool(id: message.id) : .message(id: message.id, showHeader: showHeader),
+        id: isWorkerRow ? .workerEvent(message.id) : (isToolRow ? .tool(message.id) : .message(message.id)),
+        kind: isWorkerRow ? .workerEvent : (isToolRow ? .tool : .message),
+        payload: isWorkerRow
+          ? .workerEvent(id: message.id)
+          : (isToolRow ? .tool(id: message.id) : .message(id: message.id, showHeader: showHeader)),
         context: context
       )
     )
@@ -326,6 +353,40 @@ nonisolated enum ConversationTimelineProjector {
 
   private static func isToolLikeMessage(_ message: TranscriptMessage) -> Bool {
     message.type == .tool || message.type == .shell
+  }
+
+  private static func isWorkerLinkedToolMessage(_ message: TranscriptMessage) -> Bool {
+    guard isToolLikeMessage(message), linkedWorkerID(for: message) != nil else { return false }
+
+    let toolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if toolName == "task" || toolName == "wait" || toolName == "handoff" {
+      return true
+    }
+
+    return (message.toolInput?["receiver_thread_ids"] as? [String])?.isEmpty == false
+  }
+
+  private static func linkedWorkerID(for message: TranscriptMessage) -> String? {
+    if let explicitSubagentID = message.toolInput?["subagent_id"] as? String,
+       !explicitSubagentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return explicitSubagentID
+    }
+
+    if let receiverThreadID = message.toolInput?["receiver_thread_id"] as? String,
+       !receiverThreadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return receiverThreadID
+    }
+
+    if let receiverThreadIDs = message.toolInput?["receiver_thread_ids"] as? [String],
+       receiverThreadIDs.count == 1
+    {
+      let onlyThreadID = receiverThreadIDs[0].trimmingCharacters(in: .whitespacesAndNewlines)
+      return onlyThreadID.isEmpty ? nil : onlyThreadID
+    }
+
+    return nil
   }
 
   private static func stripKnownShellWrapperPrefix(_ value: String) -> String {
@@ -558,6 +619,11 @@ nonisolated enum ConversationTimelineProjector {
           hasher.combine(context.ui.expandedToolCards.contains(id))
         }
 
+      case .workerEvent:
+        if case let .workerEvent(id) = payload, let message = context.messagesByID[id] {
+          combineRenderable(message: message, into: &hasher)
+        }
+
       case .turnHeader:
         if case let .turnHeader(turnID, _, _) = payload, let turn = context.turnsByID[turnID] {
           combineTurnHeader(turn: turn, into: &hasher)
@@ -590,6 +656,12 @@ nonisolated enum ConversationTimelineProjector {
         combineTextSignature(metadata.pendingQuestion, into: &hasher)
         hasher.combine(metadata.pendingApprovalId)
         hasher.combine(metadata.isDirectSession)
+
+      case .workerOrchestration:
+        if case let .workerOrchestration(turnID, workerIDs) = payload {
+          hasher.combine(turnID)
+          hasher.combine(workerIDs)
+        }
 
       case .bottomSpacer:
         hasher.combine(32)

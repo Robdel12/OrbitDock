@@ -6,6 +6,8 @@
 //
 
 import Foundation
+import SwiftUI
+import SwiftUI
 
 enum SharedModelBuilders {
   private struct WorkerLinkPresentation {
@@ -171,6 +173,47 @@ enum SharedModelBuilders {
     )
   }
 
+  static func workerEventModel(
+    from message: TranscriptMessage,
+    subagentsByID: [String: ServerSubagentInfo] = [:]
+  ) -> NativeCompactToolRowModel? {
+    guard let workerID = linkedWorkerID(for: message) else { return nil }
+
+    let worker = subagentsByID[workerID]
+    let workerLabel = trimmed(worker?.label)
+      ?? trimmed(worker?.agentType)?.capitalized
+      ?? "Worker"
+    let statusText = workerStatusText(worker?.status, message: message)
+    let eventLabel = workerEventLabel(for: message)
+    let summary = workerLabel
+    let subtitle = trimmed(
+      [eventLabel, workerEventSummary(for: message)]
+        .compactMap(trimmed)
+        .joined(separator: " · ")
+    )
+    let reportPreview = workerReportPreview(for: message)
+
+    return NativeCompactToolRowModel(
+      timestamp: message.timestamp,
+      glyphSymbol: workerGlyphSymbol(for: worker),
+      glyphColor: workerGlyphColor(for: worker, message: message),
+      summary: summary,
+      subtitle: subtitle,
+      rightMeta: statusText,
+      linkedWorkerID: workerID,
+      linkedWorkerLabel: workerLabel,
+      linkedWorkerStatusText: statusText,
+      isInProgress: message.isInProgress || worker?.status == .running || worker?.status == .pending,
+      diffPreview: nil,
+      liveOutputPreview: nil,
+      toolType: .task,
+      outputPreview: reportPreview,
+      language: nil,
+      mcpServer: nil,
+      todoItems: nil
+    )
+  }
+
   nonisolated static func linkedWorkerID(for message: TranscriptMessage) -> String? {
     if let explicitSubagentID = message.toolInput?["subagent_id"] as? String,
        !explicitSubagentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -192,6 +235,128 @@ enum SharedModelBuilders {
     }
 
     return nil
+  }
+
+  private static func workerEventLabel(for message: TranscriptMessage) -> String? {
+    let toolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    switch toolName {
+    case "task":
+      return "Assigned task"
+    case "wait":
+      return message.isInProgress ? "Waiting on worker" : "Worker returned"
+    case "handoff":
+      return "Handoff"
+    case "send_input":
+      return "Sent guidance"
+    default:
+      return toolName.map { CompactToolHelpers.displayName(for: $0) }
+    }
+  }
+
+  private static func workerEventSummary(for message: TranscriptMessage) -> String? {
+    if let taskDescription = trimmed(message.taskDescription) {
+      return taskDescription
+    }
+
+    if let taskPrompt = trimmed(message.taskPrompt) {
+      return taskPrompt
+    }
+
+    return trimmed(message.content)
+  }
+
+  private static func workerReportPreview(for message: TranscriptMessage) -> String? {
+    guard let output = trimmed(message.sanitizedToolOutput) else {
+      return nil
+    }
+    return cleanedWorkerPreview(output)
+  }
+
+  private static func workerStatusText(_ status: ServerSubagentStatus?, message: TranscriptMessage) -> String {
+    switch status {
+    case .pending:
+      return "Pending"
+    case .running:
+      return "Running"
+    case .completed:
+      return "Complete"
+    case .failed:
+      return "Failed"
+    case .cancelled:
+      return "Cancelled"
+    case .shutdown:
+      return "Stopped"
+    case .notFound:
+      return "Unavailable"
+    case nil:
+      return message.isInProgress ? "Running" : "Captured"
+    }
+  }
+
+  private static func workerGlyphSymbol(for worker: ServerSubagentInfo?) -> String {
+    switch worker?.agentType.lowercased() {
+    case "explore", "explorer":
+      return "binoculars.fill"
+    case "plan", "planner":
+      return "map.fill"
+    case "reviewer":
+      return "checklist.checked"
+    case "researcher":
+      return "magnifyingglass.circle.fill"
+    default:
+      return "person.2.fill"
+    }
+  }
+
+  private static func workerGlyphColor(for worker: ServerSubagentInfo?, message: TranscriptMessage) -> PlatformColor {
+    switch worker?.status {
+    case .completed:
+      return PlatformColor(Color.feedbackPositive)
+    case .failed, .notFound:
+      return PlatformColor(Color.feedbackNegative)
+    case .cancelled:
+      return PlatformColor(Color.feedbackWarning)
+    case .pending:
+      return PlatformColor(Color.feedbackCaution)
+    case .running:
+      return PlatformColor(Color.statusWorking)
+    case .shutdown:
+      return PlatformColor(Color.textSecondary)
+    case nil:
+      return PlatformColor(message.isInProgress ? Color.statusWorking : Color.toolTask)
+    }
+  }
+
+  private static func cleanedWorkerPreview(_ preview: String) -> String {
+    if let range = preview.range(of: "Completed(Some(\"") {
+      let remainder = preview[range.upperBound...]
+      if let closingRange = remainder.range(of: "\"))") {
+        return unescapedWorkerPreview(String(remainder[..<closingRange.lowerBound]))
+      }
+    }
+
+    let filteredLines = preview
+      .components(separatedBy: .newlines)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter {
+        !$0.isEmpty &&
+        !$0.hasPrefix("sender:") &&
+        !$0.contains("Completed(Some(")
+      }
+
+    if !filteredLines.isEmpty {
+      return filteredLines.joined(separator: "\n")
+    }
+
+    return unescapedWorkerPreview(preview)
+  }
+
+  private static func unescapedWorkerPreview(_ preview: String) -> String {
+    preview
+      .replacingOccurrences(of: "\\n", with: "\n")
+      .replacingOccurrences(of: "\\t", with: "\t")
+      .replacingOccurrences(of: "\\\"", with: "\"")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   private static func preprocessUserContent(_ content: String) -> String {

@@ -230,6 +230,129 @@
     }
   }
 
+  final class UIKitWorkerOrchestrationCell: UICollectionViewCell {
+    static let reuseIdentifier = "UIKitWorkerOrchestrationCell"
+
+    private let cardBg = CellCardBackground()
+    private let capsuleBackground = UIView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let chipsStack = UIStackView()
+    private var chipWorkerIDs: [String] = []
+    var onSelectWorker: ((String) -> Void)?
+
+    override init(frame: CGRect) {
+      super.init(frame: frame)
+      setup()
+    }
+
+    required init?(coder: NSCoder) {
+      super.init(coder: coder)
+      setup()
+    }
+
+    private func setup() {
+      backgroundColor = .clear
+      contentView.backgroundColor = .clear
+      cardBg.install(in: contentView)
+
+      let inset = ConversationLayout.laneHorizontalInset
+      capsuleBackground.translatesAutoresizingMaskIntoConstraints = false
+      capsuleBackground.layer.cornerRadius = ConversationLayout.cardCornerRadius
+      capsuleBackground.layer.masksToBounds = true
+      capsuleBackground.layer.borderWidth = 1
+      capsuleBackground.backgroundColor = UIColor(Color.accent).withAlphaComponent(0.08)
+      capsuleBackground.layer.borderColor = UIColor(Color.accent).withAlphaComponent(0.12).cgColor
+      contentView.addSubview(capsuleBackground)
+
+      titleLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
+      titleLabel.textColor = UIColor(Color.textPrimary)
+      titleLabel.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(titleLabel)
+
+      subtitleLabel.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
+      subtitleLabel.textColor = UIColor(Color.textTertiary)
+      subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(subtitleLabel)
+
+      chipsStack.axis = .horizontal
+      chipsStack.spacing = Spacing.xs
+      chipsStack.alignment = .fill
+      chipsStack.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(chipsStack)
+
+      NSLayoutConstraint.activate([
+        capsuleBackground.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
+        capsuleBackground.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -inset),
+        capsuleBackground.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2),
+        capsuleBackground.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
+
+        titleLabel.leadingAnchor.constraint(equalTo: capsuleBackground.leadingAnchor, constant: Spacing.md),
+        titleLabel.topAnchor.constraint(equalTo: capsuleBackground.topAnchor, constant: Spacing.sm),
+
+        subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+        subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+
+        chipsStack.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+        chipsStack.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: Spacing.sm_),
+        chipsStack.trailingAnchor.constraint(lessThanOrEqualTo: capsuleBackground.trailingAnchor, constant: -Spacing.md),
+      ])
+    }
+
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      cardBg.layoutInBounds(contentView.bounds)
+    }
+
+    func configureCardPosition(_ position: CardPosition, topInset: CGFloat, bottomInset: CGFloat) {
+      cardBg.configure(position: position, topInset: topInset, bottomInset: bottomInset)
+    }
+
+    func configure(model: ConversationUtilityRowModels.WorkerOrchestrationModel) {
+      titleLabel.text = model.titleText
+      subtitleLabel.text = model.subtitleText
+      chipWorkerIDs = model.workers.map(\.id)
+      chipsStack.arrangedSubviews.forEach {
+        chipsStack.removeArrangedSubview($0)
+        $0.removeFromSuperview()
+      }
+
+      for (index, worker) in model.workers.enumerated() {
+        let button = UIButton(type: .system)
+        button.tag = index
+        button.setTitle("\(worker.title) · \(worker.statusText)", for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
+        button.setTitleColor(UIColor(Color.textSecondary), for: .normal)
+        button.setImage(UIImage(systemName: "person.2.fill"), for: .normal)
+        button.tintColor = UIColor(ConversationUtilityRowModels.color(for: worker.statusColorKey))
+        button.backgroundColor = UIColor(
+          ConversationUtilityRowModels.color(for: worker.statusColorKey)
+        ).withAlphaComponent(0.12)
+        button.layer.cornerRadius = ConversationLayout.capsuleCornerRadius
+        button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
+        button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 0)
+        button.addTarget(self, action: #selector(handleChipTap(_:)), for: .touchUpInside)
+        chipsStack.addArrangedSubview(button)
+      }
+    }
+
+    override func prepareForReuse() {
+      super.prepareForReuse()
+      cardBg.reset()
+      chipWorkerIDs = []
+      onSelectWorker = nil
+      chipsStack.arrangedSubviews.forEach {
+        chipsStack.removeArrangedSubview($0)
+        $0.removeFromSuperview()
+      }
+    }
+
+    @objc private func handleChipTap(_ sender: UIButton) {
+      guard sender.tag >= 0, sender.tag < chipWorkerIDs.count else { return }
+      onSelectWorker?(chipWorkerIDs[sender.tag])
+    }
+  }
+
   // MARK: - Load More Cell (38pt)
 
   final class UIKitLoadMoreCell: UICollectionViewCell {
