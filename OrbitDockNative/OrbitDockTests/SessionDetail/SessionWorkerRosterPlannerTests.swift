@@ -295,6 +295,50 @@ struct SessionWorkerRosterPlannerTests {
     #expect(presentation?.conversationEvents.last?.summary == "Worker found the auth entrypoints and is reporting back.")
   }
 
+  @Test func detailPresentationBuildsRelatedWorkerNavigation() {
+    let parent = makeWorker(
+      id: "worker-parent",
+      label: "Coordinator",
+      status: .running,
+      taskSummary: "Coordinate the sweep",
+      resultSummary: nil,
+      lastActivityAt: "2026-03-10T11:05:00Z",
+      agentType: "planner"
+    )
+    let child = makeWorker(
+      id: "worker-child",
+      label: "Scout",
+      status: .completed,
+      taskSummary: "Inspect auth",
+      resultSummary: "Returned findings",
+      lastActivityAt: "2026-03-10T11:10:00Z",
+      agentType: "explore",
+      parentSubagentId: parent.id
+    )
+    let sibling = makeWorker(
+      id: "worker-sibling",
+      label: "Reviewer",
+      status: .running,
+      taskSummary: "Review patch",
+      resultSummary: nil,
+      lastActivityAt: "2026-03-10T11:11:00Z",
+      agentType: "reviewer",
+      parentSubagentId: child.id
+    )
+
+    let presentation = SessionWorkerRosterPlanner.detailPresentation(
+      subagents: [parent, child, sibling],
+      selectedWorkerID: child.id,
+      toolsByWorker: [:],
+      messagesByWorker: [:],
+      timelineMessages: []
+    )
+
+    #expect(presentation?.relatedWorkers.map(\.id) == [parent.id, sibling.id])
+    #expect(presentation?.relatedWorkers.first?.relationshipLabel == "Parent worker")
+    #expect(presentation?.relatedWorkers.last?.relationshipLabel == "Child worker")
+  }
+
   @Test func presentationReturnsNilWhenThereAreNoWorkers() {
     #expect(SessionWorkerRosterPlanner.presentation(subagents: []) == nil)
   }
@@ -307,7 +351,8 @@ struct SessionWorkerRosterPlannerTests {
     resultSummary: String?,
     errorSummary: String? = nil,
     lastActivityAt: String? = nil,
-    agentType: String = "agent"
+    agentType: String = "agent",
+    parentSubagentId: String? = nil
   ) -> ServerSubagentInfo {
     ServerSubagentInfo(
       id: id,
@@ -320,7 +365,7 @@ struct SessionWorkerRosterPlannerTests {
       taskSummary: taskSummary,
       resultSummary: resultSummary,
       errorSummary: errorSummary,
-      parentSubagentId: nil,
+      parentSubagentId: parentSubagentId,
       model: nil,
       lastActivityAt: lastActivityAt
     )

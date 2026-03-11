@@ -3,6 +3,48 @@
   import AppKit
 
   extension ConversationCollectionViewController {
+    func scrollToConversationMessage(_ messageID: String, animated: Bool) {
+      guard let rowID = timelineRowID(for: messageID),
+            let row = rowIndexByTimelineRowID[rowID],
+            row >= 0,
+            row < tableView.numberOfRows
+      else { return }
+
+      let rowRect = tableView.rect(ofRow: row)
+      let viewportHeight = scrollView.contentView.bounds.height
+      let maxY = max(0, tableView.bounds.height - viewportHeight)
+      let targetY = min(max(0, rowRect.midY - (viewportHeight / 2)), maxY)
+
+      programmaticScrollInProgress = true
+      if animated {
+        NSAnimationContext.runAnimationGroup { context in
+          context.duration = 0.18
+          self.scrollView.contentView.animator().setBoundsOrigin(NSPoint(x: 0, y: targetY))
+        } completionHandler: { [weak self] in
+          guard let self else { return }
+          self.scrollView.reflectScrolledClipView(self.scrollView.contentView)
+          self.programmaticScrollInProgress = false
+        }
+      } else {
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: targetY))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        programmaticScrollInProgress = false
+      }
+
+      coordinator?.pinnedChanged(false)
+      coordinator?.unreadReset()
+    }
+
+    private func timelineRowID(for messageID: String) -> TimelineRowID? {
+      let candidates: [TimelineRowID] = [
+        .workerEvent(messageID),
+        .tool(messageID),
+        .message(messageID),
+      ]
+
+      return candidates.first(where: { rowIndexByTimelineRowID[$0] != nil })
+    }
+
     func toggleThinkingExpansion(messageID: String, row: Int) {
       if expandedThinkingIDs.contains(messageID) {
         expandedThinkingIDs.remove(messageID)

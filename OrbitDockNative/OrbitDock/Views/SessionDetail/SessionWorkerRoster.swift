@@ -44,6 +44,14 @@ struct SessionWorkerDetailPresentation {
     let statusColor: Color
   }
 
+  struct RelatedWorker: Identifiable {
+    let id: String
+    let title: String
+    let relationshipLabel: String
+    let statusLabel: String
+    let statusColor: Color
+  }
+
   struct ThreadEntry: Identifiable {
     let id: String
     let iconName: String
@@ -67,6 +75,8 @@ struct SessionWorkerDetailPresentation {
   let tools: [ToolActivity]
   let threadEntries: [ThreadEntry]
   let conversationEvents: [ConversationEvent]
+  let relatedWorkers: [RelatedWorker]
+  let latestConversationEventID: String?
 }
 
 @MainActor
@@ -135,6 +145,10 @@ enum SessionWorkerRosterPlanner {
       for: subagent.id,
       timelineMessages: timelineMessages
     )
+    let relatedWorkers = relatedWorkers(
+      for: subagent,
+      among: subagents
+    )
 
     return SessionWorkerDetailPresentation(
       id: subagent.id,
@@ -153,7 +167,9 @@ enum SessionWorkerRosterPlanner {
       detailLines: detailLines(for: subagent),
       tools: Array(tools),
       threadEntries: threadEntries,
-      conversationEvents: conversationEvents
+      conversationEvents: conversationEvents,
+      relatedWorkers: relatedWorkers,
+      latestConversationEventID: conversationEvents.last?.id
     )
   }
 
@@ -445,6 +461,47 @@ enum SessionWorkerRosterPlanner {
       .map(conversationEventPresentation)
   }
 
+  private static func relatedWorkers(
+    for subagent: ServerSubagentInfo,
+    among subagents: [ServerSubagentInfo]
+  ) -> [SessionWorkerDetailPresentation.RelatedWorker] {
+    var related: [SessionWorkerDetailPresentation.RelatedWorker] = []
+
+    if let parentID = subagent.parentSubagentId,
+       let parent = subagents.first(where: { $0.id == parentID })
+    {
+      let status = statusPresentation(parent.status)
+      related.append(
+        .init(
+          id: parent.id,
+          title: parent.label ?? visuals(for: parent.agentType).label,
+          relationshipLabel: "Parent worker",
+          statusLabel: status.label,
+          statusColor: status.color
+        )
+      )
+    }
+
+    let children = subagents
+      .filter { $0.parentSubagentId == subagent.id }
+      .sorted(by: workerSort)
+
+    for child in children {
+      let status = statusPresentation(child.status)
+      related.append(
+        .init(
+          id: child.id,
+          title: child.label ?? visuals(for: child.agentType).label,
+          relationshipLabel: "Child worker",
+          statusLabel: status.label,
+          statusColor: status.color
+        )
+      )
+    }
+
+    return related
+  }
+
   private static func conversationEventPresentation(
     _ message: TranscriptMessage
   ) -> SessionWorkerDetailPresentation.ConversationEvent {
@@ -732,6 +789,7 @@ struct SessionWorkerCompanionPanel: View {
   let detailPresentation: SessionWorkerDetailPresentation?
   let selectedWorkerID: String?
   let onSelectWorker: (String) -> Void
+  let onRevealConversationEvent: (String) -> Void
 
   var body: some View {
     VStack(spacing: 0) {
@@ -747,7 +805,11 @@ struct SessionWorkerCompanionPanel: View {
       ScrollView(showsIndicators: false) {
         VStack(alignment: .leading, spacing: Spacing.md) {
           if let detailPresentation {
-            SessionWorkerDetailView(presentation: detailPresentation)
+            SessionWorkerDetailView(
+              presentation: detailPresentation,
+              onSelectWorker: onSelectWorker,
+              onRevealConversationEvent: onRevealConversationEvent
+            )
           } else {
             SessionWorkerEmptyState()
           }
@@ -760,10 +822,16 @@ struct SessionWorkerCompanionPanel: View {
 
 struct SessionWorkerDetailView: View {
   let presentation: SessionWorkerDetailPresentation
+  let onSelectWorker: (String) -> Void
+  let onRevealConversationEvent: (String) -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       workerHero
+
+      if presentation.latestConversationEventID != nil || !presentation.relatedWorkers.isEmpty {
+        workerActionRail
+      }
 
       if !presentation.detailLines.isEmpty {
         workerFactsGrid
@@ -861,6 +929,48 @@ struct SessionWorkerDetailView: View {
         }
       }
 
+      if !presentation.relatedWorkers.isEmpty {
+        activitySection(
+          title: "Related Workers",
+          eyebrow: "Graph",
+          icon: "point.3.connected.trianglepath.dotted",
+          accent: Color.accent
+        ) {
+          VStack(spacing: Spacing.sm) {
+            ForEach(presentation.relatedWorkers) { worker in
+              Button {
+                onSelectWorker(worker.id)
+              } label: {
+                HStack(spacing: Spacing.sm) {
+                  VStack(alignment: .leading, spacing: Spacing.xxs) {
+                    Text(worker.relationshipLabel)
+                      .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
+                      .foregroundStyle(Color.textQuaternary)
+
+                    Text(worker.title)
+                      .font(.system(size: TypeScale.meta, weight: .semibold))
+                      .foregroundStyle(Color.textPrimary)
+                      .lineLimit(1)
+                  }
+
+                  Spacer(minLength: 0)
+
+                  compactStatus(label: worker.statusLabel, color: worker.statusColor)
+
+                  Image(systemName: "arrow.right.circle.fill")
+                    .font(.system(size: TypeScale.caption, weight: .semibold))
+                    .foregroundStyle(Color.accent)
+                }
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
+                .background(Color.backgroundSecondary.opacity(0.62), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+              }
+              .buttonStyle(.plain)
+            }
+          }
+        }
+      }
+
       activitySection(
         title: "Conversation Trail",
         eyebrow: "Main thread",
@@ -878,42 +988,54 @@ struct SessionWorkerDetailView: View {
         } else {
           VStack(spacing: Spacing.sm) {
             ForEach(presentation.conversationEvents) { event in
-              HStack(alignment: .top, spacing: Spacing.sm) {
-                Image(systemName: event.iconName)
-                  .font(.system(size: TypeScale.mini, weight: .semibold))
-                  .foregroundStyle(event.statusColor)
-                  .frame(width: 14, height: 14)
-                  .padding(.top, 2)
+              Button {
+                onRevealConversationEvent(event.id)
+              } label: {
+                HStack(alignment: .top, spacing: Spacing.sm) {
+                  Image(systemName: event.iconName)
+                    .font(.system(size: TypeScale.mini, weight: .semibold))
+                    .foregroundStyle(event.statusColor)
+                    .frame(width: 14, height: 14)
+                    .padding(.top, 2)
 
-                VStack(alignment: .leading, spacing: Spacing.xxs) {
-                  HStack(spacing: Spacing.xs) {
-                    Text(event.title)
-                      .font(.system(size: TypeScale.meta, weight: .semibold))
-                      .foregroundStyle(Color.textPrimary)
-                      .lineLimit(1)
+                  VStack(alignment: .leading, spacing: Spacing.xxs) {
+                    HStack(spacing: Spacing.xs) {
+                      Text(event.title)
+                        .font(.system(size: TypeScale.meta, weight: .semibold))
+                        .foregroundStyle(Color.textPrimary)
+                        .lineLimit(1)
 
-                    Text(event.statusLabel)
-                      .font(.system(size: TypeScale.mini, weight: .medium))
-                      .foregroundStyle(event.statusColor)
+                      Text(event.statusLabel)
+                        .font(.system(size: TypeScale.mini, weight: .medium))
+                        .foregroundStyle(event.statusColor)
 
-                    if let timestampLabel = event.timestampLabel {
-                      Text(timestampLabel)
-                        .font(.system(size: TypeScale.mini))
-                        .foregroundStyle(Color.textQuaternary)
+                      if let timestampLabel = event.timestampLabel {
+                        Text(timestampLabel)
+                          .font(.system(size: TypeScale.mini))
+                          .foregroundStyle(Color.textQuaternary)
+                      }
                     }
+
+                    Text(event.summary)
+                      .font(.system(size: TypeScale.micro))
+                      .foregroundStyle(Color.textSecondary)
+                      .fixedSize(horizontal: false, vertical: true)
+                      .lineLimit(4)
                   }
 
-                  Text(event.summary)
-                    .font(.system(size: TypeScale.micro))
-                    .foregroundStyle(Color.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .lineLimit(4)
+                  Spacer(minLength: 0)
+
+                  Image(systemName: "arrow.up.forward.app")
+                    .font(.system(size: TypeScale.mini, weight: .semibold))
+                    .foregroundStyle(Color.textTertiary)
+                    .padding(.top, 2)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
+                .background(Color.backgroundSecondary.opacity(0.62), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
               }
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .padding(.horizontal, Spacing.md)
-              .padding(.vertical, Spacing.sm)
-              .background(Color.backgroundSecondary.opacity(0.62), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+              .buttonStyle(.plain)
             }
           }
         }
@@ -970,6 +1092,36 @@ struct SessionWorkerDetailView: View {
             .stroke(Color.panelBorder.opacity(0.42), lineWidth: 1)
         )
     )
+  }
+
+  private var workerActionRail: some View {
+    HStack(spacing: Spacing.sm) {
+      if let latestConversationEventID = presentation.latestConversationEventID {
+        Button {
+          onRevealConversationEvent(latestConversationEventID)
+        } label: {
+          Label("Reveal Latest Moment", systemImage: "arrow.up.forward.app")
+            .font(.system(size: TypeScale.meta, weight: .semibold))
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.accent)
+      }
+
+      if let activeRelated = presentation.relatedWorkers.first {
+        Button {
+          onSelectWorker(activeRelated.id)
+        } label: {
+          Label(activeRelated.title, systemImage: "point.3.connected.trianglepath.dotted")
+            .font(.system(size: TypeScale.meta, weight: .semibold))
+            .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .tint(activeRelated.statusColor)
+      }
+
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, Spacing.xs)
   }
 
   private var missionBriefing: some View {

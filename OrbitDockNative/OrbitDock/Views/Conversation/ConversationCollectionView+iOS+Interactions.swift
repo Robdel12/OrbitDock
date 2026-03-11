@@ -3,6 +3,28 @@
   import UIKit
 
   extension ConversationCollectionViewController {
+    func scrollToConversationMessage(_ messageID: String, animated: Bool) {
+      guard let rowID = timelineRowID(for: messageID),
+            let row = rowIndexByTimelineRowID[rowID]
+      else { return }
+
+      let indexPath = IndexPath(item: row, section: 0)
+      guard collectionView.numberOfItems(inSection: 0) > row else { return }
+      collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
+      coordinator?.pinnedChanged(false)
+      coordinator?.unreadReset()
+    }
+
+    private func timelineRowID(for messageID: String) -> TimelineRowID? {
+      let candidates: [TimelineRowID] = [
+        .workerEvent(messageID),
+        .tool(messageID),
+        .message(messageID),
+      ]
+
+      return candidates.first(where: { rowIndexByTimelineRowID[$0] != nil })
+    }
+
     func toggleThinkingExpansion(messageID: String) {
       if expandedThinkingIDs.contains(messageID) {
         expandedThinkingIDs.remove(messageID)

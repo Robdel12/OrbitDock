@@ -35,6 +35,7 @@ import SwiftUI
     let onLoadMore: () -> Void
     let onNavigateToReviewFile: ((String, Int) -> Void)?
     let onOpenPendingApprovalPanel: (() -> Void)?
+    @Binding var jumpToMessageTarget: ConversationJumpTarget?
 
     @Binding var isPinned: Bool
     @Binding var unreadCount: Int
@@ -112,9 +113,13 @@ import SwiftUI
       let modeChanged = oldMode != chatViewMode
       let revisionChanged = oldMessagesRevision != messagesRevision
       let needsScroll = context.coordinator.lastScrollToBottomTrigger != scrollToBottomTrigger
+      let jumpTargetChanged = context.coordinator.lastJumpTarget != jumpToMessageTarget
       let selectedWorkerChanged = oldSelectedWorkerID != selectedWorkerID
       if needsScroll {
         context.coordinator.lastScrollToBottomTrigger = scrollToBottomTrigger
+      }
+      if jumpTargetChanged {
+        context.coordinator.lastJumpTarget = jumpToMessageTarget
       }
       Task { @MainActor in
         if modeChanged {
@@ -125,6 +130,9 @@ import SwiftUI
         if needsScroll {
           vc.isPinnedToBottom = true
           vc.scrollToBottom(animated: true)
+        } else if jumpTargetChanged, let target = jumpToMessageTarget {
+          vc.isPinnedToBottom = false
+          vc.scrollToConversationMessage(target.messageID, animated: true)
         }
       }
     }
@@ -132,10 +140,12 @@ import SwiftUI
     class Coordinator {
       var parent: ConversationCollectionView
       var lastScrollToBottomTrigger: Int
+      var lastJumpTarget: ConversationJumpTarget?
 
       init(parent: ConversationCollectionView) {
         self.parent = parent
         lastScrollToBottomTrigger = parent.scrollToBottomTrigger
+        lastJumpTarget = parent.jumpToMessageTarget
       }
 
       func pinnedChanged(_ pinned: Bool) {

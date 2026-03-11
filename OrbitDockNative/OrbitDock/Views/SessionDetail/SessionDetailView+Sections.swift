@@ -37,6 +37,15 @@ extension SessionDetailView {
         selectedWorkerID: selectedWorkerId,
         onSelectWorker: { workerId in
           selectedWorkerId = workerId
+        },
+        onRevealConversationEvent: { messageId in
+          if layoutConfig == .reviewOnly {
+            withAnimation(Motion.gentle) {
+              layoutConfig = .split
+            }
+          }
+          isPinned = false
+          conversationJumpTarget = .init(messageID: messageId, nonce: (conversationJumpTarget?.nonce ?? 0) + 1)
         }
       )
       .frame(width: 320)
@@ -115,6 +124,7 @@ extension SessionDetailView {
       focusWorkerInDeck: workerRosterPresentation != nil ? { workerId in
         focusWorkerInDeck(workerId)
       } : nil,
+      jumpToMessageTarget: $conversationJumpTarget,
       isPinned: $isPinned,
       unreadCount: $unreadCount,
       scrollToBottomTrigger: $scrollToBottomTrigger

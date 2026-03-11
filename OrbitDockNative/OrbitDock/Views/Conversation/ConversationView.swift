@@ -19,6 +19,7 @@ struct ConversationView: View {
   var chatViewMode: ChatViewMode = .focused
   var onNavigateToReviewFile: ((String, Int) -> Void)? // (filePath, lineNumber) deep link from review card
   var onOpenPendingApprovalPanel: (() -> Void)?
+  @Binding var jumpToMessageTarget: ConversationJumpTarget?
 
   @Environment(SessionStore.self) private var serverState
 
@@ -153,6 +154,7 @@ struct ConversationView: View {
       },
       onNavigateToReviewFile: onNavigateToReviewFile,
       onOpenPendingApprovalPanel: onOpenPendingApprovalPanel,
+      jumpToMessageTarget: $jumpToMessageTarget,
       isPinned: $isPinned,
       unreadCount: $unreadCount,
       scrollToBottomTrigger: $scrollToBottomTrigger
@@ -166,6 +168,7 @@ struct ConversationView: View {
   @Previewable @State var isPinned = true
   @Previewable @State var unreadCount = 0
   @Previewable @State var scrollTrigger = 0
+  @Previewable @State var jumpTarget: ConversationJumpTarget?
 
   ConversationView(
     sessionId: nil,
@@ -174,6 +177,7 @@ struct ConversationView: View {
     currentTool: "Edit",
     provider: .claude,
     model: "claude-opus-4-6",
+    jumpToMessageTarget: $jumpTarget,
     isPinned: $isPinned,
     unreadCount: $unreadCount,
     scrollToBottomTrigger: $scrollTrigger

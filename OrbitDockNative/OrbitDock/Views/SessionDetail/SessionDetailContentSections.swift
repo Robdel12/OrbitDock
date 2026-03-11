@@ -16,6 +16,7 @@ struct SessionDetailConversationSection: View {
   let onOpenPendingApprovalPanel: () -> Void
   let openFileInReview: ((String) -> Void)?
   let focusWorkerInDeck: ((String) -> Void)?
+  @Binding var jumpToMessageTarget: ConversationJumpTarget?
   @Binding var isPinned: Bool
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
@@ -35,6 +36,7 @@ struct SessionDetailConversationSection: View {
       chatViewMode: chatViewMode,
       onNavigateToReviewFile: onNavigateToReviewFile,
       onOpenPendingApprovalPanel: onOpenPendingApprovalPanel,
+      jumpToMessageTarget: $jumpToMessageTarget,
       isPinned: $isPinned,
       unreadCount: $unreadCount,
       scrollToBottomTrigger: $scrollToBottomTrigger

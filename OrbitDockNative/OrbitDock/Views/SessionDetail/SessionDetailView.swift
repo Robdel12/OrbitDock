@@ -25,6 +25,7 @@ struct SessionDetailView: View {
 
   @State var copiedResume = false
   @State var selectedWorkerId: String?
+  @State var conversationJumpTarget: ConversationJumpTarget?
 
   // Chat scroll state
   @State var isPinned = true

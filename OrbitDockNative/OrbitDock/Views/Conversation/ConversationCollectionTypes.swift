@@ -192,6 +192,11 @@ nonisolated struct TimelineRowID: Hashable, Sendable, RawRepresentable, Expressi
   }
 }
 
+nonisolated struct ConversationJumpTarget: Equatable, Sendable {
+  let messageID: String
+  let nonce: Int
+}
+
 nonisolated enum TimelineRowKind: Hashable, Sendable {
   case loadMore
   case messageCount
