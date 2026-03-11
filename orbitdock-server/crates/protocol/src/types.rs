@@ -687,6 +687,18 @@ pub struct CodexModelOption {
     pub supported_reasoning_efforts: Vec<String>,
     #[serde(default)]
     pub supports_reasoning_summaries: bool,
+    #[serde(default)]
+    pub supported_collaboration_modes: Vec<String>,
+    #[serde(default)]
+    pub supports_multi_agent: bool,
+    #[serde(default)]
+    pub multi_agent_is_experimental: bool,
+    #[serde(default)]
+    pub supports_personality: bool,
+    #[serde(default)]
+    pub supported_service_tiers: Vec<String>,
+    #[serde(default)]
+    pub supports_developer_instructions: bool,
 }
 
 /// Claude model option exposed to clients.

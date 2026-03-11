@@ -3433,6 +3433,12 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
             is_default: preset.is_default,
             supported_reasoning_efforts,
             supports_reasoning_summaries,
+            supported_collaboration_modes: vec!["default".to_string(), "plan".to_string()],
+            supports_multi_agent: true,
+            multi_agent_is_experimental: true,
+            supports_personality: true,
+            supported_service_tiers: vec!["fast".to_string(), "flex".to_string()],
+            supports_developer_instructions: true,
         });
     }
 

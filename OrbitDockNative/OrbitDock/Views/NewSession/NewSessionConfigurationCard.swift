@@ -19,6 +19,34 @@ struct NewSessionConfigurationCard: View {
   @Binding var codexServiceTier: CodexServiceTierPreset
   @Binding var codexInstructions: String
 
+  private var currentCodexModelOption: ServerCodexModelOption? {
+    codexModels.first(where: { $0.model == codexModel }) ?? codexModels.first(where: \.isDefault) ?? codexModels.first
+  }
+
+  private var availableCodexCollaborationModes: [CodexCollaborationMode] {
+    CodexCollaborationMode.supportedCases(from: currentCodexModelOption)
+  }
+
+  private var availableCodexServiceTiers: [CodexServiceTierPreset] {
+    CodexServiceTierPreset.supportedCases(from: currentCodexModelOption)
+  }
+
+  private var codexSupportsMultiAgent: Bool {
+    currentCodexModelOption?.supportsMultiAgent ?? true
+  }
+
+  private var codexMultiAgentIsExperimental: Bool {
+    currentCodexModelOption?.multiAgentIsExperimental ?? true
+  }
+
+  private var codexSupportsPersonality: Bool {
+    currentCodexModelOption?.supportsPersonality ?? true
+  }
+
+  private var codexSupportsDeveloperInstructions: Bool {
+    currentCodexModelOption?.supportsDeveloperInstructions ?? true
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       modelRow
@@ -327,7 +355,7 @@ struct NewSessionConfigurationCard: View {
         Spacer()
 
         Picker("Collaboration", selection: $codexCollaborationMode) {
-          ForEach(CodexCollaborationMode.allCases) { mode in
+          ForEach(availableCodexCollaborationModes) { mode in
             Text(mode.displayName).tag(mode)
           }
         }
@@ -371,6 +399,15 @@ struct NewSessionConfigurationCard: View {
           Text("Workers")
             .font(.system(size: TypeScale.body, weight: .medium))
             .foregroundStyle(Color.textSecondary)
+
+          if codexMultiAgentIsExperimental {
+            Text("EXPERIMENTAL")
+              .font(.system(size: 7, weight: .bold, design: .rounded))
+              .foregroundStyle(Color.feedbackCaution)
+              .padding(.horizontal, 5)
+              .padding(.vertical, 1.5)
+              .background(Color.feedbackCaution.opacity(OpacityTier.light), in: Capsule())
+          }
         }
 
         Spacer()
@@ -378,6 +415,7 @@ struct NewSessionConfigurationCard: View {
         Toggle("", isOn: $codexMultiAgentEnabled)
           .labelsHidden()
           .toggleStyle(.switch)
+          .disabled(!codexSupportsMultiAgent)
       }
 
       HStack(alignment: .top, spacing: Spacing.sm) {
@@ -387,14 +425,25 @@ struct NewSessionConfigurationCard: View {
           .padding(.top, Spacing.xxs)
 
         VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text(codexMultiAgentEnabled ? "Worker spawning enabled" : "Single-agent session")
+          Text(codexSupportsMultiAgent
+            ? (codexMultiAgentEnabled ? "Worker spawning enabled" : "Single-agent session")
+            : "Workers unavailable"
+          )
             .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(codexMultiAgentEnabled ? Color.providerCodex : Color.textSecondary)
+            .foregroundStyle(
+              codexSupportsMultiAgent
+                ? (codexMultiAgentEnabled ? Color.providerCodex : Color.textSecondary)
+                : Color.textSecondary
+            )
 
           Text(
-            codexMultiAgentEnabled
-              ? "Let Codex spin up helper workers for parallel research, planning, and follow-up tasks in this session."
-              : "Keep Codex focused in one thread. You can still change this later from the session controls."
+            codexSupportsMultiAgent
+              ? (
+                codexMultiAgentEnabled
+                  ? "Let Codex spin up helper workers for parallel research, planning, and follow-up tasks in this session."
+                  : "Keep Codex focused in one thread. You can still change this later from the session controls."
+              )
+              : "This model does not currently advertise worker spawning support to OrbitDock."
           )
           .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.textTertiary)
@@ -448,15 +497,25 @@ struct NewSessionConfigurationCard: View {
               icon: codexPersonality.icon,
               tint: codexPersonality.color
             ) {
-              Picker("Personality", selection: $codexPersonality) {
-                ForEach(CodexPersonalityPreset.allCases) { preset in
-                  Text(preset.displayName).tag(preset)
+              if codexSupportsPersonality {
+                Picker("Personality", selection: $codexPersonality) {
+                  ForEach(CodexPersonalityPreset.allCases) { preset in
+                    Text(preset.displayName).tag(preset)
+                  }
                 }
+                .pickerStyle(.menu)
+                .labelsHidden()
+              } else {
+                Text("Unavailable")
+                  .font(.system(size: TypeScale.body, weight: .semibold))
+                  .foregroundStyle(Color.textQuaternary)
               }
-              .pickerStyle(.menu)
-              .labelsHidden()
             } description: {
-              Text(codexPersonality.description)
+              Text(
+                codexSupportsPersonality
+                  ? codexPersonality.description
+                  : "This model does not currently expose personality overrides through OrbitDock."
+              )
             }
 
             codexAdvancedPickerCard(
@@ -465,7 +524,7 @@ struct NewSessionConfigurationCard: View {
               tint: codexServiceTier.color
             ) {
               Picker("Service Tier", selection: $codexServiceTier) {
-                ForEach(CodexServiceTierPreset.allCases) { preset in
+                ForEach(availableCodexServiceTiers) { preset in
                   Text(preset.displayName).tag(preset)
                 }
               }
@@ -486,29 +545,45 @@ struct NewSessionConfigurationCard: View {
                 .foregroundStyle(Color.textPrimary)
             }
 
-            ZStack(alignment: .topLeading) {
+            if codexSupportsDeveloperInstructions {
+              ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                  .fill(Color.backgroundSecondary)
+                  .overlay(
+                    RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                      .stroke(Color.surfaceBorder, lineWidth: 1)
+                  )
+
+                if codexInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                  Text("Persistent guidance for the whole session, like house rules, code style, or team tone.")
+                    .font(.system(size: TypeScale.caption))
+                    .foregroundStyle(Color.textQuaternary)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm)
+                }
+
+                TextEditor(text: $codexInstructions)
+                  .font(.system(size: TypeScale.body))
+                  .foregroundStyle(Color.textPrimary)
+                  .scrollContentBackground(.hidden)
+                  .frame(minHeight: 92, maxHeight: 120)
+                  .padding(.horizontal, Spacing.sm)
+                  .padding(.vertical, Spacing.xs)
+              }
+            } else {
               RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                 .fill(Color.backgroundSecondary)
+                .frame(minHeight: 72)
+                .overlay(alignment: .leading) {
+                  Text("This model does not currently expose durable session instructions through OrbitDock.")
+                    .font(.system(size: TypeScale.caption))
+                    .foregroundStyle(Color.textQuaternary)
+                    .padding(.horizontal, Spacing.md)
+                }
                 .overlay(
                   RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                     .stroke(Color.surfaceBorder, lineWidth: 1)
                 )
-
-              if codexInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("Persistent guidance for the whole session, like house rules, code style, or team tone.")
-                  .font(.system(size: TypeScale.caption))
-                  .foregroundStyle(Color.textQuaternary)
-                  .padding(.horizontal, Spacing.md)
-                  .padding(.vertical, Spacing.sm)
-              }
-
-              TextEditor(text: $codexInstructions)
-                .font(.system(size: TypeScale.body))
-                .foregroundStyle(Color.textPrimary)
-                .scrollContentBackground(.hidden)
-                .frame(minHeight: 92, maxHeight: 120)
-                .padding(.horizontal, Spacing.sm)
-                .padding(.vertical, Spacing.xs)
             }
 
             Text("Use this for durable session behavior. For one-off guidance later, steer the active turn from the composer.")

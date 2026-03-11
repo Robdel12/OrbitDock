@@ -17,6 +17,12 @@ struct ServerCodexModelOption: Codable, Identifiable {
   let isDefault: Bool
   let supportedReasoningEfforts: [String]
   var supportsReasoningSummaries: Bool? = nil
+  var supportedCollaborationModes: [String] = ["default", "plan"]
+  var supportsMultiAgent = true
+  var multiAgentIsExperimental = true
+  var supportsPersonality = true
+  var supportedServiceTiers: [String] = ["fast", "flex"]
+  var supportsDeveloperInstructions = true
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -26,6 +32,12 @@ struct ServerCodexModelOption: Codable, Identifiable {
     case isDefault = "is_default"
     case supportedReasoningEfforts = "supported_reasoning_efforts"
     case supportsReasoningSummaries = "supports_reasoning_summaries"
+    case supportedCollaborationModes = "supported_collaboration_modes"
+    case supportsMultiAgent = "supports_multi_agent"
+    case multiAgentIsExperimental = "multi_agent_is_experimental"
+    case supportsPersonality = "supports_personality"
+    case supportedServiceTiers = "supported_service_tiers"
+    case supportsDeveloperInstructions = "supports_developer_instructions"
   }
 }
 

@@ -82,6 +82,7 @@ extension DirectSessionComposer {
       #if os(iOS)
         NavigationStack {
           CodexSessionSettingsPopover(
+            modelOption: currentCodexModelOption,
             collaborationMode: currentCodexCollaborationMode,
             multiAgentEnabled: currentCodexMultiAgentEnabled,
             personality: currentCodexPersonality,
@@ -97,6 +98,7 @@ extension DirectSessionComposer {
         }
       #else
         CodexSessionSettingsPopover(
+          modelOption: currentCodexModelOption,
           collaborationMode: currentCodexCollaborationMode,
           multiAgentEnabled: currentCodexMultiAgentEnabled,
           personality: currentCodexPersonality,
@@ -122,6 +124,7 @@ extension DirectSessionComposer {
 }
 
 private struct CodexSessionSettingsPopover: View {
+  let modelOption: ServerCodexModelOption?
   let collaborationMode: CodexCollaborationMode
   let multiAgentEnabled: Bool
   let personality: CodexPersonalityPreset
@@ -142,7 +145,32 @@ private struct CodexSessionSettingsPopover: View {
   @State private var draftInstructions: String
   @State private var isApplying = false
 
+  private var availableCollaborationModes: [CodexCollaborationMode] {
+    CodexCollaborationMode.supportedCases(from: modelOption)
+  }
+
+  private var availableServiceTiers: [CodexServiceTierPreset] {
+    CodexServiceTierPreset.supportedCases(from: modelOption)
+  }
+
+  private var supportsMultiAgent: Bool {
+    modelOption?.supportsMultiAgent ?? true
+  }
+
+  private var multiAgentIsExperimental: Bool {
+    modelOption?.multiAgentIsExperimental ?? true
+  }
+
+  private var supportsPersonality: Bool {
+    modelOption?.supportsPersonality ?? true
+  }
+
+  private var supportsDeveloperInstructions: Bool {
+    modelOption?.supportsDeveloperInstructions ?? true
+  }
+
   init(
+    modelOption: ServerCodexModelOption?,
     collaborationMode: CodexCollaborationMode,
     multiAgentEnabled: Bool,
     personality: CodexPersonalityPreset,
@@ -156,6 +184,7 @@ private struct CodexSessionSettingsPopover: View {
       String?
     ) async -> Void
   ) {
+    self.modelOption = modelOption
     self.collaborationMode = collaborationMode
     self.multiAgentEnabled = multiAgentEnabled
     self.personality = personality
@@ -178,7 +207,7 @@ private struct CodexSessionSettingsPopover: View {
       VStack(alignment: .leading, spacing: Spacing.sm) {
         composerFieldLabel("Collaboration", icon: draftCollaborationMode.icon, tint: draftCollaborationMode.color)
         Picker("Collaboration", selection: $draftCollaborationMode) {
-          ForEach(CodexCollaborationMode.allCases) { mode in
+          ForEach(availableCollaborationModes) { mode in
             Text(mode.displayName).tag(mode)
           }
         }
@@ -198,17 +227,31 @@ private struct CodexSessionSettingsPopover: View {
             tint: draftMultiAgentEnabled ? .providerCodex : .textTertiary
           )
 
+          if multiAgentIsExperimental {
+            Text("EXPERIMENTAL")
+              .font(.system(size: 7, weight: .bold, design: .rounded))
+              .foregroundStyle(Color.feedbackCaution)
+              .padding(.horizontal, 5)
+              .padding(.vertical, 1.5)
+              .background(Color.feedbackCaution.opacity(OpacityTier.light), in: Capsule())
+          }
+
           Spacer()
 
           Toggle("", isOn: $draftMultiAgentEnabled)
             .labelsHidden()
             .toggleStyle(.switch)
+            .disabled(!supportsMultiAgent)
         }
 
         Text(
-          draftMultiAgentEnabled
-            ? "Let Codex coordinate helper workers in this session."
-            : "Keep this session single-threaded. Collaboration mode still applies to the main agent."
+          supportsMultiAgent
+            ? (
+              draftMultiAgentEnabled
+                ? "Let Codex coordinate helper workers in this session."
+                : "Keep this session single-threaded. Collaboration mode still applies to the main agent."
+            )
+            : "This model does not currently advertise worker spawning support to OrbitDock."
         )
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textTertiary)
@@ -218,14 +261,24 @@ private struct CodexSessionSettingsPopover: View {
       HStack(alignment: .top, spacing: Spacing.md) {
         VStack(alignment: .leading, spacing: Spacing.sm) {
           composerFieldLabel("Personality", icon: draftPersonality.icon, tint: draftPersonality.color)
-          Picker("Personality", selection: $draftPersonality) {
-            ForEach(CodexPersonalityPreset.allCases) { preset in
-              Text(preset.displayName).tag(preset)
+          if supportsPersonality {
+            Picker("Personality", selection: $draftPersonality) {
+              ForEach(CodexPersonalityPreset.allCases) { preset in
+                Text(preset.displayName).tag(preset)
+              }
             }
+            .pickerStyle(.menu)
+          } else {
+            Text("Unavailable")
+              .font(.system(size: TypeScale.body, weight: .semibold))
+              .foregroundStyle(Color.textQuaternary)
           }
-          .pickerStyle(.menu)
 
-          Text(draftPersonality.description)
+          Text(
+            supportsPersonality
+              ? draftPersonality.description
+              : "This model does not currently expose personality overrides through OrbitDock."
+          )
             .font(.system(size: TypeScale.micro))
             .foregroundStyle(Color.textTertiary)
             .fixedSize(horizontal: false, vertical: true)
@@ -235,7 +288,7 @@ private struct CodexSessionSettingsPopover: View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
           composerFieldLabel("Service Tier", icon: draftServiceTier.icon, tint: draftServiceTier.color)
           Picker("Service Tier", selection: $draftServiceTier) {
-            ForEach(CodexServiceTierPreset.allCases) { preset in
+            ForEach(availableServiceTiers) { preset in
               Text(preset.displayName).tag(preset)
             }
           }
@@ -251,31 +304,51 @@ private struct CodexSessionSettingsPopover: View {
 
       VStack(alignment: .leading, spacing: Spacing.sm) {
         composerFieldLabel("Durable Instructions", icon: "text.append", tint: .accent)
-        ZStack(alignment: .topLeading) {
+        if supportsDeveloperInstructions {
+          ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .fill(Color.backgroundPrimary)
+              .overlay(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                  .stroke(Color.surfaceBorder, lineWidth: 1)
+              )
+
+            if draftInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+              Text("Persistent guidance for the rest of the session.")
+                .font(.system(size: TypeScale.caption))
+                .foregroundStyle(Color.textQuaternary)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
+            }
+
+            TextEditor(text: $draftInstructions)
+              .font(.system(size: TypeScale.body))
+              .scrollContentBackground(.hidden)
+              .frame(minHeight: 92, maxHeight: 132)
+              .padding(.horizontal, Spacing.sm)
+              .padding(.vertical, Spacing.xs)
+          }
+        } else {
           RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
             .fill(Color.backgroundPrimary)
+            .frame(minHeight: 72)
+            .overlay(alignment: .leading) {
+              Text("This model does not currently expose durable session instructions through OrbitDock.")
+                .font(.system(size: TypeScale.caption))
+                .foregroundStyle(Color.textQuaternary)
+                .padding(.horizontal, Spacing.md)
+            }
             .overlay(
               RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                 .stroke(Color.surfaceBorder, lineWidth: 1)
             )
-
-          if draftInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            Text("Persistent guidance for the rest of the session.")
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(Color.textQuaternary)
-              .padding(.horizontal, Spacing.md)
-              .padding(.vertical, Spacing.sm)
-          }
-
-          TextEditor(text: $draftInstructions)
-            .font(.system(size: TypeScale.body))
-            .scrollContentBackground(.hidden)
-            .frame(minHeight: 92, maxHeight: 132)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
         }
 
-        Text("Use Steer when you want a one-turn nudge instead of a durable session rule.")
+        Text(
+          supportsDeveloperInstructions
+            ? "Use Steer when you want a one-turn nudge instead of a durable session rule."
+            : "Steer the active turn if you still want one-off guidance for this model."
+        )
           .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.textTertiary)
           .fixedSize(horizontal: false, vertical: true)

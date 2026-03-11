@@ -183,6 +183,13 @@ extension DirectSessionComposer {
     serverState.codexModels
   }
 
+  var currentCodexModelOption: ServerCodexModelOption? {
+    codexModelOptions.first(where: { $0.model == (composerState.selectedModel.isEmpty ? obs.model : composerState.selectedModel) })
+      ?? codexModelOptions.first(where: { $0.model == obs.model })
+      ?? codexModelOptions.first(where: \.isDefault)
+      ?? codexModelOptions.first
+  }
+
   var currentCodexCollaborationMode: CodexCollaborationMode {
     CodexCollaborationMode.from(rawValue: obs.collaborationMode, permissionMode: obs.permissionMode)
   }

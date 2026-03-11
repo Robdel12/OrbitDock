@@ -47,6 +47,12 @@ enum CodexCollaborationMode: String, CaseIterable, Identifiable {
     }
     return .default
   }
+
+  static func supportedCases(from option: ServerCodexModelOption?) -> [CodexCollaborationMode] {
+    guard let option, !option.supportedCollaborationModes.isEmpty else { return allCases }
+    let modes = option.supportedCollaborationModes.compactMap(CodexCollaborationMode.init(rawValue:))
+    return modes.isEmpty ? allCases : modes
+  }
 }
 
 enum CodexPersonalityPreset: String, CaseIterable, Identifiable {
@@ -182,6 +188,12 @@ enum CodexServiceTierPreset: String, CaseIterable, Identifiable {
       default:
         .automatic
     }
+  }
+
+  static func supportedCases(from option: ServerCodexModelOption?) -> [CodexServiceTierPreset] {
+    guard let option, !option.supportedServiceTiers.isEmpty else { return allCases }
+    let presets = option.supportedServiceTiers.compactMap(CodexServiceTierPreset.init(rawValue:))
+    return [.automatic] + presets.filter { $0 != .automatic }
   }
 }
 
