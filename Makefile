@@ -83,6 +83,7 @@ RUST_CARGO = $(RUST_WORKSPACE_PREFIX) cargo
 	rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate \
 	release \
 	rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero \
+	cli \
 	rust-env rust-lock-status rust-unlock rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache \
 	rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 \
 	xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
@@ -182,6 +183,7 @@ help:
 	@echo "make rust-run-remote Run orbitdock on 0.0.0.0 (requires DB token or ORBITDOCK_AUTH_TOKEN)"
 	@echo "make rust-run-debug Run orbitdock with debug logs"
 	@echo "make rust-generate-token Issue a secure auth token (stored hashed in DB)"
+	@echo "make cli ARGS='...'    Run the debug orbitdock binary with arbitrary args"
 	@echo "make rust-release-darwin Build + package orbitdock-darwin-arm64.zip"
 	@echo "make rust-release-linux  Build + package host Linux arch zip (x86_64/aarch64); auto-uses Docker when needed"
 	@echo "make rust-release-linux-all Build + package both Linux release zips"
@@ -384,6 +386,9 @@ rust-run-debug:
 
 rust-generate-token:
 	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- generate-token
+
+cli:
+	$(RUST_ENV) "$(RUST_TARGET_DIR)/debug/orbitdock" $(ARGS)
 
 rust-release-darwin:
 	$(call package_release,darwin,)
