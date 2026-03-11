@@ -15,7 +15,8 @@ use std::time::SystemTime;
 use anyhow::Context;
 use codex_protocol::models::{ContentItem, ResponseItem};
 use codex_protocol::protocol::{
-    EventMsg, RolloutItem, RolloutLine, SessionMetaLine, TurnContextItem,
+    EventMsg, RealtimeHandoffRequested, RolloutItem, RolloutLine, SessionMetaLine,
+    TurnContextItem,
 };
 
 // Re-export SessionSource so the server crate can use it without depending on codex-protocol
@@ -104,6 +105,18 @@ pub enum RolloutEvent {
     ThreadNameUpdated {
         session_id: String,
         name: String,
+    },
+    DiffUpdated {
+        session_id: String,
+        diff: String,
+    },
+    PlanUpdated {
+        session_id: String,
+        plan: String,
+    },
+    SessionEnded {
+        session_id: String,
+        reason: String,
     },
     SubagentsUpdated {
         session_id: String,
@@ -906,6 +919,35 @@ impl RolloutFileProcessor {
                     token_usage,
                 }]
             }
+            EventMsg::TurnDiff(e) => vec![RolloutEvent::DiffUpdated {
+                session_id,
+                diff: e.unified_diff,
+            }],
+            EventMsg::PlanUpdate(e) => {
+                let plan = serde_json::to_string(&e).unwrap_or_default();
+                let explanation = e
+                    .explanation
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("Plan updated");
+                let content = format!("{} ({} steps)", explanation, e.plan.len());
+                vec![
+                    RolloutEvent::PlanUpdated {
+                        session_id: session_id.clone(),
+                        plan,
+                    },
+                    RolloutEvent::AppendChatMessage {
+                        session_id,
+                        message_type: MessageType::Tool,
+                        content,
+                        tool_name: Some("update_plan".to_string()),
+                        tool_input: serde_json::to_string(&e).ok(),
+                        is_error: false,
+                        images: vec![],
+                    },
+                ]
+            }
             EventMsg::ThreadNameUpdated(e) => {
                 if let Some(name) = e.thread_name {
                     vec![RolloutEvent::ThreadNameUpdated { session_id, name }]
@@ -913,6 +955,52 @@ impl RolloutFileProcessor {
                     vec![]
                 }
             }
+            EventMsg::RealtimeConversationRealtime(e) => match e.payload {
+                codex_protocol::protocol::RealtimeEvent::SessionUpdated { .. }
+                | codex_protocol::protocol::RealtimeEvent::InputTranscriptDelta(_)
+                | codex_protocol::protocol::RealtimeEvent::OutputTranscriptDelta(_)
+                | codex_protocol::protocol::RealtimeEvent::ConversationItemDone { .. }
+                | codex_protocol::protocol::RealtimeEvent::ConversationItemAdded(_)
+                | codex_protocol::protocol::RealtimeEvent::AudioOut(_) => vec![],
+                codex_protocol::protocol::RealtimeEvent::HandoffRequested(handoff) => {
+                    let Some(content) = realtime_text_from_handoff_request(&handoff) else {
+                        return vec![];
+                    };
+                    vec![RolloutEvent::AppendChatMessage {
+                        session_id,
+                        message_type: MessageType::Tool,
+                        content,
+                        tool_name: Some("handoff".to_string()),
+                        tool_input: serde_json::to_string(&handoff).ok(),
+                        is_error: false,
+                        images: vec![],
+                    }]
+                }
+                codex_protocol::protocol::RealtimeEvent::Error(message_text) => {
+                    vec![RolloutEvent::AppendChatMessage {
+                        session_id,
+                        message_type: MessageType::Assistant,
+                        content: format!("Realtime conversation error: {}", message_text),
+                        tool_name: None,
+                        tool_input: None,
+                        is_error: true,
+                        images: vec![],
+                    }]
+                }
+            },
+            EventMsg::BackgroundEvent(e) => vec![RolloutEvent::AppendChatMessage {
+                session_id,
+                message_type: MessageType::Assistant,
+                content: e.message,
+                tool_name: None,
+                tool_input: None,
+                is_error: false,
+                images: vec![],
+            }],
+            EventMsg::ShutdownComplete => vec![RolloutEvent::SessionEnded {
+                session_id,
+                reason: "shutdown".to_string(),
+            }],
             EventMsg::Warning(e) => {
                 vec![RolloutEvent::AppendChatMessage {
                     session_id,
@@ -1181,6 +1269,34 @@ impl RolloutFileProcessor {
             }
         }
         candidates
+    }
+}
+
+fn realtime_text_from_handoff_request(handoff: &RealtimeHandoffRequested) -> Option<String> {
+    let messages = handoff
+        .active_transcript
+        .iter()
+        .map(|message| {
+            let role = message.role.trim();
+            let text = message.text.trim();
+            if role.is_empty() {
+                text.to_string()
+            } else {
+                format!("{role}: {text}")
+            }
+        })
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+
+    if !messages.is_empty() {
+        return Some(messages.join("\n"));
+    }
+
+    let input = handoff.input_transcript.trim();
+    if input.is_empty() {
+        None
+    } else {
+        Some(input.to_string())
     }
 }
 
@@ -1557,8 +1673,11 @@ pub fn matches_supported_event_kind(kind: &EventKind) -> bool {
 mod tests {
     use super::*;
     use codex_protocol::protocol::{
-        AgentStatus, CollabAgentSpawnEndEvent, CollabAgentStatusEntry, CollabWaitingEndEvent,
+        AgentStatus, BackgroundEventEvent, CollabAgentSpawnEndEvent, CollabAgentStatusEntry,
+        CollabWaitingEndEvent, RealtimeConversationRealtimeEvent, RealtimeEvent,
+        RealtimeHandoffRequested, RealtimeTranscriptEntry, TurnDiffEvent,
     };
+    use codex_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
     use codex_protocol::ThreadId;
 
     fn test_thread_id(value: &str) -> ThreadId {
@@ -1666,5 +1785,133 @@ mod tests {
             }
             other => panic!("unexpected events: {other:?}"),
         }
+    }
+
+    #[test]
+    fn passive_realtime_handoff_emits_tool_message() {
+        let path = "/tmp/rollout-00000000-0000-0000-0000-000000000003.jsonl";
+        let mut processor = test_processor("session-3", path);
+        let events = processor.parse_event_msg(
+            EventMsg::RealtimeConversationRealtime(RealtimeConversationRealtimeEvent {
+                payload: RealtimeEvent::HandoffRequested(RealtimeHandoffRequested {
+                    handoff_id: "handoff-1".to_string(),
+                    item_id: "item-1".to_string(),
+                    input_transcript: String::new(),
+                    active_transcript: vec![
+                        RealtimeTranscriptEntry {
+                            role: "user".to_string(),
+                            text: "Help with auth".to_string(),
+                        },
+                        RealtimeTranscriptEntry {
+                            role: "assistant".to_string(),
+                            text: "Passing this to a worker".to_string(),
+                        },
+                    ],
+                }),
+            }),
+            path,
+        );
+
+        match events.as_slice() {
+            [RolloutEvent::AppendChatMessage {
+                session_id,
+                message_type,
+                content,
+                tool_name,
+                ..
+            }] => {
+                assert_eq!(session_id, "session-3");
+                assert_eq!(*message_type, MessageType::Tool);
+                assert_eq!(tool_name.as_deref(), Some("handoff"));
+                assert_eq!(
+                    content,
+                    "user: Help with auth\nassistant: Passing this to a worker"
+                );
+            }
+            other => panic!("unexpected events: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn passive_plan_and_diff_events_emit_state_updates() {
+        let path = "/tmp/rollout-00000000-0000-0000-0000-000000000004.jsonl";
+        let mut processor = test_processor("session-4", path);
+
+        let diff_events = processor.parse_event_msg(
+            EventMsg::TurnDiff(TurnDiffEvent {
+                unified_diff: "diff --git a/file b/file".to_string(),
+            }),
+            path,
+        );
+        assert!(matches!(
+            diff_events.as_slice(),
+            [RolloutEvent::DiffUpdated {
+                session_id,
+                diff
+            }] if session_id == "session-4" && diff == "diff --git a/file b/file"
+        ));
+
+        let plan_events = processor.parse_event_msg(
+            EventMsg::PlanUpdate(UpdatePlanArgs {
+                explanation: Some("Sync the worker plan".to_string()),
+                plan: vec![PlanItemArg {
+                    step: "Ship passive parity".to_string(),
+                    status: StepStatus::InProgress,
+                }],
+            }),
+            path,
+        );
+
+        match plan_events.as_slice() {
+            [
+                RolloutEvent::PlanUpdated { session_id, plan },
+                RolloutEvent::AppendChatMessage {
+                    session_id: append_session_id,
+                    message_type,
+                    content,
+                    tool_name,
+                    ..
+                },
+            ] => {
+                assert_eq!(session_id, "session-4");
+                assert_eq!(append_session_id, "session-4");
+                assert_eq!(*message_type, MessageType::Tool);
+                assert_eq!(tool_name.as_deref(), Some("update_plan"));
+                assert_eq!(content, "Sync the worker plan (1 steps)");
+                assert!(plan.contains("Ship passive parity"));
+            }
+            other => panic!("unexpected events: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn passive_background_and_shutdown_events_are_surfaced() {
+        let path = "/tmp/rollout-00000000-0000-0000-0000-000000000005.jsonl";
+        let mut processor = test_processor("session-5", path);
+
+        let background_events = processor.parse_event_msg(
+            EventMsg::BackgroundEvent(BackgroundEventEvent {
+                message: "Background sync complete".to_string(),
+            }),
+            path,
+        );
+        assert!(matches!(
+            background_events.as_slice(),
+            [RolloutEvent::AppendChatMessage {
+                session_id,
+                message_type,
+                content,
+                ..
+            }] if session_id == "session-5"
+                && *message_type == MessageType::Assistant
+                && content == "Background sync complete"
+        ));
+
+        let shutdown_events = processor.parse_event_msg(EventMsg::ShutdownComplete, path);
+        assert!(matches!(
+            shutdown_events.as_slice(),
+            [RolloutEvent::SessionEnded { session_id, reason }]
+                if session_id == "session-5" && reason == "shutdown"
+        ));
     }
 }

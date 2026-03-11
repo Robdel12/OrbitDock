@@ -244,6 +244,15 @@ impl WatcherRuntime {
                 RolloutEvent::ThreadNameUpdated { session_id, name } => {
                     self.set_custom_name(&session_id, Some(name)).await;
                 }
+                RolloutEvent::DiffUpdated { session_id, diff } => {
+                    self.update_turn_diff(&session_id, diff).await;
+                }
+                RolloutEvent::PlanUpdated { session_id, plan } => {
+                    self.update_turn_plan(&session_id, plan).await;
+                }
+                RolloutEvent::SessionEnded { session_id, reason } => {
+                    self.end_rollout_session(&session_id, &reason).await;
+                }
                 RolloutEvent::SubagentsUpdated {
                     session_id,
                     subagents,
@@ -860,6 +869,72 @@ impl WatcherRuntime {
                     .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
             }
         }
+    }
+
+    async fn update_turn_diff(&mut self, session_id: &str, diff: String) {
+        if let Some(actor) = self.app_state.get_session(session_id) {
+            actor
+                .send(SessionCommand::ProcessEvent {
+                    event: crate::domain::sessions::transition::Input::DiffUpdated(diff),
+                })
+                .await;
+        } else {
+            let _ = self
+                .persist_tx
+                .send(PersistCommand::TurnStateUpdate {
+                    session_id: session_id.to_string(),
+                    diff: Some(diff),
+                    plan: None,
+                })
+                .await;
+        }
+
+        self.schedule_session_timeout(session_id);
+    }
+
+    async fn update_turn_plan(&mut self, session_id: &str, plan: String) {
+        if let Some(actor) = self.app_state.get_session(session_id) {
+            actor
+                .send(SessionCommand::ProcessEvent {
+                    event: crate::domain::sessions::transition::Input::PlanUpdated(plan),
+                })
+                .await;
+        } else {
+            let _ = self
+                .persist_tx
+                .send(PersistCommand::TurnStateUpdate {
+                    session_id: session_id.to_string(),
+                    diff: None,
+                    plan: Some(plan),
+                })
+                .await;
+        }
+
+        self.schedule_session_timeout(session_id);
+    }
+
+    async fn end_rollout_session(&mut self, session_id: &str, reason: &str) {
+        if let Some(handle) = self.session_timeouts.remove(session_id) {
+            handle.abort();
+        }
+
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::SessionEnd {
+                id: session_id.to_string(),
+                reason: reason.to_string(),
+            })
+            .await;
+
+        if let Some(actor) = self.app_state.get_session(session_id) {
+            actor.send(SessionCommand::EndLocally).await;
+        }
+
+        self.app_state
+            .broadcast_to_list(ServerMessage::SessionEnded {
+                session_id: session_id.to_string(),
+                reason: reason.to_string(),
+            });
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1768,5 +1843,96 @@ mod tests {
         let _ = std::fs::remove_file(&rollout_path);
         let _ = std::fs::remove_file(tmp_dir.join("state.json"));
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[tokio::test]
+    async fn rollout_turn_state_updates_refresh_passive_session_state() {
+        ensure_server_test_data_dir();
+        let session_id = format!("passive-turn-state-{}", std::process::id());
+        let (persist_tx, _persist_rx) = mpsc::channel(32);
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+        {
+            let mut handle =
+                SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            app_state.add_session(handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = make_test_runtime(
+            app_state.clone(),
+            persist_tx,
+            watcher_tx,
+            std::env::temp_dir().join(format!("orbitdock-turn-state-{}.json", session_id)),
+            HashMap::new(),
+        );
+
+        runtime
+            .handle_rollout_events(vec![
+                RolloutEvent::DiffUpdated {
+                    session_id: session_id.clone(),
+                    diff: "diff --git a/file b/file".to_string(),
+                },
+                RolloutEvent::PlanUpdated {
+                    session_id: session_id.clone(),
+                    plan: "{\"plan\":[{\"step\":\"Ship passive parity\",\"status\":\"in_progress\"}]}"
+                        .to_string(),
+                },
+            ])
+            .await
+            .expect("handle rollout turn-state updates");
+
+        let snapshot = {
+            let actor = app_state.get_session(&session_id).expect("session exists");
+            actor.retained_state().await.expect("retained state")
+        };
+
+        assert_eq!(snapshot.current_diff.as_deref(), Some("diff --git a/file b/file"));
+        assert!(
+            snapshot
+                .current_plan
+                .as_deref()
+                .expect("plan persisted")
+                .contains("Ship passive parity")
+        );
+    }
+
+    #[tokio::test]
+    async fn rollout_shutdown_ends_passive_session_immediately() {
+        ensure_server_test_data_dir();
+        let session_id = format!("passive-shutdown-{}", std::process::id());
+        let (persist_tx, _persist_rx) = mpsc::channel(32);
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+        {
+            let mut handle =
+                SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            app_state.add_session(handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = make_test_runtime(
+            app_state.clone(),
+            persist_tx,
+            watcher_tx,
+            std::env::temp_dir().join(format!("orbitdock-shutdown-{}.json", session_id)),
+            HashMap::new(),
+        );
+
+        runtime
+            .handle_rollout_events(vec![RolloutEvent::SessionEnded {
+                session_id: session_id.clone(),
+                reason: "shutdown".to_string(),
+            }])
+            .await
+            .expect("handle rollout shutdown");
+
+        let snapshot = {
+            let actor = app_state.get_session(&session_id).expect("session exists");
+            actor.retained_state().await.expect("retained state")
+        };
+
+        assert_eq!(snapshot.status, SessionStatus::Ended);
+        assert_eq!(snapshot.work_status, WorkStatus::Ended);
     }
 }
