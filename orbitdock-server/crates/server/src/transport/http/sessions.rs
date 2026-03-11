@@ -40,6 +40,12 @@ pub struct ConversationPageQuery {
     pub before_sequence: Option<u64>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct SessionSnapshotQuery {
+    #[serde(default)]
+    pub include_messages: bool,
+}
+
 #[derive(Debug, Serialize)]
 pub struct MarkReadResponse {
     pub session_id: String,
@@ -60,9 +66,10 @@ pub async fn list_sessions(State(state): State<Arc<SessionRegistry>>) -> Json<Se
 
 pub async fn get_session(
     Path(session_id): Path<String>,
+    Query(query): Query<SessionSnapshotQuery>,
     State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<SessionResponse> {
-    match load_full_session_state(&state, &session_id).await {
+    match load_full_session_state(&state, &session_id, query.include_messages).await {
         Ok(session) => Ok(Json(SessionResponse { session })),
         Err(SessionLoadError::NotFound) => Err((
             StatusCode::NOT_FOUND,
@@ -253,7 +260,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_session_returns_full_untruncated_message_content() {
+    async fn get_session_omits_messages_by_default() {
         let state = new_test_state(true);
         let session_id = format!("od-{}", orbitdock_protocol::new_id());
         let mut handle = SessionHandle::new(
@@ -279,7 +286,59 @@ mod tests {
         });
         state.add_session(handle);
 
-        let response = get_session(Path(session_id), State(state)).await;
+        let response = get_session(
+            Path(session_id),
+            Query(SessionSnapshotQuery::default()),
+            State(state),
+        )
+        .await;
+        match response {
+            Ok(Json(payload)) => {
+                assert!(payload.session.messages.is_empty());
+                assert_eq!(payload.session.total_message_count, Some(1));
+            }
+            Err((status, body)) => panic!(
+                "expected successful session response, got status {:?} with error {:?}",
+                status, body.error
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn get_session_includes_full_untruncated_message_content_when_requested() {
+        let state = new_test_state(true);
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let mut handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/orbitdock-api-test".to_string(),
+        );
+        let large_content = "x".repeat(40_000);
+        handle.add_message(Message {
+            id: orbitdock_protocol::new_id(),
+            session_id: session_id.clone(),
+            sequence: None,
+            message_type: MessageType::Assistant,
+            content: large_content.clone(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            is_in_progress: false,
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            duration_ms: None,
+            images: vec![],
+        });
+        state.add_session(handle);
+
+        let response = get_session(
+            Path(session_id),
+            Query(SessionSnapshotQuery {
+                include_messages: true,
+            }),
+            State(state),
+        )
+        .await;
         match response {
             Ok(Json(payload)) => {
                 assert_eq!(payload.session.messages.len(), 1);

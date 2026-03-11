@@ -43,7 +43,7 @@ pub(crate) struct DispatchSendMessage {
 pub(crate) async fn dispatch_send_message(
     state: &Arc<SessionRegistry>,
     request: DispatchSendMessage,
-) -> Result<(), DispatchMessageError> {
+) -> Result<orbitdock_protocol::Message, DispatchMessageError> {
     let DispatchSendMessage {
         session_id,
         content,
@@ -174,7 +174,9 @@ pub(crate) async fn dispatch_send_message(
         })
         .await;
     actor
-        .send(SessionCommand::AddMessageAndBroadcast { message: user_msg })
+        .send(SessionCommand::AddMessageAndBroadcast {
+            message: user_msg.clone(),
+        })
         .await;
 
     if let Some(tx) = codex_tx {
@@ -223,7 +225,7 @@ pub(crate) async fn dispatch_send_message(
         }
     }
 
-    Ok(())
+    Ok(user_msg)
 }
 
 pub(crate) async fn dispatch_steer_turn(

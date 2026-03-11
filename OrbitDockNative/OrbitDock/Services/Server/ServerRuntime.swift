@@ -87,6 +87,11 @@ final class ServerRuntime: Identifiable {
     isStarted = true
   }
 
+  func reconnectIfNeeded() {
+    guard isStarted else { return }
+    eventStream.reconnectIfNeeded()
+  }
+
   func suspendInactive() {
     stop()
   }

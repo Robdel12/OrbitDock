@@ -18,7 +18,8 @@ extension SessionStore {
     request.skills = skills
     request.images = images
     request.mentions = mentions
-    try await clients.conversation.sendMessage(sessionId, request: request)
+    let message = try await clients.conversation.sendMessage(sessionId, request: request)
+    handleMessageAppended(sessionId, message)
   }
 
   func steerTurn(

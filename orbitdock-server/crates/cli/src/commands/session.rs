@@ -271,7 +271,11 @@ async fn list(
 }
 
 async fn get(rest: &RestClient, output: &Output, session_id: &str, messages: bool) -> i32 {
-    let path = format!("/api/sessions/{session_id}");
+    let path = if messages {
+        format!("/api/sessions/{session_id}?include_messages=true")
+    } else {
+        format!("/api/sessions/{session_id}")
+    };
     match rest.get::<SessionResponse>(&path).await.into_result() {
         Ok(mut resp) => {
             if !messages {

@@ -55,6 +55,7 @@ final class SessionStore {
 
   @ObservationIgnored var lastRevision: [String: UInt64] = [:]
   @ObservationIgnored var controlStates: [String: SessionControlState] = [:]
+  @ObservationIgnored var sessionSnapshotRefreshesInFlight: Set<String> = []
   @ObservationIgnored var subscribedSessions: Set<String> = []
   @ObservationIgnored var autoMarkReadSessions: Set<String> = []
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []
@@ -159,7 +160,6 @@ final class SessionStore {
     recoveryGoal: ConversationRecoveryGoal = .coherentRecent
   ) {
     subscribedSessions.insert(sessionId)
-    loadSessionSnapshot(sessionId)
 
     let conv = conversation(sessionId)
 
@@ -203,10 +203,13 @@ final class SessionStore {
       case .freshBootstrap:
         netLog(.info, cat: .store, "Subscribe: Path 3 — fresh HTTP bootstrap", sid: sessionId)
         Task {
-          let revision = await conv.bootstrap(goal: recoveryGoal)
+          let bootstrap = await conv.bootstrapSnapshot(goal: recoveryGoal)
+          if let state = bootstrap?.session {
+            handleSessionSnapshot(state)
+          }
           eventStream.subscribeSession(
             sessionId,
-            sinceRevision: revision,
+            sinceRevision: bootstrap?.session.revision,
             includeSnapshot: false
           )
         }
@@ -235,17 +238,6 @@ final class SessionStore {
 
   func isSessionSubscribed(_ sessionId: String) -> Bool {
     subscribedSessions.contains(sessionId)
-  }
-
-  private func loadSessionSnapshot(_ sessionId: String) {
-    Task {
-      do {
-        let snapshot = try await clients.sessions.fetchSessionSnapshot(sessionId)
-        handleSessionSnapshot(snapshot)
-      } catch {
-        netLog(.warning, cat: .store, "Load session snapshot failed", sid: sessionId, data: ["error": error.localizedDescription])
-      }
-    }
   }
 
   // MARK: - Codex Account Actions
@@ -294,6 +286,31 @@ final class SessionStore {
       } catch {
         codexAuthError = error.localizedDescription
       }
+    }
+  }
+
+  func refreshSessionSnapshot(_ sessionId: String) {
+    guard !sessionSnapshotRefreshesInFlight.contains(sessionId) else { return }
+
+    sessionSnapshotRefreshesInFlight.insert(sessionId)
+    Task {
+      defer { sessionSnapshotRefreshesInFlight.remove(sessionId) }
+      do {
+        let snapshot = try await clients.sessions.fetchSessionSnapshot(sessionId)
+        handleSessionSnapshot(snapshot)
+      } catch {
+        netLog(.warning, cat: .store, "Refresh session snapshot failed", sid: sessionId, data: ["error": error.localizedDescription])
+      }
+    }
+  }
+
+  nonisolated static func shouldRefreshSnapshotForAppendedMessage(
+    isSubscribed: Bool,
+    subagentStatuses: [ServerSubagentStatus?]
+  ) -> Bool {
+    guard isSubscribed else { return false }
+    return subagentStatuses.contains { status in
+      status == .pending || status == .running
     }
   }
 }

@@ -6,6 +6,12 @@ pub struct AcceptedResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct SendMessageResponse {
+    pub accepted: bool,
+    pub message: orbitdock_protocol::Message,
+}
+
+#[derive(Debug, Serialize)]
 pub struct UploadedImageAttachmentResponse {
     pub image: ImageInput,
 }
@@ -68,7 +74,7 @@ pub async fn post_session_message(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<SendSessionMessageRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<(StatusCode, Json<SendMessageResponse>), (StatusCode, Json<ApiErrorResponse>)> {
     if body.content.is_empty()
         && body.images.is_empty()
         && body.mentions.is_empty()
@@ -85,7 +91,7 @@ pub async fn post_session_message(
 
     let message_id = next_http_message_id("user-http");
 
-    crate::runtime::message_dispatch::dispatch_send_message(
+    let user_msg = crate::runtime::message_dispatch::dispatch_send_message(
         &state,
         crate::runtime::message_dispatch::DispatchSendMessage {
             session_id: session_id.clone(),
@@ -103,7 +109,10 @@ pub async fn post_session_message(
 
     Ok((
         StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
+        Json(SendMessageResponse {
+            accepted: true,
+            message: user_msg,
+        }),
     ))
 }
 
@@ -372,7 +381,7 @@ mod tests {
         let uploaded =
             upload_test_attachment(state.clone(), &session_id, b"send-message-image").await;
 
-        let _ = post_session_message(
+        let (status, Json(response)) = post_session_message(
             Path(session_id.clone()),
             State(state.clone()),
             Json(SendSessionMessageRequest {
@@ -386,6 +395,10 @@ mod tests {
         )
         .await
         .expect("post session message should succeed");
+        assert_eq!(status, StatusCode::ACCEPTED);
+        assert!(response.accepted);
+        assert_eq!(response.message.message_type, MessageType::User);
+        assert_eq!(response.message.content, "look at this");
 
         let action = action_rx
             .recv()
@@ -400,7 +413,7 @@ mod tests {
             other => panic!("expected SendMessage action, got {:?}", other),
         }
 
-        let persisted_state = load_full_session_state(&state, &session_id)
+        let persisted_state = load_full_session_state(&state, &session_id, true)
             .await
             .expect("should load full session state");
         let persisted = persisted_state
@@ -452,7 +465,7 @@ mod tests {
             other => panic!("expected SteerTurn action, got {:?}", other),
         }
 
-        let persisted_state = load_full_session_state(&state, &session_id)
+        let persisted_state = load_full_session_state(&state, &session_id, true)
             .await
             .expect("should load full session state");
         let persisted = persisted_state

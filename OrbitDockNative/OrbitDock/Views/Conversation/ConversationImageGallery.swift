@@ -110,28 +110,20 @@ final class ImageCache {
   private func startAttachmentLoadIfNeeded(reference: ServerAttachmentImageReference, imageId: String) {
     guard let endpointId = reference.endpointId else { return }
 
-    lock.lock()
-    let isAlreadyLoading = inFlightLoads.contains(imageId)
-    let sessionStore = sessionStoresByEndpointId[endpointId]?.store
-    if !isAlreadyLoading {
-      inFlightLoads.insert(imageId)
-    }
-    lock.unlock()
+    let (isAlreadyLoading, sessionStore) = prepareAttachmentLoad(
+      endpointId: endpointId,
+      imageId: imageId
+    )
 
     guard !isAlreadyLoading else { return }
     guard let sessionStore else {
-      lock.lock()
-      inFlightLoads.remove(imageId)
-      sessionStoresByEndpointId.removeValue(forKey: endpointId)
-      lock.unlock()
+      abandonAttachmentLoad(endpointId: endpointId, imageId: imageId)
       return
     }
 
     Task {
       defer {
-        lock.lock()
-        inFlightLoads.remove(imageId)
-        lock.unlock()
+        finishAttachmentLoad(imageId: imageId)
       }
 
       guard let data = try? await sessionStore.clients.conversation.downloadImageAttachment(
@@ -148,10 +140,12 @@ final class ImageCache {
 
       guard let loaded = cachedImage(for: resolvedImage) else { return }
 
-      lock.lock()
-      cache[imageId] = loaded
-      sessionStoresByEndpointId[endpointId] = WeakSessionStoreBox(sessionStore)
-      lock.unlock()
+      storeLoadedAttachmentImage(
+        endpointId: endpointId,
+        imageId: imageId,
+        image: loaded,
+        sessionStore: sessionStore
+      )
 
       await MainActor.run {
         NotificationCenter.default.post(
@@ -161,6 +155,46 @@ final class ImageCache {
         )
       }
     }
+  }
+
+  private func prepareAttachmentLoad(
+    endpointId: UUID,
+    imageId: String
+  ) -> (isAlreadyLoading: Bool, sessionStore: SessionStore?) {
+    lock.lock()
+    defer { lock.unlock() }
+
+    let isAlreadyLoading = inFlightLoads.contains(imageId)
+    let sessionStore = sessionStoresByEndpointId[endpointId]?.store
+    if !isAlreadyLoading {
+      inFlightLoads.insert(imageId)
+    }
+    return (isAlreadyLoading, sessionStore)
+  }
+
+  private func abandonAttachmentLoad(endpointId: UUID, imageId: String) {
+    lock.lock()
+    defer { lock.unlock() }
+    inFlightLoads.remove(imageId)
+    sessionStoresByEndpointId.removeValue(forKey: endpointId)
+  }
+
+  private func finishAttachmentLoad(imageId: String) {
+    lock.lock()
+    defer { lock.unlock() }
+    inFlightLoads.remove(imageId)
+  }
+
+  private func storeLoadedAttachmentImage(
+    endpointId: UUID,
+    imageId: String,
+    image: CachedImage,
+    sessionStore: SessionStore
+  ) {
+    lock.lock()
+    defer { lock.unlock() }
+    cache[imageId] = image
+    sessionStoresByEndpointId[endpointId] = WeakSessionStoreBox(sessionStore)
   }
 
   private static func originalDimensions(from source: CGImageSource) -> (Int, Int) {

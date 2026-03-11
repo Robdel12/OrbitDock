@@ -12,6 +12,8 @@ struct DirectSessionComposerState: Equatable {
   var message = ""
   var isSending = false
   var errorMessage: String?
+  var pendingRecoveredSendContent: String?
+  var pendingRecoveredSendStartedAt: Date?
   var selectedModel = ""
   var selectedClaudeModel = ""
   var selectedEffort: EffortLevel = .default

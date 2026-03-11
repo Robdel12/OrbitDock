@@ -53,8 +53,11 @@ struct OrbitDockWindowRoot: View {
       .onDisappear {
         appRuntime.externalNavigationCenter.unregisterWindow(windowID)
       }
-      .onChange(of: scenePhase, initial: true) { _, newPhase in
+      .onChange(of: scenePhase, initial: true) { oldPhase, newPhase in
         updateWindowFocus(for: newPhase)
+        if oldPhase != .active, newPhase == .active {
+          appRuntime.runtimeRegistry.reconnectAllIfNeeded()
+        }
       }
       .onChange(of: router.selectedScopedID, initial: true) { _, newId in
         windowSessionCoordinator.selectedSessionDidChange(to: newId)

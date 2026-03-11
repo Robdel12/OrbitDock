@@ -391,6 +391,7 @@ pub(crate) async fn load_conversation_bootstrap(
 pub(crate) async fn load_full_session_state(
     state: &Arc<SessionRegistry>,
     session_id: &str,
+    include_messages: bool,
 ) -> Result<SessionState, SessionLoadError> {
     if let Some(actor) = state.get_session(session_id) {
         let mut snapshot = actor
@@ -398,23 +399,29 @@ pub(crate) async fn load_full_session_state(
             .await
             .map_err(SessionLoadError::Runtime)?;
 
-        hydrate_runtime_messages(&actor, &mut snapshot, session_id).await;
-        snapshot.messages = hydrate_full_message_history(
-            session_id,
-            snapshot.messages,
-            snapshot.total_message_count,
-        )
-        .await;
-        snapshot.total_message_count = Some(snapshot.messages.len() as u64);
-        snapshot.has_more_before = Some(false);
-        snapshot.oldest_sequence = snapshot
-            .messages
-            .first()
-            .and_then(|message| message.sequence);
-        snapshot.newest_sequence = snapshot
-            .messages
-            .last()
-            .and_then(|message| message.sequence);
+        if include_messages {
+            hydrate_runtime_messages(&actor, &mut snapshot, session_id).await;
+            snapshot.messages = hydrate_full_message_history(
+                session_id,
+                snapshot.messages,
+                snapshot.total_message_count,
+            )
+            .await;
+            snapshot.total_message_count = Some(snapshot.messages.len() as u64);
+            snapshot.has_more_before = Some(false);
+            snapshot.oldest_sequence = snapshot
+                .messages
+                .first()
+                .and_then(|message| message.sequence);
+            snapshot.newest_sequence = snapshot
+                .messages
+                .last()
+                .and_then(|message| message.sequence);
+        } else {
+            snapshot.messages.clear();
+            snapshot.oldest_sequence = None;
+            snapshot.newest_sequence = None;
+        }
         hydrate_subagents(&mut snapshot, session_id).await;
         return Ok(snapshot);
     }
@@ -432,6 +439,11 @@ pub(crate) async fn load_full_session_state(
             }
 
             let mut state = restored_session_to_state(restored);
+            if !include_messages {
+                state.messages.clear();
+                state.oldest_sequence = None;
+                state.newest_sequence = None;
+            }
             hydrate_subagents(&mut state, session_id).await;
             Ok(state)
         }
@@ -770,7 +782,7 @@ mod tests {
         }
         state.add_session(handle);
 
-        let session = load_full_session_state(&state, &session_id)
+        let session = load_full_session_state(&state, &session_id, true)
             .await
             .expect("load full session state");
 
@@ -865,7 +877,7 @@ mod tests {
         }
         state.add_session(handle);
 
-        let session = load_full_session_state(&state, &session_id)
+        let session = load_full_session_state(&state, &session_id, true)
             .await
             .expect("load full session state with runtime override");
 

@@ -48,12 +48,17 @@ struct ConversationClient: Sendable {
     )
   }
 
-  func sendMessage(_ sessionId: String, request: SendMessageRequest) async throws {
-    try await http.sendVoid(
+  struct SendMessageResponse: Decodable {
+    let accepted: Bool
+    let message: ServerMessage
+  }
+
+  func sendMessage(_ sessionId: String, request: SendMessageRequest) async throws -> ServerMessage {
+    let response: SendMessageResponse = try await http.post(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/messages",
-      method: "POST",
       body: request
     )
+    return response.message
   }
 
   func steerTurn(_ sessionId: String, request: SteerTurnRequest) async throws {

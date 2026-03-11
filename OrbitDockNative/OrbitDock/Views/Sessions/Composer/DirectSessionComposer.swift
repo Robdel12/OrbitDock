@@ -188,6 +188,9 @@ struct DirectSessionComposer: View {
     .onChange(of: message) { _, newValue in
       ComposerDraftStore.save(newValue, for: draftStorageKey)
     }
+    .onChange(of: serverState.conversation(sessionId).messagesRevision) { _, _ in
+      reconcileRecoveredSendIfNeeded()
+    }
     .onChange(of: pendingApprovalIdentity) { _, newValue in
       resetPendingPanelStateForRequest()
       guard !newValue.isEmpty, newValue != pendingState.lastHapticApprovalIdentity else {

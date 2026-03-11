@@ -325,6 +325,12 @@ final class ServerRuntimeRegistry {
     configureFromSettings(startEnabled: true)
   }
 
+  func reconnectAllIfNeeded() {
+    for runtime in runtimesByEndpointId.values {
+      runtime.reconnectIfNeeded()
+    }
+  }
+
   func handleMemoryPressure() {
     for runtime in runtimesByEndpointId.values {
       runtime.sessionStore.handleMemoryPressure()

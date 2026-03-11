@@ -119,6 +119,14 @@ final class ConversationStore {
   /// Load the newest conversation page from the server.
   /// Returns the bootstrap's revision for WS subscription.
   func bootstrap(goal: ConversationRecoveryGoal = .coherentRecent) async -> UInt64? {
+    let result = await bootstrapSnapshot(goal: goal)
+    return result?.session.revision
+  }
+
+  /// Load the newest conversation page from the server and return the full
+  /// bootstrap payload so callers can hydrate session-level state without
+  /// issuing a second full-session request.
+  func bootstrapSnapshot(goal: ConversationRecoveryGoal = .coherentRecent) async -> ServerConversationBootstrap? {
     netLog(.info, cat: .conv, "Bootstrapping", sid: self.sessionId)
     lastHydrationGoal = goal
     if !hydrationState.hasRenderableConversation {
@@ -128,7 +136,7 @@ final class ConversationStore {
       let result = try await clients.conversation.fetchConversationBootstrap(sessionId, limit: kPageSize)
       applyBootstrap(result, goal: goal)
       netLog(.info, cat: .conv, "Bootstrap complete", sid: self.sessionId, data: ["messages": self.messages.count, "revision": result.session.revision ?? 0])
-      return result.session.revision
+      return result
     } catch {
       hydrationState = messages.isEmpty ? .failed : .readyPartial
       netLog(.error, cat: .conv, "Bootstrap failed", sid: self.sessionId, data: ["error": error.localizedDescription])
@@ -289,44 +297,6 @@ final class ConversationStore {
     netLog(.warning, cat: .conv, "Fresh bootstrap requested", sid: self.sessionId)
     backfillTask?.cancel()
     _ = await bootstrap(goal: .completeHistory)
-  }
-
-  /// Handle session snapshot by replacing messages entirely.
-  func handleSnapshot(_ state: ServerSessionState) {
-    let incoming = state.messages.map { $0.toTranscriptMessage(endpointId: endpointId) }
-    let normalized = normalizeMessages(incoming)
-
-    let existingOldest = oldestLoadedSequence
-    let snapshotOldest = state.oldestSequence
-
-    var preserved: [TranscriptMessage] = []
-    if let sOldest = snapshotOldest, let eOldest = existingOldest, eOldest < sOldest {
-      preserved = messages.filter { msg in
-        guard let seq = msg.sequence else { return false }
-        return seq < sOldest
-      }
-    }
-
-    messages = preserved + normalized
-    totalMessageCount = max(Int(state.totalMessageCount ?? 0), messages.count)
-    oldestLoadedSequence = preserved.first?.sequence ?? state.oldestSequence
-    newestLoadedSequence = state.newestSequence
-    hasMoreHistoryBefore = preserved.isEmpty ? (state.hasMoreBefore ?? false) : true
-    hasReceivedInitialData = true
-    hydrationState = hasMoreHistoryBefore ? .readyPartial : .readyComplete
-    bumpRevision()
-    netLog(
-      .info,
-      cat: .conv,
-      "Snapshot received",
-      sid: self.sessionId,
-      data: [
-        "messages": messages.count,
-        "incomingMessages": normalized.count,
-        "preservedMessages": preserved.count,
-      ]
-    )
-    scheduleBackfillIfNeeded()
   }
 
   /// Clear all message data (e.g. on disconnect).

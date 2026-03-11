@@ -260,15 +260,6 @@ extension SessionStore {
     let obs = self.session(state.id)
     hydrateObservable(obs, from: session)
     obs.subagents = state.subagents
-
-    let conversationStore = conversation(state.id)
-    let shouldHydrateConversationFromSnapshot =
-      !state.messages.isEmpty
-      || (state.totalMessageCount ?? 0) == 0
-      || !conversationStore.hasRenderableConversation
-    if shouldHydrateConversationFromSnapshot {
-      conversationStore.handleSnapshot(state)
-    }
     let transition = SessionControlStateReducer.snapshotTransition(
       current: controlState(sessionId: state.id, observable: obs),
       snapshot: state,
@@ -303,6 +294,13 @@ extension SessionStore {
   func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
     netLog(.debug, cat: .store, "Message appended", sid: sessionId, data: ["messageId": message.id])
     conversation(sessionId).handleMessageAppended(message)
+    let observable = session(sessionId)
+    if Self.shouldRefreshSnapshotForAppendedMessage(
+      isSubscribed: subscribedSessions.contains(sessionId),
+      subagentStatuses: observable.subagents.map(\.status)
+    ) {
+      refreshSessionSnapshot(sessionId)
+    }
     if autoMarkReadSessions.contains(sessionId) {
       markSessionAsRead(sessionId)
     }

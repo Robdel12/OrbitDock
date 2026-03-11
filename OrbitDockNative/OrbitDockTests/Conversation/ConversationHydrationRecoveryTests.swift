@@ -150,59 +150,11 @@ struct ConversationHydrationRecoveryTests {
     #expect(store.session(sessionId).approvalHistory.isEmpty)
 
     let paths = await transport.requestPaths()
-    #expect(paths.count == 4)
-    #expect(paths.contains("/api/sessions/session-cache"))
+    #expect(paths.count == 3)
+    #expect(!paths.contains("/api/sessions/session-cache"))
     #expect(paths.contains("/api/sessions/session-cache/conversation?limit=50"))
     #expect(paths.contains("/api/approvals?limit=200&session_id=session-cache"))
     #expect(paths.contains("/api/sessions/session-cache/messages?before_sequence=10&limit=50"))
-  }
-
-  @Test func partialSnapshotDoesNotStompRecoveredHistory() async throws {
-    let transport = ConversationRecoveryTransport()
-    let store = ConversationStore(
-      sessionId: "session-recovery",
-      endpointId: endpointId,
-      clients: ServerClients(
-        serverURL: URL(string: "http://127.0.0.1:4000")!,
-        authToken: nil,
-        dataLoader: transport.load
-      )
-    )
-
-    _ = await store.bootstrap(goal: ConversationRecoveryGoal.completeHistory)
-    await store.waitForHydrationToSettle()
-
-    #expect(store.messages.map(\TranscriptMessage.id) == [
-      "user-1", "tool-2", "assistant-3", "user-4",
-      "user-5", "assistant-6", "user-7", "assistant-8",
-      "user-9", "assistant-10", "user-11", "assistant-12",
-    ])
-
-    store.handleSnapshot(
-      makeSnapshot(
-        sessionId: "session-recovery",
-        messages: [
-          makeServerMessage(id: "user-9", sequence: 9, type: .user, content: "Ninth prompt"),
-          makeServerMessage(id: "assistant-10", sequence: 10, type: .assistant, content: "Tenth reply"),
-          makeServerMessage(id: "user-11", sequence: 11, type: .user, content: "Eleventh prompt"),
-          makeServerMessage(id: "assistant-12", sequence: 12, type: .assistant, content: "Twelfth reply"),
-        ],
-        totalMessageCount: 12,
-        hasMoreBefore: true,
-        oldestSequence: 9,
-        newestSequence: 12
-      )
-    )
-
-    #expect(store.messages.map(\TranscriptMessage.id) == [
-      "user-1", "tool-2", "assistant-3", "user-4",
-      "user-5", "assistant-6", "user-7", "assistant-8",
-      "user-9", "assistant-10", "user-11", "assistant-12",
-    ])
-    #expect(store.oldestLoadedSequence == 1)
-    #expect(store.newestLoadedSequence == 12)
-    #expect(store.hasMoreHistoryBefore)
-    #expect(store.hydrationState == ConversationHydrationState.readyPartial)
   }
 
   private func makeMessage(
@@ -220,83 +172,6 @@ struct ConversationHydrationRecoveryTests {
     )
   }
 
-  private func makeSnapshot(
-    sessionId: String,
-    messages: [ServerMessage],
-    totalMessageCount: UInt64,
-    hasMoreBefore: Bool,
-    oldestSequence: UInt64?,
-    newestSequence: UInt64?
-  ) -> ServerSessionState {
-    let encodedMessages = messages.map { message in
-      """
-      {
-        "id": "\(message.id)",
-        "session_id": "\(message.sessionId)",
-        "sequence": \(message.sequence ?? 0),
-        "message_type": "\(message.type.rawValue)",
-        "content": \(message.content.debugDescription),
-        "tool_name": \(jsonStringOrNull(message.toolName)),
-        "tool_output": \(jsonStringOrNull(message.toolOutput)),
-        "is_error": \(message.isError ? "true" : "false"),
-        "is_in_progress": \(message.isInProgress ? "true" : "false"),
-        "timestamp": "\(message.timestamp)"
-      }
-      """
-    }.joined(separator: ",")
-
-    let json = """
-    {
-      "id": "\(sessionId)",
-      "provider": "codex",
-      "project_path": "/tmp/project",
-      "status": "active",
-      "work_status": "working",
-      "messages": [\(encodedMessages)],
-      "total_message_count": \(totalMessageCount),
-      "has_more_before": \(hasMoreBefore ? "true" : "false"),
-      "oldest_sequence": \(oldestSequence ?? 0),
-      "newest_sequence": \(newestSequence ?? 0),
-      "token_usage": {"input_tokens":0,"output_tokens":0,"cached_tokens":0,"context_window":0},
-      "token_usage_snapshot_kind": "unknown",
-      "codex_integration_mode": "direct",
-      "turn_count": 0,
-      "turn_diffs": [],
-      "subagents": [],
-      "revision": 100
-    }
-    """
-
-    let decoder = JSONDecoder()
-    return try! decoder.decode(ServerSessionState.self, from: Data(json.utf8))
-  }
-
-  private func makeServerMessage(
-    id: String,
-    sequence: UInt64,
-    type: ServerMessageType,
-    content: String
-  ) -> ServerMessage {
-    let json = """
-    {
-      "id": "\(id)",
-      "session_id": "session-recovery",
-      "sequence": \(sequence),
-      "message_type": "\(type.rawValue)",
-      "content": \(content.debugDescription),
-      "is_error": false,
-      "timestamp": "2026-03-09T10:00:\(String(format: "%02d", sequence))Z"
-    }
-    """
-
-    let decoder = JSONDecoder()
-    return try! decoder.decode(ServerMessage.self, from: Data(json.utf8))
-  }
-
-  private func jsonStringOrNull(_ value: String?) -> String {
-    guard let value else { return "null" }
-    return value.debugDescription
-  }
 }
 
 private actor ConversationRecoveryTransport {
@@ -313,29 +188,6 @@ private actor ConversationRecoveryTransport {
 
     let json: String
     switch (url.path, queryItems(url)) {
-      case ("/api/sessions/session-cache", _):
-        json = """
-        {
-          "session": {
-            "id": "session-cache",
-            "provider": "codex",
-            "project_path": "/tmp/project",
-            "status": "active",
-            "work_status": "working",
-            "messages": [],
-            "total_message_count": 6,
-            "has_more_before": true,
-            "oldest_sequence": 10,
-            "newest_sequence": 12,
-            "token_usage": {"input_tokens":0,"output_tokens":0,"cached_tokens":0,"context_window":0},
-            "token_usage_snapshot_kind": "unknown",
-            "turn_count": 0,
-            "turn_diffs": [],
-            "subagents": [],
-            "revision": 45
-          }
-        }
-        """
       case ("/api/sessions/session-recovery/conversation", _):
         json = """
         {

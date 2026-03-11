@@ -95,6 +95,7 @@ extension DirectSessionComposer {
     }
 
     isSending = true
+    DirectSessionComposerSendRecovery.trackAttempt(in: &composerState, preparedAction: preparedAction)
     Task {
       do {
         try await DirectSessionComposerExecutionCoordinator.execute(
@@ -198,13 +199,38 @@ extension DirectSessionComposer {
   }
 
   private func completeSuccessfulComposerSend() {
-    Platform.services.playHaptic(.action)
+    finishComposerSend(playHaptic: true)
+  }
+
+  private func recoverComposerSendAfterAppend() {
+    finishComposerSend(playHaptic: false)
+  }
+
+  private func finishComposerSend(playHaptic: Bool) {
+    if playHaptic {
+      Platform.services.playHaptic(.action)
+    }
     errorMessage = nil
     message = ""
+    DirectSessionComposerSendRecovery.clear(&composerState)
     withAnimation(Motion.gentle) {
       attachmentState.clearAfterSend()
     }
     requestComposerFocus()
+  }
+
+  func reconcileRecoveredSendIfNeeded() {
+    guard DirectSessionComposerSendRecovery.shouldRecover(
+      pendingContent: composerState.pendingRecoveredSendContent,
+      pendingStartedAt: composerState.pendingRecoveredSendStartedAt,
+      latestUserMessage: latestConversationUserMessage
+    )
+    else {
+      return
+    }
+
+    isSending = false
+    recoverComposerSendAfterAppend()
   }
 
   @MainActor

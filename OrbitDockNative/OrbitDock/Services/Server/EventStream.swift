@@ -147,7 +147,11 @@ final class EventStream {
   private var urlSession: URLSession?
   private var receiveTask: Task<Void, Never>?
   private var connectTask: Task<Void, Never>?
+  private var keepAliveTask: Task<Void, Never>?
   private var connectAttempts = 0
+
+  /// Keep-alive ping interval in seconds.
+  private static let keepAliveInterval: TimeInterval = 30
 
   var isRemote: Bool {
     guard let host = serverURL?.host else { return false }
@@ -187,8 +191,31 @@ final class EventStream {
     attemptConnect()
   }
 
+  /// Re-establish the connection if it's not currently connected.
+  /// Called when the app returns to the foreground.
+  func reconnectIfNeeded() {
+    guard serverURL != nil else { return }
+    switch connectionStatus {
+    case .connected, .connecting:
+      // Already connected or in progress — send a ping to verify liveness
+      Task {
+        do {
+          try await ping()
+        } catch {
+          netLog(.warning, cat: .ws, "Foreground liveness ping failed, reconnecting")
+          handleDisconnect()
+        }
+      }
+    case .disconnected, .failed:
+      netLog(.info, cat: .ws, "Reconnecting after foreground resume")
+      connectAttempts = 0
+      attemptConnect()
+    }
+  }
+
   func disconnect() {
     netLog(.info, cat: .ws, "Disconnecting", data: ["url": serverURL?.absoluteString ?? "nil"])
+    stopKeepAlive()
     connectTask?.cancel()
     connectTask = nil
     receiveTask?.cancel()
@@ -238,13 +265,14 @@ final class EventStream {
     netLog(.info, cat: .ws, "Connect attempt \(connectAttempts)/\(maxConnectAttempts)", data: ["url": serverURL.absoluteString])
     setStatus(.connecting)
 
+    stopKeepAlive()
     receiveTask?.cancel()
     receiveTask = nil
     webSocket?.cancel()
     urlSession?.invalidateAndCancel()
 
     let config = URLSessionConfiguration.default
-    config.timeoutIntervalForRequest = 5
+    config.timeoutIntervalForRequest = 10
     config.timeoutIntervalForResource = 0
     urlSession = URLSession(configuration: config)
 
@@ -287,6 +315,7 @@ final class EventStream {
     }
     connectAttempts = 0
     setStatus(.connected)
+    startKeepAlive()
 
     // Auto-subscribe to session list
     subscribeList()
@@ -299,6 +328,28 @@ final class EventStream {
         else { cont.resume() }
       }
     }
+  }
+
+  private func startKeepAlive() {
+    keepAliveTask?.cancel()
+    keepAliveTask = Task {
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(Self.keepAliveInterval))
+        guard !Task.isCancelled else { break }
+        do {
+          try await ping()
+        } catch {
+          netLog(.warning, cat: .ws, "Keep-alive ping failed", data: ["error": error.localizedDescription])
+          await MainActor.run { self.handleDisconnect() }
+          break
+        }
+      }
+    }
+  }
+
+  private func stopKeepAlive() {
+    keepAliveTask?.cancel()
+    keepAliveTask = nil
   }
 
   private func startReceiving() {

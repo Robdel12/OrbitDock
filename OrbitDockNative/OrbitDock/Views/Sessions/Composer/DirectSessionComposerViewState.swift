@@ -392,6 +392,10 @@ extension DirectSessionComposer {
     errorMessage ?? dictationController.errorMessage
   }
 
+  var latestConversationUserMessage: TranscriptMessage? {
+    serverState.conversation(sessionId).messages.last(where: \.isUser)
+  }
+
   var composerPlaceholder: String {
     if inputMode == .shell { return "Run a shell command..." }
     if isSessionWorking { return "Steer the current turn..." }
