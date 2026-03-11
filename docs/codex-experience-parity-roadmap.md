@@ -22,11 +22,10 @@ The priority is the core coding experience.
 ## Priority Order
 
 1. Agent support
-2. `request_permissions`
-3. personality and collaboration controls
-4. hooks, realtime transcript, and handoff visibility
-5. apps and auth-aware MCP behavior
-6. image generation and other polish
+2. personality and collaboration controls
+3. hooks, realtime transcript, and handoff visibility
+4. apps and auth-aware MCP behavior
+5. image generation and other polish
 
 ## Epic 1: Agent Support
 
@@ -81,40 +80,20 @@ If OrbitDock is going to feel like current Codex, it needs to understand and pre
 - Worker lane E: dashboard and navigation UX
 - Worker lane F: tests and fixtures
 
-## Epic 2: `request_permissions`
+## Completed: `request_permissions`
 
-This is the biggest functional mismatch in the coding loop today.
+This is now done end to end.
 
-OrbitDock still models only `exec`, `patch`, and `question` approvals. Latest Codex has a first-class permission grant flow, including `turn` and `session` scope.
+OrbitDock can now:
 
-### What "good" looks like
+- receive Codex `request_permissions`
+- persist permission requests in approval history
+- render them as a first-class approval UI in the composer
+- grant requested permissions for one turn or the full session
 
-- OrbitDock can render a real permissions request
-- users can grant for one turn or the whole session
-- the approval UI matches what Codex is actually asking for
-- session state and approval history stay accurate
+That means the biggest remaining work is no longer the approval model. It is the rest of the Codex control plane and runtime visibility around agents, hooks, collaboration, and auth-aware capability behavior.
 
-### Key files
-
-- `orbitdock-server/crates/protocol/src/types.rs`
-- `orbitdock-server/crates/server/src/runtime/approval_dispatch.rs`
-- `orbitdock-server/crates/connector-codex/src/session.rs`
-- `orbitdock-server/crates/server/src/transport/http/approvals.rs`
-- `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerApprovalContracts.swift`
-- `OrbitDockNative/OrbitDock/Services/Server/API/ApprovalsClient.swift`
-- `OrbitDockNative/OrbitDock/Services/Server/SessionObservable.swift`
-- `OrbitDockNative/OrbitDock/Views/Conversation/ApprovalCardModel.swift`
-
-### Best worker split
-
-- Worker lane A: Rust protocol and domain enums
-- Worker lane B: runtime dispatch and connector actions
-- Worker lane C: HTTP and WebSocket surface
-- Worker lane D: Swift protocol and store integration
-- Worker lane E: pending-panel and approval-card UI
-- Worker lane F: tests
-
-## Epic 3: Personality And Collaboration Controls
+## Epic 2: Personality And Collaboration Controls
 
 This is the next layer of "make OrbitDock feel like Codex."
 
@@ -143,7 +122,7 @@ OrbitDock already passes some collaboration settings through, but the control su
 - Worker lane D: session creation UI
 - Worker lane E: per-turn controls UX
 
-## Epic 4: Hooks, Realtime Transcript, And Handoffs
+## Epic 3: Hooks, Realtime Transcript, And Handoffs
 
 These features are about visibility and trust.
 
@@ -170,7 +149,7 @@ Right now OrbitDock safely ignores a lot of latest Codex behavior. That keeps th
 - Worker lane C: state model and timeline event design
 - Worker lane D: Swift rendering and UX polish
 
-## Epic 5: Apps And Auth-Aware MCP Behavior
+## Epic 4: Apps And Auth-Aware MCP Behavior
 
 This matters because latest Codex behaves differently depending on auth state, especially for apps.
 
@@ -189,7 +168,7 @@ That is a product behavior gap more than a transport bug.
 - `OrbitDockNative/OrbitDock/Views/Codex/McpServersTab.swift`
 - `OrbitDockNative/OrbitDock/Views/Codex/SkillsTab.swift`
 
-## Epic 6: Image Generation And Nice-To-Haves
+## Epic 5: Image Generation And Nice-To-Haves
 
 This is real parity work, just not urgent for the current goal.
 
@@ -208,13 +187,13 @@ Do this in waves, not all at once.
 ### Wave 1
 
 - agent support discovery and state model
-- `request_permissions` design and runtime model
+- collaboration/personality and explicit experimental-agent config
 
 ### Wave 2
 
 - agent UI
-- `request_permissions` UI
-- collaboration/personality audit
+- collaboration/personality UI
+- hook and handoff visibility design
 
 ### Wave 3
 
@@ -241,7 +220,6 @@ The safest pattern is:
 ### Good parallel split
 
 - 4-6 agents on agent support
-- 4-6 agents on `request_permissions`
 - 3-4 agents on collaboration/personality controls
 - 3-4 agents on hooks/realtime/handoffs
 - 2-3 agents on apps/auth behavior

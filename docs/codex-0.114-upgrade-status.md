@@ -32,30 +32,22 @@ Validation completed:
 
 These are the biggest remaining gaps relative to latest Codex. They are intentionally not part of the initial unblock.
 
-### 1. `request_permissions`
+### Completed: `request_permissions`
 
-This is still the largest parity gap.
+OrbitDock now supports Codex `request_permissions` end to end.
 
-OrbitDock only models `Exec`, `Patch`, and `Question` approvals today, so it cannot represent Codex `request_permissions` as a first-class flow or return session-scoped grants.
+Completed scope:
 
-Key OrbitDock files:
+- dedicated `Permissions` approval type in the shared protocol
+- Codex action and runtime handling for `RequestPermissionsResponse`
+- HTTP and WebSocket response paths
+- persisted permission request metadata in approval history
+- Swift client and composer UI for reviewing requested permissions
+- `turn` vs `session` grant scope support
 
-- `orbitdock-server/crates/protocol/src/types.rs`
-- `orbitdock-server/crates/server/src/runtime/approval_dispatch.rs`
-- `orbitdock-server/crates/connector-codex/src/session.rs`
-- `orbitdock-server/crates/server/src/transport/http/approvals.rs`
-- `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerApprovalContracts.swift`
-- `OrbitDockNative/OrbitDock/Services/Server/API/ApprovalsClient.swift`
-- `OrbitDockNative/OrbitDock/Views/Codex/DirectSessionComposer+PendingPanel.swift`
+That closes the largest approval-model mismatch from the `0.114` upgrade.
 
-Recommended epic:
-
-- add a dedicated approval type for permissions
-- add a Codex action and HTTP surface for `RequestPermissionsResponse`
-- carry `scope` (`turn` vs `session`) end to end
-- build a dedicated UI instead of flattening this into exec approval
-
-### 2. Hooks
+### 1. Hooks
 
 Latest Codex emits hook lifecycle events like `HookStarted` and `HookCompleted`. OrbitDock currently ignores them safely, which is fine for stability, but it means users cannot see hook activity or failures in the timeline.
 
@@ -69,7 +61,7 @@ Recommended epic:
 - decide whether hooks should appear as timeline events, debug-only events, or both
 - decide whether hook failures should change attention state
 
-### 3. Realtime Transcript And Handoff Parity
+### 2. Realtime Transcript And Handoff Parity
 
 Latest Codex has transcript delta events and richer handoff payloads. OrbitDock now compiles by safely ignoring the new realtime-only variants, but it does not surface them.
 
@@ -84,7 +76,7 @@ Recommended epic:
 - decide whether handoff activity should become user-visible
 - add UI only after the product behavior is clear
 
-### 4. Personality And Collaboration Controls
+### 3. Personality And Collaboration Controls
 
 OrbitDock already passes some collaboration-mode concepts through, but it does not yet expose the full latest Codex control plane around personality and richer collaboration behavior.
 
@@ -100,7 +92,7 @@ Recommended epic:
 - decide which settings belong in session setup versus per-turn overrides
 - move toward server-driven collaboration metadata instead of UI-local assumptions
 
-### 5. Apps And Auth-Gated MCP Behavior
+### 4. Apps And Auth-Gated MCP Behavior
 
 Latest Codex is more explicit about auth-dependent app availability. ChatGPT-authenticated sessions can expose app tooling differently than API-key-authenticated ones.
 
@@ -123,20 +115,19 @@ Recommended epic:
 
 Once the latest-working upgrade ships, these are the safest parallel lanes:
 
-1. Permissions lane
-   Rust protocol, runtime, connector, HTTP, and Swift approval UI for `request_permissions`
-
-2. Realtime lane
+1. Realtime lane
    Transcript deltas, handoff visibility, hook visibility, and timeline behavior
 
-3. Session-controls lane
+2. Session-controls lane
    Personality, collaboration, and richer turn/session configuration surfaces
 
-4. Apps/auth lane
+3. Apps/auth lane
    Auth-dependent app and MCP behavior, capability reporting, and UX clarity
 
 ## Recommended Next Step
 
-If the goal is the biggest parity win per unit of work, start with `request_permissions`.
+The next best Codex parity wins are:
 
-That is the most substantial functional mismatch between latest Codex and OrbitDock today, and it touches both the runtime model and the user-facing approval experience.
+1. explicit collaboration/personality controls
+2. hooks, handoffs, and realtime visibility
+3. auth-aware apps and MCP capability behavior
