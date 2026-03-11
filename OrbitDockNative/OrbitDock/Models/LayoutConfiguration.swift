@@ -47,11 +47,21 @@ private struct ReviewNavigationKey: EnvironmentKey {
   static let defaultValue: ((String) -> Void)? = nil
 }
 
+private struct WorkerDeckFocusKey: EnvironmentKey {
+  static let defaultValue: ((String) -> Void)? = nil
+}
+
 extension EnvironmentValues {
   /// Call with a file path to open that file in the review canvas (switches to split if needed).
   var openFileInReview: ((String) -> Void)? {
     get { self[ReviewNavigationKey.self] }
     set { self[ReviewNavigationKey.self] = newValue }
+  }
+
+  /// Call with a worker id to reveal the worker sidecar and focus that worker.
+  var focusWorkerInDeck: ((String) -> Void)? {
+    get { self[WorkerDeckFocusKey.self] }
+    set { self[WorkerDeckFocusKey.self] = newValue }
   }
 }
 

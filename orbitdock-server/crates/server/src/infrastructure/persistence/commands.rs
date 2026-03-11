@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Message, Provider, SessionStatus,
-    TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    SubagentInfo, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
 };
 
 /// Commands that can be persisted.
@@ -198,6 +198,12 @@ pub enum PersistCommand {
     ClaudeSubagentEnd {
         id: String,
         transcript_path: Option<String>,
+    },
+
+    /// Upsert a provider-reported subagent/worker row
+    UpsertSubagent {
+        session_id: String,
+        info: SubagentInfo,
     },
 
     /// Upsert a passive rollout-backed Codex session

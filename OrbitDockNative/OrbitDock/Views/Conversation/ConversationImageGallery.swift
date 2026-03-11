@@ -1,6 +1,10 @@
 import ImageIO
 import SwiftUI
 
+extension Notification.Name {
+  static let conversationImageCacheDidUpdate = Notification.Name("conversation-image-cache-did-update")
+}
+
 // MARK: - Cached Image Entry
 
 struct CachedImage {
@@ -24,6 +28,8 @@ final class ImageCache {
   private static let maxPixelSize = 1_200
 
   private var cache: [String: CachedImage] = [:]
+  private var inFlightLoads: Set<String> = []
+  private var sessionStoresByEndpointId: [UUID: WeakSessionStoreBox] = [:]
   private let lock = NSLock()
 
   /// Returns the cached display image (downsampled) for scroll rendering.
@@ -40,7 +46,7 @@ final class ImageCache {
       return cached
     }
 
-    guard let source = createImageSource(for: messageImage.source) else {
+    guard let source = createImageSource(for: messageImage) else {
       return nil
     }
 
@@ -78,9 +84,15 @@ final class ImageCache {
 
   // MARK: - Private
 
-  private func createImageSource(for source: MessageImage.Source) -> CGImageSource? {
+  func register(sessionStore: SessionStore) {
+    lock.lock()
+    sessionStoresByEndpointId[sessionStore.endpointId] = WeakSessionStoreBox(sessionStore)
+    lock.unlock()
+  }
+
+  private func createImageSource(for messageImage: MessageImage) -> CGImageSource? {
     let opts = [kCGImageSourceShouldCache: false] as CFDictionary
-    switch source {
+    switch messageImage.source {
       case let .filePath(path):
         let url = URL(fileURLWithPath: path) as CFURL
         return CGImageSourceCreateWithURL(url, opts)
@@ -89,8 +101,65 @@ final class ImageCache {
         return CGImageSourceCreateWithData(data as CFData, opts)
       case let .inlineData(data):
         return CGImageSourceCreateWithData(data as CFData, opts)
-      case .serverAttachment:
+      case let .serverAttachment(reference):
+        startAttachmentLoadIfNeeded(reference: reference, imageId: messageImage.id)
         return nil
+    }
+  }
+
+  private func startAttachmentLoadIfNeeded(reference: ServerAttachmentImageReference, imageId: String) {
+    guard let endpointId = reference.endpointId else { return }
+
+    lock.lock()
+    let isAlreadyLoading = inFlightLoads.contains(imageId)
+    let sessionStore = sessionStoresByEndpointId[endpointId]?.store
+    if !isAlreadyLoading {
+      inFlightLoads.insert(imageId)
+    }
+    lock.unlock()
+
+    guard !isAlreadyLoading else { return }
+    guard let sessionStore else {
+      lock.lock()
+      inFlightLoads.remove(imageId)
+      sessionStoresByEndpointId.removeValue(forKey: endpointId)
+      lock.unlock()
+      return
+    }
+
+    Task {
+      defer {
+        lock.lock()
+        inFlightLoads.remove(imageId)
+        lock.unlock()
+      }
+
+      guard let data = try? await sessionStore.clients.conversation.downloadImageAttachment(
+        sessionId: reference.sessionId,
+        attachmentId: reference.attachmentId
+      ) else { return }
+
+      let resolvedImage = MessageImage(
+        id: imageId,
+        source: .inlineData(data),
+        mimeType: "image/png",
+        byteCount: data.count
+      )
+
+      guard let loaded = cachedImage(for: resolvedImage) else { return }
+
+      lock.lock()
+      cache[imageId] = loaded
+      sessionStoresByEndpointId[endpointId] = WeakSessionStoreBox(sessionStore)
+      lock.unlock()
+
+      await MainActor.run {
+        NotificationCenter.default.post(
+          name: .conversationImageCacheDidUpdate,
+          object: nil,
+          userInfo: ["imageId": imageId]
+        )
+      }
     }
   }
 
@@ -108,6 +177,14 @@ final class ImageCache {
     guard let commaIndex = withoutScheme.firstIndex(of: ",") else { return nil }
     let base64String = String(withoutScheme[withoutScheme.index(after: commaIndex)...])
     return Data(base64Encoded: base64String, options: .ignoreUnknownCharacters)
+  }
+}
+
+private final class WeakSessionStoreBox {
+  weak var store: SessionStore?
+
+  init(_ store: SessionStore) {
+    self.store = store
   }
 }
 

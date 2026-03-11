@@ -823,13 +823,26 @@ pub(super) fn execute_command(
         } => {
             let now = chrono_now();
             conn.execute(
-                "INSERT INTO subagents (id, session_id, agent_type, started_at)
-                 VALUES (?1, ?2, ?3, ?4)
+                "INSERT INTO subagents (
+                    id,
+                    session_id,
+                    agent_type,
+                    provider,
+                    label,
+                    status,
+                    started_at,
+                    last_activity_at
+                 )
+                 VALUES (?1, ?2, ?3, 'claude', ?4, 'running', ?5, ?5)
                  ON CONFLICT(id) DO UPDATE SET
                    session_id = excluded.session_id,
                    agent_type = excluded.agent_type,
-                   started_at = excluded.started_at",
-                params![id, session_id, agent_type, now],
+                   provider = excluded.provider,
+                   label = excluded.label,
+                   status = excluded.status,
+                   started_at = excluded.started_at,
+                   last_activity_at = excluded.last_activity_at",
+                params![id, session_id, agent_type, agent_type, now],
             )?;
         }
 
@@ -840,9 +853,119 @@ pub(super) fn execute_command(
             let now = chrono_now();
             conn.execute(
                 "UPDATE subagents
-                 SET ended_at = ?1, transcript_path = ?2
+                 SET ended_at = ?1,
+                     transcript_path = ?2,
+                     status = 'completed',
+                     last_activity_at = ?1
                  WHERE id = ?3",
                 params![now, transcript_path, id],
+            )?;
+        }
+
+        PersistCommand::UpsertSubagent { session_id, info } => {
+            conn.execute(
+                "INSERT INTO subagents (
+                    id,
+                    session_id,
+                    agent_type,
+                    transcript_path,
+                    started_at,
+                    ended_at,
+                    provider,
+                    label,
+                    status,
+                    task_summary,
+                    result_summary,
+                    error_summary,
+                    parent_subagent_id,
+                    model,
+                    last_activity_at
+                 )
+                 VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                 ON CONFLICT(id) DO UPDATE SET
+                    session_id = excluded.session_id,
+                    agent_type = excluded.agent_type,
+                    ended_at = CASE
+                        WHEN subagents.status = 'completed'
+                             AND excluded.status != 'completed'
+                            THEN subagents.ended_at
+                        WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
+                             AND excluded.status IN ('pending', 'running')
+                            THEN subagents.ended_at
+                        WHEN subagents.status IN ('failed', 'cancelled', 'not_found')
+                             AND excluded.status = 'shutdown'
+                            THEN subagents.ended_at
+                        ELSE COALESCE(excluded.ended_at, subagents.ended_at)
+                    END,
+                    provider = COALESCE(excluded.provider, subagents.provider),
+                    label = COALESCE(excluded.label, subagents.label),
+                    status = CASE
+                        WHEN subagents.status = 'completed'
+                             AND excluded.status != 'completed'
+                            THEN subagents.status
+                        WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
+                             AND excluded.status IN ('pending', 'running')
+                            THEN subagents.status
+                        WHEN subagents.status IN ('completed', 'failed', 'cancelled', 'not_found')
+                             AND excluded.status = 'shutdown'
+                            THEN subagents.status
+                        ELSE excluded.status
+                    END,
+                    task_summary = COALESCE(excluded.task_summary, subagents.task_summary),
+                    result_summary = CASE
+                        WHEN subagents.status = 'completed'
+                             AND excluded.status != 'completed'
+                            THEN subagents.result_summary
+                        WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
+                             AND excluded.status IN ('pending', 'running')
+                            THEN subagents.result_summary
+                        WHEN subagents.status IN ('completed', 'failed', 'cancelled', 'not_found')
+                             AND excluded.status = 'shutdown'
+                            THEN subagents.result_summary
+                        ELSE COALESCE(excluded.result_summary, subagents.result_summary)
+                    END,
+                    error_summary = CASE
+                        WHEN subagents.status = 'completed'
+                             AND excluded.status != 'completed'
+                            THEN subagents.error_summary
+                        WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
+                             AND excluded.status IN ('pending', 'running')
+                            THEN subagents.error_summary
+                        WHEN subagents.status IN ('completed', 'failed', 'cancelled', 'not_found')
+                             AND excluded.status = 'shutdown'
+                            THEN subagents.error_summary
+                        ELSE COALESCE(excluded.error_summary, subagents.error_summary)
+                    END,
+                    parent_subagent_id = COALESCE(excluded.parent_subagent_id, subagents.parent_subagent_id),
+                    model = COALESCE(excluded.model, subagents.model),
+                    last_activity_at = excluded.last_activity_at",
+                params![
+                    info.id,
+                    session_id,
+                    info.agent_type,
+                    info.started_at,
+                    info.ended_at,
+                    info.provider.map(|provider| match provider {
+                        Provider::Claude => "claude",
+                        Provider::Codex => "codex",
+                    }),
+                    info.label,
+                    match info.status {
+                        orbitdock_protocol::SubagentStatus::Pending => "pending",
+                        orbitdock_protocol::SubagentStatus::Running => "running",
+                        orbitdock_protocol::SubagentStatus::Completed => "completed",
+                        orbitdock_protocol::SubagentStatus::Failed => "failed",
+                        orbitdock_protocol::SubagentStatus::Cancelled => "cancelled",
+                        orbitdock_protocol::SubagentStatus::Shutdown => "shutdown",
+                        orbitdock_protocol::SubagentStatus::NotFound => "not_found",
+                    },
+                    info.task_summary,
+                    info.result_summary,
+                    info.error_summary,
+                    info.parent_subagent_id,
+                    info.model,
+                    info.last_activity_at,
+                ],
             )?;
         }
 

@@ -12,6 +12,7 @@ struct MenuBarView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
   @Environment(\.colorScheme) private var colorScheme
+  @State private var refreshRotation: Double = 0
 
     var activeSessions: [Session] {
       serverState.sessions.filter(\.showsInMissionControl)
@@ -134,10 +135,15 @@ struct MenuBarView: View {
 
           Button {
             runtimeRegistry.refreshEnabledSessionLists()
+            withAnimation(.linear(duration: 0.6)) {
+              refreshRotation += 360
+            }
+            Task { await usageServiceRegistry.refreshAll() }
           } label: {
             Image(systemName: "arrow.clockwise")
               .font(.system(size: TypeScale.meta, weight: .semibold))
               .foregroundStyle(tertiaryTextColor)
+              .rotationEffect(.degrees(refreshRotation))
           }
           .buttonStyle(.plain)
         }
@@ -146,6 +152,9 @@ struct MenuBarView: View {
       }
       .frame(width: 332)
       .background(colorScheme == .dark ? Color.backgroundPrimary : Color(nsColor: .windowBackgroundColor))
+      .onAppear {
+        Task { await usageServiceRegistry.refreshAll() }
+      }
     }
 
     private func sectionHeader(_ title: String) -> some View {

@@ -1,14 +1,15 @@
 use super::*;
+use orbitdock_protocol::{Provider, SubagentInfo, SubagentStatus};
 
 /// Load subagents for a session (for snapshot building)
 pub async fn load_subagents_for_session(
     session_id: &str,
-) -> Result<Vec<orbitdock_protocol::SubagentInfo>, anyhow::Error> {
+) -> Result<Vec<SubagentInfo>, anyhow::Error> {
     let session_id = session_id.to_string();
     let db_path = crate::infrastructure::paths::db_path();
 
-    let subagents = tokio::task::spawn_blocking(
-        move || -> Result<Vec<orbitdock_protocol::SubagentInfo>, anyhow::Error> {
+    let subagents =
+        tokio::task::spawn_blocking(move || -> Result<Vec<SubagentInfo>, anyhow::Error> {
             if !db_path.exists() {
                 return Ok(Vec::new());
             }
@@ -28,14 +29,61 @@ pub async fn load_subagents_for_session(
             }
 
             let mut stmt = conn.prepare(
-                "SELECT id, agent_type, started_at, ended_at FROM subagents WHERE session_id = ?1 ORDER BY started_at",
+                "SELECT
+                    id,
+                    agent_type,
+                    started_at,
+                    ended_at,
+                    provider,
+                    label,
+                    COALESCE(
+                        status,
+                        CASE
+                            WHEN ended_at IS NULL THEN 'running'
+                            ELSE 'completed'
+                        END
+                    ) AS status,
+                    task_summary,
+                    result_summary,
+                    error_summary,
+                    parent_subagent_id,
+                    model,
+                    last_activity_at
+                 FROM subagents
+                 WHERE session_id = ?1
+                 ORDER BY started_at",
             )?;
             let rows = stmt.query_map(params![session_id], |row| {
-                Ok(orbitdock_protocol::SubagentInfo {
+                let provider = match row.get::<_, Option<String>>(4)? {
+                    Some(value) if value.eq_ignore_ascii_case("claude") => Some(Provider::Claude),
+                    Some(value) if value.eq_ignore_ascii_case("codex") => Some(Provider::Codex),
+                    _ => None,
+                };
+                let status = match row.get::<_, String>(6)?.as_str() {
+                    "pending" => SubagentStatus::Pending,
+                    "running" => SubagentStatus::Running,
+                    "completed" => SubagentStatus::Completed,
+                    "failed" => SubagentStatus::Failed,
+                    "cancelled" => SubagentStatus::Cancelled,
+                    "shutdown" => SubagentStatus::Shutdown,
+                    "not_found" => SubagentStatus::NotFound,
+                    _ => SubagentStatus::Running,
+                };
+
+                Ok(SubagentInfo {
                     id: row.get(0)?,
                     agent_type: row.get(1)?,
                     started_at: row.get(2)?,
                     ended_at: row.get(3)?,
+                    provider,
+                    label: row.get(5)?,
+                    status,
+                    task_summary: row.get(7)?,
+                    result_summary: row.get(8)?,
+                    error_summary: row.get(9)?,
+                    parent_subagent_id: row.get(10)?,
+                    model: row.get(11)?,
+                    last_activity_at: row.get(12)?,
                 })
             })?;
 
@@ -44,9 +92,8 @@ pub async fn load_subagents_for_session(
                 subagents.push(row?);
             }
             Ok(subagents)
-        },
-    )
-    .await??;
+        })
+        .await??;
 
     Ok(subagents)
 }

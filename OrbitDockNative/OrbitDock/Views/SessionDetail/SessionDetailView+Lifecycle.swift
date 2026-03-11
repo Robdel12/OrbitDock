@@ -12,6 +12,8 @@ extension SessionDetailView {
 
     scopedServerState.subscribeToSession(sessionId, recoveryGoal: .completeHistory)
     scopedServerState.setSessionAutoMarkRead(sessionId, enabled: plan.autoMarkReadEnabled)
+    syncSelectedWorker()
+    loadSelectedWorkerTools()
 
     guard plan.shouldLoadApprovalHistory else { return }
     loadApprovalHistory()
@@ -68,5 +70,24 @@ extension SessionDetailView {
         scopedServerState.session(sessionId).approvalHistory = response.approvals
       }
     }
+  }
+
+  func syncSelectedWorker() {
+    selectedWorkerId = SessionWorkerRosterPlanner.preferredSelectedWorkerID(
+      currentSelectionID: selectedWorkerId,
+      subagents: obs.subagents
+    )
+  }
+
+  func loadSelectedWorkerTools() {
+    guard let selectedWorkerId else { return }
+    scopedServerState.getSubagentTools(sessionId: sessionId, subagentId: selectedWorkerId)
+  }
+
+  func focusWorkerInDeck(_ workerId: String) {
+    guard !workerId.isEmpty else { return }
+    showWorkerPanel = true
+    selectedWorkerId = workerId
+    loadSelectedWorkerTools()
   }
 }

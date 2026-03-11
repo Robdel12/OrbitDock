@@ -1,15 +1,18 @@
 import SwiftUI
 
-struct SessionDetailMainContentArea<Conversation: View, Review: View>: View {
+struct SessionDetailMainContentArea<Conversation: View, Review: View, Companion: View>: View {
   let layoutConfig: LayoutConfiguration
   @ViewBuilder let conversation: () -> Conversation
   @ViewBuilder let review: () -> Review
+  @ViewBuilder let companion: () -> Companion
 
   var body: some View {
     HStack(spacing: 0) {
       if layoutConfig != .reviewOnly {
         conversation()
           .frame(maxWidth: .infinity)
+
+        companion()
       }
 
       if layoutConfig != .conversationOnly {

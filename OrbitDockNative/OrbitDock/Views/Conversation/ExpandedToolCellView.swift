@@ -95,6 +95,7 @@ import SwiftUI
     private let durationField = NSTextField(labelWithString: "")
     private let collapseChevron = NSImageView()
     private let cancelButton = NSButton(title: "Stop", target: nil, action: nil)
+    private let workerButton = NSButton(title: "", target: nil, action: nil)
     private let contentContainer = FlippedContentView()
     private let progressIndicator = NSProgressIndicator()
 
@@ -103,6 +104,7 @@ import SwiftUI
     private var model: NativeExpandedToolModel?
     var onCollapse: ((String) -> Void)?
     var onCancel: ((String) -> Void)?
+    var onFocusWorker: ((String) -> Void)?
 
     // ── Init ──
 
@@ -198,6 +200,19 @@ import SwiftUI
       cancelButton.isHidden = true
       cardBackground.addSubview(cancelButton)
 
+      let workerConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+      workerButton.image = NSImage(
+        systemSymbolName: "sidebar.right",
+        accessibilityDescription: "Show worker"
+      )?.withSymbolConfiguration(workerConfig)
+      workerButton.contentTintColor = NSColor(Color.accent)
+      workerButton.isBordered = false
+      workerButton.bezelStyle = .regularSquare
+      workerButton.target = self
+      workerButton.action = #selector(handleWorkerTap(_:))
+      workerButton.isHidden = true
+      cardBackground.addSubview(workerButton)
+
       // Content container — on top of content background
       contentContainer.wantsLayer = true
       cardBackground.addSubview(contentContainer)
@@ -212,6 +227,9 @@ import SwiftUI
       if !cancelButton.isHidden, cancelButton.frame.contains(location) {
         return
       }
+      if !workerButton.isHidden, workerButton.frame.contains(location) {
+        return
+      }
       let headerHeight = Self.headerHeight(for: model)
       if location.y <= headerHeight, let messageID = model?.messageID {
         onCollapse?(messageID)
@@ -221,6 +239,11 @@ import SwiftUI
     @objc private func handleCancelTap(_ sender: NSButton) {
       guard let messageID = model?.messageID else { return }
       onCancel?(messageID)
+    }
+
+    @objc private func handleWorkerTap(_ sender: NSButton) {
+      guard let workerID = model?.linkedWorkerID else { return }
+      onFocusWorker?(workerID)
     }
 
     // ── Configure ──
@@ -286,6 +309,19 @@ import SwiftUI
         cancelButton.frame = cancelFrame
       } else {
         cancelButton.isHidden = true
+      }
+
+      if let workerID = model.linkedWorkerID {
+        workerButton.isHidden = false
+        workerButton.toolTip = "Show \(workerID) in Workers"
+        workerButton.frame = NSRect(
+          x: cardWidth - Self.headerHPad - (model.canCancel ? 86 : 48),
+          y: Self.headerVPad - 1,
+          width: 20,
+          height: 20
+        )
+      } else {
+        workerButton.isHidden = true
       }
 
       // Collapse chevron

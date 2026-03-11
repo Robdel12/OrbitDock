@@ -178,8 +178,8 @@ final class SubscriptionUsageService {
   private(set) var lastFetchAttempt: Date?
 
   // Refresh interval
-  private let refreshInterval: TimeInterval = 60 // 1 minute
-  private let staleThreshold: TimeInterval = 300 // 5 minutes before showing stale
+  private let refreshInterval: TimeInterval = 600 // 10 minutes (background safety net)
+  private let staleThreshold: TimeInterval = 600 // 10 minutes before showing stale
   private let cacheValidDuration: TimeInterval = 120 // 2 minutes
 
   private var refreshTask: Task<Void, Never>?

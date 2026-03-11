@@ -101,7 +101,7 @@ final class SessionStore {
 
   func conversation(_ id: String) -> ConversationStore {
     if let existing = _conversationStores[id] { return existing }
-    let store = ConversationStore(sessionId: id, clients: clients)
+    let store = ConversationStore(sessionId: id, endpointId: endpointId, clients: clients)
     _conversationStores[id] = store
     return store
   }
@@ -150,6 +150,7 @@ final class SessionStore {
     recoveryGoal: ConversationRecoveryGoal = .coherentRecent
   ) {
     subscribedSessions.insert(sessionId)
+    loadSessionSnapshot(sessionId)
 
     let conv = conversation(sessionId)
 
@@ -225,6 +226,17 @@ final class SessionStore {
 
   func isSessionSubscribed(_ sessionId: String) -> Bool {
     subscribedSessions.contains(sessionId)
+  }
+
+  private func loadSessionSnapshot(_ sessionId: String) {
+    Task {
+      do {
+        let snapshot = try await clients.sessions.fetchSessionSnapshot(sessionId)
+        handleSessionSnapshot(snapshot)
+      } catch {
+        netLog(.warning, cat: .store, "Load session snapshot failed", sid: sessionId, data: ["error": error.localizedDescription])
+      }
+    }
   }
 
   // MARK: - Codex Account Actions

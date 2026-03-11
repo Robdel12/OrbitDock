@@ -5,9 +5,13 @@
   extension ConversationCollectionViewController {
     override func viewDidLoad() {
       super.viewDidLoad()
+      if let serverState {
+        ImageCache.shared.register(sessionStore: serverState)
+      }
       setupScrollView()
       setupTableView()
       setupScrollObservers()
+      setupImageCacheObserver()
       rebuildSnapshot(animated: false)
     }
 
@@ -105,6 +109,24 @@
       if abs(tableColumn.width - width) > 0.5 {
         tableColumn.width = width
       }
+    }
+
+    private func setupImageCacheObserver() {
+      imageCacheObserver = NotificationCenter.default.addObserver(
+        forName: .conversationImageCacheDidUpdate,
+        object: nil,
+        queue: .main
+      ) { [weak self] notification in
+        guard let self,
+              let imageId = notification.userInfo?["imageId"] as? String
+        else { return }
+        self.handleImageCacheUpdate(imageId: imageId)
+      }
+    }
+
+    func handleImageCacheUpdate(imageId _: String) {
+      guard !currentRows.isEmpty else { return }
+      applyProjectionUpdate(preserveAnchor: true)
     }
   }
 

@@ -258,6 +258,7 @@ extension SessionStore {
 
     let obs = self.session(state.id)
     hydrateObservable(obs, from: session)
+    obs.subagents = state.subagents
 
     conversation(state.id).handleSnapshot(state)
     let transition = SessionControlStateReducer.snapshotTransition(

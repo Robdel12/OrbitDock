@@ -14,6 +14,7 @@ struct SessionDetailConversationSection: View {
   let onNavigateToReviewFile: (String, Int) -> Void
   let onOpenPendingApprovalPanel: () -> Void
   let openFileInReview: ((String) -> Void)?
+  let focusWorkerInDeck: ((String) -> Void)?
   @Binding var isPinned: Bool
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
@@ -37,6 +38,7 @@ struct SessionDetailConversationSection: View {
       scrollToBottomTrigger: $scrollToBottomTrigger
     )
     .environment(\.openFileInReview, openFileInReview)
+    .environment(\.focusWorkerInDeck, focusWorkerInDeck)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
 }

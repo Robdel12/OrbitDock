@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use orbitdock_protocol::{
     ApprovalType, ClaudeModelOption, McpAuthStatus, McpResource, McpResourceTemplate,
     McpStartupFailure, McpStartupStatus, McpTool, RemoteSkillSummary, SkillErrorInfo,
-    SkillsListEntry, TokenUsage, TokenUsageSnapshotKind,
+    SkillsListEntry, SubagentInfo, TokenUsage, TokenUsageSnapshotKind,
 };
 
 /// Events emitted by connectors
@@ -156,6 +156,10 @@ pub enum ConnectorEvent {
 
     /// Files were persisted (checkpoint saved)
     FilesPersisted { files: Vec<String> },
+
+    /// Provider-reported worker/subagent updates that should be handled by the
+    /// session loop before generic state-machine transitions.
+    SubagentsUpdated { subagents: Vec<SubagentInfo> },
 
     /// Error occurred
     Error(String),

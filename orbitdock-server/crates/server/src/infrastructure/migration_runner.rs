@@ -182,13 +182,14 @@ mod tests {
     fn run_migrations_on_fresh_db() {
         let mut conn = Connection::open_in_memory().expect("open in-memory db");
         run_migrations(&mut conn).expect("migrations should succeed");
+        let expected_migration_count = embedded::migrations::runner().get_migrations().len() as i64;
 
         let migration_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM refinery_schema_history", [], |row| {
                 row.get(0)
             })
             .expect("count refinery history rows");
-        assert_eq!(migration_count, 18);
+        assert_eq!(migration_count, expected_migration_count);
 
         let sessions_table_exists: i64 = conn
             .query_row(
@@ -267,13 +268,14 @@ mod tests {
         }
 
         run_migrations(&mut conn).expect("migrations should succeed");
+        let expected_migration_count = embedded::migrations::runner().get_migrations().len() as i64;
 
         let migration_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM refinery_schema_history", [], |row| {
                 row.get(0)
             })
             .expect("count refinery history rows");
-        assert_eq!(migration_count, 18);
+        assert_eq!(migration_count, expected_migration_count);
 
         let imported_name: String = conn
             .query_row(
@@ -295,12 +297,13 @@ mod tests {
         let mut conn = Connection::open_in_memory().expect("open in-memory db");
         run_migrations(&mut conn).expect("first run");
         run_migrations(&mut conn).expect("second run should be idempotent");
+        let expected_migration_count = embedded::migrations::runner().get_migrations().len() as i64;
 
         let migration_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM refinery_schema_history", [], |row| {
                 row.get(0)
             })
             .expect("count refinery history rows");
-        assert_eq!(migration_count, 18);
+        assert_eq!(migration_count, expected_migration_count);
     }
 }

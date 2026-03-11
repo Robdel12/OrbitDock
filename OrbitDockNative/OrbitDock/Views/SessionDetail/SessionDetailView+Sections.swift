@@ -1,6 +1,50 @@
 import SwiftUI
 
 extension SessionDetailView {
+  var workerRosterPresentation: SessionWorkerRosterPresentation? {
+    SessionWorkerRosterPlanner.presentation(subagents: obs.subagents)
+  }
+
+  var workerDetailPresentation: SessionWorkerDetailPresentation? {
+    SessionWorkerRosterPlanner.detailPresentation(
+      subagents: obs.subagents,
+      selectedWorkerID: selectedWorkerId,
+      toolsByWorker: obs.subagentTools,
+      timelineMessages: scopedServerState.conversation(sessionId).messages
+    )
+  }
+
+  var workerSelectionSignature: [String] {
+    obs.subagents.map {
+      [
+        $0.id,
+        $0.status?.rawValue ?? "none",
+        $0.lastActivityAt ?? "",
+      ].joined(separator: "|")
+    }
+  }
+
+  @ViewBuilder
+  var workerCompanionPanel: some View {
+    if let workerRosterPresentation, showWorkerPanel {
+      Divider()
+        .foregroundStyle(Color.panelBorder)
+
+      SessionWorkerCompanionPanel(
+        rosterPresentation: workerRosterPresentation,
+        detailPresentation: workerDetailPresentation,
+        selectedWorkerID: selectedWorkerId,
+        onSelectWorker: { workerId in
+          selectedWorkerId = workerId
+        }
+      )
+      .frame(width: 320)
+      .background(Color.panelBackground)
+    } else {
+      EmptyView()
+    }
+  }
+
   var regularActionBar: some View {
     passiveInstrumentStrip
   }
@@ -65,6 +109,9 @@ extension SessionDetailView {
         withAnimation(Motion.gentle) {
           layoutConfig = plan.layoutConfig
         }
+      } : nil,
+      focusWorkerInDeck: workerRosterPresentation != nil ? { workerId in
+        focusWorkerInDeck(workerId)
       } : nil,
       isPinned: $isPinned,
       unreadCount: $unreadCount,

@@ -92,6 +92,11 @@ final class UsageServiceRegistry {
     hasUsage || isLoading || hasError || isApiKeyMode
   }
 
+  /// Whether any provider is currently loading
+  var isAnyLoading: Bool {
+    claude.isLoading || codex.isLoading
+  }
+
   /// Refresh all services
   func refreshAll() async {
     await withTaskGroup(of: Void.self) { group in

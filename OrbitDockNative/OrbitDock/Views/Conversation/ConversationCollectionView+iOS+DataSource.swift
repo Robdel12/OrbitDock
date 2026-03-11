@@ -36,6 +36,9 @@
         cell.onCancel = { [weak self] requestID in
           self?.cancelShellCommand(requestID: requestID)
         }
+        cell.onFocusWorker = { [weak self] workerID in
+          self?.focusWorkerInDeck?(workerID)
+        }
       }
 
       turnHeaderCellReg = UICollectionView.CellRegistration<UIKitTurnHeaderCell, String> {

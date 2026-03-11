@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use crate::domain::sessions::session::SessionHandle;
-use crate::infrastructure::persistence::PersistCommand;
+use crate::infrastructure::persistence::{load_subagents_for_session, PersistCommand};
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_command_handler::{
     dispatch_connector_event, dispatch_transition_input, handle_session_command, is_turn_ending,
@@ -57,6 +57,26 @@ pub fn start_event_loop(
                 Some(event) = event_rx.recv() => {
                     if is_turn_ending(&event) {
                         if let Some(h) = interrupt_watchdog.take() { h.abort(); }
+                    }
+
+                    if let orbitdock_connector_core::ConnectorEvent::SubagentsUpdated { subagents } = &event {
+                        for info in subagents.clone() {
+                            let _ = persist
+                                .send(PersistCommand::UpsertSubagent {
+                                    session_id: session_id.clone(),
+                                    info,
+                                })
+                                .await;
+                        }
+
+                        if let Ok(subagents) = load_subagents_for_session(&session_id).await {
+                            session_handle.set_subagents(subagents);
+                            session_handle.refresh_snapshot();
+                            session_handle.broadcast(ServerMessage::SessionSnapshot {
+                                session: session_handle.retained_state(),
+                            });
+                        }
+                        continue;
                     }
 
                     // Enrich EnvironmentChanged events with worktree info

@@ -14,6 +14,7 @@ struct TaskCard: View {
   var sessionId: String?
 
   @Environment(SessionStore.self) private var serverState
+  @Environment(\.focusWorkerInDeck) private var focusWorkerInDeck
 
   // Subagent state
   @State private var matchedSubagentId: String?
@@ -22,7 +23,7 @@ struct TaskCard: View {
   @State private var pollTask: Task<Void, Never>?
 
   private var description: String {
-    message.taskDescription ?? ""
+    matchedSubagent?.taskSummary ?? message.taskDescription ?? ""
   }
 
   private var prompt: String {
@@ -37,8 +38,13 @@ struct TaskCard: View {
     !message.isInProgress && !output.isEmpty
   }
 
+  private var matchedSubagent: ServerSubagentInfo? {
+    guard let sid = sessionId, let subId = matchedSubagentId else { return nil }
+    return serverState.session(sid).subagents.first(where: { $0.id == subId })
+  }
+
   private var agentType: String {
-    (message.toolInput?["subagent_type"] as? String) ?? "general"
+    matchedSubagent?.agentType ?? ((message.toolInput?["subagent_type"] as? String) ?? "general")
   }
 
   private var agentInfo: AgentTypeInfo {
@@ -48,6 +54,46 @@ struct TaskCard: View {
   private var subagentTools: [ServerSubagentTool] {
     guard let sid = sessionId, let subId = matchedSubagentId else { return [] }
     return serverState.session(sid).subagentTools[subId] ?? []
+  }
+
+  private var displayLabel: String {
+    matchedSubagent?.label ?? agentInfo.label
+  }
+
+  private var isWorkerRunning: Bool {
+    switch matchedSubagent?.status {
+    case .pending, .running:
+      return true
+    case .completed, .failed, .cancelled, .shutdown, .notFound:
+      return false
+    case nil:
+      return message.isInProgress
+    }
+  }
+
+  private var hasCompletedWorker: Bool {
+    matchedSubagent?.status == .completed || (matchedSubagent == nil && isComplete)
+  }
+
+  private var statusText: String {
+    switch matchedSubagent?.status {
+    case .pending:
+      return "Pending..."
+    case .running:
+      return "Running..."
+    case .completed:
+      return "Complete"
+    case .failed:
+      return "Failed"
+    case .cancelled:
+      return "Cancelled"
+    case .shutdown:
+      return "Stopped"
+    case .notFound:
+      return "Unavailable"
+    case nil:
+      return message.isInProgress ? "Running..." : "Complete"
+    }
   }
 
   var body: some View {
@@ -61,12 +107,18 @@ struct TaskCard: View {
       expandedContent
     }
     .onChange(of: isExpanded) { _, expanded in
-      if expanded, !hasLoadedSubagent {
-        matchAndLoadSubagent()
+      if expanded {
+        if !hasLoadedSubagent {
+          matchAndLoadSubagent()
+        } else {
+          focusMatchedWorkerIfNeeded()
+        }
       }
     }
-    .onChange(of: isComplete) { _, complete in
-      if complete {
+    .onChange(of: isWorkerRunning) { _, running in
+      if running {
+        startPolling()
+      } else {
         stopPolling()
       }
     }
@@ -86,6 +138,19 @@ struct TaskCard: View {
     let obs = serverState.session(sid)
     let subagents = obs.subagents
 
+    if let explicitSubagentId = message.toolInput?["subagent_id"] as? String,
+       let matched = subagents.first(where: { $0.id == explicitSubagentId })
+    {
+      matchedSubagentId = matched.id
+      hasLoadedSubagent = true
+      focusMatchedWorkerIfNeeded()
+      requestTools()
+      if isWorkerRunning {
+        startPolling()
+      }
+      return
+    }
+
     // Match by agent type and timestamp proximity (within 5 seconds)
     let taskTime = message.timestamp.timeIntervalSince1970
     let matched = subagents.first { sub in
@@ -99,10 +164,11 @@ struct TaskCard: View {
     if let matched {
       matchedSubagentId = matched.id
       hasLoadedSubagent = true
+      focusMatchedWorkerIfNeeded()
       requestTools()
 
       // Poll for live updates if task is still in progress
-      if !isComplete {
+      if isWorkerRunning {
         startPolling()
       }
     } else {
@@ -113,6 +179,11 @@ struct TaskCard: View {
   private func requestTools() {
     guard let sid = sessionId, let subId = matchedSubagentId else { return }
     serverState.getSubagentTools(sessionId: sid, subagentId: subId)
+  }
+
+  private func focusMatchedWorkerIfNeeded() {
+    guard isExpanded, let matchedSubagentId else { return }
+    focusWorkerInDeck?(matchedSubagentId)
   }
 
   // MARK: - Polling for Live Updates
@@ -150,11 +221,11 @@ struct TaskCard: View {
           .foregroundStyle(agentInfo.color)
 
         // Status ring
-        if message.isInProgress {
+        if isWorkerRunning {
           Circle()
             .strokeBorder(agentInfo.color.opacity(0.5), lineWidth: 2)
             .frame(width: 32, height: 32)
-        } else if isComplete {
+        } else if hasCompletedWorker {
           Circle()
             .strokeBorder(Color(red: 0.4, green: 0.9, blue: 0.5), lineWidth: 2)
             .frame(width: 32, height: 32)
@@ -165,7 +236,7 @@ struct TaskCard: View {
         HStack(spacing: Spacing.sm) {
           // Agent type badge
           HStack(spacing: Spacing.xs) {
-            Text(agentInfo.label)
+            Text(displayLabel)
               .font(.system(size: TypeScale.meta, weight: .bold))
           }
           .foregroundStyle(.white)
@@ -174,23 +245,27 @@ struct TaskCard: View {
           .background(agentInfo.color, in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
 
           // Status
-          if message.isInProgress {
+          if isWorkerRunning {
             HStack(spacing: Spacing.xs) {
               ProgressView()
                 .controlSize(.mini)
-              Text("Running...")
+              Text(statusText)
                 .font(.system(size: TypeScale.micro, weight: .medium))
             }
             .foregroundStyle(agentInfo.color)
-          } else if isComplete {
+          } else if hasCompletedWorker {
             HStack(spacing: Spacing.xs) {
               Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: TypeScale.meta))
                 .foregroundStyle(Color(red: 0.4, green: 0.9, blue: 0.5))
-              Text("Complete")
+              Text(statusText)
                 .font(.system(size: TypeScale.micro, weight: .medium))
                 .foregroundStyle(.secondary)
             }
+          } else if matchedSubagent != nil {
+            Text(statusText)
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(.secondary)
           }
         }
 
@@ -203,18 +278,22 @@ struct TaskCard: View {
         }
 
         // Result preview in header when complete
-        if isComplete, !isExpanded {
-          Text(output.prefix(100).replacingOccurrences(of: "\n", with: " "))
-            .font(.system(size: TypeScale.meta))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+          if hasCompletedWorker, !isExpanded {
+            Text(output.prefix(100).replacingOccurrences(of: "\n", with: " "))
+              .font(.system(size: TypeScale.meta))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
+
+          if matchedSubagentId != nil {
+            workerLink
+          }
         }
-      }
 
       Spacer()
 
       VStack(alignment: .trailing, spacing: Spacing.xs) {
-        if !message.isInProgress {
+        if !isWorkerRunning {
           ToolCardDuration(duration: message.formattedDuration)
         }
 
@@ -227,8 +306,12 @@ struct TaskCard: View {
 
   private var expandedContent: some View {
     VStack(alignment: .leading, spacing: 0) {
+      if matchedSubagentId != nil {
+        workerLinkBanner
+      }
+
       // Result first (most important when complete)
-      if isComplete {
+      if hasCompletedWorker {
         VStack(alignment: .leading, spacing: Spacing.sm) {
           HStack(spacing: Spacing.sm_) {
             Image(systemName: "text.bubble.fill")
@@ -358,6 +441,48 @@ struct TaskCard: View {
     .padding(Spacing.md)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.backgroundTertiary.opacity(0.3))
+  }
+
+  private var workerLink: some View {
+    Button {
+      focusMatchedWorkerIfNeeded()
+    } label: {
+      HStack(spacing: Spacing.xxs) {
+        Image(systemName: "sidebar.right")
+          .font(.system(size: TypeScale.mini, weight: .semibold))
+        Text("Workers")
+          .font(.system(size: TypeScale.mini, weight: .semibold))
+      }
+      .foregroundStyle(Color.accent)
+      .padding(.horizontal, Spacing.sm_)
+      .padding(.vertical, Spacing.xxs)
+      .background(Color.accent.opacity(0.12), in: Capsule())
+    }
+    .buttonStyle(.plain)
+  }
+
+  private var workerLinkBanner: some View {
+    HStack(spacing: Spacing.sm) {
+      Image(systemName: "sidebar.right")
+        .font(.system(size: TypeScale.mini, weight: .semibold))
+        .foregroundStyle(Color.accent)
+
+      Text("Linked to the worker panel for quick inspection.")
+        .font(.system(size: TypeScale.mini))
+        .foregroundStyle(Color.textSecondary)
+
+      Spacer(minLength: 0)
+
+      Button("Show Worker") {
+        focusMatchedWorkerIfNeeded()
+      }
+      .font(.system(size: TypeScale.mini, weight: .semibold))
+      .buttonStyle(.plain)
+      .foregroundStyle(Color.accent)
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(Color.accent.opacity(0.08))
   }
 }
 

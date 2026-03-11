@@ -1980,3 +1980,360 @@ fn display_name_family_only() {
     assert_eq!(display_name_from_model_string("claude-sonnet"), "Sonnet");
     assert_eq!(display_name_from_model_string("claude-haiku"), "Haiku");
 }
+
+#[tokio::test]
+async fn subagent_metadata_round_trips_from_persistence() {
+    let _guard = env_lock().lock().expect("lock test env");
+    let home = create_test_home();
+    let _dd_guard = set_test_data_dir(&home);
+    let db_path = home.join(".orbitdock/orbitdock.db");
+    run_all_migrations(&db_path);
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::SessionCreate {
+            id: "subagent-metadata-session".into(),
+            provider: Provider::Claude,
+            project_path: "/tmp/subagent-metadata-session".into(),
+            project_name: Some("subagent-metadata-session".into()),
+            branch: Some("main".into()),
+            model: Some("claude-sonnet".into()),
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: None,
+            forked_from_session_id: None,
+        }],
+    )
+    .expect("seed session");
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::ClaudeSubagentStart {
+            id: "subagent-1".into(),
+            session_id: "subagent-metadata-session".into(),
+            agent_type: "plan".into(),
+        }],
+    )
+    .expect("start subagent");
+
+    {
+        let conn = Connection::open(&db_path).expect("open db");
+        conn.execute(
+            "UPDATE subagents
+             SET task_summary = ?1,
+                 result_summary = ?2,
+                 error_summary = ?3,
+                 parent_subagent_id = ?4,
+                 model = ?5
+             WHERE id = ?6",
+            params![
+                "Explore the repository structure",
+                "Found the primary modules",
+                Option::<String>::None,
+                "parent-1",
+                "gpt-5",
+                "subagent-1"
+            ],
+        )
+        .expect("enrich subagent row");
+    }
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::ClaudeSubagentEnd {
+            id: "subagent-1".into(),
+            transcript_path: Some("/tmp/subagent.jsonl".into()),
+        }],
+    )
+    .expect("end subagent");
+
+    let subagents = load_subagents_for_session("subagent-metadata-session")
+        .await
+        .expect("load subagents");
+    let subagent = subagents.first().expect("expected subagent");
+
+    assert_eq!(subagent.provider, Some(Provider::Claude));
+    assert_eq!(subagent.label.as_deref(), Some("plan"));
+    assert_eq!(
+        subagent.status,
+        orbitdock_protocol::SubagentStatus::Completed
+    );
+    assert_eq!(
+        subagent.task_summary.as_deref(),
+        Some("Explore the repository structure")
+    );
+    assert_eq!(
+        subagent.result_summary.as_deref(),
+        Some("Found the primary modules")
+    );
+    assert_eq!(subagent.parent_subagent_id.as_deref(), Some("parent-1"));
+    assert_eq!(subagent.model.as_deref(), Some("gpt-5"));
+    assert!(subagent.last_activity_at.is_some());
+    assert!(subagent.ended_at.is_some());
+}
+
+#[tokio::test]
+async fn upsert_subagent_preserves_completed_result_over_later_shutdown_update() {
+    let _guard = env_lock().lock().expect("lock test env");
+    let home = create_test_home();
+    let _dd_guard = set_test_data_dir(&home);
+    let db_path = home.join(".orbitdock/orbitdock.db");
+    run_all_migrations(&db_path);
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::SessionCreate {
+            id: "subagent-precedence-session".into(),
+            provider: Provider::Codex,
+            project_path: "/tmp/subagent-precedence-session".into(),
+            project_name: Some("subagent-precedence-session".into()),
+            branch: Some("main".into()),
+            model: Some("gpt-5.4".into()),
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: None,
+            forked_from_session_id: None,
+        }],
+    )
+    .expect("seed session");
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::UpsertSubagent {
+            session_id: "subagent-precedence-session".into(),
+            info: orbitdock_protocol::SubagentInfo {
+                id: "worker-1".into(),
+                agent_type: "worker".into(),
+                started_at: "2026-03-11T05:00:00Z".into(),
+                ended_at: Some("2026-03-11T05:01:00Z".into()),
+                provider: Some(Provider::Codex),
+                label: Some("Mill".into()),
+                status: orbitdock_protocol::SubagentStatus::Completed,
+                task_summary: Some("Read AGENTS.md".into()),
+                result_summary: Some("Reported the repository guidelines cleanly.".into()),
+                error_summary: None,
+                parent_subagent_id: Some("parent-1".into()),
+                model: Some("gpt-5.4".into()),
+                last_activity_at: Some("2026-03-11T05:01:00Z".into()),
+            },
+        }],
+    )
+    .expect("write completed worker state");
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::UpsertSubagent {
+            session_id: "subagent-precedence-session".into(),
+            info: orbitdock_protocol::SubagentInfo {
+                id: "worker-1".into(),
+                agent_type: "worker".into(),
+                started_at: "2026-03-11T05:00:00Z".into(),
+                ended_at: Some("2026-03-11T05:03:00Z".into()),
+                provider: Some(Provider::Codex),
+                label: Some("Mill".into()),
+                status: orbitdock_protocol::SubagentStatus::Shutdown,
+                task_summary: None,
+                result_summary: None,
+                error_summary: None,
+                parent_subagent_id: Some("parent-1".into()),
+                model: Some("gpt-5.4".into()),
+                last_activity_at: Some("2026-03-11T05:02:00Z".into()),
+            },
+        }],
+    )
+    .expect("write later shutdown worker state");
+
+    let subagents = load_subagents_for_session("subagent-precedence-session")
+        .await
+        .expect("load subagents");
+    let subagent = subagents.first().expect("expected subagent");
+
+    assert_eq!(
+        subagent.status,
+        orbitdock_protocol::SubagentStatus::Completed
+    );
+    assert_eq!(
+        subagent.result_summary.as_deref(),
+        Some("Reported the repository guidelines cleanly.")
+    );
+    assert_eq!(subagent.ended_at.as_deref(), Some("2026-03-11T05:01:00Z"));
+    assert_eq!(subagent.last_activity_at.as_deref(), Some("2026-03-11T05:02:00Z"));
+}
+
+#[tokio::test]
+async fn upsert_subagent_preserves_completed_result_over_later_not_found_update() {
+    let _guard = env_lock().lock().expect("lock test env");
+    let home = create_test_home();
+    let _dd_guard = set_test_data_dir(&home);
+    let db_path = home.join(".orbitdock/orbitdock.db");
+    run_all_migrations(&db_path);
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::SessionCreate {
+            id: "subagent-not-found-session".into(),
+            provider: Provider::Codex,
+            project_path: "/tmp/subagent-not-found-session".into(),
+            project_name: Some("subagent-not-found-session".into()),
+            branch: Some("main".into()),
+            model: Some("gpt-5.4".into()),
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: None,
+            forked_from_session_id: None,
+        }],
+    )
+    .expect("seed session");
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::UpsertSubagent {
+            session_id: "subagent-not-found-session".into(),
+            info: orbitdock_protocol::SubagentInfo {
+                id: "worker-2".into(),
+                agent_type: "worker".into(),
+                started_at: "2026-03-11T05:10:00Z".into(),
+                ended_at: Some("2026-03-11T05:11:00Z".into()),
+                provider: Some(Provider::Codex),
+                label: Some("Gauss".into()),
+                status: orbitdock_protocol::SubagentStatus::Completed,
+                task_summary: Some("Read one file".into()),
+                result_summary: Some("Finished with a clean answer.".into()),
+                error_summary: None,
+                parent_subagent_id: Some("parent-2".into()),
+                model: Some("gpt-5.4".into()),
+                last_activity_at: Some("2026-03-11T05:11:00Z".into()),
+            },
+        }],
+    )
+    .expect("write completed worker state");
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::UpsertSubagent {
+            session_id: "subagent-not-found-session".into(),
+            info: orbitdock_protocol::SubagentInfo {
+                id: "worker-2".into(),
+                agent_type: "worker".into(),
+                started_at: "2026-03-11T05:10:00Z".into(),
+                ended_at: Some("2026-03-11T05:12:00Z".into()),
+                provider: Some(Provider::Codex),
+                label: Some("Gauss".into()),
+                status: orbitdock_protocol::SubagentStatus::NotFound,
+                task_summary: None,
+                result_summary: None,
+                error_summary: Some("Worker disappeared after completion.".into()),
+                parent_subagent_id: Some("parent-2".into()),
+                model: Some("gpt-5.4".into()),
+                last_activity_at: Some("2026-03-11T05:12:00Z".into()),
+            },
+        }],
+    )
+    .expect("write later not-found worker state");
+
+    let subagents = load_subagents_for_session("subagent-not-found-session")
+        .await
+        .expect("load subagents");
+    let subagent = subagents.first().expect("expected subagent");
+
+    assert_eq!(
+        subagent.status,
+        orbitdock_protocol::SubagentStatus::Completed
+    );
+    assert_eq!(
+        subagent.result_summary.as_deref(),
+        Some("Finished with a clean answer.")
+    );
+    assert_eq!(subagent.error_summary, None);
+    assert_eq!(subagent.ended_at.as_deref(), Some("2026-03-11T05:11:00Z"));
+    assert_eq!(subagent.last_activity_at.as_deref(), Some("2026-03-11T05:12:00Z"));
+}
+
+#[tokio::test]
+async fn upsert_subagent_preserves_completed_result_over_later_failed_update() {
+    let _guard = env_lock().lock().expect("lock test env");
+    let home = create_test_home();
+    let _dd_guard = set_test_data_dir(&home);
+    let db_path = home.join(".orbitdock/orbitdock.db");
+    run_all_migrations(&db_path);
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::SessionCreate {
+            id: "subagent-failed-session".into(),
+            provider: Provider::Codex,
+            project_path: "/tmp/subagent-failed-session".into(),
+            project_name: Some("subagent-failed-session".into()),
+            branch: Some("main".into()),
+            model: Some("gpt-5.4".into()),
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: None,
+            forked_from_session_id: None,
+        }],
+    )
+    .expect("seed session");
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::UpsertSubagent {
+            session_id: "subagent-failed-session".into(),
+            info: orbitdock_protocol::SubagentInfo {
+                id: "worker-3".into(),
+                agent_type: "worker".into(),
+                started_at: "2026-03-11T05:20:00Z".into(),
+                ended_at: Some("2026-03-11T05:21:00Z".into()),
+                provider: Some(Provider::Codex),
+                label: Some("Wegener".into()),
+                status: orbitdock_protocol::SubagentStatus::Completed,
+                task_summary: Some("Inspect a Swift file".into()),
+                result_summary: Some("Picked the right file and explained it.".into()),
+                error_summary: None,
+                parent_subagent_id: Some("parent-3".into()),
+                model: Some("gpt-5.4".into()),
+                last_activity_at: Some("2026-03-11T05:21:00Z".into()),
+            },
+        }],
+    )
+    .expect("write completed worker state");
+
+    flush_batch(
+        &db_path,
+        vec![PersistCommand::UpsertSubagent {
+            session_id: "subagent-failed-session".into(),
+            info: orbitdock_protocol::SubagentInfo {
+                id: "worker-3".into(),
+                agent_type: "worker".into(),
+                started_at: "2026-03-11T05:20:00Z".into(),
+                ended_at: Some("2026-03-11T05:22:00Z".into()),
+                provider: Some(Provider::Codex),
+                label: Some("Wegener".into()),
+                status: orbitdock_protocol::SubagentStatus::Failed,
+                task_summary: None,
+                result_summary: None,
+                error_summary: Some("Late failure after completion.".into()),
+                parent_subagent_id: Some("parent-3".into()),
+                model: Some("gpt-5.4".into()),
+                last_activity_at: Some("2026-03-11T05:22:00Z".into()),
+            },
+        }],
+    )
+    .expect("write later failed worker state");
+
+    let subagents = load_subagents_for_session("subagent-failed-session")
+        .await
+        .expect("load subagents");
+    let subagent = subagents.first().expect("expected subagent");
+
+    assert_eq!(
+        subagent.status,
+        orbitdock_protocol::SubagentStatus::Completed
+    );
+    assert_eq!(
+        subagent.result_summary.as_deref(),
+        Some("Picked the right file and explained it.")
+    );
+    assert_eq!(subagent.error_summary, None);
+    assert_eq!(subagent.ended_at.as_deref(), Some("2026-03-11T05:21:00Z"));
+    assert_eq!(subagent.last_activity_at.as_deref(), Some("2026-03-11T05:22:00Z"));
+}

@@ -396,6 +396,24 @@ pub struct TurnDiff {
 }
 
 /// Subagent metadata
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+    Shutdown,
+    NotFound,
+}
+
+impl Default for SubagentStatus {
+    fn default() -> Self {
+        Self::Running
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubagentInfo {
     pub id: String,
@@ -403,6 +421,24 @@ pub struct SubagentInfo {
     pub started_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<Provider>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub status: SubagentStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_subagent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_activity_at: Option<String>,
 }
 
 /// A tool call from a subagent transcript

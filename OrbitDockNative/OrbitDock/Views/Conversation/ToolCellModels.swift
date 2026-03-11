@@ -145,8 +145,32 @@ enum SharedModelBuilders {
       isInProgress: message.isInProgress,
       canCancel: (message.isShell || toolName.lowercased() == "task") && message.isInProgress,
       duration: message.formattedDuration,
+      linkedWorkerID: linkedWorkerID(for: message),
       content: content
     )
+  }
+
+  static func linkedWorkerID(for message: TranscriptMessage) -> String? {
+    if let explicitSubagentID = message.toolInput?["subagent_id"] as? String,
+       !explicitSubagentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return explicitSubagentID
+    }
+
+    if let receiverThreadID = message.toolInput?["receiver_thread_id"] as? String,
+       !receiverThreadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return receiverThreadID
+    }
+
+    if let receiverThreadIDs = message.toolInput?["receiver_thread_ids"] as? [String],
+       receiverThreadIDs.count == 1
+    {
+      let onlyThreadID = receiverThreadIDs[0].trimmingCharacters(in: .whitespacesAndNewlines)
+      return onlyThreadID.isEmpty ? nil : onlyThreadID
+    }
+
+    return nil
   }
 
   private static func preprocessUserContent(_ content: String) -> String {

@@ -15,6 +15,8 @@ struct HeaderView: View {
   var onEndSession: (() -> Void)?
   var layoutConfig: Binding<LayoutConfiguration>?
   var chatViewMode: Binding<ChatViewMode>?
+  var workerPanelVisible: Binding<Bool>?
+  var hasWorkerPanelContent = false
   @Binding var selectedCommentIds: Set<String>
   var onNavigateToComment: ((ServerReviewComment) -> Void)?
   var onSendReview: (() -> Void)?
@@ -99,6 +101,10 @@ struct HeaderView: View {
 
         if let layoutBinding = layoutConfig {
           layoutToggle(layoutBinding)
+        }
+
+        if let workerPanelVisible, hasWorkerPanelContent {
+          workerPanelToggle(workerPanelVisible)
         }
 
         HStack(spacing: Spacing.xxs) {
@@ -301,6 +307,10 @@ struct HeaderView: View {
         compactLayoutToggle(layoutBinding)
       }
 
+      if let workerPanelVisible, hasWorkerPanelContent {
+        compactWorkerPanelToggle(workerPanelVisible)
+      }
+
       if showsConversationModeToggleInCompact, let chatModeBinding = chatViewMode {
         ConversationViewModeToggle(
           chatViewMode: chatModeBinding,
@@ -432,6 +442,46 @@ struct HeaderView: View {
       Color.backgroundTertiary.opacity(0.5),
       in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
     )
+  }
+
+  private func workerPanelToggle(_ binding: Binding<Bool>) -> some View {
+    let isVisible = binding.wrappedValue
+    return Button {
+      withAnimation(Motion.gentle) {
+        binding.wrappedValue.toggle()
+      }
+    } label: {
+      Image(systemName: "person.2.crop.square.stack.fill")
+        .font(.system(size: TypeScale.micro, weight: .medium))
+        .foregroundStyle(isVisible ? Color.accent : Color.textSecondary)
+        .frame(width: 26, height: 22)
+        .background(
+          isVisible ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+          in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+        )
+    }
+    .buttonStyle(.plain)
+    .help(isVisible ? "Hide workers" : "Show workers")
+  }
+
+  private func compactWorkerPanelToggle(_ binding: Binding<Bool>) -> some View {
+    let isVisible = binding.wrappedValue
+    return Button {
+      withAnimation(Motion.gentle) {
+        binding.wrappedValue.toggle()
+      }
+    } label: {
+      Image(systemName: "person.2.crop.square.stack.fill")
+        .font(.system(size: TypeScale.micro, weight: .medium))
+        .foregroundStyle(isVisible ? Color.accent : Color.textSecondary)
+        .frame(width: 24, height: 22)
+        .background(
+          isVisible ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+          in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+        )
+    }
+    .buttonStyle(.plain)
+    .help(isVisible ? "Hide workers" : "Show workers")
   }
 
   // MARK: - Helpers

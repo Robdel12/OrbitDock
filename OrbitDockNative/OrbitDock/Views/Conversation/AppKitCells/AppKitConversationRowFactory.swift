@@ -71,6 +71,7 @@
     let cancelShellCommand: (String) -> Void
     let toggleRollup: (String) -> Void
     let toggleTurnExpansion: (String) -> Void
+    let focusWorkerInDeck: (String) -> Void
     let loadMore: (() -> Void)?
     let openPendingApprovalPanel: (() -> Void)?
   }
@@ -249,6 +250,9 @@
         }
         expandedCell.onCancel = { requestID in
           handlers.cancelShellCommand(requestID)
+        }
+        expandedCell.onFocusWorker = { workerID in
+          handlers.focusWorkerInDeck(workerID)
         }
         expandedCell.configure(model: expandedModel, width: width)
         logger.debug("viewFor[\(row)] \(timelineRow.id.rawValue) native-expanded-tool w=\(String(format: "%.0f", width))")

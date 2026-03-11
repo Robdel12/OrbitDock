@@ -66,6 +66,7 @@ func requiresConversationBootstrapBackfill(
 @MainActor
 final class ConversationStore {
   let sessionId: String
+  let endpointId: UUID
   private let clients: ServerClients
 
   // MARK: - Observable state
@@ -107,8 +108,9 @@ final class ConversationStore {
     return normalizedMessagesCache
   }
 
-  init(sessionId: String, clients: ServerClients) {
+  init(sessionId: String, endpointId: UUID, clients: ServerClients) {
     self.sessionId = sessionId
+    self.endpointId = endpointId
     self.clients = clients
   }
 
@@ -192,7 +194,7 @@ final class ConversationStore {
   // MARK: - Live event handlers (called by SessionStore)
 
   func handleMessageAppended(_ serverMessage: ServerMessage) {
-    let incoming = serverMessage.toTranscriptMessage()
+    let incoming = serverMessage.toTranscriptMessage(endpointId: endpointId)
     let normalized = normalizeMessage(incoming)
 
     if let existingIdx = messages.firstIndex(where: { $0.id == normalized.id }) {
@@ -291,7 +293,7 @@ final class ConversationStore {
 
   /// Handle session snapshot by replacing messages entirely.
   func handleSnapshot(_ state: ServerSessionState) {
-    let incoming = state.messages.map { $0.toTranscriptMessage() }
+    let incoming = state.messages.map { $0.toTranscriptMessage(endpointId: endpointId) }
     let normalized = normalizeMessages(incoming)
 
     let existingOldest = oldestLoadedSequence
@@ -344,7 +346,7 @@ final class ConversationStore {
   // MARK: - Private
 
   private func applyBootstrap(_ bootstrap: ServerConversationBootstrap, goal: ConversationRecoveryGoal) {
-    let incoming = bootstrap.session.messages.map { $0.toTranscriptMessage() }
+    let incoming = bootstrap.session.messages.map { $0.toTranscriptMessage(endpointId: endpointId) }
     let normalized = normalizeMessages(incoming)
 
     // If we already have messages, check if the bootstrap supersedes them
@@ -372,7 +374,7 @@ final class ConversationStore {
   }
 
   private func applyHistoryPage(_ page: ServerConversationHistoryPage) {
-    let incoming = page.messages.map { $0.toTranscriptMessage() }
+    let incoming = page.messages.map { $0.toTranscriptMessage(endpointId: endpointId) }
     let normalized = normalizeMessages(incoming)
     guard !normalized.isEmpty else { return }
 

@@ -30,6 +30,7 @@ import SwiftUI
     let messageCount: Int
     let remainingLoadCount: Int
     let openFileInReview: ((String) -> Void)?
+    let focusWorkerInDeck: ((String) -> Void)?
     let onLoadMore: () -> Void
     let onNavigateToReviewFile: ((String, Int) -> Void)?
     let onOpenPendingApprovalPanel: (() -> Void)?
@@ -47,6 +48,7 @@ import SwiftUI
       vc.coordinator = context.coordinator
       vc.serverState = serverState
       vc.openFileInReview = openFileInReview
+      vc.focusWorkerInDeck = focusWorkerInDeck
       vc.provider = provider
       vc.model = model
       vc.sessionId = sessionId
@@ -75,6 +77,7 @@ import SwiftUI
       vc.coordinator = context.coordinator
       vc.serverState = serverState
       vc.openFileInReview = openFileInReview
+      vc.focusWorkerInDeck = focusWorkerInDeck
       vc.provider = provider
       vc.model = model
       vc.sessionId = sessionId
@@ -157,6 +160,7 @@ import SwiftUI
     var coordinator: ConversationCollectionView.Coordinator?
     var serverState: SessionStore?
     var openFileInReview: ((String) -> Void)?
+    var focusWorkerInDeck: ((String) -> Void)?
     var provider: Provider = .claude
     var model: String?
     var sessionId: String?
@@ -194,6 +198,7 @@ import SwiftUI
     var needsInitialScroll = true
     /// Tracks which thinking message IDs have been expanded by the user.
     var expandedThinkingIDs: Set<String> = []
+    var imageCacheObserver: NSObjectProtocol?
 
     override func loadView() {
       view = NSView()
@@ -235,12 +240,18 @@ import SwiftUI
         toggleTurnExpansion: { [weak self] turnID in
           self?.toggleTurnExpansion(turnID: turnID)
         },
+        focusWorkerInDeck: { [weak self] workerID in
+          self?.focusWorkerInDeck?(workerID)
+        },
         loadMore: onLoadMore,
         openPendingApprovalPanel: onOpenPendingApprovalPanel
       )
     }
 
     deinit {
+      if let imageCacheObserver {
+        NotificationCenter.default.removeObserver(imageCacheObserver)
+      }
       NotificationCenter.default.removeObserver(self)
     }
   }

@@ -318,7 +318,9 @@ impl From<ConnectorEvent> for Input {
             ConnectorEvent::FilesPersisted { files } => Input::FilesPersisted { files },
             ConnectorEvent::Error(msg) => Input::Error(msg),
             // Handled in event loop before reaching transitions
-            ConnectorEvent::HookSessionId(_) => unreachable!(),
+            ConnectorEvent::HookSessionId(_) | ConnectorEvent::SubagentsUpdated { .. } => {
+                unreachable!()
+            }
         }
     }
 }

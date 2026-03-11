@@ -1,0 +1,9 @@
+ALTER TABLE subagents ADD COLUMN provider TEXT;
+ALTER TABLE subagents ADD COLUMN label TEXT;
+ALTER TABLE subagents ADD COLUMN status TEXT;
+ALTER TABLE subagents ADD COLUMN task_summary TEXT;
+ALTER TABLE subagents ADD COLUMN result_summary TEXT;
+ALTER TABLE subagents ADD COLUMN error_summary TEXT;
+ALTER TABLE subagents ADD COLUMN parent_subagent_id TEXT;
+ALTER TABLE subagents ADD COLUMN model TEXT;
+ALTER TABLE subagents ADD COLUMN last_activity_at TEXT;

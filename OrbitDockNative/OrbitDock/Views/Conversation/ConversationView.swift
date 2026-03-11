@@ -123,6 +123,7 @@ struct ConversationView: View {
   // MARK: - Main Thread View
 
   @Environment(\.openFileInReview) private var openFileInReview
+  @Environment(\.focusWorkerInDeck) private var focusWorkerInDeck
 
   private var conversationThread: some View {
     ConversationCollectionView(
@@ -143,6 +144,7 @@ struct ConversationView: View {
       messageCount: totalMessageCount,
       remainingLoadCount: remainingLoadCount,
       openFileInReview: openFileInReview,
+      focusWorkerInDeck: focusWorkerInDeck,
       onLoadMore: {
         guard let sid = sessionId else { return }
         serverState.loadOlderMessages(sessionId: sid, limit: pageSize)

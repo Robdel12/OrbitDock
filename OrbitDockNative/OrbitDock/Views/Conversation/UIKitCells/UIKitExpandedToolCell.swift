@@ -65,6 +65,7 @@
     private let durationLabel = UILabel()
     private let collapseChevron = UIImageView()
     private let cancelButton = UIButton(type: .system)
+    private let workerButton = UIButton(type: .system)
     private let contentContainer = UIView()
     private let spinner = UIActivityIndicatorView(style: .medium)
 
@@ -73,6 +74,7 @@
     private var model: NativeExpandedToolModel?
     var onCollapse: ((String) -> Void)?
     var onCancel: ((String) -> Void)?
+    var onFocusWorker: ((String) -> Void)?
 
     // ── Init ──
 
@@ -162,6 +164,13 @@
       cancelButton.addTarget(self, action: #selector(handleCancelTap), for: .touchUpInside)
       cardBackground.addSubview(cancelButton)
 
+      let workerConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+      workerButton.setImage(UIImage(systemName: "sidebar.right", withConfiguration: workerConfig), for: .normal)
+      workerButton.tintColor = UIColor(Color.accent)
+      workerButton.isHidden = true
+      workerButton.addTarget(self, action: #selector(handleWorkerTap), for: .touchUpInside)
+      cardBackground.addSubview(workerButton)
+
       // Content container
       contentContainer.clipsToBounds = true
       cardBackground.addSubview(contentContainer)
@@ -176,6 +185,9 @@
       if !cancelButton.isHidden, cancelButton.frame.contains(location) {
         return
       }
+      if !workerButton.isHidden, workerButton.frame.contains(location) {
+        return
+      }
       let headerHeight = EL.headerHeight(for: model)
       if location.y <= headerHeight, let messageID = model?.messageID {
         onCollapse?(messageID)
@@ -185,6 +197,11 @@
     @objc private func handleCancelTap() {
       guard let messageID = model?.messageID else { return }
       onCancel?(messageID)
+    }
+
+    @objc private func handleWorkerTap() {
+      guard let workerID = model?.linkedWorkerID else { return }
+      onFocusWorker?(workerID)
     }
 
     override func layoutSubviews() {
@@ -201,6 +218,7 @@
       groupCardBg.reset()
       onCollapse = nil
       onCancel = nil
+      onFocusWorker = nil
       model = nil
       contentContainer.subviews.forEach { $0.removeFromSuperview() }
     }
@@ -277,6 +295,18 @@
         )
       } else {
         cancelButton.isHidden = true
+      }
+
+      if model.linkedWorkerID != nil {
+        workerButton.isHidden = false
+        workerButton.frame = CGRect(
+          x: cardWidth - EL.headerHPad - (model.canCancel ? 84 : 46),
+          y: EL.headerVPad - 1,
+          width: 20,
+          height: 20
+        )
+      } else {
+        workerButton.isHidden = true
       }
 
       // Collapse chevron

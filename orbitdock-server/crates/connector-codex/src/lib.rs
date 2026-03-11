@@ -1131,19 +1131,36 @@ impl CodexConnector {
                     "sender: {}\nspawned: {}\nstatus: {}",
                     e.sender_thread_id, receiver_label, status_text
                 );
-                vec![ConnectorEvent::MessageUpdated {
+                let mut events = vec![ConnectorEvent::MessageUpdated {
                     message_id: e.call_id,
                     content: None,
                     tool_output: Some(output),
                     is_error: Some(agent_status_failed(&e.status)),
                     is_in_progress: Some(false),
                     duration_ms: None,
-                }]
+                }];
+                if let Some(thread_id) = e.new_thread_id {
+                    let maybe_subagent = build_inflight_codex_subagent(
+                        thread_id.to_string(),
+                        e.new_agent_role.clone(),
+                        e.new_agent_nickname.clone(),
+                        Some(e.prompt.clone()),
+                        Some(e.sender_thread_id.to_string()),
+                        &e.status,
+                    );
+                    if let Some(subagent) = maybe_subagent {
+                    events.push(ConnectorEvent::SubagentsUpdated {
+                        subagents: vec![subagent],
+                    });
+                    }
+                }
+                events
             }
 
             EventMsg::CollabAgentInteractionBegin(e) => {
                 let tool_input = serde_json::to_string(&json!({
                     "subagent_type": "agent",
+                    "subagent_id": e.receiver_thread_id.to_string(),
                     "description": e.prompt,
                     "sender_thread_id": e.sender_thread_id.to_string(),
                     "receiver_thread_id": e.receiver_thread_id.to_string(),
@@ -1178,14 +1195,29 @@ impl CodexConnector {
                     "sender: {}\nreceiver: {}\nstatus: {}",
                     e.sender_thread_id, receiver_label, status_text
                 );
-                vec![ConnectorEvent::MessageUpdated {
-                    message_id: e.call_id,
-                    content: None,
-                    tool_output: Some(output),
-                    is_error: Some(agent_status_failed(&e.status)),
-                    is_in_progress: Some(false),
-                    duration_ms: None,
-                }]
+                let mut events = vec![
+                    ConnectorEvent::MessageUpdated {
+                        message_id: e.call_id,
+                        content: None,
+                        tool_output: Some(output),
+                        is_error: Some(agent_status_failed(&e.status)),
+                        is_in_progress: Some(false),
+                        duration_ms: None,
+                    },
+                ];
+                if let Some(subagent) = build_inflight_codex_subagent(
+                    e.receiver_thread_id.to_string(),
+                    e.receiver_agent_role.clone(),
+                    e.receiver_agent_nickname.clone(),
+                    Some(e.prompt.clone()),
+                    Some(e.sender_thread_id.to_string()),
+                    &e.status,
+                ) {
+                    events.push(ConnectorEvent::SubagentsUpdated {
+                        subagents: vec![subagent],
+                    });
+                }
+                events
             }
 
             EventMsg::CollabWaitingBegin(e) => {
@@ -1234,6 +1266,7 @@ impl CodexConnector {
             EventMsg::CollabWaitingEnd(e) => {
                 let mut lines: Vec<String> = Vec::new();
                 let mut has_error = false;
+                let mut subagents = Vec::new();
                 lines.push(format!("sender: {}", e.sender_thread_id));
                 if !e.agent_statuses.is_empty() {
                     for entry in &e.agent_statuses {
@@ -1245,12 +1278,28 @@ impl CodexConnector {
                         );
                         lines.push(format!("{label}: {status_text}"));
                         has_error = has_error || agent_status_failed(&entry.status);
+                        subagents.push(build_authoritative_codex_subagent(
+                            entry.thread_id.to_string(),
+                            entry.agent_role.clone(),
+                            entry.agent_nickname.clone(),
+                            None,
+                            Some(e.sender_thread_id.to_string()),
+                            &entry.status,
+                        ));
                     }
                 } else {
                     for (thread_id, status) in &e.statuses {
                         let status_text = format!("{:?}", status);
                         lines.push(format!("{thread_id}: {status_text}"));
                         has_error = has_error || agent_status_failed(status);
+                        subagents.push(build_authoritative_codex_subagent(
+                            thread_id.to_string(),
+                            None,
+                            None,
+                            None,
+                            Some(e.sender_thread_id.to_string()),
+                            status,
+                        ));
                     }
                 }
                 let output = if lines.is_empty() {
@@ -1258,19 +1307,24 @@ impl CodexConnector {
                 } else {
                     lines.join("\n")
                 };
-                vec![ConnectorEvent::MessageUpdated {
+                let mut events = vec![ConnectorEvent::MessageUpdated {
                     message_id: e.call_id,
                     content: None,
                     tool_output: Some(output),
                     is_error: Some(has_error),
                     is_in_progress: Some(false),
                     duration_ms: None,
-                }]
+                }];
+                if !subagents.is_empty() {
+                    events.push(ConnectorEvent::SubagentsUpdated { subagents });
+                }
+                events
             }
 
             EventMsg::CollabCloseBegin(e) => {
                 let tool_input = serde_json::to_string(&json!({
                     "subagent_type": "close",
+                    "subagent_id": e.receiver_thread_id.to_string(),
                     "description": "Closing agent",
                     "sender_thread_id": e.sender_thread_id.to_string(),
                     "receiver_thread_id": e.receiver_thread_id.to_string(),
@@ -1318,6 +1372,7 @@ impl CodexConnector {
             EventMsg::CollabResumeBegin(e) => {
                 let tool_input = serde_json::to_string(&json!({
                     "subagent_type": "resume",
+                    "subagent_id": e.receiver_thread_id.to_string(),
                     "description": "Resuming agent",
                     "sender_thread_id": e.sender_thread_id.to_string(),
                     "receiver_thread_id": e.receiver_thread_id.to_string(),
@@ -1354,14 +1409,26 @@ impl CodexConnector {
                     "sender: {}\nreceiver: {}\nstatus: {}",
                     e.sender_thread_id, receiver_label, status_text
                 );
-                vec![ConnectorEvent::MessageUpdated {
-                    message_id: e.call_id,
-                    content: None,
-                    tool_output: Some(output),
-                    is_error: Some(agent_status_failed(&e.status)),
-                    is_in_progress: Some(false),
-                    duration_ms: None,
-                }]
+                vec![
+                    ConnectorEvent::MessageUpdated {
+                        message_id: e.call_id,
+                        content: None,
+                        tool_output: Some(output),
+                        is_error: Some(agent_status_failed(&e.status)),
+                        is_in_progress: Some(false),
+                        duration_ms: None,
+                    },
+                    ConnectorEvent::SubagentsUpdated {
+                        subagents: vec![build_authoritative_codex_subagent(
+                            e.receiver_thread_id.to_string(),
+                            e.receiver_agent_role.clone(),
+                            e.receiver_agent_nickname.clone(),
+                            None,
+                            Some(e.sender_thread_id.to_string()),
+                            &e.status,
+                        )],
+                    },
+                ]
             }
 
             EventMsg::ExecApprovalRequest(e) => {
@@ -3547,6 +3614,155 @@ fn agent_status_failed(status: &codex_protocol::protocol::AgentStatus) -> bool {
     )
 }
 
+fn build_authoritative_codex_subagent(
+    id: String,
+    agent_role: Option<String>,
+    agent_nickname: Option<String>,
+    task_summary: Option<String>,
+    parent_subagent_id: Option<String>,
+    status: &codex_protocol::protocol::AgentStatus,
+) -> orbitdock_protocol::SubagentInfo {
+    let now = iso_now();
+    let (mapped_status, ended_at, result_summary, error_summary) = map_agent_status(status, &now);
+
+    orbitdock_protocol::SubagentInfo {
+        id: id.clone(),
+        agent_type: normalized_agent_type(agent_role.as_deref()),
+        started_at: now.clone(),
+        ended_at,
+        provider: Some(orbitdock_protocol::Provider::Codex),
+        label: normalized_agent_label(agent_nickname.as_deref(), agent_role.as_deref(), &id),
+        status: mapped_status,
+        task_summary: task_summary.and_then(|summary| {
+            let trimmed = summary.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }),
+        result_summary,
+        error_summary,
+        parent_subagent_id,
+        model: None,
+        last_activity_at: Some(now),
+    }
+}
+
+fn build_inflight_codex_subagent(
+    id: String,
+    agent_role: Option<String>,
+    agent_nickname: Option<String>,
+    task_summary: Option<String>,
+    parent_subagent_id: Option<String>,
+    status: &codex_protocol::protocol::AgentStatus,
+) -> Option<orbitdock_protocol::SubagentInfo> {
+    let mapped_status = match status {
+        codex_protocol::protocol::AgentStatus::PendingInit => {
+            orbitdock_protocol::SubagentStatus::Pending
+        }
+        codex_protocol::protocol::AgentStatus::Running => {
+            orbitdock_protocol::SubagentStatus::Running
+        }
+        codex_protocol::protocol::AgentStatus::Completed(_)
+        | codex_protocol::protocol::AgentStatus::Errored(_)
+        | codex_protocol::protocol::AgentStatus::Shutdown
+        | codex_protocol::protocol::AgentStatus::NotFound => return None,
+    };
+
+    let now = iso_now();
+    Some(orbitdock_protocol::SubagentInfo {
+        id: id.clone(),
+        agent_type: normalized_agent_type(agent_role.as_deref()),
+        started_at: now.clone(),
+        ended_at: None,
+        provider: Some(orbitdock_protocol::Provider::Codex),
+        label: normalized_agent_label(agent_nickname.as_deref(), agent_role.as_deref(), &id),
+        status: mapped_status,
+        task_summary: task_summary.and_then(|summary| {
+            let trimmed = summary.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }),
+        result_summary: None,
+        error_summary: None,
+        parent_subagent_id,
+        model: None,
+        last_activity_at: Some(now),
+    })
+}
+
+fn map_agent_status(
+    status: &codex_protocol::protocol::AgentStatus,
+    now: &str,
+) -> (
+    orbitdock_protocol::SubagentStatus,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
+    match status {
+        codex_protocol::protocol::AgentStatus::PendingInit => (
+            orbitdock_protocol::SubagentStatus::Pending,
+            None,
+            None,
+            None,
+        ),
+        codex_protocol::protocol::AgentStatus::Running => (
+            orbitdock_protocol::SubagentStatus::Running,
+            None,
+            None,
+            None,
+        ),
+        codex_protocol::protocol::AgentStatus::Completed(summary) => (
+            orbitdock_protocol::SubagentStatus::Completed,
+            Some(now.to_string()),
+            summary.as_ref().and_then(|summary| {
+                let trimmed = summary.trim();
+                (!trimmed.is_empty()).then(|| trimmed.to_string())
+            }),
+            None,
+        ),
+        codex_protocol::protocol::AgentStatus::Errored(message) => (
+            orbitdock_protocol::SubagentStatus::Failed,
+            Some(now.to_string()),
+            None,
+            Some(message.trim().to_string()),
+        ),
+        codex_protocol::protocol::AgentStatus::Shutdown => (
+            orbitdock_protocol::SubagentStatus::Shutdown,
+            Some(now.to_string()),
+            None,
+            None,
+        ),
+        codex_protocol::protocol::AgentStatus::NotFound => (
+            orbitdock_protocol::SubagentStatus::NotFound,
+            Some(now.to_string()),
+            None,
+            Some("Agent not found".to_string()),
+        ),
+    }
+}
+
+fn normalized_agent_type(role: Option<&str>) -> String {
+    role.map(str::trim)
+        .filter(|role| !role.is_empty())
+        .unwrap_or("agent")
+        .to_string()
+}
+
+fn normalized_agent_label(
+    nickname: Option<&str>,
+    role: Option<&str>,
+    id: &str,
+) -> Option<String> {
+    nickname
+        .map(str::trim)
+        .filter(|nickname| !nickname.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            role.map(str::trim)
+                .filter(|role| !role.is_empty())
+                .map(ToOwned::to_owned)
+        })
+        .or_else(|| Some(id.to_string()))
+}
+
 fn stream_error_should_surface_to_timeline(event: &StreamErrorEvent) -> bool {
     // Codex uses StreamError for retryable response-stream disconnects. Those
     // are already logged upstream and retried automatically, so rendering them
@@ -3615,13 +3831,14 @@ fn iso_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
+        build_authoritative_codex_subagent, build_inflight_codex_subagent,
         collaboration_mode_from_permission_mode, model_rejects_reasoning_summary,
         parse_reasoning_summary, reasoning_summary_for_model, should_disable_reasoning_summary,
         stream_error_should_surface_to_timeline,
     };
     use codex_protocol::config_types::{ModeKind, ReasoningSummary};
     use codex_protocol::openai_models::ReasoningEffort;
-    use codex_protocol::protocol::{CodexErrorInfo, StreamErrorEvent};
+    use codex_protocol::protocol::{AgentStatus, CodexErrorInfo, StreamErrorEvent};
 
     #[test]
     fn collaboration_mode_maps_plan() {
@@ -3760,5 +3977,111 @@ mod tests {
         };
 
         assert!(stream_error_should_surface_to_timeline(&event));
+    }
+
+    #[test]
+    fn build_authoritative_codex_subagent_maps_completed_status_and_metadata() {
+        let subagent = build_authoritative_codex_subagent(
+            "worker-1".to_string(),
+            Some("explorer".to_string()),
+            Some("Repo Scout".to_string()),
+            Some("Map the repository".to_string()),
+            Some("parent-thread".to_string()),
+            &AgentStatus::Completed(Some("Found the main modules".to_string())),
+        );
+
+        assert_eq!(subagent.id, "worker-1");
+        assert_eq!(subagent.agent_type, "explorer");
+        assert_eq!(subagent.label.as_deref(), Some("Repo Scout"));
+        assert_eq!(subagent.task_summary.as_deref(), Some("Map the repository"));
+        assert_eq!(subagent.parent_subagent_id.as_deref(), Some("parent-thread"));
+        assert_eq!(
+            subagent.status,
+            orbitdock_protocol::SubagentStatus::Completed
+        );
+        assert_eq!(
+            subagent.result_summary.as_deref(),
+            Some("Found the main modules")
+        );
+        assert!(subagent.ended_at.is_some());
+    }
+
+    #[test]
+    fn build_authoritative_codex_subagent_maps_error_status() {
+        let subagent = build_authoritative_codex_subagent(
+            "worker-2".to_string(),
+            None,
+            None,
+            None,
+            None,
+            &AgentStatus::Errored("sandbox denied".to_string()),
+        );
+
+        assert_eq!(subagent.agent_type, "agent");
+        assert_eq!(subagent.label.as_deref(), Some("worker-2"));
+        assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Failed);
+        assert_eq!(subagent.error_summary.as_deref(), Some("sandbox denied"));
+        assert!(subagent.ended_at.is_some());
+    }
+
+    #[test]
+    fn build_inflight_codex_subagent_maps_running_status_only() {
+        let subagent = build_inflight_codex_subagent(
+            "worker-3".to_string(),
+            Some("worker".to_string()),
+            Some("Mill".to_string()),
+            Some("Read AGENTS.md".to_string()),
+            Some("parent-thread".to_string()),
+            &AgentStatus::Running,
+        )
+        .expect("expected inflight worker");
+
+        assert_eq!(subagent.id, "worker-3");
+        assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Running);
+        assert_eq!(subagent.result_summary, None);
+        assert_eq!(subagent.error_summary, None);
+        assert_eq!(subagent.task_summary.as_deref(), Some("Read AGENTS.md"));
+        assert!(subagent.ended_at.is_none());
+    }
+
+    #[test]
+    fn build_inflight_codex_subagent_drops_terminal_statuses() {
+        let completed = build_inflight_codex_subagent(
+            "worker-4".to_string(),
+            None,
+            None,
+            None,
+            None,
+            &AgentStatus::Completed(Some("done".to_string())),
+        );
+        let errored = build_inflight_codex_subagent(
+            "worker-4".to_string(),
+            None,
+            None,
+            None,
+            None,
+            &AgentStatus::Errored("boom".to_string()),
+        );
+        let shutdown = build_inflight_codex_subagent(
+            "worker-4".to_string(),
+            None,
+            None,
+            None,
+            None,
+            &AgentStatus::Shutdown,
+        );
+        let not_found = build_inflight_codex_subagent(
+            "worker-4".to_string(),
+            None,
+            None,
+            None,
+            None,
+            &AgentStatus::NotFound,
+        );
+
+        assert!(completed.is_none());
+        assert!(errored.is_none());
+        assert!(shutdown.is_none());
+        assert!(not_found.is_none());
     }
 }

@@ -152,9 +152,9 @@ final class CodexUsageService {
   private(set) var error: CodexUsageError?
   private(set) var isLoading = false
 
-  private let refreshInterval: TimeInterval = 300 // 5 minutes
+  private let refreshInterval: TimeInterval = 600 // 10 minutes (background safety net)
   private let staleThreshold: TimeInterval = 600 // 10 minutes
-  private let cacheValidDuration: TimeInterval = 180 // 3 minutes
+  private let cacheValidDuration: TimeInterval = 120 // 2 minutes
   private var refreshTask: Task<Void, Never>?
   private var endpointObserverTask: Task<Void, Never>?
   private var activeEndpointId: UUID?

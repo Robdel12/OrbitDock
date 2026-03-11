@@ -24,6 +24,7 @@ struct SessionDetailView: View {
   }
 
   @State var copiedResume = false
+  @State var selectedWorkerId: String?
 
   // Chat scroll state
   @State var isPinned = true
@@ -31,6 +32,7 @@ struct SessionDetailView: View {
   @State var scrollToBottomTrigger = 0
 
   @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
+  @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = true
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "session-detail")
   @State var selectedSkills: Set<String> = []
 
@@ -72,6 +74,8 @@ struct SessionDetailView: View {
         onEndSession: obs.isDirect ? { endDirectSession() } : nil,
         layoutConfig: obs.isDirect ? $layoutConfig : nil,
         chatViewMode: $chatViewMode,
+        workerPanelVisible: $showWorkerPanel,
+        hasWorkerPanelContent: workerRosterPresentation != nil,
         selectedCommentIds: $selectedCommentIds,
         onNavigateToComment: { comment in
           navigateToComment = comment
@@ -102,6 +106,8 @@ struct SessionDetailView: View {
         conversationContent
       } review: {
         reviewCanvas
+      } companion: {
+        workerCompanionPanel
       }
 
       SessionDetailFooter(mode: footerMode) {
@@ -149,6 +155,12 @@ struct SessionDetailView: View {
     // Diff-available banner trigger
     .onChange(of: scopedServerState.session(sessionId).diff) { oldDiff, newDiff in
       handleDiffChange(oldDiff: oldDiff, newDiff: newDiff)
+    }
+    .onChange(of: workerSelectionSignature) { _, _ in
+      syncSelectedWorker()
+    }
+    .onChange(of: selectedWorkerId) { _, _ in
+      loadSelectedWorkerTools()
     }
   }
 

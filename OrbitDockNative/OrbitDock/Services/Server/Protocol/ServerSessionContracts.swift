@@ -221,17 +221,45 @@ struct ServerTurnDiff: Codable {
 
 // MARK: - Subagent Types
 
+enum ServerSubagentStatus: String, Codable {
+  case pending
+  case running
+  case completed
+  case failed
+  case cancelled
+  case shutdown
+  case notFound = "not_found"
+}
+
 struct ServerSubagentInfo: Codable, Identifiable {
   let id: String
   let agentType: String
   let startedAt: String
   let endedAt: String?
+  let provider: ServerProvider?
+  let label: String?
+  let status: ServerSubagentStatus?
+  let taskSummary: String?
+  let resultSummary: String?
+  let errorSummary: String?
+  let parentSubagentId: String?
+  let model: String?
+  let lastActivityAt: String?
 
   enum CodingKeys: String, CodingKey {
     case id
     case agentType = "agent_type"
     case startedAt = "started_at"
     case endedAt = "ended_at"
+    case provider
+    case label
+    case status
+    case taskSummary = "task_summary"
+    case resultSummary = "result_summary"
+    case errorSummary = "error_summary"
+    case parentSubagentId = "parent_subagent_id"
+    case model
+    case lastActivityAt = "last_activity_at"
   }
 }
 

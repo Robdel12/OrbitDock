@@ -81,6 +81,54 @@ struct SessionStoreControlStateSyncTests {
     #expect(detail.autonomyConfiguredOnServer == true)
   }
 
+  @Test func sessionSnapshotHydratesSubagentMetadataIntoDetailState() throws {
+    let store = SessionStore()
+
+    store.routeEvent(.sessionSnapshot(try decodeSnapshot(
+      """
+      {
+        "id": "session-1",
+        "provider": "codex",
+        "project_path": "/tmp/project",
+        "status": "active",
+        "work_status": "working",
+        "messages": [],
+        "token_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cached_tokens": 0,
+          "context_window": 0
+        },
+        "token_usage_snapshot_kind": "unknown",
+        "turn_count": 0,
+        "subagents": [
+          {
+            "id": "worker-1",
+            "agent_type": "explorer",
+            "started_at": "2026-03-10T10:00:00Z",
+            "provider": "codex",
+            "label": "Repo Scout",
+            "status": "running",
+            "task_summary": "Map the repository structure",
+            "parent_subagent_id": "root-worker",
+            "model": "gpt-5"
+          }
+        ]
+      }
+      """
+    )))
+
+    let detail = store.session("session-1")
+    let worker = try #require(detail.subagents.first)
+    #expect(worker.id == "worker-1")
+    #expect(worker.provider == .codex)
+    #expect(worker.label == "Repo Scout")
+    #expect(worker.status == .running)
+    #expect(worker.taskSummary == "Map the repository structure")
+    #expect(worker.parentSubagentId == "root-worker")
+    #expect(worker.model == "gpt-5")
+  }
+
   private var sessionSummaryJSON: String {
     """
     {
@@ -101,5 +149,9 @@ struct SessionStoreControlStateSyncTests {
 
   private func decodeChanges(_ json: String) throws -> ServerStateChanges {
     try JSONDecoder().decode(ServerStateChanges.self, from: Data(json.utf8))
+  }
+
+  private func decodeSnapshot(_ json: String) throws -> ServerSessionState {
+    try JSONDecoder().decode(ServerSessionState.self, from: Data(json.utf8))
   }
 }
