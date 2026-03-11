@@ -22,6 +22,67 @@ struct McpCapabilityNotice: Equatable {
   let style: Style
 }
 
+struct CodexCapabilityNoticeCard: View {
+  let notice: McpCapabilityNotice
+
+  var body: some View {
+    HStack(alignment: .top, spacing: Spacing.sm) {
+      ZStack {
+        Circle()
+          .fill(noticeTint.opacity(0.16))
+          .frame(width: 28, height: 28)
+
+        Image(systemName: notice.iconName)
+          .font(.system(size: TypeScale.meta, weight: .semibold))
+          .foregroundStyle(noticeTint)
+      }
+
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        HStack(spacing: Spacing.xs) {
+          Text(notice.title)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+
+          Text(notice.badge)
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
+            .foregroundStyle(noticeTint)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, Spacing.xxs)
+            .background(noticeTint.opacity(0.14), in: Capsule())
+        }
+
+        Text(notice.message)
+          .font(.system(size: TypeScale.meta))
+          .foregroundStyle(Color.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .fill(Color.backgroundSecondary.opacity(0.72))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(noticeTint.opacity(0.18), lineWidth: 1)
+    )
+  }
+
+  private var noticeTint: Color {
+    switch notice.style {
+      case .informational:
+        return .accent
+      case .success:
+        return .feedbackPositive
+      case .caution:
+        return .feedbackCaution
+    }
+  }
+}
+
 enum McpServersTabPlanner {
   static func capabilityNotice(
     provider: Provider,
@@ -162,7 +223,9 @@ struct McpServersTab: View {
         .foregroundStyle(Color.panelBorder.opacity(0.5))
 
       if let capabilityNotice {
-        capabilityNoticeView(capabilityNotice)
+        CodexCapabilityNoticeCard(notice: capabilityNotice)
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.sm)
 
         Divider()
           .foregroundStyle(Color.panelBorder.opacity(0.3))
@@ -179,54 +242,6 @@ struct McpServersTab: View {
       }
     }
     .background(Color.backgroundPrimary)
-  }
-
-  private func capabilityNoticeView(_ notice: McpCapabilityNotice) -> some View {
-    HStack(alignment: .top, spacing: Spacing.sm) {
-      ZStack {
-        Circle()
-          .fill(noticeTint(notice.style).opacity(0.16))
-          .frame(width: 28, height: 28)
-
-        Image(systemName: notice.iconName)
-          .font(.system(size: TypeScale.meta, weight: .semibold))
-          .foregroundStyle(noticeTint(notice.style))
-      }
-
-      VStack(alignment: .leading, spacing: Spacing.xxs) {
-        HStack(spacing: Spacing.xs) {
-          Text(notice.title)
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-
-          Text(notice.badge)
-            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
-            .foregroundStyle(noticeTint(notice.style))
-            .padding(.horizontal, Spacing.xs)
-            .padding(.vertical, Spacing.xxs)
-            .background(noticeTint(notice.style).opacity(0.14), in: Capsule())
-        }
-
-        Text(notice.message)
-          .font(.system(size: TypeScale.meta))
-          .foregroundStyle(Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-
-      Spacer(minLength: 0)
-    }
-    .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .fill(Color.backgroundSecondary.opacity(0.72))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .stroke(noticeTint(notice.style).opacity(0.18), lineWidth: 1)
-    )
-    .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm)
   }
 
   // MARK: - Server Row
@@ -555,16 +570,6 @@ struct McpServersTab: View {
     }
   }
 
-  private func noticeTint(_ style: McpCapabilityNotice.Style) -> Color {
-    switch style {
-      case .informational:
-        .accent
-      case .success:
-        .feedbackPositive
-      case .caution:
-        .feedbackCaution
-    }
-  }
 }
 
 // MARK: - Models

@@ -54,6 +54,7 @@ struct NewSessionFormSections<
   EndpointSection: View,
   ContinuationSection: View,
   AuthGateSection: View,
+  CodexCapabilityNoticeSection: View,
   DirectorySection: View,
   WorktreeSection: View,
   ConfigurationCard: View,
@@ -66,12 +67,14 @@ struct NewSessionFormSections<
   let isCodexProvider: Bool
   let isClaudeProvider: Bool
   let shouldShowAuthGate: Bool
+  let shouldShowCodexCapabilityNotice: Bool
   let hasSelectedPath: Bool
   let hasCodexError: Bool
   @ViewBuilder let providerPicker: () -> ProviderPicker
   @ViewBuilder let endpointSection: () -> EndpointSection
   @ViewBuilder let continuationSection: (SessionContinuation) -> ContinuationSection
   @ViewBuilder let authGateSection: () -> AuthGateSection
+  @ViewBuilder let codexCapabilityNoticeSection: () -> CodexCapabilityNoticeSection
   @ViewBuilder let directorySection: () -> DirectorySection
   @ViewBuilder let worktreeSection: () -> WorktreeSection
   @ViewBuilder let configurationCard: () -> ConfigurationCard
@@ -92,6 +95,10 @@ struct NewSessionFormSections<
 
       if isCodexProvider && shouldShowAuthGate {
         authGateSection()
+      }
+
+      if isCodexProvider && shouldShowCodexCapabilityNotice {
+        codexCapabilityNoticeSection()
       }
 
       directorySection()

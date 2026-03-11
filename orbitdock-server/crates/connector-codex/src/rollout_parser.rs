@@ -15,8 +15,8 @@ use std::time::SystemTime;
 use anyhow::Context;
 use codex_protocol::models::{ContentItem, ResponseItem};
 use codex_protocol::protocol::{
-    EventMsg, RealtimeHandoffRequested, RolloutItem, RolloutLine, SessionMetaLine,
-    TurnContextItem,
+    EventMsg, HookOutputEntry, HookRunStatus, HookRunSummary, RealtimeHandoffRequested,
+    RolloutItem, RolloutLine, SessionMetaLine, TurnContextItem,
 };
 
 // Re-export SessionSource so the server crate can use it without depending on codex-protocol
@@ -997,6 +997,24 @@ impl RolloutFileProcessor {
                 is_error: false,
                 images: vec![],
             }],
+            EventMsg::HookStarted(e) => vec![RolloutEvent::AppendChatMessage {
+                session_id,
+                message_type: MessageType::Tool,
+                content: hook_started_text(&e.run),
+                tool_name: Some("hook".to_string()),
+                tool_input: serde_json::to_string(&e.run).ok(),
+                is_error: false,
+                images: vec![],
+            }],
+            EventMsg::HookCompleted(e) => vec![RolloutEvent::AppendChatMessage {
+                session_id,
+                message_type: MessageType::Tool,
+                content: hook_completed_text(&e.run),
+                tool_name: Some("hook".to_string()),
+                tool_input: hook_output_text(&e.run),
+                is_error: hook_run_is_error(e.run.status),
+                images: vec![],
+            }],
             EventMsg::ShutdownComplete => vec![RolloutEvent::SessionEnded {
                 session_id,
                 reason: "shutdown".to_string(),
@@ -1297,6 +1315,81 @@ fn realtime_text_from_handoff_request(handoff: &RealtimeHandoffRequested) -> Opt
         None
     } else {
         Some(input.to_string())
+    }
+}
+
+fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|text| !text.is_empty())
+}
+
+fn hook_started_text(run: &HookRunSummary) -> String {
+    format!(
+        "Running {} hook via {}",
+        hook_event_label(run),
+        hook_source_label(run)
+    )
+}
+
+fn hook_completed_text(run: &HookRunSummary) -> String {
+    let base = format!(
+        "{} hook {} via {}",
+        hook_event_label(run),
+        hook_status_label(run.status),
+        hook_source_label(run)
+    );
+    match non_empty_trimmed(run.status_message.as_deref()) {
+        Some(message) => format!("{base}: {message}"),
+        None => base,
+    }
+}
+
+fn hook_output_text(run: &HookRunSummary) -> Option<String> {
+    let mut parts: Vec<String> = run.entries.iter().filter_map(hook_entry_text).collect();
+    if let Some(message) = non_empty_trimmed(run.status_message.as_deref()) {
+        if !parts.iter().any(|part| part == message) {
+            parts.insert(0, message.to_string());
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
+    }
+}
+
+fn hook_entry_text(entry: &HookOutputEntry) -> Option<String> {
+    non_empty_trimmed(Some(entry.text.as_str())).map(ToString::to_string)
+}
+
+fn hook_run_is_error(status: HookRunStatus) -> bool {
+    matches!(
+        status,
+        HookRunStatus::Failed | HookRunStatus::Blocked | HookRunStatus::Stopped
+    )
+}
+
+fn hook_event_label(run: &HookRunSummary) -> &'static str {
+    match run.event_name {
+        codex_protocol::protocol::HookEventName::SessionStart => "session start",
+        codex_protocol::protocol::HookEventName::Stop => "stop",
+    }
+}
+
+fn hook_source_label(run: &HookRunSummary) -> String {
+    run.source_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| run.source_path.display().to_string())
+}
+
+fn hook_status_label(status: HookRunStatus) -> &'static str {
+    match status {
+        HookRunStatus::Running => "running",
+        HookRunStatus::Completed => "completed",
+        HookRunStatus::Failed => "failed",
+        HookRunStatus::Blocked => "blocked",
+        HookRunStatus::Stopped => "stopped",
     }
 }
 
@@ -1674,11 +1767,14 @@ mod tests {
     use super::*;
     use codex_protocol::protocol::{
         AgentStatus, BackgroundEventEvent, CollabAgentSpawnEndEvent, CollabAgentStatusEntry,
-        CollabWaitingEndEvent, RealtimeConversationRealtimeEvent, RealtimeEvent,
-        RealtimeHandoffRequested, RealtimeTranscriptEntry, TurnDiffEvent,
+        CollabWaitingEndEvent, HookEventName, HookExecutionMode, HookHandlerType,
+        HookOutputEntry, HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
+        RealtimeConversationRealtimeEvent, RealtimeEvent, RealtimeHandoffRequested,
+        RealtimeTranscriptEntry, TurnDiffEvent,
     };
     use codex_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
     use codex_protocol::ThreadId;
+    use std::path::PathBuf;
 
     fn test_thread_id(value: &str) -> ThreadId {
         ThreadId::from_string(value).expect("valid thread id")
@@ -1830,6 +1926,78 @@ mod tests {
             }
             other => panic!("unexpected events: {other:?}"),
         }
+    }
+
+    #[test]
+    fn passive_hook_events_emit_readable_tool_messages() {
+        let path = "/tmp/rollout-00000000-0000-0000-0000-000000000003-hooks.jsonl";
+        let mut processor = test_processor("session-hooks", path);
+        let run = HookRunSummary {
+            id: "hook-1".to_string(),
+            event_name: HookEventName::Stop,
+            handler_type: HookHandlerType::Command,
+            execution_mode: HookExecutionMode::Sync,
+            scope: HookScope::Turn,
+            source_path: PathBuf::from("/tmp/stop-hook.sh"),
+            display_order: 0,
+            status: HookRunStatus::Completed,
+            status_message: Some("Cleaned up temp files".to_string()),
+            started_at: 1,
+            completed_at: Some(2),
+            duration_ms: Some(88),
+            entries: vec![HookOutputEntry {
+                kind: HookOutputEntryKind::Feedback,
+                text: "Deleted stale lock".to_string(),
+            }],
+        };
+
+        let started_events = processor.parse_event_msg(
+            EventMsg::HookStarted(codex_protocol::protocol::HookStartedEvent {
+                turn_id: Some("turn-1".to_string()),
+                run: run.clone(),
+            }),
+            path,
+        );
+        assert!(matches!(
+            started_events.as_slice(),
+            [RolloutEvent::AppendChatMessage {
+                session_id,
+                message_type,
+                content,
+                tool_name,
+                is_error,
+                ..
+            }] if session_id == "session-hooks"
+                && *message_type == MessageType::Tool
+                && content == "Running stop hook via stop-hook.sh"
+                && tool_name.as_deref() == Some("hook")
+                && !is_error
+        ));
+
+        let completed_events = processor.parse_event_msg(
+            EventMsg::HookCompleted(codex_protocol::protocol::HookCompletedEvent {
+                turn_id: Some("turn-1".to_string()),
+                run,
+            }),
+            path,
+        );
+        assert!(matches!(
+            completed_events.as_slice(),
+            [RolloutEvent::AppendChatMessage {
+                session_id,
+                message_type,
+                content,
+                tool_name,
+                tool_input,
+                is_error,
+                ..
+            }] if session_id == "session-hooks"
+                && *message_type == MessageType::Tool
+                && content == "stop hook completed via stop-hook.sh: Cleaned up temp files"
+                && tool_name.as_deref() == Some("hook")
+                && tool_input.as_deref() == Some("Cleaned up temp files\nDeleted stale lock")
+                && !is_error
+        ));
     }
 
     #[test]

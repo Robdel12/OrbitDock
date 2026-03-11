@@ -31,8 +31,9 @@ We have moved a lot of the scary plumbing out of the critical path.
 - Codex control-plane settings are threaded through the server and app
 - resume and restore now preserve Codex thread identity and control-plane settings
 - realtime handoff requests are now visible as intentional transcript artifacts instead of being dropped silently
+- hook runs now have a real direct/passive visibility foundation instead of being silently dropped
 - passive rollout sessions now carry plan, diff, background-event, and shutdown state forward instead of silently flattening them
-- MCP/auth capability messaging is now present in the Codex capabilities UI
+- MCP/auth capability messaging is now present in the Codex capabilities UI and session creation flow
 
 That means the roadmap is increasingly about cohesion and delight, not basic compatibility.
 
@@ -223,7 +224,7 @@ OrbitDock can now:
 - render them as a first-class approval UI in the composer
 - grant requested permissions for one turn or the full session
 
-That means the biggest remaining work is no longer the approval model. It is the rest of the Codex control plane and runtime visibility around agents, hooks, collaboration, and auth-aware capability behavior.
+That means the biggest remaining work is no longer the approval model. It is the rest of the Codex experience around agents, realtime polish, and auth-aware capability behavior.
 
 ## Completed: Codex Control Plane
 
@@ -267,21 +268,19 @@ Right now OrbitDock safely ignores a lot of latest Codex behavior. That keeps th
 - transcript deltas and raw conversation item churn are still intentionally hidden
 - the remaining question is not transport correctness, it is product behavior: which realtime signals help trust and which ones just add noise
 
-### Important constraint right now
+### Current hook status
 
-The original roadmap assumed Codex hook lifecycle events were available through the same stable event surface OrbitDock already consumes. That no longer looks true.
+The roadmap was stale here for a while.
 
-Right now the practical state is:
+OrbitDock now does have a hook-visibility foundation:
 
-- OrbitDock can map the visible realtime, plan, diff, background, and worker events Codex actually emits through the public protocol/runtime path
-- OrbitDock does not currently have a clean stable upstream hook-lifecycle event stream to render as first-class timeline events
+- direct Codex sessions can render readable hook start/completion events
+- passive rollout sessions can do the same
 
-So hook visibility is no longer a straightforward "just wire the missing event" task. It is blocked on either:
+That means hooks are no longer the big missing transport gap. The remaining work is polish:
 
-- upstream Codex exposing those events through the public protocol OrbitDock already consumes
-- or OrbitDock deliberately choosing a different source of truth for hook visibility
-
-That means the higher-value immediate work is realtime and handoff polish, not forcing a speculative hook UI.
+- decide whether hook rows should stay timeline-native or get a richer visual treatment
+- decide whether failed hooks should change attention state or stay informational
 
 ### Key files
 
@@ -295,7 +294,7 @@ That means the higher-value immediate work is realtime and handoff polish, not f
 - Worker lane A: realtime transcript/handoff event mapping
 - Worker lane B: state model and timeline event design
 - Worker lane C: Swift rendering and UX polish
-- Worker lane D: upstream hook-surface watch so we can revisit this quickly if Codex exposes it cleanly
+- Worker lane D: hook row UX and failure-state semantics
 
 ## Epic 3: Apps And Auth-Aware MCP Clarity
 
@@ -320,8 +319,8 @@ That is a product behavior gap more than a transport bug.
 
 - `orbitdock-server/crates/connector-codex/src/lib.rs`
 - `orbitdock-server/crates/server/src/transport/http/capabilities.rs`
-- `OrbitDockNative/OrbitDock/Views/Codex/McpServersTab.swift`
-- `OrbitDockNative/OrbitDock/Views/Codex/SkillsTab.swift`
+- `OrbitDockNative/OrbitDock/Views/Sessions/Capabilities/McpServersTab.swift`
+- `OrbitDockNative/OrbitDock/Views/NewSession/NewSessionSheet.swift`
 
 ## Epic 4: Image Generation And Nice-To-Haves
 

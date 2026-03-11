@@ -93,6 +93,30 @@ Completed scope:
 
 That closes a meaningful gap between passive rollout sessions and direct live sessions.
 
+### Completed: Hook Visibility Foundation
+
+OrbitDock now has a real baseline for Codex hook visibility instead of silently dropping hook runs.
+
+Completed scope:
+
+- direct-session hook timeline messages
+- passive rollout hook timeline messages
+- readable hook start/completion text instead of raw protocol noise
+
+This is the foundational version, not the final UX, but it means hook activity is now part of the OrbitDock Codex experience.
+
+### Completed: Auth-Aware Capability Messaging
+
+OrbitDock now sets expectations around Codex account mode in more of the places users actually make decisions.
+
+Completed scope:
+
+- Codex account-mode status in settings
+- MCP capability notices for API-key versus ChatGPT-backed sessions
+- new-session warning copy when app-backed MCP behavior may differ because the account is API-key-backed
+
+This is mostly a product-clarity win, but it closes an important parity gap around trust and predictability.
+
 ## What Is Still Not At Feature Parity
 
 These are the biggest remaining gaps relative to latest Codex.
@@ -127,18 +151,7 @@ Recommended epic:
 - make the worker sidecar a richer drill-in surface
 - explore direct worker interaction if upstream Codex exposes a durable control surface
 
-### 3. Hooks
-
-The earlier roadmap assumed Codex hook lifecycle events were available through the same stable public event surface OrbitDock already consumes. That no longer looks true.
-
-So the current status is:
-
-- hook visibility is not a simple missing mapping in OrbitDock
-- it appears to be blocked on upstream Codex exposing a clean consumable hook-lifecycle surface, or on OrbitDock choosing a different source of truth
-
-That makes this a watch-and-revisit item, not the highest-value immediate implementation lane.
-
-### 4. Apps And Auth-Gated MCP Behavior
+### 3. Apps And Auth-Gated MCP Behavior
 
 Latest Codex is more explicit about auth-dependent app availability. ChatGPT-authenticated sessions can expose app tooling differently than API-key-authenticated ones.
 
@@ -146,8 +159,8 @@ Key OrbitDock files:
 
 - `orbitdock-server/crates/connector-codex/src/lib.rs`
 - `orbitdock-server/crates/server/src/transport/http/capabilities.rs`
-- `OrbitDockNative/OrbitDock/Views/Codex/McpServersTab.swift`
-- `OrbitDockNative/OrbitDock/Views/Codex/SkillsTab.swift`
+- `OrbitDockNative/OrbitDock/Views/Sessions/Capabilities/McpServersTab.swift`
+- `OrbitDockNative/OrbitDock/Views/NewSession/NewSessionSheet.swift`
 
 Recommended epic:
 

@@ -7,8 +7,6 @@ fn intentionally_ignored_eventmsg_variants() -> BTreeSet<&'static str> {
     BTreeSet::from([
         // Latest Codex emits these, but OrbitDock still safely drops them via the
         // top-level catch-all while we work through feature parity.
-        "HookCompleted",
-        "HookStarted",
         "ImageGenerationBegin",
         "ImageGenerationEnd",
     ])
@@ -95,6 +93,37 @@ fn connector_plan_update_emits_tool_message_and_plan_state_update() {
     assert!(
         arm.contains("tool_name: Some(\"update_plan\".to_string())"),
         "PlanUpdate timeline message must use canonical tool name `update_plan`"
+    );
+}
+
+#[test]
+fn connector_hook_events_emit_timeline_hook_messages() {
+    let source = include_str!("../src/lib.rs");
+
+    let started_start = source
+        .find("EventMsg::HookStarted(e) => {")
+        .expect("missing EventMsg::HookStarted handler");
+    let started_arm = &source[started_start..source.len().min(started_start + 2200)];
+    assert!(
+        started_arm.contains("tool_name: Some(\"hook\".to_string())"),
+        "HookStarted handler must emit hook tool rows"
+    );
+    assert!(
+        started_arm.contains("is_in_progress: true"),
+        "HookStarted handler must create in-progress hook timeline messages"
+    );
+
+    let completed_start = source
+        .find("EventMsg::HookCompleted(e) => vec![ConnectorEvent::MessageUpdated {")
+        .expect("missing EventMsg::HookCompleted handler");
+    let completed_arm = &source[completed_start..source.len().min(completed_start + 1200)];
+    assert!(
+        completed_arm.contains("message_id: format!(\"hook-{}\", e.run.id)"),
+        "HookCompleted handler must update the started hook row by run id"
+    );
+    assert!(
+        completed_arm.contains("is_in_progress: Some(false)"),
+        "HookCompleted handler must finalize hook timeline messages"
     );
 }
 

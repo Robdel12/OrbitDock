@@ -28,8 +28,9 @@ use codex_protocol::config_types::{
 };
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
-    AskForApproval, CodexErrorInfo, Event, EventMsg, FileChange, McpServerRefreshConfig, Op,
-    RealtimeHandoffRequested, ReviewDecision, SandboxPolicy, SessionSource, StreamErrorEvent,
+    AskForApproval, CodexErrorInfo, Event, EventMsg, FileChange, HookOutputEntry, HookRunStatus,
+    HookRunSummary, McpServerRefreshConfig, Op, RealtimeHandoffRequested, ReviewDecision,
+    SandboxPolicy, SessionSource, StreamErrorEvent,
 };
 use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissionsResponse};
 use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
@@ -1924,6 +1925,34 @@ impl CodexConnector {
                 };
                 vec![ConnectorEvent::MessageCreated(message)]
             }
+
+            EventMsg::HookStarted(e) => {
+                let message = orbitdock_protocol::Message {
+                    id: format!("hook-{}", e.run.id),
+                    session_id: String::new(),
+                    sequence: None,
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: hook_started_text(&e.run),
+                    tool_name: Some("hook".to_string()),
+                    tool_input: serde_json::to_string(&e.run).ok(),
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: true,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::HookCompleted(e) => vec![ConnectorEvent::MessageUpdated {
+                message_id: format!("hook-{}", e.run.id),
+                content: Some(hook_completed_text(&e.run)),
+                tool_output: hook_output_text(&e.run),
+                is_error: Some(hook_run_is_error(e.run.status)),
+                is_in_progress: Some(false),
+                duration_ms: e.run.duration_ms.and_then(|ms| u64::try_from(ms).ok()),
+            }],
 
             EventMsg::ThreadNameUpdated(e) => {
                 if let Some(name) = e.thread_name {
@@ -4120,11 +4149,87 @@ fn realtime_text_from_handoff_request(handoff: &RealtimeHandoffRequested) -> Opt
     }
 }
 
+fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|text| !text.is_empty())
+}
+
+fn hook_started_text(run: &HookRunSummary) -> String {
+    format!(
+        "Running {} hook via {}",
+        hook_event_label(run),
+        hook_source_label(run)
+    )
+}
+
+fn hook_completed_text(run: &HookRunSummary) -> String {
+    let base = format!(
+        "{} hook {} via {}",
+        hook_event_label(run),
+        hook_status_label(run.status),
+        hook_source_label(run)
+    );
+    match non_empty_trimmed(run.status_message.as_deref()) {
+        Some(message) => format!("{base}: {message}"),
+        None => base,
+    }
+}
+
+fn hook_output_text(run: &HookRunSummary) -> Option<String> {
+    let mut parts: Vec<String> = run.entries.iter().filter_map(hook_entry_text).collect();
+    if let Some(message) = non_empty_trimmed(run.status_message.as_deref()) {
+        if !parts.iter().any(|part| part == message) {
+            parts.insert(0, message.to_string());
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
+    }
+}
+
+fn hook_entry_text(entry: &HookOutputEntry) -> Option<String> {
+    non_empty_trimmed(Some(entry.text.as_str())).map(ToString::to_string)
+}
+
+fn hook_run_is_error(status: HookRunStatus) -> bool {
+    matches!(
+        status,
+        HookRunStatus::Failed | HookRunStatus::Blocked | HookRunStatus::Stopped
+    )
+}
+
+fn hook_event_label(run: &HookRunSummary) -> &'static str {
+    match run.event_name {
+        codex_protocol::protocol::HookEventName::SessionStart => "session start",
+        codex_protocol::protocol::HookEventName::Stop => "stop",
+    }
+}
+
+fn hook_source_label(run: &HookRunSummary) -> String {
+    run.source_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(ToString::to_string)
+        .unwrap_or_else(|| run.source_path.display().to_string())
+}
+
+fn hook_status_label(status: HookRunStatus) -> &'static str {
+    match status {
+        HookRunStatus::Running => "running",
+        HookRunStatus::Completed => "completed",
+        HookRunStatus::Failed => "failed",
+        HookRunStatus::Blocked => "blocked",
+        HookRunStatus::Stopped => "stopped",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         build_authoritative_codex_subagent, build_inflight_codex_subagent,
         collaboration_mode_from_name_or_mode, collaboration_mode_from_permission_mode,
+        hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
         model_rejects_reasoning_summary, parse_personality, parse_reasoning_summary,
         parse_service_tier_override, realtime_text_from_handoff_request,
         reasoning_summary_for_model, should_disable_reasoning_summary,
@@ -4133,9 +4238,11 @@ mod tests {
     use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
     use codex_protocol::openai_models::ReasoningEffort;
     use codex_protocol::protocol::{
-        AgentStatus, CodexErrorInfo, RealtimeHandoffRequested, RealtimeTranscriptEntry,
-        StreamErrorEvent,
+        AgentStatus, CodexErrorInfo, HookEventName, HookExecutionMode, HookHandlerType,
+        HookOutputEntry, HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
+        RealtimeHandoffRequested, RealtimeTranscriptEntry, StreamErrorEvent,
     };
+    use std::path::PathBuf;
 
     #[test]
     fn collaboration_mode_maps_plan() {
@@ -4293,6 +4400,71 @@ mod tests {
             realtime_text_from_handoff_request(&handoff),
             Some("delegate now".to_string())
         );
+    }
+
+    #[test]
+    fn hook_helpers_emit_readable_timeline_text() {
+        let run = HookRunSummary {
+            id: "hook-1".to_string(),
+            event_name: HookEventName::Stop,
+            handler_type: HookHandlerType::Command,
+            execution_mode: HookExecutionMode::Sync,
+            scope: HookScope::Turn,
+            source_path: PathBuf::from("/tmp/stop-hook.sh"),
+            display_order: 0,
+            status: HookRunStatus::Completed,
+            status_message: Some("Cleared temporary state".to_string()),
+            started_at: 1,
+            completed_at: Some(2),
+            duration_ms: Some(88),
+            entries: vec![HookOutputEntry {
+                kind: HookOutputEntryKind::Feedback,
+                text: "Removed stale files".to_string(),
+            }],
+        };
+
+        assert_eq!(hook_started_text(&run), "Running stop hook via stop-hook.sh");
+        assert_eq!(
+            hook_completed_text(&run),
+            "stop hook completed via stop-hook.sh: Cleared temporary state"
+        );
+        assert_eq!(
+            hook_output_text(&run).as_deref(),
+            Some("Cleared temporary state\nRemoved stale files")
+        );
+        assert!(!hook_run_is_error(run.status));
+    }
+
+    #[test]
+    fn hook_helpers_flag_failed_runs_as_errors() {
+        let run = HookRunSummary {
+            id: "hook-2".to_string(),
+            event_name: HookEventName::SessionStart,
+            handler_type: HookHandlerType::Agent,
+            execution_mode: HookExecutionMode::Async,
+            scope: HookScope::Thread,
+            source_path: PathBuf::from("/tmp/session-start.prompt"),
+            display_order: 1,
+            status: HookRunStatus::Failed,
+            status_message: None,
+            started_at: 1,
+            completed_at: Some(2),
+            duration_ms: Some(25),
+            entries: vec![HookOutputEntry {
+                kind: HookOutputEntryKind::Error,
+                text: "Prompt validation failed".to_string(),
+            }],
+        };
+
+        assert_eq!(
+            hook_completed_text(&run),
+            "session start hook failed via session-start.prompt"
+        );
+        assert_eq!(
+            hook_output_text(&run).as_deref(),
+            Some("Prompt validation failed")
+        );
+        assert!(hook_run_is_error(run.status));
     }
 
     #[test]

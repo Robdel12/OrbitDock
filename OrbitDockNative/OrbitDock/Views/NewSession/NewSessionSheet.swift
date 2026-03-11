@@ -56,6 +56,19 @@ struct NewSessionSheet: View {
       && endpointAppState.codexAccountStatus?.account == nil
   }
 
+  private var codexCapabilityNotice: McpCapabilityNotice? {
+    guard model.provider == .codex, !requiresCodexLogin else { return nil }
+    guard let notice = McpServersTabPlanner.capabilityNotice(
+      provider: .codex,
+      codexAccountStatus: endpointAppState.codexAccountStatus
+    ) else {
+      return nil
+    }
+
+    guard notice.style == .caution else { return nil }
+    return notice
+  }
+
   private var claudeModels: [ServerClaudeModelOption] {
     endpointAppState.claudeModels
   }
@@ -199,12 +212,14 @@ struct NewSessionSheet: View {
       isCodexProvider: model.provider == .codex,
       isClaudeProvider: model.provider == .claude,
       shouldShowAuthGate: requiresCodexLogin,
+      shouldShowCodexCapabilityNotice: codexCapabilityNotice != nil,
       hasSelectedPath: !model.selectedPath.isEmpty,
       hasCodexError: model.provider == .codex && model.codexErrorMessage != nil,
       providerPicker: { providerPicker },
       endpointSection: { endpointSection },
       continuationSection: { continuationSection($0) },
       authGateSection: { authGateSection },
+      codexCapabilityNoticeSection: { codexCapabilityNoticeSection },
       directorySection: { directorySection },
       worktreeSection: {
         WorktreeFormSection(
@@ -225,6 +240,13 @@ struct NewSessionSheet: View {
         }
       }
     )
+  }
+
+  @ViewBuilder
+  private var codexCapabilityNoticeSection: some View {
+    if let codexCapabilityNotice {
+      CodexCapabilityNoticeCard(notice: codexCapabilityNotice)
+    }
   }
 
   // MARK: - Provider Picker
