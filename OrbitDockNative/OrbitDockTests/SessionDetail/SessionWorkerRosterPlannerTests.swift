@@ -26,7 +26,9 @@ struct SessionWorkerRosterPlannerTests {
       ]
     )
 
-    #expect(presentation?.title == "Workers · 1 active")
+    #expect(presentation?.title == "Workers")
+    #expect(presentation?.summary == "1 active · 1 complete")
+    #expect(presentation?.detailPrompt == "Keep an eye on live workers here while the conversation stays in front.")
     #expect(presentation?.workers.map(\.id) == ["worker-running", "worker-complete"])
     #expect(presentation?.workers.first?.subtitle == "Map the repository")
     #expect(presentation?.workers.first?.statusLabel == "Running")
@@ -51,6 +53,7 @@ struct SessionWorkerRosterPlannerTests {
     #expect(worker.title == "Reviewer")
     #expect(worker.subtitle == "sandbox denied")
     #expect(worker.statusLabel == "Failed")
+    #expect(presentation?.summary == "1 needs review")
   }
 
   @Test func preferredSelectionKeepsExistingWorkerWhenStillPresent() {
