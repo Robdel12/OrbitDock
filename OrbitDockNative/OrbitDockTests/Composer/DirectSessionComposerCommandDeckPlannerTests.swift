@@ -73,6 +73,20 @@ struct DirectSessionComposerCommandDeckPlannerTests {
             annotations: nil
           )
         )
+      ],
+      mcpResourceTemplateEntries: [
+        ComposerMcpResourceTemplateEntry(
+          id: "design|mcp://design/assets/{asset_id}",
+          server: "design",
+          resourceTemplate: ServerMcpResourceTemplate(
+            name: "asset-template",
+            uriTemplate: "mcp://design/assets/{asset_id}",
+            title: nil,
+            description: "Parameterized asset lookup",
+            mimeType: nil,
+            annotations: nil
+          )
+        )
       ]
     )
 
@@ -82,6 +96,7 @@ struct DirectSessionComposerCommandDeckPlannerTests {
     #expect(items.contains(where: { $0.id == "skill:/skills/mcp-debug" }))
     #expect(items.contains(where: { $0.id == "mcp-tool:mcp__design__render" }))
     #expect(items.contains(where: { $0.id == "mcp-resource:design|mcp://design/assets" }))
+    #expect(items.contains(where: { $0.id == "mcp-resource-template:design|mcp://design/assets/{asset_id}" }))
   }
 
   @Test func commandDeckLimitsResultsAndReflectsShellModeState() {
@@ -101,7 +116,8 @@ struct DirectSessionComposerCommandDeckPlannerTests {
       projectFiles: files,
       availableSkills: [],
       mcpToolEntries: [],
-      mcpResourceEntries: []
+      mcpResourceEntries: [],
+      mcpResourceTemplateEntries: []
     )
 
     let items = DirectSessionComposerCommandDeckPlanner.buildItems(context)

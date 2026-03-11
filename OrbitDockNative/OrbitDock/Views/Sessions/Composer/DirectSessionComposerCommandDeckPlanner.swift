@@ -16,6 +16,7 @@ struct DirectSessionComposerCommandDeckContext {
   let availableSkills: [ServerSkillMetadata]
   let mcpToolEntries: [ComposerMcpToolEntry]
   let mcpResourceEntries: [ComposerMcpResourceEntry]
+  let mcpResourceTemplateEntries: [ComposerMcpResourceTemplateEntry]
 }
 
 enum DirectSessionComposerCommandDeckPlanner {
@@ -52,6 +53,26 @@ enum DirectSessionComposerCommandDeckPlanner {
     .sorted {
       if $0.server == $1.server {
         return $0.resource.uri < $1.resource.uri
+      }
+      return $0.server < $1.server
+    }
+  }
+
+  static func mcpResourceTemplateEntries(
+    from resourceTemplates: [String: [ServerMcpResourceTemplate]]
+  ) -> [ComposerMcpResourceTemplateEntry] {
+    resourceTemplates.flatMap { server, templates in
+      templates.map { template in
+        ComposerMcpResourceTemplateEntry(
+          id: "\(server)|\(template.uriTemplate)",
+          server: server,
+          resourceTemplate: template
+        )
+      }
+    }
+    .sorted {
+      if $0.server == $1.server {
+        return $0.resourceTemplate.uriTemplate < $1.resourceTemplate.uriTemplate
       }
       return $0.server < $1.server
     }
@@ -186,6 +207,23 @@ enum DirectSessionComposerCommandDeckPlanner {
         subtitle: entry.resource.uri,
         tint: .toolMcp,
         kind: .insertMcpResource(server: entry.server, resource: entry.resource)
+      ))
+    }
+
+    for entry in context.mcpResourceTemplateEntries where query.isEmpty || matches([
+      entry.server,
+      entry.resourceTemplate.name,
+      entry.resourceTemplate.uriTemplate,
+      entry.resourceTemplate.description ?? "",
+    ]) {
+      items.append(ComposerCommandDeckItem(
+        id: "mcp-resource-template:\(entry.id)",
+        section: "MCP Templates",
+        icon: "square.text.square.fill",
+        title: "\(entry.server): \(entry.resourceTemplate.name)",
+        subtitle: entry.resourceTemplate.uriTemplate,
+        tint: .toolMcp,
+        kind: .insertMcpResourceTemplate(server: entry.server, resourceTemplate: entry.resourceTemplate)
       ))
     }
 

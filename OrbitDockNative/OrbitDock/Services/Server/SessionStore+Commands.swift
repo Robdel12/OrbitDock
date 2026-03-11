@@ -353,6 +353,7 @@ extension SessionStore {
     let obs = session(sessionId)
     obs.mcpTools = response.tools
     obs.mcpResources = response.resources
+    obs.mcpResourceTemplates = response.resourceTemplates
     obs.mcpAuthStatuses = response.authStatuses
   }
 

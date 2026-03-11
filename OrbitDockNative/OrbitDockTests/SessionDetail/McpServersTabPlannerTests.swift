@@ -2,6 +2,7 @@ import Foundation
 @testable import OrbitDock
 import Testing
 
+@MainActor
 struct McpServersTabPlannerTests {
   @Test func codexApiKeySessionsShowCapabilityNotice() {
     let notice = McpServersTabPlanner.capabilityNotice(

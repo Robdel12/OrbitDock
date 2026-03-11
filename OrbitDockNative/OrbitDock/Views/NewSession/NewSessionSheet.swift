@@ -198,7 +198,7 @@ struct NewSessionSheet: View {
       continuation: continuation,
       isCodexProvider: model.provider == .codex,
       isClaudeProvider: model.provider == .claude,
-      shouldShowAuthGate: endpointAppState.codexAccountStatus?.account == nil,
+      shouldShowAuthGate: requiresCodexLogin,
       hasSelectedPath: !model.selectedPath.isEmpty,
       hasCodexError: model.provider == .codex && model.codexErrorMessage != nil,
       providerPicker: { providerPicker },

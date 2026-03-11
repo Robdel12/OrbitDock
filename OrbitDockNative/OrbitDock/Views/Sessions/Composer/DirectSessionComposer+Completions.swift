@@ -196,6 +196,11 @@ extension DirectSessionComposer {
         clearCommandDeckState()
         let snippet = "Use MCP resource \(server):\(resource.uri)"
         replaceTrailingCommandDeckToken(with: snippet)
+
+      case let .insertMcpResourceTemplate(server, resourceTemplate):
+        clearCommandDeckState()
+        let snippet = "Use MCP resource template \(server):\(resourceTemplate.uriTemplate)"
+        replaceTrailingCommandDeckToken(with: snippet)
     }
     requestComposerFocus()
   }

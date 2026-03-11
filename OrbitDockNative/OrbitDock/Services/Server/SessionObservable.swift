@@ -71,6 +71,7 @@ final class SessionObservable {
   // MCP state
   var mcpTools: [String: ServerMcpTool] = [:]
   var mcpResources: [String: [ServerMcpResource]] = [:]
+  var mcpResourceTemplates: [String: [ServerMcpResourceTemplate]] = [:]
   var mcpAuthStatuses: [String: ServerMcpAuthStatus] = [:]
   var mcpStartupState: McpStartupState?
 
@@ -286,7 +287,7 @@ final class SessionObservable {
   }
 
   var hasMcpData: Bool {
-    !mcpTools.isEmpty || mcpStartupState != nil
+    !mcpTools.isEmpty || !mcpResources.isEmpty || !mcpResourceTemplates.isEmpty || mcpStartupState != nil
   }
 
   /// Whether this session supports a given slash command (e.g. "undo", "compact")
@@ -355,6 +356,7 @@ final class SessionObservable {
     pendingShellContext = []
     mcpTools = [:]
     mcpResources = [:]
+    mcpResourceTemplates = [:]
     mcpAuthStatuses = [:]
     mcpStartupState = nil
     skills = []

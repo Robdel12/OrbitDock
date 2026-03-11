@@ -77,6 +77,14 @@ struct McpServersTab: View {
     serverState.session(sessionId).mcpAuthStatuses
   }
 
+  private var resources: [String: [ServerMcpResource]] {
+    serverState.session(sessionId).mcpResources
+  }
+
+  private var resourceTemplates: [String: [ServerMcpResourceTemplate]] {
+    serverState.session(sessionId).mcpResourceTemplates
+  }
+
   private var provider: Provider {
     serverState.session(sessionId).provider
   }
@@ -100,18 +108,22 @@ struct McpServersTab: View {
       names.formUnion(state.cancelledServers)
     }
 
-    // From tools (extract server from mcp__<server>__<tool> keys)
+    // From tools/resources/templates (extract server from mcp__<server>__<tool> keys)
     for key in tools.keys {
       if let server = extractServerName(from: key) {
         names.insert(server)
       }
     }
+    names.formUnion(resources.keys)
+    names.formUnion(resourceTemplates.keys)
 
     return names.map { name in
       ServerEntry(
         name: name,
         status: serverStatus(for: name),
         tools: toolsForServer(name),
+        resources: resourcesForServer(name),
+        resourceTemplates: resourceTemplatesForServer(name),
         authStatus: authStatuses[name],
         error: errorForServer(name)
       )
@@ -260,14 +272,14 @@ struct McpServersTab: View {
           Spacer()
 
           // Tool count
-          if !entry.tools.isEmpty {
-            Text("\(entry.tools.count) tool\(entry.tools.count == 1 ? "" : "s")")
+          let capabilities = capabilitySummary(for: entry)
+          if !capabilities.isEmpty {
+            Text(capabilities)
               .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textTertiary)
           }
 
-          // Expand chevron (only if has tools)
-          if !entry.tools.isEmpty {
+          if entry.hasExpandedContent {
             Image(systemName: "chevron.right")
               .font(.system(size: TypeScale.mini, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
@@ -291,10 +303,27 @@ struct McpServersTab: View {
       }
 
       // Expanded tool list
-      if isExpanded, !entry.tools.isEmpty {
+      if isExpanded, entry.hasExpandedContent {
         VStack(alignment: .leading, spacing: 0) {
-          ForEach(entry.tools, id: \.name) { tool in
-            toolRow(tool, color: MCPCard.serverColor(entry.name))
+          if !entry.tools.isEmpty {
+            capabilitySectionTitle("Tools", count: entry.tools.count)
+            ForEach(entry.tools, id: \.name) { tool in
+              toolRow(tool, color: MCPCard.serverColor(entry.name))
+            }
+          }
+
+          if !entry.resources.isEmpty {
+            capabilitySectionTitle("Resources", count: entry.resources.count)
+            ForEach(entry.resources, id: \.uri) { resource in
+              resourceRow(resource, color: MCPCard.serverColor(entry.name))
+            }
+          }
+
+          if !entry.resourceTemplates.isEmpty {
+            capabilitySectionTitle("Templates", count: entry.resourceTemplates.count)
+            ForEach(entry.resourceTemplates, id: \.uriTemplate) { resourceTemplate in
+              resourceTemplateRow(resourceTemplate, color: MCPCard.serverColor(entry.name))
+            }
           }
         }
         .padding(.leading, 28)
@@ -328,6 +357,67 @@ struct McpServersTab: View {
       }
     }
     .padding(.vertical, Spacing.xs)
+  }
+
+  private func resourceRow(_ resource: ServerMcpResource, color: Color) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.xxs) {
+      Text(resource.name)
+        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+        .foregroundStyle(color.opacity(0.9))
+        .lineLimit(1)
+
+      Text(resource.uri)
+        .font(.system(size: TypeScale.micro, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+        .lineLimit(1)
+
+      if let desc = resource.description, !desc.isEmpty {
+        Text(desc)
+          .font(.system(size: TypeScale.meta))
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+      }
+    }
+    .padding(.vertical, Spacing.xs)
+  }
+
+  private func resourceTemplateRow(_ resourceTemplate: ServerMcpResourceTemplate, color: Color) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.xxs) {
+      Text(resourceTemplate.name)
+        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+        .foregroundStyle(color.opacity(0.9))
+        .lineLimit(1)
+
+      Text(resourceTemplate.uriTemplate)
+        .font(.system(size: TypeScale.micro, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+        .lineLimit(1)
+
+      if let desc = resourceTemplate.description, !desc.isEmpty {
+        Text(desc)
+          .font(.system(size: TypeScale.meta))
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+      }
+    }
+    .padding(.vertical, Spacing.xs)
+  }
+
+  private func capabilitySectionTitle(_ title: String, count: Int) -> some View {
+    HStack(spacing: Spacing.xs) {
+      Text(title.uppercased())
+        .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
+        .foregroundStyle(Color.textTertiary)
+        .tracking(0.5)
+
+      Text("\(count)")
+        .font(.system(size: TypeScale.micro, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
+
+      Spacer(minLength: 0)
+    }
+    .padding(.top, Spacing.sm)
+    .padding(.bottom, Spacing.xxs)
   }
 
   // MARK: - Status Dot
@@ -394,6 +484,24 @@ struct McpServersTab: View {
     .sorted { $0.name < $1.name }
   }
 
+  private func resourcesForServer(_ server: String) -> [ServerMcpResource] {
+    (resources[server] ?? []).sorted { $0.name < $1.name }
+  }
+
+  private func resourceTemplatesForServer(_ server: String) -> [ServerMcpResourceTemplate] {
+    (resourceTemplates[server] ?? []).sorted { $0.name < $1.name }
+  }
+
+  private func capabilitySummary(for entry: ServerEntry) -> String {
+    [
+      entry.tools.isEmpty ? nil : "\(entry.tools.count) tool\(entry.tools.count == 1 ? "" : "s")",
+      entry.resources.isEmpty ? nil : "\(entry.resources.count) resource\(entry.resources.count == 1 ? "" : "s")",
+      entry.resourceTemplates.isEmpty ? nil : "\(entry.resourceTemplates.count) template\(entry.resourceTemplates.count == 1 ? "" : "s")",
+    ]
+    .compactMap { $0 }
+    .joined(separator: " · ")
+  }
+
   private func serverStatus(for name: String) -> ServerEntryStatus {
     if let state = startupState {
       if let status = state.serverStatuses[name] {
@@ -411,7 +519,9 @@ struct McpServersTab: View {
       if state.cancelledServers.contains(name) { return .cancelled }
     }
     // If we have tools but no startup state, assume ready
-    if !toolsForServer(name).isEmpty { return .ready }
+    if !toolsForServer(name).isEmpty || !resourcesForServer(name).isEmpty || !resourceTemplatesForServer(name).isEmpty {
+      return .ready
+    }
     return .starting
   }
 
@@ -476,6 +586,8 @@ private struct ServerEntry: Identifiable {
   let name: String
   let status: ServerEntryStatus
   let tools: [ServerMcpTool]
+  let resources: [ServerMcpResource]
+  let resourceTemplates: [ServerMcpResourceTemplate]
   let authStatus: ServerMcpAuthStatus?
   let error: String?
 
@@ -485,6 +597,10 @@ private struct ServerEntry: Identifiable {
 
   var sortOrder: Int {
     status.rawValue
+  }
+
+  var hasExpandedContent: Bool {
+    !tools.isEmpty || !resources.isEmpty || !resourceTemplates.isEmpty
   }
 }
 

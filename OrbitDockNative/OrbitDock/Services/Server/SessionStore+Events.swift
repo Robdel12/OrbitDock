@@ -47,10 +47,11 @@ extension SessionStore {
       session(sessionId).skills = skills.flatMap(\.skills)
     case .remoteSkillsList, .remoteSkillDownloaded, .skillsUpdateAvailable:
       break
-    case .mcpToolsList(let sessionId, let tools, let resources, _, let authStatuses):
+    case .mcpToolsList(let sessionId, let tools, let resources, let resourceTemplates, let authStatuses):
       let obs = session(sessionId)
       obs.mcpTools = tools
       obs.mcpResources = resources
+      obs.mcpResourceTemplates = resourceTemplates
       obs.mcpAuthStatuses = authStatuses
     case .mcpStartupUpdate(let sessionId, let server, let status):
       let obs = session(sessionId)

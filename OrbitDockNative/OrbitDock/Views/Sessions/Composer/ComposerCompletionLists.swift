@@ -92,6 +92,12 @@ struct ComposerMcpResourceEntry: Identifiable {
   let resource: ServerMcpResource
 }
 
+struct ComposerMcpResourceTemplateEntry: Identifiable {
+  let id: String
+  let server: String
+  let resourceTemplate: ServerMcpResourceTemplate
+}
+
 // MARK: - Command Deck Item
 
 struct ComposerCommandDeckItem: Identifiable {
@@ -105,6 +111,7 @@ struct ComposerCommandDeckItem: Identifiable {
     case attachSkill(ServerSkillMetadata)
     case insertMcpTool(server: String, tool: ServerMcpTool)
     case insertMcpResource(server: String, resource: ServerMcpResource)
+    case insertMcpResourceTemplate(server: String, resourceTemplate: ServerMcpResourceTemplate)
   }
 
   let id: String

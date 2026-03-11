@@ -310,6 +310,12 @@ extension DirectSessionComposer {
     DirectSessionComposerCommandDeckPlanner.mcpResourceEntries(from: serverState.session(sessionId).mcpResources)
   }
 
+  var mcpResourceTemplateEntries: [ComposerMcpResourceTemplateEntry] {
+    DirectSessionComposerCommandDeckPlanner.mcpResourceTemplateEntries(
+      from: serverState.session(sessionId).mcpResourceTemplates
+    )
+  }
+
   var commandDeckItems: [ComposerCommandDeckItem] {
     let projectFiles: [ProjectFileIndex.ProjectFile]
     if let path = projectPath {
@@ -332,7 +338,8 @@ extension DirectSessionComposer {
         projectFiles: projectFiles,
         availableSkills: availableSkills,
         mcpToolEntries: mcpToolEntries,
-        mcpResourceEntries: mcpResourceEntries
+        mcpResourceEntries: mcpResourceEntries,
+        mcpResourceTemplateEntries: mcpResourceTemplateEntries
       )
     )
   }
