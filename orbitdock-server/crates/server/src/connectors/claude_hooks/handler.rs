@@ -1050,6 +1050,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         None,
                         None,
                         question_text.as_deref(),
+                        None,
                     );
                     let plan_text = extract_plan_from_tool_input(tool_input.as_ref());
 
@@ -1103,6 +1104,9 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             question: question_text.clone(),
                             question_prompts,
                             preview,
+                            permission_reason: None,
+                            requested_permissions: None,
+                            granted_permissions: None,
                             cwd: None,
                             proposed_amendment: None,
                             permission_suggestions: permission_suggestions.clone(),

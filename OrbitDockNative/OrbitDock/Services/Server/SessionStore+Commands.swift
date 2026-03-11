@@ -61,6 +61,28 @@ extension SessionStore {
     _ = try await clients.approvals.answerQuestion(sessionId, request: request)
   }
 
+  func respondToPermissionRequest(
+    sessionId: String,
+    requestId: String,
+    scope: ServerPermissionGrantScope,
+    grantRequestedPermissions: Bool
+  ) async throws {
+    netLog(.info, cat: .store, "Respond to permission request", sid: sessionId, data: ["requestId": requestId, "scope": scope.rawValue])
+    let permissionsPayload: AnyCodable? = if grantRequestedPermissions,
+      let approval = session(sessionId).pendingApproval,
+      approval.id == requestId
+    {
+      approval.requestedPermissions
+    } else {
+      nil
+    }
+
+    var request = ApprovalsClient.RespondToPermissionRequestRequest(requestId: requestId)
+    request.permissions = permissionsPayload
+    request.scope = scope
+    _ = try await clients.approvals.respondToPermissionRequest(sessionId, request: request)
+  }
+
   func createSession(_ request: SessionsClient.CreateSessionRequest) async throws -> SessionsClient.CreateSessionResponse {
     netLog(.info, cat: .store, "Create session", data: ["provider": request.provider, "cwd": request.cwd])
     return try await clients.sessions.createSession(request)

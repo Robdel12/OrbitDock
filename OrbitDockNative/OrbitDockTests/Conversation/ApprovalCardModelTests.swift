@@ -642,4 +642,50 @@ struct ApprovalCardModelTests {
       pendingApprovalId: pendingApprovalId
     )
   }
+
+  @Test func builderParsesPermissionRequestPayloadIntoReadableGroups() {
+    let sessionId = "session-permissions"
+    let session = makeDirectSession(
+      id: sessionId,
+      attentionReason: .awaitingPermission,
+      pendingApprovalId: "req-permissions"
+    )
+
+    let pendingApproval = ServerApprovalRequest(
+      id: "req-permissions",
+      sessionId: sessionId,
+      type: .permissions,
+      toolName: nil,
+      toolInput: nil,
+      command: nil,
+      filePath: nil,
+      diff: nil,
+      question: nil,
+      questionPrompts: [],
+      preview: nil,
+      permissionReason: "Codex needs broader access to complete this step.",
+      requestedPermissions: AnyCodable([
+        "network": [
+          "enabled": true,
+        ],
+        "file_system": [
+          "read": ["/tmp/OrbitDock/README.md"],
+          "write": ["/tmp/OrbitDock/output.txt"],
+        ],
+        "macos": [
+          "accessibility": true,
+        ],
+      ])
+    )
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: pendingApproval
+    )
+
+    #expect(model?.approvalType == .permissions)
+    #expect(model?.toolName == "Permissions")
+    #expect(model?.permissionRequest?.reason == "Codex needs broader access to complete this step.")
+    #expect(model?.permissionRequest?.groups.map(\.title) == ["Network", "Filesystem", "macOS"])
+  }
 }

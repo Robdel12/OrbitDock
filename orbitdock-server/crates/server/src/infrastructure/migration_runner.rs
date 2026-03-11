@@ -224,6 +224,9 @@ mod tests {
             "question_prompts",
             "preview",
             "permission_suggestions",
+            "permission_reason",
+            "requested_permissions",
+            "granted_permissions",
         ] {
             assert!(
                 columns.iter().any(|column| column == expected),

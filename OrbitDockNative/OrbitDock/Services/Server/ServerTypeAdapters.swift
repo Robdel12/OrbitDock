@@ -182,6 +182,7 @@ extension ServerApprovalRequest {
       case .exec: "Bash"
       case .patch: "Edit"
       case .question: nil
+      case .permissions: "Permissions"
     }
   }
 

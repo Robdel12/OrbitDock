@@ -2374,6 +2374,8 @@ impl ClaudeConnector {
             file_path,
             diff,
             question,
+            permission_reason: None,
+            requested_permissions: None,
             proposed_amendment: None,
             permission_suggestions: suggestions_for_event,
         });

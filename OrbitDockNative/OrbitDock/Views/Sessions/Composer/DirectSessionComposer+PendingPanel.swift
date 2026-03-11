@@ -110,107 +110,207 @@ extension DirectSessionComposer {
 
   @ViewBuilder
   func pendingPermissionInlineContent(_ model: ApprovalCardModel) -> some View {
-    let presentation = pendingPresentation(for: model)
-    let modeColor = pendingPanelModeColor(model)
-    // ━━━ Command / preview display ━━━
-    if presentation.showsCommandChain {
-      let isSingleStep = presentation.commandChainSegments.count == 1
+    if let permissionRequest = model.permissionRequest, model.approvalType == .permissions {
+      pendingRequestPermissionsInlineContent(permissionRequest, model: model)
+    } else {
+      let presentation = pendingPresentation(for: model)
+      let modeColor = pendingPanelModeColor(model)
+      // ━━━ Command / preview display ━━━
+      if presentation.showsCommandChain {
+        let isSingleStep = presentation.commandChainSegments.count == 1
 
-      VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.sm_) {
-        if !isSingleStep, !isCompactLayout {
-          HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-            Text("Command Chain")
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-              .foregroundStyle(Color.textTertiary)
+        VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.sm_) {
+          if !isSingleStep, !isCompactLayout {
+            HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+              Text("Command Chain")
+                .font(.system(size: TypeScale.micro, weight: .semibold))
+                .foregroundStyle(Color.textTertiary)
 
-            Text("\(presentation.commandChainSegments.count) steps")
-              .font(.system(size: TypeScale.mini, weight: .medium))
-              .foregroundStyle(Color.textQuaternary)
+              Text("\(presentation.commandChainSegments.count) steps")
+                .font(.system(size: TypeScale.mini, weight: .medium))
+                .foregroundStyle(Color.textQuaternary)
+            }
+          }
+
+          ForEach(Array(presentation.commandChainSegments.enumerated()), id: \.offset) { index, segment in
+            if isSingleStep {
+              PendingCommandCodeBlock(
+                command: segment.command,
+                modeColor: modeColor,
+                isCompactLayout: isCompactLayout
+              )
+            } else {
+              PendingCommandChainRow(
+                index: index + 1,
+                segment: segment,
+                modeColor: modeColor,
+                isCompactLayout: isCompactLayout
+              )
+            }
           }
         }
+      } else {
+        Text(presentation.previewText)
+          .font(.system(
+            size: isCompactLayout ? TypeScale.micro : TypeScale.caption,
+            weight: .regular
+          ))
+          .foregroundStyle(Color.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .multilineTextAlignment(.leading)
+          .textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
+          .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.sm_)
+          .background(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .fill(Color.backgroundCode)
+              .overlay(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                  .fill(modeColor.opacity(OpacityTier.tint))
+              )
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .strokeBorder(modeColor.opacity(OpacityTier.light), lineWidth: 0.5)
+          )
+      }
 
-        ForEach(Array(presentation.commandChainSegments.enumerated()), id: \.offset) { index, segment in
-          if isSingleStep {
-            PendingCommandCodeBlock(
-              command: segment.command,
-              modeColor: modeColor,
-              isCompactLayout: isCompactLayout
-            )
-          } else {
-            PendingCommandChainRow(
-              index: index + 1,
-              segment: segment,
-              modeColor: modeColor,
-              isCompactLayout: isCompactLayout
-            )
+      // ━━━ Risk findings ━━━
+      if !model.riskFindings.isEmpty {
+        PendingRiskFindingsSection(
+          findings: model.riskFindings,
+          tint: model.risk.tintColor,
+          highlightsBackground: model.risk == .high
+        )
+      }
+
+      // ━━━ Decision scope hint ━━━
+      if let scope = model.decisionScope, !scope.isEmpty {
+        PendingInfoHintRow(
+          iconName: "info.circle",
+          iconColor: Color.textQuaternary,
+          text: scope
+        )
+      }
+
+      // ━━━ Amendment detail (what "Always Allow" would permit) ━━━
+      if model.hasAmendment, let detail = model.amendmentDetail, !detail.isEmpty {
+        PendingInfoHintRow(
+          iconName: "shield.checkered",
+          iconColor: Color.feedbackCaution,
+          text: detail
+        )
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.sm_)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .fill(Color.feedbackCaution.opacity(OpacityTier.tint))
+        )
+      }
+
+      // ━━━ Deny reason text field (cancel/send buttons in footer) ━━━
+      if pendingState.showsDenyReason {
+        PendingDenyReasonField(text: $pendingState.denyReason)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func pendingRequestPermissionsInlineContent(
+    _ request: ApprovalPermissionRequest,
+    model: ApprovalCardModel
+  ) -> some View {
+    let modeColor = pendingPanelModeColor(model)
+
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      if let reason = request.reason, !reason.isEmpty {
+        Text(reason)
+          .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.caption, weight: .medium))
+          .foregroundStyle(Color.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      if !request.groups.isEmpty {
+        VStack(alignment: .leading, spacing: Spacing.sm_) {
+          ForEach(request.groups, id: \.self) { group in
+            pendingPermissionGroupCard(group, tint: modeColor)
+          }
+        }
+      } else {
+        PendingInfoHintRow(
+          iconName: "hand.raised.fill",
+          iconColor: modeColor,
+          text: "Review and grant the requested permissions to continue."
+        )
+      }
+
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        Text("Grant Scope")
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(Color.textTertiary)
+
+        Picker("Grant Scope", selection: $pendingState.permissionGrantScope) {
+          ForEach(ServerPermissionGrantScope.allCases) { scope in
+            Text(scope.title).tag(scope)
+          }
+        }
+        .pickerStyle(.segmented)
+      }
+
+      if pendingState.showsDenyReason {
+        PendingDenyReasonField(text: $pendingState.denyReason)
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func pendingPermissionGroupCard(
+    _ group: ApprovalPermissionGroup,
+    tint: Color
+  ) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.xs) {
+      HStack(spacing: Spacing.xs) {
+        Image(systemName: group.iconName)
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(tint)
+        Text(group.title)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+      }
+
+      VStack(alignment: .leading, spacing: 6) {
+        ForEach(group.lines, id: \.self) { line in
+          HStack(alignment: .top, spacing: Spacing.xs) {
+            Circle()
+              .fill(tint.opacity(OpacityTier.strong))
+              .frame(width: 4, height: 4)
+              .padding(.top, 6)
+
+            Text(line)
+              .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.caption, weight: .regular))
+              .foregroundStyle(Color.textSecondary)
+              .fixedSize(horizontal: false, vertical: true)
           }
         }
       }
-    } else {
-      Text(presentation.previewText)
-        .font(.system(
-          size: isCompactLayout ? TypeScale.micro : TypeScale.caption,
-          weight: .regular
-        ))
-        .foregroundStyle(Color.textSecondary)
-        .fixedSize(horizontal: false, vertical: true)
-        .multilineTextAlignment(.leading)
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
-        .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.sm_)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .fill(Color.backgroundCode)
-            .overlay(
-              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(modeColor.opacity(OpacityTier.tint))
-            )
-        )
+    }
+    .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md_)
+    .padding(.vertical, isCompactLayout ? Spacing.sm_ : Spacing.sm)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .fill(Color.backgroundCode)
         .overlay(
           RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .strokeBorder(modeColor.opacity(OpacityTier.light), lineWidth: 0.5)
+            .fill(tint.opacity(OpacityTier.tint))
         )
-    }
-
-    // ━━━ Risk findings ━━━
-    if !model.riskFindings.isEmpty {
-      PendingRiskFindingsSection(
-        findings: model.riskFindings,
-        tint: model.risk.tintColor,
-        highlightsBackground: model.risk == .high
-      )
-    }
-
-    // ━━━ Decision scope hint ━━━
-    if let scope = model.decisionScope, !scope.isEmpty {
-      PendingInfoHintRow(
-        iconName: "info.circle",
-        iconColor: Color.textQuaternary,
-        text: scope
-      )
-    }
-
-    // ━━━ Amendment detail (what "Always Allow" would permit) ━━━
-    if model.hasAmendment, let detail = model.amendmentDetail, !detail.isEmpty {
-      PendingInfoHintRow(
-        iconName: "shield.checkered",
-        iconColor: Color.feedbackCaution,
-        text: detail
-      )
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.sm_)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .fill(Color.feedbackCaution.opacity(OpacityTier.tint))
-      )
-    }
-
-    // ━━━ Deny reason text field (cancel/send buttons in footer) ━━━
-    if pendingState.showsDenyReason {
-      PendingDenyReasonField(text: $pendingState.denyReason)
-    }
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(tint.opacity(OpacityTier.light), lineWidth: 0.5)
+    )
   }
 
   // MARK: - Question Inline Content (no action buttons)
@@ -345,12 +445,16 @@ extension DirectSessionComposer {
         Platform.services.playHaptic(.selection)
       },
       onSubmitDenyReason: {
-        let reason = pendingState.denyReason.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !reason.isEmpty else { return }
-        sendPendingDecision(
-          model: model, decision: "denied", message: reason, interrupt: nil
-        )
-        pendingState.cancelDenyReason()
+        if model.approvalType == .permissions {
+          sendPendingPermissionResponse(model: model, granted: false)
+        } else {
+          let reason = pendingState.denyReason.trimmingCharacters(in: .whitespacesAndNewlines)
+          guard !reason.isEmpty else { return }
+          sendPendingDecision(
+            model: model, decision: "denied", message: reason, interrupt: nil
+          )
+          pendingState.cancelDenyReason()
+        }
       },
       onPrimaryDeny: {
         handlePendingPermissionAction(
@@ -578,6 +682,19 @@ extension DirectSessionComposer {
     model: ApprovalCardModel,
     action: ApprovalCardConfiguration.MenuAction
   ) {
+    if model.approvalType == .permissions {
+      switch action.decision {
+        case "deny_reason":
+          pendingState.showsDenyReason = true
+          Platform.services.playHaptic(.selection)
+        case "approved", "approved_for_session", "approved_always":
+          sendPendingPermissionResponse(model: model, granted: true)
+        default:
+          sendPendingPermissionResponse(model: model, granted: false)
+      }
+      return
+    }
+
     if action.decision == "deny_reason" {
       pendingState.showsDenyReason = true
       Platform.services.playHaptic(.selection)
@@ -588,6 +705,29 @@ extension DirectSessionComposer {
         message: nil,
         interrupt: nil
       )
+    }
+  }
+
+  private func sendPendingPermissionResponse(
+    model: ApprovalCardModel,
+    granted: Bool
+  ) {
+    guard let requestId = model.approvalId else { return }
+    Task {
+      do {
+        try await serverState.respondToPermissionRequest(
+          sessionId: model.sessionId,
+          requestId: requestId,
+          scope: pendingState.permissionGrantScope,
+          grantRequestedPermissions: granted
+        )
+        Platform.services.playHaptic(granted ? .success : .warning)
+        if !granted {
+          pendingState.cancelDenyReason()
+        }
+      } catch {
+        Platform.services.playHaptic(.warning)
+      }
     }
   }
 }

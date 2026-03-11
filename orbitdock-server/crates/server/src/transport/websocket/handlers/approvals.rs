@@ -148,6 +148,8 @@ mod tests {
                     file_path: None,
                     diff: None,
                     question: None,
+                    permission_reason: None,
+                    requested_permissions: None,
                     proposed_amendment: None,
                     permission_suggestions: None,
                 },

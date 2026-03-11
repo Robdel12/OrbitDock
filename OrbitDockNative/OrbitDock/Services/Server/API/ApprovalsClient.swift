@@ -31,6 +31,12 @@ struct ApprovalsClient: Sendable {
     var answers: [String: [String]] = [:]
   }
 
+  struct RespondToPermissionRequestRequest: Encodable {
+    let requestId: String
+    var permissions: AnyCodable?
+    var scope: ServerPermissionGrantScope?
+  }
+
   struct ApprovalsResponse: Decodable {
     let sessionId: String?
     let approvals: [ServerApprovalHistoryItem]
@@ -87,6 +93,16 @@ struct ApprovalsClient: Sendable {
   ) async throws -> ApprovalDecisionResponse {
     try await http.post(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/answer",
+      body: request
+    )
+  }
+
+  func respondToPermissionRequest(
+    _ sessionId: String,
+    request: RespondToPermissionRequestRequest
+  ) async throws -> ApprovalDecisionResponse {
+    try await http.post(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/permissions/respond",
       body: request
     )
   }

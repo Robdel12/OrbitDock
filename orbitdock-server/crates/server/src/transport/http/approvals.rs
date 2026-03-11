@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use super::errors::{bad_request, internal, not_found, unprocessable};
 use super::*;
+use orbitdock_protocol::PermissionGrantScope;
 
 fn approval_dispatch_error_response(
     code: &'static str,
@@ -18,6 +19,10 @@ fn approval_dispatch_error_response(
         "invalid_answer_payload" => bad_request(
             "invalid_answer_payload",
             "Question approvals require a non-empty answer or answers map",
+        ),
+        "invalid_permissions_payload" => bad_request(
+            "invalid_permissions_payload",
+            "Permission approvals require an object payload or null",
         ),
         "rollback_failed" => unprocessable(
             "rollback_failed",
@@ -68,6 +73,15 @@ pub struct AnswerQuestionRequest {
     pub question_id: Option<String>,
     #[serde(default)]
     pub answers: HashMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RespondToPermissionRequest {
+    pub request_id: String,
+    #[serde(default)]
+    pub permissions: Option<serde_json::Value>,
+    #[serde(default)]
+    pub scope: Option<PermissionGrantScope>,
 }
 
 #[derive(Debug, Serialize)]
@@ -160,6 +174,30 @@ pub async fn answer_question(
         body.answer,
         body.question_id,
         body.answers,
+    )
+    .await
+    .map_err(|code| approval_dispatch_error_response(code, &session_id))?;
+
+    Ok(Json(ApprovalDecisionResponse {
+        session_id,
+        request_id: body.request_id,
+        outcome: result.outcome,
+        active_request_id: result.active_request_id,
+        approval_version: result.approval_version,
+    }))
+}
+
+pub async fn respond_to_permission_request(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<RespondToPermissionRequest>,
+) -> Result<Json<ApprovalDecisionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+    let result = crate::runtime::message_dispatch::dispatch_request_permissions_response(
+        &state,
+        &session_id,
+        body.request_id.clone(),
+        body.permissions,
+        body.scope,
     )
     .await
     .map_err(|code| approval_dispatch_error_response(code, &session_id))?;

@@ -123,6 +123,7 @@ struct DirectSessionComposerPendingPlannerTests {
     var state = DirectSessionComposerPendingState()
     state.isExpanded = false
     state.promptIndex = 2
+    state.permissionGrantScope = .session
     state.answers = ["q1": ["A"]]
     state.drafts = ["q2": "draft"]
     state.showsDenyReason = true
@@ -134,6 +135,7 @@ struct DirectSessionComposerPendingPlannerTests {
 
     #expect(state.isExpanded)
     #expect(state.promptIndex == 0)
+    #expect(state.permissionGrantScope == .turn)
     #expect(state.answers.isEmpty)
     #expect(state.drafts.isEmpty)
     #expect(state.showsDenyReason == false)
@@ -214,6 +216,7 @@ struct DirectSessionComposerPendingPlannerTests {
           isSecret: false
         ),
       ],
+      permissionRequest: nil,
       hasAmendment: false,
       amendmentDetail: nil,
       approvalType: .question,
@@ -234,6 +237,46 @@ struct DirectSessionComposerPendingPlannerTests {
     #expect(presentation.promptCountText == "2 prompts")
     #expect(presentation.commandChainSegments.map { $0.command } == ["echo hi"])
     #expect(presentation.clampedContentHeight == 152)
+  }
+
+  @Test func permissionsPresentationUsesPermissionsTitleAndStatus() {
+    let model = ApprovalCardModel(
+      mode: .permission,
+      toolName: "Permissions",
+      previewType: .action,
+      shellSegments: [],
+      serverManifest: nil,
+      decisionScope: nil,
+      command: nil,
+      filePath: nil,
+      risk: .normal,
+      riskFindings: [],
+      diff: nil,
+      questions: [],
+      permissionRequest: ApprovalPermissionRequest(
+        reason: "Needs broader access.",
+        groups: [
+          ApprovalPermissionGroup(title: "Network", iconName: "network", lines: ["Allow outbound access."]),
+        ]
+      ),
+      hasAmendment: false,
+      amendmentDetail: nil,
+      approvalType: .permissions,
+      projectPath: "/tmp/OrbitDock",
+      approvalId: "approval-permissions",
+      sessionId: "session-permissions"
+    )
+
+    let presentation = DirectSessionComposerPendingPlanner.presentation(
+      for: model,
+      showsDenyReason: false,
+      measuredHeight: 0,
+      maxHeight: 260
+    )
+
+    #expect(presentation.title == "Permissions Request")
+    #expect(presentation.statusText == "PERMISSIONS")
+    #expect(presentation.fallbackHeight == 164)
   }
 
   @Test func questionContentStateBoundsActiveIndex() {

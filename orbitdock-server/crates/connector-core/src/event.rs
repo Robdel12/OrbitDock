@@ -41,6 +41,8 @@ pub enum ConnectorEvent {
         file_path: Option<String>,
         diff: Option<String>,
         question: Option<String>,
+        permission_reason: Option<String>,
+        requested_permissions: Option<serde_json::Value>,
         proposed_amendment: Option<Vec<String>>,
         /// Raw permission suggestions from Claude SDK (PermissionUpdate[])
         permission_suggestions: Option<serde_json::Value>,

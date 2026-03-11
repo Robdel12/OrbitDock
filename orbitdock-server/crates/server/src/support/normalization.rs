@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use serde_json::{Map, Value};
+
 pub(crate) fn normalize_non_empty(value: Option<String>) -> Option<String> {
     value
         .as_deref()
@@ -71,6 +73,16 @@ pub(crate) fn build_question_answers(
     normalized
 }
 
+pub(crate) fn normalize_permission_response(
+    raw_permissions: Option<Value>,
+) -> Result<Value, &'static str> {
+    match raw_permissions {
+        None | Some(Value::Null) => Ok(Value::Object(Map::new())),
+        Some(Value::Object(map)) => Ok(Value::Object(map)),
+        Some(_) => Err("invalid_permissions_payload"),
+    }
+}
+
 pub(crate) fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::WorkStatus {
     let normalized = decision.trim().to_lowercase();
     if matches!(
@@ -87,8 +99,11 @@ pub(crate) fn work_status_for_approval_decision(decision: &str) -> orbitdock_pro
 mod tests {
     use std::collections::HashMap;
 
+    use serde_json::{Map, Value};
+
     use super::{
-        build_question_answers, normalize_question_answers, work_status_for_approval_decision,
+        build_question_answers, normalize_permission_response, normalize_question_answers,
+        work_status_for_approval_decision,
     };
 
     #[test]
@@ -155,6 +170,22 @@ mod tests {
         assert_eq!(
             work_status_for_approval_decision("unknown_value"),
             orbitdock_protocol::WorkStatus::Waiting
+        );
+    }
+
+    #[test]
+    fn normalize_permission_response_defaults_to_empty_object() {
+        assert_eq!(
+            normalize_permission_response(None).expect("empty permissions"),
+            Value::Object(Map::new())
+        );
+    }
+
+    #[test]
+    fn normalize_permission_response_rejects_non_object_values() {
+        assert_eq!(
+            normalize_permission_response(Some(Value::String("nope".to_string()))),
+            Err("invalid_permissions_payload")
         );
     }
 }

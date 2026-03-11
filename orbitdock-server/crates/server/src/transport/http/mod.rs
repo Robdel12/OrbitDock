@@ -43,6 +43,7 @@ use crate::runtime::session_registry::SessionRegistry;
 
 pub use approvals::{
     answer_question, approve_tool, delete_approval_endpoint, list_approvals_endpoint,
+    respond_to_permission_request,
 };
 pub use capabilities::{
     apply_flag_settings, download_remote_skill, list_mcp_tools_endpoint,

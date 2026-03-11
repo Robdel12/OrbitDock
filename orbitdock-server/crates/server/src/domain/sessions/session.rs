@@ -40,6 +40,7 @@ fn fallback_tool_name(approval: &ApprovalRequest) -> Option<String> {
     match approval.approval_type {
         ApprovalType::Exec => Some("Bash".to_string()),
         ApprovalType::Patch => Some("Edit".to_string()),
+        ApprovalType::Permissions => Some("Permissions".to_string()),
         ApprovalType::Question => None,
     }
 }
@@ -254,6 +255,7 @@ fn preview_for_pending_approval(
         None,
         None,
         question,
+        None,
     )
 }
 
@@ -1170,7 +1172,9 @@ impl SessionHandle {
     fn work_status_for_approval_type(approval_type: ApprovalType) -> WorkStatus {
         match approval_type {
             ApprovalType::Question => WorkStatus::Question,
-            ApprovalType::Exec | ApprovalType::Patch => WorkStatus::Permission,
+            ApprovalType::Exec | ApprovalType::Patch | ApprovalType::Permissions => {
+                WorkStatus::Permission
+            }
         }
     }
 
@@ -1304,6 +1308,9 @@ impl SessionHandle {
                         self.pending_tool_input.as_deref(),
                         self.pending_question.as_deref(),
                     ),
+                    permission_reason: None,
+                    requested_permissions: None,
+                    granted_permissions: None,
                     proposed_amendment: None,
                     permission_suggestions: None,
                 };
@@ -1349,6 +1356,9 @@ impl SessionHandle {
             question: resolved_question,
             question_prompts,
             preview,
+            permission_reason: None,
+            requested_permissions: None,
+            granted_permissions: None,
             proposed_amendment: proposed_amendment.clone(),
             permission_suggestions: None,
         };
@@ -1748,6 +1758,9 @@ mod tests {
             question: None,
             question_prompts: vec![],
             preview: None,
+            permission_reason: None,
+            requested_permissions: None,
+            granted_permissions: None,
             proposed_amendment: None,
             permission_suggestions: None,
         }

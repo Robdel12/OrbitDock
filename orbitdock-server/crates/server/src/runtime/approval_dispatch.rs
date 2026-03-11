@@ -75,6 +75,9 @@ pub(crate) async fn dispatch_approve_tool(
                 request_id,
                 decision: decision.clone(),
             },
+            Some(orbitdock_protocol::ApprovalType::Permissions) => {
+                return Err("invalid_permissions_dispatch");
+            }
             _ => CodexAction::ApproveExec {
                 request_id,
                 decision: decision.clone(),

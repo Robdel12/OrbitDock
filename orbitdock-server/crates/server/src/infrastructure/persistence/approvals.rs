@@ -12,6 +12,9 @@ pub(super) struct ApprovalRequestedRecord {
     pub question: Option<String>,
     pub question_prompts: Vec<ApprovalQuestionPrompt>,
     pub preview: Option<ApprovalPreview>,
+    pub permission_reason: Option<String>,
+    pub requested_permissions: Option<Value>,
+    pub granted_permissions: Option<Value>,
     pub cwd: Option<String>,
     pub proposed_amendment: Option<Vec<String>>,
     pub permission_suggestions: Option<Value>,
@@ -33,6 +36,9 @@ pub(super) fn persist_approval_requested(
         question,
         question_prompts,
         preview,
+        permission_reason,
+        requested_permissions,
+        granted_permissions,
         cwd,
         proposed_amendment,
         permission_suggestions,
@@ -41,6 +47,7 @@ pub(super) fn persist_approval_requested(
         ApprovalType::Exec => "exec",
         ApprovalType::Patch => "patch",
         ApprovalType::Question => "question",
+        ApprovalType::Permissions => "permissions",
     };
     let proposed_amendment_json =
         proposed_amendment.and_then(|value| serde_json::to_string(&value).ok());
@@ -50,6 +57,10 @@ pub(super) fn persist_approval_requested(
         serde_json::to_string(&question_prompts).ok()
     };
     let preview_json = preview.and_then(|value| serde_json::to_string(&value).ok());
+    let requested_permissions_json =
+        requested_permissions.and_then(|value| serde_json::to_string(&value).ok());
+    let granted_permissions_json =
+        granted_permissions.and_then(|value| serde_json::to_string(&value).ok());
     let permission_suggestions_json =
         permission_suggestions.and_then(|value| serde_json::to_string(&value).ok());
     let now = chrono_now();
@@ -64,11 +75,14 @@ pub(super) fn persist_approval_requested(
              question = ?7,
              question_prompts = ?8,
              preview = ?9,
-             cwd = ?10,
-             proposed_amendment = ?11,
-             permission_suggestions = ?12
-         WHERE session_id = ?13
-           AND request_id = ?14
+             permission_reason = ?10,
+             requested_permissions = ?11,
+             granted_permissions = ?12,
+             cwd = ?13,
+             proposed_amendment = ?14,
+             permission_suggestions = ?15
+         WHERE session_id = ?16
+           AND request_id = ?17
            AND decision IS NULL",
         params![
             approval_type_str,
@@ -80,6 +94,9 @@ pub(super) fn persist_approval_requested(
             question.as_deref(),
             question_prompts_json.as_deref(),
             preview_json.as_deref(),
+            permission_reason.as_deref(),
+            requested_permissions_json.as_deref(),
+            granted_permissions_json.as_deref(),
             cwd.as_deref(),
             proposed_amendment_json.as_deref(),
             permission_suggestions_json.as_deref(),
@@ -92,9 +109,10 @@ pub(super) fn persist_approval_requested(
         conn.execute(
             "INSERT INTO approval_history (
                 session_id, request_id, approval_type, tool_name, tool_input, command,
-                file_path, diff, question, question_prompts, preview, cwd,
-                proposed_amendment, permission_suggestions, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                file_path, diff, question, question_prompts, preview, permission_reason,
+                requested_permissions, granted_permissions, cwd, proposed_amendment,
+                permission_suggestions, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 &session_id,
                 &request_id,
@@ -107,6 +125,9 @@ pub(super) fn persist_approval_requested(
                 question.as_deref(),
                 question_prompts_json.as_deref(),
                 preview_json.as_deref(),
+                permission_reason.as_deref(),
+                requested_permissions_json.as_deref(),
+                granted_permissions_json.as_deref(),
                 cwd.as_deref(),
                 proposed_amendment_json.as_deref(),
                 permission_suggestions_json.as_deref(),
@@ -169,7 +190,8 @@ pub async fn list_approvals(
         if let Some(session_id) = session_id {
             let mut stmt = conn.prepare(
                 "SELECT id, session_id, request_id, approval_type, tool_name, tool_input, command,
-                            file_path, diff, question, question_prompts, preview, cwd, decision,
+                            file_path, diff, question, question_prompts, preview, permission_reason,
+                            requested_permissions, granted_permissions, cwd, decision,
                             proposed_amendment, permission_suggestions, created_at, decided_at
                      FROM approval_history
                      WHERE session_id = ?1
@@ -184,7 +206,8 @@ pub async fn list_approvals(
         } else {
             let mut stmt = conn.prepare(
                 "SELECT id, session_id, request_id, approval_type, tool_name, tool_input, command,
-                            file_path, diff, question, question_prompts, preview, cwd, decision,
+                            file_path, diff, question, question_prompts, preview, permission_reason,
+                            requested_permissions, granted_permissions, cwd, decision,
                             proposed_amendment, permission_suggestions, created_at, decided_at
                      FROM approval_history
                      ORDER BY id DESC
@@ -268,12 +291,15 @@ fn decode_approval_history_item_row(
         "exec" => ApprovalType::Exec,
         "patch" => ApprovalType::Patch,
         "question" => ApprovalType::Question,
+        "permissions" => ApprovalType::Permissions,
         _ => ApprovalType::Exec,
     };
     let question_prompts_json: Option<String> = row.get(10)?;
     let preview_json: Option<String> = row.get(11)?;
-    let proposed_json: Option<String> = row.get(14)?;
-    let permission_suggestions_json: Option<String> = row.get(15)?;
+    let requested_permissions_json: Option<String> = row.get(13)?;
+    let granted_permissions_json: Option<String> = row.get(14)?;
+    let proposed_json: Option<String> = row.get(17)?;
+    let permission_suggestions_json: Option<String> = row.get(18)?;
     let question_prompts = question_prompts_json
         .as_deref()
         .and_then(|value| serde_json::from_str::<Vec<ApprovalQuestionPrompt>>(value).ok())
@@ -281,6 +307,12 @@ fn decode_approval_history_item_row(
     let preview = preview_json
         .as_deref()
         .and_then(|value| serde_json::from_str::<ApprovalPreview>(value).ok());
+    let requested_permissions = requested_permissions_json
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<Value>(value).ok());
+    let granted_permissions = granted_permissions_json
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<Value>(value).ok());
     let proposed_amendment = proposed_json
         .as_deref()
         .and_then(|value| serde_json::from_str::<Vec<String>>(value).ok());
@@ -301,11 +333,14 @@ fn decode_approval_history_item_row(
         question: row.get(9)?,
         question_prompts,
         preview,
-        cwd: row.get(12)?,
-        decision: row.get(13)?,
+        permission_reason: row.get(12)?,
+        requested_permissions,
+        granted_permissions,
+        cwd: row.get(15)?,
+        decision: row.get(16)?,
         proposed_amendment,
         permission_suggestions,
-        created_at: row.get(16)?,
-        decided_at: row.get(17)?,
+        created_at: row.get(19)?,
+        decided_at: row.get(20)?,
     })
 }

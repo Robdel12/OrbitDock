@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::types::{
-    ImageInput, MentionInput, Provider, ReviewCommentStatus, ReviewCommentTag, SkillInput,
+    ImageInput, MentionInput, PermissionGrantScope, Provider, ReviewCommentStatus,
+    ReviewCommentTag, SkillInput,
 };
 
 fn default_include_snapshot() -> bool {
@@ -69,6 +70,14 @@ pub enum ClientMessage {
         question_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         answers: Option<HashMap<String, Vec<String>>>,
+    },
+    RespondToPermissionRequest {
+        session_id: String,
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        permissions: Option<Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scope: Option<PermissionGrantScope>,
     },
     InterruptSession {
         session_id: String,

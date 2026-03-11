@@ -160,6 +160,9 @@ struct ServerApprovalRequest: Codable, Identifiable {
   let question: String?
   let questionPrompts: [ServerApprovalQuestionPrompt]
   let preview: ServerApprovalPreview?
+  let permissionReason: String?
+  let requestedPermissions: AnyCodable?
+  let grantedPermissions: AnyCodable?
   let proposedAmendment: [String]?
   let permissionSuggestions: AnyCodable?
 
@@ -175,6 +178,9 @@ struct ServerApprovalRequest: Codable, Identifiable {
     case question
     case questionPrompts = "question_prompts"
     case preview
+    case permissionReason = "permission_reason"
+    case requestedPermissions = "requested_permissions"
+    case grantedPermissions = "granted_permissions"
     case proposedAmendment = "proposed_amendment"
     case permissionSuggestions = "permission_suggestions"
   }
@@ -191,6 +197,9 @@ struct ServerApprovalRequest: Codable, Identifiable {
     question: String? = nil,
     questionPrompts: [ServerApprovalQuestionPrompt] = [],
     preview: ServerApprovalPreview? = nil,
+    permissionReason: String? = nil,
+    requestedPermissions: AnyCodable? = nil,
+    grantedPermissions: AnyCodable? = nil,
     proposedAmendment: [String]? = nil,
     permissionSuggestions: AnyCodable? = nil
   ) {
@@ -205,6 +214,9 @@ struct ServerApprovalRequest: Codable, Identifiable {
     self.question = question
     self.questionPrompts = questionPrompts
     self.preview = preview
+    self.permissionReason = permissionReason
+    self.requestedPermissions = requestedPermissions
+    self.grantedPermissions = grantedPermissions
     self.proposedAmendment = proposedAmendment
     self.permissionSuggestions = permissionSuggestions
   }
@@ -223,6 +235,9 @@ struct ServerApprovalRequest: Codable, Identifiable {
     questionPrompts =
       try container.decodeIfPresent([ServerApprovalQuestionPrompt].self, forKey: .questionPrompts) ?? []
     preview = try container.decodeIfPresent(ServerApprovalPreview.self, forKey: .preview)
+    permissionReason = try container.decodeIfPresent(String.self, forKey: .permissionReason)
+    requestedPermissions = try container.decodeIfPresent(AnyCodable.self, forKey: .requestedPermissions)
+    grantedPermissions = try container.decodeIfPresent(AnyCodable.self, forKey: .grantedPermissions)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
     permissionSuggestions = try container.decodeIfPresent(AnyCodable.self, forKey: .permissionSuggestions)
   }
@@ -242,6 +257,9 @@ struct ServerApprovalRequest: Codable, Identifiable {
       try container.encode(questionPrompts, forKey: .questionPrompts)
     }
     try container.encodeIfPresent(preview, forKey: .preview)
+    try container.encodeIfPresent(permissionReason, forKey: .permissionReason)
+    try container.encodeIfPresent(requestedPermissions, forKey: .requestedPermissions)
+    try container.encodeIfPresent(grantedPermissions, forKey: .grantedPermissions)
     try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
     try container.encodeIfPresent(permissionSuggestions, forKey: .permissionSuggestions)
   }
@@ -251,6 +269,21 @@ enum ServerApprovalType: String, Codable {
   case exec
   case patch
   case question
+  case permissions
+}
+
+enum ServerPermissionGrantScope: String, Codable, CaseIterable, Identifiable {
+  case turn
+  case session
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+      case .turn: "This Turn"
+      case .session: "This Session"
+    }
+  }
 }
 
 struct ServerApprovalHistoryItem: Codable, Identifiable {
@@ -266,6 +299,9 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
   let question: String?
   let questionPrompts: [ServerApprovalQuestionPrompt]
   let preview: ServerApprovalPreview?
+  let permissionReason: String?
+  let requestedPermissions: AnyCodable?
+  let grantedPermissions: AnyCodable?
   let cwd: String?
   let decision: String?
   let proposedAmendment: [String]?
@@ -286,6 +322,9 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     case question
     case questionPrompts = "question_prompts"
     case preview
+    case permissionReason = "permission_reason"
+    case requestedPermissions = "requested_permissions"
+    case grantedPermissions = "granted_permissions"
     case cwd
     case decision
     case proposedAmendment = "proposed_amendment"
@@ -307,6 +346,9 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     question: String? = nil,
     questionPrompts: [ServerApprovalQuestionPrompt] = [],
     preview: ServerApprovalPreview? = nil,
+    permissionReason: String? = nil,
+    requestedPermissions: AnyCodable? = nil,
+    grantedPermissions: AnyCodable? = nil,
     cwd: String? = nil,
     decision: String? = nil,
     proposedAmendment: [String]? = nil,
@@ -326,6 +368,9 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     self.question = question
     self.questionPrompts = questionPrompts
     self.preview = preview
+    self.permissionReason = permissionReason
+    self.requestedPermissions = requestedPermissions
+    self.grantedPermissions = grantedPermissions
     self.cwd = cwd
     self.decision = decision
     self.proposedAmendment = proposedAmendment
@@ -349,6 +394,9 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     questionPrompts =
       try container.decodeIfPresent([ServerApprovalQuestionPrompt].self, forKey: .questionPrompts) ?? []
     preview = try container.decodeIfPresent(ServerApprovalPreview.self, forKey: .preview)
+    permissionReason = try container.decodeIfPresent(String.self, forKey: .permissionReason)
+    requestedPermissions = try container.decodeIfPresent(AnyCodable.self, forKey: .requestedPermissions)
+    grantedPermissions = try container.decodeIfPresent(AnyCodable.self, forKey: .grantedPermissions)
     cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
     decision = try container.decodeIfPresent(String.self, forKey: .decision)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
@@ -373,6 +421,9 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
       try container.encode(questionPrompts, forKey: .questionPrompts)
     }
     try container.encodeIfPresent(preview, forKey: .preview)
+    try container.encodeIfPresent(permissionReason, forKey: .permissionReason)
+    try container.encodeIfPresent(requestedPermissions, forKey: .requestedPermissions)
+    try container.encodeIfPresent(grantedPermissions, forKey: .grantedPermissions)
     try container.encodeIfPresent(cwd, forKey: .cwd)
     try container.encodeIfPresent(decision, forKey: .decision)
     try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)

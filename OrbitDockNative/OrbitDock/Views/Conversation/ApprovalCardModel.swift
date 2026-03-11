@@ -83,6 +83,23 @@ struct ApprovalQuestionPrompt: Hashable, Sendable {
   let isSecret: Bool
 }
 
+struct ApprovalPermissionGroup: Hashable, Sendable {
+  let title: String
+  let iconName: String
+  let lines: [String]
+}
+
+struct ApprovalPermissionRequest: Hashable, Sendable {
+  let reason: String?
+  let groups: [ApprovalPermissionGroup]
+
+  var summary: String {
+    let titles = groups.map(\.title)
+    guard !titles.isEmpty else { return "Review requested permissions before continuing." }
+    return titles.joined(separator: " + ")
+  }
+}
+
 struct ApprovalCardModel: Hashable, Sendable {
   let mode: ApprovalCardMode
   let toolName: String?
@@ -96,6 +113,7 @@ struct ApprovalCardModel: Hashable, Sendable {
   let riskFindings: [String]
   let diff: String?
   let questions: [ApprovalQuestionPrompt]
+  let permissionRequest: ApprovalPermissionRequest?
   let hasAmendment: Bool
   let amendmentDetail: String? // Human-readable description of what "Always Allow" would permit
   let approvalType: ServerApprovalType?
@@ -164,6 +182,9 @@ enum ApprovalCardModelBuilder {
       question: normalizedText(historyItem.question),
       questionPrompts: historyItem.questionPrompts,
       preview: historyItem.preview,
+      permissionReason: normalizedText(historyItem.permissionReason),
+      requestedPermissions: historyItem.requestedPermissions,
+      grantedPermissions: historyItem.grantedPermissions,
       proposedAmendment: historyItem.proposedAmendment,
       permissionSuggestions: historyItem.permissionSuggestions
     )
@@ -185,6 +206,9 @@ enum ApprovalCardModelBuilder {
       ? historyItem.questionPrompts
       : request.questionPrompts
     let mergedPreview = request.preview ?? historyItem.preview
+    let mergedPermissionReason = normalizedText(request.permissionReason) ?? normalizedText(historyItem.permissionReason)
+    let mergedRequestedPermissions = request.requestedPermissions ?? historyItem.requestedPermissions
+    let mergedGrantedPermissions = request.grantedPermissions ?? historyItem.grantedPermissions
     let mergedProposedAmendment = request.proposedAmendment ?? historyItem.proposedAmendment
     let mergedPermissionSuggestions = request.permissionSuggestions ?? historyItem.permissionSuggestions
 
@@ -196,6 +220,7 @@ enum ApprovalCardModelBuilder {
        mergedQuestion == request.question,
        mergedQuestionPrompts == request.questionPrompts,
        mergedPreview == request.preview,
+       mergedPermissionReason == request.permissionReason,
        mergedProposedAmendment == request.proposedAmendment
     {
       return request
@@ -213,9 +238,132 @@ enum ApprovalCardModelBuilder {
       question: mergedQuestion,
       questionPrompts: mergedQuestionPrompts,
       preview: mergedPreview,
+      permissionReason: mergedPermissionReason,
+      requestedPermissions: mergedRequestedPermissions,
+      grantedPermissions: mergedGrantedPermissions,
       proposedAmendment: mergedProposedAmendment,
       permissionSuggestions: mergedPermissionSuggestions
     )
+  }
+
+  private static func valueAtPath(_ root: Any?, path: [String]) -> Any? {
+    var current = root
+    for key in path {
+      guard let dict = current as? [String: Any] else { return nil }
+      current = dict[key]
+    }
+    return current
+  }
+
+  private static func stringValue(_ value: Any?) -> String? {
+    guard let value else { return nil }
+    if let string = value as? String {
+      let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
+      return normalized.isEmpty ? nil : normalized
+    }
+    return nil
+  }
+
+  private static func boolValue(_ value: Any?) -> Bool? {
+    if let value = value as? Bool { return value }
+    return nil
+  }
+
+  private static func stringArray(_ value: Any?) -> [String] {
+    guard let array = value as? [Any] else { return [] }
+    return array.compactMap { stringValue($0) }
+  }
+
+  private static func permissionRequest(from payload: AnyCodable?, reason: String?) -> ApprovalPermissionRequest? {
+    guard let root = payload?.value as? [String: Any] else {
+      if let reason = normalizedText(reason) {
+        return ApprovalPermissionRequest(reason: reason, groups: [])
+      }
+      return nil
+    }
+
+    var groups: [ApprovalPermissionGroup] = []
+
+    if let network = valueAtPath(root, path: ["network"]) as? [String: Any],
+       boolValue(network["enabled"]) == true
+    {
+      groups.append(
+        ApprovalPermissionGroup(
+          title: "Network",
+          iconName: "network",
+          lines: ["Allow outbound network access for this request."]
+        )
+      )
+    }
+
+    if let fileSystem = valueAtPath(root, path: ["file_system"]) as? [String: Any] {
+      var fileLines: [String] = []
+      let readPaths = stringArray(fileSystem["read"])
+      let writePaths = stringArray(fileSystem["write"])
+      if !readPaths.isEmpty {
+        fileLines.append(contentsOf: readPaths.map { "Read \($0)" })
+      }
+      if !writePaths.isEmpty {
+        fileLines.append(contentsOf: writePaths.map { "Write \($0)" })
+      }
+      if !fileLines.isEmpty {
+        groups.append(
+          ApprovalPermissionGroup(
+            title: "Filesystem",
+            iconName: "folder",
+            lines: fileLines
+          )
+        )
+      }
+    }
+
+    if let macos = valueAtPath(root, path: ["macos"]) as? [String: Any] {
+      var macLines: [String] = []
+      if let preferences = stringValue(macos["macos_preferences"] ?? macos["preferences"]) {
+        switch preferences {
+          case "read_write":
+            macLines.append("Read and write macOS preferences.")
+          case "read_only":
+            macLines.append("Read macOS preferences.")
+          default:
+            break
+        }
+      }
+
+      let automation = macos["macos_automation"] ?? macos["automations"]
+      if let mode = stringValue(automation) {
+        if mode == "all" {
+          macLines.append("Automate other macOS apps.")
+        }
+      } else if let automationDict = automation as? [String: Any] {
+        let bundleIds = stringArray(automationDict["bundle_ids"])
+        macLines.append(contentsOf: bundleIds.map { "Automate \($0)" })
+      } else {
+        let bundleIds = stringArray(automation)
+        macLines.append(contentsOf: bundleIds.map { "Automate \($0)" })
+      }
+
+      if boolValue(macos["macos_accessibility"] ?? macos["accessibility"]) == true {
+        macLines.append("Use Accessibility control.")
+      }
+      if boolValue(macos["macos_calendar"] ?? macos["calendar"]) == true {
+        macLines.append("Access Calendar data.")
+      }
+
+      if !macLines.isEmpty {
+        groups.append(
+          ApprovalPermissionGroup(
+            title: "macOS",
+            iconName: "apple.logo",
+            lines: macLines
+          )
+        )
+      }
+    }
+
+    let normalizedReason = normalizedText(reason)
+    guard normalizedReason != nil || !groups.isEmpty else { return nil }
+    return ApprovalPermissionRequest(reason: normalizedReason, groups: groups)
   }
 
   private static func planTextFromToolInput(_ toolInput: String?) -> String? {
@@ -432,6 +580,10 @@ enum ApprovalCardModelBuilder {
     let decisionScope = previewFromServer?.decisionScope
 
     let prompts = mapQuestionPrompts(activePendingApproval?.questionPrompts ?? [])
+    let permissionRequest = permissionRequest(
+      from: activePendingApproval?.requestedPermissions,
+      reason: activePendingApproval?.permissionReason
+    )
 
     return ApprovalCardModel(
       mode: mode,
@@ -446,6 +598,7 @@ enum ApprovalCardModelBuilder {
       riskFindings: riskFindings,
       diff: activePendingApproval?.diff,
       questions: prompts,
+      permissionRequest: permissionRequest,
       hasAmendment: activePendingApproval?.proposedAmendment != nil,
       amendmentDetail: activePendingApproval?.proposedAmendment.map { parts in
         parts.joined(separator: " ")

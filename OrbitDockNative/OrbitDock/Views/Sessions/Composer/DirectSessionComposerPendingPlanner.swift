@@ -17,7 +17,11 @@ enum DirectSessionComposerPendingPlanner {
   static func title(for model: ApprovalCardModel) -> String {
     switch model.mode {
       case .permission:
-        model.toolName ?? "Tool"
+        if model.approvalType == .permissions {
+          "Permissions Request"
+        } else {
+          model.toolName ?? "Tool"
+        }
       case .question:
         "Question"
       case .takeover:
@@ -30,7 +34,7 @@ enum DirectSessionComposerPendingPlanner {
   static func statusBadgeText(for model: ApprovalCardModel) -> String {
     switch model.mode {
       case .permission:
-        "APPROVAL"
+        model.approvalType == .permissions ? "PERMISSIONS" : "APPROVAL"
       case .question:
         "QUESTION"
       case .takeover:
@@ -46,7 +50,11 @@ enum DirectSessionComposerPendingPlanner {
   ) -> CGFloat {
     switch model.mode {
       case .permission:
-        showsDenyReason ? 116 : 96
+        if model.approvalType == .permissions {
+          showsDenyReason ? 188 : 164
+        } else {
+          showsDenyReason ? 116 : 96
+        }
       case .question:
         152
       case .takeover:

@@ -7,12 +7,12 @@ use tracing::{info, warn};
 use orbitdock_protocol::{ClientMessage, ServerMessage};
 
 use crate::runtime::message_dispatch::{
-    dispatch_answer_question, dispatch_compact, dispatch_interrupt, dispatch_rewind_files,
-    dispatch_rollback, dispatch_send_message, dispatch_steer_turn, dispatch_stop_task,
-    dispatch_undo,
+    dispatch_answer_question, dispatch_compact, dispatch_interrupt,
+    dispatch_request_permissions_response, dispatch_rewind_files, dispatch_rollback,
+    dispatch_send_message, dispatch_steer_turn, dispatch_stop_task, dispatch_undo,
 };
 use crate::runtime::session_registry::SessionRegistry;
-use crate::support::normalization::build_question_answers;
+use crate::support::normalization::{build_question_answers, normalize_permission_response};
 use crate::transport::websocket::{send_json, OutboundMessage};
 
 pub(crate) async fn handle(
@@ -160,6 +160,96 @@ pub(crate) async fn handle(
                 Ok(result) => result,
                 Err("invalid_answer_payload") => {
                     send_invalid_answer_payload(client_tx, &session_id).await;
+                    return;
+                }
+                Err(_) => {
+                    send_not_found(client_tx, &session_id).await;
+                    return;
+                }
+            };
+
+            send_json(
+                client_tx,
+                ServerMessage::ApprovalDecisionResult {
+                    session_id: session_id.clone(),
+                    request_id: request_id.clone(),
+                    outcome: result.outcome,
+                    active_request_id: result.active_request_id.clone(),
+                    approval_version: result.approval_version,
+                },
+            )
+            .await;
+
+            if let Some(next_pending_request_id) = result.active_request_id {
+                info!(
+                    component = "approval",
+                    event = "approval.queue.promoted",
+                    session_id = %session_id,
+                    next_request_id = %next_pending_request_id,
+                    "Promoted next queued approval"
+                );
+            }
+        }
+
+        ClientMessage::RespondToPermissionRequest {
+            session_id,
+            request_id,
+            permissions,
+            scope,
+        } => {
+            let normalized_permissions = match normalize_permission_response(permissions.clone()) {
+                Ok(value) => value,
+                Err(_) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "invalid_permissions_payload".into(),
+                            message: "Permission approvals require an object payload or null"
+                                .into(),
+                            session_id: Some(session_id.clone()),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            let granted_count = normalized_permissions
+                .as_object()
+                .map(|map| map.len())
+                .unwrap_or_default();
+
+            info!(
+                component = "approval",
+                event = "approval.permissions.submitted",
+                connection_id = conn_id,
+                session_id = %session_id,
+                request_id = %request_id,
+                granted_fields = granted_count,
+                "Permission response submitted"
+            );
+
+            let result = match dispatch_request_permissions_response(
+                state,
+                &session_id,
+                request_id.clone(),
+                Some(normalized_permissions),
+                scope,
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err("invalid_permissions_payload") => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "invalid_permissions_payload".into(),
+                            message: "Permission approvals require an object payload or null"
+                                .into(),
+                            session_id: Some(session_id.clone()),
+                        },
+                    )
+                    .await;
                     return;
                 }
                 Err(_) => {

@@ -28,6 +28,7 @@ use codex_protocol::protocol::{
     AskForApproval, CodexErrorInfo, Event, EventMsg, FileChange, McpServerRefreshConfig, Op,
     ReviewDecision, SandboxPolicy, SessionSource, StreamErrorEvent,
 };
+use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissionsResponse};
 use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
 use codex_protocol::user_input::UserInput;
 use serde_json::json;
@@ -1447,6 +1448,8 @@ impl CodexConnector {
                     file_path: Some(e.cwd.display().to_string()),
                     diff: None,
                     question: None,
+                    permission_reason: None,
+                    requested_permissions: None,
                     proposed_amendment: amendment,
                     permission_suggestions: None,
                 }]
@@ -1506,6 +1509,8 @@ impl CodexConnector {
                     file_path: first_file,
                     diff: Some(diff),
                     question: None,
+                    permission_reason: None,
+                    requested_permissions: None,
                     proposed_amendment: None,
                     permission_suggestions: None,
                 }]
@@ -1546,10 +1551,35 @@ impl CodexConnector {
                         file_path: None,
                         diff: None,
                         question: question_text,
+                        permission_reason: None,
+                        requested_permissions: None,
                         proposed_amendment: None,
                         permission_suggestions: None,
                     },
                 ]
+            }
+
+            EventMsg::RequestPermissions(e) => {
+                let tool_input = serde_json::to_string(&serde_json::json!({
+                    "reason": e.reason,
+                    "permissions": e.permissions,
+                }))
+                .ok();
+                let requested_permissions = serde_json::to_value(&e.permissions).ok();
+                vec![ConnectorEvent::ApprovalRequested {
+                    request_id: e.call_id,
+                    approval_type: ApprovalType::Permissions,
+                    tool_name: Some("request_permissions".to_string()),
+                    tool_input,
+                    command: None,
+                    file_path: None,
+                    diff: None,
+                    question: e.reason.clone(),
+                    permission_reason: e.reason,
+                    requested_permissions,
+                    proposed_amendment: None,
+                    permission_suggestions: None,
+                }]
             }
 
             EventMsg::ElicitationRequest(e) => {
@@ -1592,6 +1622,8 @@ impl CodexConnector {
                         file_path: None,
                         diff: None,
                         question: question_text,
+                        permission_reason: None,
+                        requested_permissions: None,
                         proposed_amendment: None,
                         permission_suggestions: None,
                     },
@@ -3108,6 +3140,40 @@ impl CodexConnector {
         })?;
 
         info!("Sent question answer: {}", request_id);
+        Ok(())
+    }
+
+    /// Grant a requested set of additional permissions for the current turn.
+    pub async fn respond_to_permission_request(
+        &self,
+        request_id: &str,
+        permissions: serde_json::Value,
+        scope: orbitdock_protocol::PermissionGrantScope,
+    ) -> Result<(), ConnectorError> {
+        let permissions = serde_json::from_value(permissions).map_err(|e| {
+            ConnectorError::ProviderError(format!(
+                "Failed to decode granted permissions payload: {}",
+                e
+            ))
+        })?;
+        let scope = match scope {
+            orbitdock_protocol::PermissionGrantScope::Turn => PermissionGrantScope::Turn,
+            orbitdock_protocol::PermissionGrantScope::Session => PermissionGrantScope::Session,
+        };
+
+        let op = Op::RequestPermissionsResponse {
+            id: request_id.to_string(),
+            response: RequestPermissionsResponse { permissions, scope },
+        };
+
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!(
+                "Failed to respond to permission request: {}",
+                e
+            ))
+        })?;
+
+        info!("Sent permission response: {}", request_id);
         Ok(())
     }
 

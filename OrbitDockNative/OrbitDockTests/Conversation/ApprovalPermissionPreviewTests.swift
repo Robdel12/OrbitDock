@@ -144,6 +144,7 @@ struct ApprovalPermissionPreviewTests {
       riskFindings: riskFindings,
       diff: nil,
       questions: [],
+      permissionRequest: nil,
       hasAmendment: false,
       amendmentDetail: nil,
       approvalType: .exec,

@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use orbitdock_connector_core::ConnectorError;
+use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::CodexConnector;
@@ -48,6 +49,11 @@ pub enum CodexAction {
     AnswerQuestion {
         request_id: String,
         answers: HashMap<String, Vec<String>>,
+    },
+    RequestPermissionsResponse {
+        request_id: String,
+        permissions: Value,
+        scope: orbitdock_protocol::PermissionGrantScope,
     },
     UpdateConfig {
         approval_policy: Option<String>,
@@ -138,6 +144,13 @@ impl std::fmt::Debug for CodexAction {
             Self::AnswerQuestion { request_id, .. } => f
                 .debug_struct("AnswerQuestion")
                 .field("request_id", request_id)
+                .finish(),
+            Self::RequestPermissionsResponse {
+                request_id, scope, ..
+            } => f
+                .debug_struct("RequestPermissionsResponse")
+                .field("request_id", request_id)
+                .field("scope", scope)
                 .finish(),
             Self::UpdateConfig {
                 approval_policy,
@@ -282,6 +295,15 @@ impl CodexSession {
                 answers,
             } => {
                 connector.answer_question(&request_id, answers).await?;
+            }
+            CodexAction::RequestPermissionsResponse {
+                request_id,
+                permissions,
+                scope,
+            } => {
+                connector
+                    .respond_to_permission_request(&request_id, permissions, scope)
+                    .await?;
             }
             CodexAction::UpdateConfig {
                 approval_policy,

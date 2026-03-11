@@ -4,6 +4,7 @@ import Foundation
 struct DirectSessionComposerPendingState: Equatable {
   var isExpanded = true
   var promptIndex = 0
+  var permissionGrantScope: ServerPermissionGrantScope = .turn
   var answers: [String: [String]] = [:]
   var drafts: [String: String] = [:]
   var showsDenyReason = false
@@ -19,6 +20,7 @@ struct DirectSessionComposerPendingState: Equatable {
   mutating func resetForNewRequest() {
     isExpanded = true
     promptIndex = 0
+    permissionGrantScope = .turn
     answers = [:]
     drafts = [:]
     showsDenyReason = false

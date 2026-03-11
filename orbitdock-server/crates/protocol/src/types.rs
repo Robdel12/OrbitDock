@@ -184,6 +184,12 @@ pub struct ApprovalRequest {
     pub question_prompts: Vec<ApprovalQuestionPrompt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<ApprovalPreview>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_permissions: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub granted_permissions: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proposed_amendment: Option<Vec<String>>,
     /// Raw permission suggestions from Claude SDK (PermissionUpdate[]).
@@ -224,6 +230,14 @@ pub enum ApprovalType {
     Exec,
     Patch,
     Question,
+    Permissions,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionGrantScope {
+    Turn,
+    Session,
 }
 
 fn bool_is_false(value: &bool) -> bool {
@@ -302,6 +316,12 @@ pub struct ApprovalHistoryItem {
     pub question_prompts: Vec<ApprovalQuestionPrompt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<ApprovalPreview>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_permissions: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub granted_permissions: Option<Value>,
     pub cwd: Option<String>,
     pub decision: Option<String>,
     pub proposed_amendment: Option<Vec<String>>,

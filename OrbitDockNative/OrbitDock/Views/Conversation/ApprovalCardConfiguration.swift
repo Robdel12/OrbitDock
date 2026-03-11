@@ -69,6 +69,15 @@ enum ApprovalCardConfiguration {
   }
 
   private static func permissionHeaderConfig(for model: ApprovalCardModel) -> ApprovalHeaderConfig {
+    if model.approvalType == .permissions {
+      return ApprovalHeaderConfig(
+        iconName: "hand.raised.fill",
+        iconTint: Color.statusPermission,
+        label: "Permissions Request",
+        approveTitle: "Grant",
+        denyTitle: "Deny"
+      )
+    }
     let isPlanApproval = model.toolName == "ExitPlanMode"
     if isPlanApproval {
       return ApprovalHeaderConfig(
@@ -124,7 +133,11 @@ enum ApprovalCardConfiguration {
   private static func stripTitle(for model: ApprovalCardModel) -> String {
     switch model.mode {
       case .permission:
-        model.toolName ?? "Tool"
+        if model.approvalType == .permissions {
+          "Permissions Request"
+        } else {
+          model.toolName ?? "Tool"
+        }
       case .question:
         "Question"
       case .takeover:
@@ -137,6 +150,9 @@ enum ApprovalCardConfiguration {
   private static func stripSubtitle(for model: ApprovalCardModel) -> String {
     switch model.mode {
       case .permission:
+        if model.approvalType == .permissions {
+          return model.permissionRequest?.summary ?? "Awaiting permission decision"
+        }
         let segmentCount = ApprovalPermissionPreviewHelpers.shellSegmentDisplayLines(for: model).count
         return segmentCount > 1 ? "\(segmentCount)-step chain awaiting approval" : "Awaiting approval"
       case .question:
@@ -173,6 +189,16 @@ enum ApprovalCardConfiguration {
   }
 
   static func denyMenuActions(for model: ApprovalCardModel?) -> [MenuAction] {
+    if model?.approvalType == .permissions {
+      return [
+        MenuAction(
+          title: "Deny",
+          iconName: "xmark",
+          keyEquivalent: "n",
+          decision: "denied"
+        ),
+      ]
+    }
     let isPlan = model?.toolName == "ExitPlanMode"
     return [
       MenuAction(
@@ -198,6 +224,11 @@ enum ApprovalCardConfiguration {
   }
 
   static func approveMenuActions(for model: ApprovalCardModel) -> [MenuAction] {
+    if model.approvalType == .permissions {
+      return [
+        MenuAction(title: "Grant Requested", iconName: "checkmark", keyEquivalent: "y", decision: "approved"),
+      ]
+    }
     var actions: [MenuAction] = [
       MenuAction(title: "Approve Once", iconName: "checkmark", keyEquivalent: "y", decision: "approved"),
       MenuAction(

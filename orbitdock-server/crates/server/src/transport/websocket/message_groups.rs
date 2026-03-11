@@ -40,6 +40,7 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
         ClientMessage::SendMessage { .. }
         | ClientMessage::SteerTurn { .. }
         | ClientMessage::AnswerQuestion { .. }
+        | ClientMessage::RespondToPermissionRequest { .. }
         | ClientMessage::InterruptSession { .. }
         | ClientMessage::CompactContext { .. }
         | ClientMessage::UndoLastTurn { .. }

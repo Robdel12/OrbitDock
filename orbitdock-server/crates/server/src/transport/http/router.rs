@@ -125,6 +125,10 @@ fn session_action_routes() -> Router<Arc<SessionRegistry>> {
             "/api/sessions/{session_id}/answer",
             post(super::answer_question),
         )
+        .route(
+            "/api/sessions/{session_id}/permissions/respond",
+            post(super::respond_to_permission_request),
+        )
 }
 
 fn session_attachment_routes() -> Router<Arc<SessionRegistry>> {

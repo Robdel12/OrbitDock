@@ -109,6 +109,8 @@ pub enum Input {
         file_path: Option<String>,
         diff: Option<String>,
         question: Option<String>,
+        permission_reason: Option<String>,
+        requested_permissions: Option<serde_json::Value>,
         proposed_amendment: Option<Vec<String>>,
         permission_suggestions: Option<serde_json::Value>,
     },
@@ -224,6 +226,8 @@ impl From<ConnectorEvent> for Input {
                 file_path,
                 diff,
                 question,
+                permission_reason,
+                requested_permissions,
                 proposed_amendment,
                 permission_suggestions,
             } => Input::ApprovalRequested {
@@ -235,6 +239,8 @@ impl From<ConnectorEvent> for Input {
                 file_path,
                 diff,
                 question,
+                permission_reason,
+                requested_permissions,
                 proposed_amendment,
                 permission_suggestions,
             },
@@ -397,6 +403,9 @@ pub enum PersistOp {
         question: Option<String>,
         question_prompts: Vec<ApprovalQuestionPrompt>,
         preview: Box<Option<ApprovalPreview>>,
+        permission_reason: Option<String>,
+        requested_permissions: Option<serde_json::Value>,
+        granted_permissions: Option<serde_json::Value>,
         cwd: Option<String>,
         proposed_amendment: Option<Vec<String>>,
         permission_suggestions: Option<serde_json::Value>,
@@ -754,6 +763,8 @@ pub fn transition(
             file_path,
             diff,
             question,
+            permission_reason,
+            requested_permissions,
             proposed_amendment,
             permission_suggestions,
         } => {
@@ -769,6 +780,7 @@ pub fn transition(
                 ApprovalType::Exec => "Bash".to_string(),
                 ApprovalType::Patch => "Edit".to_string(),
                 ApprovalType::Question => "Question".to_string(),
+                ApprovalType::Permissions => "Permissions".to_string(),
             });
             let question_prompts =
                 extract_question_prompts_for_approval(tool_input.as_deref(), question.as_deref());
@@ -787,6 +799,7 @@ pub fn transition(
                 file_path: file_path.as_deref(),
                 diff: diff.as_deref(),
                 question: resolved_question.as_deref(),
+                permission_reason: permission_reason.as_deref(),
             });
 
             let request = ApprovalRequest {
@@ -801,6 +814,9 @@ pub fn transition(
                 question: resolved_question,
                 question_prompts,
                 preview,
+                permission_reason: permission_reason.clone(),
+                requested_permissions: requested_permissions.clone(),
+                granted_permissions: None,
                 proposed_amendment: proposed_amendment.clone(),
                 permission_suggestions,
             };
@@ -819,6 +835,9 @@ pub fn transition(
                 question: request.question.clone(),
                 question_prompts: request.question_prompts.clone(),
                 preview: Box::new(request.preview.clone()),
+                permission_reason: request.permission_reason.clone(),
+                requested_permissions: request.requested_permissions.clone(),
+                granted_permissions: request.granted_permissions.clone(),
                 cwd: Some(state.project_path.clone()),
                 proposed_amendment,
                 permission_suggestions: request.permission_suggestions.clone(),
@@ -1299,6 +1318,7 @@ struct ApprovalPreviewInput<'a> {
     file_path: Option<&'a str>,
     diff: Option<&'a str>,
     question: Option<&'a str>,
+    permission_reason: Option<&'a str>,
 }
 
 pub fn approval_question_prompts(
@@ -1330,6 +1350,7 @@ pub fn approval_preview(
     file_path: Option<&str>,
     diff: Option<&str>,
     question: Option<&str>,
+    permission_reason: Option<&str>,
 ) -> Option<ApprovalPreview> {
     build_approval_preview(ApprovalPreviewInput {
         request_id,
@@ -1340,6 +1361,7 @@ pub fn approval_preview(
         file_path,
         diff,
         question,
+        permission_reason,
     })
 }
 
@@ -1353,6 +1375,7 @@ fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<Approv
         file_path,
         diff,
         question,
+        permission_reason,
     } = input_data;
 
     let input = parse_tool_input_object(tool_input);
@@ -1488,8 +1511,8 @@ fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<Approv
         ));
     }
 
-    if approval_type == ApprovalType::Question {
-        if let Some(question) = question {
+    if matches!(approval_type, ApprovalType::Question | ApprovalType::Permissions) {
+        if let Some(question) = question.or_else(|| permission_reason.map(str::to_string)) {
             return Some(compose_approval_preview(
                 request_id,
                 approval_type,
@@ -1533,6 +1556,8 @@ fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<Approv
         ApprovalType::Question => {
             trim_non_empty(tool_name).unwrap_or_else(|| "Question".to_string())
         }
+        ApprovalType::Permissions => trim_non_empty(tool_name)
+            .unwrap_or_else(|| "Review requested permissions".to_string()),
         _ => trim_non_empty(tool_name)
             .map(|name| format!("Approve {name} action"))
             .unwrap_or_else(|| "Approve action".to_string()),
@@ -1644,6 +1669,10 @@ fn assess_approval_risk(
     match approval_type {
         ApprovalType::Question => ApprovalRiskAssessment {
             level: ApprovalRiskLevel::Low,
+            findings: vec![],
+        },
+        ApprovalType::Permissions => ApprovalRiskAssessment {
+            level: ApprovalRiskLevel::Normal,
             findings: vec![],
         },
         ApprovalType::Patch => ApprovalRiskAssessment {
@@ -1856,6 +1885,7 @@ fn approval_type_label(approval_type: ApprovalType) -> &'static str {
         ApprovalType::Exec => "exec",
         ApprovalType::Patch => "patch",
         ApprovalType::Question => "question",
+        ApprovalType::Permissions => "permissions",
     }
 }
 
@@ -2554,6 +2584,8 @@ mod tests {
                 file_path: None,
                 diff: None,
                 question: None,
+                permission_reason: None,
+                requested_permissions: None,
                 proposed_amendment: None,
                 permission_suggestions: None,
             },
@@ -2612,6 +2644,8 @@ mod tests {
                 file_path: None,
                 diff: None,
                 question: None,
+                permission_reason: None,
+                requested_permissions: None,
                 proposed_amendment: None,
                 permission_suggestions: None,
             },
@@ -2667,6 +2701,8 @@ mod tests {
                 file_path: None,
                 diff: None,
                 question: None,
+                permission_reason: None,
+                requested_permissions: None,
                 proposed_amendment: None,
                 permission_suggestions: None,
             },
@@ -2711,6 +2747,8 @@ mod tests {
                 file_path: None,
                 diff: None,
                 question: None,
+                permission_reason: None,
+                requested_permissions: None,
                 proposed_amendment: None,
                 permission_suggestions: None,
             },
@@ -2819,6 +2857,7 @@ mod tests {
                 file_path: None,
                 diff: None,
                 question: None,
+                permission_reason: None,
             })
             .expect("expected preview");
 
@@ -2842,6 +2881,7 @@ mod tests {
             file_path: None,
             diff: None,
             question: Some("How should we continue?"),
+            permission_reason: None,
         })
         .expect("expected preview");
 
@@ -2891,6 +2931,8 @@ mod tests {
                 file_path: None,
                 diff: None,
                 question: None,
+                permission_reason: None,
+                requested_permissions: None,
                 proposed_amendment: None,
                 permission_suggestions: None,
             },

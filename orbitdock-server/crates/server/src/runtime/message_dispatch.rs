@@ -6,6 +6,7 @@ use tokio::sync::oneshot;
 use tracing::{debug, warn};
 
 use orbitdock_protocol::{ImageInput, MentionInput, MessageType, SkillInput, WorkStatus};
+use orbitdock_protocol::PermissionGrantScope;
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
@@ -14,7 +15,9 @@ use crate::runtime::message_dispatch_policy::{build_session_message, plan_send_m
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::mark_session_working_after_send;
-use crate::support::normalization::{build_question_answers, normalize_non_empty};
+use crate::support::normalization::{
+    build_question_answers, normalize_non_empty, normalize_permission_response,
+};
 
 pub(crate) enum DispatchMessageError {
     NotFound,
@@ -456,6 +459,96 @@ pub(crate) async fn dispatch_answer_question(
                 answers: normalized_answers,
             })
             .await;
+    }
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::SessionUpdate {
+            id: session_id.to_string(),
+            status: None,
+            work_status: Some(resolved_work_status),
+            last_activity_at: None,
+        })
+        .await;
+
+    Ok(AnswerQuestionResult {
+        outcome: "applied".to_string(),
+        active_request_id: next_pending_request_id,
+        approval_version,
+    })
+}
+
+pub(crate) async fn dispatch_request_permissions_response(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    request_id: String,
+    permissions: Option<serde_json::Value>,
+    scope: Option<PermissionGrantScope>,
+) -> Result<AnswerQuestionResult, &'static str> {
+    let normalized_permissions = normalize_permission_response(permissions)?;
+    let scope = scope.unwrap_or(PermissionGrantScope::Turn);
+    let fallback_work_status = WorkStatus::Working;
+    let mut resolved_work_status = fallback_work_status;
+    let mut next_pending_request_id: Option<String> = None;
+    let mut approval_version: u64 = 0;
+
+    if let Some(actor) = state.get_session(session_id) {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        actor
+            .send(SessionCommand::ResolvePendingApproval {
+                request_id: request_id.clone(),
+                fallback_work_status,
+                reply: reply_tx,
+            })
+            .await;
+        if let Ok(resolution) = reply_rx.await {
+            let resolved = resolution.approval_type.is_some();
+            resolved_work_status = resolution.work_status;
+            next_pending_request_id = resolution.next_pending_approval.map(|a| a.id);
+            approval_version = resolution.approval_version;
+
+            if !resolved {
+                return Ok(AnswerQuestionResult {
+                    outcome: "stale".to_string(),
+                    active_request_id: next_pending_request_id,
+                    approval_version,
+                });
+            }
+        }
+    } else {
+        return Err("not_found");
+    }
+
+    let decision = if normalized_permissions
+        .as_object()
+        .is_some_and(|map| map.is_empty())
+    {
+        "denied".to_string()
+    } else if scope == PermissionGrantScope::Session {
+        "approved_for_session".to_string()
+    } else {
+        "approved".to_string()
+    };
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::ApprovalDecision {
+            session_id: session_id.to_string(),
+            request_id: request_id.clone(),
+            decision,
+        })
+        .await;
+
+    if let Some(tx) = state.get_codex_action_tx(session_id) {
+        let _ = tx
+            .send(CodexAction::RequestPermissionsResponse {
+                request_id,
+                permissions: normalized_permissions,
+                scope,
+            })
+            .await;
+    } else {
+        return Err("not_found");
     }
 
     let _ = state
