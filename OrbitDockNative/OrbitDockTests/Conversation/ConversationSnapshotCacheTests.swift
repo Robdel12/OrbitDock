@@ -4,8 +4,10 @@ import Testing
 
 @MainActor
 struct ConversationSnapshotCacheTests {
+  private let endpointId = UUID()
+
   @Test func restoreFromCacheHydratesConversationState() throws {
-    let store = ConversationStore(sessionId: "session-cache", clients: makeClients())
+    let store = ConversationStore(sessionId: "session-cache", endpointId: endpointId, clients: makeClients())
     let cached = CachedConversation(
       messages: [
         makeMessage(id: "msg-1", sequence: 10, type: .user, content: "Hello"),
@@ -20,19 +22,19 @@ struct ConversationSnapshotCacheTests {
 
     store.restoreFromCache(cached)
 
-    #expect(store.messages.map(\.id) == ["msg-1", "msg-2"])
+    #expect(store.messages.map(\TranscriptMessage.id) == ["msg-1", "msg-2"])
     #expect(store.totalMessageCount == 8)
     #expect(store.oldestLoadedSequence == 10)
     #expect(store.newestLoadedSequence == 11)
     #expect(store.hasMoreHistoryBefore)
     #expect(store.hasReceivedInitialData)
-    #expect(store.hydrationState == .readyPartial)
+    #expect(store.hydrationState == ConversationHydrationState.readyPartial)
     #expect(store.hasRenderableConversation)
     #expect(store.messagesRevision == 1)
   }
 
   @Test func cacheSnapshotPreservesConversationWindow() throws {
-    let store = ConversationStore(sessionId: "session-cache", clients: makeClients())
+    let store = ConversationStore(sessionId: "session-cache", endpointId: endpointId, clients: makeClients())
     let cachedAt = Date(timeIntervalSince1970: 800)
     store.restoreFromCache(
       CachedConversation(
@@ -51,17 +53,17 @@ struct ConversationSnapshotCacheTests {
 
     let snapshot = store.cacheSnapshot()
 
-    #expect(snapshot.messages.map(\.id) == ["msg-1", "msg-2", "msg-3"])
+    #expect(snapshot.messages.map(\TranscriptMessage.id) == ["msg-1", "msg-2", "msg-3"])
     #expect(snapshot.totalMessageCount == 3)
     #expect(snapshot.oldestSequence == 21)
     #expect(snapshot.newestSequence == 23)
     #expect(snapshot.hasMoreHistoryBefore == false)
     #expect(snapshot.cachedAt >= cachedAt)
-    #expect(store.hydrationState == .readyComplete)
+    #expect(store.hydrationState == ConversationHydrationState.readyComplete)
   }
 
   @Test func restoreFromCacheCanBeClearedBackToEmptyState() throws {
-    let store = ConversationStore(sessionId: "session-cache", clients: makeClients())
+    let store = ConversationStore(sessionId: "session-cache", endpointId: endpointId, clients: makeClients())
     store.restoreFromCache(
       CachedConversation(
         messages: [makeMessage(id: "msg-1", sequence: 1, type: .assistant, content: "cached")],
@@ -81,11 +83,11 @@ struct ConversationSnapshotCacheTests {
     #expect(store.newestLoadedSequence == nil)
     #expect(store.hasMoreHistoryBefore == false)
     #expect(store.hasReceivedInitialData == false)
-    #expect(store.hydrationState == .empty)
+    #expect(store.hydrationState == ConversationHydrationState.empty)
   }
 
   @Test func messageUpdateBumpsRevisionEvenWhenMessageCountStaysFlat() throws {
-    let store = ConversationStore(sessionId: "session-cache", clients: makeClients())
+    let store = ConversationStore(sessionId: "session-cache", endpointId: endpointId, clients: makeClients())
     store.restoreFromCache(
       CachedConversation(
         messages: [

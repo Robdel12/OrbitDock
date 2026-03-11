@@ -4,10 +4,13 @@ import Testing
 
 @MainActor
 struct ConversationHydrationRecoveryTests {
+  private let endpointId = UUID()
+
   @Test func coherentRecentBootstrapStopsAtRecentWindow() async throws {
     let transport = ConversationRecoveryTransport()
     let store = ConversationStore(
       sessionId: "session-recovery",
+      endpointId: endpointId,
       clients: ServerClients(
         serverURL: URL(string: "http://127.0.0.1:4000")!,
         authToken: nil,
@@ -15,15 +18,15 @@ struct ConversationHydrationRecoveryTests {
       )
     )
 
-    let revision = await store.bootstrap(goal: .coherentRecent)
+    let revision = await store.bootstrap(goal: ConversationRecoveryGoal.coherentRecent)
 
     #expect(revision == 99)
-    #expect(store.messages.map(\.id) == [
+    #expect(store.messages.map(\TranscriptMessage.id) == [
       "user-5", "assistant-6", "user-7", "assistant-8",
       "user-9", "assistant-10", "user-11", "assistant-12",
     ])
     #expect(store.totalMessageCount == 12)
-    #expect(store.hydrationState == .readyComplete)
+    #expect(store.hydrationState == ConversationHydrationState.readyComplete)
     #expect(store.hasMoreHistoryBefore)
     #expect(await transport.requestPaths() == ["/api/sessions/session-recovery/conversation?limit=50"])
   }
@@ -32,6 +35,7 @@ struct ConversationHydrationRecoveryTests {
     let transport = ConversationRecoveryTransport()
     let store = ConversationStore(
       sessionId: "session-recovery",
+      endpointId: endpointId,
       clients: ServerClients(
         serverURL: URL(string: "http://127.0.0.1:4000")!,
         authToken: nil,
@@ -39,11 +43,11 @@ struct ConversationHydrationRecoveryTests {
       )
     )
 
-    let revision = await store.bootstrap(goal: .completeHistory)
+    let revision = await store.bootstrap(goal: ConversationRecoveryGoal.completeHistory)
     await store.waitForHydrationToSettle()
 
     #expect(revision == 99)
-    #expect(store.messages.map(\.id) == [
+    #expect(store.messages.map(\TranscriptMessage.id) == [
       "user-1", "tool-2", "assistant-3", "user-4",
       "user-5", "assistant-6", "user-7", "assistant-8",
       "user-9", "assistant-10", "user-11", "assistant-12",
@@ -51,7 +55,7 @@ struct ConversationHydrationRecoveryTests {
     #expect(store.totalMessageCount == 12)
     #expect(store.oldestLoadedSequence == 1)
     #expect(store.newestLoadedSequence == 12)
-    #expect(store.hydrationState == .readyComplete)
+    #expect(store.hydrationState == ConversationHydrationState.readyComplete)
     #expect(store.hasMoreHistoryBefore == false)
     let paths = await transport.requestPaths()
     #expect(paths.count == 2)
@@ -62,6 +66,7 @@ struct ConversationHydrationRecoveryTests {
   @Test func cachedConversationStaysRenderableWhileAuthoritativeRecoveryIsStillNeeded() {
     let store = ConversationStore(
       sessionId: "session-cache",
+      endpointId: endpointId,
       clients: ServerClients(
         serverURL: URL(string: "http://127.0.0.1:4000")!,
         authToken: nil,
@@ -83,7 +88,7 @@ struct ConversationHydrationRecoveryTests {
     )
 
     #expect(store.hasRenderableConversation)
-    #expect(store.hydrationState == .readyPartial)
+    #expect(store.hydrationState == ConversationHydrationState.readyPartial)
     #expect(store.isFullyHydrated == false)
   }
 
@@ -117,11 +122,15 @@ struct ConversationHydrationRecoveryTests {
     store.unsubscribeFromSession(sessionId)
     #expect(store.conversation(sessionId).messages.isEmpty)
 
-    store.subscribeToSession(sessionId, forceRefresh: false, recoveryGoal: .completeHistory)
+    store.subscribeToSession(
+      sessionId,
+      forceRefresh: false,
+      recoveryGoal: ConversationRecoveryGoal.completeHistory
+    )
 
     let conversation = store.conversation(sessionId)
     try await waitUntil("cached conversation restored immediately on reopen") {
-      conversation.messages.map(\.id) == ["assistant-10", "tool-11"]
+      conversation.messages.map(\TranscriptMessage.id) == ["assistant-10", "tool-11"]
         && conversation.hasMoreHistoryBefore
         && conversation.totalMessageCount == 12
     }
@@ -132,16 +141,17 @@ struct ConversationHydrationRecoveryTests {
 
     await conversation.waitForHydrationToSettle()
 
-    #expect(conversation.messages.map(\.id) == [
+    #expect(conversation.messages.map(\TranscriptMessage.id) == [
       "user-7", "assistant-8", "tool-9", "assistant-10", "tool-11", "assistant-12",
     ])
     #expect(conversation.hasMoreHistoryBefore == false)
     #expect(conversation.totalMessageCount == 6)
-    #expect(conversation.hydrationState == .readyComplete)
+    #expect(conversation.hydrationState == ConversationHydrationState.readyComplete)
     #expect(store.session(sessionId).approvalHistory.isEmpty)
 
     let paths = await transport.requestPaths()
-    #expect(paths.count == 3)
+    #expect(paths.count == 4)
+    #expect(paths.contains("/api/sessions/session-cache"))
     #expect(paths.contains("/api/sessions/session-cache/conversation?limit=50"))
     #expect(paths.contains("/api/approvals?limit=200&session_id=session-cache"))
     #expect(paths.contains("/api/sessions/session-cache/messages?before_sequence=10&limit=50"))
@@ -151,6 +161,7 @@ struct ConversationHydrationRecoveryTests {
     let transport = ConversationRecoveryTransport()
     let store = ConversationStore(
       sessionId: "session-recovery",
+      endpointId: endpointId,
       clients: ServerClients(
         serverURL: URL(string: "http://127.0.0.1:4000")!,
         authToken: nil,
@@ -158,10 +169,10 @@ struct ConversationHydrationRecoveryTests {
       )
     )
 
-    _ = await store.bootstrap(goal: .completeHistory)
+    _ = await store.bootstrap(goal: ConversationRecoveryGoal.completeHistory)
     await store.waitForHydrationToSettle()
 
-    #expect(store.messages.map(\.id) == [
+    #expect(store.messages.map(\TranscriptMessage.id) == [
       "user-1", "tool-2", "assistant-3", "user-4",
       "user-5", "assistant-6", "user-7", "assistant-8",
       "user-9", "assistant-10", "user-11", "assistant-12",
@@ -183,7 +194,7 @@ struct ConversationHydrationRecoveryTests {
       )
     )
 
-    #expect(store.messages.map(\.id) == [
+    #expect(store.messages.map(\TranscriptMessage.id) == [
       "user-1", "tool-2", "assistant-3", "user-4",
       "user-5", "assistant-6", "user-7", "assistant-8",
       "user-9", "assistant-10", "user-11", "assistant-12",
@@ -191,7 +202,7 @@ struct ConversationHydrationRecoveryTests {
     #expect(store.oldestLoadedSequence == 1)
     #expect(store.newestLoadedSequence == 12)
     #expect(store.hasMoreHistoryBefore)
-    #expect(store.hydrationState == .readyPartial)
+    #expect(store.hydrationState == ConversationHydrationState.readyPartial)
   }
 
   private func makeMessage(
@@ -302,6 +313,29 @@ private actor ConversationRecoveryTransport {
 
     let json: String
     switch (url.path, queryItems(url)) {
+      case ("/api/sessions/session-cache", _):
+        json = """
+        {
+          "session": {
+            "id": "session-cache",
+            "provider": "codex",
+            "project_path": "/tmp/project",
+            "status": "active",
+            "work_status": "working",
+            "messages": [],
+            "total_message_count": 6,
+            "has_more_before": true,
+            "oldest_sequence": 10,
+            "newest_sequence": 12,
+            "token_usage": {"input_tokens":0,"output_tokens":0,"cached_tokens":0,"context_window":0},
+            "token_usage_snapshot_kind": "unknown",
+            "turn_count": 0,
+            "turn_diffs": [],
+            "subagents": [],
+            "revision": 45
+          }
+        }
+        """
       case ("/api/sessions/session-recovery/conversation", _):
         json = """
         {

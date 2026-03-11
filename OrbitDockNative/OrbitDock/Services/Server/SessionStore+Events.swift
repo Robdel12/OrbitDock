@@ -261,7 +261,14 @@ extension SessionStore {
     hydrateObservable(obs, from: session)
     obs.subagents = state.subagents
 
-    conversation(state.id).handleSnapshot(state)
+    let conversationStore = conversation(state.id)
+    let shouldHydrateConversationFromSnapshot =
+      !state.messages.isEmpty
+      || (state.totalMessageCount ?? 0) == 0
+      || !conversationStore.hasRenderableConversation
+    if shouldHydrateConversationFromSnapshot {
+      conversationStore.handleSnapshot(state)
+    }
     let transition = SessionControlStateReducer.snapshotTransition(
       current: controlState(sessionId: state.id, observable: obs),
       snapshot: state,
