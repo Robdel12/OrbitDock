@@ -207,7 +207,6 @@ async fn start_lazy_codex_connector(
     let approval = approval_policy.map(ToOwned::to_owned);
     let sandbox = sandbox_mode.map(ToOwned::to_owned);
     let collaboration_mode = collaboration_mode.map(ToOwned::to_owned);
-    let multi_agent = multi_agent;
     let personality = personality.map(ToOwned::to_owned);
     let service_tier = service_tier.map(ToOwned::to_owned);
     let developer_instructions = developer_instructions.map(ToOwned::to_owned);

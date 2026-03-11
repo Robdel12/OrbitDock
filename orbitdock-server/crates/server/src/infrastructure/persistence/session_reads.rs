@@ -7,6 +7,14 @@ use super::messages::{load_latest_completed_conversation_message_from_db, load_m
 use super::transcripts::{extract_summary_from_transcript, load_messages_from_transcript};
 use super::usage::snapshot_kind_from_str;
 
+type StoredCodexConfigRow = (
+    Option<String>,
+    Option<bool>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 /// A session restored from the database on startup.
 #[derive(Debug)]
 pub struct RestoredSession {
@@ -416,13 +424,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     personality,
                     service_tier,
                     developer_instructions,
-                ): (
-                    Option<String>,
-                    Option<bool>,
-                    Option<String>,
-                    Option<String>,
-                    Option<String>,
-                ) = conn
+                ): StoredCodexConfigRow = conn
                     .query_row(
                         "SELECT collaboration_mode, multi_agent, personality, service_tier, developer_instructions FROM sessions WHERE id = ?1",
                         params![id],
@@ -734,13 +736,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 personality,
                 service_tier,
                 developer_instructions,
-            ): (
-                Option<String>,
-                Option<bool>,
-                Option<String>,
-                Option<String>,
-                Option<String>,
-            ) = conn
+            ): StoredCodexConfigRow = conn
                 .query_row(
                     "SELECT collaboration_mode, multi_agent, personality, service_tier, developer_instructions FROM sessions WHERE id = ?1",
                     params![&id],

@@ -13,6 +13,18 @@ pub(crate) enum SessionMutationError {
     NotFound(String),
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SessionConfigUpdate {
+    pub approval_policy: Option<String>,
+    pub sandbox_mode: Option<String>,
+    pub permission_mode: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
+}
+
 impl SessionMutationError {
     pub(crate) fn code(&self) -> &'static str {
         match self {
@@ -66,15 +78,18 @@ pub(crate) async fn rename_session(
 pub(crate) async fn update_session_config(
     state: &Arc<SessionRegistry>,
     session_id: &str,
-    approval_policy: Option<String>,
-    sandbox_mode: Option<String>,
-    permission_mode: Option<String>,
-    collaboration_mode: Option<String>,
-    multi_agent: Option<bool>,
-    personality: Option<String>,
-    service_tier: Option<String>,
-    developer_instructions: Option<String>,
+    update: SessionConfigUpdate,
 ) -> Result<(), SessionMutationError> {
+    let SessionConfigUpdate {
+        approval_policy,
+        sandbox_mode,
+        permission_mode,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
+    } = update;
     let actor = state
         .get_session(session_id)
         .ok_or_else(|| SessionMutationError::NotFound(session_id.to_string()))?;

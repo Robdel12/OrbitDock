@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 
 use orbitdock_protocol::ClientMessage;
 
+use crate::runtime::session_mutations::SessionConfigUpdate;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::handlers::session_forks::{
     handle_fork_session, handle_fork_to_existing_worktree, handle_fork_to_worktree,
@@ -105,14 +106,16 @@ pub(crate) async fn handle(
         } => {
             handle_update_session_config(
                 session_id,
-                approval_policy,
-                sandbox_mode,
-                permission_mode,
-                collaboration_mode,
-                multi_agent,
-                personality,
-                service_tier,
-                developer_instructions,
+                SessionConfigUpdate {
+                    approval_policy,
+                    sandbox_mode,
+                    permission_mode,
+                    collaboration_mode,
+                    multi_agent,
+                    personality,
+                    service_tier,
+                    developer_instructions,
+                },
                 state,
                 conn_id,
             )

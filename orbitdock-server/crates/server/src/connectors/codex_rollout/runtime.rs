@@ -40,6 +40,16 @@ pub(crate) struct WatcherRuntime {
     pub(crate) session_timeouts: HashMap<String, JoinHandle<()>>,
 }
 
+struct AppendChatMessageArgs {
+    session_id: String,
+    message_type: MessageType,
+    content: String,
+    tool_name: Option<String>,
+    tool_input: Option<String>,
+    is_error: bool,
+    images: Vec<orbitdock_protocol::ImageInput>,
+}
+
 impl WatcherRuntime {
     pub(crate) async fn sweep_files(&mut self) -> anyhow::Result<()> {
         let candidates = self.processor.sweep_candidates();
@@ -195,15 +205,15 @@ impl WatcherRuntime {
                     is_error,
                     images,
                 } => {
-                    self.append_chat_message(
-                        &session_id,
+                    self.append_chat_message(AppendChatMessageArgs {
+                        session_id,
                         message_type,
                         content,
                         tool_name,
                         tool_input,
                         is_error,
                         images,
-                    )
+                    })
                     .await;
                 }
                 RolloutEvent::ShellCommandBegin {
@@ -466,16 +476,16 @@ impl WatcherRuntime {
         }
     }
 
-    async fn append_chat_message(
-        &mut self,
-        session_id: &str,
-        message_type: MessageType,
-        content: String,
-        tool_name: Option<String>,
-        tool_input: Option<String>,
-        is_error: bool,
-        images: Vec<orbitdock_protocol::ImageInput>,
-    ) {
+    async fn append_chat_message(&mut self, args: AppendChatMessageArgs) {
+        let AppendChatMessageArgs {
+            session_id,
+            message_type,
+            content,
+            tool_name,
+            tool_input,
+            is_error,
+            images,
+        } = args;
         let content = content.trim().to_string();
         if content.is_empty() && images.is_empty() {
             return;
@@ -486,7 +496,7 @@ impl WatcherRuntime {
             // Find the file state for this session to get next_message_seq
             let mut seq = 0u64;
             for state in self.processor.file_states.values_mut() {
-                if state.session_id.as_deref() == Some(session_id) {
+                if state.session_id.as_deref() == Some(session_id.as_str()) {
                     seq = state.next_message_seq;
                     state.next_message_seq = state.next_message_seq.saturating_add(1);
                     break;
@@ -496,9 +506,12 @@ impl WatcherRuntime {
         };
 
         let msg_id = format!("rollout-{session_id}-{next_seq}");
+        let Some(actor) = self.app_state.get_session(&session_id) else {
+            return;
+        };
         let message = Message {
             id: msg_id,
-            session_id: session_id.to_string(),
+            session_id,
             sequence: Some(next_seq),
             message_type,
             content,
@@ -512,10 +525,6 @@ impl WatcherRuntime {
             images,
         };
 
-        let Some(actor) = self.app_state.get_session(session_id) else {
-            return;
-        };
-
         actor
             .send(SessionCommand::AddMessageAndBroadcast {
                 message: message.clone(),
@@ -525,7 +534,7 @@ impl WatcherRuntime {
         let _ = self
             .persist_tx
             .send(PersistCommand::MessageAppend {
-                session_id: session_id.to_string(),
+                session_id: message.session_id.clone(),
                 message,
             })
             .await;
@@ -1875,8 +1884,9 @@ mod tests {
                 },
                 RolloutEvent::PlanUpdated {
                     session_id: session_id.clone(),
-                    plan: "{\"plan\":[{\"step\":\"Ship passive parity\",\"status\":\"in_progress\"}]}"
-                        .to_string(),
+                    plan:
+                        "{\"plan\":[{\"step\":\"Ship passive parity\",\"status\":\"in_progress\"}]}"
+                            .to_string(),
                 },
             ])
             .await
@@ -1887,14 +1897,15 @@ mod tests {
             actor.retained_state().await.expect("retained state")
         };
 
-        assert_eq!(snapshot.current_diff.as_deref(), Some("diff --git a/file b/file"));
-        assert!(
-            snapshot
-                .current_plan
-                .as_deref()
-                .expect("plan persisted")
-                .contains("Ship passive parity")
+        assert_eq!(
+            snapshot.current_diff.as_deref(),
+            Some("diff --git a/file b/file")
         );
+        assert!(snapshot
+            .current_plan
+            .as_deref()
+            .expect("plan persisted")
+            .contains("Ship passive parity"));
     }
 
     #[tokio::test]

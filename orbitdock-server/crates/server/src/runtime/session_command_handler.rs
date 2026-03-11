@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
 use crate::domain::sessions::transition;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_broadcasts::{
@@ -157,7 +157,11 @@ pub async fn handle_session_command(
             approval_policy,
             sandbox_mode,
         } => {
-            handle.set_config(approval_policy, sandbox_mode, None, None, None, None, None);
+            handle.set_config(SessionConfigPatch {
+                approval_policy,
+                sandbox_mode,
+                ..Default::default()
+            });
         }
         SessionCommand::SetTranscriptPath { path } => {
             handle.set_transcript_path(path);

@@ -171,6 +171,17 @@ pub struct CodexControlPlane {
     pub developer_instructions: Option<String>,
 }
 
+pub struct UpdateConfigOptions<'a> {
+    pub approval_policy: Option<&'a str>,
+    pub sandbox_mode: Option<&'a str>,
+    pub permission_mode: Option<&'a str>,
+    pub collaboration_mode: Option<&'a str>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<&'a str>,
+    pub service_tier: Option<&'a str>,
+    pub developer_instructions: Option<&'a str>,
+}
+
 impl CodexConnector {
     /// Create a new Codex connector with direct codex-core integration
     pub async fn new(
@@ -3219,15 +3230,19 @@ impl CodexConnector {
     /// Update session config (approval policy and/or sandbox mode) mid-session
     pub async fn update_config(
         &self,
-        approval_policy: Option<&str>,
-        sandbox_mode: Option<&str>,
-        permission_mode: Option<&str>,
-        collaboration_mode: Option<&str>,
-        multi_agent: Option<bool>,
-        personality: Option<&str>,
-        service_tier: Option<&str>,
-        developer_instructions: Option<&str>,
+        options: UpdateConfigOptions<'_>,
     ) -> Result<(), ConnectorError> {
+        let UpdateConfigOptions {
+            approval_policy,
+            sandbox_mode,
+            permission_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
+        } = options;
+
         let policy = approval_policy.map(|p| match p {
             "untrusted" => AskForApproval::UnlessTrusted,
             "on-failure" => AskForApproval::OnFailure,
@@ -3597,7 +3612,7 @@ fn collaboration_mode_for_update(
     developer_instructions: Option<&str>,
 ) -> Option<CollaborationMode> {
     let explicit_mode = explicit_collaboration_mode
-        .and_then(|value| parse_mode_kind(value))
+        .and_then(parse_mode_kind)
         .map(|mode| {
             collaboration_mode_from_name_or_mode(
                 thread_manager.list_collaboration_modes(),
@@ -3612,17 +3627,15 @@ fn collaboration_mode_for_update(
         return explicit_mode.flatten();
     }
 
-    let shim_mode = permission_mode
-        .and_then(|value| parse_mode_kind(value))
-        .map(|mode| {
-            collaboration_mode_from_name_or_mode(
-                thread_manager.list_collaboration_modes(),
-                mode_kind_name(mode),
-                model.clone(),
-                effort,
-                developer_instructions,
-            )
-        });
+    let shim_mode = permission_mode.and_then(parse_mode_kind).map(|mode| {
+        collaboration_mode_from_name_or_mode(
+            thread_manager.list_collaboration_modes(),
+            mode_kind_name(mode),
+            model.clone(),
+            effort,
+            developer_instructions,
+        )
+    });
 
     if shim_mode.is_some() {
         return shim_mode.flatten();
@@ -3644,7 +3657,7 @@ fn collaboration_mode_from_permission_mode(
     model: String,
     effort: Option<ReasoningEffort>,
 ) -> Option<CollaborationMode> {
-    let mode = permission_mode.and_then(|value| parse_mode_kind(value))?;
+    let mode = permission_mode.and_then(parse_mode_kind)?;
 
     Some(build_collaboration_mode(
         mode,
@@ -4423,7 +4436,10 @@ mod tests {
             }],
         };
 
-        assert_eq!(hook_started_text(&run), "Running stop hook via stop-hook.sh");
+        assert_eq!(
+            hook_started_text(&run),
+            "Running stop hook via stop-hook.sh"
+        );
         assert_eq!(
             hook_completed_text(&run),
             "stop hook completed via stop-hook.sh: Cleared temporary state"

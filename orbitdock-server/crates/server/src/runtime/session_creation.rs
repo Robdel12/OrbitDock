@@ -6,10 +6,10 @@ use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionSummary,
 };
 
-use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_direct_start::{
-    start_direct_claude_session, start_direct_codex_session,
+    start_direct_claude_session, start_direct_codex_session, StartDirectCodexRequest,
 };
 use crate::runtime::session_mutations::end_failed_direct_session;
 use crate::runtime::session_registry::SessionRegistry;
@@ -95,15 +95,15 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
 
     if input.provider == Provider::Codex {
         handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-        handle.set_config(
-            input.approval_policy,
-            input.sandbox_mode,
-            input.collaboration_mode,
-            input.multi_agent,
-            input.personality,
-            input.service_tier,
-            input.developer_instructions,
-        );
+        handle.set_config(SessionConfigPatch {
+            approval_policy: input.approval_policy,
+            sandbox_mode: input.sandbox_mode,
+            collaboration_mode: input.collaboration_mode,
+            multi_agent: input.multi_agent,
+            personality: input.personality,
+            service_tier: input.service_tier,
+            developer_instructions: input.developer_instructions,
+        });
     } else if input.provider == Provider::Claude {
         handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
     }
@@ -236,17 +236,19 @@ pub(crate) async fn launch_prepared_direct_session(
         Provider::Codex => {
             start_direct_codex_session(
                 state,
-                handle,
-                &session_id,
-                &request.cwd,
-                request.model.as_deref(),
-                request.approval_policy.as_deref(),
-                request.sandbox_mode.as_deref(),
-                request.collaboration_mode.as_deref(),
-                request.multi_agent,
-                request.personality.as_deref(),
-                request.service_tier.as_deref(),
-                request.developer_instructions.as_deref(),
+                StartDirectCodexRequest {
+                    handle,
+                    session_id: &session_id,
+                    cwd: &request.cwd,
+                    model: request.model.as_deref(),
+                    approval_policy: request.approval_policy.as_deref(),
+                    sandbox_mode: request.sandbox_mode.as_deref(),
+                    collaboration_mode: request.collaboration_mode.as_deref(),
+                    multi_agent: request.multi_agent,
+                    personality: request.personality.as_deref(),
+                    service_tier: request.service_tier.as_deref(),
+                    developer_instructions: request.developer_instructions.as_deref(),
+                },
             )
             .await
         }

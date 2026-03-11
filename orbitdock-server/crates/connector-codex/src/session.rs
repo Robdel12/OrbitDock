@@ -10,7 +10,7 @@ use orbitdock_connector_core::ConnectorError;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-use crate::{CodexConnector, CodexControlPlane};
+use crate::{CodexConnector, CodexControlPlane, UpdateConfigOptions};
 
 /// Actions that can be sent to a Codex session
 pub enum CodexAction {
@@ -384,16 +384,16 @@ impl CodexSession {
                 developer_instructions,
             } => {
                 connector
-                    .update_config(
-                        approval_policy.as_deref(),
-                        sandbox_mode.as_deref(),
-                        permission_mode.as_deref(),
-                        collaboration_mode.as_deref(),
+                    .update_config(UpdateConfigOptions {
+                        approval_policy: approval_policy.as_deref(),
+                        sandbox_mode: sandbox_mode.as_deref(),
+                        permission_mode: permission_mode.as_deref(),
+                        collaboration_mode: collaboration_mode.as_deref(),
                         multi_agent,
-                        personality.as_deref(),
-                        service_tier.as_deref(),
-                        developer_instructions.as_deref(),
-                    )
+                        personality: personality.as_deref(),
+                        service_tier: service_tier.as_deref(),
+                        developer_instructions: developer_instructions.as_deref(),
+                    })
                     .await?;
             }
             CodexAction::SetThreadName { name } => {

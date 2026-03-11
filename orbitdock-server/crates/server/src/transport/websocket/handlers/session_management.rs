@@ -10,7 +10,7 @@ use crate::runtime::session_creation::{
 };
 use crate::runtime::session_mutations::{
     end_session as end_runtime_session, rename_session as rename_runtime_session,
-    update_session_config as update_runtime_session_config,
+    update_session_config as update_runtime_session_config, SessionConfigUpdate,
 };
 use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
@@ -158,17 +158,20 @@ pub(crate) async fn handle_rename_session(
 
 pub(crate) async fn handle_update_session_config(
     session_id: String,
-    approval_policy: Option<String>,
-    sandbox_mode: Option<String>,
-    permission_mode: Option<String>,
-    collaboration_mode: Option<String>,
-    multi_agent: Option<bool>,
-    personality: Option<String>,
-    service_tier: Option<String>,
-    developer_instructions: Option<String>,
+    update: SessionConfigUpdate,
     state: &Arc<SessionRegistry>,
     conn_id: u64,
 ) {
+    let SessionConfigUpdate {
+        approval_policy,
+        sandbox_mode,
+        permission_mode,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
+    } = update;
     info!(
         component = "session",
         event = "session.config.update_requested",
@@ -188,14 +191,16 @@ pub(crate) async fn handle_update_session_config(
     let _ = update_runtime_session_config(
         state,
         &session_id,
-        approval_policy,
-        sandbox_mode,
-        permission_mode,
-        collaboration_mode,
-        multi_agent,
-        personality,
-        service_tier,
-        developer_instructions,
+        SessionConfigUpdate {
+            approval_policy,
+            sandbox_mode,
+            permission_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
+        },
     )
     .await;
 }

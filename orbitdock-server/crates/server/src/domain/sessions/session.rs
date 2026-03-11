@@ -406,6 +406,17 @@ pub struct SessionHandle {
     snapshot_handle: Arc<ArcSwap<SessionSnapshot>>,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct SessionConfigPatch {
+    pub approval_policy: Option<String>,
+    pub sandbox_mode: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
+}
+
 impl SessionHandle {
     fn next_message_sequence(&self) -> u64 {
         self.messages
@@ -1045,16 +1056,17 @@ impl SessionHandle {
     }
 
     /// Set autonomy configuration
-    pub fn set_config(
-        &mut self,
-        approval_policy: Option<String>,
-        sandbox_mode: Option<String>,
-        collaboration_mode: Option<String>,
-        multi_agent: Option<bool>,
-        personality: Option<String>,
-        service_tier: Option<String>,
-        developer_instructions: Option<String>,
-    ) {
+    pub fn set_config(&mut self, patch: SessionConfigPatch) {
+        let SessionConfigPatch {
+            approval_policy,
+            sandbox_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
+        } = patch;
+
         if let Some(approval_policy) = approval_policy {
             self.approval_policy = Some(approval_policy);
         }

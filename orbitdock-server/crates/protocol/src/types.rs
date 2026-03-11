@@ -426,22 +426,17 @@ pub struct TurnDiff {
 }
 
 /// Subagent metadata
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SubagentStatus {
     Pending,
+    #[default]
     Running,
     Completed,
     Failed,
     Cancelled,
     Shutdown,
     NotFound,
-}
-
-impl Default for SubagentStatus {
-    fn default() -> Self {
-        Self::Running
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

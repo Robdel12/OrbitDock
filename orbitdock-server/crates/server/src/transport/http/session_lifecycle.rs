@@ -14,7 +14,8 @@ use crate::runtime::session_fork_targets::{
 };
 use crate::runtime::session_mutations::{
     end_session as end_runtime_session, rename_session as rename_runtime_session,
-    update_session_config as update_runtime_session_config, SessionMutationError,
+    update_session_config as update_runtime_session_config, SessionConfigUpdate,
+    SessionMutationError,
 };
 use crate::runtime::session_resume::{launch_resumed_session, ResumeSessionError};
 use crate::runtime::session_takeover::{
@@ -122,14 +123,16 @@ pub async fn update_session_config(
     update_runtime_session_config(
         &state,
         &session_id,
-        body.approval_policy,
-        body.sandbox_mode,
-        body.permission_mode,
-        body.collaboration_mode,
-        body.multi_agent,
-        body.personality,
-        body.service_tier,
-        body.developer_instructions,
+        SessionConfigUpdate {
+            approval_policy: body.approval_policy,
+            sandbox_mode: body.sandbox_mode,
+            permission_mode: body.permission_mode,
+            collaboration_mode: body.collaboration_mode,
+            multi_agent: body.multi_agent,
+            personality: body.personality,
+            service_tier: body.service_tier,
+            developer_instructions: body.developer_instructions,
+        },
     )
     .await
     .map_err(map_session_mutation_error)?;

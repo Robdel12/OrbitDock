@@ -1765,14 +1765,14 @@ pub fn matches_supported_event_kind(kind: &EventKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
     use codex_protocol::protocol::{
         AgentStatus, BackgroundEventEvent, CollabAgentSpawnEndEvent, CollabAgentStatusEntry,
-        CollabWaitingEndEvent, HookEventName, HookExecutionMode, HookHandlerType,
-        HookOutputEntry, HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
+        CollabWaitingEndEvent, HookEventName, HookExecutionMode, HookHandlerType, HookOutputEntry,
+        HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
         RealtimeConversationRealtimeEvent, RealtimeEvent, RealtimeHandoffRequested,
         RealtimeTranscriptEntry, TurnDiffEvent,
     };
-    use codex_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
     use codex_protocol::ThreadId;
     use std::path::PathBuf;
 
@@ -2031,16 +2031,13 @@ mod tests {
         );
 
         match plan_events.as_slice() {
-            [
-                RolloutEvent::PlanUpdated { session_id, plan },
-                RolloutEvent::AppendChatMessage {
-                    session_id: append_session_id,
-                    message_type,
-                    content,
-                    tool_name,
-                    ..
-                },
-            ] => {
+            [RolloutEvent::PlanUpdated { session_id, plan }, RolloutEvent::AppendChatMessage {
+                session_id: append_session_id,
+                message_type,
+                content,
+                tool_name,
+                ..
+            }] => {
                 assert_eq!(session_id, "session-4");
                 assert_eq!(append_session_id, "session-4");
                 assert_eq!(*message_type, MessageType::Tool);

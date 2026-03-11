@@ -9,7 +9,7 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
-use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
 use crate::infrastructure::persistence::{load_messages_from_transcript_path, PersistCommand};
 use crate::runtime::session_fork_policy::{
     remap_messages_for_fork, select_fork_messages, truncate_messages_before_nth_user_message,
@@ -143,15 +143,11 @@ pub(crate) async fn finalize_codex_fork_session(
     );
     handle.set_git_branch(fork_branch.clone());
     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-    handle.set_config(
-        effective_approval_policy.map(ToOwned::to_owned),
-        effective_sandbox_mode.map(ToOwned::to_owned),
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
+    handle.set_config(SessionConfigPatch {
+        approval_policy: effective_approval_policy.map(ToOwned::to_owned),
+        sandbox_mode: effective_sandbox_mode.map(ToOwned::to_owned),
+        ..Default::default()
+    });
     handle.set_forked_from(source_session_id.to_string());
 
     let source_fork_messages =

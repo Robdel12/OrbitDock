@@ -10,6 +10,7 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
+use crate::domain::sessions::session::SessionConfigPatch;
 use crate::infrastructure::persistence::{
     load_latest_codex_turn_context_settings_from_transcript_path, load_session_permission_mode,
     PersistCommand,
@@ -592,15 +593,15 @@ pub(crate) async fn handle(
                 if let Some(ref m) = effective_model {
                     handle.set_model(Some(m.clone()));
                 }
-                handle.set_config(
-                    effective_approval.clone(),
-                    effective_sandbox.clone(),
-                    control_plane.collaboration_mode.clone(),
-                    control_plane.multi_agent,
-                    control_plane.personality.clone(),
-                    control_plane.service_tier.clone(),
-                    control_plane.developer_instructions.clone(),
-                );
+                handle.set_config(SessionConfigPatch {
+                    approval_policy: effective_approval.clone(),
+                    sandbox_mode: effective_sandbox.clone(),
+                    collaboration_mode: control_plane.collaboration_mode.clone(),
+                    multi_agent: control_plane.multi_agent,
+                    personality: control_plane.personality.clone(),
+                    service_tier: control_plane.service_tier.clone(),
+                    developer_instructions: control_plane.developer_instructions.clone(),
+                });
 
                 let thread_id = state.codex_thread_for_session(&session_id);
                 let sid = session_id.clone();
@@ -1043,7 +1044,7 @@ mod tests {
 
     use orbitdock_protocol::{ClientMessage, Provider, ServerMessage, SessionStatus};
 
-    use crate::domain::sessions::session::SessionHandle;
+    use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
     use crate::transport::websocket::test_support::{new_test_state, recv_json};
 
     use super::{handle, stored_codex_control_plane};
@@ -1157,15 +1158,15 @@ mod tests {
             Provider::Codex,
             "/tmp/project".to_string(),
         );
-        handle.set_config(
-            Some("on-request".to_string()),
-            Some("workspace-write".to_string()),
-            Some("planner".to_string()),
-            Some(true),
-            Some("friendly".to_string()),
-            Some("flex".to_string()),
-            Some("Keep answers concise".to_string()),
-        );
+        handle.set_config(SessionConfigPatch {
+            approval_policy: Some("on-request".to_string()),
+            sandbox_mode: Some("workspace-write".to_string()),
+            collaboration_mode: Some("planner".to_string()),
+            multi_agent: Some(true),
+            personality: Some("friendly".to_string()),
+            service_tier: Some("flex".to_string()),
+            developer_instructions: Some("Keep answers concise".to_string()),
+        });
 
         let snapshot = handle.to_snapshot();
         let control_plane = stored_codex_control_plane(&snapshot);

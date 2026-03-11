@@ -12,27 +12,43 @@ use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
 use orbitdock_connector_codex::CodexControlPlane;
 
+pub(crate) struct StartDirectCodexRequest<'a> {
+    pub handle: SessionHandle,
+    pub session_id: &'a str,
+    pub cwd: &'a str,
+    pub model: Option<&'a str>,
+    pub approval_policy: Option<&'a str>,
+    pub sandbox_mode: Option<&'a str>,
+    pub collaboration_mode: Option<&'a str>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<&'a str>,
+    pub service_tier: Option<&'a str>,
+    pub developer_instructions: Option<&'a str>,
+}
+
 pub(crate) async fn start_direct_codex_session(
     state: &Arc<SessionRegistry>,
-    mut handle: SessionHandle,
-    session_id: &str,
-    cwd: &str,
-    model: Option<&str>,
-    approval_policy: Option<&str>,
-    sandbox_mode: Option<&str>,
-    collaboration_mode: Option<&str>,
-    multi_agent: Option<bool>,
-    personality: Option<&str>,
-    service_tier: Option<&str>,
-    developer_instructions: Option<&str>,
+    request: StartDirectCodexRequest<'_>,
 ) -> Result<(), String> {
+    let StartDirectCodexRequest {
+        mut handle,
+        session_id,
+        cwd,
+        model,
+        approval_policy,
+        sandbox_mode,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
+    } = request;
     let session_id = session_id.to_string();
     let cwd = cwd.to_string();
     let model = model.map(ToOwned::to_owned);
     let approval_policy = approval_policy.map(ToOwned::to_owned);
     let sandbox_mode = sandbox_mode.map(ToOwned::to_owned);
     let collaboration_mode = collaboration_mode.map(ToOwned::to_owned);
-    let multi_agent = multi_agent;
     let personality = personality.map(ToOwned::to_owned);
     let service_tier = service_tier.map(ToOwned::to_owned);
     let developer_instructions = developer_instructions.map(ToOwned::to_owned);
