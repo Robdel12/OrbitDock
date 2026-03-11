@@ -6,6 +6,8 @@ This note tracks the practical state of the Codex direct-session upgrade to upst
 
 OrbitDock now builds and passes the Rust workspace tests against Codex `rust-v0.114.0`.
 
+The upgrade is no longer just "latest works." OrbitDock now has a substantial amount of real Codex parity on top of the baseline bump.
+
 Latest-working scope completed:
 
 - dependency bump to `rust-v0.114.0`
@@ -19,6 +21,8 @@ Validation completed:
 
 - `make rust-check`
 - `make rust-test`
+- `make build-all`
+- `make test-unit`
 
 ## Files Touched For Latest-Working
 
@@ -28,9 +32,22 @@ Validation completed:
 - `orbitdock-server/crates/connector-codex/src/rollout_parser.rs`
 - `orbitdock-server/crates/connector-codex/tests/eventmsg_coverage.rs`
 
-## What Is Still Not At Feature Parity
+## What Landed After The Initial Upgrade
 
-These are the biggest remaining gaps relative to latest Codex. They are intentionally not part of the initial unblock.
+These are the biggest parity wins that landed after the first `0.114` unblock.
+
+### Completed: Worker And Agent Foundation
+
+OrbitDock now has a real Codex worker foundation instead of treating agent activity like loose tool output.
+
+Completed scope:
+
+- persisted worker lifecycle state and richer worker metadata
+- reload-safe worker hydration
+- a session-level worker companion panel
+- conversation-side worker linkage and worker-aware timeline rows
+- stronger worker completion/result precedence on the server
+- restore/resume paths that preserve Codex thread identity and control-plane settings
 
 ### Completed: `request_permissions`
 
@@ -47,56 +64,83 @@ Completed scope:
 
 That closes the largest approval-model mismatch from the `0.114` upgrade.
 
-### 1. Hooks
+### Completed: Codex Control Plane
 
-Latest Codex emits hook lifecycle events like `HookStarted` and `HookCompleted`. OrbitDock currently ignores them safely, which is fine for stability, but it means users cannot see hook activity or failures in the timeline.
+OrbitDock now has real end-to-end support for the modern Codex control plane.
+
+Completed scope:
+
+- `collaboration_mode`
+- `multi_agent`
+- `personality`
+- `service_tier`
+- durable `developer_instructions`
+- resume and restore paths that preserve those settings for direct Codex sessions
+
+The remaining work here is mostly UX polish and validation, not missing transport.
+
+### Completed: Passive Realtime Parity
+
+Passive Codex rollout sessions now preserve more of the modern runtime state instead of silently dropping it.
+
+Completed scope:
+
+- passive handoff visibility
+- passive background-event handling
+- passive plan updates
+- passive turn-diff updates
+- immediate passive shutdown handling
+
+That closes a meaningful gap between passive rollout sessions and direct live sessions.
+
+## What Is Still Not At Feature Parity
+
+These are the biggest remaining gaps relative to latest Codex.
+### 1. Realtime Transcript And Handoff Polish
+
+OrbitDock now carries the important passive realtime state forward and surfaces readable handoff events, but it still intentionally suppresses transcript delta churn and other noisy realtime transport details.
 
 Key OrbitDock files:
 
 - `orbitdock-server/crates/connector-codex/src/lib.rs`
 - `orbitdock-server/crates/connector-codex/src/rollout_parser.rs`
+- `OrbitDockNative/OrbitDock/Views/Conversation/`
 
 Recommended epic:
 
-- decide whether hooks should appear as timeline events, debug-only events, or both
-- decide whether hook failures should change attention state
+- decide whether transcript deltas should stay hidden, become ephemeral, or surface in a lighter live-progress treatment
+- refine handoff visibility now that the core mapping exists
 
-### 2. Realtime Transcript And Handoff Parity
+### 2. Worker Experience Polish
 
-Latest Codex has transcript delta events and richer handoff payloads. OrbitDock now compiles by safely ignoring the new realtime-only variants, but it does not surface them.
+OrbitDock now has real workers, but the experience is still maturing.
 
 Key OrbitDock files:
 
 - `orbitdock-server/crates/connector-codex/src/lib.rs`
 - `OrbitDockNative/OrbitDock/Views/Conversation/`
+- `OrbitDockNative/OrbitDock/Views/SessionDetail/`
 
 Recommended epic:
 
-- decide whether transcript deltas should render live
-- decide whether handoff activity should become user-visible
-- add UI only after the product behavior is clear
+- deepen conversation-to-worker linkage
+- make the worker sidecar a richer drill-in surface
+- explore direct worker interaction if upstream Codex exposes a durable control surface
 
-### 3. Personality And Collaboration Controls
+### 3. Hooks
 
-OrbitDock already passes some collaboration-mode concepts through, but it does not yet expose the full latest Codex control plane around personality and richer collaboration behavior.
+The earlier roadmap assumed Codex hook lifecycle events were available through the same stable public event surface OrbitDock already consumes. That no longer looks true.
 
-Key OrbitDock files:
+So the current status is:
 
-- `orbitdock-server/crates/connector-codex/src/lib.rs`
-- `orbitdock-server/crates/server/src/transport/websocket/handlers/messaging.rs`
-- `OrbitDockNative/OrbitDock/Views/Codex/`
+- hook visibility is not a simple missing mapping in OrbitDock
+- it appears to be blocked on upstream Codex exposing a clean consumable hook-lifecycle surface, or on OrbitDock choosing a different source of truth
 
-Recommended epic:
-
-- audit what latest Codex exposes for personality and collaboration presets
-- decide which settings belong in session setup versus per-turn overrides
-- move toward server-driven collaboration metadata instead of UI-local assumptions
+That makes this a watch-and-revisit item, not the highest-value immediate implementation lane.
 
 ### 4. Apps And Auth-Gated MCP Behavior
 
 Latest Codex is more explicit about auth-dependent app availability. ChatGPT-authenticated sessions can expose app tooling differently than API-key-authenticated ones.
-
-This is not a latest-working blocker, but it is important product behavior to document and eventually surface.
 
 Key OrbitDock files:
 
@@ -107,19 +151,19 @@ Key OrbitDock files:
 
 Recommended epic:
 
-- document auth-dependent app/tool availability
-- verify model and MCP inventory behavior across ChatGPT auth and API key auth
-- decide whether the UI should explain unavailable app/tool surfaces explicitly
+- validate model and MCP inventory behavior across ChatGPT auth and API key auth
+- keep the current capability messaging honest and visible
+- only add more code if the current messaging proves insufficient
 
 ## Suggested Parallel Workstreams
 
-Once the latest-working upgrade ships, these are the safest parallel lanes:
+Now that the big transport and approval gaps are closed, these are the safest parallel lanes:
 
-1. Realtime lane
-   Transcript deltas, handoff visibility, hook visibility, and timeline behavior
+1. Worker UX lane
+   Timeline integration, sidecar drill-in, and richer agent result presentation
 
-2. Session-controls lane
-   Personality, collaboration, and richer turn/session configuration surfaces
+2. Realtime lane
+   Transcript delta strategy and handoff polish
 
 3. Apps/auth lane
    Auth-dependent app and MCP behavior, capability reporting, and UX clarity
@@ -128,6 +172,6 @@ Once the latest-working upgrade ships, these are the safest parallel lanes:
 
 The next best Codex parity wins are:
 
-1. explicit collaboration/personality controls
-2. hooks, handoffs, and realtime visibility
+1. worker UX polish and deeper worker interaction
+2. handoffs and realtime visibility
 3. auth-aware apps and MCP capability behavior

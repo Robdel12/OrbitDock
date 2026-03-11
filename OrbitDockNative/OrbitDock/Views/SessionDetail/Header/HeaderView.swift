@@ -74,6 +74,9 @@ struct HeaderView: View {
         SessionStatusDot(status: obs.displayStatus, size: 10)
         sessionTitleDropdown
         UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
+        if shouldShowCodexAccountBadge {
+          codexAccountBadge
+        }
         if let effort = presentation.effortLabel {
           Text(effort)
             .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
@@ -291,14 +294,20 @@ struct HeaderView: View {
   }
 
   private var compactStatusSummaryBadge: some View {
-    HeaderCompactStatusBadge(
-      presentation: HeaderCompactPresentation.build(
-        workStatus: obs.workStatus,
-        provider: obs.provider,
-        model: obs.model,
-        effort: obs.effort
+    HStack(spacing: Spacing.xs) {
+      HeaderCompactStatusBadge(
+        presentation: HeaderCompactPresentation.build(
+          workStatus: obs.workStatus,
+          provider: obs.provider,
+          model: obs.model,
+          effort: obs.effort
+        )
       )
-    )
+
+      if shouldShowCodexAccountBadge {
+        codexAccountBadge
+      }
+    }
   }
 
   private var compactModeControls: some View {
@@ -391,6 +400,29 @@ struct HeaderView: View {
         .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     }
     .help("More")
+  }
+
+  private var shouldShowCodexAccountBadge: Bool {
+    obs.provider == .codex && serverState.codexAccountStatus != nil
+  }
+
+  @ViewBuilder
+  private var codexAccountBadge: some View {
+    if let status = serverState.codexAccountStatus {
+      switch status.account {
+        case .apiKey?:
+          CapabilityBadge(label: "API Key", icon: "key.fill", color: .feedbackCaution)
+            .help("This Codex session is using API key auth. Some app-backed MCP capabilities may only appear with ChatGPT sign-in.")
+        case .chatgpt?:
+          CapabilityBadge(label: "ChatGPT", icon: "sparkles", color: .feedbackPositive)
+            .help("This Codex session is using ChatGPT sign-in, which unlocks Codex-managed apps and MCP capabilities.")
+        case .none:
+          if status.requiresOpenaiAuth {
+            CapabilityBadge(label: "Sign In", icon: "person.crop.circle.badge.exclamationmark", color: .statusPermission)
+              .help("Sign in with ChatGPT to unlock Codex-managed apps and MCP capabilities.")
+          }
+      }
+    }
   }
 
   // MARK: - Nav Button Helper

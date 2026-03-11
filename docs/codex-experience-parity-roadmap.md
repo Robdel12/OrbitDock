@@ -29,21 +29,23 @@ We have moved a lot of the scary plumbing out of the critical path.
 - the worker sidecar now has assignment, markdown report, and conversation-trail inspection so Codex workers still feel rich even when standalone tool transcripts are sparse
 - `request_permissions` is implemented end to end
 - Codex control-plane settings are threaded through the server and app
+- resume and restore now preserve Codex thread identity and control-plane settings
 - realtime handoff requests are now visible as intentional transcript artifacts instead of being dropped silently
+- passive rollout sessions now carry plan, diff, background-event, and shutdown state forward instead of silently flattening them
 - MCP/auth capability messaging is now present in the Codex capabilities UI
 
 That means the roadmap is increasingly about cohesion and delight, not basic compatibility.
 
 ## Priority Order
 
-1. Agent support
-2. hooks, realtime transcript, and handoff visibility
-3. apps and auth-aware MCP behavior
+1. Agent support and worker UX polish
+2. realtime transcript and handoff polish
+3. apps and auth-aware MCP clarity
 4. image generation and other polish
 
 ## Epic 1: Agent Support
 
-This is the top priority.
+This is still the top priority, but it has moved from "make workers exist" to "make workers feel first-class."
 
 If OrbitDock is going to feel like current Codex, it needs to understand and present the experimental agent workflow properly. That means spawned agents, background work, status, results, failures, and the relationship between the parent session and the worker sessions.
 
@@ -55,6 +57,16 @@ If OrbitDock is going to feel like current Codex, it needs to understand and pre
 - you can inspect completed agent results
 - parent and child work feels connected, not scattered
 - agent activity is visible in the timeline and session state
+
+### Current Status
+
+- worker state persists and reloads correctly
+- workers have a real sidecar home
+- worker-aware rows now show up in the conversation timeline instead of living only in detached task cards
+- transcript worker rows can focus the worker sidecar directly
+- worker reports and activity are readable enough to test and use
+
+The remaining work here is mostly delight and deeper interaction, not basic plumbing.
 
 ### Important constraint right now
 
@@ -86,6 +98,12 @@ Those are still roadmap items, but they now depend on either upstream public API
 - `OrbitDockNative/OrbitDock/Services/Server/`
 - `OrbitDockNative/OrbitDock/Views/Conversation/`
 - `OrbitDockNative/OrbitDock/Views/Codex/`
+
+### Highest-value next steps
+
+- tighten the connection between conversation rows and worker drill-in
+- make the companion panel feel more like an inspector than a staging area
+- explore direct worker interaction only if upstream Codex exposes a durable public control path
 
 ### Sub-epics
 
@@ -229,7 +247,7 @@ What still matters here is follow-through:
 
 So this is no longer the primary roadmap risk. It is now a stabilization and polish area.
 
-## Epic 2: Hooks, Realtime Transcript, And Handoffs
+## Epic 2: Realtime Transcript And Handoffs
 
 These features are about visibility and trust.
 
@@ -237,7 +255,6 @@ Right now OrbitDock safely ignores a lot of latest Codex behavior. That keeps th
 
 ### What "good" looks like
 
-- hook execution is visible when it matters
 - transcript deltas are surfaced intentionally, not noisily
 - handoff activity is understandable
 - users can tell what Codex is doing without opening raw logs
@@ -246,8 +263,25 @@ Right now OrbitDock safely ignores a lot of latest Codex behavior. That keeps th
 
 - noisy realtime lifecycle bookkeeping is now suppressed instead of being dumped into the transcript
 - realtime handoff requests are now surfaced as readable transcript events
+- passive rollout sessions now preserve handoff/background/plan/diff/shutdown state instead of dropping it
 - transcript deltas and raw conversation item churn are still intentionally hidden
-- hook lifecycle visibility is still outstanding
+- the remaining question is not transport correctness, it is product behavior: which realtime signals help trust and which ones just add noise
+
+### Important constraint right now
+
+The original roadmap assumed Codex hook lifecycle events were available through the same stable event surface OrbitDock already consumes. That no longer looks true.
+
+Right now the practical state is:
+
+- OrbitDock can map the visible realtime, plan, diff, background, and worker events Codex actually emits through the public protocol/runtime path
+- OrbitDock does not currently have a clean stable upstream hook-lifecycle event stream to render as first-class timeline events
+
+So hook visibility is no longer a straightforward "just wire the missing event" task. It is blocked on either:
+
+- upstream Codex exposing those events through the public protocol OrbitDock already consumes
+- or OrbitDock deliberately choosing a different source of truth for hook visibility
+
+That means the higher-value immediate work is realtime and handoff polish, not forcing a speculative hook UI.
 
 ### Key files
 
@@ -258,12 +292,12 @@ Right now OrbitDock safely ignores a lot of latest Codex behavior. That keeps th
 
 ### Best worker split
 
-- Worker lane A: hook event mapping
-- Worker lane B: realtime transcript/handoff event mapping
-- Worker lane C: state model and timeline event design
-- Worker lane D: Swift rendering and UX polish
+- Worker lane A: realtime transcript/handoff event mapping
+- Worker lane B: state model and timeline event design
+- Worker lane C: Swift rendering and UX polish
+- Worker lane D: upstream hook-surface watch so we can revisit this quickly if Codex exposes it cleanly
 
-## Epic 3: Apps And Auth-Aware MCP Behavior
+## Epic 3: Apps And Auth-Aware MCP Clarity
 
 This matters because latest Codex behaves differently depending on auth state, especially for apps.
 
@@ -278,7 +312,9 @@ That is a product behavior gap more than a transport bug.
 ### Current Status
 
 - the MCP capabilities surface now explains the major ChatGPT-vs-API-key difference for Codex-backed app/MCP availability
+- Codex account state is also visible in OrbitDock settings and session creation
 - the remaining work here is mostly deeper capability surfacing and validation, not basic explanation
+- this is increasingly a docs and product-clarity problem, not a server transport gap
 
 ### Key files
 
@@ -308,22 +344,24 @@ Do this in waves, not all at once.
 - agent support discovery and state model
 - control-plane stabilization and verification
 
+Status: done
+
 ### Wave 2
 
-- agent UI Phase 1: enhanced TaskCard with status animations, agent badges, mini-timeline
-- agent UI Phase 2: companion panel redesign with tile cards and markdown reports
+- worker companion panel and session-home UX
+- worker-aware conversation linkage
 - hook and handoff visibility design
 
-### Wave 2.5
-
-- agent UI Phase 3: timeline agent orchestration row (new TimelineRow type)
-- this is the most architecturally invasive UI change so it comes after the safer refinements land
+Status: mostly done
 
 ### Wave 3
 
-- hooks
-- realtime transcript and handoff visibility
-- apps/auth-aware behavior
+- deeper worker UX polish
+- realtime transcript strategy
+- handoff polish
+- apps/auth-aware validation
+
+Status: current wave
 
 ### Wave 4
 
