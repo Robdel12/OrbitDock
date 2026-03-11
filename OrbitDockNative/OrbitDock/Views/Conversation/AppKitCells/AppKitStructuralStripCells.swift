@@ -21,6 +21,7 @@
     private let dotSeparator = NSTextField(labelWithString: "\u{00B7}")
     private let subtitleField = NSTextField(labelWithString: "")
     private let metaField = NSTextField(labelWithString: "")
+    private let workerButton = NSButton(title: "", target: nil, action: nil)
     private let chevronView = NSImageView()
     private let contextField = NSTextField(labelWithString: "")
     private let snippetField = NSTextField(labelWithString: "")
@@ -34,6 +35,7 @@
     private var isHovering = false
     private var trackingArea: NSTrackingArea?
     var onTap: (() -> Void)?
+    var onFocusWorker: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
       super.init(frame: frameRect)
@@ -97,6 +99,16 @@
       metaField.alignment = .right
       metaField.setContentCompressionResistancePriority(.required, for: .horizontal)
       stripContainer.addSubview(metaField)
+
+      workerButton.translatesAutoresizingMaskIntoConstraints = false
+      workerButton.image = NSImage(systemSymbolName: "person.2.fill", accessibilityDescription: "Inspect worker")
+      workerButton.contentTintColor = NSColor(Color.accent)
+      workerButton.isBordered = false
+      workerButton.bezelStyle = .regularSquare
+      workerButton.target = self
+      workerButton.action = #selector(handleWorkerTap(_:))
+      workerButton.isHidden = true
+      stripContainer.addSubview(workerButton)
 
       chevronView.translatesAutoresizingMaskIntoConstraints = false
       chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
@@ -175,8 +187,13 @@
         subtitleField.centerYAnchor.constraint(equalTo: titleField.centerYAnchor),
         subtitleField.trailingAnchor.constraint(lessThanOrEqualTo: metaField.leadingAnchor, constant: -Spacing.sm),
 
-        metaField.trailingAnchor.constraint(equalTo: chevronView.leadingAnchor, constant: -Spacing.sm_),
+        metaField.trailingAnchor.constraint(equalTo: workerButton.leadingAnchor, constant: -Spacing.xs),
         metaField.centerYAnchor.constraint(equalTo: titleField.centerYAnchor),
+
+        workerButton.trailingAnchor.constraint(equalTo: chevronView.leadingAnchor, constant: -Spacing.xs),
+        workerButton.centerYAnchor.constraint(equalTo: titleField.centerYAnchor),
+        workerButton.widthAnchor.constraint(equalToConstant: 18),
+        workerButton.heightAnchor.constraint(equalToConstant: 18),
 
         chevronView.trailingAnchor.constraint(equalTo: stripContainer.trailingAnchor, constant: -Spacing.md_),
         chevronView.centerYAnchor.constraint(equalTo: titleField.centerYAnchor),
@@ -258,6 +275,10 @@
       onTap?()
     }
 
+    @objc private func handleWorkerTap(_ sender: NSButton) {
+      onFocusWorker?()
+    }
+
     static func requiredHeight(model: NativeCompactToolRowModel, width: CGFloat) -> CGFloat {
       NativeCompactToolRowModel.requiredHeight(for: model, width: width)
     }
@@ -284,15 +305,11 @@
       metaField.isHidden = !hasMeta
       metaField.stringValue = model.rightMeta ?? ""
 
-      if model.linkedWorkerID != nil {
-        chevronView.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Show worker")
-        chevronView.contentTintColor = NSColor(Color.accent)
-        chevronView.alphaValue = 0.75
-      } else {
-        chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
-        chevronView.contentTintColor = NSColor(Color.textQuaternary)
-        chevronView.alphaValue = 0.25
-      }
+      workerButton.isHidden = model.linkedWorkerID == nil
+      workerButton.toolTip = model.linkedWorkerLabel.map { "Inspect \($0)" } ?? "Inspect worker"
+      chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
+      chevronView.contentTintColor = NSColor(Color.textQuaternary)
+      chevronView.alphaValue = 0.25
 
       if let preview = model.diffPreview {
         configureDiffPreview(preview)
@@ -313,10 +330,13 @@
     override func prepareForReuse() {
       super.prepareForReuse()
       onTap = nil
+      onFocusWorker = nil
       stripContainer.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.035).cgColor
       chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
       chevronView.contentTintColor = NSColor(Color.textQuaternary)
       chevronView.alphaValue = 0.25
+      workerButton.isHidden = true
+      workerButton.toolTip = nil
     }
 
     private func configureDiffPreview(_ preview: DiffPreviewInfo) {

@@ -207,10 +207,14 @@ import SwiftUI
     }
 
     var rowContext: AppKitConversationRowContext {
-      AppKitConversationRowContext(
+      let subagentsByID = Dictionary(
+        uniqueKeysWithValues: serverState?.session(sessionId ?? "").subagents.map { ($0.id, $0) } ?? []
+      )
+      return AppKitConversationRowContext(
         rows: currentRows,
         messagesByID: messagesByID,
         turnsByID: turnsByID,
+        subagentsByID: subagentsByID,
         metadata: sourceState.metadata,
         uiState: uiState,
         approvalCardModel: buildApprovalCardModel(),

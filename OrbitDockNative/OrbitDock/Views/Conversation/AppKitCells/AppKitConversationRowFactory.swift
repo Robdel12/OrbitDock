@@ -6,6 +6,7 @@
     let rows: [TimelineRow]
     let messagesByID: [String: TranscriptMessage]
     let turnsByID: [String: TurnSummary]
+    let subagentsByID: [String: ServerSubagentInfo]
     let metadata: ConversationSourceState.SessionMetadata
     let uiState: ConversationUIState
     let approvalCardModel: ApprovalCardModel?
@@ -34,7 +35,8 @@
 
       return SharedModelBuilders.compactToolModel(
         from: message,
-        supportsRichToolingCards: metadata.supportsRichToolingCards
+        supportsRichToolingCards: metadata.supportsRichToolingCards,
+        subagentsByID: subagentsByID
       )
     }
 
@@ -46,7 +48,8 @@
       return SharedModelBuilders.expandedToolModel(
         from: message,
         messageID: id,
-        supportsRichToolingCards: metadata.supportsRichToolingCards
+        supportsRichToolingCards: metadata.supportsRichToolingCards,
+        subagentsByID: subagentsByID
       )
     }
 
@@ -185,13 +188,14 @@
               ?? NativeCompactToolCellView(frame: .zero)
             cell.identifier = id
             cell.configure(model: toolModel)
+            cell.onFocusWorker = {
+              if let workerID = toolModel.linkedWorkerID {
+                handlers.focusWorkerInDeck(workerID)
+              }
+            }
             if case let .tool(messageID) = timelineRow.payload {
               cell.onTap = {
-                if let workerID = toolModel.linkedWorkerID {
-                  handlers.focusWorkerInDeck(workerID)
-                } else {
-                  handlers.expandToolRow(messageID)
-                }
+                handlers.expandToolRow(messageID)
               }
             }
             return cell

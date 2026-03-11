@@ -20,12 +20,12 @@
         guard let self else { return }
         guard let model = buildCompactToolModel(for: messageId) else { return }
         cell.configure(model: model)
+        cell.onFocusWorker = { [weak self] in
+          guard let workerID = model.linkedWorkerID else { return }
+          self?.focusWorkerInDeck?(workerID)
+        }
         cell.onTap = { [weak self] in
-          if let workerID = model.linkedWorkerID {
-            self?.focusWorkerInDeck?(workerID)
-          } else {
-            self?.toggleToolExpansion(messageID: messageId)
-          }
+          self?.toggleToolExpansion(messageID: messageId)
         }
       }
 

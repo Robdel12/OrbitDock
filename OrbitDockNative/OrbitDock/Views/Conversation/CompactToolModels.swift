@@ -40,6 +40,8 @@ struct NativeCompactToolRowModel {
   let subtitle: String?
   let rightMeta: String?
   let linkedWorkerID: String?
+  let linkedWorkerLabel: String?
+  let linkedWorkerStatusText: String?
   let isInProgress: Bool
   let diffPreview: DiffPreviewInfo?
   let liveOutputPreview: String?

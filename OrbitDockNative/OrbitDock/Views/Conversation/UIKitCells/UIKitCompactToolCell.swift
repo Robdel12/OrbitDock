@@ -33,6 +33,7 @@
     private let dotSeparator = UILabel()
     private let subtitleField = UILabel()
     private let metaLabel = UILabel()
+    private let workerButton = UIButton(type: .system)
     private let chevronView = UIImageView()
 
     // Detail area
@@ -47,6 +48,7 @@
     private var diffBarRemovedWidth: NSLayoutConstraint?
 
     var onTap: (() -> Void)?
+    var onFocusWorker: (() -> Void)?
 
     override init(frame: CGRect) {
       super.init(frame: frame)
@@ -121,6 +123,13 @@
       metaLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
       metaLabel.translatesAutoresizingMaskIntoConstraints = false
       stripContainer.addSubview(metaLabel)
+
+      workerButton.translatesAutoresizingMaskIntoConstraints = false
+      workerButton.setImage(UIImage(systemName: "person.2.fill"), for: .normal)
+      workerButton.tintColor = UIColor(Color.accent)
+      workerButton.isHidden = true
+      workerButton.addTarget(self, action: #selector(handleWorkerTap), for: .touchUpInside)
+      stripContainer.addSubview(workerButton)
 
       // Chevron
       chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
@@ -219,8 +228,13 @@
         ),
 
         // Meta — right-aligned
-        metaLabel.trailingAnchor.constraint(equalTo: chevronView.leadingAnchor, constant: -CGFloat(Spacing.sm_)),
+        metaLabel.trailingAnchor.constraint(equalTo: workerButton.leadingAnchor, constant: -CGFloat(Spacing.xs)),
         metaLabel.centerYAnchor.constraint(equalTo: titleField.centerYAnchor),
+
+        workerButton.trailingAnchor.constraint(equalTo: chevronView.leadingAnchor, constant: -CGFloat(Spacing.xs)),
+        workerButton.centerYAnchor.constraint(equalTo: titleField.centerYAnchor),
+        workerButton.widthAnchor.constraint(equalToConstant: 18),
+        workerButton.heightAnchor.constraint(equalToConstant: 18),
 
         // Chevron — far right
         chevronView.trailingAnchor.constraint(equalTo: stripContainer.trailingAnchor, constant: -CGFloat(Spacing.md_)),
@@ -280,6 +294,10 @@
       onTap?()
     }
 
+    @objc private func handleWorkerTap() {
+      onFocusWorker?()
+    }
+
     override func layoutSubviews() {
       super.layoutSubviews()
       cardBg.layoutInBounds(contentView.bounds)
@@ -293,9 +311,11 @@
       super.prepareForReuse()
       cardBg.reset()
       onTap = nil
+      onFocusWorker = nil
       chevronView.image = UIImage(systemName: "chevron.right")
       chevronView.tintColor = PlatformColor(Color.textQuaternary)
       chevronView.alpha = 0.25
+      workerButton.isHidden = true
       dotSeparator.isHidden = true
       subtitleField.isHidden = true
       contextLabel.isHidden = true
@@ -344,15 +364,10 @@
         metaLabel.isHidden = true
       }
 
-      if model.linkedWorkerID != nil {
-        chevronView.image = UIImage(systemName: "sidebar.right")
-        chevronView.tintColor = UIColor(Color.accent)
-        chevronView.alpha = 0.75
-      } else {
-        chevronView.image = UIImage(systemName: "chevron.right")
-        chevronView.tintColor = PlatformColor(Color.textQuaternary)
-        chevronView.alpha = 0.25
-      }
+      workerButton.isHidden = model.linkedWorkerID == nil
+      chevronView.image = UIImage(systemName: "chevron.right")
+      chevronView.tintColor = PlatformColor(Color.textQuaternary)
+      chevronView.alpha = 0.25
 
       // Detail area
       if let preview = model.diffPreview {

@@ -3,6 +3,11 @@
   import Foundation
 
   extension ConversationCollectionViewController {
+    private var subagentsByID: [String: ServerSubagentInfo] {
+      guard let sessionId, let serverState else { return [:] }
+      return Dictionary(uniqueKeysWithValues: serverState.session(sessionId).subagents.map { ($0.id, $0) })
+    }
+
     func buildApprovalCardModel() -> ApprovalCardModel? {
       guard let sid = sessionId,
             let serverState,
@@ -90,7 +95,8 @@
       guard let message = messagesByID[messageId], message.isToolLike else { return nil }
       return SharedModelBuilders.compactToolModel(
         from: message,
-        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
+        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards,
+        subagentsByID: subagentsByID
       )
     }
 
@@ -116,7 +122,8 @@
       return SharedModelBuilders.expandedToolModel(
         from: message,
         messageID: messageId,
-        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
+        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards,
+        subagentsByID: subagentsByID
       )
     }
   }

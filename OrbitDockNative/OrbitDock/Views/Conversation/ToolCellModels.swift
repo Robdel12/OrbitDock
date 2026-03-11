@@ -8,6 +8,12 @@
 import Foundation
 
 enum SharedModelBuilders {
+  private struct WorkerLinkPresentation {
+    let id: String
+    let label: String
+    let statusText: String
+    let detailText: String?
+  }
 
   static func richMessageModel(
     from message: TranscriptMessage,
@@ -75,7 +81,8 @@ enum SharedModelBuilders {
 
   static func compactToolModel(
     from message: TranscriptMessage,
-    supportsRichToolingCards: Bool
+    supportsRichToolingCards: Bool,
+    subagentsByID: [String: ServerSubagentInfo] = [:]
   ) -> NativeCompactToolRowModel {
     let glyph = ToolGlyphInfo.from(message: message)
     let toolType = CompactToolHelpers.toolType(for: message)
@@ -89,6 +96,7 @@ enum SharedModelBuilders {
     let language = CompactToolHelpers.detectedLanguage(for: message)
     let mcpServer = CompactToolHelpers.mcpServerName(for: message)
     let todoItems = CompactToolHelpers.compactTodoItems(for: message, supportsRichToolingCards: supportsRichToolingCards)
+    let workerPresentation = linkedWorkerPresentation(for: message, subagentsByID: subagentsByID)
 
     if toolType == .read, let lang = language, let existing = meta {
       meta = "\(existing) · \(lang)"
@@ -102,6 +110,14 @@ enum SharedModelBuilders {
       rightMeta: meta,
       supportsRichToolingCards: supportsRichToolingCards
     )
+    let workerSubtitle = workerPresentation.map { "\($0.label) · \($0.statusText)" }
+    let mergedSubtitle = mergeSubtitle(primary: subtitle, workerSubtitle: workerSubtitle)
+    let fallbackPreview = fallbackWorkerPreview(
+      summary: summary,
+      subtitle: mergedSubtitle,
+      existingPreview: outputPreview,
+      workerPresentation: workerPresentation
+    )
     if CompactToolHelpers.subtitleAbsorbsMeta(toolType), subtitle != nil {
       meta = nil
     }
@@ -111,14 +127,16 @@ enum SharedModelBuilders {
       glyphSymbol: glyph.symbol,
       glyphColor: glyph.color,
       summary: summary,
-      subtitle: subtitle,
+      subtitle: mergedSubtitle,
       rightMeta: meta,
       linkedWorkerID: linkedWorkerID(for: message),
+      linkedWorkerLabel: workerPresentation?.label,
+      linkedWorkerStatusText: workerPresentation?.statusText,
       isInProgress: message.isInProgress,
       diffPreview: preview,
       liveOutputPreview: liveOutputPreview,
       toolType: toolType,
-      outputPreview: outputPreview,
+      outputPreview: fallbackPreview,
       language: language,
       mcpServer: mcpServer,
       todoItems: todoItems
@@ -128,14 +146,16 @@ enum SharedModelBuilders {
   static func expandedToolModel(
     from message: TranscriptMessage,
     messageID: String,
-    supportsRichToolingCards: Bool
+    supportsRichToolingCards: Bool,
+    subagentsByID: [String: ServerSubagentInfo] = [:]
   ) -> NativeExpandedToolModel {
     let glyph = ToolGlyphInfo.from(message: message)
     let toolName = message.toolName ?? (message.isShell ? "bash" : "tool")
     let content = expandedToolContent(
       from: message,
       toolName: toolName,
-      supportsRichToolingCards: supportsRichToolingCards
+      supportsRichToolingCards: supportsRichToolingCards,
+      subagentsByID: subagentsByID
     )
 
     return NativeExpandedToolModel(
@@ -151,7 +171,7 @@ enum SharedModelBuilders {
     )
   }
 
-  static func linkedWorkerID(for message: TranscriptMessage) -> String? {
+  nonisolated static func linkedWorkerID(for message: TranscriptMessage) -> String? {
     if let explicitSubagentID = message.toolInput?["subagent_id"] as? String,
        !explicitSubagentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     {
@@ -205,7 +225,8 @@ enum SharedModelBuilders {
   static func expandedToolContent(
     from message: TranscriptMessage,
     toolName: String,
-    supportsRichToolingCards: Bool
+    supportsRichToolingCards: Bool,
+    subagentsByID: [String: ServerSubagentInfo] = [:]
   ) -> NativeToolContent {
     let lowercased = toolName.lowercased()
     if let payload = TodoToolParser.payload(
@@ -295,15 +316,17 @@ enum SharedModelBuilders {
         return .grep(pattern: message.grepPattern ?? "", grouped: grouped)
 
       case "task":
+        let workerPresentation = linkedWorkerPresentation(for: message, subagentsByID: subagentsByID)
         let agentType = (message.toolInput?["subagent_type"] as? String) ?? "general"
-        let agentLabel = agentType.isEmpty ? "Agent" : agentType.capitalized
+        let agentLabel = workerPresentation?.label ?? (agentType.isEmpty ? "Agent" : agentType.capitalized)
         let agentColor = ToolGlyphInfo.taskAgentColor(agentType)
-        let isComplete = !message.isInProgress && !(message.toolOutput ?? "").isEmpty
+        let isComplete = workerPresentation?.statusText == "Complete"
+          || (!message.isInProgress && !(message.toolOutput ?? "").isEmpty)
         return .task(
           agentLabel: agentLabel,
           agentColor: agentColor,
-          description: message.taskDescription ?? "",
-          output: message.sanitizedToolOutput,
+          description: workerPresentation?.detailText ?? (message.taskDescription ?? ""),
+          output: message.sanitizedToolOutput ?? workerPresentation?.detailText,
           isComplete: isComplete
         )
 
@@ -372,5 +395,88 @@ enum SharedModelBuilders {
           )
         }
     }
+  }
+
+  nonisolated private static func linkedWorkerPresentation(
+    for message: TranscriptMessage,
+    subagentsByID: [String: ServerSubagentInfo]
+  ) -> WorkerLinkPresentation? {
+    guard let linkedWorkerID = linkedWorkerID(for: message),
+          let worker = subagentsByID[linkedWorkerID]
+    else {
+      return nil
+    }
+
+    let label = trimmed(worker.label)
+      ?? trimmed(worker.taskSummary)
+      ?? (worker.agentType.isEmpty ? "Worker" : worker.agentType.capitalized)
+
+    return WorkerLinkPresentation(
+      id: linkedWorkerID,
+      label: label,
+      statusText: statusText(for: worker.status),
+      detailText: trimmed(worker.resultSummary) ?? trimmed(worker.taskSummary)
+    )
+  }
+
+  nonisolated private static func mergeSubtitle(primary: String?, workerSubtitle: String?) -> String? {
+    let trimmedPrimary = trimmed(primary)
+    let trimmedWorker = trimmed(workerSubtitle)
+
+    switch (trimmedPrimary, trimmedWorker) {
+      case let (primary?, worker?) where primary != worker:
+        return "\(worker) · \(primary)"
+      case let (nil, worker?):
+        return worker
+      case let (primary?, nil):
+        return primary
+      default:
+        return nil
+    }
+  }
+
+  nonisolated private static func fallbackWorkerPreview(
+    summary: String,
+    subtitle: String?,
+    existingPreview: String?,
+    workerPresentation: WorkerLinkPresentation?
+  ) -> String? {
+    if let existingPreview = trimmed(existingPreview) {
+      return existingPreview
+    }
+
+    guard let detailText = trimmed(workerPresentation?.detailText) else {
+      return nil
+    }
+
+    let blockedValues = [summary, subtitle].compactMap(trimmed)
+    return blockedValues.contains(detailText) ? nil : detailText
+  }
+
+  nonisolated private static func statusText(for status: ServerSubagentStatus?) -> String {
+    switch status {
+      case .pending:
+        "Pending"
+      case .running:
+        "Running"
+      case .completed:
+        "Complete"
+      case .failed:
+        "Failed"
+      case .cancelled:
+        "Cancelled"
+      case .shutdown:
+        "Stopped"
+      case .notFound:
+        "Unavailable"
+      case .none:
+        "Worker"
+    }
+  }
+
+  nonisolated private static func trimmed(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 }

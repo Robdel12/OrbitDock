@@ -116,6 +116,41 @@ struct CompactToolHelpersTests {
     #expect(model.linkedWorkerID == "worker-123")
   }
 
+  @Test func compactToolModelSurfacesLinkedWorkerIdentityAndResultPreview() {
+    let message = makeToolMessage(
+      toolName: "wait",
+      toolInput: ["receiver_thread_id": "worker-123"]
+    )
+
+    let worker = ServerSubagentInfo(
+      id: "worker-123",
+      agentType: "worker",
+      startedAt: "2026-03-11T01:00:00Z",
+      endedAt: "2026-03-11T01:02:00Z",
+      provider: .codex,
+      label: "Wegener",
+      status: .completed,
+      taskSummary: "Inspect the worker transcript",
+      resultSummary: "Worker verified the transcript wiring and returned cleanly.",
+      errorSummary: nil,
+      parentSubagentId: nil,
+      model: nil,
+      lastActivityAt: "2026-03-11T01:02:00Z"
+    )
+
+    let model = SharedModelBuilders.compactToolModel(
+      from: message,
+      supportsRichToolingCards: true,
+      subagentsByID: [worker.id: worker]
+    )
+
+    #expect(model.linkedWorkerID == "worker-123")
+    #expect(model.linkedWorkerLabel == "Wegener")
+    #expect(model.linkedWorkerStatusText == "Complete")
+    #expect(model.subtitle == "Wegener · Complete")
+    #expect(model.outputPreview == "Worker verified the transcript wiring and returned cleanly.")
+  }
+
   private func makeToolMessage(
     toolName: String,
     toolInput: [String: Any],
