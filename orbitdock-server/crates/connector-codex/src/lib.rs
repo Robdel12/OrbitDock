@@ -4,41 +4,48 @@
 //! No subprocess, no JSON-RPC — just Rust function calls.
 
 pub mod auth;
+mod config;
 pub mod rollout_parser;
 pub mod session;
+mod timeline;
+mod workers;
 
 /// Re-export codex-arg0 init for server startup.
 /// Must be called before the tokio runtime starts.
 pub use codex_arg0::arg0_dispatch;
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use codex_core::auth::AuthCredentialsStoreMode;
-use codex_core::config::{find_codex_home, Config, ConfigOverrides};
-use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
-use codex_core::models_manager::manager::RefreshStrategy;
-use codex_core::{AuthManager, CodexThread, SteerInputError, ThreadManager};
-use codex_protocol::config_types::{
-    CollaborationMode, CollaborationModeMask, ModeKind, Personality, ReasoningSummary, ServiceTier,
-    Settings,
-};
+use codex_core::{CodexThread, SteerInputError, ThreadManager};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
-    AskForApproval, CodexErrorInfo, Event, EventMsg, FileChange, HookOutputEntry, HookRunStatus,
-    HookRunSummary, McpServerRefreshConfig, Op, RealtimeHandoffRequested, ReviewDecision,
-    SandboxPolicy, SessionSource, StreamErrorEvent,
+    AskForApproval, Event, EventMsg, FileChange, McpServerRefreshConfig, Op, ReviewDecision,
+    SandboxPolicy,
 };
 use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissionsResponse};
 use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
 use codex_protocol::user_input::UserInput;
 use serde_json::json;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
+pub use self::config::discover_models;
+use self::config::{
+    collaboration_mode_for_update, parse_personality, parse_service_tier_override,
+    preferred_reasoning_summary, reasoning_summary_for_model,
+};
+use self::timeline::{
+    dynamic_tool_output_to_text, hook_completed_text, hook_output_text, hook_run_is_error,
+    hook_started_text, realtime_text_from_handoff_request, reasoning_trace_metadata_json,
+    render_review_output, review_request_summary, stream_error_should_surface_to_timeline,
+    tool_input_with_arguments,
+};
+use self::workers::{
+    agent_status_failed, build_authoritative_codex_subagent, build_inflight_codex_subagent,
+    collab_agent_label, iso_now,
+};
 use orbitdock_connector_core::{ApprovalType, ConnectorError, ConnectorEvent};
 
 /// Outcome of a steer_turn attempt
@@ -143,13 +150,6 @@ struct EnvironmentTracker {
 
 /// Minimum interval between streaming content broadcasts (ms)
 const STREAM_THROTTLE_MS: u128 = 50;
-const DEFAULT_CODEX_SHOW_RAW_REASONING: bool = true;
-const DEFAULT_CODEX_HIDE_REASONING: bool = false;
-const DEFAULT_CODEX_REASONING_SUMMARY: &str = "detailed";
-const REASONING_SUMMARY_NONE: &str = "none";
-const ENV_CODEX_SHOW_RAW_REASONING: &str = "ORBITDOCK_CODEX_SHOW_RAW_REASONING";
-const ENV_CODEX_HIDE_REASONING: &str = "ORBITDOCK_CODEX_HIDE_REASONING";
-const ENV_CODEX_REASONING_SUMMARY: &str = "ORBITDOCK_CODEX_REASONING_SUMMARY";
 
 /// Codex connector using direct codex-core integration
 pub struct CodexConnector {
@@ -183,244 +183,6 @@ pub struct UpdateConfigOptions<'a> {
 }
 
 impl CodexConnector {
-    /// Create a new Codex connector with direct codex-core integration
-    pub async fn new(
-        cwd: &str,
-        model: Option<&str>,
-        approval_policy: Option<&str>,
-        sandbox_mode: Option<&str>,
-    ) -> Result<Self, ConnectorError> {
-        Self::new_with_control_plane(
-            cwd,
-            model,
-            approval_policy,
-            sandbox_mode,
-            CodexControlPlane::default(),
-        )
-        .await
-    }
-
-    pub async fn new_with_control_plane(
-        cwd: &str,
-        model: Option<&str>,
-        approval_policy: Option<&str>,
-        sandbox_mode: Option<&str>,
-        control_plane: CodexControlPlane,
-    ) -> Result<Self, ConnectorError> {
-        info!("Creating codex-core connector for {}", cwd);
-
-        // Resolve codex home directory (~/.codex)
-        let codex_home = find_codex_home().map_err(|e| {
-            ConnectorError::ProviderError(format!("Failed to find codex home: {}", e))
-        })?;
-
-        // Create auth manager (reads existing codex credentials)
-        let auth_manager = Arc::new(AuthManager::new(
-            codex_home.clone(),
-            true, // enable CODEX_API_KEY env var
-            AuthCredentialsStoreMode::Auto,
-        ));
-
-        let mut config =
-            Self::build_config(cwd, model, approval_policy, sandbox_mode, &control_plane).await?;
-
-        // ThreadManager now derives Codex home, model catalog, and bundled skill
-        // behavior from the session config.
-        let thread_manager = Arc::new(ThreadManager::new(
-            &config,
-            auth_manager.clone(),
-            SessionSource::Mcp,
-            CollaborationModesConfig::default(),
-        ));
-        Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
-
-        // Start a thread
-        let configured_model = config.model.clone();
-        let new_thread = thread_manager
-            .start_thread(config)
-            .await
-            .map_err(|e| ConnectorError::ProviderError(format!("Failed to start thread: {}", e)))?;
-
-        let connector = Self::from_thread(new_thread, thread_manager, codex_home)?;
-        connector
-            .apply_post_start_control_plane(control_plane, configured_model, None)
-            .await?;
-        Ok(connector)
-    }
-
-    /// Resume a Codex session from an existing rollout file (preserves conversation history)
-    pub async fn resume(
-        cwd: &str,
-        thread_id: &str,
-        model: Option<&str>,
-        approval_policy: Option<&str>,
-        sandbox_mode: Option<&str>,
-    ) -> Result<Self, ConnectorError> {
-        Self::resume_with_control_plane(
-            cwd,
-            thread_id,
-            model,
-            approval_policy,
-            sandbox_mode,
-            CodexControlPlane::default(),
-        )
-        .await
-    }
-
-    pub async fn resume_with_control_plane(
-        cwd: &str,
-        thread_id: &str,
-        model: Option<&str>,
-        approval_policy: Option<&str>,
-        sandbox_mode: Option<&str>,
-        control_plane: CodexControlPlane,
-    ) -> Result<Self, ConnectorError> {
-        info!(
-            "Resuming codex-core connector for {} with thread {}",
-            cwd, thread_id
-        );
-
-        let codex_home = find_codex_home().map_err(|e| {
-            ConnectorError::ProviderError(format!("Failed to find codex home: {}", e))
-        })?;
-
-        // Find the rollout file for this thread
-        let rollout_path = codex_core::find_thread_path_by_id_str(&codex_home, thread_id)
-            .await
-            .map_err(|e| {
-                ConnectorError::ProviderError(format!("Failed to find rollout for thread: {}", e))
-            })?
-            .ok_or_else(|| {
-                ConnectorError::ProviderError(format!(
-                    "No rollout file found for thread {}",
-                    thread_id
-                ))
-            })?;
-
-        info!("Found rollout at {:?}", rollout_path);
-
-        let auth_manager = Arc::new(AuthManager::new(
-            codex_home.clone(),
-            true,
-            AuthCredentialsStoreMode::Auto,
-        ));
-
-        let mut config =
-            Self::build_config(cwd, model, approval_policy, sandbox_mode, &control_plane).await?;
-
-        let thread_manager = Arc::new(ThreadManager::new(
-            &config,
-            auth_manager.clone(),
-            SessionSource::Mcp,
-            CollaborationModesConfig::default(),
-        ));
-        Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
-
-        let configured_model = config.model.clone();
-        let new_thread = thread_manager
-            .resume_thread_from_rollout(config, rollout_path, auth_manager)
-            .await
-            .map_err(|e| {
-                ConnectorError::ProviderError(format!("Failed to resume thread: {}", e))
-            })?;
-
-        let connector = Self::from_thread(new_thread, thread_manager, codex_home)?;
-        connector
-            .apply_post_start_control_plane(control_plane, configured_model, None)
-            .await?;
-        Ok(connector)
-    }
-
-    /// Build a Config with optional overrides
-    async fn build_config(
-        cwd: &str,
-        model: Option<&str>,
-        approval_policy: Option<&str>,
-        sandbox_mode: Option<&str>,
-        control_plane: &CodexControlPlane,
-    ) -> Result<Config, ConnectorError> {
-        let mut cli_overrides = Vec::new();
-
-        // Override model if specified (model IS a TOML config field)
-        if let Some(m) = model {
-            cli_overrides.push(("model".to_string(), toml::Value::String(m.to_string())));
-        }
-
-        // Set approval policy (defaults to "untrusted" if not specified)
-        let policy = approval_policy.unwrap_or("untrusted");
-        cli_overrides.push((
-            "approval_policy".to_string(),
-            toml::Value::String(policy.to_string()),
-        ));
-
-        // Set sandbox mode if specified (config key is "sandbox_mode", not "sandbox_policy")
-        if let Some(sandbox) = sandbox_mode {
-            cli_overrides.push((
-                "sandbox_mode".to_string(),
-                toml::Value::String(sandbox.to_string()),
-            ));
-        }
-
-        // Reasoning trace defaults for OrbitDock direct sessions. These can be
-        // overridden via environment variables for troubleshooting.
-        let show_raw_reasoning = parse_bool_env(ENV_CODEX_SHOW_RAW_REASONING)
-            .unwrap_or(DEFAULT_CODEX_SHOW_RAW_REASONING);
-        let hide_reasoning =
-            parse_bool_env(ENV_CODEX_HIDE_REASONING).unwrap_or(DEFAULT_CODEX_HIDE_REASONING);
-        let mut reasoning_summary = parse_reasoning_summary_env(ENV_CODEX_REASONING_SUMMARY)
-            .unwrap_or_else(|| DEFAULT_CODEX_REASONING_SUMMARY.to_string());
-        if model_rejects_reasoning_summary(model) {
-            reasoning_summary = REASONING_SUMMARY_NONE.to_string();
-        }
-
-        cli_overrides.push((
-            "show_raw_agent_reasoning".to_string(),
-            toml::Value::Boolean(show_raw_reasoning),
-        ));
-        cli_overrides.push((
-            "hide_agent_reasoning".to_string(),
-            toml::Value::Boolean(hide_reasoning),
-        ));
-        cli_overrides.push((
-            "model_reasoning_summary".to_string(),
-            toml::Value::String(reasoning_summary),
-        ));
-
-        if let Some(multi_agent) = control_plane.multi_agent {
-            cli_overrides.push((
-                "features.multi_agent".to_string(),
-                toml::Value::Boolean(multi_agent),
-            ));
-        }
-
-        // cwd is a ConfigOverrides field, not a TOML config field
-        let harness_overrides = ConfigOverrides {
-            cwd: Some(std::path::PathBuf::from(cwd)),
-            service_tier: parse_service_tier_override(control_plane.service_tier.as_deref()),
-            developer_instructions: control_plane.developer_instructions.clone(),
-            personality: parse_personality(control_plane.personality.as_deref()),
-            codex_linux_sandbox_exe: None,
-            ..Default::default()
-        };
-
-        let config =
-            Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
-                .await
-                .map_err(|e| {
-                    ConnectorError::ProviderError(format!("Failed to load config: {}", e))
-                })?;
-
-        Ok(config)
-    }
-
-    async fn finalize_reasoning_summary(config: &mut Config, thread_manager: &ThreadManager) {
-        let supports_reasoning_summaries =
-            model_supports_reasoning_summaries(thread_manager, config).await;
-        if should_disable_reasoning_summary(config.model.as_deref(), supports_reasoning_summaries) {
-            config.model_reasoning_summary = Some(ReasoningSummary::None);
-        }
-    }
-
     /// Create a connector from an existing NewThread (shared by new() and fork_thread())
     fn from_thread(
         new_thread: codex_core::NewThread,
@@ -475,7 +237,6 @@ impl CodexConnector {
         })
     }
 
-    /// Fork this session's thread at a given point in history, returning a new connector
     pub async fn fork_thread(
         &self,
         nth_user_message: Option<u32>,
@@ -484,7 +245,6 @@ impl CodexConnector {
         sandbox_mode: Option<&str>,
         cwd: Option<&str>,
     ) -> Result<(CodexConnector, String), ConnectorError> {
-        // Find the source rollout path (same approach as app-server)
         let rollout_path =
             codex_core::find_thread_path_by_id_str(&self.codex_home, &self.thread_id)
                 .await
@@ -498,7 +258,6 @@ impl CodexConnector {
                     ))
                 })?;
 
-        // Build config with overrides — use source session's cwd as fallback
         let effective_cwd = cwd.unwrap_or(".");
         let mut config = Self::build_config(
             effective_cwd,
@@ -510,7 +269,6 @@ impl CodexConnector {
         .await?;
         Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
 
-        // Convert nth_user_message: None means full history (usize::MAX)
         let nth = nth_user_message.map(|n| n as usize).unwrap_or(usize::MAX);
 
         let new_thread = self
@@ -3322,78 +3080,24 @@ impl CodexConnector {
         Ok(())
     }
 
-    async fn apply_post_start_control_plane(
-        &self,
-        control_plane: CodexControlPlane,
-        configured_model: Option<String>,
-        configured_effort: Option<ReasoningEffort>,
-    ) -> Result<(), ConnectorError> {
-        let collaboration_mode = collaboration_mode_for_update(
-            self.thread_manager.as_ref(),
-            control_plane.collaboration_mode.as_deref(),
-            None,
-            configured_model.unwrap_or_else(|| "gpt-5-codex".to_string()),
-            configured_effort,
-            control_plane.developer_instructions.as_deref(),
-        );
-        let service_tier = parse_service_tier_override(control_plane.service_tier.as_deref());
-        let personality = parse_personality(control_plane.personality.as_deref());
-
-        if collaboration_mode.is_none()
-            && service_tier.is_none()
-            && personality.is_none()
-            && control_plane.multi_agent.is_none()
-        {
-            return Ok(());
-        }
-
-        self.thread
-            .submit(Op::OverrideTurnContext {
-                cwd: None,
-                approval_policy: None,
-                sandbox_policy: None,
-                windows_sandbox_level: None,
-                model: None,
-                effort: None,
-                summary: None,
-                service_tier,
-                collaboration_mode,
-                personality,
-            })
-            .await
-            .map_err(|e| {
-                ConnectorError::ProviderError(format!(
-                    "Failed to apply Codex control plane settings: {}",
-                    e
-                ))
-            })?;
-
-        Ok(())
-    }
-
-    /// Compact (summarize) the conversation context
     pub async fn compact(&self) -> Result<(), ConnectorError> {
         self.thread
             .submit(Op::Compact)
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to compact: {}", e)))?;
-
         info!("Sent compact");
         Ok(())
     }
 
-    /// Undo the last turn (reverts filesystem changes and removes from context)
     pub async fn undo(&self) -> Result<(), ConnectorError> {
         self.thread
             .submit(Op::Undo)
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to undo: {}", e)))?;
-
         info!("Sent undo");
         Ok(())
     }
 
-    /// Roll back N turns from context (does NOT revert filesystem changes)
     pub async fn thread_rollback(&self, num_turns: u32) -> Result<(), ConnectorError> {
         self.thread
             .submit(Op::ThreadRollback { num_turns })
@@ -3401,851 +3105,30 @@ impl CodexConnector {
             .map_err(|e| {
                 ConnectorError::ProviderError(format!("Failed to thread rollback: {}", e))
             })?;
-
         info!("Sent thread rollback: {} turns", num_turns);
         Ok(())
     }
 
-    /// Shutdown the thread
     pub async fn shutdown(&self) -> Result<(), ConnectorError> {
         self.thread
             .submit(Op::Shutdown)
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to shutdown: {}", e)))?;
-
         info!("Sent shutdown");
         Ok(())
     }
 }
 
-/// Discover currently available Codex models for this account/environment.
-pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOption>, ConnectorError>
-{
-    let codex_home = find_codex_home()
-        .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
-    let auth_manager = Arc::new(AuthManager::new(
-        codex_home.clone(),
-        true,
-        AuthCredentialsStoreMode::Auto,
-    ));
-    let base_config = Config::load_with_cli_overrides(Vec::new())
-        .await
-        .or_else(|err| {
-            warn!(
-                "Failed to load config for model discovery: {}. Falling back to defaults.",
-                err
-            );
-            Config::load_default_with_cli_overrides(Vec::new())
-        })
-        .map_err(|e| {
-            ConnectorError::ProviderError(format!(
-                "Failed to load config for model discovery: {}",
-                e
-            ))
-        })?;
-    let thread_manager = Arc::new(ThreadManager::new(
-        &base_config,
-        auth_manager,
-        SessionSource::Mcp,
-        CollaborationModesConfig::default(),
-    ));
-
-    let mut models: Vec<orbitdock_protocol::CodexModelOption> = Vec::new();
-    for preset in thread_manager
-        .list_models(RefreshStrategy::OnlineIfUncached)
-        .await
-        .into_iter()
-        // codex-core already applies auth-aware filtering in list_models:
-        // ChatGPT mode can include models that are not API-key compatible.
-        .filter(|preset| preset.show_in_picker)
-    {
-        let mut model_config = base_config.clone();
-        model_config.model = Some(preset.model.clone());
-        let supports_reasoning_summaries =
-            model_supports_reasoning_summaries(thread_manager.as_ref(), &model_config).await;
-        let supported_reasoning_efforts = preset
-            .supported_reasoning_efforts
-            .into_iter()
-            .map(|e| e.effort.to_string())
-            .collect();
-
-        models.push(orbitdock_protocol::CodexModelOption {
-            id: preset.id,
-            model: preset.model,
-            display_name: preset.display_name,
-            description: preset.description,
-            is_default: preset.is_default,
-            supported_reasoning_efforts,
-            supports_reasoning_summaries,
-            supported_collaboration_modes: vec!["default".to_string(), "plan".to_string()],
-            supports_multi_agent: true,
-            multi_agent_is_experimental: true,
-            supports_personality: true,
-            supported_service_tiers: vec!["fast".to_string(), "flex".to_string()],
-            supports_developer_instructions: true,
-        });
-    }
-
-    Ok(models)
-}
-
-fn dynamic_tool_output_to_text(
-    content_items: &[codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem],
-    fallback_error: Option<String>,
-) -> Option<String> {
-    let mut lines: Vec<String> = Vec::new();
-
-    for item in content_items {
-        match item {
-            codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem::InputText { text } => {
-                if !text.is_empty() {
-                    lines.push(text.clone());
-                }
-            }
-            codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem::InputImage {
-                image_url,
-            } => {
-                lines.push(format!("[image] {}", image_url));
-            }
-        }
-    }
-
-    if lines.is_empty() {
-        fallback_error
-    } else {
-        Some(lines.join("\n"))
-    }
-}
-
-fn parse_bool_env(name: &str) -> Option<bool> {
-    let raw = std::env::var(name).ok()?;
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Some(true),
-        "0" | "false" | "no" | "off" => Some(false),
-        other => {
-            warn!(
-                "Ignoring invalid boolean env {}={} (expected true/false, 1/0, yes/no, on/off)",
-                name, other
-            );
-            None
-        }
-    }
-}
-
-fn parse_reasoning_summary_env(name: &str) -> Option<String> {
-    let raw = std::env::var(name).ok()?;
-    let value = raw.trim().to_ascii_lowercase();
-    match value.as_str() {
-        "auto" | "concise" | "detailed" | REASONING_SUMMARY_NONE => Some(value),
-        other => {
-            warn!(
-                "Ignoring invalid reasoning summary env {}={} (expected auto|concise|detailed|none)",
-                name, other
-            );
-            None
-        }
-    }
-}
-
-fn parse_reasoning_summary(value: &str) -> Option<ReasoningSummary> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "auto" => Some(ReasoningSummary::Auto),
-        "concise" => Some(ReasoningSummary::Concise),
-        "detailed" => Some(ReasoningSummary::Detailed),
-        REASONING_SUMMARY_NONE => Some(ReasoningSummary::None),
-        _ => None,
-    }
-}
-
-fn preferred_reasoning_summary() -> ReasoningSummary {
-    parse_reasoning_summary_env(ENV_CODEX_REASONING_SUMMARY)
-        .as_deref()
-        .and_then(parse_reasoning_summary)
-        .unwrap_or(ReasoningSummary::Detailed)
-}
-
-fn model_rejects_reasoning_summary(model: Option<&str>) -> bool {
-    model
-        .map(|value| value.trim().to_ascii_lowercase().contains("codex-spark"))
-        .unwrap_or(false)
-}
-
-fn reasoning_summary_for_model(
-    model: Option<&str>,
-    preferred: ReasoningSummary,
-) -> ReasoningSummary {
-    if model_rejects_reasoning_summary(model) {
-        ReasoningSummary::None
-    } else {
-        preferred
-    }
-}
-
-async fn model_supports_reasoning_summaries(
-    thread_manager: &ThreadManager,
-    config: &Config,
-) -> bool {
-    let Some(model) = config.model.as_deref() else {
-        return true;
-    };
-
-    thread_manager
-        .get_models_manager()
-        .get_model_info(model, config)
-        .await
-        .supports_reasoning_summaries
-}
-
-fn should_disable_reasoning_summary(
-    model: Option<&str>,
-    supports_reasoning_summaries: bool,
-) -> bool {
-    !supports_reasoning_summaries || model_rejects_reasoning_summary(model)
-}
-
-fn collaboration_mode_for_update(
-    thread_manager: &ThreadManager,
-    explicit_collaboration_mode: Option<&str>,
-    permission_mode: Option<&str>,
-    model: String,
-    effort: Option<ReasoningEffort>,
-    developer_instructions: Option<&str>,
-) -> Option<CollaborationMode> {
-    let explicit_mode = explicit_collaboration_mode
-        .and_then(parse_mode_kind)
-        .map(|mode| {
-            collaboration_mode_from_name_or_mode(
-                thread_manager.list_collaboration_modes(),
-                mode_kind_name(mode),
-                model.clone(),
-                effort,
-                developer_instructions,
-            )
-        });
-
-    if explicit_mode.is_some() {
-        return explicit_mode.flatten();
-    }
-
-    let shim_mode = permission_mode.and_then(parse_mode_kind).map(|mode| {
-        collaboration_mode_from_name_or_mode(
-            thread_manager.list_collaboration_modes(),
-            mode_kind_name(mode),
-            model.clone(),
-            effort,
-            developer_instructions,
-        )
-    });
-
-    if shim_mode.is_some() {
-        return shim_mode.flatten();
-    }
-
-    developer_instructions.map(|instructions| CollaborationMode {
-        mode: ModeKind::Default,
-        settings: Settings {
-            model,
-            reasoning_effort: effort,
-            developer_instructions: Some(instructions.to_string()),
-        },
-    })
-}
-
-#[cfg(test)]
-fn collaboration_mode_from_permission_mode(
-    permission_mode: Option<&str>,
-    model: String,
-    effort: Option<ReasoningEffort>,
-) -> Option<CollaborationMode> {
-    let mode = permission_mode.and_then(parse_mode_kind)?;
-
-    Some(build_collaboration_mode(
-        mode,
-        model,
-        effort,
-        None::<String>,
-    ))
-}
-
-fn collaboration_mode_from_name_or_mode(
-    masks: Vec<CollaborationModeMask>,
-    mode_name: &str,
-    model: String,
-    effort: Option<ReasoningEffort>,
-    developer_instructions: Option<&str>,
-) -> Option<CollaborationMode> {
-    let normalized = mode_name.trim().to_ascii_lowercase();
-    let parsed_mode = parse_mode_kind(normalized.as_str())?;
-    let base = build_collaboration_mode(
-        parsed_mode,
-        model,
-        effort,
-        developer_instructions.map(ToOwned::to_owned),
-    );
-
-    let matched_mask = masks.into_iter().find(|mask| {
-        mask.name.trim().eq_ignore_ascii_case(normalized.as_str())
-            || mask
-                .mode
-                .map(|mode| mode_kind_name(mode).eq_ignore_ascii_case(normalized.as_str()))
-                .unwrap_or(false)
-    });
-
-    let resolved = matched_mask
-        .map(|mask| base.apply_mask(&mask))
-        .unwrap_or(base);
-
-    let developer_override = developer_instructions.map(|value| Some(value.to_string()));
-    Some(resolved.with_updates(None, None, developer_override))
-}
-
-fn build_collaboration_mode(
-    mode: ModeKind,
-    model: String,
-    effort: Option<ReasoningEffort>,
-    developer_instructions: impl Into<Option<String>>,
-) -> CollaborationMode {
-    CollaborationMode {
-        mode,
-        settings: Settings {
-            model,
-            reasoning_effort: effort,
-            developer_instructions: developer_instructions.into(),
-        },
-    }
-}
-
-fn mode_kind_name(mode: ModeKind) -> &'static str {
-    match mode {
-        ModeKind::Plan => "plan",
-        ModeKind::Default | ModeKind::PairProgramming | ModeKind::Execute => "default",
-    }
-}
-
-fn parse_mode_kind(value: &str) -> Option<ModeKind> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "plan" => Some(ModeKind::Plan),
-        "default" => Some(ModeKind::Default),
-        _ => None,
-    }
-}
-
-fn parse_personality(value: Option<&str>) -> Option<Personality> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-        .and_then(|value| match value {
-            "none" => Some(Personality::None),
-            "friendly" => Some(Personality::Friendly),
-            "pragmatic" => Some(Personality::Pragmatic),
-            _ => None,
-        })
-}
-
-fn parse_service_tier_override(value: Option<&str>) -> Option<Option<ServiceTier>> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_ascii_lowercase)
-        .and_then(|value| match value.as_str() {
-            "none" | "off" => Some(None),
-            "fast" => Some(Some(ServiceTier::Fast)),
-            "flex" => Some(Some(ServiceTier::Flex)),
-            _ => None,
-        })
-}
-
-fn tool_input_with_arguments(
-    metadata: serde_json::Value,
-    arguments: Option<&serde_json::Value>,
-) -> Option<String> {
-    let mut payload = match metadata {
-        serde_json::Value::Object(object) => object,
-        _ => serde_json::Map::new(),
-    };
-
-    if let Some(args_value) = arguments {
-        payload.insert("arguments".to_string(), args_value.clone());
-
-        if let serde_json::Value::Object(args_object) = args_value {
-            for (key, value) in args_object {
-                if !payload.contains_key(key) {
-                    payload.insert(key.clone(), value.clone());
-                }
-            }
-        }
-    }
-
-    serde_json::to_string(&serde_json::Value::Object(payload)).ok()
-}
-
-fn collab_agent_label(
-    thread_id: &str,
-    agent_nickname: Option<&str>,
-    agent_role: Option<&str>,
-) -> String {
-    let mut parts = vec![thread_id.to_string()];
-    if let Some(nickname) = agent_nickname {
-        let trimmed = nickname.trim();
-        if !trimmed.is_empty() {
-            parts.push(format!("nickname={trimmed}"));
-        }
-    }
-    if let Some(role) = agent_role {
-        let trimmed = role.trim();
-        if !trimmed.is_empty() {
-            parts.push(format!("role={trimmed}"));
-        }
-    }
-    parts.join(" · ")
-}
-
-fn reasoning_trace_metadata_json(
-    reasoning_kind: &'static str,
-    stream: &'static str,
-    item_id: Option<&str>,
-    part_index: Option<i64>,
-) -> Option<String> {
-    let mut metadata = json!({
-        "kind": "reasoning_trace",
-        "reasoning_kind": reasoning_kind,
-        "stream": stream,
-    });
-
-    if let Some(object) = metadata.as_object_mut() {
-        if let Some(id) = item_id {
-            object.insert("item_id".to_string(), json!(id));
-        }
-        if let Some(index) = part_index {
-            object.insert("part_index".to_string(), json!(index));
-        }
-    }
-
-    serde_json::to_string(&metadata).ok()
-}
-
-fn truncate_for_display(value: &str, max_chars: usize) -> String {
-    let trimmed = value.trim();
-    if trimmed.chars().count() <= max_chars {
-        trimmed.to_string()
-    } else {
-        format!("{}...", trimmed.chars().take(max_chars).collect::<String>())
-    }
-}
-
-fn review_request_summary(request: &codex_protocol::protocol::ReviewRequest) -> String {
-    if let Some(hint) = &request.user_facing_hint {
-        let trimmed = hint.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-
-    match &request.target {
-        codex_protocol::protocol::ReviewTarget::UncommittedChanges => {
-            "Review uncommitted changes".to_string()
-        }
-        codex_protocol::protocol::ReviewTarget::BaseBranch { branch } => {
-            format!("Review changes against branch `{branch}`")
-        }
-        codex_protocol::protocol::ReviewTarget::Commit { sha, title } => {
-            if let Some(title) = title {
-                let trimmed_title = title.trim();
-                if !trimmed_title.is_empty() {
-                    return format!("Review commit `{sha}` - {trimmed_title}");
-                }
-            }
-            format!("Review commit `{sha}`")
-        }
-        codex_protocol::protocol::ReviewTarget::Custom { instructions } => {
-            if instructions.trim().is_empty() {
-                "Run custom review".to_string()
-            } else {
-                format!(
-                    "Custom review\n\n{}",
-                    truncate_for_display(instructions, 600)
-                )
-            }
-        }
-    }
-}
-
-fn render_review_output(output: &codex_protocol::protocol::ReviewOutputEvent) -> String {
-    let mut lines: Vec<String> = Vec::new();
-
-    if !output.overall_correctness.trim().is_empty() {
-        lines.push(format!(
-            "Overall correctness: {}",
-            output.overall_correctness.trim()
-        ));
-    }
-
-    if !output.overall_explanation.trim().is_empty() {
-        lines.push(String::new());
-        lines.push(output.overall_explanation.trim().to_string());
-    }
-
-    lines.push(String::new());
-    lines.push(format!(
-        "Confidence: {:.2}",
-        output.overall_confidence_score
-    ));
-
-    if !output.findings.is_empty() {
-        lines.push(String::new());
-        lines.push(format!("Findings ({})", output.findings.len()));
-        for finding in &output.findings {
-            let path = finding.code_location.absolute_file_path.display();
-            let range = &finding.code_location.line_range;
-            lines.push(format!(
-                "- [P{}] {} ({path}:{}-{}, confidence {:.2})",
-                finding.priority,
-                finding.title.trim(),
-                range.start,
-                range.end,
-                finding.confidence_score
-            ));
-            if !finding.body.trim().is_empty() {
-                lines.push(format!("  {}", finding.body.trim()));
-            }
-        }
-    }
-
-    lines.join("\n")
-}
-
-fn agent_status_failed(status: &codex_protocol::protocol::AgentStatus) -> bool {
-    matches!(
-        status,
-        codex_protocol::protocol::AgentStatus::Errored(_)
-            | codex_protocol::protocol::AgentStatus::NotFound
-    )
-}
-
-fn build_authoritative_codex_subagent(
-    id: String,
-    agent_role: Option<String>,
-    agent_nickname: Option<String>,
-    task_summary: Option<String>,
-    parent_subagent_id: Option<String>,
-    status: &codex_protocol::protocol::AgentStatus,
-) -> orbitdock_protocol::SubagentInfo {
-    let now = iso_now();
-    let (mapped_status, ended_at, result_summary, error_summary) = map_agent_status(status, &now);
-
-    orbitdock_protocol::SubagentInfo {
-        id: id.clone(),
-        agent_type: normalized_agent_type(agent_role.as_deref()),
-        started_at: now.clone(),
-        ended_at,
-        provider: Some(orbitdock_protocol::Provider::Codex),
-        label: normalized_agent_label(agent_nickname.as_deref(), agent_role.as_deref(), &id),
-        status: mapped_status,
-        task_summary: task_summary.and_then(|summary| {
-            let trimmed = summary.trim();
-            (!trimmed.is_empty()).then(|| trimmed.to_string())
-        }),
-        result_summary,
-        error_summary,
-        parent_subagent_id,
-        model: None,
-        last_activity_at: Some(now),
-    }
-}
-
-fn build_inflight_codex_subagent(
-    id: String,
-    agent_role: Option<String>,
-    agent_nickname: Option<String>,
-    task_summary: Option<String>,
-    parent_subagent_id: Option<String>,
-    status: &codex_protocol::protocol::AgentStatus,
-) -> Option<orbitdock_protocol::SubagentInfo> {
-    let mapped_status = match status {
-        codex_protocol::protocol::AgentStatus::PendingInit => {
-            orbitdock_protocol::SubagentStatus::Pending
-        }
-        codex_protocol::protocol::AgentStatus::Running => {
-            orbitdock_protocol::SubagentStatus::Running
-        }
-        codex_protocol::protocol::AgentStatus::Completed(_)
-        | codex_protocol::protocol::AgentStatus::Errored(_)
-        | codex_protocol::protocol::AgentStatus::Shutdown
-        | codex_protocol::protocol::AgentStatus::NotFound => return None,
-    };
-
-    let now = iso_now();
-    Some(orbitdock_protocol::SubagentInfo {
-        id: id.clone(),
-        agent_type: normalized_agent_type(agent_role.as_deref()),
-        started_at: now.clone(),
-        ended_at: None,
-        provider: Some(orbitdock_protocol::Provider::Codex),
-        label: normalized_agent_label(agent_nickname.as_deref(), agent_role.as_deref(), &id),
-        status: mapped_status,
-        task_summary: task_summary.and_then(|summary| {
-            let trimmed = summary.trim();
-            (!trimmed.is_empty()).then(|| trimmed.to_string())
-        }),
-        result_summary: None,
-        error_summary: None,
-        parent_subagent_id,
-        model: None,
-        last_activity_at: Some(now),
-    })
-}
-
-fn map_agent_status(
-    status: &codex_protocol::protocol::AgentStatus,
-    now: &str,
-) -> (
-    orbitdock_protocol::SubagentStatus,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-) {
-    match status {
-        codex_protocol::protocol::AgentStatus::PendingInit => (
-            orbitdock_protocol::SubagentStatus::Pending,
-            None,
-            None,
-            None,
-        ),
-        codex_protocol::protocol::AgentStatus::Running => (
-            orbitdock_protocol::SubagentStatus::Running,
-            None,
-            None,
-            None,
-        ),
-        codex_protocol::protocol::AgentStatus::Completed(summary) => (
-            orbitdock_protocol::SubagentStatus::Completed,
-            Some(now.to_string()),
-            summary.as_ref().and_then(|summary| {
-                let trimmed = summary.trim();
-                (!trimmed.is_empty()).then(|| trimmed.to_string())
-            }),
-            None,
-        ),
-        codex_protocol::protocol::AgentStatus::Errored(message) => (
-            orbitdock_protocol::SubagentStatus::Failed,
-            Some(now.to_string()),
-            None,
-            Some(message.trim().to_string()),
-        ),
-        codex_protocol::protocol::AgentStatus::Shutdown => (
-            orbitdock_protocol::SubagentStatus::Shutdown,
-            Some(now.to_string()),
-            None,
-            None,
-        ),
-        codex_protocol::protocol::AgentStatus::NotFound => (
-            orbitdock_protocol::SubagentStatus::NotFound,
-            Some(now.to_string()),
-            None,
-            Some("Agent not found".to_string()),
-        ),
-    }
-}
-
-fn normalized_agent_type(role: Option<&str>) -> String {
-    role.map(str::trim)
-        .filter(|role| !role.is_empty())
-        .unwrap_or("agent")
-        .to_string()
-}
-
-fn normalized_agent_label(nickname: Option<&str>, role: Option<&str>, id: &str) -> Option<String> {
-    nickname
-        .map(str::trim)
-        .filter(|nickname| !nickname.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            role.map(str::trim)
-                .filter(|role| !role.is_empty())
-                .map(ToOwned::to_owned)
-        })
-        .or_else(|| Some(id.to_string()))
-}
-
-fn stream_error_should_surface_to_timeline(event: &StreamErrorEvent) -> bool {
-    // Codex uses StreamError for retryable response-stream disconnects. Those
-    // are already logged upstream and retried automatically, so rendering them
-    // as conversation errors is misleading noise.
-    !matches!(
-        event.codex_error_info,
-        Some(CodexErrorInfo::ResponseStreamDisconnected { .. })
-    )
-}
-
-/// Get current time as ISO 8601 string
-fn iso_now() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let days_since_epoch = secs / 86400;
-    let time_of_day = secs % 86400;
-    let hours = time_of_day / 3600;
-    let minutes = (time_of_day % 3600) / 60;
-    let seconds = time_of_day % 60;
-
-    let mut days = days_since_epoch as i64;
-    let mut year = 1970i64;
-    loop {
-        let d = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
-            366
-        } else {
-            365
-        };
-        if days < d {
-            break;
-        }
-        days -= d;
-        year += 1;
-    }
-
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let months = if leap {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut month = 1;
-    for m in months {
-        if days < m {
-            break;
-        }
-        days -= m;
-        month += 1;
-    }
-
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year,
-        month,
-        days + 1,
-        hours,
-        minutes,
-        seconds
-    )
-}
-
-fn realtime_text_from_handoff_request(handoff: &RealtimeHandoffRequested) -> Option<String> {
-    let messages = handoff
-        .active_transcript
-        .iter()
-        .map(|message| {
-            let role = message.role.trim();
-            let text = message.text.trim();
-            if role.is_empty() {
-                text.to_string()
-            } else {
-                format!("{role}: {text}")
-            }
-        })
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>();
-
-    if !messages.is_empty() {
-        return Some(messages.join("\n"));
-    }
-
-    let input = handoff.input_transcript.trim();
-    if input.is_empty() {
-        None
-    } else {
-        Some(input.to_string())
-    }
-}
-
-fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|text| !text.is_empty())
-}
-
-fn hook_started_text(run: &HookRunSummary) -> String {
-    format!(
-        "Running {} hook via {}",
-        hook_event_label(run),
-        hook_source_label(run)
-    )
-}
-
-fn hook_completed_text(run: &HookRunSummary) -> String {
-    let base = format!(
-        "{} hook {} via {}",
-        hook_event_label(run),
-        hook_status_label(run.status),
-        hook_source_label(run)
-    );
-    match non_empty_trimmed(run.status_message.as_deref()) {
-        Some(message) => format!("{base}: {message}"),
-        None => base,
-    }
-}
-
-fn hook_output_text(run: &HookRunSummary) -> Option<String> {
-    let mut parts: Vec<String> = run.entries.iter().filter_map(hook_entry_text).collect();
-    if let Some(message) = non_empty_trimmed(run.status_message.as_deref()) {
-        if !parts.iter().any(|part| part == message) {
-            parts.insert(0, message.to_string());
-        }
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join("\n"))
-    }
-}
-
-fn hook_entry_text(entry: &HookOutputEntry) -> Option<String> {
-    non_empty_trimmed(Some(entry.text.as_str())).map(ToString::to_string)
-}
-
-fn hook_run_is_error(status: HookRunStatus) -> bool {
-    matches!(
-        status,
-        HookRunStatus::Failed | HookRunStatus::Blocked | HookRunStatus::Stopped
-    )
-}
-
-fn hook_event_label(run: &HookRunSummary) -> &'static str {
-    match run.event_name {
-        codex_protocol::protocol::HookEventName::SessionStart => "session start",
-        codex_protocol::protocol::HookEventName::Stop => "stop",
-    }
-}
-
-fn hook_source_label(run: &HookRunSummary) -> String {
-    run.source_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(ToString::to_string)
-        .unwrap_or_else(|| run.source_path.display().to_string())
-}
-
-fn hook_status_label(status: HookRunStatus) -> &'static str {
-    match status {
-        HookRunStatus::Running => "running",
-        HookRunStatus::Completed => "completed",
-        HookRunStatus::Failed => "failed",
-        HookRunStatus::Blocked => "blocked",
-        HookRunStatus::Stopped => "stopped",
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_authoritative_codex_subagent, build_inflight_codex_subagent,
+    use super::config::{
         collaboration_mode_from_name_or_mode, collaboration_mode_from_permission_mode,
-        hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
         model_rejects_reasoning_summary, parse_personality, parse_reasoning_summary,
-        parse_service_tier_override, realtime_text_from_handoff_request,
-        reasoning_summary_for_model, should_disable_reasoning_summary,
+        parse_service_tier_override, reasoning_summary_for_model, should_disable_reasoning_summary,
+    };
+    use super::{
+        build_authoritative_codex_subagent, build_inflight_codex_subagent, hook_completed_text,
+        hook_output_text, hook_run_is_error, hook_started_text, realtime_text_from_handoff_request,
         stream_error_should_surface_to_timeline,
     };
     use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};

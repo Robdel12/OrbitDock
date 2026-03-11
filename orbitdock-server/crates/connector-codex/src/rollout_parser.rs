@@ -15,8 +15,7 @@ use std::time::SystemTime;
 use anyhow::Context;
 use codex_protocol::models::{ContentItem, ResponseItem};
 use codex_protocol::protocol::{
-    EventMsg, HookOutputEntry, HookRunStatus, HookRunSummary, RealtimeHandoffRequested,
-    RolloutItem, RolloutLine, SessionMetaLine, TurnContextItem,
+    EventMsg, RolloutItem, RolloutLine, SessionMetaLine, TurnContextItem,
 };
 
 // Re-export SessionSource so the server crate can use it without depending on codex-protocol
@@ -26,6 +25,11 @@ use orbitdock_protocol::{ImageInput, MessageType, SubagentInfo, TokenUsage, Work
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use tracing::{debug, warn};
+
+use crate::timeline::{
+    hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
+    realtime_text_from_handoff_request,
+};
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -1287,109 +1291,6 @@ impl RolloutFileProcessor {
             }
         }
         candidates
-    }
-}
-
-fn realtime_text_from_handoff_request(handoff: &RealtimeHandoffRequested) -> Option<String> {
-    let messages = handoff
-        .active_transcript
-        .iter()
-        .map(|message| {
-            let role = message.role.trim();
-            let text = message.text.trim();
-            if role.is_empty() {
-                text.to_string()
-            } else {
-                format!("{role}: {text}")
-            }
-        })
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>();
-
-    if !messages.is_empty() {
-        return Some(messages.join("\n"));
-    }
-
-    let input = handoff.input_transcript.trim();
-    if input.is_empty() {
-        None
-    } else {
-        Some(input.to_string())
-    }
-}
-
-fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|text| !text.is_empty())
-}
-
-fn hook_started_text(run: &HookRunSummary) -> String {
-    format!(
-        "Running {} hook via {}",
-        hook_event_label(run),
-        hook_source_label(run)
-    )
-}
-
-fn hook_completed_text(run: &HookRunSummary) -> String {
-    let base = format!(
-        "{} hook {} via {}",
-        hook_event_label(run),
-        hook_status_label(run.status),
-        hook_source_label(run)
-    );
-    match non_empty_trimmed(run.status_message.as_deref()) {
-        Some(message) => format!("{base}: {message}"),
-        None => base,
-    }
-}
-
-fn hook_output_text(run: &HookRunSummary) -> Option<String> {
-    let mut parts: Vec<String> = run.entries.iter().filter_map(hook_entry_text).collect();
-    if let Some(message) = non_empty_trimmed(run.status_message.as_deref()) {
-        if !parts.iter().any(|part| part == message) {
-            parts.insert(0, message.to_string());
-        }
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join("\n"))
-    }
-}
-
-fn hook_entry_text(entry: &HookOutputEntry) -> Option<String> {
-    non_empty_trimmed(Some(entry.text.as_str())).map(ToString::to_string)
-}
-
-fn hook_run_is_error(status: HookRunStatus) -> bool {
-    matches!(
-        status,
-        HookRunStatus::Failed | HookRunStatus::Blocked | HookRunStatus::Stopped
-    )
-}
-
-fn hook_event_label(run: &HookRunSummary) -> &'static str {
-    match run.event_name {
-        codex_protocol::protocol::HookEventName::SessionStart => "session start",
-        codex_protocol::protocol::HookEventName::Stop => "stop",
-    }
-}
-
-fn hook_source_label(run: &HookRunSummary) -> String {
-    run.source_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(ToString::to_string)
-        .unwrap_or_else(|| run.source_path.display().to_string())
-}
-
-fn hook_status_label(status: HookRunStatus) -> &'static str {
-    match status {
-        HookRunStatus::Running => "running",
-        HookRunStatus::Completed => "completed",
-        HookRunStatus::Failed => "failed",
-        HookRunStatus::Blocked => "blocked",
-        HookRunStatus::Stopped => "stopped",
     }
 }
 
