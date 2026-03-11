@@ -127,6 +127,11 @@ pub(crate) async fn handle(
                             model: snap.model.as_deref(),
                             approval_policy: snap.approval_policy.as_deref(),
                             sandbox_mode: snap.sandbox_mode.as_deref(),
+                            collaboration_mode: snap.collaboration_mode.as_deref(),
+                            multi_agent: snap.multi_agent,
+                            personality: snap.personality.as_deref(),
+                            service_tier: snap.service_tier.as_deref(),
+                            developer_instructions: snap.developer_instructions.as_deref(),
                         },
                     )
                     .await

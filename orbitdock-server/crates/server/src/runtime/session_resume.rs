@@ -102,6 +102,7 @@ pub(crate) async fn launch_resumed_session(
                     session_id: session_id.clone(),
                     project_path: prepared.project_path,
                     model: prepared.model,
+                    codex_thread_id: prepared.codex_thread_id,
                     approval_policy: prepared.approval_policy,
                     sandbox_mode: prepared.sandbox_mode,
                     collaboration_mode: prepared.collaboration_mode,
@@ -237,6 +238,7 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
         session_id,
         project_path,
         model,
+        codex_thread_id,
         approval_policy,
         sandbox_mode,
         collaboration_mode,
@@ -255,21 +257,49 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
         let connector_timeout = Duration::from_secs(15);
         let task_session_id = session_id.clone();
         let mut connector_task = tokio::spawn(async move {
-            CodexSession::new_with_control_plane(
-                task_session_id,
-                &project_path,
-                model.as_deref(),
-                approval_policy.as_deref(),
-                sandbox_mode.as_deref(),
-                orbitdock_connector_codex::CodexControlPlane {
-                    collaboration_mode,
-                    multi_agent,
-                    personality,
-                    service_tier,
-                    developer_instructions,
-                },
-            )
-            .await
+            let control_plane = orbitdock_connector_codex::CodexControlPlane {
+                collaboration_mode,
+                multi_agent,
+                personality,
+                service_tier,
+                developer_instructions,
+            };
+            if let Some(thread_id) = codex_thread_id.as_deref() {
+                match CodexSession::resume_with_control_plane(
+                    task_session_id.clone(),
+                    &project_path,
+                    thread_id,
+                    model.as_deref(),
+                    approval_policy.as_deref(),
+                    sandbox_mode.as_deref(),
+                    control_plane.clone(),
+                )
+                .await
+                {
+                    Ok(session) => Ok(session),
+                    Err(_) => {
+                        CodexSession::new_with_control_plane(
+                            task_session_id,
+                            &project_path,
+                            model.as_deref(),
+                            approval_policy.as_deref(),
+                            sandbox_mode.as_deref(),
+                            control_plane,
+                        )
+                        .await
+                    }
+                }
+            } else {
+                CodexSession::new_with_control_plane(
+                    task_session_id,
+                    &project_path,
+                    model.as_deref(),
+                    approval_policy.as_deref(),
+                    sandbox_mode.as_deref(),
+                    control_plane,
+                )
+                .await
+            }
         });
 
         let codex_start = match tokio::time::timeout(connector_timeout, &mut connector_task).await {
@@ -329,6 +359,7 @@ struct CodexResumeRequest {
     session_id: String,
     project_path: String,
     model: Option<String>,
+    codex_thread_id: Option<String>,
     approval_policy: Option<String>,
     sandbox_mode: Option<String>,
     collaboration_mode: Option<String>,

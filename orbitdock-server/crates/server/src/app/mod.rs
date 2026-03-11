@@ -383,7 +383,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     handle.set_forked_from(source_id);
                 }
 
-                if is_codex && !is_passive {
+                if is_codex {
                     if let Some(ref thread_id) = codex_thread_id {
                         if orbitdock_protocol::is_provider_id(thread_id) {
                             state.register_codex_thread(&id, thread_id);

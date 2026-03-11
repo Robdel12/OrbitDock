@@ -13,6 +13,7 @@ pub(crate) struct PreparedResumeSession {
     pub project_path: String,
     pub transcript_path: Option<String>,
     pub model: Option<String>,
+    pub codex_thread_id: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
     pub collaboration_mode: Option<String>,
@@ -278,6 +279,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     let project_path = restored.project_path.clone();
     let transcript_path = restored.transcript_path.clone();
     let model = restored.model.clone();
+    let codex_thread_id = restored.codex_thread_id.clone();
     let approval_policy = restored.approval_policy.clone();
     let sandbox_mode = restored.sandbox_mode.clone();
     let collaboration_mode = restored.collaboration_mode.clone();
@@ -301,6 +303,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
         project_path,
         transcript_path,
         model,
+        codex_thread_id,
         approval_policy,
         sandbox_mode,
         collaboration_mode,
@@ -512,6 +515,7 @@ mod tests {
             Some("/tmp/project/transcript.jsonl")
         );
         assert_eq!(prepared.model.as_deref(), Some("gpt-5"));
+        assert_eq!(prepared.codex_thread_id.as_deref(), Some("thread-1"));
         assert_eq!(prepared.approval_policy.as_deref(), Some("on-request"));
         assert_eq!(prepared.sandbox_mode.as_deref(), Some("workspace-write"));
         assert_eq!(prepared.message_count, 1);

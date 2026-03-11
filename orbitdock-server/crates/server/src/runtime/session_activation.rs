@@ -79,6 +79,11 @@ pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
         model,
         approval_policy,
         sandbox_mode,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
     } = request;
     let (take_tx, take_rx) = tokio::sync::oneshot::channel();
     actor
@@ -103,6 +108,11 @@ pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
                     model,
                     approval_policy,
                     sandbox_mode,
+                    collaboration_mode,
+                    multi_agent,
+                    personality,
+                    service_tier,
+                    developer_instructions,
                     handle,
                     persist_tx: persist_tx.clone(),
                     connector_timeout,
@@ -148,6 +158,11 @@ pub(crate) struct LazyConnectorStartRequest<'a> {
     pub model: Option<&'a str>,
     pub approval_policy: Option<&'a str>,
     pub sandbox_mode: Option<&'a str>,
+    pub collaboration_mode: Option<&'a str>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<&'a str>,
+    pub service_tier: Option<&'a str>,
+    pub developer_instructions: Option<&'a str>,
 }
 
 struct LazyCodexConnectorStart<'a> {
@@ -156,6 +171,11 @@ struct LazyCodexConnectorStart<'a> {
     model: Option<&'a str>,
     approval_policy: Option<&'a str>,
     sandbox_mode: Option<&'a str>,
+    collaboration_mode: Option<&'a str>,
+    multi_agent: Option<bool>,
+    personality: Option<&'a str>,
+    service_tier: Option<&'a str>,
+    developer_instructions: Option<&'a str>,
     handle: crate::domain::sessions::session::SessionHandle,
     persist_tx: tokio::sync::mpsc::Sender<PersistCommand>,
     connector_timeout: Duration,
@@ -171,6 +191,11 @@ async fn start_lazy_codex_connector(
         model,
         approval_policy,
         sandbox_mode,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
         handle,
         persist_tx,
         connector_timeout,
@@ -181,38 +206,53 @@ async fn start_lazy_codex_connector(
     let model = model.map(ToOwned::to_owned);
     let approval = approval_policy.map(ToOwned::to_owned);
     let sandbox = sandbox_mode.map(ToOwned::to_owned);
+    let collaboration_mode = collaboration_mode.map(ToOwned::to_owned);
+    let multi_agent = multi_agent;
+    let personality = personality.map(ToOwned::to_owned);
+    let service_tier = service_tier.map(ToOwned::to_owned);
+    let developer_instructions = developer_instructions.map(ToOwned::to_owned);
 
     let mut connector_task = tokio::spawn(async move {
+        let control_plane = orbitdock_connector_codex::CodexControlPlane {
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
+        };
         if let Some(ref tid) = thread_id {
-            match CodexSession::resume(
+            match CodexSession::resume_with_control_plane(
                 sid.clone(),
                 &project,
                 tid,
                 model.as_deref(),
                 approval.as_deref(),
                 sandbox.as_deref(),
+                control_plane.clone(),
             )
             .await
             {
                 Ok(codex) => Ok(codex),
                 Err(_) => {
-                    CodexSession::new(
+                    CodexSession::new_with_control_plane(
                         sid.clone(),
                         &project,
                         model.as_deref(),
                         approval.as_deref(),
                         sandbox.as_deref(),
+                        control_plane,
                     )
                     .await
                 }
             }
         } else {
-            CodexSession::new(
+            CodexSession::new_with_control_plane(
                 sid.clone(),
                 &project,
                 model.as_deref(),
                 approval.as_deref(),
                 sandbox.as_deref(),
+                control_plane,
             )
             .await
         }
