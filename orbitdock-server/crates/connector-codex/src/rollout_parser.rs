@@ -692,10 +692,10 @@ impl RolloutFileProcessor {
                 }]
             }
             EventMsg::ElicitationRequest(e) => {
-                let question = if e.message.is_empty() {
+                let question = if e.request.message().is_empty() {
                     Some(e.server_name)
                 } else {
-                    Some(e.message)
+                    Some(e.request.message().to_string())
                 };
                 vec![RolloutEvent::WorkStateChange {
                     session_id,

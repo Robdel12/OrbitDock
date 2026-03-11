@@ -179,23 +179,17 @@ impl CodexConnector {
             AuthCredentialsStoreMode::Auto,
         ));
 
-        // Create thread manager
+        let mut config = Self::build_config(cwd, model, approval_policy, sandbox_mode).await?;
+
+        // ThreadManager now derives Codex home, model catalog, and bundled skill
+        // behavior from the session config.
         let thread_manager = Arc::new(ThreadManager::new(
-            codex_home.clone(),
+            &config,
             auth_manager.clone(),
             SessionSource::Mcp,
-            None,
             CollaborationModesConfig::default(),
         ));
-
-        let config = Self::build_config(
-            cwd,
-            model,
-            approval_policy,
-            sandbox_mode,
-            thread_manager.as_ref(),
-        )
-        .await?;
+        Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
 
         // Start a thread
         let new_thread = thread_manager
@@ -244,22 +238,15 @@ impl CodexConnector {
             AuthCredentialsStoreMode::Auto,
         ));
 
+        let mut config = Self::build_config(cwd, model, approval_policy, sandbox_mode).await?;
+
         let thread_manager = Arc::new(ThreadManager::new(
-            codex_home.clone(),
+            &config,
             auth_manager.clone(),
             SessionSource::Mcp,
-            None,
             CollaborationModesConfig::default(),
         ));
-
-        let config = Self::build_config(
-            cwd,
-            model,
-            approval_policy,
-            sandbox_mode,
-            thread_manager.as_ref(),
-        )
-        .await?;
+        Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
 
         let new_thread = thread_manager
             .resume_thread_from_rollout(config, rollout_path, auth_manager)
@@ -277,7 +264,6 @@ impl CodexConnector {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
-        thread_manager: &ThreadManager,
     ) -> Result<Config, ConnectorError> {
         let mut cli_overrides = Vec::new();
 
@@ -333,20 +319,22 @@ impl CodexConnector {
             ..Default::default()
         };
 
-        let mut config =
+        let config =
             Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
                 .await
                 .map_err(|e| {
                     ConnectorError::ProviderError(format!("Failed to load config: {}", e))
                 })?;
 
+        Ok(config)
+    }
+
+    async fn finalize_reasoning_summary(config: &mut Config, thread_manager: &ThreadManager) {
         let supports_reasoning_summaries =
-            model_supports_reasoning_summaries(thread_manager, &config).await;
+            model_supports_reasoning_summaries(thread_manager, config).await;
         if should_disable_reasoning_summary(config.model.as_deref(), supports_reasoning_summaries) {
             config.model_reasoning_summary = Some(ReasoningSummary::None);
         }
-
-        Ok(config)
     }
 
     /// Create a connector from an existing NewThread (shared by new() and fork_thread())
@@ -428,14 +416,9 @@ impl CodexConnector {
 
         // Build config with overrides — use source session's cwd as fallback
         let effective_cwd = cwd.unwrap_or(".");
-        let config = Self::build_config(
-            effective_cwd,
-            model,
-            approval_policy,
-            sandbox_mode,
-            self.thread_manager.as_ref(),
-        )
-        .await?;
+        let mut config =
+            Self::build_config(effective_cwd, model, approval_policy, sandbox_mode).await?;
+        Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
 
         // Convert nth_user_message: None means full history (usize::MAX)
         let nth = nth_user_message.map(|n| n as usize).unwrap_or(usize::MAX);
@@ -1503,10 +1486,10 @@ impl CodexConnector {
             }
 
             EventMsg::ElicitationRequest(e) => {
-                let question_text = if e.message.is_empty() {
+                let question_text = if e.request.message().is_empty() {
                     Some(format!("{} request", e.server_name))
                 } else {
-                    Some(e.message.clone())
+                    Some(e.request.message().to_string())
                 };
                 let tool_input = serde_json::to_string(&e).ok();
                 let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
@@ -1688,35 +1671,19 @@ impl CodexConnector {
             }
 
             EventMsg::RealtimeConversationRealtime(e) => match e.payload {
-                codex_protocol::protocol::RealtimeEvent::SessionCreated { session_id } => {
+                codex_protocol::protocol::RealtimeEvent::SessionUpdated {
+                    session_id,
+                    instructions,
+                } => {
                     let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-                    let message = orbitdock_protocol::Message {
-                        id: format!("realtime-session-created-{}-{}", event.id, seq),
-                        session_id: String::new(),
-                        sequence: None,
-                        message_type: orbitdock_protocol::MessageType::Assistant,
-                        content: format!("Realtime session created ({session_id})"),
-                        tool_name: None,
-                        tool_input: None,
-                        tool_output: None,
-                        is_error: false,
-                        is_in_progress: false,
-                        timestamp: iso_now(),
-                        duration_ms: None,
-                        images: vec![],
-                    };
-                    vec![ConnectorEvent::MessageCreated(message)]
-                }
-                codex_protocol::protocol::RealtimeEvent::SessionUpdated { backend_prompt } => {
-                    let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-                    let content = match backend_prompt {
-                        Some(prompt) if !prompt.trim().is_empty() => {
+                    let content = match instructions {
+                        Some(instructions) if !instructions.trim().is_empty() => {
                             format!(
-                                "Realtime session updated\n\n{}",
-                                truncate_for_display(&prompt, 300)
+                                "Realtime session updated ({session_id})\n\n{}",
+                                truncate_for_display(&instructions, 300)
                             )
                         }
-                        _ => "Realtime session updated".to_string(),
+                        _ => format!("Realtime session updated ({session_id})"),
                     };
                     let message = orbitdock_protocol::Message {
                         id: format!("realtime-session-updated-{}-{}", event.id, seq),
@@ -1735,6 +1702,10 @@ impl CodexConnector {
                     };
                     vec![ConnectorEvent::MessageCreated(message)]
                 }
+                codex_protocol::protocol::RealtimeEvent::InputTranscriptDelta(_)
+                | codex_protocol::protocol::RealtimeEvent::OutputTranscriptDelta(_)
+                | codex_protocol::protocol::RealtimeEvent::ConversationItemDone { .. }
+                | codex_protocol::protocol::RealtimeEvent::HandoffRequested(_) => vec![],
                 codex_protocol::protocol::RealtimeEvent::ConversationItemAdded(item) => {
                     let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
                     let item_text = serde_json::to_string_pretty(&item)
@@ -2767,6 +2738,7 @@ impl CodexConnector {
                 model: model.map(|m| m.to_string()),
                 effort: effort_value.map(Some),
                 summary,
+                service_tier: None,
                 collaboration_mode: None,
                 personality: None,
             };
@@ -3105,6 +3077,7 @@ impl CodexConnector {
             "danger-full-access" => SandboxPolicy::DangerFullAccess,
             "read-only" => SandboxPolicy::ReadOnly {
                 access: Default::default(),
+                network_access: false,
             },
             "workspace-write" => SandboxPolicy::WorkspaceWrite {
                 writable_roots: Vec::new(),
@@ -3141,6 +3114,7 @@ impl CodexConnector {
             model: None,
             effort: None,
             summary: None,
+            service_tier: None,
             collaboration_mode,
             personality: None,
         };
@@ -3213,14 +3187,6 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
         true,
         AuthCredentialsStoreMode::Auto,
     ));
-    let thread_manager = Arc::new(ThreadManager::new(
-        codex_home,
-        auth_manager,
-        SessionSource::Mcp,
-        None,
-        CollaborationModesConfig::default(),
-    ));
-
     let base_config = Config::load_with_cli_overrides(Vec::new())
         .await
         .or_else(|err| {
@@ -3236,6 +3202,12 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
                 e
             ))
         })?;
+    let thread_manager = Arc::new(ThreadManager::new(
+        &base_config,
+        auth_manager,
+        SessionSource::Mcp,
+        CollaborationModesConfig::default(),
+    ));
 
     let mut models: Vec<orbitdock_protocol::CodexModelOption> = Vec::new();
     for preset in thread_manager

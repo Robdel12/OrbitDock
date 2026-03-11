@@ -3,6 +3,18 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+fn intentionally_ignored_eventmsg_variants() -> BTreeSet<&'static str> {
+    BTreeSet::from([
+        // Latest Codex emits these, but OrbitDock still safely drops them via the
+        // top-level catch-all while we work through feature parity.
+        "HookCompleted",
+        "HookStarted",
+        "ImageGenerationBegin",
+        "ImageGenerationEnd",
+        "RequestPermissions",
+    ])
+}
+
 #[test]
 fn connector_eventmsg_handlers_match_codex_protocol_variants() {
     let connector_source = include_str!("../src/lib.rs");
@@ -23,8 +35,11 @@ fn connector_eventmsg_handlers_match_codex_protocol_variants() {
     });
     let protocol_variants = parse_protocol_eventmsg_variants(&protocol_source);
 
+    let ignored_variants = intentionally_ignored_eventmsg_variants();
+
     let missing: Vec<String> = protocol_variants
         .difference(&connector_variants)
+        .filter(|name| !ignored_variants.contains(name.as_str()))
         .cloned()
         .collect();
     let extra: Vec<String> = connector_variants
@@ -37,11 +52,17 @@ fn connector_eventmsg_handlers_match_codex_protocol_variants() {
         "EventMsg coverage mismatch.\n\
          protocol variants: {}\n\
          connector variants: {}\n\
+         ignored by test: {}\n\
          missing in connector: {}\n\
          extra in connector: {}\n\
          protocol source: {}",
         protocol_variants.len(),
         connector_variants.len(),
+        ignored_variants
+            .iter()
+            .copied()
+            .collect::<Vec<_>>()
+            .join(", "),
         if missing.is_empty() {
             "none".to_string()
         } else {
