@@ -26,6 +26,7 @@ We have moved a lot of the scary plumbing out of the critical path.
 - worker lifecycle, persistence, and reload behavior are now real
 - workers have a proper sidecar home and transcript linkage
 - compact worker rows in the conversation can now focus the worker sidecar directly
+- the worker sidecar now has assignment, markdown report, and conversation-trail inspection so Codex workers still feel rich even when standalone tool transcripts are sparse
 - `request_permissions` is implemented end to end
 - Codex control-plane settings are threaded through the server and app
 - realtime handoff requests are now visible as intentional transcript artifacts instead of being dropped silently
@@ -54,6 +55,25 @@ If OrbitDock is going to feel like current Codex, it needs to understand and pre
 - you can inspect completed agent results
 - parent and child work feels connected, not scattered
 - agent activity is visible in the timeline and session state
+
+### Important constraint right now
+
+Upstream Codex exposes worker control internally through its multi-agent handler stack, but that control path is not currently available through a stable public `Op` surface that OrbitDock can submit directly.
+
+That means OrbitDock can already do a lot well:
+
+- show workers
+- persist worker state
+- inspect worker reports and activity
+- reflect worker lifecycle changes live
+
+But true first-class direct worker control is still partially blocked:
+
+- send input to an existing worker
+- resume a closed worker directly from OrbitDock
+- close a worker directly from OrbitDock
+
+Those are still roadmap items, but they now depend on either upstream public API exposure or a deliberately chosen OrbitDock mediation strategy instead of just "wire the missing transport."
 
 ### Likely OrbitDock touch points
 

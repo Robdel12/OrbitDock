@@ -326,6 +326,13 @@ extension SessionStore {
     }
   }
 
+  func getSubagentMessages(sessionId: String, subagentId: String) {
+    Task {
+      let messages = try await clients.sessions.getSubagentMessages(sessionId: sessionId, subagentId: subagentId)
+      session(sessionId).subagentMessages[subagentId] = messages
+    }
+  }
+
   func nextPendingApprovalRequestId(sessionId: String) -> String? {
     session(sessionId).pendingApproval?.id
   }

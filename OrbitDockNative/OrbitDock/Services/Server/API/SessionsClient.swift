@@ -226,6 +226,14 @@ struct SessionsClient: Sendable {
     return response.tools
   }
 
+  func getSubagentMessages(sessionId: String, subagentId: String) async throws -> [ServerMessage] {
+    struct Response: Decodable { let messages: [ServerMessage] }
+    let response: Response = try await http.get(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/subagents/\(requestBuilder.encodePathComponent(subagentId))/messages"
+    )
+    return response.messages
+  }
+
   func markSessionRead(_ sessionId: String) async throws -> UInt64 {
     struct Response: Decodable {
       let unreadCount: UInt64

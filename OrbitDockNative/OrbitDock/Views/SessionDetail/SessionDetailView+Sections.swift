@@ -10,6 +10,7 @@ extension SessionDetailView {
       subagents: obs.subagents,
       selectedWorkerID: selectedWorkerId,
       toolsByWorker: obs.subagentTools,
+      messagesByWorker: obs.subagentMessages,
       timelineMessages: scopedServerState.conversation(sessionId).messages
     )
   }

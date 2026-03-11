@@ -56,7 +56,8 @@ pub(crate) use connector_actions::{
 };
 pub(crate) use errors::{revision_now, ApiErrorResponse, ApiResult};
 pub use files::{
-    browse_directory, git_init_endpoint, list_recent_projects, list_subagent_tools_endpoint,
+    browse_directory, git_init_endpoint, list_recent_projects, list_subagent_messages_endpoint,
+    list_subagent_tools_endpoint,
 };
 pub use permissions::{add_permission_rule, get_permission_rules, remove_permission_rule};
 pub use review_comments::{

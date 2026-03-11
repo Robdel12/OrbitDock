@@ -158,6 +158,10 @@ fn session_capability_routes() -> Router<Arc<SessionRegistry>> {
             get(super::list_subagent_tools_endpoint),
         )
         .route(
+            "/api/sessions/{session_id}/subagents/{subagent_id}/messages",
+            get(super::list_subagent_messages_endpoint),
+        )
+        .route(
             "/api/sessions/{session_id}/skills",
             get(super::list_skills_endpoint),
         )

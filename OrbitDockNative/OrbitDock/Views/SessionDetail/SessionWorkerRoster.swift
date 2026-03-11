@@ -23,6 +23,16 @@ struct SessionWorkerDetailPresentation {
     let value: String
   }
 
+  struct ConversationEvent: Identifiable {
+    let id: String
+    let iconName: String
+    let title: String
+    let summary: String
+    let timestampLabel: String?
+    let statusLabel: String
+    let statusColor: Color
+  }
+
   struct ToolActivity: Identifiable {
     let id: String
     let iconName: String
@@ -30,6 +40,15 @@ struct SessionWorkerDetailPresentation {
     let summary: String
     let statusLabel: String
     let statusColor: Color
+  }
+
+  struct ThreadEntry: Identifiable {
+    let id: String
+    let iconName: String
+    let title: String
+    let body: String
+    let timestampLabel: String?
+    let tint: Color
   }
 
   let id: String
@@ -40,9 +59,12 @@ struct SessionWorkerDetailPresentation {
   let iconName: String
   let isActive: Bool
   let statusNarrative: String
+  let assignmentPreview: String?
   let reportPreview: String?
   let detailLines: [DetailLine]
   let tools: [ToolActivity]
+  let threadEntries: [ThreadEntry]
+  let conversationEvents: [ConversationEvent]
 }
 
 @MainActor
@@ -79,6 +101,7 @@ enum SessionWorkerRosterPlanner {
     subagents: [ServerSubagentInfo],
     selectedWorkerID: String?,
     toolsByWorker: [String: [ServerSubagentTool]],
+    messagesByWorker: [String: [ServerMessage]],
     timelineMessages: [TranscriptMessage]
   ) -> SessionWorkerDetailPresentation? {
     guard let selectedWorkerID,
@@ -90,6 +113,11 @@ enum SessionWorkerRosterPlanner {
     let status = statusPresentation(subagent.status)
     let visuals = visuals(for: subagent.agentType)
     let tools = (toolsByWorker[subagent.id] ?? []).prefix(8).map(toolPresentation)
+    let threadEntries = threadEntries(for: messagesByWorker[subagent.id] ?? [])
+    let conversationEvents = conversationEvents(
+      for: subagent.id,
+      timelineMessages: timelineMessages
+    )
 
     return SessionWorkerDetailPresentation(
       id: subagent.id,
@@ -100,12 +128,15 @@ enum SessionWorkerRosterPlanner {
       iconName: visuals.iconName,
       isActive: status.isActive,
       statusNarrative: status.narrative,
+      assignmentPreview: assignmentPreview(for: subagent.id, subagent: subagent, timelineMessages: timelineMessages),
       reportPreview: latestReportPreview(
         for: subagent.id,
         timelineMessages: timelineMessages
       ),
       detailLines: detailLines(for: subagent),
-      tools: Array(tools)
+      tools: Array(tools),
+      threadEntries: threadEntries,
+      conversationEvents: conversationEvents
     )
   }
 
@@ -242,29 +273,265 @@ enum SessionWorkerRosterPlanner {
     )
   }
 
+  private static func threadEntries(
+    for messages: [ServerMessage]
+  ) -> [SessionWorkerDetailPresentation.ThreadEntry] {
+    messages
+      .map { $0.toTranscriptMessage() }
+      .filter {
+        !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          || (($0.sanitizedToolOutput ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+      }
+      .suffix(8)
+      .map(threadEntryPresentation)
+  }
+
+  private static func threadEntryPresentation(
+    _ message: TranscriptMessage
+  ) -> SessionWorkerDetailPresentation.ThreadEntry {
+    let timestampLabel = formattedEventTime(message.timestamp)
+
+    let title: String
+    let iconName: String
+    let tint: Color
+
+    switch message.type {
+    case .user:
+      title = "Worker prompt"
+      iconName = "arrow.up.circle.fill"
+      tint = .accent
+    case .assistant:
+      title = "Worker reply"
+      iconName = "sparkles"
+      tint = .textPrimary
+    case .thinking:
+      title = "Reasoning"
+      iconName = "brain.head.profile"
+      tint = .textSecondary
+    case .tool, .toolResult:
+      title = message.toolName.map(CompactToolHelpers.displayName(for:)) ?? "Tool activity"
+      iconName = ToolCardStyle.icon(for: message.toolName ?? "tool")
+      tint = ToolCardStyle.color(for: message.toolName ?? "tool")
+    case .steer:
+      title = "Steer"
+      iconName = "arrowshape.turn.up.right.fill"
+      tint = .statusReply
+    case .shell:
+      title = "Shell"
+      iconName = "terminal.fill"
+      tint = .feedbackWarning
+    case .system:
+      title = "System"
+      iconName = "info.circle.fill"
+      tint = .textSecondary
+    }
+
+    return .init(
+      id: message.id,
+      iconName: iconName,
+      title: title,
+      body: threadEntryBody(for: message),
+      timestampLabel: timestampLabel,
+      tint: tint
+    )
+  }
+
+  private static func threadEntryBody(for message: TranscriptMessage) -> String {
+    if let output = message.sanitizedToolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+      return truncatedThreadBody(output)
+    }
+
+    let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !content.isEmpty {
+      return truncatedThreadBody(content)
+    }
+
+    return "No readable output yet."
+  }
+
+  private static func truncatedThreadBody(_ body: String) -> String {
+    if body.count > 260 {
+      return String(body.prefix(260)) + "..."
+    }
+    return body
+  }
+
+  private static func assignmentPreview(
+    for subagentID: String,
+    subagent: ServerSubagentInfo,
+    timelineMessages: [TranscriptMessage]
+  ) -> String? {
+    if let taskSummary = subagent.taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+      return taskSummary
+    }
+
+    for message in timelineMessages {
+      guard matchesWorker(message, workerID: subagentID) else { continue }
+
+      if let prompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+        return prompt
+      }
+
+      if let description = message.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+        return description
+      }
+
+      let trimmedContent = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !trimmedContent.isEmpty {
+        return trimmedContent
+      }
+    }
+
+    return nil
+  }
+
   private static func latestReportPreview(
     for subagentID: String,
     timelineMessages: [TranscriptMessage]
   ) -> String? {
     for message in timelineMessages.reversed() {
       guard message.toolName?.lowercased() == "task" else { continue }
-
-      if let explicitSubagentID = message.toolInput?["subagent_id"] as? String,
-         explicitSubagentID == subagentID,
-         let preview = message.sanitizedToolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-      {
-        return cleanedReportPreview(preview)
-      }
-
-      if let receiverThreadIDs = message.toolInput?["receiver_thread_ids"] as? [String],
-         receiverThreadIDs.contains(subagentID),
-         let preview = message.sanitizedToolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-      {
+      guard matchesWorker(message, workerID: subagentID) else { continue }
+      if let preview = message.sanitizedToolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
         return cleanedReportPreview(preview)
       }
     }
 
     return nil
+  }
+
+  private static func conversationEvents(
+    for subagentID: String,
+    timelineMessages: [TranscriptMessage]
+  ) -> [SessionWorkerDetailPresentation.ConversationEvent] {
+    timelineMessages
+      .filter { matchesWorker($0, workerID: subagentID) }
+      .suffix(8)
+      .map(conversationEventPresentation)
+  }
+
+  private static func conversationEventPresentation(
+    _ message: TranscriptMessage
+  ) -> SessionWorkerDetailPresentation.ConversationEvent {
+    let title = workerEventTitle(for: message)
+    let summary = workerEventSummary(for: message) ?? "Worker activity updated."
+    let status = eventStatusPresentation(for: message)
+
+    return .init(
+      id: message.id,
+      iconName: workerEventIcon(for: message),
+      title: title,
+      summary: summary,
+      timestampLabel: formattedEventTime(message.timestamp),
+      statusLabel: status.label,
+      statusColor: status.color
+    )
+  }
+
+  private static func matchesWorker(_ message: TranscriptMessage, workerID: String) -> Bool {
+    if SharedModelBuilders.linkedWorkerID(for: message) == workerID {
+      return true
+    }
+
+    if let receiverThreadIDs = message.toolInput?["receiver_thread_ids"] as? [String],
+       receiverThreadIDs.contains(workerID)
+    {
+      return true
+    }
+
+    return false
+  }
+
+  private static func workerEventTitle(for message: TranscriptMessage) -> String {
+    if let toolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+      return CompactToolHelpers.displayName(for: toolName)
+    }
+
+    switch message.type {
+    case .assistant:
+      return "Assistant Update"
+    case .thinking:
+      return "Reasoning"
+    case .steer:
+      return "Steer"
+    case .shell:
+      return "Shell"
+    case .toolResult:
+      return "Tool Result"
+    case .system:
+      return "System"
+    case .user:
+      return "User"
+    case .tool:
+      return "Tool"
+    }
+  }
+
+  private static func workerEventSummary(for message: TranscriptMessage) -> String? {
+    if let taskDescription = message.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+      return taskDescription
+    }
+
+    if let taskPrompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+      return taskPrompt
+    }
+
+    if let output = message.sanitizedToolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+      return cleanedReportPreview(output)
+    }
+
+    let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+    return content.nilIfEmpty
+  }
+
+  private static func workerEventIcon(for message: TranscriptMessage) -> String {
+    if let toolName = message.toolName {
+      return ToolCardStyle.icon(for: toolName)
+    }
+
+    switch message.type {
+    case .assistant:
+      return "bubble.left.and.text.bubble.right.fill"
+    case .thinking:
+      return "brain"
+    case .steer:
+      return "arrow.turn.down.right"
+    case .shell:
+      return "terminal"
+    case .toolResult:
+      return "checkmark.circle"
+    case .system:
+      return "gearshape.2.fill"
+    case .user:
+      return "person.fill"
+    case .tool:
+      return "gearshape"
+    }
+  }
+
+  private static func eventStatusPresentation(
+    for message: TranscriptMessage
+  ) -> (label: String, color: Color) {
+    if message.isError {
+      return ("Error", .feedbackNegative)
+    }
+
+    if message.isInProgress {
+      return ("Live", .statusWorking)
+    }
+
+    switch message.type {
+    case .thinking:
+      return ("Reasoning", .statusQuestion)
+    case .steer:
+      return ("Guidance", .statusReply)
+    default:
+      return ("Captured", .textSecondary)
+    }
+  }
+
+  private static func formattedEventTime(_ date: Date) -> String? {
+    date.formatted(date: .omitted, time: .shortened)
   }
 
   private static func cleanedReportPreview(_ preview: String) -> String {
@@ -407,10 +674,10 @@ struct SessionWorkerCompanionPanel: View {
 
       ScrollView(showsIndicators: false) {
         VStack(alignment: .leading, spacing: Spacing.md) {
-          if let detailPresentation {
-            SessionWorkerDetailView(presentation: detailPresentation)
-          } else {
-            SessionWorkerEmptyState()
+      if let detailPresentation {
+        SessionWorkerDetailView(presentation: detailPresentation)
+      } else {
+        SessionWorkerEmptyState()
           }
         }
         .padding(.vertical, Spacing.md)
@@ -458,13 +725,13 @@ struct SessionWorkerDetailView: View {
         workerFactsGrid
       }
 
-      if let reportPreview = presentation.reportPreview {
+      if let assignmentPreview = presentation.assignmentPreview {
         infoCard(
-          title: "Worker Report",
-          icon: "text.bubble.fill",
-          accent: presentation.statusColor
+          title: "Assignment",
+          icon: "scope",
+          accent: Color.accent
         ) {
-          Text(reportPreview)
+          Text(assignmentPreview)
             .font(.system(size: TypeScale.meta))
             .foregroundStyle(Color.textPrimary)
             .textSelection(.enabled)
@@ -472,16 +739,23 @@ struct SessionWorkerDetailView: View {
         }
       }
 
-      infoCard(
-        title: "Recent Activity",
-        icon: "rectangle.stack.fill",
-        accent: Color.accent
-      ) {
-        if presentation.tools.isEmpty {
-          Text(presentation.isActive ? "Activity will appear here as the worker reports tool calls." : "This worker finished without captured tool rows yet.")
-            .font(.system(size: TypeScale.meta))
-            .foregroundStyle(Color.textSecondary)
-        } else {
+      if let reportPreview = presentation.reportPreview {
+        infoCard(
+          title: "Worker Report",
+          icon: "text.bubble.fill",
+          accent: presentation.statusColor
+        ) {
+          MarkdownRepresentable(content: reportPreview, style: .standard)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      }
+
+      if !presentation.tools.isEmpty {
+        infoCard(
+          title: "Tool Feed",
+          icon: "rectangle.stack.fill",
+          accent: Color.accent
+        ) {
           VStack(spacing: Spacing.sm) {
             ForEach(presentation.tools) { tool in
               HStack(spacing: Spacing.sm) {
@@ -509,6 +783,111 @@ struct SessionWorkerDetailView: View {
               }
               .padding(.horizontal, Spacing.md)
               .padding(.vertical, Spacing.sm_)
+              .background(Color.backgroundSecondary.opacity(0.62), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            }
+          }
+        }
+      }
+
+      infoCard(
+        title: "Thread Feed",
+        icon: "text.bubble.fill",
+        accent: Color.statusReply
+      ) {
+        if presentation.threadEntries.isEmpty {
+          Text("Open worker transcript updates will land here as this worker talks through the run.")
+            .font(.system(size: TypeScale.meta))
+            .foregroundStyle(Color.textSecondary)
+        } else {
+          VStack(spacing: Spacing.sm) {
+            ForEach(presentation.threadEntries) { entry in
+              HStack(alignment: .top, spacing: Spacing.sm) {
+                Image(systemName: entry.iconName)
+                  .font(.system(size: TypeScale.mini, weight: .semibold))
+                  .foregroundStyle(entry.tint)
+                  .frame(width: 14, height: 14)
+                  .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
+                  HStack(spacing: Spacing.xs) {
+                    Text(entry.title)
+                      .font(.system(size: TypeScale.meta, weight: .semibold))
+                      .foregroundStyle(Color.textPrimary)
+
+                    if let timestampLabel = entry.timestampLabel {
+                      Text(timestampLabel)
+                        .font(.system(size: TypeScale.mini))
+                        .foregroundStyle(Color.textQuaternary)
+                    }
+                  }
+
+                  Text(entry.body)
+                    .font(.system(size: TypeScale.meta))
+                    .foregroundStyle(Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                }
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.horizontal, Spacing.md)
+              .padding(.vertical, Spacing.sm)
+              .background(Color.backgroundSecondary.opacity(0.62), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            }
+          }
+        }
+      }
+
+      infoCard(
+        title: "Conversation Trail",
+        icon: "point.topleft.down.curvedto.point.bottomright.up.fill",
+        accent: Color.statusReply
+      ) {
+        if presentation.conversationEvents.isEmpty {
+          Text(
+            presentation.isActive
+              ? "Timeline-linked worker activity will appear here as this worker talks back through the main conversation."
+              : "No worker-specific conversation events were captured for this run."
+          )
+          .font(.system(size: TypeScale.meta))
+          .foregroundStyle(Color.textSecondary)
+        } else {
+          VStack(spacing: Spacing.sm) {
+            ForEach(presentation.conversationEvents) { event in
+              HStack(alignment: .top, spacing: Spacing.sm) {
+                Image(systemName: event.iconName)
+                  .font(.system(size: TypeScale.mini, weight: .semibold))
+                  .foregroundStyle(event.statusColor)
+                  .frame(width: 14, height: 14)
+                  .padding(.top, 2)
+
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
+                  HStack(spacing: Spacing.xs) {
+                    Text(event.title)
+                      .font(.system(size: TypeScale.meta, weight: .semibold))
+                      .foregroundStyle(Color.textPrimary)
+                      .lineLimit(1)
+
+                    Text(event.statusLabel)
+                      .font(.system(size: TypeScale.mini, weight: .medium))
+                      .foregroundStyle(event.statusColor)
+
+                    if let timestampLabel = event.timestampLabel {
+                      Text(timestampLabel)
+                        .font(.system(size: TypeScale.mini))
+                        .foregroundStyle(Color.textQuaternary)
+                    }
+                  }
+
+                  Text(event.summary)
+                    .font(.system(size: TypeScale.micro))
+                    .foregroundStyle(Color.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(4)
+                }
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.horizontal, Spacing.md)
+              .padding(.vertical, Spacing.sm)
               .background(Color.backgroundSecondary.opacity(0.62), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
             }
           }

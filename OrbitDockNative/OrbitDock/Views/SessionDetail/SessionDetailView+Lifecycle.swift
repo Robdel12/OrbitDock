@@ -82,6 +82,7 @@ extension SessionDetailView {
   func loadSelectedWorkerTools() {
     guard let selectedWorkerId else { return }
     scopedServerState.getSubagentTools(sessionId: sessionId, subagentId: selectedWorkerId)
+    scopedServerState.getSubagentMessages(sessionId: sessionId, subagentId: selectedWorkerId)
   }
 
   func focusWorkerInDeck(_ workerId: String) {

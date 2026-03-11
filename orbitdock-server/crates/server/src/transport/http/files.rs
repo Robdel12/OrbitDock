@@ -1,10 +1,13 @@
 use super::*;
 use std::path::PathBuf;
 
-use orbitdock_protocol::{DirectoryEntry, RecentProject, SubagentTool};
+use codex_core::config::find_codex_home;
+use orbitdock_protocol::{DirectoryEntry, Message, RecentProject, SubagentTool};
 use tracing::warn;
 
-use crate::infrastructure::persistence::load_subagent_transcript_path;
+use crate::infrastructure::persistence::{
+    load_messages_from_transcript_path, load_subagent_transcript_path,
+};
 
 #[derive(Debug, Serialize)]
 pub struct DirectoryListingResponse {
@@ -22,6 +25,13 @@ pub struct SubagentToolsResponse {
     pub session_id: String,
     pub subagent_id: String,
     pub tools: Vec<SubagentTool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SubagentMessagesResponse {
+    pub session_id: String,
+    pub subagent_id: String,
+    pub messages: Vec<Message>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +91,17 @@ pub async fn list_subagent_tools_endpoint(
         session_id,
         subagent_id,
         tools,
+    })
+}
+
+pub async fn list_subagent_messages_endpoint(
+    Path((session_id, subagent_id)): Path<(String, String)>,
+) -> Json<SubagentMessagesResponse> {
+    let messages = load_subagent_messages(&subagent_id).await;
+    Json(SubagentMessagesResponse {
+        session_id,
+        subagent_id,
+        messages,
     })
 }
 
@@ -166,8 +187,8 @@ fn read_directory_entries(target: &PathBuf) -> Result<Vec<DirectoryEntry>, std::
 }
 
 async fn load_subagent_tools(subagent_id: &str) -> Vec<SubagentTool> {
-    match load_subagent_transcript_path(subagent_id).await {
-        Ok(Some(path)) => {
+    match resolve_subagent_transcript_path(subagent_id).await {
+        Some(path) => {
             let parse_path = path.clone();
             tokio::task::spawn_blocking(move || {
                 crate::connectors::subagent_parser::parse_tools(std::path::Path::new(&parse_path))
@@ -175,16 +196,72 @@ async fn load_subagent_tools(subagent_id: &str) -> Vec<SubagentTool> {
             .await
             .unwrap_or_default()
         }
-        Ok(None) => vec![],
+        None => vec![],
+    }
+}
+
+async fn load_subagent_messages(subagent_id: &str) -> Vec<Message> {
+    let Some(path) = resolve_subagent_transcript_path(subagent_id).await else {
+        return vec![];
+    };
+
+    match load_messages_from_transcript_path(&path, subagent_id).await {
+        Ok(messages) => messages,
         Err(err) => {
             warn!(
                 component = "api",
-                event = "api.subagent_tools.load_error",
+                event = "api.subagent_messages.load_error",
                 subagent_id = %subagent_id,
+                transcript_path = %path,
                 error = %err,
-                "Failed to load subagent transcript path"
+                "Failed to load subagent transcript messages"
             );
             vec![]
+        }
+    }
+}
+
+async fn resolve_subagent_transcript_path(subagent_id: &str) -> Option<String> {
+    match load_subagent_transcript_path(subagent_id).await {
+        Ok(Some(path)) => return Some(path),
+        Ok(None) => {}
+        Err(err) => {
+            warn!(
+                component = "api",
+                event = "api.subagent_transcript.lookup_failed",
+                subagent_id = %subagent_id,
+                error = %err,
+                "Failed to load persisted subagent transcript path"
+            );
+        }
+    }
+
+    let codex_home = match find_codex_home() {
+        Ok(path) => path,
+        Err(err) => {
+            warn!(
+                component = "api",
+                event = "api.subagent_transcript.codex_home_failed",
+                subagent_id = %subagent_id,
+                error = %err,
+                "Failed to resolve codex home while looking up subagent rollout"
+            );
+            return None;
+        }
+    };
+
+    match codex_core::find_thread_path_by_id_str(&codex_home, subagent_id).await {
+        Ok(Some(path)) => Some(path.to_string_lossy().to_string()),
+        Ok(None) => None,
+        Err(err) => {
+            warn!(
+                component = "api",
+                event = "api.subagent_transcript.rollout_not_found",
+                subagent_id = %subagent_id,
+                error = %err,
+                "No rollout found for subagent thread"
+            );
+            None
         }
     }
 }
@@ -249,5 +326,54 @@ mod tests {
         assert_eq!(response.session_id, session_id);
         assert_eq!(response.subagent_id, subagent_id);
         assert!(response.tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn subagent_messages_endpoint_reads_transcript_messages() {
+        ensure_server_test_data_dir();
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let subagent_id = format!("sub-{}", orbitdock_protocol::new_id());
+        let transcript_path = std::env::temp_dir().join(format!("{subagent_id}.jsonl"));
+        std::fs::write(
+            &transcript_path,
+            r#"{"type":"message","role":"user","timestamp":"2026-03-11T05:00:00Z","content":[{"type":"text","text":"Inspect the auth flow"}]}
+{"type":"message","role":"assistant","timestamp":"2026-03-11T05:00:02Z","content":[{"type":"text","text":"I found the auth coordinator in the runtime layer."}]}
+"#,
+        )
+        .expect("write transcript");
+
+        let db_path = crate::infrastructure::paths::db_path();
+        let mut conn = rusqlite::Connection::open(&db_path).expect("open test db");
+        crate::infrastructure::migration_runner::run_migrations(&mut conn).expect("run migrations");
+        conn.execute(
+            "INSERT INTO sessions (id, provider, project_path, status, work_status, started_at)
+             VALUES (?1, 'codex', '/tmp/project', 'active', 'working', '2026-03-11T05:00:00Z')",
+            rusqlite::params![session_id],
+        )
+        .expect("insert session");
+        conn.execute(
+            "INSERT INTO subagents (id, session_id, agent_type, transcript_path, started_at)
+             VALUES (?1, ?2, 'worker', ?3, '2026-03-11T05:00:00Z')",
+            rusqlite::params![
+                subagent_id,
+                session_id,
+                transcript_path.to_string_lossy().to_string()
+            ],
+        )
+        .expect("insert subagent");
+
+        let Json(response) =
+            list_subagent_messages_endpoint(Path((session_id.clone(), subagent_id.clone()))).await;
+
+        std::fs::remove_file(&transcript_path).expect("remove transcript");
+
+        assert_eq!(response.session_id, session_id);
+        assert_eq!(response.subagent_id, subagent_id);
+        assert_eq!(response.messages.len(), 2);
+        assert_eq!(response.messages[0].content, "Inspect the auth flow");
+        assert_eq!(
+            response.messages[1].content,
+            "I found the auth coordinator in the runtime layer."
+        );
     }
 }

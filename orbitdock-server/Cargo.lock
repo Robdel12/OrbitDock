@@ -5137,6 +5137,7 @@ dependencies = [
  "bytes",
  "clap",
  "clap_complete",
+ "codex-core",
  "console",
  "dashmap",
  "dirs",

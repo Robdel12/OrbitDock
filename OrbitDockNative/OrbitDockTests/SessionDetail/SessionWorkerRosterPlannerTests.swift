@@ -134,6 +134,7 @@ struct SessionWorkerRosterPlannerTests {
           )
         ]
       ],
+      messagesByWorker: [:],
       timelineMessages: []
     )
 
@@ -179,10 +180,116 @@ struct SessionWorkerRosterPlannerTests {
       subagents: [worker],
       selectedWorkerID: worker.id,
       toolsByWorker: [:],
+      messagesByWorker: [:],
       timelineMessages: [message]
     )
 
     #expect(presentation?.reportPreview == "Scout finished and returned a repo summary.")
+  }
+
+  @Test func detailPresentationBuildsThreadFeedFromWorkerMessages() {
+    let worker = makeWorker(
+      id: "worker-thread",
+      label: "Gauss",
+      status: .completed,
+      taskSummary: "Inspect the auth flow",
+      resultSummary: "Found the runtime coordinator",
+      lastActivityAt: "2026-03-10T11:00:00Z",
+      agentType: "worker"
+    )
+
+    let presentation = SessionWorkerRosterPlanner.detailPresentation(
+      subagents: [worker],
+      selectedWorkerID: worker.id,
+      toolsByWorker: [:],
+      messagesByWorker: [
+        worker.id: [
+          makeServerMessage(
+            id: "worker-user",
+            sessionId: worker.id,
+            sequence: 1,
+            type: .user,
+            content: "Inspect the auth flow",
+            timestamp: "2026-03-10T11:00:00Z"
+          ),
+          makeServerMessage(
+            id: "worker-assistant",
+            sessionId: worker.id,
+            sequence: 2,
+            type: .assistant,
+            content: "The runtime coordinator owns the auth refresh path.",
+            timestamp: "2026-03-10T11:00:03Z"
+          ),
+        ]
+      ],
+      timelineMessages: []
+    )
+
+    #expect(presentation?.threadEntries.count == 2)
+    #expect(presentation?.threadEntries.first?.title == "Worker prompt")
+    #expect(presentation?.threadEntries.last?.body == "The runtime coordinator owns the auth refresh path.")
+  }
+
+  @Test func detailPresentationBuildsConversationTrailFromWorkerLinkedMessages() {
+    let worker = makeWorker(
+      id: "worker-running",
+      label: "Scout",
+      status: .running,
+      taskSummary: nil,
+      resultSummary: nil,
+      lastActivityAt: "2026-03-10T11:00:00Z",
+      agentType: "explore"
+    )
+
+    let spawnMessage = TranscriptMessage(
+      id: "spawn-1",
+      type: .tool,
+      content: "Spawning worker",
+      timestamp: Date(timeIntervalSince1970: 1_730_000_010),
+      toolName: "task",
+      toolInput: [
+        "subagent_id": worker.id,
+        "prompt": "Inspect the auth layer"
+      ],
+      rawToolInput: nil,
+      toolOutput: nil,
+      toolDuration: nil,
+      inputTokens: nil,
+      outputTokens: nil,
+      isError: false,
+      isInProgress: true
+    )
+
+    let waitMessage = TranscriptMessage(
+      id: "wait-1",
+      type: .tool,
+      content: "Waiting for worker",
+      timestamp: Date(timeIntervalSince1970: 1_730_000_100),
+      toolName: "task",
+      toolInput: [
+        "receiver_thread_ids": [worker.id]
+      ],
+      rawToolInput: nil,
+      toolOutput: "Worker found the auth entrypoints and is reporting back.",
+      toolDuration: nil,
+      inputTokens: nil,
+      outputTokens: nil,
+      isError: false,
+      isInProgress: false
+    )
+
+    let presentation = SessionWorkerRosterPlanner.detailPresentation(
+      subagents: [worker],
+      selectedWorkerID: worker.id,
+      toolsByWorker: [:],
+      messagesByWorker: [:],
+      timelineMessages: [spawnMessage, waitMessage]
+    )
+
+    #expect(presentation?.assignmentPreview == "Inspect the auth layer")
+    #expect(presentation?.conversationEvents.count == 2)
+    #expect(presentation?.conversationEvents.first?.title == "Task")
+    #expect(presentation?.conversationEvents.last?.summary == "Worker found the auth entrypoints and is reporting back.")
   }
 
   @Test func presentationReturnsNilWhenThereAreNoWorkers() {
@@ -214,5 +321,29 @@ struct SessionWorkerRosterPlannerTests {
       model: nil,
       lastActivityAt: lastActivityAt
     )
+  }
+
+  private func makeServerMessage(
+    id: String,
+    sessionId: String,
+    sequence: UInt64,
+    type: ServerMessageType,
+    content: String,
+    timestamp: String
+  ) -> ServerMessage {
+    let json = """
+    {
+      "id": "\(id)",
+      "session_id": "\(sessionId)",
+      "sequence": \(sequence),
+      "message_type": "\(type.rawValue)",
+      "content": \(content.debugDescription),
+      "is_error": false,
+      "timestamp": "\(timestamp)"
+    }
+    """
+
+    let decoder = JSONDecoder()
+    return try! decoder.decode(ServerMessage.self, from: Data(json.utf8))
   }
 }
