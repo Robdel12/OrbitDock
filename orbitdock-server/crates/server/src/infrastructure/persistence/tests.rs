@@ -520,11 +520,11 @@ fn tokens_update_writes_usage_tables() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::TokensUpdate {
@@ -613,11 +613,11 @@ async fn startup_restore_prefers_usage_session_state_snapshot_values() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::TokensUpdate {
@@ -687,11 +687,11 @@ async fn load_session_by_id_prefers_usage_turns_and_turn_seq_order() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::TokensUpdate {
@@ -832,11 +832,11 @@ async fn startup_restore_includes_active_and_ended_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::RolloutSessionUpsert {
@@ -860,11 +860,11 @@ async fn startup_restore_includes_active_and_ended_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::SessionEnd {
@@ -935,11 +935,11 @@ async fn startup_restore_prefers_messages_table_for_last_message_over_stale_sess
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::MessageAppend {
@@ -1265,11 +1265,11 @@ async fn rollout_upsert_does_not_convert_direct_session_to_passive() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::SetThreadId {
@@ -1439,11 +1439,11 @@ async fn startup_restores_first_prompt_for_claude_and_codex() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::CodexPromptIncrement {
@@ -1712,11 +1712,11 @@ async fn startup_ends_ghost_direct_claude_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             // Initialized: direct Claude session with SDK ID — should survive
@@ -1730,11 +1730,11 @@ async fn startup_ends_ghost_direct_claude_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::SetClaudeSdkSessionId {
@@ -1752,11 +1752,11 @@ async fn startup_ends_ghost_direct_claude_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::MessageAppend {
@@ -1842,11 +1842,11 @@ async fn startup_ends_ghost_direct_codex_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             // Initialized: direct Codex session with thread_id — should survive
@@ -1860,11 +1860,11 @@ async fn startup_ends_ghost_direct_codex_sessions() {
                 approval_policy: None,
                 sandbox_mode: None,
                 permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
                 forked_from_session_id: None,
             },
             PersistCommand::SetThreadId {
@@ -2245,7 +2245,10 @@ async fn upsert_subagent_preserves_completed_result_over_later_shutdown_update()
         Some("Reported the repository guidelines cleanly.")
     );
     assert_eq!(subagent.ended_at.as_deref(), Some("2026-03-11T05:01:00Z"));
-    assert_eq!(subagent.last_activity_at.as_deref(), Some("2026-03-11T05:02:00Z"));
+    assert_eq!(
+        subagent.last_activity_at.as_deref(),
+        Some("2026-03-11T05:02:00Z")
+    );
 }
 
 #[tokio::test]
@@ -2339,7 +2342,10 @@ async fn upsert_subagent_preserves_completed_result_over_later_not_found_update(
     );
     assert_eq!(subagent.error_summary, None);
     assert_eq!(subagent.ended_at.as_deref(), Some("2026-03-11T05:11:00Z"));
-    assert_eq!(subagent.last_activity_at.as_deref(), Some("2026-03-11T05:12:00Z"));
+    assert_eq!(
+        subagent.last_activity_at.as_deref(),
+        Some("2026-03-11T05:12:00Z")
+    );
 }
 
 #[tokio::test]
@@ -2433,5 +2439,8 @@ async fn upsert_subagent_preserves_completed_result_over_later_failed_update() {
     );
     assert_eq!(subagent.error_summary, None);
     assert_eq!(subagent.ended_at.as_deref(), Some("2026-03-11T05:21:00Z"));
-    assert_eq!(subagent.last_activity_at.as_deref(), Some("2026-03-11T05:22:00Z"));
+    assert_eq!(
+        subagent.last_activity_at.as_deref(),
+        Some("2026-03-11T05:22:00Z")
+    );
 }

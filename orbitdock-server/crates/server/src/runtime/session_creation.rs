@@ -312,7 +312,10 @@ mod tests {
             prepared.snapshot.approval_policy.as_deref(),
             Some("on-request")
         );
-        assert_eq!(prepared.snapshot.collaboration_mode.as_deref(), Some("workers"));
+        assert_eq!(
+            prepared.snapshot.collaboration_mode.as_deref(),
+            Some("workers")
+        );
         assert_eq!(prepared.snapshot.multi_agent, Some(true));
         assert_eq!(prepared.snapshot.personality.as_deref(), Some("mentor"));
         assert_eq!(prepared.snapshot.service_tier.as_deref(), Some("priority"));
@@ -394,7 +397,10 @@ mod tests {
         assert_eq!(persisted.snapshot.id, "session-3");
         assert_eq!(persisted.request.permission_mode.as_deref(), Some("plan"));
         assert_eq!(persisted.request.allowed_tools, vec!["Read"]);
-        assert_eq!(persisted.request.collaboration_mode.as_deref(), Some("workers"));
+        assert_eq!(
+            persisted.request.collaboration_mode.as_deref(),
+            Some("workers")
+        );
         assert_eq!(persisted.request.multi_agent, Some(true));
     }
 }

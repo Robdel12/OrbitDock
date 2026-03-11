@@ -1511,7 +1511,10 @@ fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<Approv
         ));
     }
 
-    if matches!(approval_type, ApprovalType::Question | ApprovalType::Permissions) {
+    if matches!(
+        approval_type,
+        ApprovalType::Question | ApprovalType::Permissions
+    ) {
         if let Some(question) = question.or_else(|| permission_reason.map(str::to_string)) {
             return Some(compose_approval_preview(
                 request_id,
@@ -1556,8 +1559,9 @@ fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<Approv
         ApprovalType::Question => {
             trim_non_empty(tool_name).unwrap_or_else(|| "Question".to_string())
         }
-        ApprovalType::Permissions => trim_non_empty(tool_name)
-            .unwrap_or_else(|| "Review requested permissions".to_string()),
+        ApprovalType::Permissions => {
+            trim_non_empty(tool_name).unwrap_or_else(|| "Review requested permissions".to_string())
+        }
         _ => trim_non_empty(tool_name)
             .map(|name| format!("Approve {name} action"))
             .unwrap_or_else(|| "Approve action".to_string()),

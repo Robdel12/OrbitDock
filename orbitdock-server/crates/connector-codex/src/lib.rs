@@ -1227,9 +1227,9 @@ impl CodexConnector {
                         &e.status,
                     );
                     if let Some(subagent) = maybe_subagent {
-                    events.push(ConnectorEvent::SubagentsUpdated {
-                        subagents: vec![subagent],
-                    });
+                        events.push(ConnectorEvent::SubagentsUpdated {
+                            subagents: vec![subagent],
+                        });
                     }
                 }
                 events
@@ -1273,16 +1273,14 @@ impl CodexConnector {
                     "sender: {}\nreceiver: {}\nstatus: {}",
                     e.sender_thread_id, receiver_label, status_text
                 );
-                let mut events = vec![
-                    ConnectorEvent::MessageUpdated {
-                        message_id: e.call_id,
-                        content: None,
-                        tool_output: Some(output),
-                        is_error: Some(agent_status_failed(&e.status)),
-                        is_in_progress: Some(false),
-                        duration_ms: None,
-                    },
-                ];
+                let mut events = vec![ConnectorEvent::MessageUpdated {
+                    message_id: e.call_id,
+                    content: None,
+                    tool_output: Some(output),
+                    is_error: Some(agent_status_failed(&e.status)),
+                    is_in_progress: Some(false),
+                    duration_ms: None,
+                }];
                 if let Some(subagent) = build_inflight_codex_subagent(
                     e.receiver_thread_id.to_string(),
                     e.receiver_agent_role.clone(),
@@ -3168,10 +3166,7 @@ impl CodexConnector {
         };
 
         self.thread.submit(op).await.map_err(|e| {
-            ConnectorError::ProviderError(format!(
-                "Failed to respond to permission request: {}",
-                e
-            ))
+            ConnectorError::ProviderError(format!("Failed to respond to permission request: {}", e))
         })?;
 
         info!("Sent permission response: {}", request_id);
@@ -4013,11 +4008,7 @@ fn normalized_agent_type(role: Option<&str>) -> String {
         .to_string()
 }
 
-fn normalized_agent_label(
-    nickname: Option<&str>,
-    role: Option<&str>,
-    id: &str,
-) -> Option<String> {
+fn normalized_agent_label(nickname: Option<&str>, role: Option<&str>, id: &str) -> Option<String> {
     nickname
         .map(str::trim)
         .filter(|nickname| !nickname.is_empty())
@@ -4129,8 +4120,8 @@ mod tests {
         build_authoritative_codex_subagent, build_inflight_codex_subagent,
         collaboration_mode_from_name_or_mode, collaboration_mode_from_permission_mode,
         model_rejects_reasoning_summary, parse_personality, parse_reasoning_summary,
-        parse_service_tier_override, reasoning_summary_for_model, realtime_text_from_handoff_request,
-        should_disable_reasoning_summary,
+        parse_service_tier_override, realtime_text_from_handoff_request,
+        reasoning_summary_for_model, should_disable_reasoning_summary,
         stream_error_should_surface_to_timeline,
     };
     use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
@@ -4418,7 +4409,10 @@ mod tests {
         assert_eq!(subagent.agent_type, "explorer");
         assert_eq!(subagent.label.as_deref(), Some("Repo Scout"));
         assert_eq!(subagent.task_summary.as_deref(), Some("Map the repository"));
-        assert_eq!(subagent.parent_subagent_id.as_deref(), Some("parent-thread"));
+        assert_eq!(
+            subagent.parent_subagent_id.as_deref(),
+            Some("parent-thread")
+        );
         assert_eq!(
             subagent.status,
             orbitdock_protocol::SubagentStatus::Completed

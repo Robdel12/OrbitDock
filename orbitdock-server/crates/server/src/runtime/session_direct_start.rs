@@ -5,12 +5,12 @@ use tracing::{info, warn};
 
 use crate::connectors::claude_session::{ClaudeAction, ClaudeSession};
 use crate::connectors::codex_session::CodexSession;
-use orbitdock_connector_codex::CodexControlPlane;
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
+use orbitdock_connector_codex::CodexControlPlane;
 
 pub(crate) async fn start_direct_codex_session(
     state: &Arc<SessionRegistry>,

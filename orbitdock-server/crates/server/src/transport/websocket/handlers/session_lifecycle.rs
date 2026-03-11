@@ -28,6 +28,18 @@ use crate::transport::websocket::{
     send_json, send_replay_or_snapshot_fallback, spawn_broadcast_forwarder, OutboundMessage,
 };
 
+fn stored_codex_control_plane(
+    snap: &crate::domain::sessions::session::SessionSnapshot,
+) -> orbitdock_connector_codex::CodexControlPlane {
+    orbitdock_connector_codex::CodexControlPlane {
+        collaboration_mode: snap.collaboration_mode.clone(),
+        multi_agent: snap.multi_agent,
+        personality: snap.personality.clone(),
+        service_tier: snap.service_tier.clone(),
+        developer_instructions: snap.developer_instructions.clone(),
+    }
+}
+
 pub(crate) async fn handle(
     msg: ClientMessage,
     client_tx: &mpsc::Sender<OutboundMessage>,
@@ -574,6 +586,7 @@ pub(crate) async fn handle(
             let connector_timeout = std::time::Duration::from_secs(15);
 
             let connector_ok = if snap.provider == Provider::Codex {
+                let control_plane = stored_codex_control_plane(&snap);
                 // Flip integration mode
                 handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
                 if let Some(ref m) = effective_model {
@@ -582,11 +595,11 @@ pub(crate) async fn handle(
                 handle.set_config(
                     effective_approval.clone(),
                     effective_sandbox.clone(),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
+                    control_plane.collaboration_mode.clone(),
+                    control_plane.multi_agent,
+                    control_plane.personality.clone(),
+                    control_plane.service_tier.clone(),
+                    control_plane.developer_instructions.clone(),
                 );
 
                 let thread_id = state.codex_thread_for_session(&session_id);
@@ -595,38 +608,43 @@ pub(crate) async fn handle(
                 let m = effective_model.clone();
                 let ap = effective_approval.clone();
                 let sb = effective_sandbox.clone();
+                let resume_control_plane = control_plane.clone();
+                let new_control_plane = control_plane;
 
                 let mut connector_task = tokio::spawn(async move {
                     if let Some(ref tid) = thread_id {
-                        match CodexSession::resume(
+                        match CodexSession::resume_with_control_plane(
                             sid.clone(),
                             &project,
                             tid,
                             m.as_deref(),
                             ap.as_deref(),
                             sb.as_deref(),
+                            resume_control_plane,
                         )
                         .await
                         {
                             Ok(codex) => Ok(codex),
                             Err(_) => {
-                                CodexSession::new(
+                                CodexSession::new_with_control_plane(
                                     sid.clone(),
                                     &project,
                                     m.as_deref(),
                                     ap.as_deref(),
                                     sb.as_deref(),
+                                    new_control_plane,
                                 )
                                 .await
                             }
                         }
                     } else {
-                        CodexSession::new(
+                        CodexSession::new_with_control_plane(
                             sid.clone(),
                             &project,
                             m.as_deref(),
                             ap.as_deref(),
                             sb.as_deref(),
+                            new_control_plane,
                         )
                         .await
                     }
@@ -1028,7 +1046,7 @@ mod tests {
     use crate::domain::sessions::session::SessionHandle;
     use crate::transport::websocket::test_support::{new_test_state, recv_json};
 
-    use super::handle;
+    use super::{handle, stored_codex_control_plane};
 
     #[tokio::test]
     async fn resume_session_rejects_already_active_sessions() {
@@ -1130,5 +1148,35 @@ mod tests {
                 panic!("expected not_found error after clearing ended handle, got {other:?}")
             }
         }
+    }
+
+    #[test]
+    fn stored_codex_control_plane_preserves_snapshot_settings() {
+        let mut handle = SessionHandle::new(
+            "session".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        handle.set_config(
+            Some("on-request".to_string()),
+            Some("workspace-write".to_string()),
+            Some("planner".to_string()),
+            Some(true),
+            Some("friendly".to_string()),
+            Some("flex".to_string()),
+            Some("Keep answers concise".to_string()),
+        );
+
+        let snapshot = handle.to_snapshot();
+        let control_plane = stored_codex_control_plane(&snapshot);
+
+        assert_eq!(control_plane.collaboration_mode.as_deref(), Some("planner"));
+        assert_eq!(control_plane.multi_agent, Some(true));
+        assert_eq!(control_plane.personality.as_deref(), Some("friendly"));
+        assert_eq!(control_plane.service_tier.as_deref(), Some("flex"));
+        assert_eq!(
+            control_plane.developer_instructions.as_deref(),
+            Some("Keep answers concise")
+        );
     }
 }

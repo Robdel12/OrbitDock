@@ -5,8 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use tracing::{debug, warn};
 
-use orbitdock_protocol::{ImageInput, MentionInput, MessageType, SkillInput, WorkStatus};
 use orbitdock_protocol::PermissionGrantScope;
+use orbitdock_protocol::{ImageInput, MentionInput, MessageType, SkillInput, WorkStatus};
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;

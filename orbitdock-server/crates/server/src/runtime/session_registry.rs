@@ -105,7 +105,10 @@ impl SessionRegistry {
                 .parent()
                 .map(|path| path.join("codex-home"))
                 .unwrap_or_else(|| std::env::temp_dir().join("orbitdock-codex-home-tests"));
-            Arc::new(CodexAuthService::new_with_file_store(list_tx.clone(), codex_home))
+            Arc::new(CodexAuthService::new_with_file_store(
+                list_tx.clone(),
+                codex_home,
+            ))
         };
         #[cfg(not(test))]
         let codex_auth = Arc::new(CodexAuthService::new(list_tx.clone()));
