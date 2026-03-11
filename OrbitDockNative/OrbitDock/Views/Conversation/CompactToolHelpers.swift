@@ -279,6 +279,8 @@ enum CompactToolHelpers {
       case "glob": return "Glob"
       case "grep": return "Grep"
       case "task": return "Task"
+      case "handoff": return "Handoff"
+      case "hook": return "Hook"
       case "webfetch": return "Fetch"
       case "websearch": return "Search"
       case "skill": return "Skill"
@@ -340,6 +342,8 @@ enum CompactToolHelpers {
       case "glob": return message.globPattern ?? "glob"
       case "grep": return message.grepPattern ?? "grep"
       case "task": return message.taskDescription ?? message.taskPrompt ?? "task"
+      case "handoff": return handoffSummary(for: message)
+      case "hook": return hookSummary(for: message)
       case "compactcontext":
         return message.isInProgress ? "Compacting context…" : "Context compacted"
       case "webfetch", "websearch":
@@ -424,6 +428,16 @@ enum CompactToolHelpers {
         return nil
       case "grep":
         if let count = message.grepMatchCount { return "\(count) matches" }
+        return nil
+      case "handoff":
+        if message.isInProgress { return "LIVE" }
+        if let count = handoffTargetCount(for: message), count > 1 {
+          return "\(count) workers"
+        }
+        return nil
+      case "hook":
+        if let duration = message.formattedDuration { return duration }
+        if message.isInProgress { return "LIVE" }
         return nil
       default:
         return nil
@@ -608,9 +622,9 @@ enum CompactToolHelpers {
         }
         return nil
       case .handoff:
-        return "Realtime"
+        return handoffSubtitle(for: message)
       case .hook:
-        return message.isInProgress ? "Running" : "Hook"
+        return hookSubtitle(for: message)
       case .todo: return rightMeta
       case .mcp: return mcpPrimaryParameter(message: message)
       default: return nil
@@ -662,9 +676,9 @@ enum CompactToolHelpers {
       case .task:
         return message.taskDescription ?? message.taskPrompt
       case .handoff:
-        return nil
+        return handoffPreview(for: message)
       case .hook:
-        return message.sanitizedToolOutput
+        return hookPreview(for: message)
       case .mcp:
         return mcpPrimaryParameter(message: message)
       default:
@@ -783,5 +797,92 @@ enum CompactToolHelpers {
       return String(preview.prefix(96)) + "\u{2026}"
     }
     return preview
+  }
+
+  private static func handoffTargetCount(for message: TranscriptMessage) -> Int? {
+    if let ids = message.toolInput?["receiver_thread_ids"] as? [String], !ids.isEmpty {
+      return ids.count
+    }
+    if let id = message.toolInput?["receiver_thread_id"] as? String,
+       !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return 1
+    }
+    return nil
+  }
+
+  private static func handoffSummary(for message: TranscriptMessage) -> String {
+    if let count = handoffTargetCount(for: message), count > 1 {
+      return message.isInProgress ? "Routing work to \(count) workers" : "Coordinated \(count) workers"
+    }
+
+    if let receiver = inputString(message, key: "receiver_agent_nickname")
+      ?? inputString(message, key: "receiver_agent_role")
+    {
+      return message.isInProgress ? "Routing work to \(receiver)" : "Handed work to \(receiver)"
+    }
+
+    return message.isInProgress ? "Routing work" : "Handoff complete"
+  }
+
+  private static func handoffSubtitle(for message: TranscriptMessage) -> String? {
+    if let count = handoffTargetCount(for: message), count > 1 {
+      return "Multi-worker coordination"
+    }
+    if message.isInProgress {
+      return "Coordinating"
+    }
+    return "Realtime routing"
+  }
+
+  private static func handoffPreview(for message: TranscriptMessage) -> String? {
+    if let output = trimmed(message.sanitizedToolOutput) {
+      return compactSingleLineSummary(output, maxLength: 140)
+    }
+    if let description = trimmed(message.content), !description.isEmpty {
+      return compactSingleLineSummary(description, maxLength: 140)
+    }
+    return nil
+  }
+
+  private static func hookSummary(for message: TranscriptMessage) -> String {
+    if let content = trimmed(message.content) {
+      return compactSingleLineSummary(content, maxLength: 120)
+    }
+    if let hookName = hookName(for: message) {
+      return message.isInProgress ? "Running \(hookName)" : "\(hookName) finished"
+    }
+    return message.isInProgress ? "Running hook" : "Hook finished"
+  }
+
+  private static func hookSubtitle(for message: TranscriptMessage) -> String? {
+    if let hookName = hookName(for: message) {
+      return message.isInProgress ? hookName : "Hook lifecycle"
+    }
+    return message.isInProgress ? "Lifecycle" : "Hook lifecycle"
+  }
+
+  private static func hookPreview(for message: TranscriptMessage) -> String? {
+    guard let output = trimmed(message.sanitizedToolOutput) else { return nil }
+    let lines = output
+      .components(separatedBy: CharacterSet.newlines)
+      .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    guard !lines.isEmpty else { return nil }
+    return lines.prefix(3).map { compactSingleLineSummary($0, maxLength: 120) }.joined(separator: "\n")
+  }
+
+  private static func hookName(for message: TranscriptMessage) -> String? {
+    trimmed(inputString(message, key: "matcher_name"))
+      ?? trimmed(inputString(message, key: "hook_name"))
+      ?? trimmed(inputString(message, key: "event"))
+      ?? trimmed(inputString(message, key: "event_name"))
+      ?? trimmed(inputString(message, key: "hook_event_name"))
+  }
+
+  private static func trimmed(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let normalized = value.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+    return normalized.isEmpty ? nil : normalized
   }
 }

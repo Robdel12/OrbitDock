@@ -187,21 +187,16 @@ enum SharedModelBuilders {
       ?? trimmed(worker?.agentType)?.capitalized
       ?? "Worker"
     let statusText = workerStatusText(worker?.status, message: message)
-    let eventLabel = workerEventLabel(for: message)
-    let summary = workerLabel
-    let subtitle = trimmed(
-      [eventLabel, workerEventSummary(for: message)]
-        .compactMap(trimmed)
-        .joined(separator: " · ")
-    )
+    let eventPresentation = workerEventPresentation(for: message, workerLabel: workerLabel)
     let reportPreview = workerReportPreview(for: message)
+    let toolType = workerEventToolType(for: message)
 
     return NativeCompactToolRowModel(
       timestamp: message.timestamp,
       glyphSymbol: workerGlyphSymbol(for: worker),
       glyphColor: workerGlyphColor(for: worker, message: message),
-      summary: summary,
-      subtitle: subtitle,
+      summary: eventPresentation.summary,
+      subtitle: eventPresentation.subtitle,
       rightMeta: statusText,
       linkedWorkerID: workerID,
       linkedWorkerLabel: workerLabel,
@@ -210,7 +205,7 @@ enum SharedModelBuilders {
       isInProgress: message.isInProgress || worker?.status == .running || worker?.status == .pending,
       diffPreview: nil,
       liveOutputPreview: nil,
-      toolType: .task,
+      toolType: toolType,
       outputPreview: reportPreview,
       language: nil,
       mcpServer: nil,
@@ -241,6 +236,17 @@ enum SharedModelBuilders {
     return nil
   }
 
+  private static func workerEventToolType(for message: TranscriptMessage) -> CompactToolType {
+    switch message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "handoff":
+      return .handoff
+    case "hook":
+      return .hook
+    default:
+      return .task
+    }
+  }
+
   private static func workerEventLabel(for message: TranscriptMessage) -> String? {
     let toolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     switch toolName {
@@ -257,6 +263,45 @@ enum SharedModelBuilders {
     }
   }
 
+  private static func workerEventPresentation(
+    for message: TranscriptMessage,
+    workerLabel: String
+  ) -> (summary: String, subtitle: String?) {
+    let eventLabel = trimmed(workerEventLabel(for: message))
+    let summaryText = trimmed(workerEventSummary(for: message))
+    let toolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+    switch toolName {
+    case "handoff":
+      let summary = CompactToolHelpers.summary(for: message, supportsRichToolingCards: true)
+      let detail = summaryText ?? workerReportPreview(for: message)
+      let subtitle = trimmed(
+        [workerLabel, detail]
+          .compactMap(trimmed)
+          .joined(separator: " · ")
+      )
+      return (summary, subtitle)
+
+    case "wait":
+      let summary = message.isInProgress ? "Waiting on \(workerLabel)" : "\(workerLabel) reported back"
+      return (summary, summaryText)
+
+    case "send_input":
+      return ("Guided \(workerLabel)", summaryText ?? eventLabel)
+
+    case "task":
+      return (workerLabel, summaryText ?? eventLabel)
+
+    default:
+      let subtitle = trimmed(
+        [eventLabel, summaryText]
+          .compactMap(trimmed)
+          .joined(separator: " · ")
+      )
+      return (workerLabel, subtitle)
+    }
+  }
+
   private static func workerEventSummary(for message: TranscriptMessage) -> String? {
     if let taskDescription = trimmed(message.taskDescription) {
       return taskDescription
@@ -264,6 +309,10 @@ enum SharedModelBuilders {
 
     if let taskPrompt = trimmed(message.taskPrompt) {
       return taskPrompt
+    }
+
+    if let output = trimmed(message.sanitizedToolOutput) {
+      return compactWorkerSummary(output)
     }
 
     return trimmed(message.content)
@@ -361,6 +410,18 @@ enum SharedModelBuilders {
       .replacingOccurrences(of: "\\t", with: "\t")
       .replacingOccurrences(of: "\\\"", with: "\"")
       .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private static func compactWorkerSummary(_ value: String) -> String {
+    let cleaned = cleanedWorkerPreview(value)
+    let firstLine = cleaned
+      .components(separatedBy: .newlines)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .first(where: { !$0.isEmpty }) ?? cleaned
+    if firstLine.count > 120 {
+      return String(firstLine.prefix(120)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+    return firstLine
   }
 
   private static func preprocessUserContent(_ content: String) -> String {

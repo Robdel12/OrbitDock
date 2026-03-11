@@ -191,6 +191,35 @@ struct CompactToolHelpersTests {
     #expect(unfocusedModel?.isFocusedWorker == false)
   }
 
+  @Test func handoffCompactToolUsesIntentionalRealtimeCopy() {
+    let message = makeToolMessage(
+      toolName: "handoff",
+      toolInput: ["receiver_thread_ids": ["worker-1", "worker-2"]],
+      toolOutput: "Queued follow-up work for two specialists."
+    )
+
+    let model = SharedModelBuilders.compactToolModel(from: message, supportsRichToolingCards: true)
+
+    #expect(model.toolType == .handoff)
+    #expect(model.summary == "Coordinated 2 workers")
+    #expect(model.subtitle == "Multi-worker coordination")
+    #expect(model.outputPreview == "Queued follow-up work for two specialists.")
+  }
+
+  @Test func workerEventModelTreatsHandoffAsRealtimeStructure() {
+    let message = makeToolMessage(
+      toolName: "handoff",
+      toolInput: ["receiver_thread_id": "worker-123"],
+      toolOutput: "Passed the renderer polish pass to Wegener."
+    )
+
+    let model = SharedModelBuilders.workerEventModel(from: message)
+
+    #expect(model?.toolType == .handoff)
+    #expect(model?.summary == "Handoff complete")
+    #expect(model?.subtitle == "Worker · Passed the renderer polish pass to Wegener.")
+  }
+
   private func makeToolMessage(
     toolName: String,
     toolInput: [String: Any],

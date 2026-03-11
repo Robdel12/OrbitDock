@@ -8,6 +8,7 @@ enum TranscriptMessageToolKind: String, Sendable {
   case glob
   case grep
   case task
+  case handoff
   case hook
   case webFetch
   case webSearch
@@ -22,6 +23,7 @@ enum TranscriptMessageToolKind: String, Sendable {
       case "glob": self = .glob
       case "grep": self = .grep
       case "task": self = .task
+      case "handoff": self = .handoff
       case "hook": self = .hook
       case "webfetch": self = .webFetch
       case "websearch": self = .webSearch
@@ -38,6 +40,7 @@ enum TranscriptMessageToolKind: String, Sendable {
       case .glob: return "folder.badge.gearshape"
       case .grep: return "magnifyingglass"
       case .task: return "person.2"
+      case .handoff: return "arrow.triangle.branch"
       case .hook: return "bolt.badge.clock"
       case .webFetch: return "globe"
       case .webSearch: return "magnifyingglass.circle"
@@ -52,6 +55,7 @@ enum TranscriptMessageToolKind: String, Sendable {
       case .bash: return "green"
       case .glob, .grep: return "purple"
       case .task: return "indigo"
+      case .handoff: return "blue"
       case .hook: return "teal"
       case .webFetch, .webSearch: return "teal"
       case .unknown: return "secondary"
@@ -299,7 +303,7 @@ extension TranscriptMessage {
           return truncateToolText(prompt, maxLength: maxLength)
         }
         return nil
-      case .hook, .webFetch, .webSearch, .unknown:
+      case .handoff, .hook, .webFetch, .webSearch, .unknown:
         if let data = try? JSONSerialization.data(withJSONObject: input, options: .prettyPrinted),
            let str = String(data: data, encoding: .utf8)
         {

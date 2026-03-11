@@ -344,7 +344,7 @@ nonisolated enum ConversationUtilityRowModels {
         ?? trimmed(details?.resultSummary)
         ?? trimmed(details?.label)
       if let summary {
-        let statusLead = worker.isActive ? "\(worker.title) is active" : "\(worker.title) finished"
+        let statusLead = worker.isActive ? "\(worker.title) is on it" : "\(worker.title) reported back"
         spotlightText = truncateLine("\(statusLead): \(summary)", limit: 120)
       } else {
         spotlightText = nil

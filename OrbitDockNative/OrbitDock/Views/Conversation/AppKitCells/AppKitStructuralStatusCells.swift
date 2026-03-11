@@ -289,9 +289,9 @@
       let inset = ConversationLayout.laneHorizontalInset
       capsuleBackground.wantsLayer = true
       capsuleBackground.layer?.cornerRadius = ConversationLayout.cardCornerRadius
-      capsuleBackground.layer?.backgroundColor = NSColor(Color.accent).withAlphaComponent(0.08).cgColor
+      capsuleBackground.layer?.backgroundColor = NSColor(Color.backgroundTertiary).withAlphaComponent(0.92).cgColor
       capsuleBackground.layer?.borderWidth = 1
-      capsuleBackground.layer?.borderColor = NSColor(Color.accent).withAlphaComponent(0.12).cgColor
+      capsuleBackground.layer?.borderColor = NSColor(Color.textQuaternary).withAlphaComponent(0.12).cgColor
       capsuleBackground.translatesAutoresizingMaskIntoConstraints = false
       addSubview(capsuleBackground)
 
@@ -362,7 +362,7 @@
         button.layer?.cornerRadius = ConversationLayout.capsuleCornerRadius
         button.layer?.backgroundColor = NSColor(
           ConversationUtilityRowModels.color(for: worker.statusColorKey)
-        ).withAlphaComponent(worker.isActive ? 0.18 : 0.10).cgColor
+        ).withAlphaComponent(worker.isActive ? 0.14 : 0.07).cgColor
         button.contentTintColor = NSColor(ConversationUtilityRowModels.color(for: worker.statusColorKey))
         button.attributedTitle = NSAttributedString(
           string: worker.title,

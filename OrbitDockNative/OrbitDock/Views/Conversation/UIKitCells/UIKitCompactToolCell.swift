@@ -49,6 +49,7 @@
 
     var onTap: (() -> Void)?
     var onFocusWorker: (() -> Void)?
+    private var baseStripBackgroundColor = UIColor.white.withAlphaComponent(0.035)
 
     override init(frame: CGRect) {
       super.init(frame: frame)
@@ -312,6 +313,7 @@
       cardBg.reset()
       onTap = nil
       onFocusWorker = nil
+      baseStripBackgroundColor = UIColor.white.withAlphaComponent(0.035)
       chevronView.image = UIImage(systemName: "chevron.right")
       chevronView.tintColor = PlatformColor(Color.textQuaternary)
       chevronView.alpha = 0.25
@@ -330,16 +332,17 @@
     }
 
     func configure(model: NativeCompactToolRowModel) {
+      let appearance = appearance(for: model)
       let focusedBackground = model.glyphColor.withAlphaComponent(0.10)
-      let defaultBackground = PlatformColor.white.withAlphaComponent(0.035)
       // Accent bar
-      accentBar.backgroundColor = model.glyphColor.withAlphaComponent(0.6)
-      stripContainer.backgroundColor = model.isFocusedWorker ? focusedBackground : defaultBackground
+      accentBar.backgroundColor = appearance.accentColor
+      baseStripBackgroundColor = model.isFocusedWorker ? focusedBackground : appearance.backgroundColor
+      stripContainer.backgroundColor = baseStripBackgroundColor
 
       // Icon
       glyphImage.image = UIImage(systemName: model.glyphSymbol)
-      glyphImage.tintColor = model.glyphColor.withAlphaComponent(0.8)
-      glyphImage.alpha = model.isInProgress ? 0.5 : 1.0
+      glyphImage.tintColor = appearance.glyphColor
+      glyphImage.alpha = model.isInProgress ? 0.65 : 1.0
 
       // Title — monospaced for bash, system for others
       if model.toolType == .bash {
@@ -347,12 +350,15 @@
       } else {
         titleField.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       }
+      titleField.textColor = appearance.titleColor
       titleField.text = model.summary
 
       // Subtitle
       if let subtitle = model.subtitle {
         dotSeparator.isHidden = false
+        dotSeparator.textColor = appearance.subtitleColor.withAlphaComponent(0.7)
         subtitleField.isHidden = false
+        subtitleField.textColor = appearance.subtitleColor
         subtitleField.text = subtitle
       } else {
         dotSeparator.isHidden = true
@@ -362,6 +368,7 @@
       // Meta
       if let meta = model.rightMeta {
         metaLabel.isHidden = false
+        metaLabel.textColor = appearance.metaColor
         metaLabel.text = meta
       } else {
         metaLabel.isHidden = true
@@ -509,6 +516,45 @@
 
       outputPreviewLabel.text = preview
       outputPreviewLabel.isHidden = false
+    }
+
+    private func appearance(for model: NativeCompactToolRowModel) -> (
+      backgroundColor: UIColor,
+      accentColor: UIColor,
+      glyphColor: UIColor,
+      titleColor: UIColor,
+      subtitleColor: UIColor,
+      metaColor: UIColor
+    ) {
+      switch model.toolType {
+      case .handoff:
+        return (
+          UIColor(Color.statusReply).withAlphaComponent(0.05),
+          model.glyphColor.withAlphaComponent(0.8),
+          model.glyphColor.withAlphaComponent(0.92),
+          UIColor(Color.textPrimary),
+          UIColor(Color.textSecondary),
+          UIColor(Color.statusReply).withAlphaComponent(0.85)
+        )
+      case .hook:
+        return (
+          UIColor(Color.feedbackCaution).withAlphaComponent(0.045),
+          model.glyphColor.withAlphaComponent(0.75),
+          model.glyphColor.withAlphaComponent(0.9),
+          UIColor(Color.textPrimary),
+          UIColor(Color.textSecondary),
+          UIColor(Color.textTertiary)
+        )
+      default:
+        return (
+          UIColor.white.withAlphaComponent(0.035),
+          model.glyphColor.withAlphaComponent(0.6),
+          model.glyphColor.withAlphaComponent(0.8),
+          UIColor(Color.textPrimary),
+          UIColor(Color.textTertiary),
+          UIColor(Color.textTertiary)
+        )
+      }
     }
   }
 

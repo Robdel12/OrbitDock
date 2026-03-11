@@ -34,6 +34,7 @@
 
     private var isHovering = false
     private var trackingArea: NSTrackingArea?
+    private var baseStripBackgroundColor = NSColor.white.withAlphaComponent(0.035)
     var onTap: (() -> Void)?
     var onFocusWorker: (() -> Void)?
 
@@ -260,8 +261,8 @@
         ctx.duration = 0.15
         ctx.allowsImplicitAnimation = true
         stripContainer.layer?.backgroundColor = isHovering
-          ? NSColor.white.withAlphaComponent(0.065).cgColor
-          : NSColor.white.withAlphaComponent(0.035).cgColor
+          ? hoverBackgroundColor(from: baseStripBackgroundColor).cgColor
+          : baseStripBackgroundColor.cgColor
         chevronView.animator().alphaValue = isHovering ? 0.6 : 0.25
       }
       if isHovering {
@@ -284,28 +285,33 @@
     }
 
     func configure(model: NativeCompactToolRowModel) {
+      let appearance = appearance(for: model)
       let focusedBackground = model.glyphColor.withAlphaComponent(0.10)
-      let defaultBackground = NSColor.white.withAlphaComponent(0.035)
       glyphImage.image = NSImage(systemSymbolName: model.glyphSymbol, accessibilityDescription: nil)
-      glyphImage.contentTintColor = model.glyphColor.withAlphaComponent(0.8)
-      accentBar.layer?.backgroundColor = model.glyphColor.withAlphaComponent(0.6).cgColor
-      glyphImage.alphaValue = model.isInProgress ? 0.5 : 1.0
-      stripContainer.layer?.backgroundColor = (model.isFocusedWorker ? focusedBackground : defaultBackground).cgColor
+      glyphImage.contentTintColor = appearance.glyphColor
+      accentBar.layer?.backgroundColor = appearance.accentColor.cgColor
+      glyphImage.alphaValue = model.isInProgress ? 0.65 : 1.0
+      baseStripBackgroundColor = model.isFocusedWorker ? focusedBackground : appearance.backgroundColor
+      stripContainer.layer?.backgroundColor = baseStripBackgroundColor.cgColor
 
       if model.toolType == .bash {
         titleField.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .semibold)
       } else {
         titleField.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       }
+      titleField.textColor = appearance.titleColor
       titleField.stringValue = model.summary
 
       let hasSubtitle = !(model.subtitle?.isEmpty ?? true)
       dotSeparator.isHidden = !hasSubtitle
+      dotSeparator.textColor = appearance.subtitleColor.withAlphaComponent(0.7)
       subtitleField.isHidden = !hasSubtitle
+      subtitleField.textColor = appearance.subtitleColor
       subtitleField.stringValue = model.subtitle ?? ""
 
       let hasMeta = !(model.rightMeta?.isEmpty ?? true)
       metaField.isHidden = !hasMeta
+      metaField.textColor = appearance.metaColor
       metaField.stringValue = model.rightMeta ?? ""
 
       workerButton.isHidden = model.linkedWorkerID == nil
@@ -335,6 +341,7 @@
       onTap = nil
       onFocusWorker = nil
       stripContainer.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.035).cgColor
+      baseStripBackgroundColor = NSColor.white.withAlphaComponent(0.035)
       chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
       chevronView.contentTintColor = NSColor(Color.textQuaternary)
       chevronView.alphaValue = 0.25
@@ -449,6 +456,50 @@
 
       outputPreviewField.stringValue = preview
       outputPreviewField.isHidden = false
+    }
+
+    private func appearance(for model: NativeCompactToolRowModel) -> (
+      backgroundColor: NSColor,
+      accentColor: NSColor,
+      glyphColor: NSColor,
+      titleColor: NSColor,
+      subtitleColor: NSColor,
+      metaColor: NSColor
+    ) {
+      switch model.toolType {
+      case .handoff:
+        return (
+          NSColor(Color.statusReply).withAlphaComponent(0.05),
+          model.glyphColor.withAlphaComponent(0.8),
+          model.glyphColor.withAlphaComponent(0.92),
+          NSColor(Color.textPrimary),
+          NSColor(Color.textSecondary),
+          NSColor(Color.statusReply).withAlphaComponent(0.85)
+        )
+      case .hook:
+        return (
+          NSColor(Color.feedbackCaution).withAlphaComponent(0.045),
+          model.glyphColor.withAlphaComponent(0.75),
+          model.glyphColor.withAlphaComponent(0.9),
+          NSColor(Color.textPrimary),
+          NSColor(Color.textSecondary),
+          NSColor(Color.textTertiary)
+        )
+      default:
+        return (
+          NSColor.white.withAlphaComponent(0.035),
+          model.glyphColor.withAlphaComponent(0.6),
+          model.glyphColor.withAlphaComponent(0.8),
+          NSColor(Color.textPrimary),
+          NSColor(Color.textTertiary),
+          NSColor(Color.textTertiary)
+        )
+      }
+    }
+
+    private func hoverBackgroundColor(from base: NSColor) -> NSColor {
+      let alpha = min(base.alphaComponent + 0.03, 0.11)
+      return base.withAlphaComponent(alpha)
     }
   }
 

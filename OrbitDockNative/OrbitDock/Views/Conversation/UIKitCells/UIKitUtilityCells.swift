@@ -262,8 +262,8 @@
       capsuleBackground.layer.cornerRadius = ConversationLayout.cardCornerRadius
       capsuleBackground.layer.masksToBounds = true
       capsuleBackground.layer.borderWidth = 1
-      capsuleBackground.backgroundColor = UIColor(Color.accent).withAlphaComponent(0.08)
-      capsuleBackground.layer.borderColor = UIColor(Color.accent).withAlphaComponent(0.12).cgColor
+      capsuleBackground.backgroundColor = UIColor(Color.backgroundTertiary).withAlphaComponent(0.92)
+      capsuleBackground.layer.borderColor = UIColor(Color.textQuaternary).withAlphaComponent(0.12).cgColor
       contentView.addSubview(capsuleBackground)
 
       titleLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
@@ -343,7 +343,7 @@
         button.tintColor = UIColor(ConversationUtilityRowModels.color(for: worker.statusColorKey))
         button.backgroundColor = UIColor(
           ConversationUtilityRowModels.color(for: worker.statusColorKey)
-        ).withAlphaComponent(worker.isActive ? 0.18 : 0.10)
+        ).withAlphaComponent(worker.isActive ? 0.14 : 0.07)
         button.layer.cornerRadius = ConversationLayout.capsuleCornerRadius
         button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
         button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 0)

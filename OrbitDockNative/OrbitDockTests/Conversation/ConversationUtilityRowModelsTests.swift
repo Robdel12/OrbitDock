@@ -26,7 +26,7 @@ struct ConversationUtilityRowModelsTests {
 
     #expect(model.titleText == "Workers in play")
     #expect(model.subtitleText == "1 active in this turn")
-    #expect(model.spotlightText == "Scout is active: Map the auth entrypoints")
+    #expect(model.spotlightText == "Scout is on it: Map the auth entrypoints")
     #expect(model.workers.first?.id == completed.id)
     #expect(model.workers.last?.isActive == true)
   }
@@ -47,7 +47,7 @@ struct ConversationUtilityRowModelsTests {
 
     #expect(model.titleText == "Worker in play")
     #expect(model.subtitleText == "1 finished in this turn")
-    #expect(model.spotlightText == "Finisher finished: Confirmed the worker result returned cleanly.")
+    #expect(model.spotlightText == "Finisher reported back: Confirmed the worker result returned cleanly.")
     #expect(model.workers.first?.isActive == false)
   }
 
