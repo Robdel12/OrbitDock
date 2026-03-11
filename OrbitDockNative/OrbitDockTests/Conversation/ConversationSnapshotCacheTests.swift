@@ -84,6 +84,40 @@ struct ConversationSnapshotCacheTests {
     #expect(store.hydrationState == .empty)
   }
 
+  @Test func messageUpdateBumpsRevisionEvenWhenMessageCountStaysFlat() throws {
+    let store = ConversationStore(sessionId: "session-cache", clients: makeClients())
+    store.restoreFromCache(
+      CachedConversation(
+        messages: [
+          makeMessage(id: "msg-1", sequence: 1, type: .assistant, content: "hello")
+        ],
+        totalMessageCount: 1,
+        oldestSequence: 1,
+        newestSequence: 1,
+        hasMoreHistoryBefore: false,
+        cachedAt: Date()
+      )
+    )
+
+    let revisionBefore = store.messagesRevision
+
+    store.handleMessageUpdated(
+      messageId: "msg-1",
+      changes: ServerMessageChanges(
+        content: "hello there",
+        toolOutput: nil,
+        isError: nil,
+        isInProgress: true,
+        durationMs: nil
+      )
+    )
+
+    #expect(store.messages.count == 1)
+    #expect(store.messages.first?.content == "hello there")
+    #expect(store.messages.first?.isInProgress == true)
+    #expect(store.messagesRevision == revisionBefore + 1)
+  }
+
   private func makeClients() -> ServerClients {
     ServerClients(
       serverURL: URL(string: "http://127.0.0.1:4000")!,

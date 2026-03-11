@@ -44,6 +44,10 @@ struct ConversationView: View {
     conversationStore?.normalizedMessages ?? []
   }
 
+  private var messagesRevision: Int {
+    conversationStore?.messagesRevision ?? 0
+  }
+
   private var viewState: ConversationViewState {
     guard let conversationStore else {
       return ConversationViewState(
@@ -123,6 +127,7 @@ struct ConversationView: View {
   private var conversationThread: some View {
     ConversationCollectionView(
       messages: displayedMessages,
+      messagesRevision: messagesRevision,
       chatViewMode: chatViewMode,
       isSessionActive: isSessionActive,
       workStatus: workStatus,

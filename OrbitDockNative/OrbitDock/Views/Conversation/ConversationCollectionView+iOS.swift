@@ -14,6 +14,7 @@ import SwiftUI
 
   struct ConversationCollectionView: UIViewControllerRepresentable {
     let messages: [TranscriptMessage]
+    let messagesRevision: Int
     let chatViewMode: ChatViewMode
     let isSessionActive: Bool
     let workStatus: Session.WorkStatus
@@ -82,6 +83,7 @@ import SwiftUI
       vc.onOpenPendingApprovalPanel = onOpenPendingApprovalPanel
 
       let oldMode = vc.chatViewMode
+      let oldMessagesRevision = vc.messagesRevision
 
       vc.applyFullState(
         messages: messages,
@@ -96,10 +98,12 @@ import SwiftUI
         remainingLoadCount: remainingLoadCount,
         hasMoreMessages: hasMoreMessages
       )
+      vc.messagesRevision = messagesRevision
 
       // Defer snapshot work to avoid "modifying state during view update"
       // — snapshot application triggers UIKit layout which can read back into SwiftUI bindings.
       let modeChanged = oldMode != chatViewMode
+      let revisionChanged = oldMessagesRevision != messagesRevision
       let needsScroll = context.coordinator.lastScrollToBottomTrigger != scrollToBottomTrigger
       if needsScroll {
         context.coordinator.lastScrollToBottomTrigger = scrollToBottomTrigger
@@ -107,7 +111,7 @@ import SwiftUI
       Task { @MainActor in
         if modeChanged {
           vc.rebuildSnapshot(animated: false)
-        } else {
+        } else if revisionChanged || vc.currentMessages.count != messages.count {
           vc.applyProjectionUpdate()
         }
         if needsScroll {
@@ -167,6 +171,7 @@ import SwiftUI
     var currentRows: [TimelineRow] = []
     var rowIndexByTimelineRowID: [TimelineRowID: Int] = [:]
     var previousMessageCount = 0
+    var messagesRevision = 0
 
     /// Convenience accessors
     var currentMessages: [TranscriptMessage] {

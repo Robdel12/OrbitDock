@@ -14,6 +14,7 @@ import SwiftUI
 
   struct ConversationCollectionView: NSViewControllerRepresentable {
     let messages: [TranscriptMessage]
+    let messagesRevision: Int
     let chatViewMode: ChatViewMode
     let isSessionActive: Bool
     let workStatus: Session.WorkStatus
@@ -83,6 +84,7 @@ import SwiftUI
 
       let oldMode = vc.sourceState.metadata.chatViewMode
       let oldMessageCount = vc.sourceState.messages.count
+      let oldMessagesRevision = vc.messagesRevision
 
       vc.applyFullState(
         messages: messages,
@@ -97,9 +99,11 @@ import SwiftUI
         remainingLoadCount: remainingLoadCount,
         hasMoreMessages: hasMoreMessages
       )
+      vc.messagesRevision = messagesRevision
 
       // Defer snapshot work to avoid "modifying state during view update"
       let modeChanged = oldMode != chatViewMode
+      let revisionChanged = oldMessagesRevision != messagesRevision
       let msgCount = messages.count
       let needsScroll = context.coordinator.lastScrollToBottomTrigger != scrollToBottomTrigger
       if needsScroll {
@@ -108,7 +112,7 @@ import SwiftUI
       Task { @MainActor in
         if modeChanged {
           vc.rebuildSnapshot(animated: false)
-        } else {
+        } else if revisionChanged || oldMessageCount != msgCount {
           vc.applyProjectionUpdate()
         }
 
@@ -160,6 +164,7 @@ import SwiftUI
     var onNavigateToReviewFile: ((String, Int) -> Void)?
     var onOpenPendingApprovalPanel: (() -> Void)?
     var isPinnedToBottom = true
+    var messagesRevision = 0
 
     // Derived caches for O(1) cell rendering lookups
     var messagesByID: [String: TranscriptMessage] = [:]
