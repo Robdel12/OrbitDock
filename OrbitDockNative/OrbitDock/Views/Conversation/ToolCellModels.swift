@@ -84,7 +84,8 @@ enum SharedModelBuilders {
   static func compactToolModel(
     from message: TranscriptMessage,
     supportsRichToolingCards: Bool,
-    subagentsByID: [String: ServerSubagentInfo] = [:]
+    subagentsByID: [String: ServerSubagentInfo] = [:],
+    selectedWorkerID: String? = nil
   ) -> NativeCompactToolRowModel {
     let glyph = ToolGlyphInfo.from(message: message)
     let toolType = CompactToolHelpers.toolType(for: message)
@@ -134,6 +135,7 @@ enum SharedModelBuilders {
       linkedWorkerID: linkedWorkerID(for: message),
       linkedWorkerLabel: workerPresentation?.label,
       linkedWorkerStatusText: workerPresentation?.statusText,
+      isFocusedWorker: linkedWorkerID(for: message) == selectedWorkerID,
       isInProgress: message.isInProgress,
       diffPreview: preview,
       liveOutputPreview: liveOutputPreview,
@@ -175,7 +177,8 @@ enum SharedModelBuilders {
 
   static func workerEventModel(
     from message: TranscriptMessage,
-    subagentsByID: [String: ServerSubagentInfo] = [:]
+    subagentsByID: [String: ServerSubagentInfo] = [:],
+    selectedWorkerID: String? = nil
   ) -> NativeCompactToolRowModel? {
     guard let workerID = linkedWorkerID(for: message) else { return nil }
 
@@ -203,6 +206,7 @@ enum SharedModelBuilders {
       linkedWorkerID: workerID,
       linkedWorkerLabel: workerLabel,
       linkedWorkerStatusText: statusText,
+      isFocusedWorker: workerID == selectedWorkerID,
       isInProgress: message.isInProgress || worker?.status == .running || worker?.status == .pending,
       diffPreview: nil,
       liveOutputPreview: nil,
@@ -493,6 +497,13 @@ enum SharedModelBuilders {
           description: workerPresentation?.detailText ?? (message.taskDescription ?? ""),
           output: message.sanitizedToolOutput ?? workerPresentation?.detailText,
           isComplete: isComplete
+        )
+
+      case "hook":
+        return .generic(
+          toolName: "Hook",
+          input: message.fullFormattedToolInput,
+          output: message.sanitizedToolOutput
         )
 
       case "compactcontext":

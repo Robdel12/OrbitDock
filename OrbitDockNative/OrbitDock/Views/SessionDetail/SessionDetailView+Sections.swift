@@ -85,6 +85,7 @@ extension SessionDetailView {
       pendingPermissionDetail: obs.pendingPermissionDetail,
       provider: obs.provider,
       model: obs.model,
+      selectedWorkerID: selectedWorkerId,
       chatViewMode: chatViewMode,
       onNavigateToReviewFile: { filePath, lineNumber in
         let plan = SessionDetailLayoutPlanner.reviewFileNavigationPlan(

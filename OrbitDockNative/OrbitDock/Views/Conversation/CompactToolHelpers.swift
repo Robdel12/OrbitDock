@@ -609,6 +609,8 @@ enum CompactToolHelpers {
         return nil
       case .handoff:
         return "Realtime"
+      case .hook:
+        return message.isInProgress ? "Running" : "Hook"
       case .todo: return rightMeta
       case .mcp: return mcpPrimaryParameter(message: message)
       default: return nil
@@ -635,6 +637,7 @@ enum CompactToolHelpers {
       case "grep": return .grep
       case "task": return .task
       case "handoff": return .handoff
+      case "hook": return .hook
       case "webfetch", "websearch": return .web
       case "enterplanmode", "exitplanmode": return .plan
       case "askuserquestion": return .question
@@ -660,6 +663,8 @@ enum CompactToolHelpers {
         return message.taskDescription ?? message.taskPrompt
       case .handoff:
         return nil
+      case .hook:
+        return message.sanitizedToolOutput
       case .mcp:
         return mcpPrimaryParameter(message: message)
       default:

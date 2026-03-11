@@ -29,6 +29,7 @@ import SwiftUI
     let currentPrompt: String?
     let messageCount: Int
     let remainingLoadCount: Int
+    let selectedWorkerID: String?
     let openFileInReview: ((String) -> Void)?
     let focusWorkerInDeck: ((String) -> Void)?
     let onLoadMore: () -> Void
@@ -49,6 +50,7 @@ import SwiftUI
       vc.serverState = serverState
       vc.openFileInReview = openFileInReview
       vc.focusWorkerInDeck = focusWorkerInDeck
+      vc.selectedWorkerID = selectedWorkerID
       vc.provider = provider
       vc.model = model
       vc.sessionId = sessionId
@@ -78,6 +80,8 @@ import SwiftUI
       vc.serverState = serverState
       vc.openFileInReview = openFileInReview
       vc.focusWorkerInDeck = focusWorkerInDeck
+      let oldSelectedWorkerID = vc.selectedWorkerID
+      vc.selectedWorkerID = selectedWorkerID
       vc.provider = provider
       vc.model = model
       vc.sessionId = sessionId
@@ -109,13 +113,14 @@ import SwiftUI
       let revisionChanged = oldMessagesRevision != messagesRevision
       let msgCount = messages.count
       let needsScroll = context.coordinator.lastScrollToBottomTrigger != scrollToBottomTrigger
+      let selectedWorkerChanged = oldSelectedWorkerID != selectedWorkerID
       if needsScroll {
         context.coordinator.lastScrollToBottomTrigger = scrollToBottomTrigger
       }
       Task { @MainActor in
         if modeChanged {
           vc.rebuildSnapshot(animated: false)
-        } else if revisionChanged || oldMessageCount != msgCount {
+        } else if revisionChanged || oldMessageCount != msgCount || selectedWorkerChanged {
           vc.applyProjectionUpdate()
         }
 
@@ -161,6 +166,7 @@ import SwiftUI
     var serverState: SessionStore?
     var openFileInReview: ((String) -> Void)?
     var focusWorkerInDeck: ((String) -> Void)?
+    var selectedWorkerID: String?
     var provider: Provider = .claude
     var model: String?
     var sessionId: String?
@@ -217,6 +223,7 @@ import SwiftUI
         subagentsByID: subagentsByID,
         metadata: sourceState.metadata,
         uiState: uiState,
+        selectedWorkerID: selectedWorkerID,
         approvalCardModel: buildApprovalCardModel(),
         expandedThinkingIDs: expandedThinkingIDs,
         rowWidth: availableRowWidth,

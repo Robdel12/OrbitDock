@@ -104,7 +104,8 @@
       return SharedModelBuilders.compactToolModel(
         from: message,
         supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards,
-        subagentsByID: subagentsByID
+        subagentsByID: subagentsByID,
+        selectedWorkerID: selectedWorkerID
       )
     }
 
@@ -115,7 +116,8 @@
 
       return SharedModelBuilders.workerEventModel(
         from: message,
-        subagentsByID: subagentsByID
+        subagentsByID: subagentsByID,
+        selectedWorkerID: selectedWorkerID
       )
     }
 

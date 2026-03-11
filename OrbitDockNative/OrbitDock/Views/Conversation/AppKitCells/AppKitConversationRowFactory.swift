@@ -9,6 +9,7 @@
     let subagentsByID: [String: ServerSubagentInfo]
     let metadata: ConversationSourceState.SessionMetadata
     let uiState: ConversationUIState
+    let selectedWorkerID: String?
     let approvalCardModel: ApprovalCardModel?
     let expandedThinkingIDs: Set<String>
     let rowWidth: CGFloat
@@ -36,7 +37,8 @@
       return SharedModelBuilders.compactToolModel(
         from: message,
         supportsRichToolingCards: metadata.supportsRichToolingCards,
-        subagentsByID: subagentsByID
+        subagentsByID: subagentsByID,
+        selectedWorkerID: selectedWorkerID
       )
     }
 
@@ -46,7 +48,8 @@
 
       return SharedModelBuilders.workerEventModel(
         from: message,
-        subagentsByID: subagentsByID
+        subagentsByID: subagentsByID,
+        selectedWorkerID: selectedWorkerID
       )
     }
 

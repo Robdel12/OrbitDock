@@ -6,6 +6,7 @@ struct TranscriptMessageSemanticsTests {
   @Test func toolKindClassifiesKnownToolsAndFallbacks() {
     #expect(makeMessage(toolName: "Read").toolKind == .read)
     #expect(makeMessage(toolName: "Bash").toolKind == .bash)
+    #expect(makeMessage(toolName: "Hook").toolKind == .hook)
     #expect(makeMessage(toolName: "WebSearch").toolKind == .webSearch)
     #expect(makeMessage(toolName: "SomethingCustom").toolKind == .unknown)
     #expect(makeMessage(toolName: nil).toolKind == .unknown)
@@ -13,9 +14,12 @@ struct TranscriptMessageSemanticsTests {
 
   @Test func toolPresentationComesFromToolKind() {
     let message = makeMessage(toolName: "Edit")
+    let hookMessage = makeMessage(toolName: "Hook")
 
     #expect(message.toolIcon == "pencil")
     #expect(message.toolColor == "orange")
+    #expect(hookMessage.toolIcon == "bolt.badge.clock")
+    #expect(hookMessage.toolColor == "teal")
   }
 
   @Test func bashLikeCommandUsesShellTypeAndToolKind() {

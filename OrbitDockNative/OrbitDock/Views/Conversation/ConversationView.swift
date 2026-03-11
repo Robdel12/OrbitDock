@@ -15,6 +15,7 @@ struct ConversationView: View {
   var pendingPermissionDetail: String?
   var provider: Provider = .claude
   var model: String?
+  var selectedWorkerID: String? = nil
   var chatViewMode: ChatViewMode = .focused
   var onNavigateToReviewFile: ((String, Int) -> Void)? // (filePath, lineNumber) deep link from review card
   var onOpenPendingApprovalPanel: (() -> Void)?
@@ -143,6 +144,7 @@ struct ConversationView: View {
       currentPrompt: currentPrompt,
       messageCount: totalMessageCount,
       remainingLoadCount: remainingLoadCount,
+      selectedWorkerID: selectedWorkerID,
       openFileInReview: openFileInReview,
       focusWorkerInDeck: focusWorkerInDeck,
       onLoadMore: {

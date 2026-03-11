@@ -284,10 +284,13 @@
     }
 
     func configure(model: NativeCompactToolRowModel) {
+      let focusedBackground = model.glyphColor.withAlphaComponent(0.10)
+      let defaultBackground = NSColor.white.withAlphaComponent(0.035)
       glyphImage.image = NSImage(systemSymbolName: model.glyphSymbol, accessibilityDescription: nil)
       glyphImage.contentTintColor = model.glyphColor.withAlphaComponent(0.8)
       accentBar.layer?.backgroundColor = model.glyphColor.withAlphaComponent(0.6).cgColor
       glyphImage.alphaValue = model.isInProgress ? 0.5 : 1.0
+      stripContainer.layer?.backgroundColor = (model.isFocusedWorker ? focusedBackground : defaultBackground).cgColor
 
       if model.toolType == .bash {
         titleField.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .semibold)
@@ -307,9 +310,9 @@
 
       workerButton.isHidden = model.linkedWorkerID == nil
       workerButton.toolTip = model.linkedWorkerLabel.map { "Inspect \($0)" } ?? "Inspect worker"
-      chevronView.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
-      chevronView.contentTintColor = NSColor(Color.textQuaternary)
-      chevronView.alphaValue = 0.25
+      chevronView.image = NSImage(systemSymbolName: model.isFocusedWorker ? "scope" : "chevron.right", accessibilityDescription: nil)
+      chevronView.contentTintColor = model.isFocusedWorker ? model.glyphColor.withAlphaComponent(0.9) : NSColor(Color.textQuaternary)
+      chevronView.alphaValue = model.isFocusedWorker ? 0.95 : 0.25
 
       if let preview = model.diffPreview {
         configureDiffPreview(preview)

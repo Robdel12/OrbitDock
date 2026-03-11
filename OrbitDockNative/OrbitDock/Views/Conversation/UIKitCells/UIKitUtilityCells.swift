@@ -237,6 +237,7 @@
     private let capsuleBackground = UIView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
+    private let spotlightLabel = UILabel()
     private let chipsStack = UIStackView()
     private var chipWorkerIDs: [String] = []
     var onSelectWorker: ((String) -> Void)?
@@ -275,6 +276,12 @@
       subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(subtitleLabel)
 
+      spotlightLabel.font = UIFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
+      spotlightLabel.textColor = UIColor(Color.textSecondary)
+      spotlightLabel.numberOfLines = 2
+      spotlightLabel.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(spotlightLabel)
+
       chipsStack.axis = .horizontal
       chipsStack.spacing = Spacing.xs
       chipsStack.alignment = .fill
@@ -296,6 +303,10 @@
         chipsStack.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
         chipsStack.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: Spacing.sm_),
         chipsStack.trailingAnchor.constraint(lessThanOrEqualTo: capsuleBackground.trailingAnchor, constant: -Spacing.md),
+
+        spotlightLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+        spotlightLabel.topAnchor.constraint(equalTo: chipsStack.bottomAnchor, constant: Spacing.xs),
+        spotlightLabel.trailingAnchor.constraint(lessThanOrEqualTo: capsuleBackground.trailingAnchor, constant: -Spacing.md),
       ])
     }
 
@@ -311,6 +322,8 @@
     func configure(model: ConversationUtilityRowModels.WorkerOrchestrationModel) {
       titleLabel.text = model.titleText
       subtitleLabel.text = model.subtitleText
+      spotlightLabel.text = model.spotlightText
+      spotlightLabel.isHidden = (model.spotlightText ?? "").isEmpty
       chipWorkerIDs = model.workers.map(\.id)
       chipsStack.arrangedSubviews.forEach {
         chipsStack.removeArrangedSubview($0)
@@ -320,17 +333,21 @@
       for (index, worker) in model.workers.enumerated() {
         let button = UIButton(type: .system)
         button.tag = index
-        button.setTitle("\(worker.title) · \(worker.statusText)", for: .normal)
+        button.setTitle(worker.title, for: .normal)
         button.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
         button.setTitleColor(UIColor(Color.textSecondary), for: .normal)
-        button.setImage(UIImage(systemName: "person.2.fill"), for: .normal)
+        button.setImage(
+          UIImage(systemName: worker.isActive ? "dot.radiowaves.left.and.right" : "circle.fill"),
+          for: .normal
+        )
         button.tintColor = UIColor(ConversationUtilityRowModels.color(for: worker.statusColorKey))
         button.backgroundColor = UIColor(
           ConversationUtilityRowModels.color(for: worker.statusColorKey)
-        ).withAlphaComponent(0.12)
+        ).withAlphaComponent(worker.isActive ? 0.18 : 0.10)
         button.layer.cornerRadius = ConversationLayout.capsuleCornerRadius
         button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
         button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 0)
+        button.accessibilityLabel = "\(worker.title), \(worker.statusText)"
         button.addTarget(self, action: #selector(handleChipTap(_:)), for: .touchUpInside)
         chipsStack.addArrangedSubview(button)
       }

@@ -151,6 +151,46 @@ struct CompactToolHelpersTests {
     #expect(model.outputPreview == "Worker verified the transcript wiring and returned cleanly.")
   }
 
+  @Test func compactToolModelMarksFocusedWorkerRows() {
+    let message = makeToolMessage(
+      toolName: "wait",
+      toolInput: ["receiver_thread_id": "worker-123"]
+    )
+
+    let focusedModel = SharedModelBuilders.compactToolModel(
+      from: message,
+      supportsRichToolingCards: true,
+      selectedWorkerID: "worker-123"
+    )
+    let unfocusedModel = SharedModelBuilders.compactToolModel(
+      from: message,
+      supportsRichToolingCards: true,
+      selectedWorkerID: "worker-999"
+    )
+
+    #expect(focusedModel.isFocusedWorker)
+    #expect(!unfocusedModel.isFocusedWorker)
+  }
+
+  @Test func workerEventModelMarksFocusedWorkerRows() {
+    let message = makeToolMessage(
+      toolName: "wait",
+      toolInput: ["receiver_thread_id": "worker-123"]
+    )
+
+    let focusedModel = SharedModelBuilders.workerEventModel(
+      from: message,
+      selectedWorkerID: "worker-123"
+    )
+    let unfocusedModel = SharedModelBuilders.workerEventModel(
+      from: message,
+      selectedWorkerID: "worker-999"
+    )
+
+    #expect(focusedModel?.isFocusedWorker == true)
+    #expect(unfocusedModel?.isFocusedWorker == false)
+  }
+
   private func makeToolMessage(
     toolName: String,
     toolInput: [String: Any],

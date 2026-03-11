@@ -10,6 +10,7 @@ struct SessionDetailConversationSection: View {
   let pendingPermissionDetail: String?
   let provider: Provider
   let model: String?
+  let selectedWorkerID: String?
   let chatViewMode: ChatViewMode
   let onNavigateToReviewFile: (String, Int) -> Void
   let onOpenPendingApprovalPanel: () -> Void
@@ -30,6 +31,7 @@ struct SessionDetailConversationSection: View {
       pendingPermissionDetail: pendingPermissionDetail,
       provider: provider,
       model: model,
+      selectedWorkerID: selectedWorkerID,
       chatViewMode: chatViewMode,
       onNavigateToReviewFile: onNavigateToReviewFile,
       onOpenPendingApprovalPanel: onOpenPendingApprovalPanel,

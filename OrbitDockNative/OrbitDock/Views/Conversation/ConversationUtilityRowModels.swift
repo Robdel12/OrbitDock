@@ -79,11 +79,13 @@ nonisolated enum ConversationUtilityRowModels {
     let title: String
     let statusText: String
     let statusColorKey: ColorKey
+    let isActive: Bool
   }
 
   nonisolated struct WorkerOrchestrationModel: Hashable, Sendable {
     let titleText: String
     let subtitleText: String
+    let spotlightText: String?
     let workers: [WorkerChipModel]
   }
 
@@ -309,7 +311,8 @@ nonisolated enum ConversationUtilityRowModels {
         id: workerID,
         title: title,
         statusText: status.label,
-        statusColorKey: status.colorKey
+        statusColorKey: status.colorKey,
+        isActive: status.isActive
       )
     }
 
@@ -318,21 +321,42 @@ nonisolated enum ConversationUtilityRowModels {
         count += 1
       }
     }
+    let completedCount = workerIDs.count - activeCount
 
     let extraCount = max(0, workerIDs.count - workers.count)
     let subtitle = if activeCount > 0 {
       extraCount > 0
         ? "\(activeCount) active · +\(extraCount) more in this turn"
         : "\(activeCount) active in this turn"
-    } else if extraCount > 0 {
-      "Completed this turn · +\(extraCount) more"
+    } else if completedCount > 0 && extraCount > 0 {
+      "\(completedCount) finished · +\(extraCount) more"
+    } else if completedCount > 0 {
+      "\(completedCount) finished in this turn"
     } else {
-      "Completed this turn"
+      "Worker activity in this turn"
+    }
+
+    let spotlightWorker = workers.first(where: \.isActive) ?? workers.first
+    let spotlightText: String?
+    if let worker = spotlightWorker {
+      let details = subagentsByID[worker.id]
+      let summary = trimmed(details?.taskSummary)
+        ?? trimmed(details?.resultSummary)
+        ?? trimmed(details?.label)
+      if let summary {
+        let statusLead = worker.isActive ? "\(worker.title) is active" : "\(worker.title) finished"
+        spotlightText = truncateLine("\(statusLead): \(summary)", limit: 120)
+      } else {
+        spotlightText = nil
+      }
+    } else {
+      spotlightText = nil
     }
 
     return WorkerOrchestrationModel(
-      titleText: workerIDs.count == 1 ? "Worker activity" : "Workers engaged",
+      titleText: workerIDs.count == 1 ? "Worker in play" : "Workers in play",
       subtitleText: subtitle,
+      spotlightText: spotlightText,
       workers: Array(workers)
     )
   }
@@ -365,6 +389,12 @@ nonisolated enum ConversationUtilityRowModels {
     }
 
     return parts.joined(separator: " · ")
+  }
+
+  private static func truncateLine(_ text: String, limit: Int) -> String {
+    guard text.count > limit else { return text }
+    let end = text.index(text.startIndex, offsetBy: limit - 1)
+    return String(text[..<end]).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
   }
 
   private static func formattedDuration(_ duration: TimeInterval) -> String {

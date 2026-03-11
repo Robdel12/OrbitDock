@@ -266,6 +266,7 @@
     private let capsuleBackground = NSView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
+    private let spotlightLabel = NSTextField(labelWithString: "")
     private let chipsStack = NSStackView()
     private var chipButtons: [NSButton] = []
     private var chipWorkerIDs: [String] = []
@@ -304,6 +305,13 @@
       subtitleLabel.textColor = NSColor(Color.textTertiary)
       addSubview(subtitleLabel)
 
+      spotlightLabel.translatesAutoresizingMaskIntoConstraints = false
+      spotlightLabel.font = NSFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
+      spotlightLabel.textColor = NSColor(Color.textSecondary)
+      spotlightLabel.maximumNumberOfLines = 2
+      spotlightLabel.lineBreakMode = .byTruncatingTail
+      addSubview(spotlightLabel)
+
       chipsStack.orientation = .horizontal
       chipsStack.alignment = .centerY
       chipsStack.spacing = Spacing.xs
@@ -325,12 +333,18 @@
         chipsStack.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
         chipsStack.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: Spacing.sm_),
         chipsStack.trailingAnchor.constraint(lessThanOrEqualTo: capsuleBackground.trailingAnchor, constant: -Spacing.md),
+
+        spotlightLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+        spotlightLabel.topAnchor.constraint(equalTo: chipsStack.bottomAnchor, constant: Spacing.xs),
+        spotlightLabel.trailingAnchor.constraint(lessThanOrEqualTo: capsuleBackground.trailingAnchor, constant: -Spacing.md),
       ])
     }
 
     func configure(model: ConversationUtilityRowModels.WorkerOrchestrationModel) {
       titleLabel.stringValue = model.titleText
       subtitleLabel.stringValue = model.subtitleText
+      spotlightLabel.stringValue = model.spotlightText ?? ""
+      spotlightLabel.isHidden = (model.spotlightText ?? "").isEmpty
       chipWorkerIDs = model.workers.map(\.id)
 
       for button in chipButtons {
@@ -348,17 +362,21 @@
         button.layer?.cornerRadius = ConversationLayout.capsuleCornerRadius
         button.layer?.backgroundColor = NSColor(
           ConversationUtilityRowModels.color(for: worker.statusColorKey)
-        ).withAlphaComponent(0.12).cgColor
+        ).withAlphaComponent(worker.isActive ? 0.18 : 0.10).cgColor
         button.contentTintColor = NSColor(ConversationUtilityRowModels.color(for: worker.statusColorKey))
         button.attributedTitle = NSAttributedString(
-          string: "\(worker.title) · \(worker.statusText)",
+          string: worker.title,
           attributes: [
             .font: NSFont.systemFont(ofSize: TypeScale.micro, weight: .semibold),
             .foregroundColor: NSColor(Color.textSecondary),
           ]
         )
-        button.image = NSImage(systemSymbolName: "person.2.fill", accessibilityDescription: nil)
+        button.image = NSImage(
+          systemSymbolName: worker.isActive ? "dot.radiowaves.left.and.right" : "circle.fill",
+          accessibilityDescription: nil
+        )
         button.imagePosition = .imageLeading
+        button.toolTip = "\(worker.title) · \(worker.statusText)"
         button.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
           button.heightAnchor.constraint(equalToConstant: 22),

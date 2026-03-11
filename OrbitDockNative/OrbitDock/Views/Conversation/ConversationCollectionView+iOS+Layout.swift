@@ -95,7 +95,8 @@
       if let message = messagesByID[id] {
         let model = SharedModelBuilders.compactToolModel(
           from: message,
-          supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
+          supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards,
+          selectedWorkerID: selectedWorkerID
         )
         height = UIKitCompactToolCell.requiredHeight(model: model, width: width)
       } else {

@@ -330,8 +330,11 @@
     }
 
     func configure(model: NativeCompactToolRowModel) {
+      let focusedBackground = model.glyphColor.withAlphaComponent(0.10)
+      let defaultBackground = PlatformColor.white.withAlphaComponent(0.035)
       // Accent bar
       accentBar.backgroundColor = model.glyphColor.withAlphaComponent(0.6)
+      stripContainer.backgroundColor = model.isFocusedWorker ? focusedBackground : defaultBackground
 
       // Icon
       glyphImage.image = UIImage(systemName: model.glyphSymbol)
@@ -365,9 +368,9 @@
       }
 
       workerButton.isHidden = model.linkedWorkerID == nil
-      chevronView.image = UIImage(systemName: "chevron.right")
-      chevronView.tintColor = PlatformColor(Color.textQuaternary)
-      chevronView.alpha = 0.25
+      chevronView.image = UIImage(systemName: model.isFocusedWorker ? "scope" : "chevron.right")
+      chevronView.tintColor = model.isFocusedWorker ? model.glyphColor.withAlphaComponent(0.9) : PlatformColor(Color.textQuaternary)
+      chevronView.alpha = model.isFocusedWorker ? 0.95 : 0.25
 
       // Detail area
       if let preview = model.diffPreview {
