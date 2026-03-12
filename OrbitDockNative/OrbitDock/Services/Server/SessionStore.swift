@@ -303,14 +303,4 @@ final class SessionStore {
       }
     }
   }
-
-  nonisolated static func shouldRefreshSnapshotForAppendedMessage(
-    isSubscribed: Bool,
-    subagentStatuses: [ServerSubagentStatus?]
-  ) -> Bool {
-    guard isSubscribed else { return false }
-    return subagentStatuses.contains { status in
-      status == .pending || status == .running
-    }
-  }
 }

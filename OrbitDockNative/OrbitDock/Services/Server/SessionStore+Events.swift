@@ -294,13 +294,6 @@ extension SessionStore {
   func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
     netLog(.debug, cat: .store, "Message appended", sid: sessionId, data: ["messageId": message.id])
     conversation(sessionId).handleMessageAppended(message)
-    let observable = session(sessionId)
-    if Self.shouldRefreshSnapshotForAppendedMessage(
-      isSubscribed: subscribedSessions.contains(sessionId),
-      subagentStatuses: observable.subagents.map(\.status)
-    ) {
-      refreshSessionSnapshot(sessionId)
-    }
     if autoMarkReadSessions.contains(sessionId) {
       markSessionAsRead(sessionId)
     }
