@@ -12,7 +12,7 @@ struct RenameSessionSheet: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
 
-  let session: SessionSummary
+  let session: RootSessionRecord
   let initialText: String
   let onSave: (String) -> Void
   let onCancel: () -> Void

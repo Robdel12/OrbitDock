@@ -17,7 +17,7 @@ struct DashboardStatusBar: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
 
-  let sessions: [SessionSummary]
+  let sessions: [RootSessionRecord]
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
 
@@ -29,7 +29,7 @@ struct DashboardStatusBar: View {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
   }
 
-  private var dashboardStatsSessions: [SessionSummary] {
+  private var dashboardStatsSessions: [RootSessionRecord] {
     sessions.filter { !$0.isActive || $0.hasLiveEndpointConnection }
   }
 
@@ -501,7 +501,7 @@ struct DashboardTabSwitcher: View {
   VStack(spacing: 0) {
     DashboardStatusBar(
       sessions: [
-        SessionSummary(session: Session(
+        RootSessionRecord(summary: SessionSummary(session: Session(
           id: "1",
           endpointId: UUID(),
           projectPath: "/p",
@@ -509,8 +509,8 @@ struct DashboardTabSwitcher: View {
           status: .active,
           workStatus: .working,
           startedAt: Date()
-        )),
-        SessionSummary(session: Session(
+        ))),
+        RootSessionRecord(summary: SessionSummary(session: Session(
           id: "2",
           endpointId: UUID(),
           projectPath: "/p",
@@ -519,7 +519,7 @@ struct DashboardTabSwitcher: View {
           workStatus: .permission,
           startedAt: Date(),
           attentionReason: .awaitingPermission
-        )),
+        ))),
       ],
       isInitialLoading: false,
       isRefreshingCachedSessions: false

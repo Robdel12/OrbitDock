@@ -14,8 +14,8 @@ import Foundation
 /// Every server push event, typed and ready for consumption by stores.
 enum ServerEvent: Sendable {
   // Session list
-  case sessionsList([ServerSessionSummary])
-  case sessionCreated(ServerSessionSummary)
+  case sessionsList([ServerSessionListItem])
+  case sessionCreated(ServerSessionListItem)
   case sessionEnded(sessionId: String, reason: String)
 
   // Session state

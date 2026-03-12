@@ -84,7 +84,7 @@ struct QuickSwitcherSelectionResolverTests {
         currentSession: current,
         explicitTargetSession: explicit,
         fallbackVisibleSession: fallback
-      )?.id == "current"
+      )?.sessionId == "current"
     )
 
     #expect(
@@ -92,7 +92,7 @@ struct QuickSwitcherSelectionResolverTests {
         currentSession: nil,
         explicitTargetSession: explicit,
         fallbackVisibleSession: fallback
-      )?.id == "explicit"
+      )?.sessionId == "explicit"
     )
 
     #expect(
@@ -100,18 +100,22 @@ struct QuickSwitcherSelectionResolverTests {
         currentSession: nil,
         explicitTargetSession: nil,
         fallbackVisibleSession: fallback
-      )?.id == "fallback"
+      )?.sessionId == "fallback"
     )
   }
 
-  private func makeSession(id: String) -> SessionSummary {
-    SessionSummary(session: Session(
+  private func makeSession(id: String) -> RootSessionRecord {
+    var session = Session(
       id: id,
       projectPath: "/tmp/\(id)",
       status: .active,
       workStatus: .waiting,
       totalTokens: 0,
       totalCostUSD: 0
-    ))
+    )
+    session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
+    session.endpointName = "Primary"
+    session.endpointConnectionStatus = .connected
+    return RootSessionRecord(summary: SessionSummary(session: session))
   }
 }

@@ -6,7 +6,7 @@ import Testing
 struct SessionStoreControlStateSyncTests {
   @Test func approvalEventsKeepSummaryAndDetailStateAligned() throws {
     let store = SessionStore()
-    store.routeEvent(.sessionsList([try decodeSummary(sessionSummaryJSON)]))
+    store.routeEvent(.sessionsList([try decodeListItem(sessionSummaryJSON)]))
 
     let request = ServerApprovalRequest(
       id: "req-1",
@@ -46,7 +46,7 @@ struct SessionStoreControlStateSyncTests {
 
   @Test func sessionDeltaKeepsConfigAndPendingApprovalStateInSync() throws {
     let store = SessionStore()
-    store.routeEvent(.sessionsList([try decodeSummary(sessionSummaryJSON)]))
+    store.routeEvent(.sessionsList([try decodeListItem(sessionSummaryJSON)]))
 
     store.routeEvent(
       .sessionDelta(
@@ -143,8 +143,8 @@ struct SessionStoreControlStateSyncTests {
     """
   }
 
-  private func decodeSummary(_ json: String) throws -> ServerSessionSummary {
-    try JSONDecoder().decode(ServerSessionSummary.self, from: Data(json.utf8))
+  private func decodeListItem(_ json: String) throws -> ServerSessionListItem {
+    try JSONDecoder().decode(ServerSessionListItem.self, from: Data(json.utf8))
   }
 
   private func decodeChanges(_ json: String) throws -> ServerStateChanges {

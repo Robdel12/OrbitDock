@@ -8,8 +8,11 @@
 import SwiftUI
 
 enum MissionControlNotificationSessions {
-  static func merge(previousSessions: [SessionSummary], currentSessions: [SessionSummary]) -> [SessionSummary] {
-    var mergedByScopedID: [String: SessionSummary] = [:]
+  static func merge<SessionType: SessionSummaryItem>(
+    previousSessions: [SessionType],
+    currentSessions: [SessionType]
+  ) -> [SessionType] {
+    var mergedByScopedID: [String: SessionType] = [:]
     var orderedScopedIDs: [String] = []
 
     for session in currentSessions {
@@ -142,6 +145,7 @@ struct ContentView: View {
   private var dashboardView: some View {
     DashboardView(
       sessions: windowSessionCoordinator.sessions,
+      rootSessions: windowSessionCoordinator.rootSessions,
       endpointHealth: windowSessionCoordinator.endpointHealth,
       isInitialLoading: windowSessionCoordinator.isAnyInitialLoading,
       isRefreshingCachedSessions: isAnyRefreshingCachedSessions
@@ -163,7 +167,7 @@ struct ContentView: View {
 
       // Quick Switcher
       QuickSwitcher(
-        sessions: windowSessionCoordinator.sessions,
+        sessions: windowSessionCoordinator.rootSessions,
         onQuickLaunchClaude: { path in
           Task {
             try? await windowSessionCoordinator.creationStore(fallback: serverState).createSession(

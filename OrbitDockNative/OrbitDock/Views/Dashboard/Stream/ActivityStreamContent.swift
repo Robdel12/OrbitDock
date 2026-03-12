@@ -14,7 +14,7 @@ struct ActivityStreamContent: View {
   @Environment(AppRouter.self) private var router
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  let sessions: [SessionSummary]
+  let sessions: [RootSessionRecord]
   let filter: ActiveSessionWorkbenchFilter
   let sort: ActiveSessionSort
   let providerFilter: ActiveSessionProviderFilter
@@ -36,7 +36,7 @@ struct ActivityStreamContent: View {
   }
 
   /// Flat ordered list for keyboard navigation
-  var navigableSessions: [SessionSummary] {
+  var navigableSessions: [RootSessionRecord] {
     stream.attention + stream.working + stream.ready
   }
 
@@ -196,7 +196,7 @@ struct ActivityStreamContent: View {
 
   // MARK: - Navigation
 
-  private func selectSession(_ session: SessionSummary) {
+  private func selectSession(_ session: RootSessionRecord) {
     withAnimation(Motion.standard) {
       router.navigateToSession(scopedID: session.scopedID)
     }

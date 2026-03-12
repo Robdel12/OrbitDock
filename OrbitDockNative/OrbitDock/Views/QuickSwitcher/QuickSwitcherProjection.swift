@@ -1,10 +1,10 @@
 import Foundation
 
 struct QuickSwitcherProjection: Equatable, Sendable {
-  let filteredSessions: [SessionSummary]
-  let activeSessions: [SessionSummary]
-  let recentSessions: [SessionSummary]
-  let allVisibleSessions: [SessionSummary]
+  let filteredSessions: [RootSessionRecord]
+  let activeSessions: [RootSessionRecord]
+  let recentSessions: [RootSessionRecord]
+  let allVisibleSessions: [RootSessionRecord]
   let shouldShowRecentSessions: Bool
   let commandCount: Int
   let dashboardIndex: Int
@@ -12,7 +12,7 @@ struct QuickSwitcherProjection: Equatable, Sendable {
   let totalItems: Int
 
   static func make(
-    sessions: [SessionSummary],
+    sessions: [RootSessionRecord],
     normalizedQuery: String,
     isRecentExpanded: Bool,
     commandCount: Int,
@@ -50,14 +50,14 @@ struct QuickSwitcherProjection: Equatable, Sendable {
   }
 
   static func make(
-    sessions: [Session],
+    sessions: [SessionSummary],
     normalizedQuery: String,
     isRecentExpanded: Bool,
     commandCount: Int,
     quickLaunchProjectCount: Int? = nil
   ) -> QuickSwitcherProjection {
     make(
-      sessions: sessions.map(SessionSummary.init(session:)),
+      sessions: sessions.map(RootSessionRecord.init(summary:)),
       normalizedQuery: normalizedQuery,
       isRecentExpanded: isRecentExpanded,
       commandCount: commandCount,
@@ -65,16 +65,12 @@ struct QuickSwitcherProjection: Equatable, Sendable {
     )
   }
 
-  private static func filterSessions(_ sessions: [SessionSummary], normalizedQuery: String) -> [SessionSummary] {
+  private static func filterSessions(_ sessions: [RootSessionRecord], normalizedQuery: String) -> [RootSessionRecord] {
     guard !normalizedQuery.isEmpty else { return sessions }
 
     return sessions.filter { session in
       matches(session.id, query: normalizedQuery)
-        || matches(session.displayName, query: normalizedQuery)
-        || matches(session.projectPath, query: normalizedQuery)
-        || matches(session.summary, query: normalizedQuery)
-        || matches(session.customName, query: normalizedQuery)
-        || matches(session.branch, query: normalizedQuery)
+        || matches(session.displaySearchText, query: normalizedQuery)
     }
   }
 
@@ -89,7 +85,7 @@ struct QuickSwitcherProjection: Equatable, Sendable {
       .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private static func recentSessionDate(for session: SessionSummary) -> Date {
+  private static func recentSessionDate(for session: RootSessionRecord) -> Date {
     session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
   }
 }

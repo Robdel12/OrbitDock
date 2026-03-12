@@ -6,7 +6,7 @@
 import Foundation
 
 enum SessionSemantics {
-  static func displayName(
+  nonisolated static func displayName(
     customName: String?,
     summary: String?,
     firstPrompt: String?,
@@ -28,24 +28,64 @@ enum SessionSemantics {
     .first ?? "Unknown"
   }
 
-  static func groupingPath(repositoryRoot: String?, projectPath: String) -> String {
+  nonisolated static func displaySearchText(
+    displayName: String,
+    projectName: String?,
+    branch: String?,
+    model: String?,
+    summary: String?,
+    firstPrompt: String?,
+    lastMessage: String?,
+    projectPath: String
+  ) -> String {
+    [
+      displayName,
+      projectName,
+      branch,
+      model,
+      summary,
+      firstPrompt,
+      lastMessage,
+      projectPath,
+    ]
+    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+    .filter { !$0.isEmpty }
+    .joined(separator: "\n")
+    .lowercased()
+  }
+
+  nonisolated static func groupingPath(repositoryRoot: String?, projectPath: String) -> String {
     repositoryRoot ?? projectPath
   }
 
-  static func hasLiveEndpointConnection(_ status: ConnectionStatus?) -> Bool {
+  nonisolated static func hasLiveEndpointConnection(_ status: ConnectionStatus?) -> Bool {
     guard let status else { return true }
-    return status == .connected
+    switch status {
+      case .connected:
+        return true
+      case .disconnected, .connecting, .failed:
+        return false
+    }
   }
 
-  static func showsInMissionControl(status: Session.SessionStatus, endpointConnectionStatus: ConnectionStatus?) -> Bool {
+  nonisolated static func showsInMissionControl(
+    status: Session.SessionStatus,
+    endpointConnectionStatus: ConnectionStatus?
+  ) -> Bool {
     status == .active && hasLiveEndpointConnection(endpointConnectionStatus)
   }
 
-  static func needsAttention(status: Session.SessionStatus, attentionReason: Session.AttentionReason) -> Bool {
+  nonisolated static func needsAttention(
+    status: Session.SessionStatus,
+    attentionReason: Session.AttentionReason
+  ) -> Bool {
     status == .active && attentionReason != .none && attentionReason != .awaitingReply
   }
 
-  static func isReady(status: Session.SessionStatus, attentionReason: Session.AttentionReason) -> Bool {
+  nonisolated static func isReady(
+    status: Session.SessionStatus,
+    attentionReason: Session.AttentionReason
+  ) -> Bool {
     status == .active && attentionReason == .awaitingReply
   }
 }
@@ -137,6 +177,9 @@ struct Session: Identifiable, Hashable, Sendable, SessionSummaryItem {
   // MARK: - Unread Tracking
 
   var unreadCount: UInt64 = 0 // Server-backed unread message count
+  var displayName: String = "Unknown"
+  var normalizedDisplayName: String = "unknown"
+  var displaySearchText: String = "unknown"
 
   var currentDiff: String? // Aggregated diff for current turn
   var currentPlan: [PlanStep]? // Agent's plan for current turn
@@ -240,7 +283,10 @@ struct Session: Identifiable, Hashable, Sendable, SessionSummaryItem {
     outputTokens: Int? = nil,
     cachedTokens: Int? = nil,
     contextWindow: Int? = nil,
-    tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind = .unknown
+    tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind = .unknown,
+    displayName: String? = nil,
+    normalizedDisplayName: String? = nil,
+    displaySearchText: String? = nil
   ) {
     self.id = id
     self.endpointId = endpointId
@@ -286,6 +332,25 @@ struct Session: Identifiable, Hashable, Sendable, SessionSummaryItem {
     self.cachedTokens = cachedTokens
     self.contextWindow = contextWindow
     self.tokenUsageSnapshotKind = tokenUsageSnapshotKind
+    let resolvedDisplayName = displayName ?? SessionSemantics.displayName(
+      customName: customName,
+      summary: summary,
+      firstPrompt: firstPrompt,
+      projectName: projectName,
+      projectPath: projectPath
+    )
+    self.displayName = resolvedDisplayName
+    self.normalizedDisplayName = normalizedDisplayName ?? resolvedDisplayName.lowercased()
+    self.displaySearchText = displaySearchText ?? SessionSemantics.displaySearchText(
+      displayName: resolvedDisplayName,
+      projectName: projectName,
+      branch: branch,
+      model: model,
+      summary: summary,
+      firstPrompt: firstPrompt,
+      lastMessage: nil,
+      projectPath: projectPath
+    )
     collaborationMode = nil
     multiAgent = nil
     personality = nil
@@ -299,19 +364,31 @@ struct Session: Identifiable, Hashable, Sendable, SessionSummaryItem {
     return SessionRef(endpointId: endpointId, sessionId: id).scopedID
   }
 
-  var sessionRef: SessionRef? {
-    guard let endpointId else { return nil }
-    return SessionRef(endpointId: endpointId, sessionId: id)
-  }
-
-  var displayName: String {
-    SessionSemantics.displayName(
+  mutating func refreshDisplayProjection() {
+    let resolvedDisplayName = SessionSemantics.displayName(
       customName: customName,
       summary: summary,
       firstPrompt: firstPrompt,
       projectName: projectName,
       projectPath: projectPath
     )
+    displayName = resolvedDisplayName
+    normalizedDisplayName = resolvedDisplayName.lowercased()
+    displaySearchText = SessionSemantics.displaySearchText(
+      displayName: resolvedDisplayName,
+      projectName: projectName,
+      branch: branch,
+      model: model,
+      summary: summary,
+      firstPrompt: firstPrompt,
+      lastMessage: lastMessage,
+      projectPath: projectPath
+    )
+  }
+
+  var sessionRef: SessionRef? {
+    guard let endpointId else { return nil }
+    return SessionRef(endpointId: endpointId, sessionId: id)
   }
 
   /// Path used for project grouping — worktree sessions group with their parent repo.
@@ -448,6 +525,21 @@ struct Session: Identifiable, Hashable, Sendable, SessionSummaryItem {
       snapshotKind: tokenUsageSnapshotKind,
       provider: provider
     )
+  }
+
+  var displayStatus: SessionDisplayStatus {
+    guard isActive else { return .ended }
+
+    switch attentionReason {
+      case .awaitingPermission:
+        return .permission
+      case .awaitingQuestion:
+        return .question
+      case .awaitingReply:
+        return .reply
+      case .none:
+        return workStatus == .working ? .working : .reply
+    }
   }
 
   /// Effective context fill fraction (0-1).

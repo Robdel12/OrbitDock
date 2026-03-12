@@ -257,6 +257,7 @@ extension SessionStore {
         session(sessionId).unreadCount = newCount
         if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
           sessions[idx].unreadCount = newCount
+          updateRootSessionInList(sessions[idx].toRootSessionRecord())
         }
         notifySessionsChanged()
       } catch {

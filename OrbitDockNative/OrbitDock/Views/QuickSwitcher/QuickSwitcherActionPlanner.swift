@@ -3,17 +3,17 @@ import Foundation
 enum QuickSwitcherCommandPlan: Equatable {
   case goToDashboard
   case openNewSession(SessionProvider)
-  case renameSession(SessionSummary)
+  case renameSession(RootSessionRecord)
   case openInFinder(path: String)
   case copyResumeCommand(String)
-  case closeSession(SessionSummary)
+  case closeSession(RootSessionRecord)
 }
 
 enum QuickSwitcherSelectionPlan: Equatable {
   case none
   case quickLaunch(path: String)
   case goToDashboard
-  case openSession(SessionSummary)
+  case openSession(RootSessionRecord)
   case command(QuickSwitcherCommandPlan)
 }
 
@@ -22,8 +22,8 @@ enum QuickSwitcherActionPlanner {
     oldSearchText: String,
     newSearchText: String,
     selectedKind: QuickSwitcherSelectionKind,
-    visibleSessions: [SessionSummary]
-  ) -> SessionSummary? {
+    visibleSessions: [RootSessionRecord]
+  ) -> RootSessionRecord? {
     if oldSearchText.isEmpty, !newSearchText.isEmpty {
       switch selectedKind {
         case .session(let index):
@@ -41,11 +41,25 @@ enum QuickSwitcherActionPlanner {
     return nil
   }
 
+  static func capturedTargetSession(
+    oldSearchText: String,
+    newSearchText: String,
+    selectedKind: QuickSwitcherSelectionKind,
+    visibleSessions: [SessionSummary]
+  ) -> RootSessionRecord? {
+    capturedTargetSession(
+      oldSearchText: oldSearchText,
+      newSearchText: newSearchText,
+      selectedKind: selectedKind,
+      visibleSessions: visibleSessions.map(RootSessionRecord.init(summary:))
+    )
+  }
+
   static func commandPlan(
     command: QuickSwitcherCommand,
-    currentSession: SessionSummary?,
-    explicitTargetSession: SessionSummary?,
-    fallbackVisibleSession: SessionSummary?
+    currentSession: RootSessionRecord?,
+    explicitTargetSession: RootSessionRecord?,
+    fallbackVisibleSession: RootSessionRecord?
   ) -> QuickSwitcherCommandPlan? {
     let targetSession = QuickSwitcherSelectionResolver.commandTargetSession(
       currentSession: currentSession,
@@ -70,20 +84,34 @@ enum QuickSwitcherActionPlanner {
         return .openInFinder(path: targetSession.projectPath)
       case .copyResumeCommand:
         guard let targetSession else { return nil }
-        return .copyResumeCommand("claude --resume \(targetSession.id)")
+        return .copyResumeCommand("claude --resume \(targetSession.sessionId)")
       case .closeSession:
         guard let targetSession else { return nil }
         return .closeSession(targetSession)
     }
   }
 
+  static func commandPlan(
+    command: QuickSwitcherCommand,
+    currentSession: SessionSummary?,
+    explicitTargetSession: SessionSummary?,
+    fallbackVisibleSession: SessionSummary?
+  ) -> QuickSwitcherCommandPlan? {
+    commandPlan(
+      command: command,
+      currentSession: currentSession.map(RootSessionRecord.init(summary:)),
+      explicitTargetSession: explicitTargetSession.map(RootSessionRecord.init(summary:)),
+      fallbackVisibleSession: fallbackVisibleSession.map(RootSessionRecord.init(summary:))
+    )
+  }
+
   static func selectionPlan(
     selectedKind: QuickSwitcherSelectionKind,
     recentProjects: [ServerRecentProject],
     filteredCommands: [QuickSwitcherCommand],
-    visibleSessions: [SessionSummary],
-    currentSession: SessionSummary?,
-    explicitTargetSession: SessionSummary?
+    visibleSessions: [RootSessionRecord],
+    currentSession: RootSessionRecord?,
+    explicitTargetSession: RootSessionRecord?
   ) -> QuickSwitcherSelectionPlan {
     switch selectedKind {
       case .none:
@@ -110,15 +138,43 @@ enum QuickSwitcherActionPlanner {
     }
   }
 
+  static func selectionPlan(
+    selectedKind: QuickSwitcherSelectionKind,
+    recentProjects: [ServerRecentProject],
+    filteredCommands: [QuickSwitcherCommand],
+    visibleSessions: [SessionSummary],
+    currentSession: SessionSummary?,
+    explicitTargetSession: SessionSummary?
+  ) -> QuickSwitcherSelectionPlan {
+    selectionPlan(
+      selectedKind: selectedKind,
+      recentProjects: recentProjects,
+      filteredCommands: filteredCommands,
+      visibleSessions: visibleSessions.map(RootSessionRecord.init(summary:)),
+      currentSession: currentSession.map(RootSessionRecord.init(summary:)),
+      explicitTargetSession: explicitTargetSession.map(RootSessionRecord.init(summary:))
+    )
+  }
+
   static func renameTargetSession(
     selectedKind: QuickSwitcherSelectionKind,
-    visibleSessions: [SessionSummary]
-  ) -> SessionSummary? {
+    visibleSessions: [RootSessionRecord]
+  ) -> RootSessionRecord? {
     guard case .session(let index) = selectedKind, visibleSessions.indices.contains(index) else {
       return nil
     }
 
     return visibleSessions[index]
+  }
+
+  static func renameTargetSession(
+    selectedKind: QuickSwitcherSelectionKind,
+    visibleSessions: [SessionSummary]
+  ) -> RootSessionRecord? {
+    renameTargetSession(
+      selectedKind: selectedKind,
+      visibleSessions: visibleSessions.map(RootSessionRecord.init(summary:))
+    )
   }
 
 }

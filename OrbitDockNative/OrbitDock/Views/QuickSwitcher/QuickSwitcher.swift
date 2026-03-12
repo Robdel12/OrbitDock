@@ -17,7 +17,7 @@ struct QuickSwitcher: View {
   @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
-  let sessions: [SessionSummary]
+  let sessions: [RootSessionRecord]
 
   // Quick launch callbacks
   let onQuickLaunchClaude: ((String) -> Void)?
@@ -91,7 +91,7 @@ struct QuickSwitcher: View {
           initialText: quickSwitcherState.renameText,
           onSave: { newName in
             let name = newName.isEmpty ? nil : newName
-            Task { try? await appState(for: session).renameSession(session.id, name: name) }
+            Task { try? await appState(for: session).renameSession(session.sessionId, name: name) }
             quickSwitcherState.renamingSession = nil
           },
           onCancel: {
@@ -159,7 +159,7 @@ struct QuickSwitcher: View {
         Platform.services.copyToClipboard(command)
         router.closeQuickSwitcher()
       case .closeSession(let session):
-        Task { try? await appState(for: session).endSession(session.id) }
+        Task { try? await appState(for: session).endSession(session.sessionId) }
         router.closeQuickSwitcher()
     }
   }
@@ -287,7 +287,7 @@ struct QuickSwitcher: View {
 
   // MARK: - Switcher Row
 
-  private func switcherRow(session: SessionSummary, index: Int) -> some View {
+  private func switcherRow(session: RootSessionRecord, index: Int) -> some View {
     QuickSwitcherSessionRow(
       session: session,
       index: index,
@@ -309,7 +309,7 @@ struct QuickSwitcher: View {
         performCommandPlan(.renameSession(session))
       },
       onCopyResume: {
-        performCommandPlan(.copyResumeCommand("claude --resume \(session.id)"))
+        performCommandPlan(.copyResumeCommand("claude --resume \(session.sessionId)"))
       },
       onClose: session.showsInMissionControl ? {
         performCommandPlan(.closeSession(session))
@@ -401,11 +401,11 @@ struct QuickSwitcher: View {
     }
   }
 
-  private func appState(for session: SessionSummary) -> SessionStore {
+  private func appState(for session: RootSessionRecord) -> SessionStore {
     runtimeRegistry.sessionStore(for: session, fallback: serverState)
   }
 
-  private func sessionObservable(for session: SessionSummary) -> SessionObservable {
+  private func sessionObservable(for session: RootSessionRecord) -> SessionObservable {
     runtimeRegistry.sessionObservable(for: session, fallback: serverState)
   }
 

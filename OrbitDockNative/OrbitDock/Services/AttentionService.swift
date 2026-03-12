@@ -39,7 +39,10 @@ final class AttentionService {
   }
 
   /// Recompute attention events from current session state.
-  func update(sessions: [SessionSummary], sessionObservable: (SessionSummary) -> SessionObservable?) {
+  func update<SessionType: SessionSummaryItem>(
+    sessions: [SessionType],
+    sessionObservable: (SessionType) -> SessionObservable?
+  ) {
     var newEvents: [AttentionEvent] = []
 
     for session in sessions where session.showsInMissionControl {

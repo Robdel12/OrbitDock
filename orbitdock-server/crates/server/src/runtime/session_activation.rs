@@ -3,7 +3,9 @@ use std::time::Duration;
 
 use tracing::{info, warn};
 
-use orbitdock_protocol::{Provider, ServerMessage, SessionStatus, StateChanges, WorkStatus};
+use orbitdock_protocol::{
+    Provider, ServerMessage, SessionListItem, SessionStatus, StateChanges, WorkStatus,
+};
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
@@ -60,7 +62,9 @@ pub(crate) async fn reactivate_passive_and_prepare_subscribe(
         .await;
 
     if let Ok(summary) = actor.summary().await {
-        state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+        state.broadcast_to_list(ServerMessage::SessionCreated {
+            session: SessionListItem::from_summary(&summary),
+        });
     }
 
     let result = request_subscribe(actor, None).await?;

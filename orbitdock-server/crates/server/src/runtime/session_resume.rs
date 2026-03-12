@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use tracing::{error, info};
 
-use orbitdock_protocol::{Provider, ServerMessage, SessionSummary};
+use orbitdock_protocol::{Provider, ServerMessage, SessionListItem, SessionSummary};
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
@@ -56,7 +56,7 @@ pub(crate) async fn launch_resumed_session(
     let session_id = session_id.to_string();
     let summary = prepared.summary.clone();
     state.broadcast_to_list(ServerMessage::SessionCreated {
-        session: summary.clone(),
+        session: SessionListItem::from_summary(&summary),
     });
 
     let persist_tx = state.persist().clone();

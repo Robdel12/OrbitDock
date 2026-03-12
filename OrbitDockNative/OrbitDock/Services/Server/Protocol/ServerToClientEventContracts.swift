@@ -10,13 +10,13 @@ import Foundation
 enum ServerToClientMessage: Codable {
   // MARK: Session lifecycle and conversation
 
-  case sessionsList(sessions: [ServerSessionSummary])
+  case sessionsList(sessions: [ServerSessionListItem])
   case sessionSnapshot(session: ServerSessionState)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
   case messageAppended(sessionId: String, message: ServerMessage)
   case messageUpdated(sessionId: String, messageId: String, changes: ServerMessageChanges)
   case tokensUpdated(sessionId: String, usage: ServerTokenUsage, snapshotKind: ServerTokenUsageSnapshotKind)
-  case sessionCreated(session: ServerSessionSummary)
+  case sessionCreated(session: ServerSessionListItem)
   case sessionEnded(sessionId: String, reason: String)
   case contextCompacted(sessionId: String)
   case undoStarted(sessionId: String, message: String?)

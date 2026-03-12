@@ -70,13 +70,13 @@ struct QuickSwitcherModelTests {
       isCompactLayout: false
     )
 
-    #expect(viewState.currentSession?.id == "one")
-    #expect(viewState.targetSession?.id == "two")
+    #expect(viewState.currentSession?.sessionId == "one")
+    #expect(viewState.targetSession?.sessionId == "two")
     #expect(viewState.searchQuery == "rename")
     #expect(viewState.filteredCommands.contains(where: { $0.name.lowercased().contains("rename") }))
   }
 
-  private func makeSession(id: String) -> SessionSummary {
+  private func makeSession(id: String) -> RootSessionRecord {
     var session = Session(
       id: id,
       projectPath: "/tmp/\(id)",
@@ -88,6 +88,6 @@ struct QuickSwitcherModelTests {
     session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
     session.endpointName = "Primary"
     session.endpointConnectionStatus = .connected
-    return SessionSummary(session: session)
+    return RootSessionRecord(summary: SessionSummary(session: session))
   }
 }

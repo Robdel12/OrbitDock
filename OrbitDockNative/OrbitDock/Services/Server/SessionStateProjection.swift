@@ -333,6 +333,8 @@ extension Session {
     if let unreadCount = projection.unreadCount {
       self.unreadCount = unreadCount
     }
+
+    refreshDisplayProjection()
   }
 
   mutating func applyTokenUsage(

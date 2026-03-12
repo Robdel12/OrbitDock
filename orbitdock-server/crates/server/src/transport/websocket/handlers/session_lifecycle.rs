@@ -5,7 +5,7 @@ use tracing::{error, info, warn};
 
 use orbitdock_protocol::{
     ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
-    SessionStatus, StateChanges, WorkStatus,
+    SessionListItem, SessionStatus, StateChanges, WorkStatus,
 };
 
 use crate::connectors::claude_session::ClaudeSession;
@@ -142,7 +142,7 @@ pub(crate) async fn handle(
 
             // Broadcast updated summary to session list
             state.broadcast_to_list(ServerMessage::SessionCreated {
-                session: handle.summary(),
+                session: SessionListItem::from_summary(&handle.summary()),
             });
 
             // Reactivate in DB
@@ -1021,7 +1021,9 @@ pub(crate) async fn handle(
 
                     // Broadcast updated summary to list subscribers
                     if let Ok(summary) = new_actor.summary().await {
-                        state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                        state.broadcast_to_list(ServerMessage::SessionCreated {
+                            session: SessionListItem::from_summary(&summary),
+                        });
                     }
                 }
             }

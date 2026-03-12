@@ -1,6 +1,6 @@
 import Foundation
 
-enum ConnectionStatus: Equatable, Hashable {
+enum ConnectionStatus: Equatable, Hashable, Sendable {
   case disconnected
   case connecting
   case connected

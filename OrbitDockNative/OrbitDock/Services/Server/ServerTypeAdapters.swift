@@ -8,23 +8,30 @@
 
 import Foundation
 
+private enum RootSessionAdapterSupport {
+  static func provider(from provider: ServerProvider) -> Provider {
+    provider == .codex ? .codex : .claude
+  }
+
+  static func codexMode(provider: ServerProvider, mode: ServerCodexIntegrationMode?) -> CodexIntegrationMode? {
+    guard provider == .codex else { return nil }
+    return mode?.toSessionMode() ?? .direct
+  }
+
+  static func claudeMode(provider: ServerProvider, mode: ServerClaudeIntegrationMode?) -> ClaudeIntegrationMode? {
+    guard provider == .claude else { return nil }
+    return mode?.toSessionMode()
+  }
+}
+
 // MARK: - ServerSessionSummary → Session
 
 extension ServerSessionSummary {
   /// Convert to app Session model. Caller must stamp `endpointId` and `endpointName`
   /// on the returned session before inserting into `SessionStore.sessions`.
   func toSession() -> Session {
-    let codexMode: CodexIntegrationMode? = if provider == .codex {
-      codexIntegrationMode?.toSessionMode() ?? .direct
-    } else {
-      nil
-    }
-
-    let claudeMode: ClaudeIntegrationMode? = if provider == .claude {
-      claudeIntegrationMode?.toSessionMode()
-    } else {
-      nil
-    }
+    let codexMode = RootSessionAdapterSupport.codexMode(provider: provider, mode: codexIntegrationMode)
+    let claudeMode = RootSessionAdapterSupport.claudeMode(provider: provider, mode: claudeIntegrationMode)
 
     var session = Session(
       id: id,
@@ -44,7 +51,7 @@ extension ServerSessionSummary {
       pendingToolInput: pendingToolInput,
       pendingPermissionDetail: nil,
       pendingQuestion: pendingQuestion,
-      provider: provider == .codex ? .codex : .claude,
+      provider: RootSessionAdapterSupport.provider(from: provider),
       codexIntegrationMode: codexMode,
       claudeIntegrationMode: claudeMode,
       pendingApprovalId: pendingApprovalId,
@@ -69,6 +76,20 @@ extension ServerSessionSummary {
     session.isWorktree = isWorktree ?? false
     session.worktreeId = worktreeId
     session.unreadCount = unreadCount ?? 0
+    if let displayTitle {
+      session.displayName = displayTitle
+      session.normalizedDisplayName = displayTitleSortKey ?? displayTitle.lowercased()
+      session.displaySearchText = displaySearchText ?? SessionSemantics.displaySearchText(
+        displayName: displayTitle,
+        projectName: projectName,
+        branch: gitBranch,
+        model: model,
+        summary: summary,
+        firstPrompt: firstPrompt,
+        lastMessage: lastMessage,
+        projectPath: projectPath
+      )
+    }
     return session
   }
 }
@@ -79,17 +100,8 @@ extension ServerSessionState {
   /// Convert to app Session model. Caller must stamp `endpointId` and `endpointName`
   /// on the returned session before inserting into `SessionStore.sessions`.
   func toSession() -> Session {
-    let codexMode: CodexIntegrationMode? = if provider == .codex {
-      codexIntegrationMode?.toSessionMode() ?? .direct
-    } else {
-      nil
-    }
-
-    let claudeMode: ClaudeIntegrationMode? = if provider == .claude {
-      claudeIntegrationMode?.toSessionMode()
-    } else {
-      nil
-    }
+    let codexMode = RootSessionAdapterSupport.codexMode(provider: provider, mode: codexIntegrationMode)
+    let claudeMode = RootSessionAdapterSupport.claudeMode(provider: provider, mode: claudeIntegrationMode)
 
     var session = Session(
       id: id,
@@ -109,7 +121,7 @@ extension ServerSessionState {
       pendingToolInput: pendingToolInput,
       pendingPermissionDetail: nil,
       pendingQuestion: pendingQuestion,
-      provider: provider == .codex ? .codex : .claude,
+      provider: RootSessionAdapterSupport.provider(from: provider),
       codexIntegrationMode: codexMode,
       claudeIntegrationMode: claudeMode,
       pendingApprovalId: pendingApprovalId,
@@ -141,6 +153,322 @@ extension ServerSessionState {
   }
 }
 
+extension Session {
+  func toRootSessionRecord() -> RootSessionRecord {
+    let connectionStatus = endpointConnectionStatus ?? .disconnected
+
+    return RootSessionRecord(
+      sessionId: id,
+      endpointId: endpointId,
+      endpointName: endpointName,
+      endpointConnectionStatus: connectionStatus,
+      provider: provider,
+      status: status,
+      workStatus: workStatus,
+      attentionReason: attentionReason,
+      listStatus: RootSessionRecordSemantics.listStatus(
+        status: status,
+        workStatus: workStatus,
+        attentionReason: attentionReason
+      ),
+      summary: summary,
+      customName: customName,
+      firstPrompt: firstPrompt,
+      lastMessage: lastMessage,
+      displayTitle: displayName,
+      displayTitleSortKey: normalizedDisplayName,
+      displaySearchText: displaySearchText,
+      contextLine: RootSessionRecordSemantics.contextLine(
+        summary: summary,
+        firstPrompt: firstPrompt,
+        lastMessage: lastMessage
+      ),
+      projectPath: projectPath,
+      projectName: projectName,
+      branch: branch,
+      model: model,
+      startedAt: startedAt,
+      lastActivityAt: lastActivityAt,
+      endedAt: endedAt,
+      unreadCount: unreadCount,
+      repositoryRoot: repositoryRoot,
+      isWorktree: isWorktree,
+      worktreeId: worktreeId,
+      codexIntegrationMode: codexIntegrationMode,
+      claudeIntegrationMode: claudeIntegrationMode,
+      effort: effort,
+      pendingToolName: pendingToolName,
+      pendingQuestion: pendingQuestion,
+      lastTool: lastTool,
+      totalTokens: totalTokens,
+      totalCostUSD: totalCostUSD,
+      isActive: status == .active,
+      showsInMissionControl: SessionSemantics.showsInMissionControl(
+        status: status,
+        endpointConnectionStatus: connectionStatus
+      ),
+      needsAttention: SessionSemantics.needsAttention(
+        status: status,
+        attentionReason: attentionReason
+      ),
+      isReady: SessionSemantics.isReady(
+        status: status,
+        attentionReason: attentionReason
+      ),
+      allowsUserNotifications: !(provider == .codex && codexIntegrationMode == .passive)
+    )
+  }
+}
+
+// MARK: - Root Session Records
+
+extension ServerSessionListItem {
+  func toSession(
+    endpointId: UUID,
+    endpointName: String,
+    endpointConnectionStatus: ConnectionStatus
+  ) -> Session {
+    let appProvider = RootSessionAdapterSupport.provider(from: provider)
+    let status: Session.SessionStatus = status == .active ? .active : .ended
+    let workStatus = workStatus.toSessionWorkStatus()
+    let codexMode = RootSessionAdapterSupport.codexMode(provider: self.provider, mode: codexIntegrationMode)
+    let claudeMode = RootSessionAdapterSupport.claudeMode(provider: self.provider, mode: claudeIntegrationMode)
+    let displayTitle = (displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
+      $0.isEmpty ? nil : $0
+    } ?? RootSessionRecordSemantics.displayTitle(
+      customName: nil,
+      summary: contextLine,
+      firstPrompt: nil,
+      projectName: projectName,
+      projectPath: projectPath
+    )
+    let trimmedContextLine = contextLine?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedDisplayName = (displayTitleSortKey?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
+      $0.isEmpty ? nil : $0
+    } ?? RootSessionRecordSemantics.sortKey(for: displayTitle)
+    let searchText = (displaySearchText?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
+      $0.isEmpty ? nil : $0
+    } ?? RootSessionRecordSemantics.searchText(
+      displayTitle: displayTitle,
+      contextLine: trimmedContextLine,
+      projectName: projectName,
+      branch: gitBranch,
+      model: model
+    )
+
+    var session = Session(
+      id: id,
+      endpointId: endpointId,
+      endpointName: endpointName,
+      endpointConnectionStatus: endpointConnectionStatus,
+      projectPath: projectPath,
+      projectName: projectName,
+      branch: gitBranch,
+      model: model,
+      summary: trimmedContextLine,
+      status: status,
+      workStatus: workStatus,
+      startedAt: parseServerTimestamp(startedAt),
+      lastActivityAt: parseServerTimestamp(lastActivityAt),
+      attentionReason: attentionReason,
+      provider: appProvider,
+      codexIntegrationMode: codexMode,
+      claudeIntegrationMode: claudeMode,
+      displayName: displayTitle,
+      normalizedDisplayName: normalizedDisplayName,
+      displaySearchText: searchText
+    )
+    session.repositoryRoot = repositoryRoot
+    session.isWorktree = isWorktree ?? false
+    session.worktreeId = worktreeId
+    session.unreadCount = unreadCount ?? 0
+    session.effort = effort
+    return session
+  }
+
+  func toRootSessionRecord(
+    endpointId: UUID,
+    endpointName: String,
+    endpointConnectionStatus: ConnectionStatus
+  ) -> RootSessionRecord {
+    let appProvider = RootSessionAdapterSupport.provider(from: provider)
+    let status: Session.SessionStatus = status == .active ? .active : .ended
+    let workStatus = workStatus.toSessionWorkStatus()
+    let codexMode = RootSessionAdapterSupport.codexMode(provider: self.provider, mode: codexIntegrationMode)
+    let claudeMode = RootSessionAdapterSupport.claudeMode(provider: self.provider, mode: claudeIntegrationMode)
+    let displayTitle = (displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
+      $0.isEmpty ? nil : $0
+    } ?? RootSessionRecordSemantics.displayTitle(
+      customName: nil,
+      summary: contextLine,
+      firstPrompt: nil,
+      projectName: projectName,
+      projectPath: projectPath
+    )
+    let contextLine = contextLine?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let displayTitleSortKey = (displayTitleSortKey?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
+      $0.isEmpty ? nil : $0
+    } ?? RootSessionRecordSemantics.sortKey(for: displayTitle)
+    let displaySearchText = (displaySearchText?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
+      $0.isEmpty ? nil : $0
+    } ?? RootSessionRecordSemantics.searchText(
+      displayTitle: displayTitle,
+      contextLine: contextLine,
+      projectName: projectName,
+      branch: gitBranch,
+      model: model
+    )
+    let listStatus = listStatus.map(\.toRootSessionListStatus)
+      ?? RootSessionRecordSemantics.listStatus(status: status, workStatus: workStatus, attentionReason: attentionReason)
+    let isActive = status == .active
+    let showsInMissionControl = SessionSemantics.showsInMissionControl(
+      status: status,
+      endpointConnectionStatus: endpointConnectionStatus
+    )
+    let needsAttention = SessionSemantics.needsAttention(status: status, attentionReason: attentionReason)
+    let isReady = SessionSemantics.isReady(status: status, attentionReason: attentionReason)
+    let allowsUserNotifications = !(appProvider == .codex && codexMode == .passive)
+
+    return RootSessionRecord(
+      sessionId: id,
+      endpointId: endpointId,
+      endpointName: endpointName,
+      endpointConnectionStatus: endpointConnectionStatus,
+      provider: appProvider,
+      status: status,
+      workStatus: workStatus,
+      attentionReason: attentionReason,
+      listStatus: listStatus,
+      summary: nil,
+      customName: nil,
+      firstPrompt: nil,
+      lastMessage: contextLine,
+      displayTitle: displayTitle,
+      displayTitleSortKey: displayTitleSortKey,
+      displaySearchText: displaySearchText,
+      contextLine: contextLine,
+      projectPath: projectPath,
+      projectName: projectName,
+      branch: gitBranch,
+      model: model,
+      startedAt: parseServerTimestamp(startedAt),
+      lastActivityAt: parseServerTimestamp(lastActivityAt),
+      endedAt: nil,
+      unreadCount: unreadCount ?? 0,
+      repositoryRoot: repositoryRoot,
+      isWorktree: isWorktree ?? false,
+      worktreeId: worktreeId,
+      codexIntegrationMode: codexMode,
+      claudeIntegrationMode: claudeMode,
+      effort: effort,
+      pendingToolName: nil,
+      pendingQuestion: nil,
+      lastTool: nil,
+      totalTokens: 0,
+      totalCostUSD: 0,
+      isActive: isActive,
+      showsInMissionControl: showsInMissionControl,
+      needsAttention: needsAttention,
+      isReady: isReady,
+      allowsUserNotifications: allowsUserNotifications
+    )
+  }
+
+  private var attentionReason: Session.AttentionReason {
+    workStatus.toAttentionReason()
+  }
+}
+
+extension ServerSessionSummary {
+  func toRootSessionRecord(
+    endpointId: UUID,
+    endpointName: String,
+    endpointConnectionStatus: ConnectionStatus
+  ) -> RootSessionRecord {
+    let appProvider = RootSessionAdapterSupport.provider(from: provider)
+    let status: Session.SessionStatus = status == .active ? .active : .ended
+    let workStatus = workStatus.toSessionWorkStatus()
+    let codexMode = RootSessionAdapterSupport.codexMode(provider: self.provider, mode: codexIntegrationMode)
+    let claudeMode = RootSessionAdapterSupport.claudeMode(provider: self.provider, mode: claudeIntegrationMode)
+    let attentionReason = self.workStatus.toAttentionReason(hasPendingApproval: hasPendingApproval)
+    let displayTitle = RootSessionRecordSemantics.displayTitle(
+      customName: customName,
+      summary: summary,
+      firstPrompt: firstPrompt,
+      projectName: projectName,
+      projectPath: projectPath
+    )
+    let contextLine = RootSessionRecordSemantics.contextLine(
+      summary: summary,
+      firstPrompt: firstPrompt,
+      lastMessage: lastMessage
+    )
+    let listStatus = RootSessionRecordSemantics.listStatus(
+      status: status,
+      workStatus: workStatus,
+      attentionReason: attentionReason
+    )
+    let isActive = status == .active
+    let showsInMissionControl = SessionSemantics.showsInMissionControl(
+      status: status,
+      endpointConnectionStatus: endpointConnectionStatus
+    )
+    let needsAttention = SessionSemantics.needsAttention(status: status, attentionReason: attentionReason)
+    let isReady = SessionSemantics.isReady(status: status, attentionReason: attentionReason)
+    let allowsUserNotifications = !(appProvider == .codex && codexMode == .passive)
+
+    return RootSessionRecord(
+      sessionId: id,
+      endpointId: endpointId,
+      endpointName: endpointName,
+      endpointConnectionStatus: endpointConnectionStatus,
+      provider: appProvider,
+      status: status,
+      workStatus: workStatus,
+      attentionReason: attentionReason,
+      listStatus: listStatus,
+      summary: summary,
+      customName: customName,
+      firstPrompt: firstPrompt,
+      lastMessage: lastMessage,
+      displayTitle: displayTitle,
+      displayTitleSortKey: RootSessionRecordSemantics.sortKey(for: displayTitle),
+      displaySearchText: RootSessionRecordSemantics.searchText(
+        displayTitle: displayTitle,
+        contextLine: contextLine,
+        projectName: projectName,
+        branch: gitBranch,
+        model: model
+      ),
+      contextLine: contextLine,
+      projectPath: projectPath,
+      projectName: projectName,
+      branch: gitBranch,
+      model: model,
+      startedAt: parseServerTimestamp(startedAt),
+      lastActivityAt: parseServerTimestamp(lastActivityAt),
+      endedAt: nil,
+      unreadCount: unreadCount ?? 0,
+      repositoryRoot: repositoryRoot,
+      isWorktree: isWorktree ?? false,
+      worktreeId: worktreeId,
+      codexIntegrationMode: codexMode,
+      claudeIntegrationMode: claudeMode,
+      effort: effort,
+      pendingToolName: pendingToolName,
+      pendingQuestion: pendingQuestion,
+      lastTool: nil,
+      totalTokens: 0,
+      totalCostUSD: 0,
+      isActive: isActive,
+      showsInMissionControl: showsInMissionControl,
+      needsAttention: needsAttention,
+      isReady: isReady,
+      allowsUserNotifications: allowsUserNotifications
+    )
+  }
+}
+
 extension ServerCodexIntegrationMode {
   func toSessionMode() -> CodexIntegrationMode {
     switch self {
@@ -155,6 +483,18 @@ extension ServerClaudeIntegrationMode {
     switch self {
       case .direct: .direct
       case .passive: .passive
+    }
+  }
+}
+
+extension ServerSessionListStatus {
+  fileprivate var toRootSessionListStatus: RootSessionListStatus {
+    switch self {
+      case .working: .working
+      case .permission: .permission
+      case .question: .question
+      case .reply: .reply
+      case .ended: .ended
     }
   }
 }

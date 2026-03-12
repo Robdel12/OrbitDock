@@ -1,9 +1,14 @@
 import Foundation
 
 extension String {
+  nonisolated private static let xmlTagRegex: NSRegularExpression? = try? NSRegularExpression(
+    pattern: "<[^>]+>",
+    options: []
+  )
+
   /// Strips XML/HTML tags from a string.
   nonisolated func strippingXMLTags() -> String {
-    guard let regex = try? NSRegularExpression(pattern: "<[^>]+>", options: []) else {
+    guard let regex = Self.xmlTagRegex else {
       return self
     }
     let range = NSRange(startIndex ..< endIndex, in: self)

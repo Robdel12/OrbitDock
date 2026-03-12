@@ -23,6 +23,7 @@ struct WindowSessionCoordinatorTests {
       projectPath: "/repo/project"
     )
     store.sessions = [session]
+    store.rootSessions = [RootSessionRecord(summary: SessionSummary(session: session))]
     store.setHasReceivedInitialSessionsList(true)
 
     let router = AppRouter()
@@ -41,6 +42,7 @@ struct WindowSessionCoordinatorTests {
     coordinator.start(currentScopedId: session.scopedID)
 
     #expect(coordinator.sessions.map { $0.id } == ["session-1"])
+    #expect(coordinator.rootSessions.map(\.sessionId) == ["session-1"])
     #expect(toastManager.currentSessionId == session.scopedID)
     #expect(coordinator.isAnyInitialLoading == false)
   }

@@ -17,7 +17,7 @@ struct QuickSwitcherActionPlannerTests {
       visibleSessions: sessions
     )
 
-    #expect(target?.id == "two")
+    #expect(target?.sessionId == "two")
   }
 
   @Test func capturedTargetSessionFallsBackToFirstVisibleSession() {
@@ -33,7 +33,7 @@ struct QuickSwitcherActionPlannerTests {
       visibleSessions: sessions
     )
 
-    #expect(target?.id == "one")
+    #expect(target?.sessionId == "one")
   }
 
   @Test func capturedTargetSessionClearsWhenSearchIsReset() {
@@ -85,7 +85,7 @@ struct QuickSwitcherActionPlannerTests {
       selectedKind: .command(index: 0),
       recentProjects: [],
       filteredCommands: [command],
-      visibleSessions: [SessionSummary](),
+      visibleSessions: [RootSessionRecord](),
       currentSession: nil,
       explicitTargetSession: nil
     )
@@ -103,7 +103,7 @@ struct QuickSwitcherActionPlannerTests {
       QuickSwitcherActionPlanner.renameTargetSession(
         selectedKind: .session(index: 1),
         visibleSessions: sessions
-      )?.id == "two"
+      )?.sessionId == "two"
     )
 
     #expect(
@@ -114,14 +114,18 @@ struct QuickSwitcherActionPlannerTests {
     )
   }
 
-  private func makeSession(id: String) -> SessionSummary {
-    SessionSummary(session: Session(
+  private func makeSession(id: String) -> RootSessionRecord {
+    var session = Session(
       id: id,
       projectPath: "/tmp/\(id)",
       status: .active,
       workStatus: .waiting,
       totalTokens: 0,
       totalCostUSD: 0
-    ))
+    )
+    session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
+    session.endpointName = "Primary"
+    session.endpointConnectionStatus = .connected
+    return RootSessionRecord(summary: SessionSummary(session: session))
   }
 }

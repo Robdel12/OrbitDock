@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-use orbitdock_protocol::{Provider, ServerMessage};
+use orbitdock_protocol::{Provider, ServerMessage, SessionListItem};
 
 use crate::connectors::codex_session::CodexAction;
 use crate::runtime::session_fork_policy::{plan_fork_config, ForkConfigInputs};
@@ -225,7 +225,7 @@ pub(crate) async fn handle_fork_session(
                     )
                     .await;
                     state.broadcast_to_list(ServerMessage::SessionCreated {
-                        session: started.summary,
+                        session: SessionListItem::from_summary(&started.summary),
                     });
 
                     info!(
@@ -379,7 +379,7 @@ pub(crate) async fn handle_fork_session(
                     )
                     .await;
                     state.broadcast_to_list(ServerMessage::SessionCreated {
-                        session: started.summary,
+                        session: SessionListItem::from_summary(&started.summary),
                     });
                 }
                 Err(error_message) => {

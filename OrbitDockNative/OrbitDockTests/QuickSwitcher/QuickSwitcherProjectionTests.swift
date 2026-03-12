@@ -35,7 +35,7 @@ struct QuickSwitcherProjectionTests {
       commandCount: 0
     )
 
-    #expect(branchProjection.filteredSessions.map(\.id) == ["active-branch", "recent-summary"])
+    #expect(branchProjection.filteredSessions.map(\.sessionId) == ["active-branch", "recent-summary"])
   }
 
   @Test func filteringIsCaseAndDiacriticInsensitive() {
@@ -57,7 +57,7 @@ struct QuickSwitcherProjectionTests {
       commandCount: 0
     )
 
-    #expect(projection.filteredSessions.map(\.id) == ["accented"])
+    #expect(projection.filteredSessions.map(\.sessionId) == ["accented"])
   }
 
   @Test func activeSessionsSortNewestFirstAndRecentSessionsSortByRecentActivity() {
@@ -94,9 +94,9 @@ struct QuickSwitcherProjectionTests {
       commandCount: 0
     )
 
-    #expect(projection.activeSessions.map(\.id) == ["active-new", "active-old"])
-    #expect(projection.recentSessions.map(\.id) == ["recent-newer", "recent-older"])
-    #expect(projection.allVisibleSessions.map(\.id) == ["active-new", "active-old", "recent-newer", "recent-older"])
+    #expect(projection.activeSessions.map(\.sessionId) == ["active-new", "active-old"])
+    #expect(projection.recentSessions.map(\.sessionId) == ["recent-newer", "recent-older"])
+    #expect(projection.allVisibleSessions.map(\.sessionId) == ["active-new", "active-old", "recent-newer", "recent-older"])
   }
 
   @Test func recentSessionsStayHiddenUntilExpandedUnlessSearching() {
@@ -130,9 +130,9 @@ struct QuickSwitcherProjectionTests {
     )
 
     #expect(collapsed.shouldShowRecentSessions == false)
-    #expect(collapsed.allVisibleSessions.map(\.id) == ["active"])
+    #expect(collapsed.allVisibleSessions.map(\.sessionId) == ["active"])
     #expect(searching.shouldShowRecentSessions == true)
-    #expect(searching.allVisibleSessions.map(\.id) == ["recent"])
+    #expect(searching.allVisibleSessions.map(\.sessionId) == ["recent"])
   }
 
   @Test func navigationLayoutUsesCommandDashboardAndVisibleSessionCounts() {
@@ -188,8 +188,8 @@ struct QuickSwitcherProjectionTests {
     )
 
     #expect(projection.recentSessions.count == 20)
-    #expect(projection.recentSessions.first?.id == "recent-23")
-    #expect(projection.recentSessions.last?.id == "recent-4")
+    #expect(projection.recentSessions.first?.sessionId == "recent-23")
+    #expect(projection.recentSessions.last?.sessionId == "recent-4")
   }
 
   private func makeSession(
@@ -203,7 +203,7 @@ struct QuickSwitcherProjectionTests {
     startedAt: Date? = nil,
     endedAt: Date? = nil,
     lastActivityAt: Date? = nil
-  ) -> SessionSummary {
+  ) -> RootSessionRecord {
     var session = Session(
       id: id,
       projectPath: projectPath,
@@ -222,6 +222,6 @@ struct QuickSwitcherProjectionTests {
     session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
     session.endpointName = "Primary"
     session.endpointConnectionStatus = .connected
-    return SessionSummary(session: session)
+    return RootSessionRecord(summary: SessionSummary(session: session))
   }
 }

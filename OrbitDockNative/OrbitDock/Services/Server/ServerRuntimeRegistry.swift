@@ -381,6 +381,23 @@ final class ServerRuntimeRegistry {
     sessionObservable(for: session, fallback: fallback).forkedFrom != nil
   }
 
+  func sessionStore(for session: RootSessionRecord, fallback: SessionStore) -> SessionStore {
+    guard let endpointId = session.endpointId,
+          let runtime = runtimesByEndpointId[endpointId]
+    else {
+      return fallback
+    }
+    return runtime.sessionStore
+  }
+
+  func sessionObservable(for session: RootSessionRecord, fallback: SessionStore) -> SessionObservable {
+    sessionStore(for: session, fallback: fallback).session(session.sessionId)
+  }
+
+  func isForkedSession(_ session: RootSessionRecord, fallback: SessionStore) -> Bool {
+    sessionObservable(for: session, fallback: fallback).forkedFrom != nil
+  }
+
   func sessionStore(for endpointId: UUID?, fallback: SessionStore) -> SessionStore {
     guard let endpointId,
           let runtime = runtimesByEndpointId[endpointId]

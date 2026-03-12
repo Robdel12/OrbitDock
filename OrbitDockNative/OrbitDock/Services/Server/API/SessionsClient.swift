@@ -2,7 +2,7 @@ import Foundation
 
 struct SessionsClient: Sendable {
   struct SessionsListResponse: Decodable {
-    let sessions: [ServerSessionSummary]
+    let sessions: [ServerSessionListItem]
   }
 
   struct SessionSnapshotResponse: Decodable {
@@ -137,7 +137,7 @@ struct SessionsClient: Sendable {
     self.requestBuilder = requestBuilder
   }
 
-  func fetchSessionsList() async throws -> [ServerSessionSummary] {
+  func fetchSessionsList() async throws -> [ServerSessionListItem] {
     let response: SessionsListResponse = try await http.get("/api/sessions")
     return response.sessions
   }

@@ -1360,6 +1360,13 @@ mod tests {
         project_path: &str,
         last_activity_at: Option<&str>,
     ) -> SessionSummary {
+        let display_title = SessionSummary::display_title_from_parts(
+            None,
+            None,
+            None,
+            Some("Project"),
+            project_path,
+        );
         SessionSummary {
             id: id.to_string(),
             provider,
@@ -1401,6 +1408,17 @@ mod tests {
             is_worktree: false,
             worktree_id: None,
             unread_count: 0,
+            display_title_sort_key: SessionSummary::display_title_sort_key(&display_title),
+            display_search_text: SessionSummary::display_search_text_from_parts(
+                &display_title,
+                None,
+                Some("Project"),
+                None,
+                None,
+            ),
+            display_title,
+            context_line: None,
+            list_status: orbitdock_protocol::SessionListStatus::Reply,
         }
     }
 

@@ -19,7 +19,7 @@ use crate::output::{human, truncate, Output};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct SessionsResponse {
-    sessions: Vec<orbitdock_protocol::SessionSummary>,
+    sessions: Vec<orbitdock_protocol::SessionListItem>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

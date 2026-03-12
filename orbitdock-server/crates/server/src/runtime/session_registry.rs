@@ -5,7 +5,7 @@ mod connector_registry;
 mod recent_projects;
 
 use dashmap::DashMap;
-use orbitdock_protocol::{ClientPrimaryClaim, SessionSummary};
+use orbitdock_protocol::{ClientPrimaryClaim, SessionListItem, SessionSummary};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -229,6 +229,18 @@ impl SessionRegistry {
             .map(|entry| {
                 let actor = entry.value();
                 let snap = actor.snapshot();
+                let display_title = SessionSummary::display_title_from_parts(
+                    snap.custom_name.as_deref(),
+                    snap.summary.as_deref(),
+                    snap.first_prompt.as_deref(),
+                    snap.project_name.as_deref(),
+                    &snap.project_path,
+                );
+                let context_line = SessionSummary::context_line_from_parts(
+                    snap.summary.as_deref(),
+                    snap.first_prompt.as_deref(),
+                    snap.last_message.as_deref(),
+                );
                 SessionSummary {
                     id: snap.id.clone(),
                     provider: snap.provider,
@@ -270,8 +282,26 @@ impl SessionRegistry {
                     is_worktree: snap.is_worktree,
                     worktree_id: snap.worktree_id.clone(),
                     unread_count: snap.unread_count,
+                    display_title_sort_key: SessionSummary::display_title_sort_key(&display_title),
+                    display_search_text: SessionSummary::display_search_text_from_parts(
+                        &display_title,
+                        context_line.as_deref(),
+                        snap.project_name.as_deref(),
+                        snap.git_branch.as_deref(),
+                        snap.model.as_deref(),
+                    ),
+                    display_title,
+                    context_line,
+                    list_status: SessionSummary::list_status_from_parts(snap.status, snap.work_status),
                 }
             })
+            .collect()
+    }
+
+    pub fn get_session_list_items(&self) -> Vec<SessionListItem> {
+        self.get_session_summaries()
+            .into_iter()
+            .map(SessionListItem::from)
             .collect()
     }
 

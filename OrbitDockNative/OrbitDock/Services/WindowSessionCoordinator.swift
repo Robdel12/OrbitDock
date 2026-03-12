@@ -12,6 +12,7 @@ final class WindowSessionCoordinator {
   @ObservationIgnored private var sessionObservationTasks: [UUID: Task<Void, Never>] = [:]
 
   private(set) var sessions: [SessionSummary] = []
+  private(set) var rootSessions: [RootSessionRecord] = []
 
   init(
     runtimeRegistry: ServerRuntimeRegistry,
@@ -32,11 +33,11 @@ final class WindowSessionCoordinator {
     unifiedSessionsStore.endpointHealth
   }
 
-  var missionControlSessions: [SessionSummary] {
-    sessions.filter(\.showsInMissionControl)
+  var missionControlSessions: [RootSessionRecord] {
+    rootSessions.filter(\.showsInMissionControl)
   }
 
-  var missionControlAttentionSessions: [SessionSummary] {
+  var missionControlAttentionSessions: [RootSessionRecord] {
     missionControlSessions.filter(\.needsAttention)
   }
 
@@ -64,10 +65,11 @@ final class WindowSessionCoordinator {
   func refreshSessions() {
     let previousMissionControlSessions = missionControlSessions
     let oldWaitingIds = Set(missionControlAttentionSessions.map(\.scopedID))
-    let oldSessions = sessions
+    let oldSessions = rootSessions
 
     unifiedSessionsStore.refresh(from: projectionInputs())
     sessions = unifiedSessionsStore.sessions
+    rootSessions = unifiedSessionsStore.rootSessions
 
     if let selectedScopedID = router.selectedScopedID,
        !unifiedSessionsStore.containsSession(scopedID: selectedScopedID)
@@ -77,7 +79,7 @@ final class WindowSessionCoordinator {
 
     let notificationSessions = MissionControlNotificationSessions.merge(
       previousSessions: previousMissionControlSessions,
-      currentSessions: sessions
+      currentSessions: missionControlSessions
     )
 
     for session in notificationSessions {
@@ -153,7 +155,7 @@ final class WindowSessionCoordinator {
       UnifiedSessionsProjection.EndpointInput(
         endpoint: runtime.endpoint,
         status: runtimeRegistry.displayConnectionStatus(for: runtime.endpoint.id),
-        sessions: runtime.sessionStore.sessions
+        rootSessions: runtime.sessionStore.rootSessions
       )
     }
   }

@@ -47,6 +47,17 @@ pub enum WorkStatus {
     Ended,
 }
 
+/// Root/list-facing session display status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionListStatus {
+    Working,
+    Permission,
+    Question,
+    Reply,
+    Ended,
+}
+
 /// Message role
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -412,6 +423,161 @@ pub struct SessionSummary {
     /// Number of unread messages in this session.
     #[serde(default)]
     pub unread_count: u64,
+    pub display_title: String,
+    pub display_title_sort_key: String,
+    pub display_search_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_line: Option<String>,
+    pub list_status: SessionListStatus,
+}
+
+impl SessionSummary {
+    pub fn display_title_from_parts(
+        custom_name: Option<&str>,
+        summary: Option<&str>,
+        first_prompt: Option<&str>,
+        project_name: Option<&str>,
+        project_path: &str,
+    ) -> String {
+        [
+            custom_name,
+            summary,
+            first_prompt,
+            project_name,
+            project_path.rsplit('/').next(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(clean_display_text)
+        .find(|value| !value.is_empty())
+        .unwrap_or_else(|| "Unknown".to_string())
+    }
+
+    pub fn display_title_sort_key(display_title: &str) -> String {
+        display_title.to_lowercase()
+    }
+
+    pub fn context_line_from_parts(
+        summary: Option<&str>,
+        first_prompt: Option<&str>,
+        last_message: Option<&str>,
+    ) -> Option<String> {
+        [last_message, summary, first_prompt]
+            .into_iter()
+            .flatten()
+            .map(clean_display_text)
+            .find(|value| !value.is_empty())
+    }
+
+    pub fn display_search_text_from_parts(
+        display_title: &str,
+        context_line: Option<&str>,
+        project_name: Option<&str>,
+        git_branch: Option<&str>,
+        model: Option<&str>,
+    ) -> String {
+        [
+            Some(display_title),
+            context_line,
+            project_name,
+            git_branch,
+            model,
+        ]
+        .into_iter()
+        .flatten()
+        .map(clean_display_text)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+    }
+
+    pub fn list_status_from_parts(status: SessionStatus, work_status: WorkStatus) -> SessionListStatus {
+        if status != SessionStatus::Active {
+            return SessionListStatus::Ended;
+        }
+
+        match work_status {
+            WorkStatus::Working => SessionListStatus::Working,
+            WorkStatus::Permission => SessionListStatus::Permission,
+            WorkStatus::Question => SessionListStatus::Question,
+            WorkStatus::Waiting | WorkStatus::Reply | WorkStatus::Ended => SessionListStatus::Reply,
+        }
+    }
+}
+
+fn clean_display_text(value: &str) -> String {
+    let mut stripped = String::with_capacity(value.len());
+    let mut inside_tag = false;
+
+    for ch in value.chars() {
+        match ch {
+            '<' => inside_tag = true,
+            '>' => inside_tag = false,
+            _ if !inside_tag => stripped.push(ch),
+            _ => {}
+        }
+    }
+
+    stripped.trim().to_string()
+}
+
+impl SessionSummary {
+    pub fn to_list_item(&self) -> SessionListItem {
+        SessionListItem {
+            id: self.id.clone(),
+            provider: self.provider,
+            project_path: self.project_path.clone(),
+            project_name: self.project_name.clone(),
+            git_branch: self.git_branch.clone(),
+            model: self.model.clone(),
+            status: self.status,
+            work_status: self.work_status,
+            codex_integration_mode: self.codex_integration_mode,
+            claude_integration_mode: self.claude_integration_mode,
+            started_at: self.started_at.clone(),
+            last_activity_at: self.last_activity_at.clone(),
+            unread_count: self.unread_count,
+            repository_root: self.repository_root.clone(),
+            is_worktree: self.is_worktree,
+            worktree_id: self.worktree_id.clone(),
+            display_title: self.display_title.clone(),
+            display_title_sort_key: self.display_title_sort_key.clone(),
+            display_search_text: self.display_search_text.clone(),
+            context_line: self.context_line.clone(),
+            list_status: self.list_status,
+            effort: self.effort.clone(),
+        }
+    }
+}
+
+impl From<SessionSummary> for SessionListItem {
+    fn from(summary: SessionSummary) -> Self {
+        SessionListItem {
+            id: summary.id,
+            provider: summary.provider,
+            project_path: summary.project_path,
+            project_name: summary.project_name,
+            git_branch: summary.git_branch,
+            model: summary.model,
+            status: summary.status,
+            work_status: summary.work_status,
+            codex_integration_mode: summary.codex_integration_mode,
+            claude_integration_mode: summary.claude_integration_mode,
+            started_at: summary.started_at,
+            last_activity_at: summary.last_activity_at,
+            unread_count: summary.unread_count,
+            repository_root: summary.repository_root,
+            is_worktree: summary.is_worktree,
+            worktree_id: summary.worktree_id,
+            display_title: summary.display_title,
+            display_title_sort_key: summary.display_title_sort_key,
+            display_search_text: summary.display_search_text,
+            context_line: summary.context_line,
+            list_status: summary.list_status,
+            effort: summary.effort,
+        }
+    }
 }
 
 /// A diff snapshot from a completed turn
@@ -581,6 +747,72 @@ pub struct SessionState {
     /// Number of unread messages in this session.
     #[serde(default)]
     pub unread_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionListItem {
+    pub id: String,
+    pub provider: Provider,
+    pub project_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub status: SessionStatus,
+    pub work_status: WorkStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codex_integration_mode: Option<CodexIntegrationMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_integration_mode: Option<ClaudeIntegrationMode>,
+    pub started_at: Option<String>,
+    pub last_activity_at: Option<String>,
+    #[serde(default)]
+    pub unread_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_root: Option<String>,
+    #[serde(default)]
+    pub is_worktree: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
+    pub display_title: String,
+    pub display_title_sort_key: String,
+    pub display_search_text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_line: Option<String>,
+    pub list_status: SessionListStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
+impl SessionListItem {
+    pub fn from_summary(summary: &SessionSummary) -> Self {
+        Self {
+            id: summary.id.clone(),
+            provider: summary.provider,
+            project_path: summary.project_path.clone(),
+            project_name: summary.project_name.clone(),
+            git_branch: summary.git_branch.clone(),
+            model: summary.model.clone(),
+            status: summary.status,
+            work_status: summary.work_status,
+            codex_integration_mode: summary.codex_integration_mode,
+            claude_integration_mode: summary.claude_integration_mode,
+            started_at: summary.started_at.clone(),
+            last_activity_at: summary.last_activity_at.clone(),
+            unread_count: summary.unread_count,
+            repository_root: summary.repository_root.clone(),
+            is_worktree: summary.is_worktree,
+            worktree_id: summary.worktree_id.clone(),
+            display_title: summary.display_title.clone(),
+            display_title_sort_key: summary.display_title_sort_key.clone(),
+            display_search_text: summary.display_search_text.clone(),
+            context_line: summary.context_line.clone(),
+            list_status: summary.list_status,
+            effort: summary.effort.clone(),
+        }
+    }
 }
 
 /// Changes to apply to a session state (delta updates)

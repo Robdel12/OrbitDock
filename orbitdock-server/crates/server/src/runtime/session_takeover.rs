@@ -4,7 +4,9 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tracing::info;
 
-use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider, ServerMessage};
+use orbitdock_protocol::{
+    ClaudeIntegrationMode, CodexIntegrationMode, Provider, ServerMessage, SessionListItem,
+};
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
@@ -172,7 +174,9 @@ pub(crate) async fn takeover_passive_session(
 
     if let Some(actor) = state.get_session(session_id) {
         if let Ok(summary) = actor.summary().await {
-            state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+            state.broadcast_to_list(ServerMessage::SessionCreated {
+                session: SessionListItem::from_summary(&summary),
+            });
         }
     }
 

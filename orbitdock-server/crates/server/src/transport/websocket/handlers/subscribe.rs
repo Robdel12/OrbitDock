@@ -51,7 +51,7 @@ pub(crate) async fn handle(
             let rx = state.subscribe_list();
             spawn_broadcast_forwarder(rx, client_tx.clone(), None);
 
-            let sessions = state.get_session_summaries();
+            let sessions = state.get_session_list_items();
             send_json(client_tx, ServerMessage::SessionsList { sessions }).await;
         }
 
@@ -248,7 +248,9 @@ mod tests {
     use crate::runtime::session_commands::SessionCommand;
     use crate::transport::websocket::test_support::{new_test_state, recv_json};
     use crate::transport::websocket::OutboundMessage;
-    use orbitdock_protocol::{ClientMessage, Message, MessageType, Provider, ServerMessage};
+    use orbitdock_protocol::{
+        ClientMessage, Message, MessageType, Provider, ServerMessage, SessionListStatus,
+    };
     use tokio::sync::mpsc;
 
     #[tokio::test]
@@ -310,6 +312,40 @@ mod tests {
                 "expected first streamed event to be MessageAppended, got {:?}",
                 other
             ),
+        }
+    }
+
+    #[tokio::test]
+    async fn subscribe_list_emits_root_safe_session_list_items() {
+        let state = new_test_state();
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let mut session_handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        session_handle.set_custom_name(Some("Review <i>passive</i> workers".to_string()));
+        session_handle.set_first_prompt(Some("Workers are noisy".to_string()));
+        state.add_session(session_handle);
+
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+        handle(ClientMessage::SubscribeList, &client_tx, &state, 1002).await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::SessionsList { sessions } => {
+                let session = sessions
+                    .into_iter()
+                    .find(|session| session.id == session_id)
+                    .expect("session list should include runtime session");
+                assert_eq!(session.display_title, "Review passive workers");
+                assert_eq!(session.display_title_sort_key, "review passive workers");
+                assert!(session
+                    .display_search_text
+                    .contains("review passive workers"));
+                assert_eq!(session.list_status, SessionListStatus::Reply);
+                assert!(session.context_line.is_some());
+            }
+            other => panic!("expected SessionsList response, got {other:?}"),
         }
     }
 }

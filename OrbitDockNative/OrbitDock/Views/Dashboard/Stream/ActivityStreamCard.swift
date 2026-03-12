@@ -19,7 +19,7 @@ import SwiftUI
 // MARK: - Attention Card (large, prominent, demands action)
 
 struct AttentionCard: View {
-  let session: SessionSummary
+  let session: RootSessionRecord
   let onSelect: () -> Void
 
   @Environment(SessionStore.self) private var serverState
@@ -163,7 +163,7 @@ struct AttentionCard: View {
 // MARK: - Working Card (medium, activity-focused)
 
 struct WorkingCard: View {
-  let session: SessionSummary
+  let session: RootSessionRecord
   let onSelect: () -> Void
 
   @Environment(SessionStore.self) private var serverState
@@ -276,7 +276,7 @@ struct CompactSessionRow: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(SessionStore.self) private var serverState
 
-  let session: SessionSummary
+  let session: RootSessionRecord
   let onSelect: () -> Void
   var isSelected: Bool = false
 
@@ -465,15 +465,15 @@ struct CompactSessionRow: View {
 // MARK: - Shared Helpers
 
 enum SessionCardHelpers {
-  static func agentLabel(for session: SessionSummary) -> String {
-    session.displayName
+  static func agentLabel(for session: RootSessionRecord) -> String {
+    session.displayTitle
   }
 
-  static func projectName(for session: SessionSummary) -> String {
+  static func projectName(for session: RootSessionRecord) -> String {
     session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown"
   }
 
-  static func branch(for session: SessionSummary, maxLength: Int) -> String? {
+  static func branch(for session: RootSessionRecord, maxLength: Int) -> String? {
     guard let branch = session.branch, !branch.isEmpty else { return nil }
     if branch.count > maxLength {
       return String(branch.prefix(maxLength - 2)) + "…"
@@ -481,27 +481,15 @@ enum SessionCardHelpers {
     return branch
   }
 
-  static func contextLine(for session: SessionSummary) -> String? {
-    if let lastMsg = session.lastMessage, !lastMsg.isEmpty {
-      let cleaned = DashboardFormatters.cleanPrompt(lastMsg, maxLength: 100)
-      let label = agentLabel(for: session)
-      if cleaned != label { return cleaned }
-    }
-
-    if hasExplicitTitle(session) {
-      if let prompt = session.firstPrompt, !prompt.isEmpty {
-        return DashboardFormatters.cleanPrompt(prompt, maxLength: 100)
-      }
-    }
-
-    return nil
+  static func contextLine(for session: RootSessionRecord) -> String? {
+    session.contextLine
   }
 
-  static func recency(for session: SessionSummary) -> String? {
+  static func recency(for session: RootSessionRecord) -> String? {
     DashboardFormatters.recency(for: session.lastActivityAt ?? session.startedAt)
   }
 
-  private static func hasExplicitTitle(_ session: SessionSummary) -> Bool {
+  private static func hasExplicitTitle(_ session: RootSessionRecord) -> Bool {
     [session.customName, session.summary].contains { value in
       guard let value else { return false }
       return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -509,7 +497,7 @@ enum SessionCardHelpers {
   }
 
   @ViewBuilder
-  static func contextMenu(for session: SessionSummary, serverState: SessionStore) -> some View {
+  static func contextMenu(for session: RootSessionRecord, serverState: SessionStore) -> some View {
     Button {
       _ = Platform.services.revealInFileBrowser(session.projectPath)
     } label: {
@@ -517,7 +505,7 @@ enum SessionCardHelpers {
     }
 
     Button {
-      let command = "claude --resume \(session.id)"
+      let command = "claude --resume \(session.sessionId)"
       Platform.services.copyToClipboard(command)
     } label: {
       Label("Copy Resume Command", systemImage: "doc.on.doc")
@@ -526,7 +514,7 @@ enum SessionCardHelpers {
     if session.isActive, session.isDirect {
       Divider()
       Button(role: .destructive) {
-        Task { try? await serverState.endSession(session.id) }
+        Task { try? await serverState.endSession(session.sessionId) }
       } label: {
         Label("End Session", systemImage: "stop.circle")
       }

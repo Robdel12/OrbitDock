@@ -13,7 +13,7 @@ use crate::types::*;
 pub enum ServerMessage {
     // Full state sync
     SessionsList {
-        sessions: Vec<SessionSummary>,
+        sessions: Vec<SessionListItem>,
     },
     SessionSnapshot {
         session: SessionState,
@@ -47,7 +47,7 @@ pub enum ServerMessage {
 
     // Lifecycle
     SessionCreated {
-        session: SessionSummary,
+        session: SessionListItem,
     },
     SessionEnded {
         session_id: String,

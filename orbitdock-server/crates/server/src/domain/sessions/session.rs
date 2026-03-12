@@ -6,9 +6,9 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
-    ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, SessionState, SessionStatus,
-    SessionSummary, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
-    WorkStatus,
+    ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, SessionState,
+    SessionStatus, SessionSummary, StateChanges, SubagentInfo, TokenUsage,
+    TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 use tokio::sync::broadcast;
 use tracing::info;
@@ -44,6 +44,7 @@ fn fallback_tool_name(approval: &ApprovalRequest) -> Option<String> {
         ApprovalType::Question => None,
     }
 }
+
 
 fn fallback_tool_input(approval: &ApprovalRequest) -> Option<String> {
     if let Some(input) = approval
@@ -820,6 +821,18 @@ impl SessionHandle {
 
     /// Get a summary of this session
     pub fn summary(&self) -> SessionSummary {
+        let display_title = SessionSummary::display_title_from_parts(
+            self.custom_name.as_deref(),
+            self.summary.as_deref(),
+            self.first_prompt.as_deref(),
+            self.project_name.as_deref(),
+            &self.project_path,
+        );
+        let context_line = SessionSummary::context_line_from_parts(
+            self.summary.as_deref(),
+            self.first_prompt.as_deref(),
+            self.last_message.as_deref(),
+        );
         SessionSummary {
             id: self.id.clone(),
             provider: self.provider,
@@ -867,6 +880,17 @@ impl SessionHandle {
             is_worktree: self.is_worktree,
             worktree_id: self.worktree_id.clone(),
             unread_count: self.unread_count,
+            display_title_sort_key: SessionSummary::display_title_sort_key(&display_title),
+            display_search_text: SessionSummary::display_search_text_from_parts(
+                &display_title,
+                context_line.as_deref(),
+                self.project_name.as_deref(),
+                self.git_branch.as_deref(),
+                self.model.as_deref(),
+            ),
+            display_title,
+            context_line,
+            list_status: SessionSummary::list_status_from_parts(self.status, self.work_status),
         }
     }
 

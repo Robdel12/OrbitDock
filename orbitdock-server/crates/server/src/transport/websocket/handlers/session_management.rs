@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-use orbitdock_protocol::{Provider, ServerMessage};
+use orbitdock_protocol::{Provider, ServerMessage, SessionListItem};
 
 use crate::runtime::session_creation::{
     launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
@@ -109,7 +109,9 @@ pub(crate) async fn handle_create_session(
         .await;
     }
 
-    state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+    state.broadcast_to_list(ServerMessage::SessionCreated {
+        session: SessionListItem::from_summary(&summary),
+    });
 }
 
 pub(crate) async fn handle_end_session(

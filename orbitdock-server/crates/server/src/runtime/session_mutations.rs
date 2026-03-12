@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use orbitdock_protocol::ServerMessage;
+use orbitdock_protocol::{ServerMessage, SessionListItem};
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
@@ -61,7 +61,9 @@ pub(crate) async fn rename_session(
         .await;
 
     if let Ok(summary) = reply_rx.await {
-        state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+        state.broadcast_to_list(ServerMessage::SessionCreated {
+            session: SessionListItem::from_summary(&summary),
+        });
     }
 
     if let Some(ref name) = name {
@@ -122,7 +124,9 @@ pub(crate) async fn update_session_config(
         .await;
 
     if let Ok(summary) = actor.summary().await {
-        state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+        state.broadcast_to_list(ServerMessage::SessionCreated {
+            session: SessionListItem::from_summary(&summary),
+        });
     }
 
     if let Some(ref mode) = permission_mode {

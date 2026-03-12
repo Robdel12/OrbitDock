@@ -37,10 +37,22 @@ enum QuickSwitcherSelectionResolver {
   }
 
   static func commandTargetSession(
+    currentSession: RootSessionRecord?,
+    explicitTargetSession: RootSessionRecord?,
+    fallbackVisibleSession: RootSessionRecord?
+  ) -> RootSessionRecord? {
+    currentSession ?? explicitTargetSession ?? fallbackVisibleSession
+  }
+
+  static func commandTargetSession(
     currentSession: SessionSummary?,
     explicitTargetSession: SessionSummary?,
     fallbackVisibleSession: SessionSummary?
-  ) -> SessionSummary? {
-    currentSession ?? explicitTargetSession ?? fallbackVisibleSession
+  ) -> RootSessionRecord? {
+    commandTargetSession(
+      currentSession: currentSession.map(RootSessionRecord.init(summary:)),
+      explicitTargetSession: explicitTargetSession.map(RootSessionRecord.init(summary:)),
+      fallbackVisibleSession: fallbackVisibleSession.map(RootSessionRecord.init(summary:))
+    )
   }
 }

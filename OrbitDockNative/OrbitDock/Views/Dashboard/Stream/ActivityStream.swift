@@ -8,13 +8,13 @@
 import Foundation
 
 struct ActivityStream {
-  let attention: [SessionSummary]
-  let working: [SessionSummary]
-  let ready: [SessionSummary]
-  let ended: [SessionSummary]
+  let attention: [RootSessionRecord]
+  let working: [RootSessionRecord]
+  let ready: [RootSessionRecord]
+  let ended: [RootSessionRecord]
 
   static func build(
-    from sessions: [SessionSummary],
+    from sessions: [RootSessionRecord],
     filter: ActiveSessionWorkbenchFilter,
     sort: ActiveSessionSort,
     providerFilter: ActiveSessionProviderFilter,
@@ -32,7 +32,7 @@ struct ActivityStream {
       activeSessions = activeSessions.filter { $0.projectPath == projectFilter }
     }
 
-    let filtered: [SessionSummary]
+    let filtered: [RootSessionRecord]
     switch filter {
       case .all: filtered = activeSessions
       case .direct: filtered = activeSessions.filter(\.isDirect)
@@ -63,7 +63,7 @@ struct ActivityStream {
     )
   }
 
-  private static func sortSessions(lhs: SessionSummary, rhs: SessionSummary, sort: ActiveSessionSort) -> Bool {
+  private static func sortSessions(lhs: RootSessionRecord, rhs: RootSessionRecord, sort: ActiveSessionSort) -> Bool {
     switch sort {
       case .recent:
         return sortDate(lhs) > sortDate(rhs)
@@ -87,7 +87,7 @@ struct ActivityStream {
     }
   }
 
-  private static func sortDate(_ session: SessionSummary) -> Date {
+  private static func sortDate(_ session: RootSessionRecord) -> Date {
     session.lastActivityAt ?? session.startedAt ?? .distantPast
   }
 

@@ -37,6 +37,25 @@ protocol SessionSummaryItem: Sendable {
   var isWorktree: Bool { get }
   var unreadCount: UInt64 { get }
   var effort: String? { get }
+  var scopedID: String { get }
+  var sessionRef: SessionRef? { get }
+  var displayName: String { get }
+  var normalizedDisplayName: String { get }
+  var displaySearchText: String { get }
+  var groupingPath: String { get }
+  var isActive: Bool { get }
+  var hasLiveEndpointConnection: Bool { get }
+  var showsInMissionControl: Bool { get }
+  var hasUnreadMessages: Bool { get }
+  var needsAttention: Bool { get }
+  var isReady: Bool { get }
+  var isDirectCodex: Bool { get }
+  var isPassiveCodex: Bool { get }
+  var allowsUserNotifications: Bool { get }
+  var isDirectClaude: Bool { get }
+  var isDirect: Bool { get }
+  var effectiveContextInputTokens: Int { get }
+  var displayStatus: SessionDisplayStatus { get }
 }
 
 extension SessionSummaryItem {
@@ -58,6 +77,27 @@ extension SessionSummaryItem {
       projectName: projectName,
       projectPath: projectPath
     )
+  }
+
+  var normalizedDisplayName: String {
+    displayName.lowercased()
+  }
+
+  var displaySearchText: String {
+    [
+      displayName,
+      projectName,
+      branch,
+      model,
+      summary,
+      firstPrompt,
+      lastMessage,
+      projectPath,
+    ]
+    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+    .filter { !$0.isEmpty }
+    .joined(separator: "\n")
+    .lowercased()
   }
 
   var groupingPath: String {
@@ -149,6 +189,91 @@ extension SessionSummaryItem {
   }
 }
 
+struct SessionSummaryDisplayProjection: Hashable, Sendable {
+  let displayName: String
+  let normalizedDisplayName: String
+  let displaySearchText: String
+  let groupingPath: String
+  let showsInMissionControl: Bool
+  let hasUnreadMessages: Bool
+  let needsAttention: Bool
+  let isReady: Bool
+  let isDirectCodex: Bool
+  let isPassiveCodex: Bool
+  let allowsUserNotifications: Bool
+  let isDirectClaude: Bool
+  let isDirect: Bool
+  let effectiveContextInputTokens: Int
+  let displayStatus: SessionDisplayStatus
+
+  nonisolated static func make(from session: Session) -> SessionSummaryDisplayProjection {
+    let displayName = session.displayName
+    let normalizedDisplayName = session.normalizedDisplayName
+    let displaySearchText = session.displaySearchText
+
+    let groupingPath = SessionSemantics.groupingPath(
+      repositoryRoot: session.repositoryRoot,
+      projectPath: session.projectPath
+    )
+    let showsInMissionControl = SessionSemantics.showsInMissionControl(
+      status: session.status,
+      endpointConnectionStatus: session.endpointConnectionStatus
+    )
+    let hasUnreadMessages = session.unreadCount > 0
+    let needsAttention = SessionSemantics.needsAttention(
+      status: session.status,
+      attentionReason: session.attentionReason
+    )
+    let isReady = SessionSemantics.isReady(
+      status: session.status,
+      attentionReason: session.attentionReason
+    )
+    let isDirectCodex = session.provider == .codex && session.codexIntegrationMode == .direct
+    let isPassiveCodex = session.provider == .codex && session.codexIntegrationMode == .passive
+    let allowsUserNotifications = !isPassiveCodex
+    let isDirectClaude = session.provider == .claude && session.claudeIntegrationMode == .direct
+    let isDirect = isDirectCodex || isDirectClaude
+    let effectiveContextInputTokens = SessionTokenUsageSemantics.effectiveContextInputTokens(
+      inputTokens: session.inputTokens,
+      cachedTokens: session.cachedTokens,
+      snapshotKind: session.tokenUsageSnapshotKind,
+      provider: session.provider
+    )
+
+    let displayStatus: SessionDisplayStatus = {
+      guard session.status == .active else { return .ended }
+      switch session.attentionReason {
+        case .awaitingPermission:
+          return .permission
+        case .awaitingQuestion:
+          return .question
+        case .awaitingReply:
+          return .reply
+        case .none:
+          return session.workStatus == .working ? .working : .reply
+      }
+    }()
+
+    return SessionSummaryDisplayProjection(
+      displayName: displayName,
+      normalizedDisplayName: normalizedDisplayName,
+      displaySearchText: displaySearchText,
+      groupingPath: groupingPath,
+      showsInMissionControl: showsInMissionControl,
+      hasUnreadMessages: hasUnreadMessages,
+      needsAttention: needsAttention,
+      isReady: isReady,
+      isDirectCodex: isDirectCodex,
+      isPassiveCodex: isPassiveCodex,
+      allowsUserNotifications: allowsUserNotifications,
+      isDirectClaude: isDirectClaude,
+      isDirect: isDirect,
+      effectiveContextInputTokens: effectiveContextInputTokens,
+      displayStatus: displayStatus
+    )
+  }
+}
+
 struct SessionSummary: SessionSummaryItem, Identifiable, Hashable, Sendable {
   let id: String
   let endpointId: UUID?
@@ -186,6 +311,21 @@ struct SessionSummary: SessionSummaryItem, Identifiable, Hashable, Sendable {
   let isWorktree: Bool
   let unreadCount: UInt64
   let effort: String?
+  let displayName: String
+  let normalizedDisplayName: String
+  let displaySearchText: String
+  let groupingPath: String
+  let showsInMissionControl: Bool
+  let hasUnreadMessages: Bool
+  let needsAttention: Bool
+  let isReady: Bool
+  let isDirectCodex: Bool
+  let isPassiveCodex: Bool
+  let allowsUserNotifications: Bool
+  let isDirectClaude: Bool
+  let isDirect: Bool
+  let effectiveContextInputTokens: Int
+  let displayStatus: SessionDisplayStatus
 
   nonisolated init(session: Session) {
     id = session.id
@@ -224,5 +364,89 @@ struct SessionSummary: SessionSummaryItem, Identifiable, Hashable, Sendable {
     isWorktree = session.isWorktree
     unreadCount = session.unreadCount
     effort = session.effort
+    let display = SessionSummaryDisplayProjection.make(from: session)
+    displayName = display.displayName
+    normalizedDisplayName = display.normalizedDisplayName
+    displaySearchText = display.displaySearchText
+    groupingPath = display.groupingPath
+    showsInMissionControl = display.showsInMissionControl
+    hasUnreadMessages = display.hasUnreadMessages
+    needsAttention = display.needsAttention
+    isReady = display.isReady
+    isDirectCodex = display.isDirectCodex
+    isPassiveCodex = display.isPassiveCodex
+    allowsUserNotifications = display.allowsUserNotifications
+    isDirectClaude = display.isDirectClaude
+    isDirect = display.isDirect
+    effectiveContextInputTokens = display.effectiveContextInputTokens
+    displayStatus = display.displayStatus
+  }
+
+  nonisolated init(rootRecord: RootSessionRecord) {
+    id = rootRecord.sessionId
+    endpointId = rootRecord.endpointId
+    endpointName = rootRecord.endpointName
+    endpointConnectionStatus = rootRecord.endpointConnectionStatus
+    projectPath = rootRecord.projectPath
+    projectName = rootRecord.projectName
+    branch = rootRecord.branch
+    model = rootRecord.model
+    summary = rootRecord.contextLine
+    customName = nil
+    firstPrompt = nil
+    lastMessage = nil
+    status = rootRecord.status
+    workStatus = rootRecord.workStatus
+    startedAt = rootRecord.startedAt
+    endedAt = nil
+    totalTokens = 0
+    totalCostUSD = 0
+    lastActivityAt = rootRecord.lastActivityAt
+    lastTool = nil
+    promptCount = 0
+    toolCount = 0
+    attentionReason = switch rootRecord.listStatus {
+      case .permission: .awaitingPermission
+      case .question: .awaitingQuestion
+      case .reply: .awaitingReply
+      case .working, .ended: .none
+    }
+    pendingToolName = nil
+    provider = rootRecord.provider
+    codexIntegrationMode = rootRecord.codexIntegrationMode
+    claudeIntegrationMode = rootRecord.claudeIntegrationMode
+    inputTokens = nil
+    outputTokens = nil
+    cachedTokens = nil
+    contextWindow = nil
+    tokenUsageSnapshotKind = .unknown
+    repositoryRoot = rootRecord.repositoryRoot
+    isWorktree = rootRecord.isWorktree
+    unreadCount = rootRecord.unreadCount
+    effort = rootRecord.effort
+    displayName = rootRecord.displayTitle
+    normalizedDisplayName = rootRecord.displayTitleSortKey
+    displaySearchText = rootRecord.displaySearchText
+    groupingPath = SessionSemantics.groupingPath(
+      repositoryRoot: rootRecord.repositoryRoot,
+      projectPath: rootRecord.projectPath
+    )
+    showsInMissionControl = rootRecord.showsInMissionControl
+    hasUnreadMessages = rootRecord.unreadCount > 0
+    needsAttention = rootRecord.needsAttention
+    isReady = rootRecord.isReady
+    isDirectCodex = rootRecord.provider == .codex && rootRecord.codexIntegrationMode == .direct
+    isPassiveCodex = rootRecord.provider == .codex && rootRecord.codexIntegrationMode == .passive
+    allowsUserNotifications = rootRecord.allowsUserNotifications
+    isDirectClaude = rootRecord.provider == .claude && rootRecord.claudeIntegrationMode == .direct
+    isDirect = isDirectCodex || isDirectClaude
+    effectiveContextInputTokens = 0
+    displayStatus = switch rootRecord.listStatus {
+      case .working: .working
+      case .permission: .permission
+      case .question: .question
+      case .reply: .reply
+      case .ended: .ended
+    }
   }
 }

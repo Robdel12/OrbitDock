@@ -8,8 +8,8 @@ use orbitdock_connector_codex::rollout_parser::{
     RolloutFileProcessor, SessionSource, DEBOUNCE_MS, SESSION_TIMEOUT_SECS,
 };
 use orbitdock_protocol::{
-    CodexIntegrationMode, Message, MessageType, Provider, ServerMessage, SessionStatus,
-    StateChanges, TokenUsageSnapshotKind, WorkStatus,
+    CodexIntegrationMode, Message, MessageType, Provider, ServerMessage, SessionListItem,
+    SessionStatus, StateChanges, TokenUsageSnapshotKind, WorkStatus,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -345,7 +345,9 @@ impl WatcherRuntime {
             let summary = handle.summary();
             self.app_state.add_session(handle);
             self.app_state
-                .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                .broadcast_to_list(ServerMessage::SessionCreated {
+                    session: SessionListItem::from_summary(&summary),
+                });
         } else if let Some(actor) = self.app_state.get_session(&session_id) {
             let snap = actor.snapshot();
             actor
@@ -388,7 +390,9 @@ impl WatcherRuntime {
 
             if let Ok(summary) = actor.summary().await {
                 self.app_state
-                    .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                    .broadcast_to_list(ServerMessage::SessionCreated {
+                        session: SessionListItem::from_summary(&summary),
+                    });
             }
         }
 
@@ -875,7 +879,9 @@ impl WatcherRuntime {
                 .await;
             if let Ok(summary) = rx.await {
                 self.app_state
-                    .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                    .broadcast_to_list(ServerMessage::SessionCreated {
+                        session: SessionListItem::from_summary(&summary),
+                    });
             }
         }
     }
@@ -1061,7 +1067,9 @@ impl WatcherRuntime {
 
             if let Ok(summary) = actor.summary().await {
                 self.app_state
-                    .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                    .broadcast_to_list(ServerMessage::SessionCreated {
+                        session: SessionListItem::from_summary(&summary),
+                    });
             }
         }
     }

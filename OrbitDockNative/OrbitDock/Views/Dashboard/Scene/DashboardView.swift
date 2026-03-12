@@ -16,6 +16,7 @@ struct DashboardView: View {
   @Environment(AppRouter.self) private var router
 
   let sessions: [SessionSummary]
+  let rootSessions: [RootSessionRecord]
   let endpointHealth: [UnifiedEndpointHealth]
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
@@ -34,7 +35,7 @@ struct DashboardView: View {
 
   private var activityStream: ActivityStream {
     ActivityStream.build(
-      from: sessions,
+      from: rootSessions,
       filter: activeWorkbenchFilter,
       sort: activeSort,
       providerFilter: activeProviderFilter,
@@ -42,7 +43,7 @@ struct DashboardView: View {
     )
   }
 
-  private var navigableSessions: [SessionSummary] {
+  private var navigableSessions: [RootSessionRecord] {
     activityStream.attention + activityStream.working + activityStream.ready
   }
 
@@ -67,7 +68,7 @@ struct DashboardView: View {
 
       VStack(spacing: 0) {
         DashboardStatusBar(
-          sessions: sessions,
+          sessions: rootSessions,
           isInitialLoading: isInitialLoading,
           isRefreshingCachedSessions: isRefreshingCachedSessions
         )
@@ -107,7 +108,7 @@ struct DashboardView: View {
       if showsSidebar {
         HStack(spacing: 0) {
           DesktopSidebarPanel(
-            sessions: sessions,
+            sessions: rootSessions,
             width: sidebarWidth,
             projectFilter: $activeProjectFilter,
             onSelectSession: { session in
@@ -123,7 +124,7 @@ struct DashboardView: View {
 
           VStack(spacing: 0) {
             ActivityStreamToolbar(
-              sessions: sessions,
+              sessions: rootSessions,
               filter: $activeWorkbenchFilter,
               sort: $activeSort,
               providerFilter: $activeProviderFilter
@@ -135,7 +136,7 @@ struct DashboardView: View {
       } else {
         VStack(spacing: 0) {
           ActivityStreamToolbar(
-            sessions: sessions,
+            sessions: rootSessions,
             filter: $activeWorkbenchFilter,
             sort: $activeSort,
             providerFilter: $activeProviderFilter
@@ -178,8 +179,8 @@ struct DashboardView: View {
         if showingLoadingSkeleton {
           loadingSkeletonContent
         } else {
-          ActivityStreamContent(
-            sessions: sessions,
+            ActivityStreamContent(
+            sessions: rootSessions,
             filter: activeWorkbenchFilter,
             sort: activeSort,
             providerFilter: activeProviderFilter,
@@ -384,6 +385,7 @@ private struct DashboardSidebarResizeHandle: View {
   let router = AppRouter()
   DashboardView(
     sessions: [],
+    rootSessions: [],
     endpointHealth: [],
     isInitialLoading: false,
     isRefreshingCachedSessions: false

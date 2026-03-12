@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
 
-use orbitdock_protocol::{Provider, ServerMessage, SessionSummary};
+use orbitdock_protocol::{Provider, ServerMessage, SessionListItem, SessionSummary};
 
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
@@ -106,7 +106,9 @@ pub(crate) async fn materialize_claude_session(
     }
 
     if let Ok(summary) = actor.summary().await {
-        state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+        state.broadcast_to_list(ServerMessage::SessionCreated {
+            session: SessionListItem::from_summary(&summary),
+        });
     }
 
     if let Some(ref model) = model {

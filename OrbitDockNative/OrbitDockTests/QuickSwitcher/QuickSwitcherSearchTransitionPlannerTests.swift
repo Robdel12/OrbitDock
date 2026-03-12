@@ -15,7 +15,7 @@ struct QuickSwitcherSearchTransitionPlannerTests {
       visibleSessions: sessions
     )
 
-    #expect(transition.targetSession?.id == "two")
+    #expect(transition.targetSession?.sessionId == "two")
     #expect(transition.selectedIndex == 0)
     #expect(transition.hoveredIndex == nil)
     #expect(transition.mode == .standard)
@@ -45,7 +45,7 @@ struct QuickSwitcherSearchTransitionPlannerTests {
       visibleSessions: [makeSession(id: "one")]
     )
 
-    #expect(transition.mode == .quickLaunch(.claude))
+    #expect(transition.mode == QuickSwitcherSearchMode.quickLaunch(.claude))
     #expect(transition.shouldLoadRecentProjects == true)
   }
 
@@ -58,18 +58,22 @@ struct QuickSwitcherSearchTransitionPlannerTests {
       visibleSessions: [makeSession(id: "one")]
     )
 
-    #expect(transition.mode == .quickLaunch(.claude))
+    #expect(transition.mode == QuickSwitcherSearchMode.quickLaunch(.claude))
     #expect(transition.shouldLoadRecentProjects == false)
   }
 
-  private func makeSession(id: String) -> SessionSummary {
-    SessionSummary(session: Session(
+  private func makeSession(id: String) -> RootSessionRecord {
+    var session = Session(
       id: id,
       projectPath: "/tmp/\(id)",
       status: .active,
       workStatus: .waiting,
       totalTokens: 0,
       totalCostUSD: 0
-    ))
+    )
+    session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
+    session.endpointName = "Primary"
+    session.endpointConnectionStatus = .connected
+    return RootSessionRecord(summary: SessionSummary(session: session))
   }
 }

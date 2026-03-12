@@ -7,7 +7,7 @@ extension ServerToClientMessage {
 
     switch type {
       case "sessions_list":
-        let sessions = try container.decode([ServerSessionSummary].self, forKey: .sessions)
+        let sessions = try container.decode([ServerSessionListItem].self, forKey: .sessions)
         self = .sessionsList(sessions: sessions)
 
       case "session_snapshot":
@@ -44,7 +44,7 @@ extension ServerToClientMessage {
         self = .tokensUpdated(sessionId: sessionId, usage: usage, snapshotKind: snapshotKind)
 
       case "session_created":
-        let session = try container.decode(ServerSessionSummary.self, forKey: .session)
+        let session = try container.decode(ServerSessionListItem.self, forKey: .session)
         self = .sessionCreated(session: session)
 
       case "session_ended":

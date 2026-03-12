@@ -1,7 +1,7 @@
 import Foundation
 
 enum SessionTokenUsageSemantics {
-  static func effectiveContextInputTokens(
+  nonisolated static func effectiveContextInputTokens(
     inputTokens: Int?,
     cachedTokens: Int?,
     snapshotKind: ServerTokenUsageSnapshotKind,
@@ -24,7 +24,7 @@ enum SessionTokenUsageSemantics {
     }
   }
 
-  static func contextFillFraction(
+  nonisolated static func contextFillFraction(
     contextWindow: Int?,
     effectiveContextInputTokens: Int
   ) -> Double {
@@ -33,7 +33,7 @@ enum SessionTokenUsageSemantics {
     return min(Double(effectiveContextInputTokens) / Double(contextWindow), 1.0)
   }
 
-  static func effectiveCacheHitPercent(
+  nonisolated static func effectiveCacheHitPercent(
     inputTokens: Int?,
     cachedTokens: Int?,
     snapshotKind: ServerTokenUsageSnapshotKind,
@@ -55,7 +55,7 @@ enum SessionTokenUsageSemantics {
     }
   }
 
-  static func hasTokenUsage(
+  nonisolated static func hasTokenUsage(
     inputTokens: Int?,
     outputTokens: Int?,
     cachedTokens: Int?

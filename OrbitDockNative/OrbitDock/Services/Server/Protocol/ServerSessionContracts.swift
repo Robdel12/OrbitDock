@@ -47,6 +47,66 @@ struct ServerTokenUsage: Codable {
   }
 }
 
+// MARK: - Root Session List
+
+enum ServerSessionListStatus: String, Codable {
+  case working
+  case permission
+  case question
+  case reply
+  case ended
+}
+
+struct ServerSessionListItem: Codable, Identifiable {
+  let id: String
+  let provider: ServerProvider
+  let projectPath: String
+  let projectName: String?
+  let gitBranch: String?
+  let model: String?
+  let status: ServerSessionStatus
+  let workStatus: ServerWorkStatus
+  let codexIntegrationMode: ServerCodexIntegrationMode?
+  let claudeIntegrationMode: ServerClaudeIntegrationMode?
+  let startedAt: String?
+  let lastActivityAt: String?
+  let unreadCount: UInt64?
+  let repositoryRoot: String?
+  let isWorktree: Bool?
+  let worktreeId: String?
+  let displayTitle: String?
+  let displayTitleSortKey: String?
+  let displaySearchText: String?
+  let contextLine: String?
+  let listStatus: ServerSessionListStatus?
+  let effort: String?
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case provider
+    case projectPath = "project_path"
+    case projectName = "project_name"
+    case gitBranch = "git_branch"
+    case model
+    case status
+    case workStatus = "work_status"
+    case codexIntegrationMode = "codex_integration_mode"
+    case claudeIntegrationMode = "claude_integration_mode"
+    case startedAt = "started_at"
+    case lastActivityAt = "last_activity_at"
+    case unreadCount = "unread_count"
+    case repositoryRoot = "repository_root"
+    case isWorktree = "is_worktree"
+    case worktreeId = "worktree_id"
+    case displayTitle = "display_title"
+    case displayTitleSortKey = "display_title_sort_key"
+    case displaySearchText = "display_search_text"
+    case contextLine = "context_line"
+    case listStatus = "list_status"
+    case effort
+  }
+}
+
 // MARK: - Session Summary
 
 struct ServerSessionSummary: Codable, Identifiable {
@@ -90,6 +150,11 @@ struct ServerSessionSummary: Codable, Identifiable {
   let isWorktree: Bool?
   let worktreeId: String?
   let unreadCount: UInt64?
+  let displayTitle: String?
+  let displayTitleSortKey: String?
+  let displaySearchText: String?
+  let contextLine: String?
+  let listStatus: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -132,6 +197,11 @@ struct ServerSessionSummary: Codable, Identifiable {
     case isWorktree = "is_worktree"
     case worktreeId = "worktree_id"
     case unreadCount = "unread_count"
+    case displayTitle = "display_title"
+    case displayTitleSortKey = "display_title_sort_key"
+    case displaySearchText = "display_search_text"
+    case contextLine = "context_line"
+    case listStatus = "list_status"
   }
 }
 

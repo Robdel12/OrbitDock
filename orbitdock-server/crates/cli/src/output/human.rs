@@ -2,13 +2,13 @@ use comfy_table::{
     modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, Color, Table,
 };
 use orbitdock_protocol::{
-    ApprovalHistoryItem, Provider, SessionStatus, SessionSummary, WorkStatus,
+    ApprovalHistoryItem, Provider, SessionListItem, SessionStatus, WorkStatus,
 };
 
 use super::truncate;
 
 /// Format sessions as a human-readable table.
-pub fn sessions_table(sessions: &[SessionSummary]) {
+pub fn sessions_table(sessions: &[SessionListItem]) {
     if sessions.is_empty() {
         println!("No sessions found.");
         return;
@@ -39,11 +39,7 @@ pub fn sessions_table(sessions: &[SessionSummary]) {
             Provider::Codex => "codex",
         };
         let model = s.model.as_deref().unwrap_or("-");
-        let name = s
-            .custom_name
-            .as_deref()
-            .or(s.summary.as_deref())
-            .unwrap_or("-");
+        let name = s.display_title.as_str();
         let name_truncated = truncate(name, 40);
 
         table.add_row(vec![

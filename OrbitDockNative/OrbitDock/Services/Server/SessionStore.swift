@@ -32,6 +32,7 @@ final class SessionStore {
   // MARK: - Observable state
 
   var sessions: [Session] = []
+  var rootSessions: [RootSessionRecord] = []
   var hasReceivedInitialSessionsList = false
   var codexModels: [ServerCodexModelOption] = []
   var claudeModels: [ServerClaudeModelOption] = []

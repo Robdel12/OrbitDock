@@ -27,7 +27,7 @@ class ToastManager: ObservableObject {
   init() {}
 
   /// Show a toast for a session that needs attention
-  func showToast(for session: SessionSummary) {
+  func showToast<SessionType: SessionSummaryItem>(for session: SessionType) {
     let scopedID = session.scopedID
 
     guard session.showsInMissionControl else { return }
@@ -82,7 +82,10 @@ class ToastManager: ObservableObject {
   }
 
   /// Check sessions for status changes and show toasts as needed
-  func checkForAttentionChanges(sessions: [SessionSummary], previousSessions: [SessionSummary]) {
+  func checkForAttentionChanges<SessionType: SessionSummaryItem>(
+    sessions: [SessionType],
+    previousSessions: [SessionType]
+  ) {
     let previousStates = Dictionary(uniqueKeysWithValues: previousSessions
       .map { ($0.scopedID, SessionDisplayStatus.from($0)) })
 

@@ -1,11 +1,12 @@
 use super::*;
+use orbitdock_protocol::SessionListItem;
 
 const DEFAULT_CONVERSATION_PAGE_SIZE: usize = 50;
 const MAX_CONVERSATION_PAGE_SIZE: usize = 200;
 
 #[derive(Debug, Serialize)]
 pub struct SessionsResponse {
-    pub sessions: Vec<SessionSummary>,
+    pub sessions: Vec<SessionListItem>,
 }
 
 #[derive(Debug, Serialize)]
@@ -60,7 +61,7 @@ fn clamp_conversation_limit(limit: Option<usize>) -> usize {
 
 pub async fn list_sessions(State(state): State<Arc<SessionRegistry>>) -> Json<SessionsResponse> {
     Json(SessionsResponse {
-        sessions: state.get_session_summaries(),
+        sessions: state.get_session_list_items(),
     })
 }
 
@@ -245,18 +246,28 @@ mod tests {
     async fn list_sessions_returns_runtime_summaries() {
         let state = new_test_state(true);
         let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let handle = SessionHandle::new(
+        let mut handle = SessionHandle::new(
             session_id.clone(),
             Provider::Codex,
             "/tmp/orbitdock-api-test".to_string(),
         );
+        handle.set_custom_name(Some("Ship <b>root rewrite</b>".to_string()));
+        handle.set_first_prompt(Some("Need a calm dashboard title".to_string()));
         state.add_session(handle);
 
         let Json(response) = list_sessions(State(state)).await;
-        assert!(response
+        let session = response
             .sessions
             .iter()
-            .any(|session| session.id == session_id));
+            .find(|session| session.id == session_id)
+            .expect("runtime session should be present in list");
+        assert_eq!(session.display_title, "Ship root rewrite");
+        assert_eq!(session.display_title_sort_key, "ship root rewrite");
+        assert!(session
+            .display_search_text
+            .contains("ship root rewrite"));
+        assert_eq!(session.list_status, orbitdock_protocol::SessionListStatus::Reply);
+        assert!(session.context_line.is_some());
     }
 
     #[tokio::test]

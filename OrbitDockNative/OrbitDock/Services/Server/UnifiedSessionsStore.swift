@@ -26,6 +26,7 @@ struct UnifiedEndpointHealth: Identifiable, Sendable {
 
 struct UnifiedSessionsSnapshot: Sendable {
   let sessions: [SessionSummary]
+  let rootSessions: [RootSessionRecord]
   let sessionRefsByScopedID: [String: SessionRef]
   let endpointHealth: [UnifiedEndpointHealth]
   let counts: UnifiedSessionCounts
@@ -36,7 +37,27 @@ enum UnifiedSessionsProjection {
   struct EndpointInput {
     let endpoint: ServerEndpoint
     let status: ConnectionStatus
-    let sessions: [Session]
+    let rootSessions: [RootSessionRecord]
+
+    init(endpoint: ServerEndpoint, status: ConnectionStatus, rootSessions: [RootSessionRecord]) {
+      self.endpoint = endpoint
+      self.status = status
+      self.rootSessions = rootSessions
+    }
+
+    init(endpoint: ServerEndpoint, status: ConnectionStatus, sessions: [Session]) {
+      self.init(
+        endpoint: endpoint,
+        status: status,
+        rootSessions: sessions.map { session in
+          var decorated = session
+          decorated.endpointId = endpoint.id
+          decorated.endpointName = endpoint.name
+          decorated.endpointConnectionStatus = status
+          return decorated.toRootSessionRecord()
+        }
+      )
+    }
   }
 
   static func snapshot(
@@ -52,15 +73,15 @@ enum UnifiedSessionsProjection {
       return lhs.endpoint.id.uuidString < rhs.endpoint.id.uuidString
     }
 
-    var mergedSessions: [SessionSummary] = []
+    var mergedRootSessions: [RootSessionRecord] = []
     var refsByScopedID: [String: SessionRef] = [:]
     var totalCounts = UnifiedSessionCounts()
     var endpointHealth: [UnifiedEndpointHealth] = []
 
     for input in sortedInputs {
       let endpoint = input.endpoint
-      let normalizedSessions = sortSessions(input.sessions)
-      let endpointCounts = buildCounts(from: normalizedSessions)
+      let endpointRootSessions = sortRootSessions(input.rootSessions)
+      let endpointCounts = buildCounts(from: endpointRootSessions)
       endpointHealth.append(
         UnifiedEndpointHealth(
           endpointId: endpoint.id,
@@ -70,26 +91,22 @@ enum UnifiedSessionsProjection {
         )
       )
 
-      for session in normalizedSessions {
-        let ref = SessionRef(endpointId: endpoint.id, sessionId: session.id)
-        var decorated = session
-        decorated.endpointId = endpoint.id
-        decorated.endpointName = endpoint.name
-        decorated.endpointConnectionStatus = input.status
-
+      for record in endpointRootSessions {
+        let ref = SessionRef(endpointId: endpoint.id, sessionId: record.sessionId)
         if shouldInclude(ref: ref, filter: filter) {
-          let summary = SessionSummary(session: decorated)
-          mergedSessions.append(summary)
+          mergedRootSessions.append(record)
           refsByScopedID[ref.scopedID] = ref
-          accumulate(into: &totalCounts, session: summary)
+          accumulate(into: &totalCounts, session: record)
         }
       }
     }
 
-    mergedSessions.sort(by: compareSessions)
+    mergedRootSessions.sort(by: compareRootSessions)
+    let mergedSessions = mergedRootSessions.map(SessionSummary.init(rootRecord:))
 
     return UnifiedSessionsSnapshot(
       sessions: mergedSessions,
+      rootSessions: mergedRootSessions,
       sessionRefsByScopedID: refsByScopedID,
       endpointHealth: endpointHealth,
       counts: totalCounts
@@ -103,44 +120,6 @@ enum UnifiedSessionsProjection {
       case let .endpoint(endpointId):
         ref.endpointId == endpointId
     }
-  }
-
-  private static func sortSessions(_ sessions: [Session]) -> [Session] {
-    sessions.sorted(by: compareSessions)
-  }
-
-  private static func compareSessions(_ lhs: Session, _ rhs: Session) -> Bool {
-    compareSessionValues(
-      lhsIsActive: lhs.isActive,
-      rhsIsActive: rhs.isActive,
-      lhsLastActivityAt: lhs.lastActivityAt,
-      rhsLastActivityAt: rhs.lastActivityAt,
-      lhsStartedAt: lhs.startedAt,
-      rhsStartedAt: rhs.startedAt,
-      lhsDisplayName: lhs.displayName,
-      rhsDisplayName: rhs.displayName,
-      lhsEndpointName: lhs.endpointName,
-      rhsEndpointName: rhs.endpointName,
-      lhsId: lhs.id,
-      rhsId: rhs.id
-    )
-  }
-
-  private static func compareSessions(_ lhs: SessionSummary, _ rhs: SessionSummary) -> Bool {
-    compareSessionValues(
-      lhsIsActive: lhs.isActive,
-      rhsIsActive: rhs.isActive,
-      lhsLastActivityAt: lhs.lastActivityAt,
-      rhsLastActivityAt: rhs.lastActivityAt,
-      lhsStartedAt: lhs.startedAt,
-      rhsStartedAt: rhs.startedAt,
-      lhsDisplayName: lhs.displayName,
-      rhsDisplayName: rhs.displayName,
-      lhsEndpointName: lhs.endpointName,
-      rhsEndpointName: rhs.endpointName,
-      lhsId: lhs.id,
-      rhsId: rhs.id
-    )
   }
 
   private static func compareSessionValues(
@@ -167,10 +146,8 @@ enum UnifiedSessionsProjection {
       return lhsDate > rhsDate
     }
 
-    let lhsName = lhsDisplayName.lowercased()
-    let rhsName = rhsDisplayName.lowercased()
-    if lhsName != rhsName {
-      return lhsName < rhsName
+    if lhsDisplayName != rhsDisplayName {
+      return lhsDisplayName < rhsDisplayName
     }
 
     if lhsEndpointName != rhsEndpointName {
@@ -180,19 +157,19 @@ enum UnifiedSessionsProjection {
     return lhsId < rhsId
   }
 
-  private static func buildCounts(from sessions: [Session]) -> UnifiedSessionCounts {
+  private static func buildCounts(from sessions: [RootSessionRecord]) -> UnifiedSessionCounts {
     var counts = UnifiedSessionCounts()
     for session in sessions {
-      accumulate(into: &counts, session: SessionSummary(session: session))
+      accumulate(into: &counts, session: session)
     }
     return counts
   }
 
-  private static func accumulate(into counts: inout UnifiedSessionCounts, session: SessionSummary) {
+  private static func accumulate(into counts: inout UnifiedSessionCounts, session: RootSessionRecord) {
     counts.total += 1
     if session.isActive {
       counts.active += 1
-      if session.workStatus == .working {
+      if session.listStatus == .working {
         counts.working += 1
       }
       if session.needsAttention {
@@ -203,6 +180,27 @@ enum UnifiedSessionsProjection {
       }
     }
   }
+
+  private static func compareRootSessions(_ lhs: RootSessionRecord, _ rhs: RootSessionRecord) -> Bool {
+    compareSessionValues(
+      lhsIsActive: lhs.isActive,
+      rhsIsActive: rhs.isActive,
+      lhsLastActivityAt: lhs.lastActivityAt,
+      rhsLastActivityAt: rhs.lastActivityAt,
+      lhsStartedAt: lhs.startedAt,
+      rhsStartedAt: rhs.startedAt,
+      lhsDisplayName: lhs.displayTitleSortKey,
+      rhsDisplayName: rhs.displayTitleSortKey,
+      lhsEndpointName: lhs.endpointName,
+      rhsEndpointName: rhs.endpointName,
+      lhsId: lhs.id,
+      rhsId: rhs.id
+    )
+  }
+
+  private static func sortRootSessions(_ sessions: [RootSessionRecord]) -> [RootSessionRecord] {
+    sessions.sorted(by: compareRootSessions)
+  }
 }
 
 @Observable
@@ -210,6 +208,7 @@ enum UnifiedSessionsProjection {
 final class UnifiedSessionsStore {
   private(set) var selectedEndpointFilter: UnifiedEndpointFilter = .all
   private(set) var sessions: [SessionSummary] = []
+  private(set) var rootSessions: [RootSessionRecord] = []
   private(set) var sessionRefsByScopedID: [String: SessionRef] = [:]
   private(set) var endpointHealth: [UnifiedEndpointHealth] = []
   private(set) var counts = UnifiedSessionCounts()
@@ -221,6 +220,7 @@ final class UnifiedSessionsStore {
   func refresh(from inputs: [UnifiedSessionsProjection.EndpointInput]) {
     let snapshot = UnifiedSessionsProjection.snapshot(from: inputs, filter: selectedEndpointFilter)
     sessions = snapshot.sessions
+    rootSessions = snapshot.rootSessions
     sessionRefsByScopedID = snapshot.sessionRefsByScopedID
     endpointHealth = snapshot.endpointHealth
     counts = snapshot.counts
