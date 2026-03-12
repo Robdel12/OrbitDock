@@ -6,7 +6,11 @@ struct OrbitDockWindowRoot: View {
   @State private var attentionService: AttentionService
   @State private var router: AppRouter
   @State private var toastManager: ToastManager
-  @State private var windowSessionCoordinator: WindowSessionCoordinator
+  @State private var rootSessionActions: RootSessionActions
+  @State private var rootShellStore: RootShellStore
+  @State private var rootShellRuntime: RootShellRuntime
+  @State private var rootShellEffectsCoordinator: RootShellEffectsCoordinator
+  @State private var rootSelectionBridge: RootSelectionBridge
   @State private var windowID = UUID()
 
   init(appRuntime: OrbitDockAppRuntime) {
@@ -15,15 +19,30 @@ struct OrbitDockWindowRoot: View {
     let attentionService = AttentionService()
     let router = AppRouter()
     let toastManager = ToastManager()
+    let rootShellStore = RootShellStore()
     _attentionService = State(initialValue: attentionService)
     _router = State(initialValue: router)
     _toastManager = State(initialValue: toastManager)
-    _windowSessionCoordinator = State(
-      initialValue: WindowSessionCoordinator(
+    _rootSessionActions = State(initialValue: RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
+    _rootShellStore = State(initialValue: rootShellStore)
+    _rootShellRuntime = State(
+      initialValue: RootShellRuntime(
         runtimeRegistry: appRuntime.runtimeRegistry,
+        rootShellStore: rootShellStore
+      )
+    )
+    _rootShellEffectsCoordinator = State(
+      initialValue: RootShellEffectsCoordinator(
+        rootShellStore: rootShellStore,
         attentionService: attentionService,
         notificationManager: appRuntime.notificationManager,
         toastManager: toastManager,
+        router: router
+      )
+    )
+    _rootSelectionBridge = State(
+      initialValue: RootSelectionBridge(
+        runtimeRegistry: appRuntime.runtimeRegistry,
         router: router
       )
     )
@@ -40,15 +59,27 @@ struct OrbitDockWindowRoot: View {
       .environment(appRuntime.notificationManager)
       .environment(attentionService)
       .environment(router)
-      .environment(windowSessionCoordinator)
-      .environment(windowSessionCoordinator.rootShellStore)
+      .environment(toastManager)
+      .environment(\.rootSessionActions, rootSessionActions)
+      .environment(rootShellStore)
       .focusedSceneValue(\.orbitDockRouter, router)
       .preferredColorScheme(.dark)
+      .task {
+        for await update in rootShellRuntime.updates {
+          rootShellEffectsCoordinator.applyRootChange(
+            previousMissionControlSessions: update.previousMissionControlSessions,
+            currentMissionControlSessions: update.currentMissionControlSessions
+          )
+        }
+      }
       .onAppear {
         appRuntime.externalNavigationCenter.registerWindow(windowID) { command in
           handleExternalCommand(command)
         }
-        windowSessionCoordinator.start(currentScopedId: router.selectedScopedID)
+        rootShellEffectsCoordinator.setCurrentSelection(router.selectedScopedID)
+        rootShellRuntime.start()
+        rootShellRuntime.selectedSessionDidChange(to: router.selectedScopedID)
+        rootSelectionBridge.start()
         updateWindowFocus(for: scenePhase)
       }
       .onDisappear {
@@ -61,13 +92,16 @@ struct OrbitDockWindowRoot: View {
         }
       }
       .onChange(of: router.selectedScopedID, initial: true) { _, newId in
-        windowSessionCoordinator.selectedSessionDidChange(to: newId)
+        rootShellEffectsCoordinator.setCurrentSelection(newId)
+        rootShellRuntime.selectedSessionDidChange(to: newId)
       }
       .onChange(of: appRuntime.runtimeRegistry.connectionStatusByEndpointId) { _, _ in
-        windowSessionCoordinator.runtimeGraphDidChange()
+        rootShellRuntime.runtimeGraphDidChange()
+        rootSelectionBridge.runtimeGraphDidChange()
       }
       .onChange(of: appRuntime.runtimeRegistry.runtimesByEndpointId.count) { _, _ in
-        windowSessionCoordinator.runtimeGraphDidChange()
+        rootShellRuntime.runtimeGraphDidChange()
+        rootSelectionBridge.runtimeGraphDidChange()
       }
   }
 
@@ -86,11 +120,13 @@ struct OrbitDockWindowRoot: View {
       scenePhase: scenePhase
     ) else { return }
 
-    withAnimation(Motion.standard) {
-      windowSessionCoordinator.handleExternalSelection(
-        sessionID: selection.sessionID,
-        endpointId: selection.endpointID
-      )
-    }
+      withAnimation(Motion.standard) {
+        router.handleExternalNavigation(
+          sessionID: selection.sessionID,
+          endpointId: selection.endpointID,
+          store: rootShellStore,
+          fallbackEndpointId: appRuntime.runtimeRegistry.primaryEndpointId ?? appRuntime.runtimeRegistry.activeEndpointId
+        )
+      }
   }
 }

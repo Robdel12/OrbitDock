@@ -17,8 +17,10 @@ struct PreviewRuntime {
   let attentionService: AttentionService
   let router: AppRouter
   let toastManager: ToastManager
+  let rootSessionActions: RootSessionActions
   let notificationManager: NotificationManager
-  let windowSessionCoordinator: WindowSessionCoordinator
+  let rootShellStore: RootShellStore
+  let rootShellRuntime: RootShellRuntime
   let externalNavigationCenter: AppExternalNavigationCenter
   #if os(macOS)
     let serverManager: ServerManager
@@ -74,6 +76,9 @@ struct PreviewRuntime {
     self.attentionService = AttentionService()
     self.router = AppRouter()
     self.toastManager = ToastManager()
+    let rootShellStore = RootShellStore()
+    self.rootShellStore = rootShellStore
+    self.rootSessionActions = RootSessionActions(runtimeRegistry: runtimeRegistry)
     self.notificationManager = NotificationManager(
       isAuthorized: false,
       shouldRequestAuthorizationOnStart: false,
@@ -91,14 +96,11 @@ struct PreviewRuntime {
       )
     )
     self.externalNavigationCenter = AppExternalNavigationCenter()
-    self.windowSessionCoordinator = WindowSessionCoordinator(
+    self.rootShellRuntime = RootShellRuntime(
       runtimeRegistry: runtimeRegistry,
-      attentionService: attentionService,
-      notificationManager: notificationManager,
-      toastManager: toastManager,
-      router: router
+      rootShellStore: rootShellStore
     )
-    self.windowSessionCoordinator.start(currentScopedId: nil)
+    self.rootShellRuntime.start()
 
     #if os(macOS)
       self.serverManager = ServerManager(
@@ -116,7 +118,9 @@ struct PreviewRuntime {
       .environment(notificationManager)
       .environment(attentionService)
       .environment(router)
-      .environment(windowSessionCoordinator)
+      .environment(toastManager)
+      .environment(\.rootSessionActions, rootSessionActions)
+      .environment(rootShellStore)
       #if os(macOS)
         .environment(\.serverManager, serverManager)
       #endif
@@ -233,6 +237,7 @@ struct PreviewRuntime {
         startedAt: $0.startedAt.map(Self.iso8601Timestamp),
         lastActivityAt: $0.lastActivityAt.map(Self.iso8601Timestamp),
         unreadCount: $0.unreadCount,
+        hasTurnDiff: false,
         pendingToolName: $0.pendingToolName,
         repositoryRoot: $0.repositoryRoot,
         isWorktree: $0.isWorktree,

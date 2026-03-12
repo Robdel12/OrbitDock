@@ -115,28 +115,22 @@ struct WindowRootRuntimeTests {
     )
     registry.configureFromSettings(startEnabled: false)
 
-    let coordinator = WindowRootRuntime(
+    let coordinator = RootShellRuntime(
       runtimeRegistry: registry,
-      attentionService: AttentionService(),
-      notificationManager: NotificationManager(
-        isAuthorized: false,
-        shouldRequestAuthorizationOnStart: false
-      ),
-      toastManager: ToastManager(),
-      router: AppRouter()
+      rootShellStore: RootShellStore()
     )
 
     let first = ScopedSessionID(endpointId: endpoint.id, sessionId: "session-a")
     let second = ScopedSessionID(endpointId: endpoint.id, sessionId: "session-b")
 
-    await coordinator.rootShellRuntime.applySelectedSessionChange(to: first.scopedID)
-    #expect(await coordinator.rootShellRuntime.hotSessionIDsForTesting() == [first.scopedID])
+    await coordinator.applySelectedSessionChange(to: first.scopedID)
+    #expect(await coordinator.hotSessionIDsForTesting() == [first.scopedID])
 
-    await coordinator.rootShellRuntime.applySelectedSessionChange(to: second.scopedID)
-    #expect(await coordinator.rootShellRuntime.hotSessionIDsForTesting() == [second.scopedID])
+    await coordinator.applySelectedSessionChange(to: second.scopedID)
+    #expect(await coordinator.hotSessionIDsForTesting() == [second.scopedID])
 
-    await coordinator.rootShellRuntime.applySelectedSessionChange(to: nil)
-    #expect(await coordinator.rootShellRuntime.hotSessionIDsForTesting().isEmpty)
+    await coordinator.applySelectedSessionChange(to: nil)
+    #expect(await coordinator.hotSessionIDsForTesting().isEmpty)
   }
 
   private func makeEndpoint(
