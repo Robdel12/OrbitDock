@@ -250,84 +250,20 @@ final class SessionObservable {
     )
   }
 
-  var detailSessionSnapshot: Session {
-    var session = Session(
+  var approvalCardContext: ApprovalCardSessionContext {
+    ApprovalCardSessionContext(
       id: id,
-      endpointId: endpointId,
-      endpointName: endpointName,
       projectPath: projectPath,
-      projectName: projectName,
-      branch: branch,
-      model: model,
-      summary: summary,
-      customName: customName,
-      firstPrompt: firstPrompt,
-      transcriptPath: transcriptPath,
-      status: status,
-      workStatus: workStatus,
-      startedAt: startedAt,
-      endedAt: endedAt,
-      endReason: endReason,
-      totalTokens: totalTokens,
-      totalCostUSD: totalCostUSD,
-      lastActivityAt: lastActivityAt,
-      lastFilesPersistedAt: lastFilesPersistedAt,
-      lastTool: lastTool,
-      lastToolAt: lastToolAt,
-      promptCount: promptCount,
-      toolCount: toolCount,
+      isActive: isActive,
       attentionReason: attentionReason,
+      pendingApprovalId: pendingApprovalId,
       pendingToolName: pendingToolName,
       pendingToolInput: pendingToolInput,
-      pendingPermissionDetail: pendingPermissionDetail,
-      pendingQuestion: pendingQuestion,
-      provider: provider,
-      codexIntegrationMode: codexIntegrationMode,
-      claudeIntegrationMode: claudeIntegrationMode,
-      codexThreadId: codexThreadId,
-      pendingApprovalId: pendingApprovalId,
-      inputTokens: inputTokens,
-      outputTokens: outputTokens,
-      cachedTokens: cachedTokens,
-      contextWindow: contextWindow,
-      tokenUsageSnapshotKind: tokenUsageSnapshotKind,
-      displayName: displayName,
-      normalizedDisplayName: displayName.lowercased(),
-      displaySearchText: displayName.lowercased()
+      canApprove: canApprove,
+      canAnswer: canAnswer,
+      canTakeOver: canTakeOver,
+      canSendInput: canSendInput
     )
-    session.endpointConnectionStatus = endpointConnectionStatus
-    session.lastMessage = lastMessage
-    session.effort = effort
-    session.collaborationMode = collaborationMode
-    session.multiAgent = multiAgent
-    session.personality = personality
-    session.serviceTier = serviceTier
-    session.developerInstructions = developerInstructions
-    session.gitSha = gitSha
-    session.currentCwd = currentCwd
-    session.repositoryRoot = repositoryRoot
-    session.isWorktree = isWorktree
-    session.worktreeId = worktreeId
-    session.unreadCount = unreadCount
-    session.displaySearchText = [
-      displayName,
-      projectName,
-      branch,
-      model,
-      summary,
-      firstPrompt,
-      lastMessage,
-      projectPath,
-    ]
-    .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-    .filter { !$0.isEmpty }
-    .joined(separator: " ")
-    .lowercased()
-    return session
-  }
-
-  func applySession(_ session: Session) {
-    applySnapshotProjection(SessionDetailSnapshotProjection.from(session))
   }
 
   func applyPendingApproval(_ request: ServerApprovalRequest) {

@@ -25,63 +25,65 @@ private enum RootSessionAdapterSupport {
   }
 }
 
-// MARK: - ServerSessionState → Session
+// MARK: - ServerSessionState → Detail Projection
 
 extension ServerSessionState {
-  /// Convert to the rich detail Session model used by SessionObservable/SessionStore.
-  /// Root-shell surfaces should stay on ServerSessionListItem -> RootSessionNode instead.
-  func toSession() -> Session {
-    let codexMode = RootSessionAdapterSupport.codexMode(provider: provider, mode: codexIntegrationMode)
-    let claudeMode = RootSessionAdapterSupport.claudeMode(provider: provider, mode: claudeIntegrationMode)
-
-    var session = Session(
-      id: id,
+  func toDetailSnapshotProjection() -> SessionDetailSnapshotProjection {
+    SessionDetailSnapshotProjection(
+      endpointId: nil,
+      endpointName: nil,
       projectPath: projectPath,
       projectName: projectName,
       branch: gitBranch,
       model: model,
+      effort: effort,
+      collaborationMode: collaborationMode,
+      multiAgent: multiAgent,
+      personality: personality,
+      serviceTier: serviceTier,
+      developerInstructions: developerInstructions,
+      summary: summary,
       customName: customName,
+      firstPrompt: firstPrompt,
+      lastMessage: lastMessage,
       transcriptPath: transcriptPath,
       status: status == .active ? .active : .ended,
       workStatus: workStatus.toSessionWorkStatus(),
-      startedAt: parseServerTimestamp(startedAt),
-      totalTokens: Int(tokenUsage.inputTokens + tokenUsage.outputTokens),
-      lastActivityAt: parseServerTimestamp(lastActivityAt),
       attentionReason: workStatus.toAttentionReason(),
-      pendingToolName: pendingToolName,
-      pendingToolInput: pendingToolInput,
-      pendingPermissionDetail: nil,
-      pendingQuestion: pendingQuestion,
-      provider: RootSessionAdapterSupport.provider(from: provider),
-      codexIntegrationMode: codexMode,
-      claudeIntegrationMode: claudeMode,
-      pendingApprovalId: pendingApprovalId,
+      lastActivityAt: parseServerTimestamp(lastActivityAt),
+      lastFilesPersistedAt: nil,
+      lastTool: nil,
+      lastToolAt: nil,
       inputTokens: Int(tokenUsage.inputTokens),
       outputTokens: Int(tokenUsage.outputTokens),
       cachedTokens: Int(tokenUsage.cachedTokens),
       contextWindow: Int(tokenUsage.contextWindow),
-      tokenUsageSnapshotKind: tokenUsageSnapshotKind
+      totalTokens: Int(tokenUsage.inputTokens + tokenUsage.outputTokens),
+      totalCostUSD: 0,
+      provider: RootSessionAdapterSupport.provider(from: provider),
+      codexIntegrationMode: RootSessionAdapterSupport.codexMode(provider: provider, mode: codexIntegrationMode),
+      claudeIntegrationMode: RootSessionAdapterSupport.claudeMode(provider: provider, mode: claudeIntegrationMode),
+      codexThreadId: nil,
+      pendingApprovalId: pendingApprovalId,
+      pendingToolName: pendingToolName,
+      pendingToolInput: pendingToolInput,
+      pendingPermissionDetail: nil,
+      pendingQuestion: pendingQuestion,
+      promptCount: 0,
+      toolCount: 0,
+      startedAt: parseServerTimestamp(startedAt),
+      endedAt: nil,
+      endReason: nil,
+      tokenUsageSnapshotKind: tokenUsageSnapshotKind,
+      gitSha: gitSha,
+      currentCwd: currentCwd,
+      repositoryRoot: repositoryRoot,
+      isWorktree: isWorktree ?? false,
+      worktreeId: worktreeId,
+      unreadCount: unreadCount ?? 0
     )
-    session.summary = summary
-    session.firstPrompt = firstPrompt
-    session.lastMessage = lastMessage
-    session.currentDiff = currentDiff
-    session.gitSha = gitSha
-    session.currentCwd = currentCwd
-    session.effort = effort
-    session.collaborationMode = collaborationMode
-    session.multiAgent = multiAgent
-    session.personality = personality
-    session.serviceTier = serviceTier
-    session.developerInstructions = developerInstructions
-    session.terminalSessionId = terminalSessionId
-    session.terminalApp = terminalApp
-    session.repositoryRoot = repositoryRoot
-    session.isWorktree = isWorktree ?? false
-    session.worktreeId = worktreeId
-    session.unreadCount = unreadCount ?? 0
-    return session
   }
+
 }
 
 extension ServerCodexIntegrationMode {

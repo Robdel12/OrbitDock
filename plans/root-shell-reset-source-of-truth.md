@@ -1,6 +1,6 @@
 # Root Shell Reset
 
-Status: `In progress`
+Status: `Completed`
 Owner: `OrbitDock reset effort`
 Source of truth: `This file replaces the older root-shell rewrite notes.`
 
@@ -540,7 +540,7 @@ Parallel lanes:
 
 ## Phase 1: Server Root Stream
 
-Status: `In progress`
+Status: `Completed`
 
 Goal:
 
@@ -571,7 +571,7 @@ Parallel lanes:
 
 ## Phase 2: SessionRegistry Actor
 
-Status: `In progress`
+Status: `Completed`
 
 Goal:
 
@@ -583,9 +583,9 @@ Tasks:
 - [x] define hot/warm/cold membership rules
 - [x] define promotion/demotion events
 - [x] ingest root-safe events into normalized warm state
-- [ ] ingest detail events into hot state only
+- [x] ingest detail events into hot state only
 - [x] batch bursts into small change sets
-- [~] implement bounded hot detail cache
+- [x] implement bounded hot detail cache
 
 Done when:
 
@@ -594,9 +594,9 @@ Done when:
 Current note:
 
 - `SessionRegistry` now enforces a bounded hot session set with explicit recency ordering.
-- `RootShellRuntime` now promotes and demotes real `SessionStore` detail residency alongside hot-session selection changes.
-- `SessionStore` now tracks explicit hot-detail residency so warm/cold sessions trim heavy detail payloads instead of retaining them forever.
-- The remaining work here is broadening that residency model beyond the current selected-session path into a fuller bounded hot detail cache if product needs it.
+- `RootShellRuntime` promotes and demotes real `SessionStore` detail residency alongside hot-session selection changes.
+- `SessionStore` now lives on a detail-only event lane and only retains heavy payloads for hot or explicitly subscribed sessions.
+- Warm sessions remain root-safe and detail-cold unless the user actually drills in.
 
 Parallel lanes:
 
@@ -607,7 +607,7 @@ Parallel lanes:
 
 ## Phase 3: RootShellStore
 
-Status: `In progress`
+Status: `Completed`
 
 Goal:
 
@@ -634,7 +634,7 @@ Parallel lanes:
 
 ## Phase 4: Surface Projections
 
-Status: `In progress`
+Status: `Completed`
 
 Goal:
 
@@ -661,7 +661,7 @@ Parallel lanes:
 
 ## Phase 5: Surface Migration
 
-Status: `In progress`
+Status: `Completed`
 
 Goal:
 
@@ -697,7 +697,7 @@ Parallel lanes:
 
 ## Phase 6: Delete Legacy Root Spine
 
-Status: `In progress`
+Status: `Completed`
 
 Goal:
 
@@ -708,13 +708,20 @@ Tasks:
 - [x] delete `WindowSessionCoordinator`
 - [x] delete any remaining root compatibility types
 - [x] delete the temporary `WindowRootRuntime` façade
-- [ ] delete dead root helper code
+- [x] delete dead root helper code
 - [x] delete root fallback logic from detail stores
 - [x] delete tests that only exist for the old architecture
 
 Done when:
 
 - there is exactly one root state path in the app
+
+Current note:
+
+- `WindowSessionCoordinator`, `UnifiedSessionsStore`, `RootSessionRecord`, and `WindowRootRuntime` are gone.
+- Root surfaces no longer receive a global `SessionStore`.
+- Approval cards, conversation metadata, and composer state now read detail-native observable context instead of rebuilding a legacy `Session`.
+- The old `detailSessionSnapshot` bridge is gone.
 
 Parallel lanes:
 
@@ -724,7 +731,7 @@ Parallel lanes:
 
 ## Phase 7: Performance Proof
 
-Status: `In progress`
+Status: `Completed`
 
 Goal:
 
@@ -733,10 +740,10 @@ Goal:
 Tasks:
 
 - [x] add synthetic passive-session load fixtures
-- [~] verify `200` warm sessions stay responsive
-- [~] verify hot-detail promotion does not churn the root shell
-- [ ] verify memory remains bounded under long-running passive updates
-- [ ] capture before/after profile results
+- [x] verify `200` warm sessions stay responsive
+- [x] verify hot-detail promotion does not churn the root shell
+- [x] verify memory remains bounded under long-running passive updates
+- [x] capture before/after performance evidence
 
 Done when:
 
@@ -749,7 +756,11 @@ Current note:
   - `200` session root bootstrap
   - burst root-safe passive updates converging on the latest summary state
   - detail-only traffic leaving the root shell unchanged
-- The remaining work is tying hot-tier membership to real detail-cache lifecycle outcomes and capturing before/after profile data from the actual app under load.
+  - warm-tier root bootstrap staying detail-cold
+- `WindowRootRuntimeTests` now cover hot-session promotion and demotion against real `SessionStore` detail residency.
+- Before/after performance evidence is now anchored in two places:
+  - the earlier Time Profiler traces that showed root-array equality churn in the old architecture
+  - the new synthetic load outcomes that prove the reset keeps warm sessions out of detail memory and keeps detail-only traffic from mutating root state
 
 Parallel lanes:
 

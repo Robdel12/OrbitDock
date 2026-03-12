@@ -48,7 +48,7 @@ struct SessionControlStateReducerTests {
     #expect(transition.nextState.autonomyConfiguredOnServer == true)
     #expect(transition.nextState.permissionMode == .plan)
 
-    guard case let .set(request) = transition.detailApprovalChange else {
+    guard case let .set(request) = transition.approvalChange else {
       Issue.record("Expected snapshot to seed pending approval details")
       return
     }
@@ -84,8 +84,7 @@ struct SessionControlStateReducerTests {
 
     #expect(transition.nextState.approvalVersion == 9)
     #expect(transition.nextState.pendingApprovalId == "req-current")
-    #expect(approvalChangeID(transition.summaryApprovalChange) == nil)
-    #expect(approvalChangeID(transition.detailApprovalChange) == nil)
+    #expect(approvalChangeID(transition.approvalChange) == nil)
   }
 
   @Test func approvalDeltaAppliesSummaryAndDetailFromOneTransition() throws {
@@ -109,8 +108,7 @@ struct SessionControlStateReducerTests {
 
     #expect(transition.nextState.approvalVersion == 2)
     #expect(transition.nextState.pendingApprovalId == "req-2")
-    #expect(approvalChangeID(transition.summaryApprovalChange) == "req-2")
-    #expect(approvalChangeID(transition.detailApprovalChange) == "req-2")
+    #expect(approvalChangeID(transition.approvalChange) == "req-2")
   }
 
   @Test func configChangesRecomputeAutonomyDeterministically() throws {
@@ -158,15 +156,10 @@ struct SessionControlStateReducerTests {
 
     #expect(transition.nextState.approvalVersion == 3)
     #expect(transition.nextState.pendingApprovalId == nil)
-    if case .clear(let resetAttention) = transition.summaryApprovalChange {
+    if case .clear(let resetAttention) = transition.approvalChange {
       #expect(resetAttention == true)
     } else {
-      Issue.record("Expected summary approval change to clear")
-    }
-    if case .clear(let resetAttention) = transition.detailApprovalChange {
-      #expect(resetAttention == true)
-    } else {
-      Issue.record("Expected detail approval change to clear")
+      Issue.record("Expected approval change to clear")
     }
   }
 

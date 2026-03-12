@@ -18,9 +18,8 @@ struct SessionStoreControlStateSyncTests {
     store.routeEvent(.approvalRequested(sessionId: "session-1", request: request, approvalVersion: 2))
 
     let detailAfterRequest = store.session("session-1")
-    let sessionAfterRequest = detailAfterRequest.detailSessionSnapshot
-    #expect(sessionAfterRequest.pendingApprovalId == "req-1")
-    #expect(sessionAfterRequest.attentionReason == Session.AttentionReason.awaitingPermission)
+    #expect(detailAfterRequest.pendingApprovalId == "req-1")
+    #expect(detailAfterRequest.attentionReason == Session.AttentionReason.awaitingPermission)
     #expect(detailAfterRequest.pendingApproval?.id == "req-1")
     #expect(detailAfterRequest.approvalVersion == 2)
 
@@ -35,9 +34,6 @@ struct SessionStoreControlStateSyncTests {
     )
 
     let detailAfterDecision = store.session("session-1")
-    let sessionAfterDecision = detailAfterDecision.detailSessionSnapshot
-    #expect(sessionAfterDecision.pendingApprovalId == nil)
-    #expect(sessionAfterDecision.attentionReason == Session.AttentionReason.none)
     #expect(detailAfterDecision.pendingApproval == nil)
     #expect(detailAfterDecision.pendingApprovalId == nil)
     #expect(detailAfterDecision.attentionReason == Session.AttentionReason.none)
@@ -71,9 +67,8 @@ struct SessionStoreControlStateSyncTests {
     )
 
     let detail = store.session("session-1")
-    let session = detail.detailSessionSnapshot
-    #expect(session.pendingApprovalId == "req-2")
-    #expect(session.attentionReason == Session.AttentionReason.awaitingQuestion)
+    #expect(detail.pendingApprovalId == "req-2")
+    #expect(detail.attentionReason == Session.AttentionReason.awaitingQuestion)
     #expect(detail.pendingApproval?.id == "req-2")
     #expect(detail.approvalVersion == 5)
     #expect(detail.permissionMode == .plan)

@@ -22,8 +22,7 @@ enum SessionPendingApprovalChange {
 
 struct SessionControlTransition {
   var nextState: SessionControlState
-  var summaryApprovalChange: SessionPendingApprovalChange = .none
-  var detailApprovalChange: SessionPendingApprovalChange = .none
+  var approvalChange: SessionPendingApprovalChange = .none
 }
 
 enum SessionControlStateReducer {
@@ -50,15 +49,13 @@ enum SessionControlStateReducer {
     if let request = snapshot.pendingApproval {
       return SessionControlTransition(
         nextState: nextState,
-        summaryApprovalChange: .set(request),
-        detailApprovalChange: .set(request)
+        approvalChange: .set(request)
       )
     }
 
     return SessionControlTransition(
       nextState: nextState,
-      summaryApprovalChange: .clear(resetAttention: false),
-      detailApprovalChange: .clear(resetAttention: false)
+      approvalChange: .clear(resetAttention: false)
     )
   }
 
@@ -104,18 +101,15 @@ enum SessionControlStateReducer {
       switch pendingApproval {
       case .some(let request):
         nextState.pendingApprovalId = request.id
-        transition.summaryApprovalChange = .set(request)
-        transition.detailApprovalChange = .set(request)
+        transition.approvalChange = .set(request)
       case .none:
         nextState.pendingApprovalId = nil
         guard !summaryStillBlocked else { break }
-        transition.summaryApprovalChange = .clear(resetAttention: false)
-        transition.detailApprovalChange = .clear(resetAttention: false)
+        transition.approvalChange = .clear(resetAttention: false)
       }
     } else if !summaryStillBlocked, current.pendingApprovalId != nil {
       nextState.pendingApprovalId = nil
-      transition.summaryApprovalChange = .clear(resetAttention: false)
-      transition.detailApprovalChange = .clear(resetAttention: false)
+      transition.approvalChange = .clear(resetAttention: false)
     }
 
     transition.nextState = nextState
@@ -138,8 +132,7 @@ enum SessionControlStateReducer {
 
     return SessionControlTransition(
       nextState: nextState,
-      summaryApprovalChange: .set(request),
-      detailApprovalChange: .set(request)
+      approvalChange: .set(request)
     )
   }
 
@@ -159,8 +152,7 @@ enum SessionControlStateReducer {
     nextState.pendingApprovalId = nil
     return SessionControlTransition(
       nextState: nextState,
-      summaryApprovalChange: .clear(resetAttention: true),
-      detailApprovalChange: .clear(resetAttention: true)
+      approvalChange: .clear(resetAttention: true)
     )
   }
 

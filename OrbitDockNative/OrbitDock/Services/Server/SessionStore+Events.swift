@@ -202,17 +202,14 @@ extension SessionStore {
     subscribedSessions.insert(state.id)
 
     let obs = self.session(state.id)
-    var session = state.toSession()
-    session.customName = state.customName
-    hydrateObservable(obs, from: session)
+    obs.applySnapshotProjection(state.toDetailSnapshotProjection())
     obs.subagents = state.subagents
     let transition = SessionControlStateReducer.snapshotTransition(
       current: controlState(sessionId: state.id, observable: obs),
       snapshot: state,
       supportsServerControlConfiguration: state.provider == .codex || state.claudeIntegrationMode == .direct
     )
-    applyControlTransition(transition, sessionId: state.id, session: &session, observable: obs)
-    hydrateObservable(obs, from: session)
+    applyControlTransition(transition, sessionId: state.id, observable: obs)
   }
 
   func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
@@ -220,18 +217,15 @@ extension SessionStore {
     let projection = SessionStateProjection.from(changes)
 
     obs.applyProjection(projection)
-    var session = obs.detailSessionSnapshot
-    session.applyProjection(projection)
-    let summaryStillBlocked = session.attentionReason == .awaitingPermission
-      || session.attentionReason == .awaitingQuestion
-      || session.workStatus == .permission
+    let summaryStillBlocked = obs.attentionReason == .awaitingPermission
+      || obs.attentionReason == .awaitingQuestion
+      || obs.workStatus == .permission
     let transition = SessionControlStateReducer.deltaTransition(
       current: controlState(sessionId: sessionId, observable: obs),
       changes: changes,
       summaryStillBlocked: summaryStillBlocked
     )
-    applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
-    hydrateObservable(obs, from: session)
+    applyControlTransition(transition, sessionId: sessionId, observable: obs)
   }
 
   func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
@@ -248,7 +242,6 @@ extension SessionStore {
 
   func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest, _ version: UInt64?) {
     let obs = session(sessionId)
-    var session = obs.detailSessionSnapshot
     guard let transition = SessionControlStateReducer.approvalRequestedTransition(
       current: controlState(sessionId: sessionId, observable: obs),
       request: request,
@@ -256,8 +249,7 @@ extension SessionStore {
     ) else {
       return
     }
-    applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
-    hydrateObservable(obs, from: session)
+    applyControlTransition(transition, sessionId: sessionId, observable: obs)
   }
 
   func handleApprovalDecisionResult(
@@ -268,15 +260,13 @@ extension SessionStore {
     _ version: UInt64
   ) {
     let obs = session(sessionId)
-    var session = obs.detailSessionSnapshot
     let transition = SessionControlStateReducer.approvalDecisionTransition(
       current: controlState(sessionId: sessionId, observable: obs),
       requestId: requestId,
       activeRequestId: activeRequestId,
       version: version
     )
-    applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
-    hydrateObservable(obs, from: session)
+    applyControlTransition(transition, sessionId: sessionId, observable: obs)
 
     inFlightApprovalDispatches.remove(requestId)
   }
@@ -336,10 +326,6 @@ extension SessionStore {
     }
   }
 
-  func hydrateObservable(_ obs: SessionObservable, from session: Session) {
-    obs.applySession(session)
-  }
-
   func controlState(sessionId: String, observable: SessionObservable) -> SessionControlState {
     controlStates[sessionId] ?? SessionControlState(
       approvalVersion: observable.approvalVersion,
@@ -355,7 +341,6 @@ extension SessionStore {
   func applyControlTransition(
     _ transition: SessionControlTransition,
     sessionId: String,
-    session: inout Session,
     observable: SessionObservable
   ) {
     controlStates[sessionId] = transition.nextState
@@ -364,8 +349,7 @@ extension SessionStore {
     observable.autonomyConfiguredOnServer = transition.nextState.autonomyConfiguredOnServer
     observable.permissionMode = transition.nextState.permissionMode
 
-    applyPendingApprovalChange(transition.summaryApprovalChange, to: &session)
-    applyPendingApprovalChange(transition.detailApprovalChange, to: observable)
+    applyPendingApprovalChange(transition.approvalChange, to: observable)
   }
 
   func applyLocalPermissionMode(_ mode: ClaudePermissionMode, sessionId: String) {
@@ -374,20 +358,7 @@ extension SessionStore {
       current: controlState(sessionId: sessionId, observable: observable),
       mode: mode
     )
-    var session = observable.detailSessionSnapshot
-    applyControlTransition(transition, sessionId: sessionId, session: &session, observable: observable)
-    hydrateObservable(observable, from: session)
-  }
-
-  private func applyPendingApprovalChange(_ change: SessionPendingApprovalChange, to session: inout Session) {
-    switch change {
-    case .none:
-      break
-    case .set(let request):
-      session.applyPendingApprovalSummary(request)
-    case .clear(let resetAttention):
-      session.clearPendingApprovalSummary(resetAttention: resetAttention)
-    }
+    applyControlTransition(transition, sessionId: sessionId, observable: observable)
   }
 
   private func applyPendingApprovalChange(_ change: SessionPendingApprovalChange, to observable: SessionObservable) {

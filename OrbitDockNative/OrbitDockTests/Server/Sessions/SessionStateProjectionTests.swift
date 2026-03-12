@@ -51,7 +51,7 @@ struct SessionStateProjectionTests {
     #expect(session.workStatus == .working)
   }
 
-  @Test func sessionObservableApplySessionMirrorsListSummaryFields() {
+  @Test func sessionObservableApplySnapshotProjectionMirrorsDetailFields() {
     let observable = SessionObservable(id: "session-1")
     let session = Session(
       id: "session-1",
@@ -84,7 +84,7 @@ struct SessionStateProjectionTests {
       contextWindow: 200_000
     )
 
-    observable.applySession(session)
+    observable.applySnapshotProjection(SessionDetailSnapshotProjection.from(session))
 
     #expect(observable.endpointName == "Primary")
     #expect(observable.projectPath == "/tmp/project")
@@ -421,7 +421,7 @@ struct SessionStateProjectionTests {
     )
     let observable = SessionObservable(id: "session-1")
 
-    observable.applySession(session)
+    observable.applySnapshotProjection(SessionDetailSnapshotProjection.from(session))
 
     #expect(observable.effectiveContextInputTokens == session.effectiveContextInputTokens)
     #expect(observable.contextFillPercent == session.contextFillPercent)

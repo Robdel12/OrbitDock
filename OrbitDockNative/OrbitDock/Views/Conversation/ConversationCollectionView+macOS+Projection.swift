@@ -23,12 +23,12 @@
         source: "timeline-apply-macos"
       )
 
-      let session = sessionId.flatMap { serverState?.session($0).detailSessionSnapshot }
-      let resolvedApprovalId = session?.pendingApprovalId
+      let observable = sessionId.flatMap { serverState?.session($0) }
+      let resolvedApprovalId = observable?.pendingApprovalId
       let approvalMode: ApprovalCardMode = {
-        guard let session else { return .none }
+        guard let observable else { return .none }
         return ApprovalCardModeResolver.resolve(
-          for: session,
+          for: observable.approvalCardContext,
           pendingApprovalId: resolvedApprovalId,
           approvalType: nil
         )
@@ -39,23 +39,23 @@
         chatViewMode: chatViewMode,
         isSessionActive: isSessionActive,
         workStatus: workStatus,
-        currentTool: session?.lastTool ?? currentTool,
-        pendingToolName: session?.pendingToolName ?? pendingToolName,
-        pendingApprovalCommand: String.shellCommandDisplay(from: session?.pendingToolInput),
-        pendingPermissionDetail: session?.pendingPermissionDetail ?? pendingPermissionDetail,
+        currentTool: observable?.lastTool ?? currentTool,
+        pendingToolName: observable?.pendingToolName ?? pendingToolName,
+        pendingApprovalCommand: String.shellCommandDisplay(from: observable?.pendingToolInput),
+        pendingPermissionDetail: observable?.pendingPermissionDetail ?? pendingPermissionDetail,
         currentPrompt: currentPrompt,
         messageCount: messageCount,
         remainingLoadCount: remainingLoadCount,
         hasMoreMessages: hasMoreMessages,
         needsApprovalCard: shouldShowApprovalCard,
         approvalMode: approvalMode,
-        pendingQuestion: session?.pendingQuestion,
+        pendingQuestion: observable?.pendingQuestion,
         pendingApprovalId: resolvedApprovalId,
-        isDirectSession: session?.isDirect ?? false,
-        isDirectCodexSession: session?.isDirectCodex ?? false,
-        supportsRichToolingCards: session?.isDirect ?? false,
+        isDirectSession: observable?.isDirect ?? false,
+        isDirectCodexSession: observable?.isDirectCodex ?? false,
+        supportsRichToolingCards: observable?.isDirect ?? false,
         sessionId: self.sessionId,
-        projectPath: session?.projectPath
+        projectPath: observable?.projectPath
       )
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setSessionMetadata(metadata))
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setMessages(resolvedMessages))

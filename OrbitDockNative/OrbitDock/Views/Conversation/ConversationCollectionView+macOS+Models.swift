@@ -31,9 +31,7 @@
             let serverState
       else { return nil }
       let observable = serverState.session(sid)
-      let session = observable.detailSessionSnapshot
-
-      let pendingId = session.pendingApprovalId?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let pendingId = observable.pendingApprovalId?.trimmingCharacters(in: .whitespacesAndNewlines)
       let pendingApproval: ServerApprovalRequest? = {
         guard let pendingId, !pendingId.isEmpty else { return nil }
         guard let candidate = observable.pendingApproval else { return nil }
@@ -42,7 +40,7 @@
       }()
 
       return ApprovalCardModelBuilder.build(
-        session: session,
+        session: observable.approvalCardContext,
         pendingApproval: pendingApproval,
         approvalHistory: observable.approvalHistory,
         transcriptMessages: serverState.conversation(sid).messages

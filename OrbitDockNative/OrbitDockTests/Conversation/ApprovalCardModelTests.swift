@@ -9,7 +9,7 @@ struct ApprovalCardModelTests {
     let session = makeDirectSession(attentionReason: .awaitingReply, pendingApprovalId: nil)
 
     let mode = ApprovalCardModeResolver.resolve(
-      for: session,
+      for: session.approvalCardContext,
       pendingApprovalId: "req-question",
       approvalType: .question
     )
@@ -21,7 +21,7 @@ struct ApprovalCardModelTests {
     let session = makeDirectSession(attentionReason: .awaitingPermission, pendingApprovalId: nil)
 
     let mode = ApprovalCardModeResolver.resolve(
-      for: session,
+      for: session.approvalCardContext,
       pendingApprovalId: "req-exec",
       approvalType: .exec
     )
@@ -42,7 +42,7 @@ struct ApprovalCardModelTests {
     )
 
     let mode = ApprovalCardModeResolver.resolve(
-      for: session,
+      for: session.approvalCardContext,
       pendingApprovalId: nil,
       approvalType: nil
     )
@@ -58,7 +58,7 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: nil
     )
 
@@ -80,7 +80,7 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: pendingApproval
     )
 
@@ -137,7 +137,7 @@ struct ApprovalCardModelTests {
     ]
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: sparsePendingApproval,
       approvalHistory: history
     )
@@ -201,7 +201,7 @@ struct ApprovalCardModelTests {
     ]
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: pendingApproval,
       approvalHistory: [],
       transcriptMessages: transcript
@@ -250,7 +250,7 @@ struct ApprovalCardModelTests {
     ]
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: nil,
       approvalHistory: history,
       transcriptMessages: []
@@ -293,7 +293,7 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: stalePayload
     )
 
@@ -322,7 +322,7 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: pendingApproval
     )
 
@@ -360,7 +360,7 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: pendingApproval
     )
 
@@ -405,7 +405,7 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: pendingApproval
     )
 
@@ -458,7 +458,7 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: pendingApproval
     )
 
@@ -507,7 +507,7 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: pendingApproval
     )
 
@@ -554,7 +554,7 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: pendingApproval
     )
 
@@ -612,7 +612,7 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: pendingApproval
     )
 
@@ -679,13 +679,31 @@ struct ApprovalCardModelTests {
     )
 
     let model = ApprovalCardModelBuilder.build(
-      session: session,
+      session: session.approvalCardContext,
       pendingApproval: pendingApproval
     )
 
     #expect(model?.approvalType == .permissions)
     #expect(model?.toolName == "Permissions")
     #expect(model?.permissionRequest?.reason == "Codex needs broader access to complete this step.")
-    #expect(model?.permissionRequest?.groups.map(\.title) == ["Network", "Filesystem", "macOS"])
+    #expect(model?.permissionRequest?.groups.map { $0.title } == ["Network", "Filesystem", "macOS"])
+  }
+}
+
+private extension Session {
+  var approvalCardContext: ApprovalCardSessionContext {
+    ApprovalCardSessionContext(
+      id: id,
+      projectPath: projectPath,
+      isActive: isActive,
+      attentionReason: attentionReason,
+      pendingApprovalId: pendingApprovalId,
+      pendingToolName: pendingToolName,
+      pendingToolInput: pendingToolInput,
+      canApprove: canApprove,
+      canAnswer: canAnswer,
+      canTakeOver: canTakeOver,
+      canSendInput: canSendInput
+    )
   }
 }

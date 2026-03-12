@@ -12,19 +12,19 @@
       guard let sid = sessionId,
             let serverState
       else { return nil }
-      let session = serverState.session(sid).detailSessionSnapshot
+      let observable = serverState.session(sid)
 
-      let pendingId = session.pendingApprovalId?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let pendingId = observable.pendingApprovalId?.trimmingCharacters(in: .whitespacesAndNewlines)
       let pendingApproval: ServerApprovalRequest? = {
         guard let pendingId, !pendingId.isEmpty else { return nil }
-        guard let candidate = serverState.session(sid).pendingApproval else { return nil }
+        guard let candidate = observable.pendingApproval else { return nil }
         return candidate.id.trimmingCharacters(in: .whitespacesAndNewlines) == pendingId ? candidate : nil
       }()
 
       return ApprovalCardModelBuilder.build(
-        session: session,
+        session: observable.approvalCardContext,
         pendingApproval: pendingApproval,
-        approvalHistory: serverState.session(sid).approvalHistory,
+        approvalHistory: observable.approvalHistory,
         transcriptMessages: serverState.conversation(sid).messages
       )
     }

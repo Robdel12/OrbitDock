@@ -21,6 +21,8 @@ struct RootShellRuntimeLoadTests {
     #expect(runtime.rootShellRuntime.rootShellStore.records().count == 200)
     #expect(runtime.rootShellRuntime.rootShellStore.counts.total == 200)
     #expect(runtime.rootShellRuntime.rootShellStore.counts.active == 200)
+    #expect(runtime.sessionStore._sessionObservables.isEmpty)
+    #expect(runtime.sessionStore.hotDetailSessions.isEmpty)
   }
 
   @Test func burstPassiveUpdatesConvergeOnLatestRootSummaryState() async throws {
@@ -87,11 +89,14 @@ struct RootShellRuntimeLoadTests {
 
     let after = runtime.rootShellRuntime.rootShellStore.records()
     #expect(after == before)
+    #expect(runtime.sessionStore._sessionObservables.isEmpty)
+    #expect(runtime.sessionStore.hotDetailSessions.isEmpty)
   }
 
   private func makeRuntime(seedSessions: [ServerSessionListItem]) -> (
     endpoint: ServerEndpoint,
     eventStream: EventStream,
+    sessionStore: SessionStore,
     rootShellRuntime: RootShellRuntime
   ) {
     let endpoint = ServerEndpoint(
@@ -119,6 +124,11 @@ struct RootShellRuntimeLoadTests {
     )
     registry.configureFromSettings(startEnabled: false)
 
-    return (endpoint, eventStream, RootShellRuntime(runtimeRegistry: registry))
+    return (
+      endpoint,
+      eventStream,
+      registry.sessionStore(for: endpoint.id, fallback: registry.activeSessionStore),
+      RootShellRuntime(runtimeRegistry: registry)
+    )
   }
 }

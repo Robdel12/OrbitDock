@@ -100,6 +100,46 @@ struct ApprovalPermissionRequest: Hashable, Sendable {
   }
 }
 
+struct ApprovalCardSessionContext: Hashable, Sendable {
+  let id: String
+  let projectPath: String
+  let isActive: Bool
+  let attentionReason: Session.AttentionReason
+  let pendingApprovalId: String?
+  let pendingToolName: String?
+  let pendingToolInput: String?
+  let canApprove: Bool
+  let canAnswer: Bool
+  let canTakeOver: Bool
+  let canSendInput: Bool
+
+  init(
+    id: String,
+    projectPath: String,
+    isActive: Bool,
+    attentionReason: Session.AttentionReason,
+    pendingApprovalId: String?,
+    pendingToolName: String?,
+    pendingToolInput: String?,
+    canApprove: Bool,
+    canAnswer: Bool,
+    canTakeOver: Bool,
+    canSendInput: Bool
+  ) {
+    self.id = id
+    self.projectPath = projectPath
+    self.isActive = isActive
+    self.attentionReason = attentionReason
+    self.pendingApprovalId = pendingApprovalId
+    self.pendingToolName = pendingToolName
+    self.pendingToolInput = pendingToolInput
+    self.canApprove = canApprove
+    self.canAnswer = canAnswer
+    self.canTakeOver = canTakeOver
+    self.canSendInput = canSendInput
+  }
+}
+
 struct ApprovalCardModel: Hashable, Sendable {
   let mode: ApprovalCardMode
   let toolName: String?
@@ -124,17 +164,17 @@ struct ApprovalCardModel: Hashable, Sendable {
 
 enum ApprovalCardModeResolver {
   static func resolve(
-    for session: Session,
+    for context: ApprovalCardSessionContext,
     pendingApprovalId: String? = nil,
     approvalType: ServerApprovalType? = nil
   ) -> ApprovalCardMode {
     let hasPendingApproval = pendingApprovalId != nil
-    guard session.isActive, hasPendingApproval else { return .none }
-    if session.canApprove { return .permission }
-    if session.canAnswer { return .question }
-    if session.canTakeOver { return .takeover }
-    if session.canSendInput {
-      if session.attentionReason == .awaitingQuestion || approvalType == .question {
+    guard context.isActive, hasPendingApproval else { return .none }
+    if context.canApprove { return .permission }
+    if context.canAnswer { return .question }
+    if context.canTakeOver { return .takeover }
+    if context.canSendInput {
+      if context.attentionReason == .awaitingQuestion || approvalType == .question {
         return .question
       }
       return .permission
@@ -433,7 +473,7 @@ enum ApprovalCardModelBuilder {
   }
 
   static func build(
-    session: Session,
+    session: ApprovalCardSessionContext,
     pendingApproval: ServerApprovalRequest?,
     approvalHistory: [ServerApprovalHistoryItem] = [],
     transcriptMessages: [TranscriptMessage] = []

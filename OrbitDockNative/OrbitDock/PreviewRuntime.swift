@@ -42,7 +42,7 @@ struct PreviewRuntime {
       endpointName: endpoint.name
     )
     Self.previewSessions(endpoint: endpoint).forEach { session in
-      sessionStore.session(session.id).applySession(session)
+      sessionStore.session(session.id).applySnapshotProjection(SessionDetailSnapshotProjection.from(session))
     }
     sessionStore.codexModels = Self.previewCodexModels()
     sessionStore.claudeModels = Self.previewClaudeModels()
