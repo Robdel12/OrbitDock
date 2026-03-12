@@ -32,6 +32,11 @@ final class ImageCache {
   private var sessionStoresByEndpointId: [UUID: WeakSessionStoreBox] = [:]
   private let lock = NSLock()
 
+  private struct AttachmentLoadPreparation {
+    let shouldStart: Bool
+    let sessionStore: SessionStore?
+  }
+
   /// Returns the cached display image (downsampled) for scroll rendering.
   func image(for messageImage: MessageImage) -> PlatformImage? {
     cachedImage(for: messageImage)?.displayImage
@@ -39,47 +44,12 @@ final class ImageCache {
 
   /// Returns the full cache entry including original dimensions for labels.
   func cachedImage(for messageImage: MessageImage) -> CachedImage? {
-    lock.lock()
-    defer { lock.unlock() }
-
-    if let cached = cache[messageImage.id] {
+    if let cached = cachedImageIfPresent(for: messageImage.id) {
       return cached
     }
 
-    guard let source = createImageSource(for: messageImage) else {
-      return nil
-    }
-
-    // Read original dimensions from image header (no decode)
-    let (origW, origH) = Self.originalDimensions(from: source)
-
-    // Decode directly at display resolution — full bitmap never in memory
-    let thumbOptions: [CFString: Any] = [
-      kCGImageSourceCreateThumbnailFromImageAlways: true,
-      kCGImageSourceThumbnailMaxPixelSize: Self.maxPixelSize,
-      kCGImageSourceCreateThumbnailWithTransform: true,
-      kCGImageSourceShouldCacheImmediately: true,
-    ]
-    guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
-      source, 0, thumbOptions as CFDictionary
-    ) else { return nil }
-
-    #if os(macOS)
-      let displayImage = NSImage(
-        cgImage: cgImage,
-        size: NSSize(width: cgImage.width, height: cgImage.height)
-      )
-    #else
-      let displayImage = UIImage(cgImage: cgImage)
-    #endif
-
-    let entry = CachedImage(
-      displayImage: displayImage,
-      originalWidth: origW,
-      originalHeight: origH
-    )
-    cache[messageImage.id] = entry
-    return entry
+    startLoadIfNeeded(for: messageImage)
+    return nil
   }
 
   // MARK: - Private
@@ -90,33 +60,96 @@ final class ImageCache {
     lock.unlock()
   }
 
-  private func createImageSource(for messageImage: MessageImage) -> CGImageSource? {
-    let opts = [kCGImageSourceShouldCache: false] as CFDictionary
+  private func cachedImageIfPresent(for imageId: String) -> CachedImage? {
+    lock.lock()
+    defer { lock.unlock() }
+    return cache[imageId]
+  }
+
+  private func startLoadIfNeeded(for messageImage: MessageImage) {
     switch messageImage.source {
-      case let .filePath(path):
-        let url = URL(fileURLWithPath: path) as CFURL
-        return CGImageSourceCreateWithURL(url, opts)
-      case let .dataURI(uri):
-        guard let data = Self.decodeDataURI(uri) else { return nil }
-        return CGImageSourceCreateWithData(data as CFData, opts)
-      case let .inlineData(data):
-        return CGImageSourceCreateWithData(data as CFData, opts)
-      case let .serverAttachment(reference):
+      case .serverAttachment(let reference):
         startAttachmentLoadIfNeeded(reference: reference, imageId: messageImage.id)
-        return nil
+      case .filePath, .dataURI, .inlineData:
+        startLocalDecodeIfNeeded(messageImage: messageImage)
+    }
+  }
+
+  private func startLocalDecodeIfNeeded(messageImage: MessageImage) {
+    guard beginLoadIfNeeded(imageId: messageImage.id) else { return }
+
+    DispatchQueue.global(qos: .utility).async { [weak self] in
+      guard let self else { return }
+      defer { DispatchQueue.main.async { self.finishAttachmentLoad(imageId: messageImage.id) } }
+
+      let opts = [kCGImageSourceShouldCache: false] as CFDictionary
+      let source: CGImageSource?
+      switch messageImage.source {
+        case let .filePath(path):
+          source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, opts)
+        case let .dataURI(uri):
+          guard uri.hasPrefix("data:") else { return }
+          let withoutScheme = String(uri.dropFirst(5))
+          guard let commaIndex = withoutScheme.firstIndex(of: ",") else { return }
+          let base64String = String(withoutScheme[withoutScheme.index(after: commaIndex)...])
+          guard let data = Data(base64Encoded: base64String, options: .ignoreUnknownCharacters) else { return }
+          source = CGImageSourceCreateWithData(data as CFData, opts)
+        case let .inlineData(data):
+          source = CGImageSourceCreateWithData(data as CFData, opts)
+        case .serverAttachment:
+          source = nil
+      }
+
+      guard let source else { return }
+      guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return }
+      let origW = props[kCGImagePropertyPixelWidth] as? Int ?? 0
+      let origH = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+      let thumbOptions: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceThumbnailMaxPixelSize: Self.maxPixelSize,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceShouldCacheImmediately: true,
+      ]
+      guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
+        source, 0, thumbOptions as CFDictionary
+      ) else { return }
+
+      #if os(macOS)
+        let displayImage = NSImage(
+          cgImage: cgImage,
+          size: NSSize(width: cgImage.width, height: cgImage.height)
+        )
+      #else
+        let displayImage = UIImage(cgImage: cgImage)
+      #endif
+
+      let image = CachedImage(
+        displayImage: displayImage,
+        originalWidth: origW,
+        originalHeight: origH
+      )
+
+      DispatchQueue.main.async {
+        self.storeLoadedImage(imageId: messageImage.id, image: image)
+        NotificationCenter.default.post(
+          name: .conversationImageCacheDidUpdate,
+          object: nil,
+          userInfo: ["imageId": messageImage.id]
+        )
+      }
     }
   }
 
   private func startAttachmentLoadIfNeeded(reference: ServerAttachmentImageReference, imageId: String) {
     guard let endpointId = reference.endpointId else { return }
 
-    let (isAlreadyLoading, sessionStore) = prepareAttachmentLoad(
+    let preparation = prepareAttachmentLoad(
       endpointId: endpointId,
       imageId: imageId
     )
 
-    guard !isAlreadyLoading else { return }
-    guard let sessionStore else {
+    guard preparation.shouldStart else { return }
+    guard let sessionStore = preparation.sessionStore else {
       abandonAttachmentLoad(endpointId: endpointId, imageId: imageId)
       return
     }
@@ -131,14 +164,40 @@ final class ImageCache {
         attachmentId: reference.attachmentId
       ) else { return }
 
-      let resolvedImage = MessageImage(
-        id: imageId,
-        source: .inlineData(data),
-        mimeType: "image/png",
-        byteCount: data.count
-      )
+      let maxPixelSize = Self.maxPixelSize
+      let loaded = await Task.detached(priority: .utility) { () -> CachedImage? in
+        let opts = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, opts) else { return nil }
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return nil }
+        let origW = props[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let origH = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+        let thumbOptions: [CFString: Any] = [
+          kCGImageSourceCreateThumbnailFromImageAlways: true,
+          kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+          kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
+          source, 0, thumbOptions as CFDictionary
+        ) else { return nil }
 
-      guard let loaded = cachedImage(for: resolvedImage) else { return }
+        #if os(macOS)
+          let displayImage = NSImage(
+            cgImage: cgImage,
+            size: NSSize(width: cgImage.width, height: cgImage.height)
+          )
+        #else
+          let displayImage = UIImage(cgImage: cgImage)
+        #endif
+
+        return CachedImage(
+          displayImage: displayImage,
+          originalWidth: origW,
+          originalHeight: origH
+        )
+      }.value
+
+      guard let loaded else { return }
 
       storeLoadedAttachmentImage(
         endpointId: endpointId,
@@ -160,16 +219,27 @@ final class ImageCache {
   private func prepareAttachmentLoad(
     endpointId: UUID,
     imageId: String
-  ) -> (isAlreadyLoading: Bool, sessionStore: SessionStore?) {
+  ) -> AttachmentLoadPreparation {
+    guard beginLoadIfNeeded(imageId: imageId) else {
+      return AttachmentLoadPreparation(shouldStart: false, sessionStore: nil)
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    return AttachmentLoadPreparation(
+      shouldStart: true,
+      sessionStore: sessionStoresByEndpointId[endpointId]?.store
+    )
+  }
+
+  private func beginLoadIfNeeded(imageId: String) -> Bool {
     lock.lock()
     defer { lock.unlock() }
 
-    let isAlreadyLoading = inFlightLoads.contains(imageId)
-    let sessionStore = sessionStoresByEndpointId[endpointId]?.store
-    if !isAlreadyLoading {
-      inFlightLoads.insert(imageId)
+    if cache[imageId] != nil || inFlightLoads.contains(imageId) {
+      return false
     }
-    return (isAlreadyLoading, sessionStore)
+    inFlightLoads.insert(imageId)
+    return true
   }
 
   private func abandonAttachmentLoad(endpointId: UUID, imageId: String) {
@@ -197,21 +267,12 @@ final class ImageCache {
     sessionStoresByEndpointId[endpointId] = WeakSessionStoreBox(sessionStore)
   }
 
-  private static func originalDimensions(from source: CGImageSource) -> (Int, Int) {
-    guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-          let w = props[kCGImagePropertyPixelWidth] as? Int,
-          let h = props[kCGImagePropertyPixelHeight] as? Int
-    else { return (0, 0) }
-    return (w, h)
+  private func storeLoadedImage(imageId: String, image: CachedImage) {
+    lock.lock()
+    defer { lock.unlock() }
+    cache[imageId] = image
   }
 
-  private static func decodeDataURI(_ uri: String) -> Data? {
-    guard uri.hasPrefix("data:") else { return nil }
-    let withoutScheme = String(uri.dropFirst(5))
-    guard let commaIndex = withoutScheme.firstIndex(of: ",") else { return nil }
-    let base64String = String(withoutScheme[withoutScheme.index(after: commaIndex)...])
-    return Data(base64Encoded: base64String, options: .ignoreUnknownCharacters)
-  }
 }
 
 private final class WeakSessionStoreBox {

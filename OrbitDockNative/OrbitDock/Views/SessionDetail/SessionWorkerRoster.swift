@@ -81,6 +81,14 @@ struct SessionWorkerDetailPresentation {
 
 @MainActor
 enum SessionWorkerRosterPlanner {
+  private struct WorkerTimelineSummary {
+    let assignmentPreview: String?
+    let reportPreview: String?
+    let conversationEvents: [SessionWorkerDetailPresentation.ConversationEvent]
+  }
+
+  private static let iso8601Formatter = ISO8601DateFormatter()
+
   static func presentation(subagents: [ServerSubagentInfo]) -> SessionWorkerRosterPresentation? {
     let workers = subagents
       .sorted(by: workerSort)
@@ -141,8 +149,9 @@ enum SessionWorkerRosterPlanner {
     let visuals = visuals(for: subagent.agentType)
     let tools = (toolsByWorker[subagent.id] ?? []).prefix(8).map(toolPresentation)
     let threadEntries = threadEntries(for: messagesByWorker[subagent.id] ?? [])
-    let conversationEvents = conversationEvents(
+    let timelineSummary = workerTimelineSummary(
       for: subagent.id,
+      subagent: subagent,
       timelineMessages: timelineMessages
     )
     let relatedWorkers = relatedWorkers(
@@ -159,17 +168,14 @@ enum SessionWorkerRosterPlanner {
       iconName: visuals.iconName,
       isActive: status.isActive,
       statusNarrative: status.narrative,
-      assignmentPreview: assignmentPreview(for: subagent.id, subagent: subagent, timelineMessages: timelineMessages),
-      reportPreview: latestReportPreview(
-        for: subagent.id,
-        timelineMessages: timelineMessages
-      ),
+      assignmentPreview: timelineSummary.assignmentPreview,
+      reportPreview: timelineSummary.reportPreview,
       detailLines: detailLines(for: subagent),
       tools: Array(tools),
       threadEntries: threadEntries,
-      conversationEvents: conversationEvents,
+      conversationEvents: timelineSummary.conversationEvents,
       relatedWorkers: relatedWorkers,
-      latestConversationEventID: conversationEvents.last?.id
+      latestConversationEventID: timelineSummary.conversationEvents.last?.id
     )
   }
 
@@ -285,7 +291,7 @@ enum SessionWorkerRosterPlanner {
 
   private static func parseDate(_ value: String?) -> Date? {
     guard let value else { return nil }
-    return ISO8601DateFormatter().date(from: value)
+    return iso8601Formatter.date(from: value)
   }
 
   private static func formattedDate(_ value: String?) -> String? {
@@ -407,58 +413,50 @@ enum SessionWorkerRosterPlanner {
     return body
   }
 
-  private static func assignmentPreview(
+  private static func workerTimelineSummary(
     for subagentID: String,
     subagent: ServerSubagentInfo,
     timelineMessages: [TranscriptMessage]
-  ) -> String? {
-    if let taskSummary = subagent.taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-      return taskSummary
-    }
+  ) -> WorkerTimelineSummary {
+    let taskSummary = subagent.taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    var derivedAssignmentPreview: String?
+    var derivedReportPreview: String?
+    var matchedMessages: [TranscriptMessage] = []
+    matchedMessages.reserveCapacity(8)
 
     for message in timelineMessages {
       guard matchesWorker(message, workerID: subagentID) else { continue }
 
-      if let prompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-        return prompt
+      if derivedAssignmentPreview == nil {
+        if let prompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+          derivedAssignmentPreview = prompt
+        } else if let description = message.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+          derivedAssignmentPreview = description
+        } else {
+          let trimmedContent = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !trimmedContent.isEmpty {
+            derivedAssignmentPreview = trimmedContent
+          }
+        }
       }
 
-      if let description = message.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-        return description
+      if message.toolName?.lowercased() == "task",
+         let preview = message.sanitizedToolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      {
+        derivedReportPreview = cleanedReportPreview(preview)
       }
 
-      let trimmedContent = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !trimmedContent.isEmpty {
-        return trimmedContent
-      }
-    }
-
-    return nil
-  }
-
-  private static func latestReportPreview(
-    for subagentID: String,
-    timelineMessages: [TranscriptMessage]
-  ) -> String? {
-    for message in timelineMessages.reversed() {
-      guard message.toolName?.lowercased() == "task" else { continue }
-      guard matchesWorker(message, workerID: subagentID) else { continue }
-      if let preview = message.sanitizedToolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-        return cleanedReportPreview(preview)
+      matchedMessages.append(message)
+      if matchedMessages.count > 8 {
+        matchedMessages.removeFirst(matchedMessages.count - 8)
       }
     }
 
-    return nil
-  }
-
-  private static func conversationEvents(
-    for subagentID: String,
-    timelineMessages: [TranscriptMessage]
-  ) -> [SessionWorkerDetailPresentation.ConversationEvent] {
-    timelineMessages
-      .filter { matchesWorker($0, workerID: subagentID) }
-      .suffix(8)
-      .map(conversationEventPresentation)
+    return WorkerTimelineSummary(
+      assignmentPreview: taskSummary ?? derivedAssignmentPreview,
+      reportPreview: derivedReportPreview,
+      conversationEvents: matchedMessages.map(conversationEventPresentation)
+    )
   }
 
   private static func relatedWorkers(

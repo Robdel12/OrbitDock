@@ -61,6 +61,7 @@
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setMessages(resolvedMessages))
 
       messagesByID = Dictionary(uniqueKeysWithValues: sourceState.messages.map { ($0.id, $0) })
+      refreshRowContextCaches()
 
       if isLoadingMoreAtTop, sourceState.messages.count > loadMoreBaselineMessageCount || !hasMoreMessages {
         isLoadingMoreAtTop = false

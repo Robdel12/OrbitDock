@@ -10,10 +10,9 @@ extension SessionDetailView {
 
     guard plan.shouldSubscribe else { return }
 
-    scopedServerState.subscribeToSession(sessionId, recoveryGoal: .completeHistory)
+    scopedServerState.subscribeToSession(sessionId, recoveryGoal: .coherentRecent)
     scopedServerState.setSessionAutoMarkRead(sessionId, enabled: plan.autoMarkReadEnabled)
     syncSelectedWorker()
-    loadSelectedWorkerTools()
 
     guard plan.shouldLoadApprovalHistory else { return }
     loadApprovalHistory()
@@ -79,16 +78,22 @@ extension SessionDetailView {
     )
   }
 
-  func loadSelectedWorkerTools() {
-    guard let selectedWorkerId else { return }
-    scopedServerState.getSubagentTools(sessionId: sessionId, subagentId: selectedWorkerId)
-    scopedServerState.getSubagentMessages(sessionId: sessionId, subagentId: selectedWorkerId)
+  func loadSelectedWorkerTools(for workerId: String? = nil) {
+    guard showWorkerPanel else { return }
+    guard let workerId = workerId ?? selectedWorkerId else { return }
+    scopedServerState.getSubagentTools(sessionId: sessionId, subagentId: workerId)
+    scopedServerState.getSubagentMessages(sessionId: sessionId, subagentId: workerId)
+  }
+
+  func selectWorkerInPanel(_ workerId: String) {
+    guard !workerId.isEmpty else { return }
+    selectedWorkerId = workerId
+    loadSelectedWorkerTools(for: workerId)
   }
 
   func focusWorkerInDeck(_ workerId: String) {
     guard !workerId.isEmpty else { return }
     showWorkerPanel = true
-    selectedWorkerId = workerId
-    loadSelectedWorkerTools()
+    selectWorkerInPanel(workerId)
   }
 }

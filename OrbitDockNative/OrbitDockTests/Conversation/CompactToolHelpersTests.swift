@@ -206,6 +206,35 @@ struct CompactToolHelpersTests {
     #expect(model.outputPreview == "Queued follow-up work for two specialists.")
   }
 
+  @Test func bashOutputPreviewUsesTailExcerptAndStripsAnsiCodes() {
+    let noisyPrefix = String(repeating: "prefix-line\n", count: 500)
+    let message = makeToolMessage(
+      toolName: "bash",
+      toolInput: [:],
+      toolOutput: noisyPrefix + "\u{001B}[31mfinal line\u{001B}[0m\nplain tail"
+    )
+
+    let preview = CompactToolHelpers.outputPreview(for: message)
+
+    #expect(preview?.contains("final line") == true)
+    #expect(preview?.hasSuffix("plain tail") == true)
+    #expect(preview?.contains("\u{001B}[31m") == false)
+  }
+
+  @Test func workerEventPreviewUsesCheapSanitizedPrefix() {
+    let longOutput = String(repeating: "header\n", count: 200) + "\u{001B}[32mWorker finished cleanly\u{001B}[0m"
+    let message = makeToolMessage(
+      toolName: "wait",
+      toolInput: ["receiver_thread_id": "worker-123"],
+      toolOutput: longOutput
+    )
+
+    let model = SharedModelBuilders.workerEventModel(from: message)
+
+    #expect(model?.outputPreview?.contains("Worker finished cleanly") == true)
+    #expect(model?.outputPreview?.contains("\u{001B}[32m") == false)
+  }
+
   @Test func workerEventModelTreatsHandoffAsRealtimeStructure() {
     let message = makeToolMessage(
       toolName: "handoff",

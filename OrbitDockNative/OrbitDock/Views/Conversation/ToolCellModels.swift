@@ -311,7 +311,7 @@ enum SharedModelBuilders {
       return taskPrompt
     }
 
-    if let output = trimmed(message.sanitizedToolOutput) {
+    if let output = trimmed(CompactToolHelpers.compactSanitizedOutputPrefix(for: message, maxChars: 4096)) {
       return compactWorkerSummary(output)
     }
 
@@ -319,7 +319,7 @@ enum SharedModelBuilders {
   }
 
   private static func workerReportPreview(for message: TranscriptMessage) -> String? {
-    guard let output = trimmed(message.sanitizedToolOutput) else {
+    guard let output = trimmed(CompactToolHelpers.compactSanitizedOutputPrefix(for: message, maxChars: 4096)) else {
       return nil
     }
     return cleanedWorkerPreview(output)

@@ -157,6 +157,62 @@ struct ConversationHydrationRecoveryTests {
     #expect(paths.contains("/api/sessions/session-cache/messages?before_sequence=10&limit=50"))
   }
 
+  @Test func sessionReopenWithCoherentRecentStopsOnceRecentWindowIsCoherent() async throws {
+    let transport = ConversationRecoveryTransport()
+    let store = SessionStore(
+      clients: ServerClients(
+        serverURL: URL(string: "http://127.0.0.1:4000")!,
+        authToken: nil,
+        dataLoader: transport.load
+      ),
+      eventStream: EventStream(authToken: nil),
+      endpointId: UUID()
+    )
+    let sessionId = "session-cache"
+
+    store.conversation(sessionId).restoreFromCache(
+      CachedConversation(
+        messages: [
+          makeMessage(id: "assistant-10", sequence: 10, type: .assistant, content: "Recent reply"),
+          makeMessage(id: "tool-11", sequence: 11, type: .tool, content: "Recent tool output"),
+        ],
+        totalMessageCount: 12,
+        oldestSequence: 10,
+        newestSequence: 11,
+        hasMoreHistoryBefore: true,
+        cachedAt: Date()
+      )
+    )
+
+    store.unsubscribeFromSession(sessionId)
+    #expect(store.conversation(sessionId).messages.isEmpty)
+
+    store.subscribeToSession(
+      sessionId,
+      forceRefresh: false,
+      recoveryGoal: .coherentRecent
+    )
+
+    let conversation = store.conversation(sessionId)
+    try await waitUntil("cached conversation restored immediately on reopen") {
+      conversation.messages.map(\TranscriptMessage.id) == ["assistant-10", "tool-11"]
+        && conversation.hasMoreHistoryBefore
+        && conversation.totalMessageCount == 12
+    }
+
+    try await waitUntil("authoritative bootstrap kicked off") {
+      await transport.requestPaths().contains("/api/sessions/session-cache/conversation?limit=50")
+    }
+
+    await conversation.waitForHydrationToSettle()
+
+    let paths = await transport.requestPaths()
+    #expect(paths.contains("/api/sessions/session-cache/conversation?limit=50"))
+    #expect(paths.contains("/api/approvals?limit=200&session_id=session-cache"))
+    #expect(paths.contains("/api/sessions/session-cache/messages?before_sequence=10&limit=50"))
+    #expect(paths.count == 3)
+  }
+
   private func makeMessage(
     id: String,
     sequence: UInt64,

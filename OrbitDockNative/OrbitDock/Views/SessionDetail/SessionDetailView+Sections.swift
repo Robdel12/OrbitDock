@@ -6,7 +6,14 @@ extension SessionDetailView {
   }
 
   var workerDetailPresentation: SessionWorkerDetailPresentation? {
-    SessionWorkerRosterPlanner.detailPresentation(
+    guard showWorkerPanel, let selectedWorkerId else { return nil }
+
+    let hasLoadedWorkerPayload =
+      obs.subagentTools[selectedWorkerId] != nil || obs.subagentMessages[selectedWorkerId] != nil
+
+    guard hasLoadedWorkerPayload else { return nil }
+
+    return SessionWorkerRosterPlanner.detailPresentation(
       subagents: obs.subagents,
       selectedWorkerID: selectedWorkerId,
       toolsByWorker: obs.subagentTools,
@@ -36,7 +43,7 @@ extension SessionDetailView {
         detailPresentation: workerDetailPresentation,
         selectedWorkerID: selectedWorkerId,
         onSelectWorker: { workerId in
-          selectedWorkerId = workerId
+          selectWorkerInPanel(workerId)
         },
         onRevealConversationEvent: { messageId in
           if layoutConfig == .reviewOnly {

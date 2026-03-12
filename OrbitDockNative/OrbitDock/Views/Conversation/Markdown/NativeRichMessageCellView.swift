@@ -837,7 +837,7 @@ import SwiftUI
 
     static func imageBlockHeight(for images: [MessageImage], availableWidth: CGFloat) -> CGFloat {
       ConversationRichMessageSupport.imageBlockHeight(for: images, availableWidth: availableWidth) { image in
-        ImageCache.shared.image(for: image)?.size
+        ConversationRichMessageSupport.reservedDisplaySize(for: image)
       }
     }
 

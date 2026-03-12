@@ -7,6 +7,17 @@ struct ConversationRichMessageMeasurement {
 }
 
 enum ConversationRichMessageSupport {
+  static func reservedDisplaySize(for image: MessageImage) -> CGSize? {
+    guard let width = image.pixelWidth,
+          let height = image.pixelHeight,
+          width > 0,
+          height > 0
+    else {
+      return nil
+    }
+    return CGSize(width: width, height: height)
+  }
+
   static func imageMetadata(
     for image: MessageImage,
     originalWidth: Int?,

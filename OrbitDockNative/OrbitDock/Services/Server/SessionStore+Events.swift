@@ -87,11 +87,11 @@ extension SessionStore {
       obs.undoInProgress = false
       if success {
         let conv = conversation(sessionId)
-        Task { _ = await conv.bootstrap(goal: .completeHistory) }
+        Task { _ = await conv.bootstrap(goal: .coherentRecent) }
       }
     case .threadRolledBack(let sessionId, _):
       let conv = conversation(sessionId)
-      Task { _ = await conv.bootstrap(goal: .completeHistory) }
+      Task { _ = await conv.bootstrap(goal: .coherentRecent) }
     case .sessionForked(let sourceSessionId, let newSessionId, _):
       let obs = session(sourceSessionId)
       obs.forkInProgress = false

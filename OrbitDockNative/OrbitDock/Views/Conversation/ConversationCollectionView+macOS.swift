@@ -205,6 +205,10 @@ import SwiftUI
     var projectionResult = ProjectionResult.empty
     var currentRows: [TimelineRow] = []
     var rowIndexByTimelineRowID: [TimelineRowID: Int] = [:]
+    var rowContextSubagentsByID: [String: ServerSubagentInfo] = [:]
+    var rowContextApprovalCardModel: ApprovalCardModel?
+    var rowContextCompactToolModelsByMessageID: [String: NativeCompactToolRowModel] = [:]
+    var rowContextWorkerEventModelsByMessageID: [String: NativeCompactToolRowModel] = [:]
     let heightEngine = ConversationHeightEngine()
     let signposter = OSSignposter(
       subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock",
@@ -223,18 +227,17 @@ import SwiftUI
     }
 
     var rowContext: AppKitConversationRowContext {
-      let subagentsByID = Dictionary(
-        uniqueKeysWithValues: serverState?.session(sessionId ?? "").subagents.map { ($0.id, $0) } ?? []
-      )
       return AppKitConversationRowContext(
         rows: currentRows,
         messagesByID: messagesByID,
         turnsByID: turnsByID,
-        subagentsByID: subagentsByID,
+        subagentsByID: rowContextSubagentsByID,
+        compactToolModelsByMessageID: rowContextCompactToolModelsByMessageID,
+        workerEventModelsByMessageID: rowContextWorkerEventModelsByMessageID,
         metadata: sourceState.metadata,
         uiState: uiState,
         selectedWorkerID: selectedWorkerID,
-        approvalCardModel: buildApprovalCardModel(),
+        approvalCardModel: rowContextApprovalCardModel,
         expandedThinkingIDs: expandedThinkingIDs,
         rowWidth: availableRowWidth,
         tableWidth: tableView?.bounds.width ?? 0

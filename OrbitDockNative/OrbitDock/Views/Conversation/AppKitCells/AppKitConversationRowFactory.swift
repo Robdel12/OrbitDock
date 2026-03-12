@@ -7,6 +7,8 @@
     let messagesByID: [String: TranscriptMessage]
     let turnsByID: [String: TurnSummary]
     let subagentsByID: [String: ServerSubagentInfo]
+    let compactToolModelsByMessageID: [String: NativeCompactToolRowModel]
+    let workerEventModelsByMessageID: [String: NativeCompactToolRowModel]
     let metadata: ConversationSourceState.SessionMetadata
     let uiState: ConversationUIState
     let selectedWorkerID: String?
@@ -32,25 +34,12 @@
     func compactToolModel(for row: TimelineRow) -> NativeCompactToolRowModel? {
       guard case let .tool(id) = row.payload else { return nil }
       guard !uiState.expandedToolCards.contains(id) else { return nil }
-      guard let message = messagesByID[id] else { return nil }
-
-      return SharedModelBuilders.compactToolModel(
-        from: message,
-        supportsRichToolingCards: metadata.supportsRichToolingCards,
-        subagentsByID: subagentsByID,
-        selectedWorkerID: selectedWorkerID
-      )
+      return compactToolModelsByMessageID[id]
     }
 
     func workerEventModel(for row: TimelineRow) -> NativeCompactToolRowModel? {
       guard case let .workerEvent(id) = row.payload else { return nil }
-      guard let message = messagesByID[id] else { return nil }
-
-      return SharedModelBuilders.workerEventModel(
-        from: message,
-        subagentsByID: subagentsByID,
-        selectedWorkerID: selectedWorkerID
-      )
+      return workerEventModelsByMessageID[id]
     }
 
     func expandedToolModel(for row: TimelineRow) -> NativeExpandedToolModel? {

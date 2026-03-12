@@ -268,6 +268,8 @@ enum SharedTodoToolParser {
 }
 
 enum CompactToolHelpers {
+  private static let ansiRegex: NSRegularExpression? = try? NSRegularExpression(pattern: "\u{1b}\\[[0-9;?]*[a-zA-Z]")
+
   static func displayName(for toolName: String) -> String {
     let lowered = toolName.lowercased()
     let normalized = lowered.split(separator: ":").last.map(String.init) ?? lowered
@@ -665,7 +667,7 @@ enum CompactToolHelpers {
     switch toolType {
       case .bash:
         guard !message.isInProgress else { return nil }
-        guard let output = message.sanitizedToolOutput, !output.isEmpty else { return nil }
+        guard let output = compactSanitizedOutputSuffix(for: message, maxChars: 4096) else { return nil }
         return lastNLines(output, n: 3)
       case .glob:
         guard let output = message.toolOutput, !output.isEmpty else { return nil }
@@ -780,9 +782,9 @@ enum CompactToolHelpers {
   static func liveOutputPreview(for message: TranscriptMessage) -> String? {
     guard message.toolName?.lowercased() == "bash" || message.isShell, message.isInProgress else { return nil }
 
-    let output = (message.sanitizedToolOutput ?? "")
+    let output = compactSanitizedOutputSuffix(for: message, maxChars: 2048)?
       .replacingOccurrences(of: "\r\n", with: "\n")
-      .replacingOccurrences(of: "\r", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n") ?? ""
 
     let lastLine = output
       .components(separatedBy: "\n")
@@ -836,7 +838,7 @@ enum CompactToolHelpers {
   }
 
   private static func handoffPreview(for message: TranscriptMessage) -> String? {
-    if let output = trimmed(message.sanitizedToolOutput) {
+    if let output = trimmed(compactSanitizedOutputPrefix(for: message, maxChars: 4096)) {
       return compactSingleLineSummary(output, maxLength: 140)
     }
     if let description = trimmed(message.content), !description.isEmpty {
@@ -863,7 +865,7 @@ enum CompactToolHelpers {
   }
 
   private static func hookPreview(for message: TranscriptMessage) -> String? {
-    guard let output = trimmed(message.sanitizedToolOutput) else { return nil }
+    guard let output = trimmed(compactSanitizedOutputPrefix(for: message, maxChars: 4096)) else { return nil }
     let lines = output
       .components(separatedBy: CharacterSet.newlines)
       .map { $0.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }
@@ -884,5 +886,34 @@ enum CompactToolHelpers {
     guard let value else { return nil }
     let normalized = value.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
     return normalized.isEmpty ? nil : normalized
+  }
+
+  static func compactSanitizedOutputPrefix(for message: TranscriptMessage, maxChars: Int) -> String? {
+    compactSanitizedExcerpt(message.toolOutput, maxChars: maxChars, fromEnd: false)
+  }
+
+  static func compactSanitizedOutputSuffix(for message: TranscriptMessage, maxChars: Int) -> String? {
+    compactSanitizedExcerpt(message.toolOutput, maxChars: maxChars, fromEnd: true)
+  }
+
+  private static func compactSanitizedExcerpt(_ raw: String?, maxChars: Int, fromEnd: Bool) -> String? {
+    guard let raw, !raw.isEmpty else { return nil }
+    let excerpt: String
+    if raw.count <= maxChars {
+      excerpt = raw
+    } else if fromEnd {
+      excerpt = String(raw.suffix(maxChars))
+    } else {
+      excerpt = String(raw.prefix(maxChars))
+    }
+
+    guard let ansiRegex else {
+      return excerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : excerpt
+    }
+
+    let range = NSRange(excerpt.startIndex..., in: excerpt)
+    let sanitized = ansiRegex.stringByReplacingMatches(in: excerpt, range: range, withTemplate: "")
+    let trimmed = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 }

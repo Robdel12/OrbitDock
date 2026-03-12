@@ -38,4 +38,21 @@ struct ConversationImageLayoutTests {
     let expectedGrid = (ConversationImageLayout.thumbnailSize * 2) + ConversationImageLayout.spacing
     #expect(height == expectedHeader + expectedGrid)
   }
+
+  @Test func reservedDisplaySizeUsesEmbeddedMetadataOnly() {
+    let image = MessageImage(
+      id: "img-meta",
+      source: .serverAttachment(
+        ServerAttachmentImageReference(endpointId: nil, sessionId: "session", attachmentId: "att-meta")
+      ),
+      mimeType: "image/png",
+      byteCount: 256,
+      pixelWidth: 1200,
+      pixelHeight: 800
+    )
+
+    let reserved = ConversationRichMessageSupport.reservedDisplaySize(for: image)
+
+    #expect(reserved == CGSize(width: 1200, height: 800))
+  }
 }

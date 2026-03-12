@@ -33,7 +33,7 @@ struct SessionDetailView: View {
   @State var scrollToBottomTrigger = 0
 
   @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
-  @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = true
+  @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = false
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "session-detail")
   @State var selectedSkills: Set<String> = []
 
@@ -159,9 +159,6 @@ struct SessionDetailView: View {
     }
     .onChange(of: workerSelectionSignature) { _, _ in
       syncSelectedWorker()
-    }
-    .onChange(of: selectedWorkerId) { _, _ in
-      loadSelectedWorkerTools()
     }
   }
 

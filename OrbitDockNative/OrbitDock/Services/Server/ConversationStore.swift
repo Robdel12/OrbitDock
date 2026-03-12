@@ -288,7 +288,7 @@ final class ConversationStore {
     netLog(.warning, cat: .conv, "Lagged event — re-bootstrapping", sid: self.sessionId)
     backfillTask?.cancel()
     Task {
-      _ = await bootstrap(goal: .completeHistory)
+      _ = await bootstrap(goal: .coherentRecent)
     }
   }
 
@@ -296,7 +296,7 @@ final class ConversationStore {
   func bootstrapFresh() async {
     netLog(.warning, cat: .conv, "Fresh bootstrap requested", sid: self.sessionId)
     backfillTask?.cancel()
-    _ = await bootstrap(goal: .completeHistory)
+    _ = await bootstrap(goal: .coherentRecent)
   }
 
   /// Clear all message data (e.g. on disconnect).
