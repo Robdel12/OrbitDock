@@ -107,6 +107,7 @@ struct ContentView: View {
           sessionId: ref.sessionId,
           endpointId: ref.endpointId
         )
+        .environment(detailSessionStore(for: ref.endpointId))
         .id(ref.scopedID)
       case .dashboard:
         dashboardView
@@ -172,6 +173,7 @@ struct ContentView: View {
       provider: router.newSessionProvider,
       continuation: router.newSessionContinuation
     )
+    .environment(creationStore())
     #if os(iOS)
       .presentationDetents([.large])
       .presentationDragIndicator(.visible)
@@ -191,6 +193,11 @@ struct ContentView: View {
     let preferredEndpointId = router.selectedEndpointId ?? router.selectedSessionRef?.endpointId
     let primaryStore = runtimeRegistry.primarySessionStore(fallback: fallbackStore)
     return runtimeRegistry.sessionStore(for: preferredEndpointId, fallback: primaryStore)
+  }
+
+  private func detailSessionStore(for endpointId: UUID) -> SessionStore {
+    let fallbackStore = runtimeRegistry.activeSessionStore
+    return runtimeRegistry.sessionStore(for: endpointId, fallback: fallbackStore)
   }
 }
 

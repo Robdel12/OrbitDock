@@ -128,6 +128,63 @@ struct WindowRootRuntimeTests {
     #expect(await coordinator.hotSessionIDsForTesting().isEmpty)
   }
 
+  @Test func demotingSelectionDropsInactiveDetailResidencyForPreviousSession() async throws {
+    let endpoint = try makeEndpoint(
+      id: "44444444-4444-4444-4444-444444444444",
+      name: "Local"
+    )
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpoint] },
+      runtimeFactory: { ServerRuntime(endpoint: $0) },
+      shouldBootstrapFromSettings: false
+    )
+    registry.configureFromSettings(startEnabled: false)
+
+    let store = registry.sessionStore(for: endpoint.id, fallback: registry.activeSessionStore)
+    let firstObs = store.session("session-a")
+    firstObs.diff = "--- old"
+    firstObs.plan = "step one"
+    firstObs.currentTurnId = "turn-a"
+    firstObs.pendingShellContext = [
+      ShellContextEntry(command: "pwd", output: "/repo", exitCode: 0, timestamp: .init(timeIntervalSince1970: 0))
+    ]
+    firstObs.reviewComments = [
+      ServerReviewComment(
+        id: "comment-a",
+        sessionId: "session-a",
+        turnId: nil,
+        filePath: "file.swift",
+        lineStart: 1,
+        lineEnd: nil,
+        body: "Review me",
+        tag: nil,
+        status: .open,
+        createdAt: "2026-03-12T00:00:00Z",
+        updatedAt: nil
+      )
+    ]
+
+    let coordinator = RootShellRuntime(
+      runtimeRegistry: registry,
+      rootShellStore: RootShellStore()
+    )
+
+    let first = ScopedSessionID(endpointId: endpoint.id, sessionId: "session-a")
+    let second = ScopedSessionID(endpointId: endpoint.id, sessionId: "session-b")
+
+    await coordinator.applySelectedSessionChange(to: first.scopedID)
+    #expect(store.hotDetailSessions == Set([first.sessionId]))
+
+    await coordinator.applySelectedSessionChange(to: second.scopedID)
+
+    #expect(store.hotDetailSessions == Set([second.sessionId]))
+    #expect(firstObs.diff == nil)
+    #expect(firstObs.plan == nil)
+    #expect(firstObs.currentTurnId == nil)
+    #expect(firstObs.pendingShellContext.isEmpty)
+    #expect(firstObs.reviewComments.isEmpty)
+  }
+
   private func makeEndpoint(
     id: String,
     name: String,

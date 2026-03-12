@@ -61,6 +61,7 @@ struct OrbitDockApp: App {
           #if os(macOS)
             .environment(\.serverManager, appRuntime.serverManager)
           #endif
+          .environment(appRuntime.runtimeRegistry.activeSessionStore)
           .environment(\.modelPricingService, modelPricingService)
           .environment(appRuntime.runtimeRegistry)
           .environment(appRuntime.notificationManager)
@@ -71,7 +72,6 @@ struct OrbitDockApp: App {
       MenuBarExtra {
         MenuBarView()
           .environment(\.modelPricingService, modelPricingService)
-          .environment(appRuntime.runtimeRegistry.activeSessionStore)
           .environment(appRuntime.runtimeRegistry)
           .environment(appRuntime.usageServiceRegistry)
           .environment(\.colorScheme, .dark)

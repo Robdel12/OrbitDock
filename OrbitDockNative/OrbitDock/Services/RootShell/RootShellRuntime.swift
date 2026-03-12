@@ -72,10 +72,12 @@ final class RootShellRuntime {
 
     if let previousSelectedID {
       await sessionRegistry.demote(previousSelectedID)
+      demoteHotDetailResidency(for: previousSelectedID)
     }
 
     if let nextSelectedID {
       await sessionRegistry.promote(nextSelectedID)
+      promoteHotDetailResidency(for: nextSelectedID)
     }
   }
 
@@ -94,6 +96,22 @@ final class RootShellRuntime {
     )
 
     enqueueRootEvent(event)
+  }
+
+  private func promoteHotDetailResidency(for scopedID: ScopedSessionID) {
+    let store = runtimeRegistry.sessionStore(
+      for: scopedID.endpointId,
+      fallback: runtimeRegistry.activeSessionStore
+    )
+    store.promoteHotDetailResidency(for: scopedID.sessionId)
+  }
+
+  private func demoteHotDetailResidency(for scopedID: ScopedSessionID) {
+    let store = runtimeRegistry.sessionStore(
+      for: scopedID.endpointId,
+      fallback: runtimeRegistry.activeSessionStore
+    )
+    store.demoteHotDetailResidency(for: scopedID.sessionId)
   }
 
   private func observeRootShellEvents(from runtime: ServerRuntime) {

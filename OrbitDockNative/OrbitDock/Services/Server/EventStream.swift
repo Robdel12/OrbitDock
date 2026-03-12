@@ -266,6 +266,10 @@ final class EventStream {
     rootContinuation.yield(.sessionsList(sessions))
   }
 
+  func emitForTesting(_ event: ServerEvent) {
+    emit(event)
+  }
+
   // MARK: - Outbound (subscription management only)
 
   func subscribeList() {

@@ -96,5 +96,9 @@ final class ToastManager {
 
   func removeSession(_ sessionId: String) {
     clearNotification(for: sessionId)
+    let matchingToasts = toasts.filter { $0.sessionId == sessionId }
+    for toast in matchingToasts {
+      dismiss(toast)
+    }
   }
 }

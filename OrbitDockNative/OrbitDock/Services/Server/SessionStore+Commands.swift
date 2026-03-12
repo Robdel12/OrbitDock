@@ -407,5 +407,8 @@ extension SessionStore {
       _conversationStores[id]?.clear()
       _conversationStores.removeValue(forKey: id)
     }
+    for (id, observable) in _sessionObservables where !subscribedSessions.contains(id) && !hotDetailSessions.contains(id) {
+      observable.trimInactiveDetailPayloads()
+    }
   }
 }

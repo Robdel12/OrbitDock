@@ -594,7 +594,9 @@ Done when:
 Current note:
 
 - `SessionRegistry` now enforces a bounded hot session set with explicit recency ordering.
-- The remaining work here is attaching that policy to real detail cache ownership and promotion/demotion side effects, not inventing the boundary from scratch.
+- `RootShellRuntime` now promotes and demotes real `SessionStore` detail residency alongside hot-session selection changes.
+- `SessionStore` now tracks explicit hot-detail residency so warm/cold sessions trim heavy detail payloads instead of retaining them forever.
+- The remaining work here is broadening that residency model beyond the current selected-session path into a fuller bounded hot detail cache if product needs it.
 
 Parallel lanes:
 
@@ -680,6 +682,12 @@ Done when:
 
 - the visible root product runs entirely on the new root shell
 
+Current note:
+
+- The whole window no longer gets a global `SessionStore` injection.
+- `SessionStore` is now scoped to detail-capable subtrees like session detail, new session creation, and settings.
+- Root-visible surfaces are now forced onto `RootShellStore` and related root-safe dependencies by environment shape, not just convention.
+
 Parallel lanes:
 
 - Lane 5A: dashboard
@@ -716,7 +724,7 @@ Parallel lanes:
 
 ## Phase 7: Performance Proof
 
-Status: `Not started`
+Status: `In progress`
 
 Goal:
 
@@ -724,15 +732,24 @@ Goal:
 
 Tasks:
 
-- [ ] add synthetic passive-session load fixtures
-- [ ] verify `200` warm sessions stay responsive
-- [ ] verify hot-detail promotion does not churn the root shell
+- [x] add synthetic passive-session load fixtures
+- [~] verify `200` warm sessions stay responsive
+- [~] verify hot-detail promotion does not churn the root shell
 - [ ] verify memory remains bounded under long-running passive updates
 - [ ] capture before/after profile results
 
 Done when:
 
 - the app remains usable under sustained passive load and agent-heavy detail activity
+
+Current note:
+
+- `RootShellLoadFixture` now provides deterministic large passive-session datasets.
+- `RootShellRuntimeLoadTests` now cover:
+  - `200` session root bootstrap
+  - burst root-safe passive updates converging on the latest summary state
+  - detail-only traffic leaving the root shell unchanged
+- The remaining work is tying hot-tier membership to real detail-cache lifecycle outcomes and capturing before/after profile data from the actual app under load.
 
 Parallel lanes:
 
@@ -973,6 +990,6 @@ We are done when all of these are true:
 - [ ] Phase 2 complete
 - [x] Phase 3 complete
 - [x] Phase 4 complete
-- [ ] Phase 5 complete
+- [x] Phase 5 complete
 - [ ] Phase 6 complete
 - [ ] Phase 7 complete

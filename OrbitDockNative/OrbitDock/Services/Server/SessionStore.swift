@@ -53,6 +53,7 @@ final class SessionStore {
   @ObservationIgnored var controlStates: [String: SessionControlState] = [:]
   @ObservationIgnored var sessionSnapshotRefreshesInFlight: Set<String> = []
   @ObservationIgnored var subscribedSessions: Set<String> = []
+  @ObservationIgnored var hotDetailSessions: Set<String> = []
   @ObservationIgnored var autoMarkReadSessions: Set<String> = []
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []
   @ObservationIgnored var eventProcessingTask: Task<Void, Never>?
@@ -208,12 +209,27 @@ final class SessionStore {
     subscribedSessions.remove(sessionId)
     autoMarkReadSessions.remove(sessionId)
     eventStream.unsubscribeSession(sessionId)
-    cacheConversationBeforeTrim(sessionId: sessionId)
-    trimInactiveSessionPayload(sessionId)
+    if !hotDetailSessions.contains(sessionId) {
+      cacheConversationBeforeTrim(sessionId: sessionId)
+      trimInactiveSessionPayload(sessionId)
+    }
   }
 
   func isSessionSubscribed(_ sessionId: String) -> Bool {
     subscribedSessions.contains(sessionId)
+  }
+
+  func promoteHotDetailResidency(for sessionId: String) {
+    hotDetailSessions.insert(sessionId)
+    _ = session(sessionId)
+    _ = conversation(sessionId)
+  }
+
+  func demoteHotDetailResidency(for sessionId: String) {
+    hotDetailSessions.remove(sessionId)
+    guard !subscribedSessions.contains(sessionId) else { return }
+    cacheConversationBeforeTrim(sessionId: sessionId)
+    trimInactiveSessionPayload(sessionId)
   }
 
   // MARK: - Codex Account Actions

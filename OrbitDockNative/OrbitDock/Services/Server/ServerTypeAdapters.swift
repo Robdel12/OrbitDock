@@ -2,8 +2,9 @@
 //  ServerTypeAdapters.swift
 //  OrbitDock
 //
-//  Converts server protocol types (ServerSessionSummary, ServerMessage, etc.)
-//  to app model types (Session, TranscriptMessage) so views don't need to change.
+//  Detail-side protocol adaptation only.
+//  Root-shell surfaces should stay on root-safe list records and never route
+//  through these rich detail adapters.
 //
 
 import Foundation
