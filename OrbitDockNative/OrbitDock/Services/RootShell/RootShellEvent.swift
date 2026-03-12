@@ -41,6 +41,10 @@ enum RootShellEvent: Sendable {
     connectionStatus: ConnectionStatus,
     session: ServerSessionListItem
   )
+  case sessionRemoved(
+    endpointId: UUID,
+    sessionId: String
+  )
   case sessionEnded(
     endpointId: UUID,
     sessionId: String,

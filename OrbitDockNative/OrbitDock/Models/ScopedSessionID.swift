@@ -27,6 +27,10 @@ struct ScopedSessionID: Sendable {
     "\(endpointId.uuidString)\(Self.delimiter)\(sessionId)"
   }
 
+  nonisolated static func endpointPrefix(endpointId: UUID) -> String {
+    "\(endpointId.uuidString)\(Self.delimiter)"
+  }
+
   nonisolated var sessionRef: SessionRef {
     SessionRef(endpointId: endpointId, sessionId: sessionId)
   }

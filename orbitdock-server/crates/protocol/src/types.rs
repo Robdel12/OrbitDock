@@ -423,6 +423,8 @@ pub struct SessionSummary {
     /// Number of unread messages in this session.
     #[serde(default)]
     pub unread_count: u64,
+    #[serde(default)]
+    pub has_turn_diff: bool,
     pub display_title: String,
     pub display_title_sort_key: String,
     pub display_search_text: String,
@@ -538,6 +540,7 @@ impl SessionSummary {
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
             unread_count: self.unread_count,
+            has_turn_diff: self.has_turn_diff,
             pending_tool_name: self.pending_tool_name.clone(),
             repository_root: self.repository_root.clone(),
             is_worktree: self.is_worktree,
@@ -570,6 +573,7 @@ impl From<SessionSummary> for SessionListItem {
             started_at: summary.started_at,
             last_activity_at: summary.last_activity_at,
             unread_count: summary.unread_count,
+            has_turn_diff: summary.has_turn_diff,
             pending_tool_name: summary.pending_tool_name,
             repository_root: summary.repository_root,
             is_worktree: summary.is_worktree,
@@ -776,6 +780,8 @@ pub struct SessionListItem {
     pub last_activity_at: Option<String>,
     #[serde(default)]
     pub unread_count: u64,
+    #[serde(default)]
+    pub has_turn_diff: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_tool_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -814,6 +820,7 @@ impl SessionListItem {
             started_at: summary.started_at.clone(),
             last_activity_at: summary.last_activity_at.clone(),
             unread_count: summary.unread_count,
+            has_turn_diff: summary.has_turn_diff,
             pending_tool_name: summary.pending_tool_name.clone(),
             repository_root: summary.repository_root.clone(),
             is_worktree: summary.is_worktree,

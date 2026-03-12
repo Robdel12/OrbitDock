@@ -3,22 +3,26 @@ import Foundation
 @Observable
 @MainActor
 final class RootShellStore {
-  private(set) var state = RootShellState()
+  private(set) var counts = RootShellCounts()
+  private(set) var endpointHealthRecords: [RootShellEndpointHealth] = []
+  private(set) var orderedRecordsStorage: [RootSessionNode] = []
+  private(set) var missionControlRecordsStorage: [RootSessionNode] = []
+  private(set) var recentRecordsStorage: [RootSessionNode] = []
+  private(set) var selectedEndpointFilter: RootShellEndpointFilter = .all
 
-  var counts: RootShellCounts { state.counts }
+  @ObservationIgnored private var state = RootShellState()
+
   var endpointHealth: [RootShellEndpointHealth] {
-    state.orderedEndpointIDs.compactMap { state.endpointHealthByID[$0] }
+    endpointHealthRecords
   }
 
   @discardableResult
   func apply(_ event: RootShellEvent) -> Bool {
-    RootShellReducer.reduce(state: &state, event: event)
-  }
-
-  @discardableResult
-  func replace(with nextState: RootShellState) -> Bool {
-    guard state != nextState else { return false }
+    var nextState = state
+    let changed = RootShellReducer.reduce(state: &nextState, event: event)
+    guard changed else { return false }
     state = nextState
+    syncPublishedState(from: nextState)
     return true
   }
 
@@ -31,28 +35,41 @@ final class RootShellStore {
     return sessionRef(for: scopedID)
   }
 
+  func record(for scopedID: String) -> RootSessionNode? {
+    state.recordsByScopedID[scopedID]
+  }
+
   func setEndpointFilter(_ filter: RootShellEndpointFilter) {
     apply(.endpointFilterChanged(filter))
   }
 
   func records(filter: RootShellEndpointFilter? = nil) -> [RootSessionNode] {
-    let filter = filter ?? state.selectedEndpointFilter
+    let filter = filter ?? selectedEndpointFilter
     switch filter {
       case .all:
-        return state.orderedRecords
+        return orderedRecordsStorage
       case let .endpoint(endpointId):
-        return state.orderedRecords.filter { $0.sessionRef.endpointId == endpointId }
+        return orderedRecordsStorage.filter { $0.sessionRef.endpointId == endpointId }
     }
   }
 
   func missionControlRecords() -> [RootSessionNode] {
-    state.missionControlRecords
+    missionControlRecordsStorage
   }
 
   func recentRecords(limit: Int? = nil) -> [RootSessionNode] {
     if let limit {
-      return Array(state.recentRecords.prefix(limit))
+      return Array(recentRecordsStorage.prefix(limit))
     }
-    return state.recentRecords
+    return recentRecordsStorage
+  }
+
+  private func syncPublishedState(from state: RootShellState) {
+    counts = state.counts
+    endpointHealthRecords = state.orderedEndpointIDs.compactMap { state.endpointHealthByID[$0] }
+    orderedRecordsStorage = state.orderedRecords
+    missionControlRecordsStorage = state.missionControlRecords
+    recentRecordsStorage = state.recentRecords
+    selectedEndpointFilter = state.selectedEndpointFilter
   }
 }

@@ -115,7 +115,7 @@ struct ToastContainer: View {
   @Environment(AppRouter.self) private var router
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  @ObservedObject var toastManager: ToastManager
+  let toastManager: ToastManager
 
   var body: some View {
     VStack(alignment: .trailing, spacing: Spacing.sm) {

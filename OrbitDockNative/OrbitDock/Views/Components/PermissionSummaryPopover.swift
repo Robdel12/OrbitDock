@@ -136,37 +136,29 @@ struct PermissionInlinePanel: View {
     serverState.session(sessionId)
   }
 
-  private var currentSession: Session? {
-    serverState.sessions.first { $0.id == sessionId }
-  }
-
   // MARK: - Provider helpers
 
   private var panelColor: Color {
-    guard let session = currentSession else { return .textTertiary }
-    if session.isDirectCodex { return obs.autonomy.color }
-    if session.isDirectClaude { return obs.permissionMode.color }
+    if obs.isDirectCodex { return obs.autonomy.color }
+    if obs.isDirectClaude { return obs.permissionMode.color }
     return .textTertiary
   }
 
   private var panelTitle: String {
-    guard let session = currentSession else { return "Permissions" }
-    if session.isDirectCodex { return obs.autonomy.displayName }
-    if session.isDirectClaude { return obs.permissionMode.displayName }
+    if obs.isDirectCodex { return obs.autonomy.displayName }
+    if obs.isDirectClaude { return obs.permissionMode.displayName }
     return "Permissions"
   }
 
   private var panelIcon: String {
-    guard let session = currentSession else { return "shield.lefthalf.filled" }
-    if session.isDirectCodex { return obs.autonomy.icon }
-    if session.isDirectClaude { return obs.permissionMode.icon }
+    if obs.isDirectCodex { return obs.autonomy.icon }
+    if obs.isDirectClaude { return obs.permissionMode.icon }
     return "shield.lefthalf.filled"
   }
 
   private var modeDescription: String {
-    guard let session = currentSession else { return "" }
-    if session.isDirectCodex { return obs.autonomy.description }
-    if session.isDirectClaude { return obs.permissionMode.description }
+    if obs.isDirectCodex { return obs.autonomy.description }
+    if obs.isDirectClaude { return obs.permissionMode.description }
     return ""
   }
 
@@ -303,10 +295,8 @@ struct PermissionInlinePanel: View {
 
   @ViewBuilder
   private var modeSelector: some View {
-    if let session = currentSession {
-      if session.isDirectCodex { modePills(AutonomyLevel.allCases, current: obs.autonomy) }
-      else if session.isDirectClaude { modePills(ClaudePermissionMode.allCases, current: obs.permissionMode) }
-    }
+    if obs.isDirectCodex { modePills(AutonomyLevel.allCases, current: obs.autonomy) }
+    else if obs.isDirectClaude { modePills(ClaudePermissionMode.allCases, current: obs.permissionMode) }
   }
 
   private func modePills<T: Identifiable & CaseIterable & Equatable & PermissionModeRepresentable>(
@@ -359,9 +349,9 @@ struct PermissionInlinePanel: View {
           .foregroundStyle(Color.textTertiary)
       }
       .padding(.horizontal, Spacing.sm)
-    } else if let session = currentSession {
-      if session.isDirectClaude { claudeRulesContent }
-      else if session.isDirectCodex { codexRulesContent }
+    } else {
+      if obs.isDirectClaude { claudeRulesContent }
+      else if obs.isDirectCodex { codexRulesContent }
     }
   }
 

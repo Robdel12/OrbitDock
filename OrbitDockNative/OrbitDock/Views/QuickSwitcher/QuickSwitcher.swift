@@ -15,7 +15,7 @@ import SwiftUI
 struct QuickSwitcher: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(RootShellStore.self) private var rootShellStore
-  @Environment(SessionStore.self) private var serverState
+  @Environment(\.rootSessionActions) private var rootSessionActions
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
 
@@ -91,7 +91,7 @@ struct QuickSwitcher: View {
           initialText: quickSwitcherState.renameText,
           onSave: { newName in
             let name = newName.isEmpty ? nil : newName
-            Task { try? await appState(for: session).renameSession(session.sessionId, name: name) }
+            Task { try? await rootSessionActions.renameSession(session, name: name) }
             quickSwitcherState.renamingSession = nil
           },
           onCancel: {
@@ -150,7 +150,7 @@ struct QuickSwitcher: View {
         router.openNewSession(provider: provider)
         router.closeQuickSwitcher()
       case .renameSession(let session):
-        quickSwitcherState.renameText = sessionObservable(for: session).customName ?? ""
+        quickSwitcherState.renameText = session.customName ?? ""
         quickSwitcherState.renamingSession = session
       case .openInFinder(let path):
         _ = Platform.services.revealInFileBrowser(path)
@@ -159,7 +159,7 @@ struct QuickSwitcher: View {
         Platform.services.copyToClipboard(command)
         router.closeQuickSwitcher()
       case .closeSession(let session):
-        Task { try? await appState(for: session).endSession(session.sessionId) }
+        Task { try? await rootSessionActions.endSession(session) }
         router.closeQuickSwitcher()
     }
   }
@@ -313,8 +313,7 @@ struct QuickSwitcher: View {
       },
       onClose: session.showsInMissionControl ? {
         performCommandPlan(.closeSession(session))
-      } : nil,
-      sessionObservable: sessionObservable(for: session)
+      } : nil
     )
   }
   // MARK: - Empty State
@@ -389,7 +388,7 @@ struct QuickSwitcher: View {
       return
     }
 
-    quickSwitcherState.renameText = sessionObservable(for: session).customName ?? ""
+    quickSwitcherState.renameText = session.customName ?? ""
     quickSwitcherState.renamingSession = session
   }
 
@@ -399,14 +398,6 @@ struct QuickSwitcher: View {
       await Task.yield()
       isSearchFocused = true
     }
-  }
-
-  private func appState(for session: RootSessionNode) -> SessionStore {
-    runtimeRegistry.sessionStore(for: session.endpointId, fallback: serverState)
-  }
-
-  private func sessionObservable(for session: RootSessionNode) -> SessionObservable {
-    appState(for: session).session(session.sessionId)
   }
 
   // MARK: - Quick Launch

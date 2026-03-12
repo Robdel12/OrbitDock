@@ -14,10 +14,9 @@ struct QuickSwitcherSessionRow: View {
   let onRename: () -> Void
   let onCopyResume: () -> Void
   let onClose: (() -> Void)?
-  let sessionObservable: SessionObservable
 
   private var displayStatus: SessionDisplayStatus {
-    SessionDisplayStatus.from(session)
+    session.displayStatus
   }
 
   private var isHighlighted: Bool {
@@ -58,9 +57,6 @@ struct QuickSwitcherSessionRow: View {
               .foregroundStyle(Color.gitBranch.opacity(0.7))
             }
 
-            if !isCompactLayout, sessionObservable.forkedFrom != nil {
-              ForkBadge()
-            }
           }
 
           HStack(spacing: isCompactLayout ? Spacing.sm : Spacing.md_) {

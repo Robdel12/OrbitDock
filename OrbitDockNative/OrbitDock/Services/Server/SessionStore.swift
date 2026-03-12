@@ -31,7 +31,6 @@ final class SessionStore {
 
   // MARK: - Observable state
 
-  var sessions: [Session] = []
   var codexModels: [ServerCodexModelOption] = []
   var claudeModels: [ServerClaudeModelOption] = []
   var codexAccountStatus: ServerCodexAccountStatus?
@@ -115,7 +114,7 @@ final class SessionStore {
     netLog(.info, cat: .store, "Started event processing", data: ["endpointId": self.endpointId.uuidString])
     eventProcessingTask = Task { [weak self] in
       guard let self else { return }
-      for await event in eventStream.events {
+      for await event in eventStream.detailEvents {
         guard !Task.isCancelled else { break }
         self.routeEvent(event)
       }

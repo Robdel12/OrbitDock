@@ -5,12 +5,8 @@ extension SessionStore {
   func routeEvent(_ event: ServerEvent) {
     netLog(.debug, cat: .store, "Event: \(eventSummary(event))")
     switch event {
-    case .sessionsList(let summaries):
-      handleSessionsList(summaries)
-    case .sessionCreated(let summary):
-      handleSessionCreated(summary)
-    case .sessionListItemUpdated(let summary):
-      handleSessionListItemUpdated(summary)
+    case .sessionsList, .sessionCreated, .sessionListItemUpdated, .sessionListItemRemoved:
+      break
     case .sessionEnded(let sessionId, let reason):
       handleSessionEnded(sessionId, reason)
     case .sessionSnapshot(let state):
@@ -31,10 +27,6 @@ extension SessionStore {
       handleApprovalDeleted(approvalId)
     case .tokensUpdated(let sessionId, let usage, let kind):
       let obs = session(sessionId)
-      if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-        sessions[idx].applyTokenUsage(usage, snapshotKind: kind)
-        notifySessionsChanged()
-      }
       obs.applyTokenUsage(usage, snapshotKind: kind)
     case .modelsList(let models):
       codexModels = models
@@ -112,9 +104,6 @@ extension SessionStore {
         snapshotKind: kind
       )
       obs.applyTurnDiffSnapshot(projection)
-      if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-        sessions[idx].applyTurnDiffSnapshot(projection)
-      }
     case .reviewCommentCreated(let sessionId, _, let comment):
       session(sessionId).reviewComments.append(comment)
     case .reviewCommentUpdated(let sessionId, _, let comment):
@@ -178,6 +167,7 @@ extension SessionStore {
     case .sessionsList(let sessions): "sessionsList(\(sessions.count))"
     case .sessionCreated(let s): "sessionCreated(\(s.id))"
     case .sessionListItemUpdated(let s): "sessionListItemUpdated(\(s.id))"
+    case .sessionListItemRemoved(let sid): "sessionListItemRemoved(\(sid))"
     case .sessionEnded(let sid, _): "sessionEnded(\(sid))"
     case .sessionSnapshot(let s): "sessionSnapshot(\(s.id))"
     case .sessionDelta(let sid, _): "sessionDelta(\(sid))"
@@ -192,68 +182,6 @@ extension SessionStore {
     }
   }
 
-  func handleSessionsList(_ items: [ServerSessionListItem]) {
-    netLog(.info, cat: .store, "Received sessions list", data: ["count": items.count])
-
-    let currentById = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
-
-    let nextSessions = items.map { item in
-      if subscribedSessions.contains(item.id), let existing = currentById[item.id] {
-        return existing
-      }
-      return item.toSession(
-        endpointId: endpointId,
-        endpointName: endpointName ?? "",
-        endpointConnectionStatus: eventStream.connectionStatus
-      )
-    }
-
-    let sessionsChanged = replaceSessionsListIfNeeded(nextSessions)
-
-    for sessionSummary in sessions where !subscribedSessions.contains(sessionSummary.id) {
-      hydrateObservable(session(sessionSummary.id), from: sessionSummary)
-    }
-
-    let liveIds = Set(items.map(\.id))
-    let staleIds = _sessionObservables.keys.filter { !liveIds.contains($0) }
-    for id in staleIds {
-      _sessionObservables.removeValue(forKey: id)
-      _conversationStores[id]?.clear()
-      _conversationStores.removeValue(forKey: id)
-      controlStates.removeValue(forKey: id)
-    }
-
-    if sessionsChanged || !staleIds.isEmpty {
-      notifySessionsChanged()
-    }
-  }
-
-  func handleSessionCreated(_ item: ServerSessionListItem) {
-    let session = item.toSession(
-      endpointId: endpointId,
-      endpointName: endpointName ?? "",
-      endpointConnectionStatus: eventStream.connectionStatus
-    )
-    let sessionChanged = updateSessionInList(session)
-    hydrateObservable(self.session(item.id), from: session)
-    if sessionChanged {
-      notifySessionsChanged()
-    }
-  }
-
-  func handleSessionListItemUpdated(_ item: ServerSessionListItem) {
-    let session = item.toSession(
-      endpointId: endpointId,
-      endpointName: endpointName ?? "",
-      endpointConnectionStatus: eventStream.connectionStatus
-    )
-    let sessionChanged = updateSessionInList(session)
-    hydrateObservable(self.session(item.id), from: session)
-    if sessionChanged {
-      notifySessionsChanged()
-    }
-  }
-
   func handleSessionEnded(_ sessionId: String, _ reason: String) {
     let obs = session(sessionId)
     obs.status = .ended
@@ -261,20 +189,7 @@ extension SessionStore {
     obs.endedAt = Date()
     obs.pendingApproval = nil
     obs.clearTransientState()
-
-    let sessionChanged: Bool
-    if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-      sessions[idx].status = .ended
-      sessions[idx].endedAt = Date()
-      sessions[idx].clearPendingApprovalSummary(resetAttention: true)
-      sessionChanged = true
-    } else {
-      sessionChanged = false
-    }
     controlStates.removeValue(forKey: sessionId)
-    if sessionChanged {
-      notifySessionsChanged()
-    }
   }
 
   func handleSessionSnapshot(_ state: ServerSessionState) {
@@ -286,10 +201,9 @@ extension SessionStore {
 
     subscribedSessions.insert(state.id)
 
+    let obs = self.session(state.id)
     var session = state.toSession()
     session.customName = state.customName
-
-    let obs = self.session(state.id)
     hydrateObservable(obs, from: session)
     obs.subagents = state.subagents
     let transition = SessionControlStateReducer.snapshotTransition(
@@ -298,20 +212,16 @@ extension SessionStore {
       supportsServerControlConfiguration: state.provider == .codex || state.claudeIntegrationMode == .direct
     )
     applyControlTransition(transition, sessionId: state.id, session: &session, observable: obs)
-    let sessionChanged = updateSessionInList(session)
-    if sessionChanged {
-      notifySessionsChanged()
-    }
+    hydrateObservable(obs, from: session)
   }
 
   func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
-    guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-    var session = sessions[idx]
     let obs = self.session(sessionId)
     let projection = SessionStateProjection.from(changes)
 
-    session.applyProjection(projection)
     obs.applyProjection(projection)
+    var session = obs.detailSessionSnapshot
+    session.applyProjection(projection)
     let summaryStillBlocked = session.attentionReason == .awaitingPermission
       || session.attentionReason == .awaitingQuestion
       || session.workStatus == .permission
@@ -321,15 +231,7 @@ extension SessionStore {
       summaryStillBlocked: summaryStillBlocked
     )
     applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
-
-    let previousSession = sessions[idx]
-    let sessionChanged = previousSession != session
-    if sessionChanged {
-      sessions[idx] = session
-    }
-    if sessionChanged {
-      notifySessionsChanged()
-    }
+    hydrateObservable(obs, from: session)
   }
 
   func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
@@ -346,8 +248,7 @@ extension SessionStore {
 
   func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest, _ version: UInt64?) {
     let obs = session(sessionId)
-    guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-    var session = sessions[idx]
+    var session = obs.detailSessionSnapshot
     guard let transition = SessionControlStateReducer.approvalRequestedTransition(
       current: controlState(sessionId: sessionId, observable: obs),
       request: request,
@@ -356,14 +257,7 @@ extension SessionStore {
       return
     }
     applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
-    let previousSession = sessions[idx]
-    let sessionChanged = previousSession != session
-    if sessionChanged {
-      sessions[idx] = session
-    }
-    if sessionChanged {
-      notifySessionsChanged()
-    }
+    hydrateObservable(obs, from: session)
   }
 
   func handleApprovalDecisionResult(
@@ -374,8 +268,7 @@ extension SessionStore {
     _ version: UInt64
   ) {
     let obs = session(sessionId)
-    guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-    var session = sessions[idx]
+    var session = obs.detailSessionSnapshot
     let transition = SessionControlStateReducer.approvalDecisionTransition(
       current: controlState(sessionId: sessionId, observable: obs),
       requestId: requestId,
@@ -383,14 +276,7 @@ extension SessionStore {
       version: version
     )
     applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
-    let previousSession = sessions[idx]
-    let sessionChanged = previousSession != session
-    if sessionChanged {
-      sessions[idx] = session
-    }
-    if sessionChanged {
-      notifySessionsChanged()
-    }
+    hydrateObservable(obs, from: session)
 
     inFlightApprovalDispatches.remove(requestId)
   }
@@ -454,32 +340,6 @@ extension SessionStore {
     obs.applySession(session)
   }
 
-  @discardableResult
-  func updateSessionInList(_ session: Session) -> Bool {
-    var stamped = session
-    stamped.endpointId = stamped.endpointId ?? endpointId
-    stamped.endpointName = stamped.endpointName ?? endpointName
-    if let idx = sessions.firstIndex(where: { $0.id == stamped.id }) {
-      guard sessions[idx] != stamped else { return false }
-      sessions[idx] = stamped
-    } else {
-      sessions.append(stamped)
-    }
-    return true
-  }
-
-  @discardableResult
-  func replaceSessionsListIfNeeded(_ nextSessions: [Session]) -> Bool {
-    guard sessions != nextSessions else { return false }
-    sessions = nextSessions
-    return true
-  }
-
-  func notifySessionsChanged() {
-    // `sessions` is still an observable collection for detail-oriented surfaces.
-    // Root-shell refresh is now driven directly from EventStream, not this store.
-  }
-
   func controlState(sessionId: String, observable: SessionObservable) -> SessionControlState {
     controlStates[sessionId] ?? SessionControlState(
       approvalVersion: observable.approvalVersion,
@@ -514,18 +374,9 @@ extension SessionStore {
       current: controlState(sessionId: sessionId, observable: observable),
       mode: mode
     )
-
-    if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-      var session = sessions[idx]
-      applyControlTransition(transition, sessionId: sessionId, session: &session, observable: observable)
-      sessions[idx] = session
-    } else {
-      controlStates[sessionId] = transition.nextState
-      observable.approvalVersion = transition.nextState.approvalVersion
-      observable.autonomy = transition.nextState.autonomy
-      observable.autonomyConfiguredOnServer = transition.nextState.autonomyConfiguredOnServer
-      observable.permissionMode = transition.nextState.permissionMode
-    }
+    var session = observable.detailSessionSnapshot
+    applyControlTransition(transition, sessionId: sessionId, session: &session, observable: observable)
+    hydrateObservable(observable, from: session)
   }
 
   private func applyPendingApprovalChange(_ change: SessionPendingApprovalChange, to session: inout Session) {

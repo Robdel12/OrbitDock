@@ -24,81 +24,11 @@ private enum RootSessionAdapterSupport {
   }
 }
 
-// MARK: - ServerSessionSummary → Session
-
-extension ServerSessionSummary {
-  /// Convert to app Session model. Caller must stamp `endpointId` and `endpointName`
-  /// on the returned session before inserting into `SessionStore.sessions`.
-  func toSession() -> Session {
-    let codexMode = RootSessionAdapterSupport.codexMode(provider: provider, mode: codexIntegrationMode)
-    let claudeMode = RootSessionAdapterSupport.claudeMode(provider: provider, mode: claudeIntegrationMode)
-
-    var session = Session(
-      id: id,
-      projectPath: projectPath,
-      projectName: projectName,
-      branch: gitBranch,
-      model: model,
-      customName: customName,
-      transcriptPath: transcriptPath,
-      status: status == .active ? .active : .ended,
-      workStatus: workStatus.toSessionWorkStatus(),
-      startedAt: parseServerTimestamp(startedAt),
-      totalTokens: tokenUsage.map { Int($0.inputTokens + $0.outputTokens) } ?? 0,
-      lastActivityAt: parseServerTimestamp(lastActivityAt),
-      attentionReason: workStatus.toAttentionReason(hasPendingApproval: hasPendingApproval),
-      pendingToolName: pendingToolName,
-      pendingToolInput: pendingToolInput,
-      pendingPermissionDetail: nil,
-      pendingQuestion: pendingQuestion,
-      provider: RootSessionAdapterSupport.provider(from: provider),
-      codexIntegrationMode: codexMode,
-      claudeIntegrationMode: claudeMode,
-      pendingApprovalId: pendingApprovalId,
-      inputTokens: tokenUsage.map { Int($0.inputTokens) },
-      outputTokens: tokenUsage.map { Int($0.outputTokens) },
-      cachedTokens: tokenUsage.map { Int($0.cachedTokens) },
-      contextWindow: tokenUsage.map { Int($0.contextWindow) },
-      tokenUsageSnapshotKind: tokenUsageSnapshotKind ?? .unknown
-    )
-    session.summary = summary
-    session.firstPrompt = firstPrompt
-    session.lastMessage = lastMessage
-    session.gitSha = gitSha
-    session.currentCwd = currentCwd
-    session.effort = effort
-    session.collaborationMode = collaborationMode
-    session.multiAgent = multiAgent
-    session.personality = personality
-    session.serviceTier = serviceTier
-    session.developerInstructions = developerInstructions
-    session.repositoryRoot = repositoryRoot
-    session.isWorktree = isWorktree ?? false
-    session.worktreeId = worktreeId
-    session.unreadCount = unreadCount ?? 0
-    if let displayTitle {
-      session.displayName = displayTitle
-      session.normalizedDisplayName = displayTitleSortKey ?? displayTitle.lowercased()
-      session.displaySearchText = displaySearchText ?? SessionSemantics.displaySearchText(
-        displayName: displayTitle,
-        projectName: projectName,
-        branch: gitBranch,
-        model: model,
-        summary: summary,
-        firstPrompt: firstPrompt,
-        lastMessage: lastMessage,
-        projectPath: projectPath
-      )
-    }
-    return session
-  }
-}
-
 // MARK: - ServerSessionState → Session
 
 extension ServerSessionState {
-  /// Convert to app Session model. Caller must stamp `endpointId` and `endpointName`
-  /// on the returned session before inserting into `SessionStore.sessions`.
+  /// Convert to the rich detail Session model used by SessionObservable/SessionStore.
+  /// Root-shell surfaces should stay on ServerSessionListItem -> RootSessionNode instead.
   func toSession() -> Session {
     let codexMode = RootSessionAdapterSupport.codexMode(provider: provider, mode: codexIntegrationMode)
     let claudeMode = RootSessionAdapterSupport.claudeMode(provider: provider, mode: claudeIntegrationMode)
@@ -150,79 +80,6 @@ extension ServerSessionState {
     session.worktreeId = worktreeId
     session.unreadCount = unreadCount ?? 0
     return session
-  }
-}
-
-extension ServerSessionListItem {
-  func toSession(
-    endpointId: UUID,
-    endpointName: String,
-    endpointConnectionStatus: ConnectionStatus
-  ) -> Session {
-    let appProvider = RootSessionAdapterSupport.provider(from: provider)
-    let status: Session.SessionStatus = status == .active ? .active : .ended
-    let workStatus = workStatus.toSessionWorkStatus()
-    let codexMode = RootSessionAdapterSupport.codexMode(provider: self.provider, mode: codexIntegrationMode)
-    let claudeMode = RootSessionAdapterSupport.claudeMode(provider: self.provider, mode: claudeIntegrationMode)
-    let displayTitle = (displayTitle?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
-      $0.isEmpty ? nil : $0
-    } ?? RootSessionNode.displayTitle(
-      explicit: nil,
-      projectName: projectName,
-      projectPath: projectPath
-    )
-    let trimmedContextLine = contextLine?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let normalizedDisplayName = (displayTitleSortKey?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
-      $0.isEmpty ? nil : $0
-    } ?? RootSessionNode.sortKey(
-      explicit: nil,
-      title: displayTitle
-    )
-    let searchText = (displaySearchText?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap {
-      $0.isEmpty ? nil : $0
-    } ?? RootSessionNode.searchText(
-      explicit: nil,
-      title: displayTitle,
-      contextLine: trimmedContextLine,
-      projectName: projectName,
-      branch: gitBranch,
-      model: model
-    )
-
-    var session = Session(
-      id: id,
-      endpointId: endpointId,
-      endpointName: endpointName,
-      endpointConnectionStatus: endpointConnectionStatus,
-      projectPath: projectPath,
-      projectName: projectName,
-      branch: gitBranch,
-      model: model,
-      summary: trimmedContextLine,
-      status: status,
-      workStatus: workStatus,
-      startedAt: parseServerTimestamp(startedAt),
-      lastActivityAt: parseServerTimestamp(lastActivityAt),
-      attentionReason: attentionReason,
-      provider: appProvider,
-      codexIntegrationMode: codexMode,
-      claudeIntegrationMode: claudeMode,
-      displayName: displayTitle,
-      normalizedDisplayName: normalizedDisplayName,
-      displaySearchText: searchText
-    )
-    session.repositoryRoot = repositoryRoot
-    session.isWorktree = isWorktree ?? false
-    session.worktreeId = worktreeId
-    session.unreadCount = unreadCount ?? 0
-    session.pendingToolName = pendingToolName
-    session.totalTokens = Int(totalTokens ?? 0)
-    session.totalCostUSD = totalCostUSD ?? 0
-    session.effort = effort
-    return session
-  }
-  private var attentionReason: Session.AttentionReason {
-    workStatus.toAttentionReason()
   }
 }
 

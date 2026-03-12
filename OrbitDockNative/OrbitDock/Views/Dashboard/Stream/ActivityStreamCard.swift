@@ -22,11 +22,11 @@ struct AttentionCard: View {
   let session: RootSessionNode
   let onSelect: () -> Void
 
-  @Environment(SessionStore.self) private var serverState
+  @Environment(\.rootSessionActions) private var rootSessionActions
   @State private var isHovering = false
 
   private var displayStatus: SessionDisplayStatus {
-    SessionDisplayStatus.from(session)
+    session.displayStatus
   }
 
   private var statusColor: Color {
@@ -137,7 +137,20 @@ struct AttentionCard: View {
     }
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
-    .contextMenu { SessionCardHelpers.contextMenu(for: session, serverState: serverState) }
+    .contextMenu { SessionCardHelpers.baseContextMenu(for: session)
+      if session.isActive, session.isDirect {
+        Divider()
+        Button(role: .destructive) {
+          Task { await endSession() }
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
+    }
+  }
+
+  private func endSession() async {
+    try? await rootSessionActions.endSession(session)
   }
 
   private var trailingBadge: some View {
@@ -166,7 +179,7 @@ struct WorkingCard: View {
   let session: RootSessionNode
   let onSelect: () -> Void
 
-  @Environment(SessionStore.self) private var serverState
+  @Environment(\.rootSessionActions) private var rootSessionActions
   @State private var isHovering = false
 
   private var agentLabel: String {
@@ -266,7 +279,20 @@ struct WorkingCard: View {
     }
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
-    .contextMenu { SessionCardHelpers.contextMenu(for: session, serverState: serverState) }
+    .contextMenu { SessionCardHelpers.baseContextMenu(for: session)
+      if session.isActive, session.isDirect {
+        Divider()
+        Button(role: .destructive) {
+          Task { await endSession() }
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
+    }
+  }
+
+  private func endSession() async {
+    try? await rootSessionActions.endSession(session)
   }
 }
 
@@ -274,7 +300,7 @@ struct WorkingCard: View {
 
 struct CompactSessionRow: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(SessionStore.self) private var serverState
+  @Environment(\.rootSessionActions) private var rootSessionActions
 
   let session: RootSessionNode
   let onSelect: () -> Void
@@ -283,7 +309,7 @@ struct CompactSessionRow: View {
   @State private var isHovering = false
 
   private var displayStatus: SessionDisplayStatus {
-    SessionDisplayStatus.from(session)
+    session.displayStatus
   }
 
   private var agentLabel: String {
@@ -316,7 +342,20 @@ struct CompactSessionRow: View {
     }
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
-    .contextMenu { SessionCardHelpers.contextMenu(for: session, serverState: serverState) }
+    .contextMenu { SessionCardHelpers.baseContextMenu(for: session)
+      if session.isActive, session.isDirect {
+        Divider()
+        Button(role: .destructive) {
+          Task { await endSession() }
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
+    }
+  }
+
+  private func endSession() async {
+    try? await rootSessionActions.endSession(session)
   }
 
   // MARK: - Desktop: two-line row
@@ -496,7 +535,7 @@ enum SessionCardHelpers {
   }
 
   @ViewBuilder
-  static func contextMenu(for session: RootSessionNode, serverState: SessionStore) -> some View {
+  static func baseContextMenu(for session: RootSessionNode) -> some View {
     Button {
       _ = Platform.services.revealInFileBrowser(session.projectPath)
     } label: {
@@ -508,15 +547,6 @@ enum SessionCardHelpers {
       Platform.services.copyToClipboard(command)
     } label: {
       Label("Copy Resume Command", systemImage: "doc.on.doc")
-    }
-
-    if session.isActive, session.isDirect {
-      Divider()
-      Button(role: .destructive) {
-        Task { try? await serverState.endSession(session.sessionId) }
-      } label: {
-        Label("End Session", systemImage: "stop.circle")
-      }
     }
   }
 

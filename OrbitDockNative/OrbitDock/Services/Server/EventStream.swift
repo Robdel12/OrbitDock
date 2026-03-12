@@ -17,6 +17,7 @@ enum ServerEvent: Sendable {
   case sessionsList([ServerSessionListItem])
   case sessionCreated(ServerSessionListItem)
   case sessionListItemUpdated(ServerSessionListItem)
+  case sessionListItemRemoved(sessionId: String)
   case sessionEnded(sessionId: String, reason: String)
 
   // Session state
@@ -136,11 +137,14 @@ final class EventStream {
 
   private(set) var connectionStatus: ConnectionStatus = .disconnected
 
-  /// The event stream. Consumers iterate with `for await event in eventStream.events { ... }`.
+  /// The full event stream. Prefer `rootEvents` or `detailEvents` when a consumer
+  /// only needs one lane.
   let events: AsyncStream<ServerEvent>
   private let continuation: AsyncStream<ServerEvent>.Continuation
   let rootEvents: AsyncStream<ServerEvent>
   private let rootContinuation: AsyncStream<ServerEvent>.Continuation
+  let detailEvents: AsyncStream<ServerEvent>
+  private let detailContinuation: AsyncStream<ServerEvent>.Continuation
   let statusUpdates: AsyncStream<ConnectionStatus>
   private let statusContinuation: AsyncStream<ConnectionStatus>.Continuation
   let initialSessionsListUpdates: AsyncStream<Bool>
@@ -176,6 +180,9 @@ final class EventStream {
     var rootEventContinuation: AsyncStream<ServerEvent>.Continuation!
     rootEvents = AsyncStream { rootEventContinuation = $0 }
     rootContinuation = rootEventContinuation
+    var detailEventContinuation: AsyncStream<ServerEvent>.Continuation!
+    detailEvents = AsyncStream { detailEventContinuation = $0 }
+    detailContinuation = detailEventContinuation
 
     var connectionContinuation: AsyncStream<ConnectionStatus>.Continuation!
     statusUpdates = AsyncStream { connectionContinuation = $0 }
@@ -189,6 +196,7 @@ final class EventStream {
   deinit {
     continuation.finish()
     rootContinuation.finish()
+    detailContinuation.finish()
     statusContinuation.finish()
     initialSessionsListContinuation.finish()
   }
@@ -467,6 +475,8 @@ final class EventStream {
       emit(.sessionCreated(session))
     case let .sessionListItemUpdated(session):
       emit(.sessionListItemUpdated(session))
+    case let .sessionListItemRemoved(sessionId):
+      emit(.sessionListItemRemoved(sessionId: sessionId))
     case let .sessionEnded(sessionId, reason):
       emit(.sessionEnded(sessionId: sessionId, reason: reason))
     case let .approvalsList(sessionId, approvals):
@@ -584,6 +594,9 @@ final class EventStream {
     if isRootSafe(event) {
       rootContinuation.yield(event)
     }
+    if isDetailSafe(event) {
+      detailContinuation.yield(event)
+    }
   }
 
   private func setStatus(_ status: ConnectionStatus) {
@@ -606,11 +619,24 @@ final class EventStream {
       case .sessionsList,
         .sessionCreated,
         .sessionListItemUpdated,
+        .sessionListItemRemoved,
         .sessionEnded,
         .connectionStatusChanged:
         true
       default:
         false
+    }
+  }
+
+  private func isDetailSafe(_ event: ServerEvent) -> Bool {
+    switch event {
+      case .sessionsList,
+        .sessionCreated,
+        .sessionListItemUpdated,
+        .sessionListItemRemoved:
+        false
+      default:
+        true
     }
   }
 
@@ -629,8 +655,10 @@ final class EventStream {
         } else {
           latestSessionListItems.append(session)
         }
-      case let .sessionEnded(sessionId, _):
+      case let .sessionListItemRemoved(sessionId):
         latestSessionListItems.removeAll { $0.id == sessionId }
+      case .sessionEnded:
+        break
       case .connectionStatusChanged:
         break
       default:

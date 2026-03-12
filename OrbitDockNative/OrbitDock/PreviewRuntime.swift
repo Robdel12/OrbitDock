@@ -41,7 +41,9 @@ struct PreviewRuntime {
       endpointId: endpoint.id,
       endpointName: endpoint.name
     )
-    sessionStore.sessions = Self.previewSessions(endpoint: endpoint)
+    Self.previewSessions(endpoint: endpoint).forEach { session in
+      sessionStore.session(session.id).applySession(session)
+    }
     sessionStore.codexModels = Self.previewCodexModels()
     sessionStore.claudeModels = Self.previewClaudeModels()
     sessionStore.codexAccountStatus = ServerCodexAccountStatus(

@@ -26,6 +26,7 @@ fn is_list_relevant(msg: &ServerMessage) -> bool {
         msg,
         ServerMessage::SessionCreated { .. }
             | ServerMessage::SessionListItemUpdated { .. }
+            | ServerMessage::SessionListItemRemoved { .. }
             | ServerMessage::SessionEnded { .. }
             | ServerMessage::SessionDelta { .. }
             | ServerMessage::SessionForked { .. }
@@ -310,6 +311,7 @@ pub struct SessionSnapshot {
     pub repository_root: Option<String>,
     pub is_worktree: bool,
     pub worktree_id: Option<String>,
+    pub has_turn_diff: bool,
     /// Number of active WebSocket subscribers (for subscriber-gated background tasks).
     pub subscriber_count: usize,
     /// Cached count of unread messages.
@@ -574,6 +576,7 @@ impl SessionHandle {
             repository_root: None,
             is_worktree: false,
             worktree_id: None,
+            has_turn_diff: false,
             subscriber_count: 0,
             unread_count: 0,
         };
@@ -730,6 +733,7 @@ impl SessionHandle {
             repository_root: None,
             is_worktree: false,
             worktree_id: None,
+            has_turn_diff: current_diff.is_some() || !turn_diffs.is_empty(),
             subscriber_count: 0,
             unread_count,
         };
@@ -881,6 +885,7 @@ impl SessionHandle {
             is_worktree: self.is_worktree,
             worktree_id: self.worktree_id.clone(),
             unread_count: self.unread_count,
+            has_turn_diff: self.current_diff.is_some() || !self.turn_diffs.is_empty(),
             display_title_sort_key: SessionSummary::display_title_sort_key(&display_title),
             display_search_text: SessionSummary::display_search_text_from_parts(
                 &display_title,
@@ -1709,6 +1714,7 @@ impl SessionHandle {
             repository_root: self.repository_root.clone(),
             is_worktree: self.is_worktree,
             worktree_id: self.worktree_id.clone(),
+            has_turn_diff: self.current_diff.is_some() || !self.turn_diffs.is_empty(),
             subscriber_count: self.broadcast_tx.receiver_count(),
             unread_count: self.unread_count,
         }

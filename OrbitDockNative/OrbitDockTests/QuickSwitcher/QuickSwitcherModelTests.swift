@@ -88,6 +88,6 @@ struct QuickSwitcherModelTests {
     session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
     session.endpointName = "Primary"
     session.endpointConnectionStatus = .connected
-    return RootSessionNode(session: session)
+    return makeRootSessionNode(from: session)
   }
 }

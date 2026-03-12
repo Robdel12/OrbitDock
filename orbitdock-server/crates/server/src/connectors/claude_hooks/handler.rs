@@ -220,9 +220,8 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 .await;
 
             if state.remove_session(&session_id).is_some() {
-                state.broadcast_to_list(ServerMessage::SessionEnded {
+                state.broadcast_to_list(ServerMessage::SessionListItemRemoved {
                     session_id,
-                    reason: reason.unwrap_or_else(|| "hook_session_end".to_string()),
                 });
             }
         }
@@ -1408,6 +1407,7 @@ mod tests {
             is_worktree: false,
             worktree_id: None,
             unread_count: 0,
+            has_turn_diff: false,
             display_title_sort_key: SessionSummary::display_title_sort_key(&display_title),
             display_search_text: SessionSummary::display_search_text_from_parts(
                 &display_title,

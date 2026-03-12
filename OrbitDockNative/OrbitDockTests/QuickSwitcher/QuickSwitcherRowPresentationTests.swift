@@ -11,7 +11,7 @@ struct QuickSwitcherRowPresentationTests {
   }
 
   @Test func projectNameFallsBackFromExplicitProjectNameToPathLeaf() {
-    let namedSession = RootSessionNode(session: Session(
+    let namedSession = makeRootSessionNode(from: Session(
       id: "1",
       endpointId: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"),
       projectPath: "/tmp/repo",
@@ -37,7 +37,7 @@ struct QuickSwitcherRowPresentationTests {
     ))
     #expect(QuickSwitcherRowPresentation.projectName(for: namedSession) == "OrbitDock")
 
-    let unnamedSession = RootSessionNode(session: Session(
+    let unnamedSession = makeRootSessionNode(from: Session(
       id: "2",
       endpointId: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"),
       projectPath: "/tmp/worktree/repo-name",
@@ -65,7 +65,7 @@ struct QuickSwitcherRowPresentationTests {
   }
 
   @Test func activityPresentationPrefersSessionContextForPermissionAndWorkingStates() {
-    let session = RootSessionNode(session: Session(
+    let session = makeRootSessionNode(from: Session(
       id: "1",
       endpointId: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"),
       projectPath: "/tmp/repo",

@@ -16,12 +16,6 @@ struct RootShellRuntimeTests {
 
     let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil)
     let eventStream = EventStream(authToken: nil)
-    let sessionStore = SessionStore(
-      clients: clients,
-      eventStream: eventStream,
-      endpointId: endpoint.id,
-      endpointName: endpoint.name
-    )
     let sessionListItems = [
       ServerSessionListItem(
         id: "session-1",
@@ -37,6 +31,7 @@ struct RootShellRuntimeTests {
         startedAt: "2026-03-11T01:00:00Z",
         lastActivityAt: "2026-03-11T02:00:00Z",
         unreadCount: 2,
+        hasTurnDiff: false,
         pendingToolName: nil,
         repositoryRoot: "/tmp/orbitdock",
         isWorktree: false,
@@ -59,8 +54,7 @@ struct RootShellRuntimeTests {
         ServerRuntime(
           endpoint: endpoint,
           clients: clients,
-          eventStream: eventStream,
-          sessionStore: sessionStore
+          eventStream: eventStream
         )
       },
       shouldBootstrapFromSettings: false
@@ -78,7 +72,9 @@ struct RootShellRuntimeTests {
     runtime.start()
 
     let update = try #require(await firstUpdate.value)
-    #expect(update.currentSessions.map(\.sessionId) == ["session-1"])
-    #expect(runtime.rootShellStore.records().map { $0.sessionId } == ["session-1"])
+    #expect(update.upsertedSessions.map(\.sessionId) == ["session-1"])
+    #expect(update.removedScopedIDs.isEmpty)
+    #expect(runtime.rootShellStore.records().map(\.sessionId) == ["session-1"])
+    #expect(runtime.rootShellStore.records().first?.showsInMissionControl == false)
   }
 }

@@ -266,9 +266,8 @@ async fn run_stale_shell_pruning(
             })
             .await;
         if state.remove_session(&stale_id).is_some() {
-            state.broadcast_to_list(ServerMessage::SessionEnded {
+            state.broadcast_to_list(ServerMessage::SessionListItemRemoved {
                 session_id: stale_id,
-                reason: "stale_empty_shell".to_string(),
             });
         }
     }

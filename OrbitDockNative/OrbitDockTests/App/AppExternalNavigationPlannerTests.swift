@@ -90,6 +90,7 @@ private func makeSessionListItem(id: String) -> ServerSessionListItem {
     startedAt: "2026-03-11T10:00:00Z",
     lastActivityAt: "2026-03-11T10:05:00Z",
     unreadCount: 0,
+    hasTurnDiff: false,
     pendingToolName: nil,
     repositoryRoot: "/tmp",
     isWorktree: false,

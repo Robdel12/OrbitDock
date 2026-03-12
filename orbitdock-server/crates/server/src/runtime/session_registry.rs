@@ -282,6 +282,7 @@ impl SessionRegistry {
                     is_worktree: snap.is_worktree,
                     worktree_id: snap.worktree_id.clone(),
                     unread_count: snap.unread_count,
+                    has_turn_diff: snap.has_turn_diff,
                     display_title_sort_key: SessionSummary::display_title_sort_key(&display_title),
                     display_search_text: SessionSummary::display_search_text_from_parts(
                         &display_title,

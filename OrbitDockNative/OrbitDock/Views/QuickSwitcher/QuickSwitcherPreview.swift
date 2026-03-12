@@ -13,7 +13,6 @@ import SwiftUI
     .environment(quickSwitcherPreviewRootShellStore())
   }
   .frame(width: 800, height: 600)
-  .environment(SessionStore())
 }
 
 private func quickSwitcherPreviewNode(
@@ -23,12 +22,12 @@ private func quickSwitcherPreviewNode(
   branch: String?,
   model: String?,
   contextLine: String?,
-  status: Session.SessionStatus,
-  workStatus: Session.WorkStatus,
+  status: RootSessionStatus,
+  workStatus: RootSessionWorkStatus,
   startedAt: Date,
   endedAt: Date? = nil
 ) -> RootSessionNode {
-  let attentionReason: Session.AttentionReason = switch workStatus {
+  let attentionReason: RootAttentionReason = switch workStatus {
     case .permission: .awaitingPermission
     case .waiting: .awaitingReply
     default: .none
@@ -76,6 +75,7 @@ private func quickSwitcherPreviewNode(
     startedAt: startedAt,
     lastActivityAt: endedAt ?? startedAt,
     unreadCount: 0,
+    hasTurnDiff: false,
     pendingToolName: nil,
     repositoryRoot: nil,
     isWorktree: false,
@@ -86,9 +86,9 @@ private func quickSwitcherPreviewNode(
     totalTokens: 0,
     totalCostUSD: 0,
     isActive: status == .active,
-    showsInMissionControl: SessionSemantics.showsInMissionControl(status: status, endpointConnectionStatus: .connected),
-    needsAttention: SessionSemantics.needsAttention(status: status, attentionReason: attentionReason),
-    isReady: SessionSemantics.isReady(status: status, attentionReason: attentionReason),
+    showsInMissionControl: status == .active,
+    needsAttention: displayStatus.needsAttention,
+    isReady: displayStatus == .reply,
     allowsUserNotifications: true
   )
 }

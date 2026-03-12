@@ -236,73 +236,8 @@ struct StatusBarStats {
   let costByModel: [(model: String, cost: Double, color: Color)]
 
   static func from(
-    sessions: [Session],
-    costCalculator: TokenCostCalculator
-  ) -> StatusBarStats {
-    var inputTokens = 0
-    var outputTokens = 0
-    var cacheReadTokens = 0
-    var cacheCreationTokens = 0
-    var cost = 0.0
-    var costByModel: [String: Double] = [:]
-
-    for session in sessions {
-      let input = session.inputTokens ?? 0
-      let output = session.outputTokens ?? 0
-      let cached = session.cachedTokens ?? 0
-      let context = session.effectiveContextInputTokens
-      let hasServerUsage = input > 0 || output > 0 || cached > 0 || context > 0
-
-      var sessionInput = 0
-      var sessionOutput = 0
-      var sessionCacheRead = 0
-      let sessionCacheCreation = 0
-
-      if hasServerUsage {
-        sessionInput = input
-        sessionOutput = output
-        sessionCacheRead = cached
-      } else if session.totalTokens > 0 {
-        sessionOutput = session.totalTokens
-      }
-
-      inputTokens += sessionInput
-      outputTokens += sessionOutput
-      cacheReadTokens += sessionCacheRead
-      cacheCreationTokens += sessionCacheCreation
-
-      let rawModel = session.model
-      let sessionCost = costCalculator.calculateCost(
-        model: rawModel,
-        inputTokens: sessionInput,
-        outputTokens: sessionOutput,
-        cacheReadTokens: sessionCacheRead,
-        cacheCreationTokens: sessionCacheCreation
-      )
-      cost += sessionCost
-
-      if let model = normalizeModelName(rawModel) {
-        costByModel[model, default: 0] += sessionCost
-      }
-    }
-
-    let tokens = inputTokens + outputTokens
-
-    let sortedCosts = costByModel.sorted { $0.value > $1.value }.map {
-      (model: $0.key, cost: $0.value, color: colorForModel($0.key))
-    }
-
-    return StatusBarStats(
-      sessionCount: sessions.count,
-      cost: cost,
-      tokens: tokens,
-      costByModel: sortedCosts
-    )
-  }
-
-  static func from(
     sessions: [RootSessionNode],
-    costCalculator: TokenCostCalculator
+    costCalculator _: TokenCostCalculator
   ) -> StatusBarStats {
     var costByModel: [String: Double] = [:]
 

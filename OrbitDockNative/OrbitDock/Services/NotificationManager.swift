@@ -203,7 +203,7 @@ class NotificationManager {
 
     let content = UNMutableNotificationContent()
     content.title = "Session Needs Attention"
-    content.subtitle = session.displayName
+    content.subtitle = session.title
     content.body = Self.attentionMessage(for: session)
     content.sound = configuredSound
     content.categoryIdentifier = "SESSION_ATTENTION"
@@ -259,6 +259,12 @@ class NotificationManager {
     notifiedSessionIds.remove(sessionId)
   }
 
+  func removeSessionTracking(for sessionId: String) {
+    workingSessionIds.remove(sessionId)
+    resetNotificationState(for: sessionId)
+    clearNotification(for: sessionId)
+  }
+
   /// Track session work status and notify when work completes
   func updateSessionWorkStatus(session: RootSessionNode) {
     let scopedID = session.scopedID
@@ -293,7 +299,7 @@ class NotificationManager {
 
     let content = UNMutableNotificationContent()
     content.title = "\(session.provider.displayName) Finished"
-    content.subtitle = session.displayName
+    content.subtitle = session.title
     content.body = Self.completionMessage(for: session)
     content.sound = configuredSound
     content.categoryIdentifier = "SESSION_ATTENTION"
@@ -327,7 +333,7 @@ class NotificationManager {
   }
 
   static func attentionMessage(for session: RootSessionNode) -> String {
-    switch SessionDisplayStatus.from(session) {
+    switch session.displayStatus {
       case .permission:
         if let pendingToolName = session.pendingToolName, !pendingToolName.isEmpty {
           return "Needs approval to run \(pendingToolName)."
@@ -345,7 +351,7 @@ class NotificationManager {
   }
 
   static func completionMessage(for session: RootSessionNode) -> String {
-    "Finished work in \(session.displayName)."
+    "Finished work in \(session.title)."
   }
 
   static func shouldTrackAsWorking(_ session: RootSessionNode) -> Bool {

@@ -88,9 +88,8 @@ pub fn start_event_loop(
                                 })
                                 .await;
                             if state.remove_session(hook_sid).is_some() {
-                                state.broadcast_to_list(ServerMessage::SessionEnded {
+                                state.broadcast_to_list(ServerMessage::SessionListItemRemoved {
                                     session_id: hook_sid.clone(),
-                                    reason: "managed_direct_session".to_string(),
                                 });
                             }
                         }
@@ -123,9 +122,8 @@ pub fn start_event_loop(
                             if should_remove_shadow_runtime_session(&session_id, &sdk_sid)
                                 && state.remove_session(&sdk_sid).is_some()
                             {
-                                state.broadcast_to_list(ServerMessage::SessionEnded {
+                                state.broadcast_to_list(ServerMessage::SessionListItemRemoved {
                                     session_id: sdk_sid,
-                                    reason: "managed_direct_session".to_string(),
                                 });
                             }
                         }

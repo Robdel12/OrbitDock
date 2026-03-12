@@ -77,6 +77,13 @@ enum RootShellReducer {
           changed = true
         }
 
+      case let .sessionRemoved(endpointId, sessionId):
+        let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
+        if state.recordsByScopedID.removeValue(forKey: scopedID) != nil {
+          refreshDerivedState(&state)
+          changed = true
+        }
+
       case let .sessionEnded(endpointId, sessionId, reason):
         let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
         if let record = state.recordsByScopedID[scopedID] {

@@ -53,11 +53,9 @@ struct WindowRootRuntimeTests {
     runtimeCoordinator.start()
 
     let update = try #require(await firstUpdate.value)
-    effects.applyRootChange(
-      previousMissionControlSessions: update.previousMissionControlSessions,
-      currentMissionControlSessions: update.currentMissionControlSessions
-    )
-    #expect(update.currentMissionControlSessions.isEmpty)
+    effects.applyRootChange(update: update)
+    #expect(update.upsertedSessions.map(\.sessionId) == ["session-1"])
+    #expect(update.removedScopedIDs.isEmpty)
     #expect(rootShellStore.records().map(\.sessionId) == ["session-1"])
     #expect(rootShellStore.records().first?.showsInMissionControl == false)
     #expect(toastManager.currentSessionId == session.scopedID)
@@ -75,7 +73,7 @@ struct WindowRootRuntimeTests {
       shouldBootstrapFromSettings: false
     )
     registry.configureFromSettings(startEnabled: false)
-    let runtime = try #require(registry.runtimesByEndpointId[endpoint.id])
+    _ = try #require(registry.runtimesByEndpointId[endpoint.id])
 
     let router = AppRouter()
     let missingRef = SessionRef(endpointId: endpoint.id, sessionId: "missing-session")
@@ -94,10 +92,7 @@ struct WindowRootRuntimeTests {
     )
 
     effects.setCurrentSelection(missingRef.scopedID)
-    effects.applyRootChange(
-      previousMissionControlSessions: [],
-      currentMissionControlSessions: []
-    )
+    effects.applyRootChange(update: RootShellRuntimeUpdate(upsertedSessions: [], removedScopedIDs: []))
 
     #expect(router.selectedSessionRef == nil)
     #expect(router.dashboardTab == .missionControl)

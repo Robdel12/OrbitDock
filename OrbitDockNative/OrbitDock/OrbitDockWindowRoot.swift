@@ -66,10 +66,7 @@ struct OrbitDockWindowRoot: View {
       .preferredColorScheme(.dark)
       .task {
         for await update in rootShellRuntime.updates {
-          rootShellEffectsCoordinator.applyRootChange(
-            previousMissionControlSessions: update.previousMissionControlSessions,
-            currentMissionControlSessions: update.currentMissionControlSessions
-          )
+          rootShellEffectsCoordinator.applyRootChange(update: update)
         }
       }
       .onAppear {

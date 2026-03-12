@@ -104,7 +104,7 @@ struct LibraryProjectSectionStateTests {
     totalCostUSD: Double = 0,
     connectionStatus: ConnectionStatus? = nil
   ) -> RootSessionNode {
-    RootSessionNode(session: Session(
+    makeRootSessionNode(from: Session(
       id: id,
       endpointId: endpointId,
       endpointName: endpointName,

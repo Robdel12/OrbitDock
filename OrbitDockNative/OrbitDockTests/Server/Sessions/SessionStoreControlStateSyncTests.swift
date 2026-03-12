@@ -6,7 +6,7 @@ import Testing
 struct SessionStoreControlStateSyncTests {
   @Test func approvalEventsKeepSummaryAndDetailStateAligned() throws {
     let store = SessionStore()
-    store.routeEvent(.sessionsList([try decodeListItem(sessionSummaryJSON)]))
+    store.routeEvent(.sessionSnapshot(try decodeSnapshot(detailSnapshotJSON)))
 
     let request = ServerApprovalRequest(
       id: "req-1",
@@ -17,10 +17,10 @@ struct SessionStoreControlStateSyncTests {
 
     store.routeEvent(.approvalRequested(sessionId: "session-1", request: request, approvalVersion: 2))
 
-    let summaryAfterRequest = try #require(store.sessions.first(where: { $0.id == "session-1" }))
     let detailAfterRequest = store.session("session-1")
-    #expect(summaryAfterRequest.pendingApprovalId == "req-1")
-    #expect(summaryAfterRequest.attentionReason == .awaitingPermission)
+    let sessionAfterRequest = detailAfterRequest.detailSessionSnapshot
+    #expect(sessionAfterRequest.pendingApprovalId == "req-1")
+    #expect(sessionAfterRequest.attentionReason == Session.AttentionReason.awaitingPermission)
     #expect(detailAfterRequest.pendingApproval?.id == "req-1")
     #expect(detailAfterRequest.approvalVersion == 2)
 
@@ -34,19 +34,19 @@ struct SessionStoreControlStateSyncTests {
       )
     )
 
-    let summaryAfterDecision = try #require(store.sessions.first(where: { $0.id == "session-1" }))
     let detailAfterDecision = store.session("session-1")
-    #expect(summaryAfterDecision.pendingApprovalId == nil)
-    #expect(summaryAfterDecision.attentionReason == .none)
+    let sessionAfterDecision = detailAfterDecision.detailSessionSnapshot
+    #expect(sessionAfterDecision.pendingApprovalId == nil)
+    #expect(sessionAfterDecision.attentionReason == Session.AttentionReason.none)
     #expect(detailAfterDecision.pendingApproval == nil)
     #expect(detailAfterDecision.pendingApprovalId == nil)
-    #expect(detailAfterDecision.attentionReason == .none)
+    #expect(detailAfterDecision.attentionReason == Session.AttentionReason.none)
     #expect(detailAfterDecision.approvalVersion == 3)
   }
 
   @Test func sessionDeltaKeepsConfigAndPendingApprovalStateInSync() throws {
     let store = SessionStore()
-    store.routeEvent(.sessionsList([try decodeListItem(sessionSummaryJSON)]))
+    store.routeEvent(.sessionSnapshot(try decodeSnapshot(detailSnapshotJSON)))
 
     store.routeEvent(
       .sessionDelta(
@@ -70,10 +70,10 @@ struct SessionStoreControlStateSyncTests {
       )
     )
 
-    let summary = try #require(store.sessions.first(where: { $0.id == "session-1" }))
     let detail = store.session("session-1")
-    #expect(summary.pendingApprovalId == "req-2")
-    #expect(summary.attentionReason == .awaitingQuestion)
+    let session = detail.detailSessionSnapshot
+    #expect(session.pendingApprovalId == "req-2")
+    #expect(session.attentionReason == Session.AttentionReason.awaitingQuestion)
     #expect(detail.pendingApproval?.id == "req-2")
     #expect(detail.approvalVersion == 5)
     #expect(detail.permissionMode == .plan)
@@ -129,7 +129,7 @@ struct SessionStoreControlStateSyncTests {
     #expect(worker.model == "gpt-5")
   }
 
-  private var sessionSummaryJSON: String {
+  private var detailSnapshotJSON: String {
     """
     {
       "id": "session-1",
@@ -137,14 +137,19 @@ struct SessionStoreControlStateSyncTests {
       "project_path": "/tmp/project",
       "status": "active",
       "work_status": "waiting",
+      "messages": [],
+      "token_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_tokens": 0,
+        "context_window": 0
+      },
+      "token_usage_snapshot_kind": "unknown",
+      "turn_count": 0,
       "has_pending_approval": false,
       "claude_integration_mode": "direct"
     }
     """
-  }
-
-  private func decodeListItem(_ json: String) throws -> ServerSessionListItem {
-    try JSONDecoder().decode(ServerSessionListItem.self, from: Data(json.utf8))
   }
 
   private func decodeChanges(_ json: String) throws -> ServerStateChanges {

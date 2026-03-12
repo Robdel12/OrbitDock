@@ -23,7 +23,7 @@
         source: "timeline-apply-macos"
       )
 
-      let session = serverState?.sessions.first(where: { $0.id == self.sessionId })
+      let session = sessionId.flatMap { serverState?.session($0).detailSessionSnapshot }
       let resolvedApprovalId = session?.pendingApprovalId
       let approvalMode: ApprovalCardMode = {
         guard let session else { return .none }

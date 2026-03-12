@@ -946,11 +946,8 @@ import SwiftUI
       contentContainer.addSubview(header)
       var nextY = y + Self.sectionHeaderHeight + Self.sectionPadding
 
-      let textWidth = width - Self.headerHPad * 2
       for row in rows {
         nextY += row.topInset
-        let labelWidth = textWidth - row.widthAdjustment
-
         let labelPlan = ExpandedToolCellPlanning.payloadLabelPlan(for: row, containerWidth: width)
         let label = payloadLabel(for: labelPlan)
         label.frame = NSRect(

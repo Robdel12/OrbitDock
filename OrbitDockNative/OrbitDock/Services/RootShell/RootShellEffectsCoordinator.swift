@@ -7,6 +7,7 @@ final class RootShellEffectsCoordinator {
   private let notificationManager: NotificationManager
   private let toastManager: ToastManager
   private let router: AppRouter
+  private var knownMissionControlSessions: [String: RootSessionNode] = [:]
 
   init(
     rootShellStore: RootShellStore,
@@ -26,38 +27,36 @@ final class RootShellEffectsCoordinator {
     toastManager.currentSessionId = scopedID
   }
 
-  func applyRootChange(
-    previousMissionControlSessions: [RootSessionNode],
-    currentMissionControlSessions: [RootSessionNode]
-  ) {
-    let currentAttentionSessions = currentMissionControlSessions.filter(\.needsAttention)
-    let oldWaitingIDs = Set(previousMissionControlSessions.filter(\.needsAttention).map(\.scopedID))
-
+  func applyRootChange(update: RootShellRuntimeUpdate) {
     syncSelectionToRootShell()
-
-    let notificationSessions = Self.mergeMissionControlSessions(
-      previousSessions: previousMissionControlSessions,
-      currentSessions: currentMissionControlSessions
-    )
-
-    for session in notificationSessions {
-      notificationManager.updateSessionWorkStatus(session: session)
+    for scopedID in update.removedScopedIDs {
+      knownMissionControlSessions.removeValue(forKey: scopedID)
+      notificationManager.removeSessionTracking(for: scopedID)
+      toastManager.removeSession(scopedID)
+      attentionService.remove(sessionId: scopedID)
     }
 
-    for session in currentAttentionSessions where !oldWaitingIDs.contains(session.scopedID) {
-      notificationManager.notifyNeedsAttention(session: session)
+    for session in update.upsertedSessions {
+      let previous = knownMissionControlSessions[session.scopedID]
+
+      if session.showsInMissionControl {
+        knownMissionControlSessions[session.scopedID] = session
+        notificationManager.updateSessionWorkStatus(session: session)
+        toastManager.applySessionTransition(current: session, previous: previous)
+        attentionService.apply(session: session)
+
+        if session.needsAttention && previous?.needsAttention != true {
+          notificationManager.notifyNeedsAttention(session: session)
+        } else if !session.needsAttention, previous?.needsAttention == true {
+          notificationManager.resetNotificationState(for: session.scopedID)
+        }
+      } else {
+        knownMissionControlSessions.removeValue(forKey: session.scopedID)
+        notificationManager.removeSessionTracking(for: session.scopedID)
+        toastManager.removeSession(session.scopedID)
+        attentionService.remove(sessionId: session.scopedID)
+      }
     }
-
-    for oldID in oldWaitingIDs where !currentAttentionSessions.contains(where: { $0.scopedID == oldID }) {
-      notificationManager.resetNotificationState(for: oldID)
-    }
-
-    toastManager.checkForAttentionChanges(
-      sessions: currentMissionControlSessions,
-      previousSessions: previousMissionControlSessions
-    )
-
-    attentionService.update(sessions: currentMissionControlSessions)
   }
 
   private func syncSelectionToRootShell() {
@@ -66,30 +65,5 @@ final class RootShellEffectsCoordinator {
     {
       router.goToDashboard()
     }
-  }
-}
-
-private extension RootShellEffectsCoordinator {
-  static func mergeMissionControlSessions(
-    previousSessions: [RootSessionNode],
-    currentSessions: [RootSessionNode]
-  ) -> [RootSessionNode] {
-    var mergedByScopedID: [String: RootSessionNode] = [:]
-    var orderedScopedIDs: [String] = []
-
-    for session in currentSessions {
-      if mergedByScopedID[session.scopedID] == nil {
-        orderedScopedIDs.append(session.scopedID)
-      }
-      mergedByScopedID[session.scopedID] = session
-    }
-
-    for session in previousSessions {
-      guard mergedByScopedID[session.scopedID] == nil else { continue }
-      mergedByScopedID[session.scopedID] = session
-      orderedScopedIDs.append(session.scopedID)
-    }
-
-    return orderedScopedIDs.compactMap { mergedByScopedID[$0] }
   }
 }

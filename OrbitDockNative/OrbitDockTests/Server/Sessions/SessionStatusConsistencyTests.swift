@@ -34,7 +34,7 @@ struct SessionStatusConsistencyTests {
   }
 
   @Test func notificationMessagesFollowDisplayStatusInsteadOfRawWorkStatus() {
-    let permissionSession = RootSessionNode(session: Session(
+    let permissionSession = makeRootSessionNode(from: Session(
       id: "permission-body",
       endpointId: UUID(),
       endpointName: nil,
@@ -48,7 +48,7 @@ struct SessionStatusConsistencyTests {
     #expect(NotificationManager.attentionMessage(for: permissionSession) == "Needs approval to continue.")
     #expect(NotificationManager.completionMessage(for: permissionSession) == "Finished work in project.")
 
-    let questionSession = RootSessionNode(session: Session(
+    let questionSession = makeRootSessionNode(from: Session(
       id: "question-body",
       endpointId: UUID(),
       endpointName: nil,
@@ -62,7 +62,7 @@ struct SessionStatusConsistencyTests {
     #expect(NotificationManager.attentionMessage(for: questionSession) == "Has a question for you.")
     #expect(NotificationManager.completionMessage(for: questionSession) == "Finished work in project.")
 
-    let replySession = RootSessionNode(session: Session(
+    let replySession = makeRootSessionNode(from: Session(
       id: "reply-body",
       endpointId: UUID(),
       endpointName: nil,
@@ -78,7 +78,7 @@ struct SessionStatusConsistencyTests {
   }
 
   @Test func workingTrackingUsesDisplayStatus() {
-    let activeWorkingSession = RootSessionNode(session: Session(
+    let activeWorkingSession = makeRootSessionNode(from: Session(
       id: "working",
       endpointId: UUID(),
       endpointName: nil,
@@ -91,7 +91,7 @@ struct SessionStatusConsistencyTests {
     ))
     #expect(NotificationManager.shouldTrackAsWorking(activeWorkingSession))
 
-    let replySession = RootSessionNode(session: Session(
+    let replySession = makeRootSessionNode(from: Session(
       id: "reply",
       endpointId: UUID(),
       endpointName: nil,
@@ -106,7 +106,7 @@ struct SessionStatusConsistencyTests {
   }
 
   @Test func passiveCodexSessionsDoNotParticipateInNotifications() {
-    let passiveCodex = RootSessionNode(session: Session(
+    let passiveCodex = makeRootSessionNode(from: Session(
       id: "passive-codex",
       endpointId: UUID(),
       endpointName: nil,

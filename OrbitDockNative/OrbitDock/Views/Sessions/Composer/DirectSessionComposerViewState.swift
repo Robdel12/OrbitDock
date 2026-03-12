@@ -5,8 +5,8 @@ extension DirectSessionComposer {
     serverState.session(sessionId)
   }
 
-  var sessionSummary: Session? {
-    serverState.sessions.first(where: { $0.id == sessionId })
+  var detailSessionSnapshot: Session {
+    obs.detailSessionSnapshot
   }
 
   var currentContinuation: SessionContinuation {
@@ -14,7 +14,7 @@ extension DirectSessionComposer {
       endpointId: serverState.endpointId,
       sessionId: sessionId,
       provider: obs.provider,
-      displayName: sessionSummary?.displayName ?? obs.displayName,
+      displayName: detailSessionSnapshot.displayName,
       projectPath: obs.projectPath,
       model: obs.model,
       hasGitRepository: obs.branch != nil || obs.repositoryRoot != nil || obs.isWorktree
@@ -26,9 +26,8 @@ extension DirectSessionComposer {
   }
 
   var pendingApprovalModel: ApprovalCardModel? {
-    guard let summary = sessionSummary else { return nil }
     return ApprovalCardModelBuilder.build(
-      session: summary,
+      session: detailSessionSnapshot,
       pendingApproval: obs.pendingApproval,
       approvalHistory: obs.approvalHistory,
       transcriptMessages: serverState.conversation(sessionId).messages

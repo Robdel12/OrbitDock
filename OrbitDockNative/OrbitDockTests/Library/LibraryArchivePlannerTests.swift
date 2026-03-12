@@ -217,7 +217,7 @@ struct LibraryArchivePlannerTests {
     lastActivityAt: Date? = nil,
     connectionStatus: ConnectionStatus? = nil
   ) -> RootSessionNode {
-    RootSessionNode(session: Session(
+    makeRootSessionNode(from: Session(
       id: id,
       endpointId: endpointId,
       endpointName: endpointName,

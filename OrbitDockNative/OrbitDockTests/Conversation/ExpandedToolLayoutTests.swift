@@ -191,6 +191,7 @@ struct ExpandedToolLayoutTests {
     ])
   }
 
+  @MainActor
   @Test func payloadSectionTextRowsFlattenQuestionSpacingAndIndentation() {
     let payload = """
     {

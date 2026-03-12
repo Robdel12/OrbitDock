@@ -117,9 +117,8 @@ pub(crate) async fn claim_codex_thread_for_direct_session(
     state.register_codex_thread(session_id, thread_id);
 
     if thread_id != session_id && state.remove_session(thread_id).is_some() {
-        state.broadcast_to_list(ServerMessage::SessionEnded {
+        state.broadcast_to_list(ServerMessage::SessionListItemRemoved {
             session_id: thread_id.to_string(),
-            reason: "direct_session_thread_claimed".into(),
         });
     }
 
@@ -333,11 +332,10 @@ mod tests {
         assert!(state.get_session(&shadow_thread_id).is_none());
 
         match list_rx.recv().await.expect("expected list broadcast") {
-            ServerMessage::SessionEnded { session_id, reason } => {
+            ServerMessage::SessionListItemRemoved { session_id } => {
                 assert_eq!(session_id, shadow_thread_id);
-                assert_eq!(reason, "direct_session_thread_claimed");
             }
-            other => panic!("expected SessionEnded broadcast, got {:?}", other),
+            other => panic!("expected SessionListItemRemoved broadcast, got {:?}", other),
         }
 
         match persist_rx

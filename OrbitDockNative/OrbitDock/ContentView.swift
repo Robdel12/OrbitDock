@@ -8,10 +8,9 @@
 import SwiftUI
 
 struct ContentView: View {
-  @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
-  @Environment(WindowSessionCoordinator.self) private var windowSessionCoordinator
+  @Environment(ToastManager.self) private var toastManager
   #if os(macOS)
     @Environment(\.serverManager) private var serverManager
   #endif
@@ -76,7 +75,7 @@ struct ContentView: View {
         HStack {
           Spacer()
           ToastContainer(
-            toastManager: windowSessionCoordinator.toastManager
+            toastManager: toastManager
           )
         }
         Spacer()
@@ -117,7 +116,9 @@ struct ContentView: View {
 
   private var dashboardView: some View {
     DashboardView(
-      isInitialLoading: windowSessionCoordinator.isAnyInitialLoading,
+      isInitialLoading: runtimeRegistry.runtimes
+        .filter(\.endpoint.isEnabled)
+        .contains { !$0.eventStream.hasReceivedInitialSessionsList },
       isRefreshingCachedSessions: isAnyRefreshingCachedSessions
     )
   }
@@ -139,13 +140,13 @@ struct ContentView: View {
       QuickSwitcher(
         onQuickLaunchClaude: { path in
           Task {
-            try? await windowSessionCoordinator.creationStore(fallback: serverState).createSession(
+            try? await creationStore().createSession(
               SessionsClient.CreateSessionRequest(provider: "claude", cwd: path)
             )
           }
         },
         onQuickLaunchCodex: { path in
-          let targetState = windowSessionCoordinator.creationStore(fallback: serverState)
+          let targetState = creationStore()
           let defaultModel = targetState.codexModels.first(where: { $0.isDefault })?.model
             ?? targetState.codexModels.first?.model ?? ""
           Task {
@@ -183,6 +184,13 @@ struct ContentView: View {
       router.closeQuickSwitcher()
     }
     return .handled
+  }
+
+  private func creationStore() -> SessionStore {
+    let fallbackStore = runtimeRegistry.activeSessionStore
+    let preferredEndpointId = router.selectedEndpointId ?? router.selectedSessionRef?.endpointId
+    let primaryStore = runtimeRegistry.primarySessionStore(fallback: fallbackStore)
+    return runtimeRegistry.sessionStore(for: preferredEndpointId, fallback: primaryStore)
   }
 }
 

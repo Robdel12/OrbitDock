@@ -52,6 +52,9 @@ pub enum ServerMessage {
     SessionListItemUpdated {
         session: SessionListItem,
     },
+    SessionListItemRemoved {
+        session_id: String,
+    },
     SessionEnded {
         session_id: String,
         reason: String,

@@ -56,8 +56,8 @@ struct LibraryArchiveSummary: Equatable {
 @MainActor
 enum LibraryArchivePlanner {
   static func compareSessions(_ lhs: RootSessionNode, _ rhs: RootSessionNode) -> Bool {
-    let lhsIsActive = lhs.status == .active
-    let rhsIsActive = rhs.status == .active
+    let lhsIsActive = lhs.isActive
+    let rhsIsActive = rhs.isActive
     if lhsIsActive != rhsIsActive {
       return lhsIsActive && !rhsIsActive
     }
@@ -306,6 +306,6 @@ enum LibraryArchivePlanner {
   }
 
   static func isLiveSession(_ session: RootSessionNode) -> Bool {
-    session.status == .active && session.endpointConnectionStatus == .connected
+    session.isActive && session.endpointConnectionStatus == .connected
   }
 }

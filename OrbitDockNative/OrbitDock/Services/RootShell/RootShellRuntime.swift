@@ -1,8 +1,8 @@
 import Foundation
 
 struct RootShellRuntimeUpdate: Sendable {
-  let previousMissionControlSessions: [RootSessionNode]
-  let currentMissionControlSessions: [RootSessionNode]
+  let upsertedSessions: [RootSessionNode]
+  let removedScopedIDs: [String]
 }
 
 @MainActor
@@ -15,6 +15,7 @@ final class RootShellRuntime {
   @ObservationIgnored private let updatesContinuation: AsyncStream<RootShellRuntimeUpdate>.Continuation
   @ObservationIgnored private var rootObservationTasks: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var pendingFlushTask: Task<Void, Never>?
+  @ObservationIgnored private var pendingRootEvents: [RootShellEvent] = []
   @ObservationIgnored private var selectedHotSessionID: ScopedSessionID?
 
   init(runtimeRegistry: ServerRuntimeRegistry, rootShellStore: RootShellStore) {
@@ -79,8 +80,7 @@ final class RootShellRuntime {
   }
 
   func hotSessionIDsForTesting() async -> Set<String> {
-    let snapshot = await sessionRegistry.snapshot()
-    return snapshot.hotSessionIDs
+    await sessionRegistry.hotSessionIDsSnapshot()
   }
 
   private func bootstrapRootShell(from runtime: ServerRuntime) {
@@ -93,12 +93,7 @@ final class RootShellRuntime {
       sessions: eventStream.latestSessionListItems
     )
 
-    Task { [weak self] in
-      guard let self else { return }
-      let changed = await self.sessionRegistry.apply(event)
-      guard changed else { return }
-      await self.scheduleSnapshotFlush()
-    }
+    enqueueRootEvent(event)
   }
 
   private func observeRootShellEvents(from runtime: ServerRuntime) {
@@ -114,9 +109,7 @@ final class RootShellRuntime {
           from: serverEvent,
           runtime: runtime
         ) else { continue }
-        let changed = await self.sessionRegistry.apply(event)
-        guard changed else { continue }
-        await self.scheduleSnapshotFlush()
+        self.enqueueRootEvent(event)
       }
     }
   }
@@ -151,6 +144,11 @@ final class RootShellRuntime {
           connectionStatus: connectionStatus,
           session: session
         )
+      case let .sessionListItemRemoved(sessionId):
+        return .sessionRemoved(
+          endpointId: endpointId,
+          sessionId: sessionId
+        )
       case let .sessionEnded(sessionId, reason):
         return .sessionEnded(
           endpointId: endpointId,
@@ -168,29 +166,85 @@ final class RootShellRuntime {
     }
   }
 
-  private func scheduleSnapshotFlush() async {
+  private func enqueueRootEvent(_ event: RootShellEvent) {
+    pendingRootEvents.append(event)
+    scheduleSnapshotFlush()
+  }
+
+  private func scheduleSnapshotFlush() {
     guard pendingFlushTask == nil else { return }
 
     pendingFlushTask = Task { @MainActor [weak self] in
       guard let self else { return }
       await Task.yield()
-      await self.flushSnapshot()
+      self.flushSnapshot()
     }
   }
 
-  private func flushSnapshot() async {
+  private func flushSnapshot() {
     defer { pendingFlushTask = nil }
+    let events = RootShellEventCoalescer.coalesce(pendingRootEvents)
+    pendingRootEvents.removeAll(keepingCapacity: true)
+    guard !events.isEmpty else { return }
 
-    let snapshot = await sessionRegistry.snapshot()
-    let previousMissionControlSessions = rootShellStore.missionControlRecords()
-    let changed = rootShellStore.replace(with: snapshot.state)
+    let affectedScopedIDs = affectedScopedIDs(for: events)
+    let changed = events.reduce(into: false) { didChange, event in
+      if rootShellStore.apply(event) {
+        didChange = true
+      }
+    }
     guard changed else { return }
+
+    let removedScopedIDs = affectedScopedIDs.filter { rootShellStore.sessionRef(for: $0) == nil }
+    let upsertedSessions = affectedScopedIDs.compactMap { scopedID in
+      rootShellStore.record(for: scopedID)
+    }
 
     updatesContinuation.yield(
       RootShellRuntimeUpdate(
-        previousMissionControlSessions: previousMissionControlSessions,
-        currentMissionControlSessions: snapshot.state.missionControlRecords
+        upsertedSessions: upsertedSessions,
+        removedScopedIDs: removedScopedIDs
       )
     )
+  }
+
+  private func affectedScopedIDs(for events: [RootShellEvent]) -> [String] {
+    var affected = Set<String>()
+
+    for event in events {
+      switch event {
+        case let .seed(endpointId, records):
+          let endpointPrefix = ScopedSessionID.endpointPrefix(endpointId: endpointId)
+          for scopedID in rootShellStore.records().map(\.scopedID) where scopedID.hasPrefix(endpointPrefix) {
+            affected.insert(scopedID)
+          }
+          for record in records {
+            affected.insert(record.scopedID)
+          }
+        case let .sessionsList(endpointId, _, _, sessions):
+          let endpointPrefix = ScopedSessionID.endpointPrefix(endpointId: endpointId)
+          for scopedID in rootShellStore.records().map(\.scopedID) where scopedID.hasPrefix(endpointPrefix) {
+            affected.insert(scopedID)
+          }
+          for session in sessions {
+            affected.insert(ScopedSessionID(endpointId: endpointId, sessionId: session.id).scopedID)
+          }
+        case let .sessionCreated(endpointId, _, _, session),
+          let .sessionUpdated(endpointId, _, _, session):
+          affected.insert(ScopedSessionID(endpointId: endpointId, sessionId: session.id).scopedID)
+        case let .sessionRemoved(endpointId, sessionId),
+          let .sessionEnded(endpointId, sessionId, _):
+          affected.insert(ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID)
+        case let .endpointConnectionChanged(endpointId, _, _):
+          let endpointPrefix = ScopedSessionID.endpointPrefix(endpointId: endpointId)
+          for scopedID in rootShellStore.records().map(\.scopedID) where scopedID.hasPrefix(endpointPrefix) {
+            affected.insert(scopedID)
+          }
+        case .endpointFilterChanged:
+          break
+      }
+    }
+
+    return affected.sorted()
   }
 }

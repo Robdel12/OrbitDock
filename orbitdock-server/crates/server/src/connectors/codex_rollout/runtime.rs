@@ -295,9 +295,8 @@ impl WatcherRuntime {
         if is_direct || is_direct_in_db {
             if self.app_state.remove_session(&session_id).is_some() {
                 self.app_state
-                    .broadcast_to_list(ServerMessage::SessionEnded {
+                    .broadcast_to_list(ServerMessage::SessionListItemRemoved {
                         session_id: session_id.clone(),
-                        reason: "direct_session_thread_claimed".into(),
                     });
             }
             return;
@@ -307,9 +306,8 @@ impl WatcherRuntime {
         if matches!(source, SessionSource::Mcp) {
             if self.app_state.remove_session(&session_id).is_some() {
                 self.app_state
-                    .broadcast_to_list(ServerMessage::SessionEnded {
+                    .broadcast_to_list(ServerMessage::SessionListItemRemoved {
                         session_id: session_id.clone(),
-                        reason: "direct_session_thread_claimed".into(),
                     });
             }
 

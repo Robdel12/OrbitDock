@@ -347,23 +347,6 @@ final class ServerRuntimeRegistry {
     await controlPlaneCoordinator.waitUntilIdleForTests()
   }
 
-  func sessionStore(for session: Session, fallback: SessionStore) -> SessionStore {
-    guard let endpointId = session.endpointId,
-          let runtime = runtimesByEndpointId[endpointId]
-    else {
-      return fallback
-    }
-    return runtime.sessionStore
-  }
-
-  func sessionObservable(for session: Session, fallback: SessionStore) -> SessionObservable {
-    sessionStore(for: session, fallback: fallback).session(session.id)
-  }
-
-  func isForkedSession(_ session: Session, fallback: SessionStore) -> Bool {
-    sessionObservable(for: session, fallback: fallback).forkedFrom != nil
-  }
-
   func sessionStore(for session: RootSessionNode, fallback: SessionStore) -> SessionStore {
     guard let runtime = runtimesByEndpointId[session.endpointId] else {
       return fallback

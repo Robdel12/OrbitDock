@@ -524,6 +524,11 @@ Current note:
   - `RootShellEffectsCoordinator`
   - `RootSelectionBridge`
 - Root-safe list events no longer hydrate `SessionStore`.
+- `SessionStore.sessions` is gone; detail surfaces now project from `SessionObservable` instead of a root mirror.
+- The root stream now has an explicit `session_removed` event so removal does not overload `sessionEnded`.
+- `SessionStore` now consumes a detail-only WebSocket lane instead of the full event firehose.
+- Root-shell flush now coalesces bursty passive updates before publishing to SwiftUI.
+- Root-shell effects now react to incremental upsert/remove change sets instead of rescanning entire mission-control arrays.
 - `QuickSwitcher`, dashboard stream cards, menu bar, notification/toast flow, and root shell routing are on the new root-safe path.
 - The remaining reset work is no longer bridge cleanup; it is finishing the new root shell so it scales cleanly and then hardening the root-stream boundary.
 
@@ -543,16 +548,16 @@ Goal:
 
 Tasks:
 
-- [ ] finalize `SessionListItem` as the only root list payload
-- [ ] ensure server authors all display/sort/search fields
-- [ ] formalize `sessions_list_bootstrap`
-- [ ] add `session_list_item_updated`
-- [ ] add `session_removed`
-- [ ] add `endpoint_status_updated`
-- [ ] ensure root-visible mutations publish root-safe events without detail leakage
-- [ ] document root-stream semantics clearly enough that the client never infers root state from detail events
-- [ ] formalize reconnect behavior: root bootstrap after reconnect, hot detail resubscribe after reconnect
-- [ ] explicitly document that replay cursors are out of scope for reset v1
+- [x] finalize `SessionListItem` as the only root list payload
+- [x] ensure server authors all display/sort/search fields
+- [x] formalize `sessions_list_bootstrap`
+- [x] add `session_list_item_updated`
+- [x] add `session_removed`
+- [x] add `endpoint_status_updated`
+- [x] ensure root-visible mutations publish root-safe events without detail leakage
+- [x] document root-stream semantics clearly enough that the client never infers root state from detail events
+- [x] formalize reconnect behavior: root bootstrap after reconnect, hot detail resubscribe after reconnect
+- [x] explicitly document that replay cursors are out of scope for reset v1
 
 Done when:
 
@@ -566,7 +571,7 @@ Parallel lanes:
 
 ## Phase 2: SessionRegistry Actor
 
-Status: `Not started`
+Status: `In progress`
 
 Goal:
 
@@ -574,12 +579,12 @@ Goal:
 
 Tasks:
 
-- [ ] add `SessionRegistry` actor
-- [ ] define hot/warm/cold membership rules
-- [ ] define promotion/demotion events
-- [ ] ingest root-safe events into normalized warm state
+- [x] add `SessionRegistry` actor
+- [x] define hot/warm/cold membership rules
+- [x] define promotion/demotion events
+- [x] ingest root-safe events into normalized warm state
 - [ ] ingest detail events into hot state only
-- [ ] batch bursts into small change sets
+- [x] batch bursts into small change sets
 - [ ] implement bounded hot detail cache
 
 Done when:
@@ -595,7 +600,7 @@ Parallel lanes:
 
 ## Phase 3: RootShellStore
 
-Status: `Not started`
+Status: `In progress`
 
 Goal:
 
@@ -607,8 +612,8 @@ Tasks:
 - [x] accept only batched registry outputs
 - [x] expose normalized records plus small derived indexes
 - [x] start pushing mission-control and recent-session slices into stored root state
-- [ ] keep published state minimal
-- [ ] ensure stored-value-only models for all hot UI paths
+- [x] keep published state minimal
+- [x] ensure stored-value-only models for all hot UI paths
 
 Done when:
 
@@ -632,7 +637,7 @@ Tasks:
 
 - [x] start from one inert root record
 - [x] add surface-specific projections only when a surface has materially different needs
-- [ ] keep any added projection surface-specific and inert
+- [x] keep any added projection surface-specific and inert
 - [x] avoid speculative mapping layers
 
 Done when:
@@ -691,7 +696,7 @@ Tasks:
 - [x] delete any remaining root compatibility types
 - [x] delete the temporary `WindowRootRuntime` façade
 - [ ] delete dead root helper code
-- [ ] delete root fallback logic from detail stores
+- [x] delete root fallback logic from detail stores
 - [x] delete tests that only exist for the old architecture
 
 Done when:
@@ -958,11 +963,11 @@ We are done when all of these are true:
 
 ## Progress Log
 
-- [ ] Phase 0 complete
-- [ ] Phase 1 complete
+- [x] Phase 0 complete
+- [x] Phase 1 complete
 - [ ] Phase 2 complete
-- [ ] Phase 3 complete
-- [ ] Phase 4 complete
+- [x] Phase 3 complete
+- [x] Phase 4 complete
 - [ ] Phase 5 complete
 - [ ] Phase 6 complete
 - [ ] Phase 7 complete

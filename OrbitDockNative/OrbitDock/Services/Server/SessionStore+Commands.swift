@@ -255,14 +255,6 @@ extension SessionStore {
       do {
         let newCount = try await clients.sessions.markSessionRead(sessionId)
         session(sessionId).unreadCount = newCount
-        var sessionsChanged = false
-        if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-          sessionsChanged = sessions[idx].unreadCount != newCount
-          sessions[idx].unreadCount = newCount
-        }
-        if sessionsChanged {
-          notifySessionsChanged()
-        }
       } catch {
         netLog(.error, cat: .store, "Mark read failed", sid: sessionId, data: ["error": error.localizedDescription])
       }
@@ -376,7 +368,7 @@ extension SessionStore {
   }
 
   func refreshWorktreesForActiveSessions() {
-    let roots = Set(sessions.filter(\.isActive).map(\.groupingPath))
+    let roots = Set(_sessionObservables.values.filter(\.isActive).map(\.groupingPath))
     for root in roots {
       Task {
         do {

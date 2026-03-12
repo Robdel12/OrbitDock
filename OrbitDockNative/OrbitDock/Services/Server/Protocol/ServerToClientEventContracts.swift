@@ -18,6 +18,7 @@ enum ServerToClientMessage: Codable {
   case tokensUpdated(sessionId: String, usage: ServerTokenUsage, snapshotKind: ServerTokenUsageSnapshotKind)
   case sessionCreated(session: ServerSessionListItem)
   case sessionListItemUpdated(session: ServerSessionListItem)
+  case sessionListItemRemoved(sessionId: String)
   case sessionEnded(sessionId: String, reason: String)
   case contextCompacted(sessionId: String)
   case undoStarted(sessionId: String, message: String?)

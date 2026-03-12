@@ -10,9 +10,9 @@
 
     func buildApprovalCardModel() -> ApprovalCardModel? {
       guard let sid = sessionId,
-            let serverState,
-            let session = serverState.sessions.first(where: { $0.id == sid })
+            let serverState
       else { return nil }
+      let session = serverState.session(sid).detailSessionSnapshot
 
       let pendingId = session.pendingApprovalId?.trimmingCharacters(in: .whitespacesAndNewlines)
       let pendingApproval: ServerApprovalRequest? = {

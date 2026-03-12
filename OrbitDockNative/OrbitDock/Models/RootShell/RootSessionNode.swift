@@ -1,5 +1,24 @@
 import Foundation
 
+enum RootSessionStatus: String, Hashable, Sendable {
+  case active
+  case ended
+}
+
+enum RootSessionWorkStatus: String, Hashable, Sendable {
+  case working
+  case waiting
+  case permission
+  case unknown
+}
+
+enum RootAttentionReason: String, Hashable, Sendable {
+  case none
+  case awaitingReply
+  case awaitingPermission
+  case awaitingQuestion
+}
+
 enum RootSessionListStatus: String, Hashable, Sendable {
   case working
   case permission
@@ -45,9 +64,9 @@ struct RootSessionNode: Identifiable, Sendable {
   let endpointName: String?
   let endpointConnectionStatus: ConnectionStatus
   let provider: Provider
-  let status: Session.SessionStatus
-  let workStatus: Session.WorkStatus
-  let attentionReason: Session.AttentionReason
+  let status: RootSessionStatus
+  let workStatus: RootSessionWorkStatus
+  let attentionReason: RootAttentionReason
   let listStatus: RootSessionListStatus
   let displayStatus: SessionDisplayStatus
   let title: String
@@ -63,6 +82,7 @@ struct RootSessionNode: Identifiable, Sendable {
   let startedAt: Date?
   let lastActivityAt: Date?
   let unreadCount: UInt64
+  let hasTurnDiff: Bool
   let pendingToolName: String?
   let repositoryRoot: String?
   let isWorktree: Bool
@@ -84,9 +104,9 @@ struct RootSessionNode: Identifiable, Sendable {
     endpointName: String?,
     endpointConnectionStatus: ConnectionStatus,
     provider: Provider,
-    status: Session.SessionStatus,
-    workStatus: Session.WorkStatus,
-    attentionReason: Session.AttentionReason,
+    status: RootSessionStatus,
+    workStatus: RootSessionWorkStatus,
+    attentionReason: RootAttentionReason,
     listStatus: RootSessionListStatus,
     displayStatus: SessionDisplayStatus,
     title: String,
@@ -102,6 +122,7 @@ struct RootSessionNode: Identifiable, Sendable {
     startedAt: Date?,
     lastActivityAt: Date?,
     unreadCount: UInt64,
+    hasTurnDiff: Bool,
     pendingToolName: String?,
     repositoryRoot: String?,
     isWorktree: Bool,
@@ -140,6 +161,7 @@ struct RootSessionNode: Identifiable, Sendable {
     self.startedAt = startedAt
     self.lastActivityAt = lastActivityAt
     self.unreadCount = unreadCount
+    self.hasTurnDiff = hasTurnDiff
     self.pendingToolName = pendingToolName
     self.repositoryRoot = repositoryRoot
     self.isWorktree = isWorktree
@@ -165,9 +187,7 @@ struct RootSessionNode: Identifiable, Sendable {
   nonisolated var normalizedDisplayName: String { titleSortKey }
   nonisolated var displaySearchText: String { searchText }
   nonisolated var groupingPath: String { projectKey }
-  nonisolated var hasLiveEndpointConnection: Bool {
-    SessionSemantics.hasLiveEndpointConnection(endpointConnectionStatus)
-  }
+  nonisolated var hasLiveEndpointConnection: Bool { RootSessionNode.hasLiveEndpointConnection(endpointConnectionStatus) }
   nonisolated var hasUnreadMessages: Bool { unreadCount > 0 }
   nonisolated var isDirectCodex: Bool { provider == .codex && codexIntegrationMode == .direct }
   nonisolated var isPassiveCodex: Bool { provider == .codex && codexIntegrationMode == .passive }
@@ -218,6 +238,7 @@ extension RootSessionNode: Equatable {
       && lhs.startedAt == rhs.startedAt
       && lhs.lastActivityAt == rhs.lastActivityAt
       && lhs.unreadCount == rhs.unreadCount
+      && lhs.hasTurnDiff == rhs.hasTurnDiff
       && lhs.pendingToolName == rhs.pendingToolName
       && lhs.repositoryRoot == rhs.repositoryRoot
       && lhs.isWorktree == rhs.isWorktree
@@ -236,77 +257,6 @@ extension RootSessionNode: Equatable {
 }
 
 extension RootSessionNode {
-  nonisolated init(session: Session) {
-    let sessionRef = SessionRef(
-      endpointId: session.endpointId ?? UUID(),
-      sessionId: session.id
-    )
-
-    self.init(
-      sessionId: session.id,
-      sessionRef: sessionRef,
-      endpointName: session.endpointName,
-      endpointConnectionStatus: session.endpointConnectionStatus ?? .disconnected,
-      provider: session.provider,
-      status: session.status,
-      workStatus: session.workStatus,
-      attentionReason: session.attentionReason,
-      listStatus: RootSessionNode.listStatus(
-        explicit: nil,
-        status: session.status,
-        attentionReason: session.attentionReason
-      ),
-      displayStatus: RootSessionNode.displayStatus(
-        explicit: nil,
-        status: session.status,
-        attentionReason: session.attentionReason
-      ),
-      title: session.displayName,
-      titleSortKey: session.normalizedDisplayName,
-      searchText: session.displaySearchText,
-      customName: session.customName,
-      contextLine: RootSessionNode.contextLine(
-        summary: session.summary,
-        firstPrompt: session.firstPrompt,
-        lastMessage: session.lastMessage
-      ),
-      projectPath: session.projectPath,
-      projectName: session.projectName,
-      projectKey: SessionSemantics.groupingPath(
-        repositoryRoot: session.repositoryRoot,
-        projectPath: session.projectPath
-      ),
-      branch: session.branch,
-      model: session.model,
-      startedAt: session.startedAt,
-      lastActivityAt: session.lastActivityAt,
-      unreadCount: session.unreadCount,
-      pendingToolName: session.pendingToolName,
-      repositoryRoot: session.repositoryRoot,
-      isWorktree: session.isWorktree,
-      worktreeId: session.worktreeId,
-      codexIntegrationMode: session.codexIntegrationMode,
-      claudeIntegrationMode: session.claudeIntegrationMode,
-      effort: session.effort,
-      totalTokens: session.totalTokens,
-      totalCostUSD: session.totalCostUSD,
-      isActive: session.status == .active,
-      showsInMissionControl: SessionSemantics.showsInMissionControl(
-        status: session.status,
-        endpointConnectionStatus: session.endpointConnectionStatus
-      ),
-      needsAttention: SessionSemantics.needsAttention(
-        status: session.status,
-        attentionReason: session.attentionReason
-      ),
-      isReady: SessionSemantics.isReady(
-        status: session.status,
-        attentionReason: session.attentionReason
-      ),
-      allowsUserNotifications: !(session.provider == .codex && session.codexIntegrationMode == .passive)
-    )
-  }
-
   nonisolated init(
     session: ServerSessionListItem,
     endpointId: UUID,
@@ -318,9 +268,12 @@ extension RootSessionNode {
       case .codex: .codex
     }
 
-    let status: Session.SessionStatus = session.status == .active ? .active : .ended
-    let workStatus = session.workStatus.toSessionWorkStatus()
-    let attentionReason = session.workStatus.toAttentionReason()
+    let status: RootSessionStatus = session.status == .active ? .active : .ended
+    let workStatus = RootSessionNode.workStatus(from: session.workStatus)
+    let attentionReason = RootSessionNode.attentionReason(
+      explicitListStatus: session.listStatus,
+      fallbackWorkStatus: session.workStatus
+    )
     let displayStatus = RootSessionNode.displayStatus(
       explicit: session.listStatus,
       status: status,
@@ -372,6 +325,7 @@ extension RootSessionNode {
     self.startedAt = RootSessionNode.parseTimestamp(session.startedAt)
     self.lastActivityAt = RootSessionNode.parseTimestamp(session.lastActivityAt)
     self.unreadCount = session.unreadCount ?? 0
+    self.hasTurnDiff = session.hasTurnDiff ?? false
     self.pendingToolName = session.pendingToolName
     self.repositoryRoot = session.repositoryRoot
     self.isWorktree = session.isWorktree ?? false
@@ -382,15 +336,18 @@ extension RootSessionNode {
     self.totalTokens = Int(session.totalTokens ?? 0)
     self.totalCostUSD = session.totalCostUSD ?? 0
     self.isActive = status == .active
-    self.showsInMissionControl = SessionSemantics.showsInMissionControl(
+    self.showsInMissionControl = RootSessionNode.showsInMissionControl(
+      provider: provider,
       status: status,
-      endpointConnectionStatus: connectionStatus
+      endpointConnectionStatus: connectionStatus,
+      codexIntegrationMode: self.codexIntegrationMode,
+      claudeIntegrationMode: self.claudeIntegrationMode
     )
-    self.needsAttention = SessionSemantics.needsAttention(
+    self.needsAttention = RootSessionNode.needsAttention(
       status: status,
       attentionReason: attentionReason
     )
-    self.isReady = SessionSemantics.isReady(
+    self.isReady = RootSessionNode.isReady(
       status: status,
       attentionReason: attentionReason
     )
@@ -422,6 +379,7 @@ extension RootSessionNode {
       startedAt: startedAt,
       lastActivityAt: lastActivityAt,
       unreadCount: unreadCount,
+      hasTurnDiff: hasTurnDiff,
       pendingToolName: pendingToolName,
       repositoryRoot: repositoryRoot,
       isWorktree: isWorktree,
@@ -432,9 +390,12 @@ extension RootSessionNode {
       totalTokens: totalTokens,
       totalCostUSD: totalCostUSD,
       isActive: self.status == .active,
-      showsInMissionControl: SessionSemantics.showsInMissionControl(
+      showsInMissionControl: RootSessionNode.showsInMissionControl(
+        provider: provider,
         status: self.status,
-        endpointConnectionStatus: connectionStatus
+        endpointConnectionStatus: connectionStatus,
+        codexIntegrationMode: codexIntegrationMode,
+        claudeIntegrationMode: claudeIntegrationMode
       ),
       needsAttention: needsAttention,
       isReady: isReady,
@@ -467,6 +428,7 @@ extension RootSessionNode {
       startedAt: startedAt,
       lastActivityAt: lastActivityAt,
       unreadCount: unreadCount,
+      hasTurnDiff: hasTurnDiff,
       pendingToolName: nil,
       repositoryRoot: repositoryRoot,
       isWorktree: isWorktree,
@@ -477,9 +439,12 @@ extension RootSessionNode {
       totalTokens: totalTokens,
       totalCostUSD: totalCostUSD,
       isActive: false,
-      showsInMissionControl: SessionSemantics.showsInMissionControl(
+      showsInMissionControl: RootSessionNode.showsInMissionControl(
+        provider: provider,
         status: .ended,
-        endpointConnectionStatus: endpointConnectionStatus
+        endpointConnectionStatus: endpointConnectionStatus,
+        codexIntegrationMode: codexIntegrationMode,
+        claudeIntegrationMode: claudeIntegrationMode
       ),
       needsAttention: false,
       isReady: false,
@@ -489,6 +454,90 @@ extension RootSessionNode {
 }
 
 extension RootSessionNode {
+  nonisolated static func workStatus(from status: ServerWorkStatus) -> RootSessionWorkStatus {
+    switch status {
+      case .working:
+        .working
+      case .waiting:
+        .waiting
+      case .permission:
+        .permission
+      case .question, .reply, .ended:
+        .unknown
+    }
+  }
+
+  nonisolated static func attentionReason(
+    explicitListStatus: ServerSessionListStatus?,
+    fallbackWorkStatus status: ServerWorkStatus
+  ) -> RootAttentionReason {
+    if let explicitListStatus {
+      switch explicitListStatus {
+        case .permission:
+          return .awaitingPermission
+        case .question:
+          return .awaitingQuestion
+        case .reply:
+          return .awaitingReply
+        case .working, .ended:
+          break
+      }
+    }
+
+    return switch status {
+      case .working, .ended:
+        .none
+      case .waiting, .reply:
+        .awaitingReply
+      case .permission:
+        .awaitingPermission
+      case .question:
+        .awaitingQuestion
+    }
+  }
+
+  nonisolated static func hasLiveEndpointConnection(_ status: ConnectionStatus?) -> Bool {
+    guard let status else { return true }
+    switch status {
+      case .connected:
+        return true
+      case .disconnected, .connecting, .failed:
+        return false
+    }
+  }
+
+  nonisolated static func showsInMissionControl(
+    provider: Provider,
+    status: RootSessionStatus,
+    endpointConnectionStatus: ConnectionStatus?,
+    codexIntegrationMode: CodexIntegrationMode?,
+    claudeIntegrationMode: ClaudeIntegrationMode?
+  ) -> Bool {
+    guard status == .active else { return false }
+    guard hasLiveEndpointConnection(endpointConnectionStatus) else { return false }
+
+    switch provider {
+      case .codex:
+        return codexIntegrationMode != .passive
+      case .claude:
+        return claudeIntegrationMode != .passive
+    }
+  }
+
+  nonisolated static func needsAttention(
+    status: RootSessionStatus,
+    attentionReason: RootAttentionReason
+  ) -> Bool {
+    status == .active && attentionReason != .none && attentionReason != .awaitingReply
+  }
+
+  nonisolated static func isReady(
+    status: RootSessionStatus,
+    attentionReason: RootAttentionReason
+  ) -> Bool {
+    status == .active && attentionReason == .awaitingReply
+  }
+
   nonisolated static func codexMode(provider: ServerProvider, mode: ServerCodexIntegrationMode?) -> CodexIntegrationMode? {
     guard provider == .codex else { return nil }
     return switch mode {
@@ -557,8 +606,8 @@ extension RootSessionNode {
 
   nonisolated static func displayStatus(
     explicit: ServerSessionListStatus?,
-    status: Session.SessionStatus,
-    attentionReason: Session.AttentionReason
+    status: RootSessionStatus,
+    attentionReason: RootAttentionReason
   ) -> SessionDisplayStatus {
     if let explicit {
       return switch explicit {
@@ -581,8 +630,8 @@ extension RootSessionNode {
 
   nonisolated static func listStatus(
     explicit: ServerSessionListStatus?,
-    status: Session.SessionStatus,
-    attentionReason: Session.AttentionReason
+    status: RootSessionStatus,
+    attentionReason: RootAttentionReason
   ) -> RootSessionListStatus {
     if let explicit {
       return switch explicit {

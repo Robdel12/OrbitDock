@@ -121,6 +121,37 @@ struct RootShellReducerTests {
     #expect(record?.isActive == false)
   }
 
+  @Test func sessionRemovedDropsRecordFromRootState() throws {
+    var state = RootShellState()
+    let endpointId = try #require(UUID(uuidString: "55555555-5555-5555-5555-555555555555"))
+
+    _ = RootShellReducer.reduce(
+      state: &state,
+      event: .sessionsList(
+        endpointId: endpointId,
+        endpointName: "Epsilon",
+        connectionStatus: .connected,
+        sessions: [
+          makeListItem(id: "sess-a", workStatus: .reply),
+          makeListItem(id: "sess-b", workStatus: .working, codexIntegrationMode: .direct),
+        ]
+      )
+    )
+
+    let changed = RootShellReducer.reduce(
+      state: &state,
+      event: .sessionRemoved(endpointId: endpointId, sessionId: "sess-a")
+    )
+
+    #expect(changed)
+    #expect(state.recordsByScopedID.count == 1)
+    let remainingScopedIDs = Set(state.recordsByScopedID.keys.map { $0 })
+    let expectedScopedIDs: Set<String> = [ScopedSessionID(endpointId: endpointId, sessionId: "sess-b").scopedID]
+    #expect(remainingScopedIDs == expectedScopedIDs)
+    #expect(state.counts.total == 1)
+    #expect(state.missionControlRecords.map(\.sessionId) == ["sess-b"])
+  }
+
   @Test func derivedSlicesSeparateMissionControlFromRecentRecords() throws {
     var state = RootShellState()
     let endpointId = try #require(UUID(uuidString: "44444444-4444-4444-4444-444444444444"))

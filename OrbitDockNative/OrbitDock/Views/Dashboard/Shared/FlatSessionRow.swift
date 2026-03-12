@@ -17,7 +17,7 @@ struct FlatSessionRow: View {
   var isAttentionPromoted: Bool = false
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(SessionStore.self) private var serverState
+  @Environment(\.rootSessionActions) private var rootSessionActions
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var isHovering = false
 
@@ -107,12 +107,16 @@ struct FlatSessionRow: View {
       if session.isActive, session.isDirect {
         Divider()
         Button(role: .destructive) {
-          Task { try? await serverState.endSession(session.sessionId) }
+          Task { try? await endSession() }
         } label: {
           Label("End Session", systemImage: "stop.circle")
         }
       }
     }
+  }
+
+  private func endSession() async throws {
+    try await rootSessionActions.endSession(session)
   }
 
   private var regularRowContent: some View {
@@ -375,7 +379,7 @@ struct FlatSessionRow: View {
   VStack(spacing: Spacing.xxs) {
     // Has summary — shows prompt as context
     FlatSessionRow(
-      session: RootSessionNode(session: Session(
+      session: previewRootSession(Session(
         id: "1",
         projectPath: "/Users/dev/project",
         projectName: "project",
@@ -394,7 +398,7 @@ struct FlatSessionRow: View {
 
     // No summary, has first prompt — prompt becomes the label
     FlatSessionRow(
-      session: RootSessionNode(session: Session(
+      session: previewRootSession(Session(
         id: "2",
         projectPath: "/Users/dev/project",
         projectName: "project",
@@ -413,7 +417,7 @@ struct FlatSessionRow: View {
 
     // No summary, no prompt — model shorthand as label
     FlatSessionRow(
-      session: RootSessionNode(session: Session(
+      session: previewRootSession(Session(
         id: "3",
         projectPath: "/Users/dev/project",
         projectName: "project",
@@ -430,7 +434,7 @@ struct FlatSessionRow: View {
 
     // Codex session with branch on different project
     FlatSessionRow(
-      session: RootSessionNode(session: Session(
+      session: previewRootSession(Session(
         id: "4",
         projectPath: "/Users/dev/vizzly",
         projectName: "vizzly",
@@ -450,4 +454,65 @@ struct FlatSessionRow: View {
   .padding(Spacing.lg)
   .background(Color.backgroundPrimary)
   .frame(width: 900)
+}
+
+private func previewRootSession(_ session: Session) -> RootSessionNode {
+  let endpointId = session.endpointId ?? UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+  let listItem = ServerSessionListItem(
+    id: session.id,
+    provider: session.provider == .codex ? .codex : .claude,
+    projectPath: session.projectPath,
+    projectName: session.projectName,
+    gitBranch: session.branch,
+    model: session.model,
+    status: session.status == .active ? .active : .ended,
+    workStatus: previewWorkStatus(for: session),
+    codexIntegrationMode: session.codexIntegrationMode == .passive ? .passive : .direct,
+    claudeIntegrationMode: session.provider == .claude ? (session.claudeIntegrationMode == .passive ? .passive : .direct) : nil,
+    startedAt: session.startedAt?.ISO8601Format(),
+    lastActivityAt: session.lastActivityAt?.ISO8601Format(),
+    unreadCount: session.unreadCount,
+    hasTurnDiff: session.currentDiff != nil,
+    pendingToolName: session.pendingToolName,
+    repositoryRoot: session.repositoryRoot,
+    isWorktree: session.isWorktree,
+    worktreeId: session.worktreeId,
+    totalTokens: UInt64(max(session.totalTokens, 0)),
+    totalCostUSD: session.totalCostUSD,
+    displayTitle: session.displayName,
+    displayTitleSortKey: session.normalizedDisplayName,
+    displaySearchText: session.displaySearchText,
+    contextLine: session.summary,
+    listStatus: nil,
+    effort: session.effort
+  )
+
+  return RootSessionNode(
+    session: listItem,
+    endpointId: endpointId,
+    endpointName: session.endpointName ?? "Preview",
+    connectionStatus: session.endpointConnectionStatus ?? .connected
+  )
+}
+
+private func previewWorkStatus(for session: Session) -> ServerWorkStatus {
+  switch session.attentionReason {
+    case .awaitingPermission:
+      return .permission
+    case .awaitingQuestion:
+      return .question
+    case .awaitingReply:
+      return .reply
+    case .none:
+      break
+  }
+
+  switch session.workStatus {
+    case .working:
+      return .working
+    case .waiting, .unknown:
+      return .waiting
+    case .permission:
+      return .permission
+  }
 }

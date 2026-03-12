@@ -2,39 +2,23 @@ import Foundation
 import Testing
 @testable import OrbitDock
 
+@MainActor
 struct StatusBarStatsTests {
-  private let costCalculator = TokenCostCalculator(
-    prices: [
-      "claude-opus-4": ModelPrice(
-        inputCostPerToken: 1.0,
-        outputCostPerToken: 2.0,
-        cacheReadInputTokenCost: 0.5,
-        cacheCreationInputTokenCost: 4.0
-      ),
-      "gpt-5": ModelPrice(
-        inputCostPerToken: 3.0,
-        outputCostPerToken: 4.0,
-        cacheReadInputTokenCost: nil,
-        cacheCreationInputTokenCost: nil
-      ),
-    ]
-  )
+  private let costCalculator = TokenCostCalculator(prices: [:])
 
-  @Test func fromAggregatesUsageAndCostByModelWithoutSharedPricingService() {
+  @Test func fromAggregatesRootSafeUsageAndCostByModel() {
     let sessions = [
       makeSession(
         id: "claude-1",
         model: "claude-opus-4",
-        inputTokens: 10,
-        outputTokens: 5,
-        cachedTokens: 4
+        totalTokens: 15,
+        totalCostUSD: 22
       ),
       makeSession(
         id: "gpt-1",
         model: "gpt-5",
-        inputTokens: 2,
-        outputTokens: 3,
-        cachedTokens: 0
+        totalTokens: 5,
+        totalCostUSD: 18
       ),
     ]
 
@@ -50,12 +34,13 @@ struct StatusBarStatsTests {
     #expect(stats.costByModel.map(\.cost) == [22, 18])
   }
 
-  @Test func fromFallsBackToTotalTokensWhenServerUsageIsMissing() {
+  @Test func fromIgnoresUnknownModelsButKeepsTotals() {
     let sessions = [
       makeSession(
-        id: "legacy",
-        model: "claude-opus-4",
-        totalTokens: 7
+        id: "custom-1",
+        model: "openai",
+        totalTokens: 7,
+        totalCostUSD: 14
       ),
     ]
 
@@ -66,31 +51,54 @@ struct StatusBarStatsTests {
 
     #expect(stats.tokens == 7)
     #expect(stats.cost == 14)
-    #expect(stats.costByModel.map(\.model) == ["Opus"])
-    #expect(stats.costByModel.map(\.cost) == [14])
+    #expect(stats.costByModel.isEmpty)
   }
 
   private func makeSession(
     id: String,
     model: String,
-    inputTokens: Int? = nil,
-    outputTokens: Int? = nil,
-    cachedTokens: Int? = nil,
-    totalTokens: Int = 0
-  ) -> Session {
-    Session(
-      id: id,
-      endpointId: UUID(),
+    totalTokens: Int,
+    totalCostUSD: Double
+  ) -> RootSessionNode {
+    RootSessionNode(
+      sessionId: id,
+      sessionRef: SessionRef(endpointId: UUID(), sessionId: id),
       endpointName: "Local",
+      endpointConnectionStatus: .connected,
+      provider: .codex,
+      status: .active,
+      workStatus: .working,
+      attentionReason: .none,
+      listStatus: .working,
+      displayStatus: .working,
+      title: id,
+      titleSortKey: id.lowercased(),
+      searchText: id,
+      customName: nil,
+      contextLine: nil,
       projectPath: "/tmp/\(id)",
       projectName: id,
+      projectKey: "/tmp/\(id)",
+      branch: nil,
       model: model,
-      status: .active,
-      workStatus: .waiting,
+      startedAt: nil,
+      lastActivityAt: nil,
+      unreadCount: 0,
+      hasTurnDiff: false,
+      pendingToolName: nil,
+      repositoryRoot: nil,
+      isWorktree: false,
+      worktreeId: nil,
+      codexIntegrationMode: .direct,
+      claudeIntegrationMode: nil,
+      effort: nil,
       totalTokens: totalTokens,
-      inputTokens: inputTokens,
-      outputTokens: outputTokens,
-      cachedTokens: cachedTokens
+      totalCostUSD: totalCostUSD,
+      isActive: true,
+      showsInMissionControl: true,
+      needsAttention: false,
+      isReady: false,
+      allowsUserNotifications: true
     )
   }
 }

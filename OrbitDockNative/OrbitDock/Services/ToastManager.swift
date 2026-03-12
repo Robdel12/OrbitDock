@@ -5,12 +5,12 @@
 //  Manages in-app toast notifications for session status changes
 //
 
-import Combine
 import SwiftUI
 
 @MainActor
-class ToastManager: ObservableObject {
-  @Published var toasts: [SessionToast] = []
+@Observable
+final class ToastManager {
+  var toasts: [SessionToast] = []
 
   /// Sessions we've already shown a toast for (to avoid duplicates)
   private var notifiedSessionIds: Set<String> = []
@@ -49,13 +49,13 @@ class ToastManager: ObservableObject {
     guard scopedID != currentSessionId else { return }
     guard !notifiedSessionIds.contains(scopedID) else { return }
 
-    let status = SessionDisplayStatus.from(session)
+    let status = session.displayStatus
     guard status == .permission || status == .question else { return }
 
     let toast = SessionToast(
       sessionId: scopedID,
-      sessionName: session.displayName,
-      status: status,
+      sessionName: session.title,
+      status: session.displayStatus,
       detail: session.pendingToolName
     )
 
@@ -73,32 +73,28 @@ class ToastManager: ObservableObject {
     dismissTasks[toast.id] = task
   }
 
-  func checkForAttentionChanges(
-    sessions: [RootSessionNode],
-    previousSessions: [RootSessionNode]
-  ) {
-    let previousStates = Dictionary(uniqueKeysWithValues: previousSessions
-      .map { ($0.scopedID, SessionDisplayStatus.from($0)) })
+  func applySessionTransition(current session: RootSessionNode, previous: RootSessionNode?) {
+    let scopedID = session.scopedID
+    let currentStatus = session.displayStatus
+    let previousStatus = previous?.displayStatus
 
-    for session in sessions {
-      let scopedID = session.scopedID
-      let currentStatus = SessionDisplayStatus.from(session)
-      let previousStatus = previousStates[scopedID]
-
-      if !session.allowsUserNotifications {
-        clearNotification(for: scopedID)
-        continue
-      }
-
-      if currentStatus == .permission || currentStatus == .question,
-         previousStatus != currentStatus
-      {
-        showToast(for: session)
-      }
-
-      if currentStatus != .permission, currentStatus != .question {
-        clearNotification(for: scopedID)
-      }
+    if !session.allowsUserNotifications {
+      clearNotification(for: scopedID)
+      return
     }
+
+    if currentStatus == .permission || currentStatus == .question,
+       previousStatus != currentStatus
+    {
+      showToast(for: session)
+    }
+
+    if currentStatus != .permission, currentStatus != .question {
+      clearNotification(for: scopedID)
+    }
+  }
+
+  func removeSession(_ sessionId: String) {
+    clearNotification(for: sessionId)
   }
 }

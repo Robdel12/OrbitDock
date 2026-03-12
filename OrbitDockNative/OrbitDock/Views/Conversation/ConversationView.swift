@@ -102,7 +102,7 @@ struct ConversationView: View {
               ConversationForkOriginBanner(
                 sourceSessionId: sourceId,
                 sourceEndpointId: endpointId,
-                sourceName: serverState.sessions.first(where: { $0.id == sourceId })?.displayName
+                sourceName: serverState.session(sourceId).displayName
               )
               .padding(.horizontal, Spacing.lg)
               .padding(.top, Spacing.sm)

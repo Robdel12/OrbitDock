@@ -28,6 +28,8 @@ struct AttentionEvent: Identifiable {
 @Observable
 @MainActor
 final class AttentionService {
+  private var eventsBySessionId: [String: [AttentionEvent]] = [:]
+
   private(set) var events: [AttentionEvent] = []
 
   var totalCount: Int {
@@ -35,47 +37,72 @@ final class AttentionService {
   }
 
   func events(for sessionId: String) -> [AttentionEvent] {
-    events.filter { $0.sessionId == sessionId }
+    eventsBySessionId[sessionId] ?? []
   }
 
-  func update(
-    sessions: [RootSessionNode],
-    sessionObservable: (RootSessionNode) -> SessionObservable?
-  ) {
-    var newEvents: [AttentionEvent] = []
+  func update(sessions: [RootSessionNode]) {
+    var newEventsBySessionId: [String: [AttentionEvent]] = [:]
+    for session in sessions {
+      newEventsBySessionId[session.scopedID] = attentionEvents(for: session)
+    }
+    eventsBySessionId = newEventsBySessionId
+    rebuildFlatEvents()
+  }
 
-    for session in sessions where session.showsInMissionControl {
-      let obs = sessionObservable(session)
-      let now = Date()
+  func apply(session: RootSessionNode) {
+    eventsBySessionId[session.scopedID] = attentionEvents(for: session)
+    rebuildFlatEvents()
+  }
 
-      if session.workStatus == .permission || session.attentionReason == .awaitingPermission {
-        newEvents.append(AttentionEvent(
-          id: "attention-perm-\(session.scopedID)",
-          sessionId: session.scopedID,
-          type: .permissionRequired,
-          timestamp: now
-        ))
-      }
+  func remove(sessionId: String) {
+    eventsBySessionId.removeValue(forKey: sessionId)
+    rebuildFlatEvents()
+  }
 
-      if session.attentionReason == .awaitingQuestion {
-        newEvents.append(AttentionEvent(
-          id: "attention-question-\(session.scopedID)",
-          sessionId: session.scopedID,
-          type: .questionWaiting,
-          timestamp: now
-        ))
-      }
+  private func attentionEvents(for session: RootSessionNode) -> [AttentionEvent] {
+    guard session.showsInMissionControl else { return [] }
 
-      if let obs, !obs.turnDiffs.isEmpty {
-        newEvents.append(AttentionEvent(
-          id: "attention-diff-\(session.scopedID)",
-          sessionId: session.scopedID,
-          type: .unreviewedDiff,
-          timestamp: now
-        ))
-      }
+    let now = Date()
+    var sessionEvents: [AttentionEvent] = []
+
+    if session.displayStatus == .permission {
+      sessionEvents.append(AttentionEvent(
+        id: "attention-perm-\(session.scopedID)",
+        sessionId: session.scopedID,
+        type: .permissionRequired,
+        timestamp: now
+      ))
     }
 
-    events = newEvents
+    if session.displayStatus == .question {
+      sessionEvents.append(AttentionEvent(
+        id: "attention-question-\(session.scopedID)",
+        sessionId: session.scopedID,
+        type: .questionWaiting,
+        timestamp: now
+      ))
+    }
+
+    if session.hasTurnDiff {
+      sessionEvents.append(AttentionEvent(
+        id: "attention-diff-\(session.scopedID)",
+        sessionId: session.scopedID,
+        type: .unreviewedDiff,
+        timestamp: now
+      ))
+    }
+
+    return sessionEvents
+  }
+
+  private func rebuildFlatEvents() {
+    events = eventsBySessionId.values
+      .flatMap { $0 }
+      .sorted { lhs, rhs in
+        if lhs.timestamp != rhs.timestamp {
+          return lhs.timestamp > rhs.timestamp
+        }
+        return lhs.id < rhs.id
+      }
   }
 }
