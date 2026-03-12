@@ -187,46 +187,6 @@ class NotificationManager {
     return preferences.boolForKey("notifyOnWorkComplete")
   }
 
-  func notifyNeedsAttention<SessionType: SessionSummaryItem>(session: SessionType) {
-    let scopedID = session.scopedID
-
-    guard isAuthorized else { return }
-    guard notificationsEnabled else { return }
-    guard session.showsInMissionControl else { return }
-    guard session.allowsUserNotifications else {
-      resetNotificationState(for: scopedID)
-      return
-    }
-    guard !notifiedSessionIds.contains(scopedID) else { return }
-
-    notifiedSessionIds.insert(scopedID)
-
-    let content = UNMutableNotificationContent()
-    content.title = "Session Needs Attention"
-    content.subtitle = session.displayName
-    content.body = Self.attentionMessage(for: session)
-    content.sound = configuredSound
-    content.categoryIdentifier = "SESSION_ATTENTION"
-
-    // Add session info for handling tap
-    content.userInfo = [
-      "sessionId": scopedID,
-      "projectPath": session.projectPath,
-    ]
-
-    let request = UNNotificationRequest(
-      identifier: "attention-\(scopedID)",
-      content: content,
-      trigger: nil // Deliver immediately
-    )
-
-    notificationCenter.addRequest(request) { error in
-      if let error {
-        print("Failed to schedule notification: \(error)")
-      }
-    }
-  }
-
   func notifyNeedsAttention(session: RootSessionNode) {
     let scopedID = session.scopedID
 
@@ -300,27 +260,6 @@ class NotificationManager {
   }
 
   /// Track session work status and notify when work completes
-  func updateSessionWorkStatus<SessionType: SessionSummaryItem>(session: SessionType) {
-    let scopedID = session.scopedID
-    let wasWorking = workingSessionIds.contains(scopedID)
-    let isWorking = Self.shouldTrackAsWorking(session)
-
-    guard session.allowsUserNotifications else {
-      workingSessionIds.remove(scopedID)
-      resetNotificationState(for: scopedID)
-      return
-    }
-
-    if isWorking {
-      workingSessionIds.insert(scopedID)
-    } else if wasWorking, session.showsInMissionControl {
-      workingSessionIds.remove(scopedID)
-      notifyWorkComplete(session: session)
-    } else if !session.showsInMissionControl {
-      workingSessionIds.remove(scopedID)
-    }
-  }
-
   func updateSessionWorkStatus(session: RootSessionNode) {
     let scopedID = session.scopedID
     let wasWorking = workingSessionIds.contains(scopedID)
@@ -344,36 +283,6 @@ class NotificationManager {
       workingSessionIds.insert(scopedID)
     } else {
       workingSessionIds.remove(scopedID)
-    }
-  }
-
-  private func notifyWorkComplete<SessionType: SessionSummaryItem>(session: SessionType) {
-    guard isAuthorized else { return }
-    guard notificationsEnabled else { return }
-    guard notifyOnWorkComplete else { return }
-
-    let content = UNMutableNotificationContent()
-    content.title = "\(session.provider.displayName) Finished"
-    content.subtitle = session.displayName
-    content.body = Self.completionMessage(for: session)
-    content.sound = configuredSound
-    content.categoryIdentifier = "SESSION_ATTENTION"
-
-    content.userInfo = [
-      "sessionId": session.scopedID,
-      "projectPath": session.projectPath,
-    ]
-
-    let request = UNNotificationRequest(
-      identifier: "complete-\(session.scopedID)-\(Date().timeIntervalSince1970)",
-      content: content,
-      trigger: nil
-    )
-
-    notificationCenter.addRequest(request) { error in
-      if let error {
-        print("Failed to schedule notification: \(error)")
-      }
     }
   }
 
@@ -417,34 +326,6 @@ class NotificationManager {
     }
   }
 
-  static func attentionMessage<SessionType: SessionSummaryItem>(for session: SessionType) -> String {
-    switch SessionDisplayStatus.from(session) {
-      case .permission:
-        return "Waiting for permission approval"
-      case .question:
-        return "Waiting for your answer"
-      case .reply, .working, .ended:
-        return "Waiting for your input"
-    }
-  }
-
-  static func completionMessage<SessionType: SessionSummaryItem>(for session: SessionType) -> String {
-    switch SessionDisplayStatus.from(session) {
-      case .permission:
-        return "Needs permission to continue"
-      case .question:
-        return "Asked a question"
-      case .reply, .working, .ended:
-        return "Ready for your next prompt"
-    }
-  }
-
-  static func shouldTrackAsWorking<SessionType: SessionSummaryItem>(_ session: SessionType) -> Bool {
-    session.showsInMissionControl
-      && session.allowsUserNotifications
-      && SessionDisplayStatus.from(session) == .working
-  }
-
   static func attentionMessage(for session: RootSessionNode) -> String {
     switch SessionDisplayStatus.from(session) {
       case .permission:
@@ -468,6 +349,8 @@ class NotificationManager {
   }
 
   static func shouldTrackAsWorking(_ session: RootSessionNode) -> Bool {
-    session.showsInMissionControl && session.displayStatus == .working
+    session.showsInMissionControl
+      && session.allowsUserNotifications
+      && session.displayStatus == .working
   }
 }

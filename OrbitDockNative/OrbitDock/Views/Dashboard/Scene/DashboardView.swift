@@ -12,7 +12,6 @@ import SwiftUI
 
 struct DashboardView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
   @Environment(RootShellStore.self) private var rootShellStore
 
@@ -45,14 +44,8 @@ struct DashboardView: View {
     rootShellStore.records()
   }
 
-  private var librarySessions: [SessionSummary] {
-    runtimeRegistry.runtimes
-      .flatMap { runtime in
-        runtime.sessionStore.sessions.map(SessionSummary.init(session:))
-      }
-      .sorted { lhs, rhs in
-        LibraryArchivePlanner.compareSessions(lhs, rhs)
-      }
+  private var librarySessions: [RootSessionNode] {
+    rootSessions.sorted(by: LibraryArchivePlanner.compareSessions)
   }
 
   private var navigableSessions: [RootSessionNode] {

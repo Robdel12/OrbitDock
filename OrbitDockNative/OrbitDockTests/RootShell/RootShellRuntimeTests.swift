@@ -22,7 +22,7 @@ struct RootShellRuntimeTests {
       endpointId: endpoint.id,
       endpointName: endpoint.name
     )
-    sessionStore.latestSessionListItems = [
+    let sessionListItems = [
       ServerSessionListItem(
         id: "session-1",
         provider: .codex,
@@ -51,7 +51,7 @@ struct RootShellRuntimeTests {
         effort: nil
       )
     ]
-    sessionStore.setHasReceivedInitialSessionsList(true)
+    eventStream.seedSessionsListForTesting(sessionListItems)
 
     let registry = ServerRuntimeRegistry(
       endpointsProvider: { [endpoint] },

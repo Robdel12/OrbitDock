@@ -13,10 +13,10 @@ struct ServerRuntimeReadiness: Equatable, Sendable {
 
   static func derive(
     connectionStatus: ConnectionStatus,
-    hasReceivedInitialSessionsList: Bool
+    hasReceivedInitialRootList: Bool
   ) -> ServerRuntimeReadiness {
     let transportReady = connectionStatus == .connected
-    let controlPlaneReady = transportReady && hasReceivedInitialSessionsList
+    let controlPlaneReady = transportReady && hasReceivedInitialRootList
     let queryReady = controlPlaneReady
     return ServerRuntimeReadiness(
       transportReady: transportReady,

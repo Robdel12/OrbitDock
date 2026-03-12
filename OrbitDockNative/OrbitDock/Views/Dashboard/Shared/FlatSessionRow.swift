@@ -10,7 +10,7 @@
 import SwiftUI
 
 struct FlatSessionRow: View {
-  let session: SessionSummary
+  let session: RootSessionNode
   let onSelect: () -> Void
   var isSelected: Bool = false
   var hideBranch: Bool = false
@@ -22,7 +22,7 @@ struct FlatSessionRow: View {
   @State private var isHovering = false
 
   private var displayStatus: SessionDisplayStatus {
-    SessionDisplayStatus.from(session)
+    session.displayStatus
   }
 
   private var layoutMode: DashboardLayoutMode {
@@ -39,7 +39,7 @@ struct FlatSessionRow: View {
 
   /// Whether the title comes from a named conversation rather than the prompt fallback.
   private var hasExplicitTitle: Bool {
-    [session.customName, session.summary].contains { value in
+    [session.customName, session.contextLine].contains { value in
       guard let value else { return false }
       return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -52,23 +52,9 @@ struct FlatSessionRow: View {
   /// Context line — shows last message for current activity context,
   /// falling back to first prompt when no last message is available.
   private var contextLine: String? {
-    // Prefer last message — shows what's happening now
-    if let lastMsg = session.lastMessage, !lastMsg.isEmpty {
-      let cleaned = DashboardFormatters.cleanPrompt(lastMsg, maxLength: 100)
-      // Don't show if it's identical to the agent label (avoids redundancy)
-      if cleaned != agentLabel {
-        return cleaned
-      }
-    }
-
-    // Fall back to first prompt when there's a real name above
-    if hasExplicitTitle {
-      if let prompt = session.firstPrompt, !prompt.isEmpty {
-        return DashboardFormatters.cleanPrompt(prompt, maxLength: 100)
-      }
-    }
-
-    return nil
+    guard let contextLine = session.contextLine, !contextLine.isEmpty else { return nil }
+    let cleaned = DashboardFormatters.cleanPrompt(contextLine, maxLength: 100)
+    return cleaned == agentLabel ? nil : cleaned
   }
 
   /// Branch to show inline — hidden when suppressed by project header or when on default branch
@@ -121,7 +107,7 @@ struct FlatSessionRow: View {
       if session.isActive, session.isDirect {
         Divider()
         Button(role: .destructive) {
-          Task { try? await serverState.endSession(session.id) }
+          Task { try? await serverState.endSession(session.sessionId) }
         } label: {
           Label("End Session", systemImage: "stop.circle")
         }
@@ -149,14 +135,6 @@ struct FlatSessionRow: View {
 
           if hasMultipleEndpoints, session.endpointName != nil {
             EndpointBadge(endpointName: session.endpointName)
-          }
-
-          if serverState.session(session.id).forkedFrom != nil {
-            ForkBadge()
-          }
-
-          if serverState.session(session.id).permissionMode == .plan {
-            PlanModeBadge()
           }
 
           if session.isPassiveCodex {
@@ -281,18 +259,13 @@ struct FlatSessionRow: View {
 
   private var hasCompactSecondaryMeta: Bool {
     (hasMultipleEndpoints && session.endpointName != nil)
-      || serverState.session(session.id).forkedFrom != nil || inlineBranch != nil || session
-      .isWorktree
+      || inlineBranch != nil || session.isWorktree
   }
 
   private var compactSecondaryMetaRow: some View {
     HStack(spacing: Spacing.xs) {
       if hasMultipleEndpoints, session.endpointName != nil {
         EndpointBadge(endpointName: session.endpointName)
-      }
-
-      if serverState.session(session.id).forkedFrom != nil {
-        ForkBadge()
       }
 
       if let branch = inlineBranch {
@@ -402,7 +375,7 @@ struct FlatSessionRow: View {
   VStack(spacing: Spacing.xxs) {
     // Has summary — shows prompt as context
     FlatSessionRow(
-      session: SessionSummary(session: Session(
+      session: RootSessionNode(session: Session(
         id: "1",
         projectPath: "/Users/dev/project",
         projectName: "project",
@@ -421,7 +394,7 @@ struct FlatSessionRow: View {
 
     // No summary, has first prompt — prompt becomes the label
     FlatSessionRow(
-      session: SessionSummary(session: Session(
+      session: RootSessionNode(session: Session(
         id: "2",
         projectPath: "/Users/dev/project",
         projectName: "project",
@@ -440,7 +413,7 @@ struct FlatSessionRow: View {
 
     // No summary, no prompt — model shorthand as label
     FlatSessionRow(
-      session: SessionSummary(session: Session(
+      session: RootSessionNode(session: Session(
         id: "3",
         projectPath: "/Users/dev/project",
         projectName: "project",
@@ -457,7 +430,7 @@ struct FlatSessionRow: View {
 
     // Codex session with branch on different project
     FlatSessionRow(
-      session: SessionSummary(session: Session(
+      session: RootSessionNode(session: Session(
         id: "4",
         projectPath: "/Users/dev/vizzly",
         projectName: "vizzly",

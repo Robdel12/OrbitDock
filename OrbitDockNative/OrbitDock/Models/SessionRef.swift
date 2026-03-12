@@ -4,14 +4,14 @@ struct SessionRef: Hashable, Identifiable, Codable, Sendable {
   let endpointId: UUID
   let sessionId: String
 
-  static let delimiter = "::"
+  nonisolated static let delimiter = "::"
 
-  init(endpointId: UUID, sessionId: String) {
+  nonisolated init(endpointId: UUID, sessionId: String) {
     self.endpointId = endpointId
     self.sessionId = sessionId
   }
 
-  init?(scopedID: String) {
+  nonisolated init?(scopedID: String) {
     guard let split = scopedID.range(of: Self.delimiter) else { return nil }
     let endpointRaw = String(scopedID[..<split.lowerBound])
     let sessionRaw = String(scopedID[split.upperBound...])
@@ -19,11 +19,11 @@ struct SessionRef: Hashable, Identifiable, Codable, Sendable {
     self.init(endpointId: endpointId, sessionId: sessionRaw)
   }
 
-  var id: String {
+  nonisolated var id: String {
     scopedID
   }
 
-  var scopedID: String {
+  nonisolated var scopedID: String {
     "\(endpointId.uuidString)\(Self.delimiter)\(sessionId)"
   }
 }

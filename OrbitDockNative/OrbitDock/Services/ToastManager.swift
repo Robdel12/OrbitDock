@@ -26,49 +26,6 @@ class ToastManager: ObservableObject {
 
   init() {}
 
-  /// Show a toast for a session that needs attention
-  func showToast<SessionType: SessionSummaryItem>(for session: SessionType) {
-    let scopedID = session.scopedID
-
-    guard session.showsInMissionControl else { return }
-    guard session.allowsUserNotifications else {
-      clearNotification(for: scopedID)
-      return
-    }
-
-    // Don't show if viewing this session
-    guard scopedID != currentSessionId else { return }
-
-    // Don't show duplicate toasts
-    guard !notifiedSessionIds.contains(scopedID) else { return }
-
-    let status = SessionDisplayStatus.from(session)
-
-    // Only show for attention-needing states
-    guard status == .permission || status == .question else { return }
-
-    let toast = SessionToast(
-      sessionId: scopedID,
-      sessionName: session.displayName,
-      status: status,
-      detail: session.pendingToolName
-    )
-
-    notifiedSessionIds.insert(scopedID)
-    toasts.append(toast)
-    if Date().timeIntervalSince(lastAttentionHapticAt) > 0.75 {
-      Platform.services.playHaptic(.warning)
-      lastAttentionHapticAt = Date()
-    }
-
-    // Schedule auto-dismiss
-    let task = Task {
-      try? await Task.sleep(for: .seconds(dismissDuration))
-      dismiss(toast)
-    }
-    dismissTasks[toast.id] = task
-  }
-
   /// Dismiss a specific toast
   func dismiss(_ toast: SessionToast) {
     dismissTasks[toast.id]?.cancel()
@@ -79,38 +36,6 @@ class ToastManager: ObservableObject {
   /// Clear notification tracking for a session (call when session no longer needs attention)
   func clearNotification(for sessionId: String) {
     notifiedSessionIds.remove(sessionId)
-  }
-
-  /// Check sessions for status changes and show toasts as needed
-  func checkForAttentionChanges<SessionType: SessionSummaryItem>(
-    sessions: [SessionType],
-    previousSessions: [SessionType]
-  ) {
-    let previousStates = Dictionary(uniqueKeysWithValues: previousSessions
-      .map { ($0.scopedID, SessionDisplayStatus.from($0)) })
-
-    for session in sessions {
-      let scopedID = session.scopedID
-      let currentStatus = SessionDisplayStatus.from(session)
-      let previousStatus = previousStates[scopedID]
-
-      if !session.allowsUserNotifications {
-        clearNotification(for: scopedID)
-        continue
-      }
-
-      // Session transitioned TO needing attention
-      if currentStatus == .permission || currentStatus == .question,
-         previousStatus != currentStatus
-      {
-        showToast(for: session)
-      }
-
-      // Session no longer needs attention - clear tracking
-      if currentStatus != .permission, currentStatus != .question {
-        clearNotification(for: scopedID)
-      }
-    }
   }
 
   func showToast(for session: RootSessionNode) {

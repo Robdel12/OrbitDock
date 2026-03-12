@@ -434,7 +434,7 @@ extension View {
 
 /// Unified session status for consistent badge display across the app
 /// 5 distinct states for maximum visual clarity
-enum SessionDisplayStatus {
+enum SessionDisplayStatus: Sendable {
   case working // Claude actively processing (cyan)
   case permission // Needs tool approval (coral) - URGENT
   case question // Claude asked you something (purple) - URGENT
@@ -479,11 +479,9 @@ enum SessionDisplayStatus {
     }
   }
 
-  /// Create from Session model
-  static func from<SessionType: SessionSummaryItem>(_ session: SessionType) -> SessionDisplayStatus {
+  static func from(_ session: Session) -> SessionDisplayStatus {
     guard session.isActive else { return .ended }
 
-    // Check attention reason first (more specific)
     switch session.attentionReason {
       case .awaitingPermission:
         return .permission
@@ -497,14 +495,21 @@ enum SessionDisplayStatus {
     }
   }
 
-  static func fromSummary(_ session: SessionSummary) -> SessionDisplayStatus {
-    from(session)
-  }
-
   static func from(_ session: RootSessionNode) -> SessionDisplayStatus {
     session.displayStatus
   }
 
+}
+
+extension SessionDisplayStatus: Equatable {
+  nonisolated static func == (lhs: SessionDisplayStatus, rhs: SessionDisplayStatus) -> Bool {
+    switch (lhs, rhs) {
+      case (.working, .working), (.permission, .permission), (.question, .question), (.reply, .reply), (.ended, .ended):
+        true
+      default:
+        false
+    }
+  }
 }
 
 // MARK: - Session Status Badge (Design System Component)
@@ -558,7 +563,7 @@ struct SessionStatusBadge: View {
     }
   }
 
-  init<SessionType: SessionSummaryItem>(session: SessionType, showIcon: Bool = true, size: BadgeSize = .regular) {
+  init(session: Session, showIcon: Bool = true, size: BadgeSize = .regular) {
     self.status = SessionDisplayStatus.from(session)
     self.showIcon = showIcon
     self.size = size
@@ -607,7 +612,7 @@ struct SessionStatusDot: View {
   var size: CGFloat = IconScale.xs
   var showGlow: Bool = true
 
-  init<SessionType: SessionSummaryItem>(session: SessionType, size: CGFloat = IconScale.xs, showGlow: Bool = true) {
+  init(session: Session, size: CGFloat = IconScale.xs, showGlow: Bool = true) {
     status = SessionDisplayStatus.from(session)
     self.size = size
     self.showGlow = showGlow

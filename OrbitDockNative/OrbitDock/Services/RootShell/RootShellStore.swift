@@ -28,7 +28,7 @@ final class RootShellStore {
   }
 
   func sessionRef(for scopedID: ScopedSessionID) -> SessionRef? {
-    state.recordsByScopedID[scopedID]?.sessionRef
+    state.recordsByScopedID[scopedID.scopedID]?.sessionRef
   }
 
   func sessionRef(for scopedID: String) -> SessionRef? {

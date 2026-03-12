@@ -49,7 +49,7 @@ struct PreviewRuntime {
       loginInProgress: false,
       activeLoginId: nil
     )
-    sessionStore.setHasReceivedInitialSessionsList(true)
+    eventStream.seedSessionsListForTesting(Self.previewSessionListItems())
     self.sessionStore = sessionStore
 
     let runtime = ServerRuntime(
@@ -215,5 +215,73 @@ struct PreviewRuntime {
         supportsReasoningSummaries: true
       ),
     ]
+  }
+
+  private static func previewSessionListItems() -> [ServerSessionListItem] {
+    previewSessions(endpoint: previewEndpoint()).map {
+      ServerSessionListItem(
+        id: $0.id,
+        provider: $0.provider == .codex ? .codex : .claude,
+        projectPath: $0.projectPath,
+        projectName: $0.projectName,
+        gitBranch: $0.branch,
+        model: $0.model,
+        status: $0.status == .active ? .active : .ended,
+        workStatus: serverWorkStatus(for: $0.workStatus, attentionReason: $0.attentionReason),
+        codexIntegrationMode: $0.codexIntegrationMode.map(serverCodexMode),
+        claudeIntegrationMode: $0.claudeIntegrationMode.map(serverClaudeMode),
+        startedAt: $0.startedAt.map(Self.iso8601Timestamp),
+        lastActivityAt: $0.lastActivityAt.map(Self.iso8601Timestamp),
+        unreadCount: $0.unreadCount,
+        pendingToolName: $0.pendingToolName,
+        repositoryRoot: $0.repositoryRoot,
+        isWorktree: $0.isWorktree,
+        worktreeId: $0.worktreeId,
+        totalTokens: UInt64(max($0.totalTokens, 0)),
+        totalCostUSD: $0.totalCostUSD,
+        displayTitle: $0.displayName,
+        displayTitleSortKey: $0.normalizedDisplayName,
+        displaySearchText: $0.displaySearchText,
+        contextLine: $0.summary ?? $0.firstPrompt,
+        listStatus: nil,
+        effort: $0.effort
+      )
+    }
+  }
+
+  private static func serverWorkStatus(
+    for workStatus: Session.WorkStatus,
+    attentionReason: Session.AttentionReason
+  ) -> ServerWorkStatus {
+    switch attentionReason {
+      case .awaitingPermission:
+        return .permission
+      case .awaitingQuestion:
+        return .question
+      case .awaitingReply:
+        return .reply
+      case .none:
+        return workStatus == .working ? .working : .reply
+    }
+  }
+
+  private static func serverCodexMode(_ mode: CodexIntegrationMode) -> ServerCodexIntegrationMode {
+    switch mode {
+      case .direct: .direct
+      case .passive: .passive
+    }
+  }
+
+  private static func serverClaudeMode(_ mode: ClaudeIntegrationMode) -> ServerClaudeIntegrationMode {
+    switch mode {
+      case .direct: .direct
+      case .passive: .passive
+    }
+  }
+
+  private static func iso8601Timestamp(_ date: Date) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: date)
   }
 }

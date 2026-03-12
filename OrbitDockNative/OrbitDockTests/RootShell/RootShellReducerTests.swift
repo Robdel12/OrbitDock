@@ -46,7 +46,7 @@ struct RootShellReducerTests {
       )
     )
 
-    let before = state.recordsByScopedID[ScopedSessionID(endpointId: endpointId, sessionId: "sess-b")]
+    let before = state.recordsByScopedID[ScopedSessionID(endpointId: endpointId, sessionId: "sess-b").scopedID]
 
     let changed = RootShellReducer.reduce(
       state: &state,
@@ -58,8 +58,8 @@ struct RootShellReducerTests {
       )
     )
 
-    let updated = state.recordsByScopedID[ScopedSessionID(endpointId: endpointId, sessionId: "sess-a")]
-    let untouched = state.recordsByScopedID[ScopedSessionID(endpointId: endpointId, sessionId: "sess-b")]
+    let updated = state.recordsByScopedID[ScopedSessionID(endpointId: endpointId, sessionId: "sess-a").scopedID]
+    let untouched = state.recordsByScopedID[ScopedSessionID(endpointId: endpointId, sessionId: "sess-b").scopedID]
 
     #expect(changed)
     #expect(updated?.displayStatus == .permission)
@@ -114,7 +114,7 @@ struct RootShellReducerTests {
       event: .sessionEnded(endpointId: endpointId, sessionId: "sess-ended", reason: "finished")
     )
 
-    let record = state.recordsByScopedID[ScopedSessionID(endpointId: endpointId, sessionId: "sess-ended")]
+    let record = state.recordsByScopedID[ScopedSessionID(endpointId: endpointId, sessionId: "sess-ended").scopedID]
     #expect(changed)
     #expect(record?.status == .ended)
     #expect(record?.displayStatus == .ended)

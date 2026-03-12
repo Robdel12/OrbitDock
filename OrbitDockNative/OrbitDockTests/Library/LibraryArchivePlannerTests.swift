@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import OrbitDock
 
+@MainActor
 struct LibraryArchivePlannerTests {
   @Test func stateFiltersByProviderEndpointAndSearchQuery() {
     let endpointA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
@@ -42,9 +43,16 @@ struct LibraryArchivePlannerTests {
       sort: .recent
     )
 
-    #expect(state.providerScopedSessions.map(\.id) == ["claude-a", "claude-b"])
-    #expect(state.endpointScopedSessions.map(\.id) == ["claude-a"])
-    #expect(state.filteredSessions.map(\.id) == ["claude-a"])
+    #expect(state.providerScopedSessions.map(\.scopedID) == [
+      scopedID(endpointId: endpointA, sessionId: "claude-a"),
+      scopedID(endpointId: endpointB, sessionId: "claude-b"),
+    ])
+    #expect(state.endpointScopedSessions.map(\.scopedID) == [
+      scopedID(endpointId: endpointA, sessionId: "claude-a")
+    ])
+    #expect(state.filteredSessions.map(\.scopedID) == [
+      scopedID(endpointId: endpointA, sessionId: "claude-a")
+    ])
     #expect(state.selectedEndpointFacet?.name == "Local")
     #expect(state.scopeDescription == "Local • Claude • 1 sessions")
   }
@@ -131,8 +139,12 @@ struct LibraryArchivePlannerTests {
 
     let firstGroup = try! #require(groups.first)
     #expect(firstGroup.path == "/tmp/printer")
-    #expect(firstGroup.liveSessions.map(\.id) == ["live-one"])
-    #expect(firstGroup.archivedSessions.map(\.id) == ["cached-active"])
+    #expect(firstGroup.liveSessions.map(\.scopedID) == [
+      scopedID(endpointId: endpointA, sessionId: "live-one")
+    ])
+    #expect(firstGroup.archivedSessions.map(\.scopedID) == [
+      scopedID(endpointId: endpointA, sessionId: "cached-active")
+    ])
     #expect(firstGroup.cachedActiveSessionCount == 1)
     #expect(firstGroup.totalTokens == 2_200)
     #expect(firstGroup.totalCost == 1.75)
@@ -204,8 +216,8 @@ struct LibraryArchivePlannerTests {
     totalCostUSD: Double = 0,
     lastActivityAt: Date? = nil,
     connectionStatus: ConnectionStatus? = nil
-  ) -> SessionSummary {
-    SessionSummary(session: Session(
+  ) -> RootSessionNode {
+    RootSessionNode(session: Session(
       id: id,
       endpointId: endpointId,
       endpointName: endpointName,
@@ -221,4 +233,8 @@ struct LibraryArchivePlannerTests {
       provider: provider
     ))
   }
+}
+
+private func scopedID(endpointId: UUID, sessionId: String) -> String {
+  ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
 }

@@ -51,7 +51,7 @@ final class WindowSessionCoordinator {
   var isAnyInitialLoading: Bool {
     runtimeRegistry.runtimes
       .filter(\.endpoint.isEnabled)
-      .contains { !$0.sessionStore.hasReceivedInitialSessionsList }
+      .contains { !$0.eventStream.hasReceivedInitialSessionsList }
   }
 
   func start(currentScopedId: String?) {

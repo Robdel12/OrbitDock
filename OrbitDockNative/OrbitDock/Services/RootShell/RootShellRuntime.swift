@@ -56,13 +56,13 @@ final class RootShellRuntime {
   }
 
   private func bootstrapRootShell(from runtime: ServerRuntime) {
-    let store = runtime.sessionStore
-    guard store.hasReceivedInitialSessionsList else { return }
+    let eventStream = runtime.eventStream
+    guard eventStream.hasReceivedInitialSessionsList else { return }
     let event = RootShellEvent.sessionsList(
       endpointId: runtime.endpoint.id,
       endpointName: runtime.endpoint.name,
       connectionStatus: runtimeRegistry.displayConnectionStatus(for: runtime.endpoint.id),
-      sessions: store.latestSessionListItems
+      sessions: eventStream.latestSessionListItems
     )
 
     Task { [weak self] in
@@ -74,19 +74,69 @@ final class RootShellRuntime {
   }
 
   private func observeRootShellEvents(from runtime: ServerRuntime) {
-    let store = runtime.sessionStore
+    let eventStream = runtime.eventStream
     let endpointId = runtime.endpoint.id
 
     rootObservationTasks[endpointId] = Task { [weak self] in
       guard let self else { return }
 
-      for await event in store.rootShellEvents {
+      for await serverEvent in eventStream.rootEvents {
         guard !Task.isCancelled else { break }
-
+        guard let event = self.rootShellEvent(
+          from: serverEvent,
+          runtime: runtime
+        ) else { continue }
         let changed = await self.sessionRegistry.apply(event)
         guard changed else { continue }
         await self.scheduleSnapshotFlush()
       }
+    }
+  }
+
+  private func rootShellEvent(
+    from event: ServerEvent,
+    runtime: ServerRuntime
+  ) -> RootShellEvent? {
+    let endpointId = runtime.endpoint.id
+    let endpointName = runtime.endpoint.name
+    let connectionStatus = runtimeRegistry.displayConnectionStatus(for: endpointId)
+
+    switch event {
+      case let .sessionsList(sessions):
+        return .sessionsList(
+          endpointId: endpointId,
+          endpointName: endpointName,
+          connectionStatus: connectionStatus,
+          sessions: sessions
+        )
+      case let .sessionCreated(session):
+        return .sessionCreated(
+          endpointId: endpointId,
+          endpointName: endpointName,
+          connectionStatus: connectionStatus,
+          session: session
+        )
+      case let .sessionListItemUpdated(session):
+        return .sessionUpdated(
+          endpointId: endpointId,
+          endpointName: endpointName,
+          connectionStatus: connectionStatus,
+          session: session
+        )
+      case let .sessionEnded(sessionId, reason):
+        return .sessionEnded(
+          endpointId: endpointId,
+          sessionId: sessionId,
+          reason: reason
+        )
+      case let .connectionStatusChanged(status):
+        return .endpointConnectionChanged(
+          endpointId: endpointId,
+          endpointName: endpointName,
+          connectionStatus: status
+        )
+      default:
+        return nil
     }
   }
 

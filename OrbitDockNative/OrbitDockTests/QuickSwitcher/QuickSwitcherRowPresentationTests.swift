@@ -1,5 +1,4 @@
 import Foundation
-import Foundation
 import Testing
 @testable import OrbitDock
 
@@ -12,8 +11,9 @@ struct QuickSwitcherRowPresentationTests {
   }
 
   @Test func projectNameFallsBackFromExplicitProjectNameToPathLeaf() {
-    var namedSession = Session(
+    let namedSession = RootSessionNode(session: Session(
       id: "1",
+      endpointId: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"),
       projectPath: "/tmp/repo",
       projectName: "OrbitDock",
       branch: nil,
@@ -34,12 +34,12 @@ struct QuickSwitcherRowPresentationTests {
       toolCount: 0,
       terminalSessionId: nil,
       terminalApp: nil
-    )
-    namedSession.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
-    #expect(QuickSwitcherRowPresentation.projectName(for: SessionSummary(session: namedSession)) == "OrbitDock")
+    ))
+    #expect(QuickSwitcherRowPresentation.projectName(for: namedSession) == "OrbitDock")
 
-    var unnamedSession = Session(
+    let unnamedSession = RootSessionNode(session: Session(
       id: "2",
+      endpointId: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"),
       projectPath: "/tmp/worktree/repo-name",
       projectName: nil,
       branch: nil,
@@ -60,14 +60,14 @@ struct QuickSwitcherRowPresentationTests {
       toolCount: 0,
       terminalSessionId: nil,
       terminalApp: nil
-    )
-    unnamedSession.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
-    #expect(QuickSwitcherRowPresentation.projectName(for: SessionSummary(session: unnamedSession)) == "repo-name")
+    ))
+    #expect(QuickSwitcherRowPresentation.projectName(for: unnamedSession) == "repo-name")
   }
 
   @Test func activityPresentationPrefersSessionContextForPermissionAndWorkingStates() {
-    var session = Session(
+    let session = RootSessionNode(session: Session(
       id: "1",
+      endpointId: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"),
       projectPath: "/tmp/repo",
       projectName: nil,
       branch: nil,
@@ -87,16 +87,15 @@ struct QuickSwitcherRowPresentationTests {
       promptCount: 0,
       toolCount: 0,
       terminalSessionId: nil,
-      terminalApp: nil
-    )
-    session.pendingToolName = "Edit"
+      terminalApp: nil,
+      pendingToolName: "Edit"
+    ))
 
-    let summary = SessionSummary(session: session)
-    #expect(QuickSwitcherRowPresentation.activityText(for: summary, status: .permission) == "Edit")
-    #expect(QuickSwitcherRowPresentation.activityIcon(for: summary, status: .permission) == "lock.fill")
-    #expect(QuickSwitcherRowPresentation.activityText(for: summary, status: .working) == "Bash")
-    #expect(QuickSwitcherRowPresentation.activityIcon(for: summary, status: .working) == ToolCardStyle.icon(for: "Bash"))
-    #expect(QuickSwitcherRowPresentation.activityText(for: summary, status: .reply) == "Ready")
-    #expect(QuickSwitcherRowPresentation.activityText(for: summary, status: .ended) == "Ended")
+    #expect(QuickSwitcherRowPresentation.activityText(for: session, status: .permission) == "Edit")
+    #expect(QuickSwitcherRowPresentation.activityIcon(for: session, status: .permission) == "lock.fill")
+    #expect(QuickSwitcherRowPresentation.activityText(for: session, status: .working) == "Edit")
+    #expect(QuickSwitcherRowPresentation.activityIcon(for: session, status: .working) == ToolCardStyle.icon(for: "Edit"))
+    #expect(QuickSwitcherRowPresentation.activityText(for: session, status: .reply) == "Ready")
+    #expect(QuickSwitcherRowPresentation.activityText(for: session, status: .ended) == "Ended")
   }
 }

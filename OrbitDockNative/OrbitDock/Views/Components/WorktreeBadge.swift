@@ -8,6 +8,21 @@
 
 import SwiftUI
 
+struct ForkBadge: View {
+  var body: some View {
+    HStack(spacing: 3) {
+      Image(systemName: "arrow.triangle.branch")
+        .font(.system(size: 8, weight: .bold))
+      Text("fork")
+        .font(.system(size: 9, weight: .medium))
+    }
+    .foregroundStyle(Color.accent.opacity(0.8))
+    .padding(.horizontal, 5)
+    .padding(.vertical, Spacing.xxs)
+    .background(Color.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+  }
+}
+
 struct WorktreeBadge: View {
   var body: some View {
     HStack(spacing: 3) {

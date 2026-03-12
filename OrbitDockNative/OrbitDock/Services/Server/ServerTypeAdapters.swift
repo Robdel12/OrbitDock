@@ -247,7 +247,7 @@ extension ServerClaudeIntegrationMode {
 // MARK: - ServerWorkStatus → Session.WorkStatus
 
 extension ServerWorkStatus {
-  func toSessionWorkStatus() -> Session.WorkStatus {
+  nonisolated func toSessionWorkStatus() -> Session.WorkStatus {
     switch self {
       case .working: .working
       case .waiting, .reply, .ended: .waiting
@@ -256,7 +256,7 @@ extension ServerWorkStatus {
     }
   }
 
-  func toAttentionReason(hasPendingApproval: Bool = false) -> Session.AttentionReason {
+  nonisolated func toAttentionReason(hasPendingApproval: Bool = false) -> Session.AttentionReason {
     switch self {
       case .working: .none
       case .waiting: .awaitingReply

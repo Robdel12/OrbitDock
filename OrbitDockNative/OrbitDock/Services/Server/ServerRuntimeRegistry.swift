@@ -364,23 +364,6 @@ final class ServerRuntimeRegistry {
     sessionObservable(for: session, fallback: fallback).forkedFrom != nil
   }
 
-  func sessionStore(for session: SessionSummary, fallback: SessionStore) -> SessionStore {
-    guard let endpointId = session.endpointId,
-          let runtime = runtimesByEndpointId[endpointId]
-    else {
-      return fallback
-    }
-    return runtime.sessionStore
-  }
-
-  func sessionObservable(for session: SessionSummary, fallback: SessionStore) -> SessionObservable {
-    sessionStore(for: session, fallback: fallback).session(session.id)
-  }
-
-  func isForkedSession(_ session: SessionSummary, fallback: SessionStore) -> Bool {
-    sessionObservable(for: session, fallback: fallback).forkedFrom != nil
-  }
-
   func sessionStore(for session: RootSessionNode, fallback: SessionStore) -> SessionStore {
     guard let runtime = runtimesByEndpointId[session.endpointId] else {
       return fallback
@@ -516,8 +499,9 @@ final class ServerRuntimeRegistry {
     readinessObserverTasks[endpointId]?.cancel()
     readinessObserverTasks[endpointId] = Task { [weak self] in
       guard let self else { return }
-      for await _ in runtime.sessionStore.initialSessionsListUpdates {
+      for await event in runtime.eventStream.rootEvents {
         guard !Task.isCancelled else { break }
+        guard case .sessionsList = event else { continue }
         let previousReadiness = self.readinessByEndpointId[endpointId] ?? .offline
         let updatedReadiness = runtime.readiness
         self.readinessByEndpointId[endpointId] = updatedReadiness

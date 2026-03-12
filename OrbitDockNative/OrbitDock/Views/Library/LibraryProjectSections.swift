@@ -6,7 +6,7 @@ struct LibraryProjectSection: View {
   let isCollapsed: Bool
   let selectedEndpointId: UUID?
   let onToggleCollapsed: () -> Void
-  let onSelectSession: (SessionSummary) -> Void
+  let onSelectSession: (RootSessionNode) -> Void
 
   private var sectionState: LibraryProjectSectionState {
     LibraryProjectSectionState.build(group: group)
@@ -143,7 +143,7 @@ private struct LibraryProjectSectionContent: View {
   let group: LibraryProjectGroup
   let sectionState: LibraryProjectSectionState
   let layoutMode: DashboardLayoutMode
-  let onSelectSession: (SessionSummary) -> Void
+  let onSelectSession: (RootSessionNode) -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
@@ -182,9 +182,9 @@ struct LibraryProjectSubsection: View {
   let title: String
   let count: Int
   let tint: Color
-  let sessions: [SessionSummary]
+  let sessions: [RootSessionNode]
   let layoutMode: DashboardLayoutMode
-  let onSelectSession: (SessionSummary) -> Void
+  let onSelectSession: (RootSessionNode) -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
@@ -204,7 +204,7 @@ struct LibraryProjectSubsection: View {
           FlatSessionRow(
             session: session,
             onSelect: { onSelectSession(session) },
-            isAttentionPromoted: SessionDisplayStatus.from(session).needsAttention
+            isAttentionPromoted: session.needsAttention
           )
         }
       }

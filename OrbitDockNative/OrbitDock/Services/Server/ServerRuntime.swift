@@ -60,7 +60,7 @@ final class ServerRuntime: Identifiable {
   var readiness: ServerRuntimeReadiness {
     ServerRuntimeReadiness.derive(
       connectionStatus: eventStream.connectionStatus,
-      hasReceivedInitialSessionsList: sessionStore.hasReceivedInitialSessionsList
+      hasReceivedInitialRootList: eventStream.hasReceivedInitialSessionsList
     )
   }
 

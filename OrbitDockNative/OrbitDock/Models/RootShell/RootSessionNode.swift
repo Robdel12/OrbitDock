@@ -39,7 +39,7 @@ struct RootShellEndpointHealth: Identifiable, Equatable, Sendable {
   var id: UUID { endpointId }
 }
 
-struct RootSessionNode: Identifiable, Equatable, Sendable {
+struct RootSessionNode: Identifiable, Sendable {
   let sessionId: String
   let sessionRef: SessionRef
   let endpointName: String?
@@ -78,24 +78,102 @@ struct RootSessionNode: Identifiable, Equatable, Sendable {
   let isReady: Bool
   let allowsUserNotifications: Bool
 
-  var id: String { sessionRef.scopedID }
-  var scopedID: String { sessionRef.scopedID }
-  var scopedSessionID: ScopedSessionID { ScopedSessionID(sessionRef: sessionRef) }
-  var displayName: String { title }
-  var displayTitle: String { title }
-  var displayTitleSortKey: String { titleSortKey }
-  var normalizedDisplayName: String { titleSortKey }
-  var displaySearchText: String { searchText }
-  var groupingPath: String { projectKey }
-  var hasLiveEndpointConnection: Bool {
+  nonisolated init(
+    sessionId: String,
+    sessionRef: SessionRef,
+    endpointName: String?,
+    endpointConnectionStatus: ConnectionStatus,
+    provider: Provider,
+    status: Session.SessionStatus,
+    workStatus: Session.WorkStatus,
+    attentionReason: Session.AttentionReason,
+    listStatus: RootSessionListStatus,
+    displayStatus: SessionDisplayStatus,
+    title: String,
+    titleSortKey: String,
+    searchText: String,
+    customName: String?,
+    contextLine: String?,
+    projectPath: String,
+    projectName: String?,
+    projectKey: String,
+    branch: String?,
+    model: String?,
+    startedAt: Date?,
+    lastActivityAt: Date?,
+    unreadCount: UInt64,
+    pendingToolName: String?,
+    repositoryRoot: String?,
+    isWorktree: Bool,
+    worktreeId: String?,
+    codexIntegrationMode: CodexIntegrationMode?,
+    claudeIntegrationMode: ClaudeIntegrationMode?,
+    effort: String?,
+    totalTokens: Int,
+    totalCostUSD: Double,
+    isActive: Bool,
+    showsInMissionControl: Bool,
+    needsAttention: Bool,
+    isReady: Bool,
+    allowsUserNotifications: Bool
+  ) {
+    self.sessionId = sessionId
+    self.sessionRef = sessionRef
+    self.endpointName = endpointName
+    self.endpointConnectionStatus = endpointConnectionStatus
+    self.provider = provider
+    self.status = status
+    self.workStatus = workStatus
+    self.attentionReason = attentionReason
+    self.listStatus = listStatus
+    self.displayStatus = displayStatus
+    self.title = title
+    self.titleSortKey = titleSortKey
+    self.searchText = searchText
+    self.customName = customName
+    self.contextLine = contextLine
+    self.projectPath = projectPath
+    self.projectName = projectName
+    self.projectKey = projectKey
+    self.branch = branch
+    self.model = model
+    self.startedAt = startedAt
+    self.lastActivityAt = lastActivityAt
+    self.unreadCount = unreadCount
+    self.pendingToolName = pendingToolName
+    self.repositoryRoot = repositoryRoot
+    self.isWorktree = isWorktree
+    self.worktreeId = worktreeId
+    self.codexIntegrationMode = codexIntegrationMode
+    self.claudeIntegrationMode = claudeIntegrationMode
+    self.effort = effort
+    self.totalTokens = totalTokens
+    self.totalCostUSD = totalCostUSD
+    self.isActive = isActive
+    self.showsInMissionControl = showsInMissionControl
+    self.needsAttention = needsAttention
+    self.isReady = isReady
+    self.allowsUserNotifications = allowsUserNotifications
+  }
+
+  nonisolated var id: String { sessionRef.scopedID }
+  nonisolated var scopedID: String { sessionRef.scopedID }
+  nonisolated var scopedSessionID: ScopedSessionID { ScopedSessionID(sessionRef: sessionRef) }
+  nonisolated var displayName: String { title }
+  nonisolated var displayTitle: String { title }
+  nonisolated var displayTitleSortKey: String { titleSortKey }
+  nonisolated var normalizedDisplayName: String { titleSortKey }
+  nonisolated var displaySearchText: String { searchText }
+  nonisolated var groupingPath: String { projectKey }
+  nonisolated var hasLiveEndpointConnection: Bool {
     SessionSemantics.hasLiveEndpointConnection(endpointConnectionStatus)
   }
-  var hasUnreadMessages: Bool { unreadCount > 0 }
-  var isDirectCodex: Bool { provider == .codex && codexIntegrationMode == .direct }
-  var isPassiveCodex: Bool { provider == .codex && codexIntegrationMode == .passive }
-  var isDirectClaude: Bool { provider == .claude && claudeIntegrationMode == .direct }
-  var isDirect: Bool { isDirectCodex || isDirectClaude }
-  var formattedDuration: String {
+  nonisolated var hasUnreadMessages: Bool { unreadCount > 0 }
+  nonisolated var isDirectCodex: Bool { provider == .codex && codexIntegrationMode == .direct }
+  nonisolated var isPassiveCodex: Bool { provider == .codex && codexIntegrationMode == .passive }
+  nonisolated var isDirectClaude: Bool { provider == .claude && claudeIntegrationMode == .direct }
+  nonisolated var isDirect: Bool { isDirectCodex || isDirectClaude }
+  nonisolated var formattedDuration: String {
     guard let duration else { return "--" }
     let hours = Int(duration) / 3_600
     let minutes = (Int(duration) % 3_600) / 60
@@ -104,19 +182,61 @@ struct RootSessionNode: Identifiable, Equatable, Sendable {
     }
     return "\(minutes)m"
   }
-  var duration: TimeInterval? {
+  nonisolated var duration: TimeInterval? {
     guard let start = startedAt else { return nil }
     let end = isActive ? Date() : (lastActivityAt ?? startedAt)
     guard let end else { return nil }
     return end.timeIntervalSince(start)
   }
-  var endedAt: Date? { isActive ? nil : (lastActivityAt ?? startedAt) }
-  var lastTool: String? { pendingToolName }
-  var endpointId: UUID { sessionRef.endpointId }
+  nonisolated var endedAt: Date? { isActive ? nil : (lastActivityAt ?? startedAt) }
+  nonisolated var lastTool: String? { pendingToolName }
+  nonisolated var endpointId: UUID { sessionRef.endpointId }
+}
+
+extension RootSessionNode: Equatable {
+  nonisolated static func == (lhs: RootSessionNode, rhs: RootSessionNode) -> Bool {
+    lhs.sessionId == rhs.sessionId
+      && lhs.sessionRef.endpointId == rhs.sessionRef.endpointId
+      && lhs.sessionRef.sessionId == rhs.sessionRef.sessionId
+      && lhs.endpointName == rhs.endpointName
+      && lhs.endpointConnectionStatus == rhs.endpointConnectionStatus
+      && lhs.provider == rhs.provider
+      && lhs.status == rhs.status
+      && lhs.workStatus == rhs.workStatus
+      && lhs.attentionReason == rhs.attentionReason
+      && lhs.listStatus == rhs.listStatus
+      && lhs.title == rhs.title
+      && lhs.titleSortKey == rhs.titleSortKey
+      && lhs.searchText == rhs.searchText
+      && lhs.customName == rhs.customName
+      && lhs.contextLine == rhs.contextLine
+      && lhs.projectPath == rhs.projectPath
+      && lhs.projectName == rhs.projectName
+      && lhs.projectKey == rhs.projectKey
+      && lhs.branch == rhs.branch
+      && lhs.model == rhs.model
+      && lhs.startedAt == rhs.startedAt
+      && lhs.lastActivityAt == rhs.lastActivityAt
+      && lhs.unreadCount == rhs.unreadCount
+      && lhs.pendingToolName == rhs.pendingToolName
+      && lhs.repositoryRoot == rhs.repositoryRoot
+      && lhs.isWorktree == rhs.isWorktree
+      && lhs.worktreeId == rhs.worktreeId
+      && lhs.codexIntegrationMode == rhs.codexIntegrationMode
+      && lhs.claudeIntegrationMode == rhs.claudeIntegrationMode
+      && lhs.effort == rhs.effort
+      && lhs.totalTokens == rhs.totalTokens
+      && lhs.totalCostUSD == rhs.totalCostUSD
+      && lhs.isActive == rhs.isActive
+      && lhs.showsInMissionControl == rhs.showsInMissionControl
+      && lhs.needsAttention == rhs.needsAttention
+      && lhs.isReady == rhs.isReady
+      && lhs.allowsUserNotifications == rhs.allowsUserNotifications
+  }
 }
 
 extension RootSessionNode {
-  init(session: Session) {
+  nonisolated init(session: Session) {
     let sessionRef = SessionRef(
       endpointId: session.endpointId ?? UUID(),
       sessionId: session.id
@@ -152,7 +272,10 @@ extension RootSessionNode {
       ),
       projectPath: session.projectPath,
       projectName: session.projectName,
-      projectKey: session.groupingPath,
+      projectKey: SessionSemantics.groupingPath(
+        repositoryRoot: session.repositoryRoot,
+        projectPath: session.projectPath
+      ),
       branch: session.branch,
       model: session.model,
       startedAt: session.startedAt,
@@ -184,7 +307,7 @@ extension RootSessionNode {
     )
   }
 
-  init(
+  nonisolated init(
     session: ServerSessionListItem,
     endpointId: UUID,
     endpointName: String?,
@@ -274,7 +397,7 @@ extension RootSessionNode {
     self.allowsUserNotifications = !(provider == .codex && session.codexIntegrationMode == .passive)
   }
 
-  func withConnectionStatus(_ connectionStatus: ConnectionStatus, endpointName: String?) -> RootSessionNode {
+  nonisolated func withConnectionStatus(_ connectionStatus: ConnectionStatus, endpointName: String?) -> RootSessionNode {
     RootSessionNode(
       sessionId: sessionId,
       sessionRef: sessionRef,
@@ -319,7 +442,7 @@ extension RootSessionNode {
     )
   }
 
-  func ended(reason _: String) -> RootSessionNode {
+  nonisolated func ended(reason _: String) -> RootSessionNode {
     RootSessionNode(
       sessionId: sessionId,
       sessionRef: sessionRef,
@@ -365,32 +488,33 @@ extension RootSessionNode {
   }
 }
 
-private enum RootSessionNodeSupport {
-  static let timestampFormatter: ISO8601DateFormatter = {
+extension RootSessionNode {
+  nonisolated static func codexMode(provider: ServerProvider, mode: ServerCodexIntegrationMode?) -> CodexIntegrationMode? {
+    guard provider == .codex else { return nil }
+    return switch mode {
+      case .direct?: .direct
+      case .passive?: .passive
+      case nil: .direct
+    }
+  }
+
+  nonisolated static func claudeMode(provider: ServerProvider, mode: ServerClaudeIntegrationMode?) -> ClaudeIntegrationMode? {
+    guard provider == .claude else { return nil }
+    return switch mode {
+      case .direct?: .direct
+      case .passive?: .passive
+      case nil: nil
+    }
+  }
+
+  nonisolated static func parseTimestamp(_ value: String?) -> Date? {
+    guard let value else { return nil }
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter
-  }()
-}
-
-extension RootSessionNode {
-  static func codexMode(provider: ServerProvider, mode: ServerCodexIntegrationMode?) -> CodexIntegrationMode? {
-    guard provider == .codex else { return nil }
-    return mode?.toSessionMode() ?? .direct
+    return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
   }
 
-  static func claudeMode(provider: ServerProvider, mode: ServerClaudeIntegrationMode?) -> ClaudeIntegrationMode? {
-    guard provider == .claude else { return nil }
-    return mode?.toSessionMode()
-  }
-
-  static func parseTimestamp(_ value: String?) -> Date? {
-    guard let value else { return nil }
-    return RootSessionNodeSupport.timestampFormatter.date(from: value)
-      ?? ISO8601DateFormatter().date(from: value)
-  }
-
-  static func displayTitle(explicit: String?, projectName: String?, projectPath: String) -> String {
+  nonisolated static func displayTitle(explicit: String?, projectName: String?, projectPath: String) -> String {
     if let explicit = explicit?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
       return explicit
     }
@@ -401,14 +525,14 @@ extension RootSessionNode {
     return lastComponent.isEmpty ? projectPath : lastComponent
   }
 
-  static func sortKey(explicit: String?, title: String) -> String {
+  nonisolated static func sortKey(explicit: String?, title: String) -> String {
     if let explicit = explicit?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
       return explicit
     }
     return title.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
   }
 
-  static func searchText(
+  nonisolated static func searchText(
     explicit: String?,
     title: String,
     contextLine: String?,
@@ -425,13 +549,13 @@ extension RootSessionNode {
       .joined(separator: " ")
   }
 
-  static func contextLine(summary: String?, firstPrompt: String?, lastMessage: String?) -> String? {
+  nonisolated static func contextLine(summary: String?, firstPrompt: String?, lastMessage: String?) -> String? {
     [lastMessage, summary, firstPrompt]
       .compactMap { $0?.strippingXMLTags().trimmingCharacters(in: .whitespacesAndNewlines) }
       .first { !$0.isEmpty }
   }
 
-  static func displayStatus(
+  nonisolated static func displayStatus(
     explicit: ServerSessionListStatus?,
     status: Session.SessionStatus,
     attentionReason: Session.AttentionReason
@@ -455,7 +579,7 @@ extension RootSessionNode {
     }
   }
 
-  static func listStatus(
+  nonisolated static func listStatus(
     explicit: ServerSessionListStatus?,
     status: Session.SessionStatus,
     attentionReason: Session.AttentionReason

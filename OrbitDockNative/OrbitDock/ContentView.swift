@@ -7,33 +7,6 @@
 
 import SwiftUI
 
-enum MissionControlNotificationSessions {
-  static func merge<SessionType: SessionSummaryItem>(
-    previousSessions: [SessionType],
-    currentSessions: [SessionType]
-  ) -> [SessionType] {
-    var mergedByScopedID: [String: SessionType] = [:]
-    var orderedScopedIDs: [String] = []
-
-    for session in currentSessions {
-      let scopedID = session.scopedID
-      if mergedByScopedID[scopedID] == nil {
-        orderedScopedIDs.append(scopedID)
-      }
-      mergedByScopedID[scopedID] = session
-    }
-
-    for session in previousSessions {
-      let scopedID = session.scopedID
-      guard mergedByScopedID[scopedID] == nil else { continue }
-      mergedByScopedID[scopedID] = session
-      orderedScopedIDs.append(scopedID)
-    }
-
-    return orderedScopedIDs.compactMap { mergedByScopedID[$0] }
-  }
-}
-
 struct ContentView: View {
   @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry

@@ -488,7 +488,7 @@ If a phase ships without user-outcome coverage, it is not done.
 
 ## Phase 0: Foundations, Spike, and Bridge Deletion
 
-Status: `Not started`
+Status: `In progress`
 
 Goal:
 
@@ -499,15 +499,15 @@ Goal:
 
 Tasks:
 
-- [ ] define `ScopedSessionID`
-- [ ] define the inert root record shape (`RootSessionNode` or renamed replacement)
-- [ ] build one protocol spike:
+- [x] define `ScopedSessionID`
+- [x] define the inert root record shape (`RootSessionNode` or renamed replacement)
+- [x] build one protocol spike:
   EndpointSocket -> EventRouter -> dummy SessionRegistry -> RootShellStore from a real `sessions_list_bootstrap`
-- [ ] delete the final `RootSessionRecord` references
-- [ ] delete bridge-only tests and replace them with `RootSessionNode` outcome tests
-- [ ] remove any remaining root state ownership from `SessionStore`
+- [x] delete the final `RootSessionRecord` references
+- [x] delete bridge-only tests and replace them with `RootSessionNode` outcome tests
+- [x] remove any remaining root state ownership from `SessionStore`
 - [ ] update this plan if any hidden bridge remains
-- [ ] verify `QuickSwitcher`, `MenuBar`, and dashboard shell do not depend on bridge-only types
+- [x] verify `QuickSwitcher`, `MenuBar`, and dashboard shell do not depend on bridge-only types
 
 Done when:
 

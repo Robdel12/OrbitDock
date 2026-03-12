@@ -5,6 +5,19 @@ enum RootShellEndpointFilter: Hashable, Sendable {
   case endpoint(UUID)
 }
 
+extension RootShellEndpointFilter: Equatable {
+  nonisolated static func == (lhs: RootShellEndpointFilter, rhs: RootShellEndpointFilter) -> Bool {
+    switch (lhs, rhs) {
+      case (.all, .all):
+        true
+      case let (.endpoint(lhsID), .endpoint(rhsID)):
+        lhsID == rhsID
+      default:
+        false
+    }
+  }
+}
+
 enum RootShellEvent: Sendable {
   case seed(
     endpointId: UUID,

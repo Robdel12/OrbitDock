@@ -194,8 +194,6 @@ extension SessionStore {
 
   func handleSessionsList(_ items: [ServerSessionListItem]) {
     netLog(.info, cat: .store, "Received sessions list", data: ["count": items.count])
-    setHasReceivedInitialSessionsList(true)
-    latestSessionListItems = items
 
     let currentById = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
 
@@ -228,18 +226,9 @@ extension SessionStore {
     if sessionsChanged || !staleIds.isEmpty {
       notifySessionsChanged()
     }
-    emitRootShellEvent(
-      .sessionsList(
-        endpointId: endpointId,
-        endpointName: endpointName,
-        connectionStatus: eventStream.connectionStatus,
-        sessions: items
-      )
-    )
   }
 
   func handleSessionCreated(_ item: ServerSessionListItem) {
-    upsertLatestSessionListItem(item)
     let session = item.toSession(
       endpointId: endpointId,
       endpointName: endpointName ?? "",
@@ -250,18 +239,9 @@ extension SessionStore {
     if sessionChanged {
       notifySessionsChanged()
     }
-    emitRootShellEvent(
-      .sessionCreated(
-        endpointId: endpointId,
-        endpointName: endpointName,
-        connectionStatus: eventStream.connectionStatus,
-        session: item
-      )
-    )
   }
 
   func handleSessionListItemUpdated(_ item: ServerSessionListItem) {
-    upsertLatestSessionListItem(item)
     let session = item.toSession(
       endpointId: endpointId,
       endpointName: endpointName ?? "",
@@ -272,14 +252,6 @@ extension SessionStore {
     if sessionChanged {
       notifySessionsChanged()
     }
-    emitRootShellEvent(
-      .sessionUpdated(
-        endpointId: endpointId,
-        endpointName: endpointName,
-        connectionStatus: eventStream.connectionStatus,
-        session: item
-      )
-    )
   }
 
   func handleSessionEnded(_ sessionId: String, _ reason: String) {
@@ -302,21 +274,6 @@ extension SessionStore {
     controlStates.removeValue(forKey: sessionId)
     if sessionChanged {
       notifySessionsChanged()
-    }
-    emitRootShellEvent(
-      .sessionEnded(
-        endpointId: endpointId,
-        sessionId: sessionId,
-        reason: reason
-      )
-    )
-  }
-
-  private func upsertLatestSessionListItem(_ item: ServerSessionListItem) {
-    if let idx = latestSessionListItems.firstIndex(where: { $0.id == item.id }) {
-      latestSessionListItems[idx] = item
-    } else {
-      latestSessionListItems.append(item)
     }
   }
 
@@ -470,14 +427,6 @@ extension SessionStore {
   }
 
   func handleConnectionStatusChanged(_ status: ConnectionStatus) {
-    emitRootShellEvent(
-      .endpointConnectionChanged(
-        endpointId: endpointId,
-        endpointName: endpointName,
-        connectionStatus: status
-      )
-    )
-
     guard let plan = SessionFeedPlanner.connectionRecoveryPlan(
       status: status,
       subscribedSessionIds: subscribedSessions,
@@ -487,10 +436,6 @@ extension SessionStore {
       lastRevisionBySession: lastRevision
     ) else {
       return
-    }
-
-    if plan.shouldResetInitialSessionsList {
-      setHasReceivedInitialSessionsList(false)
     }
 
     guard plan.shouldSubscribeList else { return }
@@ -531,7 +476,8 @@ extension SessionStore {
   }
 
   func notifySessionsChanged() {
-    emitSessionListUpdate()
+    // `sessions` is still an observable collection for detail-oriented surfaces.
+    // Root-shell refresh is now driven directly from EventStream, not this store.
   }
 
   func controlState(sessionId: String, observable: SessionObservable) -> SessionControlState {

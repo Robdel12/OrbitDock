@@ -119,7 +119,7 @@ struct NotificationManagerTests {
       isRunningTestsProcess: false
     )
 
-    let session = Session(
+    let session = RootSessionNode(session: Session(
       id: "passive-codex-attention",
       endpointId: UUID(),
       endpointName: nil,
@@ -136,7 +136,7 @@ struct NotificationManagerTests {
       attentionReason: .awaitingPermission,
       provider: .codex,
       codexIntegrationMode: .passive
-    )
+    ))
 
     manager.notifyNeedsAttention(session: session)
 

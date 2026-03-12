@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import OrbitDock
 
+@MainActor
 struct LibraryProjectSectionStateTests {
   @Test func buildsBadgesAndCachedArchiveStateFromProjectGroup() {
     let endpointID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
@@ -102,8 +103,8 @@ struct LibraryProjectSectionStateTests {
     totalTokens: Int = 0,
     totalCostUSD: Double = 0,
     connectionStatus: ConnectionStatus? = nil
-  ) -> SessionSummary {
-    SessionSummary(session: Session(
+  ) -> RootSessionNode {
+    RootSessionNode(session: Session(
       id: id,
       endpointId: endpointId,
       endpointName: endpointName,

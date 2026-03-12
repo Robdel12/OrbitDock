@@ -17,14 +17,14 @@ struct WindowSessionCoordinatorTests {
     registry.configureFromSettings(startEnabled: false)
 
     let store = registry.sessionStore(for: endpoint.id, fallback: SessionStore())
+    let runtime = try #require(registry.runtimesByEndpointId[endpoint.id])
     let session = makeSession(
       id: "session-1",
       endpointId: endpoint.id,
       projectPath: "/repo/project"
     )
     store.sessions = [session]
-    store.latestSessionListItems = [makeListItem(from: session)]
-    store.setHasReceivedInitialSessionsList(true)
+    runtime.eventStream.seedSessionsListForTesting([makeListItem(from: session)])
 
     let router = AppRouter()
     let toastManager = ToastManager()

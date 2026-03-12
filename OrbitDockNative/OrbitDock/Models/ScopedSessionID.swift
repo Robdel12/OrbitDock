@@ -1,21 +1,21 @@
 import Foundation
 
-struct ScopedSessionID: Hashable, Sendable {
+struct ScopedSessionID: Sendable {
   let endpointId: UUID
   let sessionId: String
 
-  static let delimiter = SessionRef.delimiter
+  nonisolated static let delimiter = SessionRef.delimiter
 
-  init(endpointId: UUID, sessionId: String) {
+  nonisolated init(endpointId: UUID, sessionId: String) {
     self.endpointId = endpointId
     self.sessionId = sessionId
   }
 
-  init(sessionRef: SessionRef) {
+  nonisolated init(sessionRef: SessionRef) {
     self.init(endpointId: sessionRef.endpointId, sessionId: sessionRef.sessionId)
   }
 
-  init?(scopedID: String) {
+  nonisolated init?(scopedID: String) {
     guard let split = scopedID.range(of: Self.delimiter) else { return nil }
     let endpointRaw = String(scopedID[..<split.lowerBound])
     let sessionRaw = String(scopedID[split.upperBound...])
@@ -23,21 +23,21 @@ struct ScopedSessionID: Hashable, Sendable {
     self.init(endpointId: endpointId, sessionId: sessionRaw)
   }
 
-  var scopedID: String {
+  nonisolated var scopedID: String {
     "\(endpointId.uuidString)\(Self.delimiter)\(sessionId)"
   }
 
-  var sessionRef: SessionRef {
+  nonisolated var sessionRef: SessionRef {
     SessionRef(endpointId: endpointId, sessionId: sessionId)
   }
 }
 
-extension ScopedSessionID {
-  nonisolated static func == (lhs: ScopedSessionID, rhs: ScopedSessionID) -> Bool {
+extension ScopedSessionID: Equatable, Hashable {
+  static func == (lhs: ScopedSessionID, rhs: ScopedSessionID) -> Bool {
     lhs.endpointId == rhs.endpointId && lhs.sessionId == rhs.sessionId
   }
 
-  nonisolated func hash(into hasher: inout Hasher) {
+  func hash(into hasher: inout Hasher) {
     hasher.combine(endpointId)
     hasher.combine(sessionId)
   }

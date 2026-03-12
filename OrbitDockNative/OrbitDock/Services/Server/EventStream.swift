@@ -139,8 +139,12 @@ final class EventStream {
   /// The event stream. Consumers iterate with `for await event in eventStream.events { ... }`.
   let events: AsyncStream<ServerEvent>
   private let continuation: AsyncStream<ServerEvent>.Continuation
+  let rootEvents: AsyncStream<ServerEvent>
+  private let rootContinuation: AsyncStream<ServerEvent>.Continuation
   let statusUpdates: AsyncStream<ConnectionStatus>
   private let statusContinuation: AsyncStream<ConnectionStatus>.Continuation
+  let initialSessionsListUpdates: AsyncStream<Bool>
+  private let initialSessionsListContinuation: AsyncStream<Bool>.Continuation
 
   private var serverURL: URL?
   private let authToken: String?
@@ -150,6 +154,8 @@ final class EventStream {
   private var connectTask: Task<Void, Never>?
   private var keepAliveTask: Task<Void, Never>?
   private var connectAttempts = 0
+  private(set) var latestSessionListItems: [ServerSessionListItem] = []
+  private(set) var hasReceivedInitialSessionsList = false
 
   /// Keep-alive ping interval in seconds.
   private static let keepAliveInterval: TimeInterval = 30
@@ -167,15 +173,24 @@ final class EventStream {
     var eventContinuation: AsyncStream<ServerEvent>.Continuation!
     events = AsyncStream { eventContinuation = $0 }
     continuation = eventContinuation
+    var rootEventContinuation: AsyncStream<ServerEvent>.Continuation!
+    rootEvents = AsyncStream { rootEventContinuation = $0 }
+    rootContinuation = rootEventContinuation
 
     var connectionContinuation: AsyncStream<ConnectionStatus>.Continuation!
     statusUpdates = AsyncStream { connectionContinuation = $0 }
     statusContinuation = connectionContinuation
+
+    var initialSessionsListContinuation: AsyncStream<Bool>.Continuation!
+    initialSessionsListUpdates = AsyncStream { initialSessionsListContinuation = $0 }
+    self.initialSessionsListContinuation = initialSessionsListContinuation
   }
 
   deinit {
     continuation.finish()
+    rootContinuation.finish()
     statusContinuation.finish()
+    initialSessionsListContinuation.finish()
   }
 
   // MARK: - Connection
@@ -226,7 +241,21 @@ final class EventStream {
     urlSession?.invalidateAndCancel()
     urlSession = nil
     connectAttempts = 0
+    latestSessionListItems = []
+    if hasReceivedInitialSessionsList {
+      hasReceivedInitialSessionsList = false
+      initialSessionsListContinuation.yield(false)
+    }
     setStatus(.disconnected)
+  }
+
+  func seedSessionsListForTesting(_ sessions: [ServerSessionListItem]) {
+    latestSessionListItems = sessions
+    if !hasReceivedInitialSessionsList {
+      hasReceivedInitialSessionsList = true
+      initialSessionsListContinuation.yield(true)
+    }
+    rootContinuation.yield(.sessionsList(sessions))
   }
 
   // MARK: - Outbound (subscription management only)
@@ -550,15 +579,63 @@ final class EventStream {
   }
 
   private func emit(_ event: ServerEvent) {
+    updateRootState(for: event)
     continuation.yield(event)
+    if isRootSafe(event) {
+      rootContinuation.yield(event)
+    }
   }
 
   private func setStatus(_ status: ConnectionStatus) {
     guard connectionStatus != status else { return }
     netLog(.info, cat: .ws, "Status → \(status)")
     connectionStatus = status
+    if status != .connected {
+      latestSessionListItems = []
+      if hasReceivedInitialSessionsList {
+        hasReceivedInitialSessionsList = false
+        initialSessionsListContinuation.yield(false)
+      }
+    }
     statusContinuation.yield(status)
     emit(.connectionStatusChanged(status))
+  }
+
+  private func isRootSafe(_ event: ServerEvent) -> Bool {
+    switch event {
+      case .sessionsList,
+        .sessionCreated,
+        .sessionListItemUpdated,
+        .sessionEnded,
+        .connectionStatusChanged:
+        true
+      default:
+        false
+    }
+  }
+
+  private func updateRootState(for event: ServerEvent) {
+    switch event {
+      case let .sessionsList(sessions):
+        latestSessionListItems = sessions
+        if !hasReceivedInitialSessionsList {
+          hasReceivedInitialSessionsList = true
+          initialSessionsListContinuation.yield(true)
+        }
+      case let .sessionCreated(session),
+        let .sessionListItemUpdated(session):
+        if let idx = latestSessionListItems.firstIndex(where: { $0.id == session.id }) {
+          latestSessionListItems[idx] = session
+        } else {
+          latestSessionListItems.append(session)
+        }
+      case let .sessionEnded(sessionId, _):
+        latestSessionListItems.removeAll { $0.id == sessionId }
+      case .connectionStatusChanged:
+        break
+      default:
+        break
+    }
   }
 
   private func send(_ message: ClientToServerMessage) {
