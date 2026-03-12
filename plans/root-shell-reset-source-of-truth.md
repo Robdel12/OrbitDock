@@ -518,11 +518,14 @@ Done when:
 
 Current note:
 
-- `WindowSessionCoordinator` is deleted and replaced by `WindowRootRuntime`.
-- `RootSessionRecord` and `UnifiedSessionsStore` are gone.
+- `WindowSessionCoordinator`, `RootSessionRecord`, and `UnifiedSessionsStore` are gone.
+- The temporary `WindowRootRuntime` façade has been split into smaller root-shell pieces:
+  - `RootShellRuntime`
+  - `RootShellEffectsCoordinator`
+  - `RootSelectionBridge`
 - Root-safe list events no longer hydrate `SessionStore`.
 - `QuickSwitcher`, dashboard stream cards, menu bar, notification/toast flow, and root shell routing are on the new root-safe path.
-- The remaining reset work is no longer bridge cleanup; it is finishing the new root shell so it scales cleanly.
+- The remaining reset work is no longer bridge cleanup; it is finishing the new root shell so it scales cleanly and then hardening the root-stream boundary.
 
 Parallel lanes:
 
@@ -603,6 +606,7 @@ Tasks:
 - [x] add new `RootShellStore`
 - [x] accept only batched registry outputs
 - [x] expose normalized records plus small derived indexes
+- [x] start pushing mission-control and recent-session slices into stored root state
 - [ ] keep published state minimal
 - [ ] ensure stored-value-only models for all hot UI paths
 
@@ -660,6 +664,7 @@ Tasks:
 - [x] migrate app-shell navigation selection
 - [x] ensure detail entry promotes a session to hot
 - [x] ensure detail exit demotes it back to warm
+- [x] split window-root orchestration into smaller root-shell pieces
 
 Done when:
 
@@ -684,6 +689,7 @@ Tasks:
 
 - [x] delete `WindowSessionCoordinator`
 - [x] delete any remaining root compatibility types
+- [x] delete the temporary `WindowRootRuntime` façade
 - [ ] delete dead root helper code
 - [ ] delete root fallback logic from detail stores
 - [x] delete tests that only exist for the old architecture

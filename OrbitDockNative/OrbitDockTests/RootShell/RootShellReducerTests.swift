@@ -120,12 +120,45 @@ struct RootShellReducerTests {
     #expect(record?.displayStatus == .ended)
     #expect(record?.isActive == false)
   }
+
+  @Test func derivedSlicesSeparateMissionControlFromRecentRecords() throws {
+    var state = RootShellState()
+    let endpointId = try #require(UUID(uuidString: "44444444-4444-4444-4444-444444444444"))
+
+    _ = RootShellReducer.reduce(
+      state: &state,
+      event: .sessionsList(
+        endpointId: endpointId,
+        endpointName: "Delta",
+        connectionStatus: .connected,
+        sessions: [
+          makeListItem(
+            id: "direct-working",
+            workStatus: .working,
+            codexIntegrationMode: .direct,
+            lastActivityAt: "2026-03-11T10:06:00Z"
+          ),
+          makeListItem(
+            id: "passive-recent",
+            workStatus: .reply,
+            codexIntegrationMode: .passive,
+            lastActivityAt: "2026-03-11T10:07:00Z"
+          ),
+        ]
+      )
+    )
+
+    #expect(state.missionControlRecords.map(\.sessionId) == ["direct-working"])
+    #expect(state.recentRecords.prefix(1).map(\.sessionId) == ["passive-recent"])
+  }
 }
 
 private func makeListItem(
   id: String,
   workStatus: ServerWorkStatus,
-  pendingToolName: String? = nil
+  pendingToolName: String? = nil,
+  codexIntegrationMode: ServerCodexIntegrationMode = .passive,
+  lastActivityAt: String = "2026-03-11T10:05:00Z"
 ) -> ServerSessionListItem {
   ServerSessionListItem(
     id: id,
@@ -136,11 +169,12 @@ private func makeListItem(
     model: "gpt-5.4",
     status: .active,
     workStatus: workStatus,
-    codexIntegrationMode: .passive,
+    codexIntegrationMode: codexIntegrationMode,
     claudeIntegrationMode: nil,
     startedAt: "2026-03-11T10:00:00Z",
-    lastActivityAt: "2026-03-11T10:05:00Z",
+    lastActivityAt: lastActivityAt,
     unreadCount: 0,
+    hasTurnDiff: false,
     pendingToolName: pendingToolName,
     repositoryRoot: "/tmp",
     isWorktree: false,

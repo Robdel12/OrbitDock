@@ -16,16 +16,12 @@ struct ActivityStreamToolbar: View {
   @Binding var sort: ActiveSessionSort
   @Binding var providerFilter: ActiveSessionProviderFilter
 
-  private var allActiveSessions: [RootSessionNode] {
-    sessions.filter(\.showsInMissionControl)
-  }
-
   private var counts: DashboardTriageCounts {
-    DashboardTriageCounts(sessions: allActiveSessions)
+    DashboardTriageCounts(sessions: sessions)
   }
 
   private var directCount: Int {
-    allActiveSessions.filter(\.isDirect).count
+    sessions.filter(\.isDirect).count
   }
 
   private var layoutMode: DashboardLayoutMode {
@@ -67,7 +63,7 @@ struct ActivityStreamToolbar: View {
   private var filterChips: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: Spacing.sm_) {
-        filterChip(target: .all, icon: nil, label: "All", count: allActiveSessions.count, color: .textSecondary)
+        filterChip(target: .all, icon: nil, label: "All", count: sessions.count, color: .textSecondary)
 
         if counts.attention > 0 || filter == .attention {
           filterChip(target: .attention, icon: "exclamationmark.circle.fill", label: "Attn", count: counts.attention, color: .statusPermission)
