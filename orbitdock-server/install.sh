@@ -403,9 +403,9 @@ echo ""
 # ── PATH setup ────────────────────────────────────────────────────────
 BIN_DIR="$INSTALL_ROOT/bin"
 NEEDS_PATH_RELOAD=0
-USED_LEGACY_PATH_SETUP=0
+USED_INSTALLER_PATH_SETUP=0
 
-ensure_in_path_legacy() {
+ensure_in_path_installer() {
   # Already on PATH — nothing to do
   if echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
     return
@@ -448,14 +448,14 @@ ensure_in_path_legacy() {
 
 if "$SERVER_BIN" --help 2>/dev/null | grep -q "ensure-path"; then
   if ! ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" ensure-path; then
-    warn "orbitdock-server ensure-path failed; falling back to legacy PATH setup."
-    ensure_in_path_legacy
-    USED_LEGACY_PATH_SETUP=1
+    warn "orbitdock ensure-path failed; falling back to installer PATH setup."
+    ensure_in_path_installer
+    USED_INSTALLER_PATH_SETUP=1
   fi
 else
-  warn "Installed server doesn't support ensure-path yet; using legacy PATH setup."
-  ensure_in_path_legacy
-  USED_LEGACY_PATH_SETUP=1
+  warn "Installed server doesn't support ensure-path; using installer PATH setup."
+  ensure_in_path_installer
+  USED_INSTALLER_PATH_SETUP=1
 fi
 
 # ── Setup ─────────────────────────────────────────────────────────────────
@@ -557,7 +557,7 @@ else
   echo "    orbitdock remote-setup"
 fi
 
-if [[ "$USED_LEGACY_PATH_SETUP" == "1" && "$NEEDS_PATH_RELOAD" == "1" ]]; then
+if [[ "$USED_INSTALLER_PATH_SETUP" == "1" && "$NEEDS_PATH_RELOAD" == "1" ]]; then
   echo ""
   warn "Restart your terminal, or run:"
   echo ""

@@ -353,7 +353,7 @@ rust-build-darwin:
 	@mkdir -p "$(RUST_TARGET_DIR)/darwin-arm64"
 	cp "$(RUST_TARGET_DIR)/aarch64-apple-darwin/release/orbitdock" "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock"
 	@chmod +x "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock"
-	@./OrbitDock/Scripts/server-source-fingerprint.sh > "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock.gitsha"
+	@./OrbitDockNative/Scripts/server-source-fingerprint.sh > "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock.gitsha"
 
 rust-build-universal: rust-build-darwin
 

@@ -16,8 +16,6 @@ REPO_ROOT="${SRCROOT}/.."
 RUST_DARWIN_BINARY="${REPO_ROOT}/.cache/rust/target/darwin-arm64/orbitdock"
 RUST_UNIVERSAL_BINARY="${REPO_ROOT}/.cache/rust/target/universal/orbitdock"
 RUST_DARWIN_GITSHA="${RUST_DARWIN_BINARY}.gitsha"
-LEGACY_UNIVERSAL_BINARY="${REPO_ROOT}/orbitdock-server/target/universal/orbitdock"
-LEGACY_RELEASE_BINARY="${REPO_ROOT}/orbitdock-server/target/release/orbitdock"
 SERVER_FINGERPRINT_SCRIPT="${SRCROOT}/Scripts/server-source-fingerprint.sh"
 
 resolve_server_binary() {
@@ -27,14 +25,6 @@ resolve_server_binary() {
   fi
   if [[ -f "$RUST_UNIVERSAL_BINARY" ]]; then
     echo "$RUST_UNIVERSAL_BINARY"
-    return
-  fi
-  if [[ -f "$LEGACY_UNIVERSAL_BINARY" ]]; then
-    echo "$LEGACY_UNIVERSAL_BINARY"
-    return
-  fi
-  if [[ -f "$LEGACY_RELEASE_BINARY" ]]; then
-    echo "$LEGACY_RELEASE_BINARY"
     return
   fi
   echo ""
@@ -47,10 +37,6 @@ resolve_archive_binary() {
   fi
   if [[ -f "$RUST_UNIVERSAL_BINARY" ]]; then
     echo "$RUST_UNIVERSAL_BINARY"
-    return
-  fi
-  if [[ -f "$LEGACY_UNIVERSAL_BINARY" ]]; then
-    echo "$LEGACY_UNIVERSAL_BINARY"
     return
   fi
   echo ""
@@ -91,15 +77,6 @@ validate_archive_binary() {
   fi
 
   built_sha="$(tr -d '[:space:]' < "$archive_gitsha")"
-  if [[ "$built_sha" =~ ^[0-9a-f]{40}$ ]] && git -C "$REPO_ROOT" cat-file -e "${built_sha}^{commit}" >/dev/null 2>&1; then
-    if ! built_sha="$("$SERVER_FINGERPRINT_SCRIPT" "$built_sha" 2>/dev/null)"; then
-      echo "error: could not resolve legacy prebuilt server commit stamp (${built_sha})"
-      echo "Run: make rust-build-darwin"
-      exit 1
-    fi
-    built_sha="$(echo "$built_sha" | tr -d '[:space:]')"
-  fi
-
   if ! current_sha="$("$SERVER_FINGERPRINT_SCRIPT" 2>/dev/null)"; then
     echo "error: could not resolve current server source fingerprint for archive validation"
     exit 1
