@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 @MainActor
-struct WindowSessionCoordinatorTests {
+struct WindowRootRuntimeTests {
   @Test func startBootstrapsRootShellAndTracksCurrentSelection() async throws {
     let endpoint = try makeEndpoint(
       id: "11111111-1111-1111-1111-111111111111",
@@ -16,20 +16,23 @@ struct WindowSessionCoordinatorTests {
     )
     registry.configureFromSettings(startEnabled: false)
 
-    let store = registry.sessionStore(for: endpoint.id, fallback: SessionStore())
     let runtime = try #require(registry.runtimesByEndpointId[endpoint.id])
     let session = makeSession(
       id: "session-1",
       endpointId: endpoint.id,
       projectPath: "/repo/project"
     )
-    store.sessions = [session]
     runtime.eventStream.seedSessionsListForTesting([makeListItem(from: session)])
 
     let router = AppRouter()
     let toastManager = ToastManager()
-    let coordinator = WindowSessionCoordinator(
+    let rootShellStore = RootShellStore()
+    let runtimeCoordinator = RootShellRuntime(
       runtimeRegistry: registry,
+      rootShellStore: rootShellStore
+    )
+    let effects = RootShellEffectsCoordinator(
+      rootShellStore: rootShellStore,
       attentionService: AttentionService(),
       notificationManager: NotificationManager(
         isAuthorized: false,
@@ -40,22 +43,28 @@ struct WindowSessionCoordinatorTests {
     )
 
     let firstUpdate = Task { () -> RootShellRuntimeUpdate? in
-      for await update in coordinator.rootShellRuntime.updates {
+      for await update in runtimeCoordinator.updates {
         return update
       }
       return nil
     }
 
-    coordinator.start(currentScopedId: session.scopedID)
+    effects.setCurrentSelection(session.scopedID)
+    runtimeCoordinator.start()
 
     let update = try #require(await firstUpdate.value)
-    #expect(update.currentSessions.map(\.sessionId) == ["session-1"])
-    #expect(coordinator.rootSessions.map(\.sessionId) == ["session-1"])
+    effects.applyRootChange(
+      previousMissionControlSessions: update.previousMissionControlSessions,
+      currentMissionControlSessions: update.currentMissionControlSessions
+    )
+    #expect(update.currentMissionControlSessions.isEmpty)
+    #expect(rootShellStore.records().map(\.sessionId) == ["session-1"])
+    #expect(rootShellStore.records().first?.showsInMissionControl == false)
     #expect(toastManager.currentSessionId == session.scopedID)
-    #expect(coordinator.isAnyInitialLoading == false)
+    #expect(runtime.eventStream.hasReceivedInitialSessionsList)
   }
 
-  @Test func refreshSessionsFallsBackToDashboardWhenSelectionDisappears() throws {
+  @Test func startFallsBackToDashboardWhenSelectionDisappearsFromRootShell() async throws {
     let endpoint = try makeEndpoint(
       id: "22222222-2222-2222-2222-222222222222",
       name: "Local"
@@ -66,13 +75,15 @@ struct WindowSessionCoordinatorTests {
       shouldBootstrapFromSettings: false
     )
     registry.configureFromSettings(startEnabled: false)
+    let runtime = try #require(registry.runtimesByEndpointId[endpoint.id])
 
     let router = AppRouter()
     let missingRef = SessionRef(endpointId: endpoint.id, sessionId: "missing-session")
     router.selectSession(missingRef)
 
-    let coordinator = WindowSessionCoordinator(
-      runtimeRegistry: registry,
+    let rootShellStore = RootShellStore()
+    let effects = RootShellEffectsCoordinator(
+      rootShellStore: rootShellStore,
       attentionService: AttentionService(),
       notificationManager: NotificationManager(
         isAuthorized: false,
@@ -82,10 +93,50 @@ struct WindowSessionCoordinatorTests {
       router: router
     )
 
-    coordinator.refreshSessions()
+    effects.setCurrentSelection(missingRef.scopedID)
+    effects.applyRootChange(
+      previousMissionControlSessions: [],
+      currentMissionControlSessions: []
+    )
 
     #expect(router.selectedSessionRef == nil)
     #expect(router.dashboardTab == .missionControl)
+  }
+
+  @Test func selectedSessionChangesPromoteAndDemoteHotTierMembership() async throws {
+    let endpoint = try makeEndpoint(
+      id: "33333333-3333-3333-3333-333333333333",
+      name: "Local"
+    )
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpoint] },
+      runtimeFactory: { ServerRuntime(endpoint: $0) },
+      shouldBootstrapFromSettings: false
+    )
+    registry.configureFromSettings(startEnabled: false)
+
+    let coordinator = WindowRootRuntime(
+      runtimeRegistry: registry,
+      attentionService: AttentionService(),
+      notificationManager: NotificationManager(
+        isAuthorized: false,
+        shouldRequestAuthorizationOnStart: false
+      ),
+      toastManager: ToastManager(),
+      router: AppRouter()
+    )
+
+    let first = ScopedSessionID(endpointId: endpoint.id, sessionId: "session-a")
+    let second = ScopedSessionID(endpointId: endpoint.id, sessionId: "session-b")
+
+    await coordinator.rootShellRuntime.applySelectedSessionChange(to: first.scopedID)
+    #expect(await coordinator.rootShellRuntime.hotSessionIDsForTesting() == [first.scopedID])
+
+    await coordinator.rootShellRuntime.applySelectedSessionChange(to: second.scopedID)
+    #expect(await coordinator.rootShellRuntime.hotSessionIDsForTesting() == [second.scopedID])
+
+    await coordinator.rootShellRuntime.applySelectedSessionChange(to: nil)
+    #expect(await coordinator.rootShellRuntime.hotSessionIDsForTesting().isEmpty)
   }
 
   private func makeEndpoint(
@@ -142,6 +193,7 @@ struct WindowSessionCoordinatorTests {
       startedAt: session.startedAt?.ISO8601Format(),
       lastActivityAt: session.lastActivityAt?.ISO8601Format(),
       unreadCount: session.unreadCount,
+      hasTurnDiff: false,
       pendingToolName: session.pendingToolName,
       repositoryRoot: session.repositoryRoot,
       isWorktree: session.isWorktree,

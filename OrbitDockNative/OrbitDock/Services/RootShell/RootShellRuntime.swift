@@ -1,8 +1,8 @@
 import Foundation
 
 struct RootShellRuntimeUpdate: Sendable {
-  let previousSessions: [RootSessionNode]
-  let currentSessions: [RootSessionNode]
+  let previousMissionControlSessions: [RootSessionNode]
+  let currentMissionControlSessions: [RootSessionNode]
 }
 
 @MainActor
@@ -15,6 +15,7 @@ final class RootShellRuntime {
   @ObservationIgnored private let updatesContinuation: AsyncStream<RootShellRuntimeUpdate>.Continuation
   @ObservationIgnored private var rootObservationTasks: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var pendingFlushTask: Task<Void, Never>?
+  @ObservationIgnored private var selectedHotSessionID: ScopedSessionID?
 
   init(runtimeRegistry: ServerRuntimeRegistry, rootShellStore: RootShellStore) {
     self.runtimeRegistry = runtimeRegistry
@@ -53,6 +54,33 @@ final class RootShellRuntime {
       bootstrapRootShell(from: runtime)
       observeRootShellEvents(from: runtime)
     }
+  }
+
+  func selectedSessionDidChange(to scopedID: String?) {
+    Task { [weak self] in
+      await self?.applySelectedSessionChange(to: scopedID)
+    }
+  }
+
+  func applySelectedSessionChange(to scopedID: String?) async {
+    let nextSelectedID = scopedID.flatMap(ScopedSessionID.init(scopedID:))
+    guard nextSelectedID != selectedHotSessionID else { return }
+
+    let previousSelectedID = selectedHotSessionID
+    selectedHotSessionID = nextSelectedID
+
+    if let previousSelectedID {
+      await sessionRegistry.demote(previousSelectedID)
+    }
+
+    if let nextSelectedID {
+      await sessionRegistry.promote(nextSelectedID)
+    }
+  }
+
+  func hotSessionIDsForTesting() async -> Set<String> {
+    let snapshot = await sessionRegistry.snapshot()
+    return snapshot.hotSessionIDs
   }
 
   private func bootstrapRootShell(from runtime: ServerRuntime) {
@@ -154,14 +182,14 @@ final class RootShellRuntime {
     defer { pendingFlushTask = nil }
 
     let snapshot = await sessionRegistry.snapshot()
-    let previousSessions = rootShellStore.records()
+    let previousMissionControlSessions = rootShellStore.missionControlRecords()
     let changed = rootShellStore.replace(with: snapshot.state)
     guard changed else { return }
 
     updatesContinuation.yield(
       RootShellRuntimeUpdate(
-        previousSessions: previousSessions,
-        currentSessions: snapshot.records
+        previousMissionControlSessions: previousMissionControlSessions,
+        currentMissionControlSessions: snapshot.state.missionControlRecords
       )
     )
   }

@@ -32,7 +32,7 @@ struct DashboardView: View {
 
   private var activityStream: ActivityStream {
     ActivityStream.build(
-      from: rootShellStore.records(),
+      from: rootShellStore.missionControlRecords(),
       filter: activeWorkbenchFilter,
       sort: activeSort,
       providerFilter: activeProviderFilter,
@@ -44,8 +44,12 @@ struct DashboardView: View {
     rootShellStore.records()
   }
 
+  private var missionControlSessions: [RootSessionNode] {
+    rootShellStore.missionControlRecords()
+  }
+
   private var librarySessions: [RootSessionNode] {
-    rootSessions.sorted(by: LibraryArchivePlanner.compareSessions)
+    rootSessions
   }
 
   private var navigableSessions: [RootSessionNode] {
@@ -113,7 +117,7 @@ struct DashboardView: View {
       if showsSidebar {
         HStack(spacing: 0) {
           DesktopSidebarPanel(
-            sessions: rootSessions,
+            sessions: missionControlSessions,
             width: sidebarWidth,
             projectFilter: $activeProjectFilter,
             onSelectSession: { session in
@@ -129,7 +133,7 @@ struct DashboardView: View {
 
           VStack(spacing: 0) {
             ActivityStreamToolbar(
-              sessions: rootSessions,
+              sessions: missionControlSessions,
               filter: $activeWorkbenchFilter,
               sort: $activeSort,
               providerFilter: $activeProviderFilter
@@ -141,7 +145,7 @@ struct DashboardView: View {
       } else {
         VStack(spacing: 0) {
           ActivityStreamToolbar(
-            sessions: rootSessions,
+            sessions: missionControlSessions,
             filter: $activeWorkbenchFilter,
             sort: $activeSort,
             providerFilter: $activeProviderFilter
@@ -184,8 +188,8 @@ struct DashboardView: View {
         if showingLoadingSkeleton {
           loadingSkeletonContent
         } else {
-            ActivityStreamContent(
-            sessions: rootSessions,
+          ActivityStreamContent(
+            sessions: missionControlSessions,
             filter: activeWorkbenchFilter,
             sort: activeSort,
             providerFilter: activeProviderFilter,

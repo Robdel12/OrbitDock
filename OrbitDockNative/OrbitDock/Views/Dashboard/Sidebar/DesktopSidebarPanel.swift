@@ -14,29 +14,11 @@ struct DesktopSidebarPanel: View {
   @Binding var projectFilter: String?
   let onSelectSession: (RootSessionNode) -> Void
 
-  private var activeSessions: [RootSessionNode] {
-    sessions.filter(\.showsInMissionControl)
-      .sorted { lhs, rhs in
-        let lhsDate = lhs.startedAt ?? lhs.lastActivityAt ?? .distantPast
-        let rhsDate = rhs.startedAt ?? rhs.lastActivityAt ?? .distantPast
-        if lhsDate != rhsDate {
-          return lhsDate > rhsDate
-        }
-
-        let lhsName = lhs.displayName.localizedLowercase
-        let rhsName = rhs.displayName.localizedLowercase
-        if lhsName != rhsName {
-          return lhsName < rhsName
-        }
-
-        return lhs.id < rhs.id
-      }
-  }
+  private var activeSessions: [RootSessionNode] { sessions }
 
   /// Group projects by their grouping path (repo root) to collapse worktrees
   private var projectNames: [(path: String, name: String, count: Int)] {
-    let active = sessions.filter(\.showsInMissionControl)
-    let grouped = Dictionary(grouping: active) { $0.groupingPath }
+    let grouped = Dictionary(grouping: sessions) { $0.groupingPath }
     return grouped.map { path, sessions in
       let name = sessions.first?.projectName
         ?? path.components(separatedBy: "/").last
@@ -110,7 +92,7 @@ struct DesktopSidebarPanel: View {
   }
 
   private func sidebarSessionRow(_ session: RootSessionNode) -> some View {
-    let status = SessionDisplayStatus.from(session)
+    let status = session.displayStatus
     let label = session.displayName
 
     let recency = DashboardFormatters.recency(for: session.lastActivityAt ?? session.startedAt)
@@ -194,7 +176,7 @@ struct DesktopSidebarPanel: View {
 
       ScrollView {
         LazyVStack(spacing: Spacing.gap) {
-          projectFilterRow(name: "All Projects", path: nil, count: sessions.filter(\.showsInMissionControl).count)
+          projectFilterRow(name: "All Projects", path: nil, count: sessions.count)
 
           ForEach(projectNames, id: \.path) { project in
             projectFilterRow(name: project.name, path: project.path, count: project.count)

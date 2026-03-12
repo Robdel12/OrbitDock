@@ -7,12 +7,7 @@ final class RootShellStore {
 
   var counts: RootShellCounts { state.counts }
   var endpointHealth: [RootShellEndpointHealth] {
-    state.endpointHealthByID.values.sorted {
-      if $0.endpointName != $1.endpointName {
-        return $0.endpointName.localizedCaseInsensitiveCompare($1.endpointName) == .orderedAscending
-      }
-      return $0.endpointId.uuidString < $1.endpointId.uuidString
-    }
+    state.orderedEndpointIDs.compactMap { state.endpointHealthByID[$0] }
   }
 
   @discardableResult
@@ -42,14 +37,22 @@ final class RootShellStore {
 
   func records(filter: RootShellEndpointFilter? = nil) -> [RootSessionNode] {
     let filter = filter ?? state.selectedEndpointFilter
-    return state.orderedScopedIDs.compactMap { scopedID in
-      guard let record = state.recordsByScopedID[scopedID] else { return nil }
-      switch filter {
-        case .all:
-          return record
-        case let .endpoint(endpointId):
-          return record.sessionRef.endpointId == endpointId ? record : nil
-      }
+    switch filter {
+      case .all:
+        return state.orderedRecords
+      case let .endpoint(endpointId):
+        return state.orderedRecords.filter { $0.sessionRef.endpointId == endpointId }
     }
+  }
+
+  func missionControlRecords() -> [RootSessionNode] {
+    state.missionControlRecords
+  }
+
+  func recentRecords(limit: Int? = nil) -> [RootSessionNode] {
+    if let limit {
+      return Array(state.recentRecords.prefix(limit))
+    }
+    return state.recentRecords
   }
 }

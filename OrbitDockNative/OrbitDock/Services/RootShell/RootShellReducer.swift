@@ -3,20 +3,32 @@ import Foundation
 struct RootShellState: Equatable, Sendable {
   var recordsByScopedID: [String: RootSessionNode] = [:]
   var orderedScopedIDs: [String] = []
+  var orderedRecords: [RootSessionNode] = []
+  var missionControlRecords: [RootSessionNode] = []
+  var recentRecords: [RootSessionNode] = []
   var endpointHealthByID: [UUID: RootShellEndpointHealth] = [:]
+  var orderedEndpointIDs: [UUID] = []
   var counts = RootShellCounts()
   var selectedEndpointFilter: RootShellEndpointFilter = .all
 
   nonisolated init(
     recordsByScopedID: [String: RootSessionNode] = [:],
     orderedScopedIDs: [String] = [],
+    orderedRecords: [RootSessionNode] = [],
+    missionControlRecords: [RootSessionNode] = [],
+    recentRecords: [RootSessionNode] = [],
     endpointHealthByID: [UUID: RootShellEndpointHealth] = [:],
+    orderedEndpointIDs: [UUID] = [],
     counts: RootShellCounts = RootShellCounts(),
     selectedEndpointFilter: RootShellEndpointFilter = .all
   ) {
     self.recordsByScopedID = recordsByScopedID
     self.orderedScopedIDs = orderedScopedIDs
+    self.orderedRecords = orderedRecords
+    self.missionControlRecords = missionControlRecords
+    self.recentRecords = recentRecords
     self.endpointHealthByID = endpointHealthByID
+    self.orderedEndpointIDs = orderedEndpointIDs
     self.counts = counts
     self.selectedEndpointFilter = selectedEndpointFilter
   }
@@ -135,11 +147,15 @@ enum RootShellReducer {
   }
 
   nonisolated private static func refreshDerivedState(_ state: inout RootShellState) {
-    let records = state.recordsByScopedID.values
+    let records = Array(state.recordsByScopedID.values)
+    let orderedRecords = records.sorted(by: compareRecords)
 
-    state.orderedScopedIDs = records
-      .sorted(by: compareRecords)
-      .map(\.scopedID)
+    state.orderedRecords = orderedRecords
+    state.orderedScopedIDs = orderedRecords.map(\.scopedID)
+    state.missionControlRecords = orderedRecords.filter(\.showsInMissionControl)
+    state.recentRecords = records
+      .filter { !$0.showsInMissionControl }
+      .sorted { recentDate(for: $0) > recentDate(for: $1) }
 
     state.counts = records.reduce(into: RootShellCounts()) { counts, record in
       counts.total += 1
@@ -183,6 +199,15 @@ enum RootShellReducer {
         counts: counts
       )
     }
+
+    state.orderedEndpointIDs = state.endpointHealthByID.values
+      .sorted {
+        if $0.endpointName != $1.endpointName {
+          return $0.endpointName.localizedCaseInsensitiveCompare($1.endpointName) == .orderedAscending
+        }
+        return $0.endpointId.uuidString < $1.endpointId.uuidString
+      }
+      .map(\.endpointId)
   }
 
   nonisolated private static func compareRecords(_ lhs: RootSessionNode, _ rhs: RootSessionNode) -> Bool {
@@ -208,6 +233,10 @@ enum RootShellReducer {
       return lhs.sessionRef.endpointId.uuidString < rhs.sessionRef.endpointId.uuidString
     }
     return lhs.sessionRef.sessionId < rhs.sessionRef.sessionId
+  }
+
+  nonisolated private static func recentDate(for record: RootSessionNode) -> Date {
+    record.lastActivityAt ?? record.endedAt ?? record.startedAt ?? .distantPast
   }
 
   nonisolated private static func recordScopedPrefix(for endpointId: UUID) -> String {

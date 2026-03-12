@@ -8,27 +8,17 @@ import SwiftUI
 #if os(macOS)
 
 struct MenuBarView: View {
-  @Environment(WindowSessionCoordinator.self) private var windowSessionCoordinator
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
   @Environment(\.colorScheme) private var colorScheme
   @State private var refreshRotation: Double = 0
+  @Environment(RootShellStore.self) private var rootShellStore
 
-    @Environment(RootShellStore.self) private var rootShellStore
+  var body: some View {
+      let activeSessions = rootShellStore.missionControlRecords()
+      let recentSessions = rootShellStore.recentRecords(limit: 5)
+      let hasAnySessions = rootShellStore.counts.total > 0
 
-    var activeSessions: [RootSessionNode] {
-      rootShellStore.records().filter(\.showsInMissionControl)
-    }
-
-    var recentSessions: [RootSessionNode] {
-      rootShellStore.records()
-        .filter { !$0.showsInMissionControl }
-        .sorted { activityDate(for: $0) > activityDate(for: $1) }
-        .prefix(5)
-        .map { $0 }
-    }
-
-    var body: some View {
       VStack(alignment: .leading, spacing: 0) {
         // Header
         HStack {
@@ -99,7 +89,7 @@ struct MenuBarView: View {
               }
             }
 
-            if rootShellStore.records().isEmpty {
+            if !hasAnySessions {
               emptyView
             }
           }
@@ -159,7 +149,7 @@ struct MenuBarView: View {
       }
     }
 
-    private func sectionHeader(_ title: String) -> some View {
+  private func sectionHeader(_ title: String) -> some View {
       Text(title.uppercased())
         .font(.system(size: TypeScale.micro, weight: .semibold, design: .rounded))
         .foregroundStyle(tertiaryTextColor)
@@ -167,7 +157,7 @@ struct MenuBarView: View {
         .padding(.bottom, Spacing.sm_)
     }
 
-    private var emptyView: some View {
+  private var emptyView: some View {
       VStack(spacing: Spacing.md_) {
         ZStack {
           RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
@@ -188,32 +178,28 @@ struct MenuBarView: View {
       .padding(.vertical, Spacing.xxl)
     }
 
-    private var menuDivider: some View {
+  private var menuDivider: some View {
       Rectangle()
         .fill(dividerColor)
         .frame(height: 1)
     }
 
-    private var headerTitleColor: Color {
+  private var headerTitleColor: Color {
       colorScheme == .dark ? Color.white.opacity(0.9) : .primary
     }
 
-    private var secondaryTextColor: Color {
+  private var secondaryTextColor: Color {
       colorScheme == .dark ? Color.white.opacity(0.72) : .primary.opacity(0.78)
     }
 
-    private var tertiaryTextColor: Color {
+  private var tertiaryTextColor: Color {
       colorScheme == .dark ? Color.white.opacity(0.5) : .primary.opacity(0.62)
     }
 
-    private var dividerColor: Color {
+  private var dividerColor: Color {
       colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.1)
     }
-
-    private func activityDate(for session: RootSessionNode) -> Date {
-      session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
-    }
-  }
+}
 
   struct MenuBarSessionRow: View {
     let session: RootSessionNode
@@ -222,7 +208,7 @@ struct MenuBarView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private var displayStatus: SessionDisplayStatus {
-      SessionDisplayStatus.from(session)
+      session.displayStatus
     }
 
     var body: some View {

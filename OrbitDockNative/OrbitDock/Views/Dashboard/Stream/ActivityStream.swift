@@ -20,7 +20,7 @@ struct ActivityStream {
     providerFilter: ActiveSessionProviderFilter,
     projectFilter: String? = nil
   ) -> ActivityStream {
-    var activeSessions = sessions.filter(\.showsInMissionControl)
+    var activeSessions = sessions
 
     switch providerFilter {
       case .all: break
@@ -36,21 +36,21 @@ struct ActivityStream {
     switch filter {
       case .all: filtered = activeSessions
       case .direct: filtered = activeSessions.filter(\.isDirect)
-      case .attention: filtered = activeSessions.filter { SessionDisplayStatus.from($0).needsAttention }
-      case .running: filtered = activeSessions.filter { SessionDisplayStatus.from($0) == .working }
-      case .ready: filtered = activeSessions.filter { SessionDisplayStatus.from($0) == .reply }
+      case .attention: filtered = activeSessions.filter { $0.displayStatus.needsAttention }
+      case .running: filtered = activeSessions.filter { $0.displayStatus == .working }
+      case .ready: filtered = activeSessions.filter { $0.displayStatus == .reply }
     }
 
-    let attentionSessions = filtered.filter { SessionDisplayStatus.from($0).needsAttention }
+    let attentionSessions = filtered.filter { $0.displayStatus.needsAttention }
       .sorted { lhs, rhs in
         sortDate(lhs) < sortDate(rhs)
       }
 
-    let workingSessions = filtered.filter { SessionDisplayStatus.from($0) == .working }
+    let workingSessions = filtered.filter { $0.displayStatus == .working }
       .sorted { lhs, rhs in sortSessions(lhs: lhs, rhs: rhs, sort: sort) }
 
     let readySessions = filtered.filter {
-      let status = SessionDisplayStatus.from($0)
+      let status = $0.displayStatus
       return !status.needsAttention && status != .working
     }
     .sorted { lhs, rhs in sortSessions(lhs: lhs, rhs: rhs, sort: sort) }
@@ -59,7 +59,7 @@ struct ActivityStream {
       attention: attentionSessions,
       working: workingSessions,
       ready: readySessions,
-      ended: sessions.filter { !$0.isActive }
+      ended: []
     )
   }
 
@@ -74,8 +74,8 @@ struct ActivityStream {
         if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
         return sortDate(lhs) > sortDate(rhs)
       case .status:
-        let lhsPriority = statusPriority(SessionDisplayStatus.from(lhs))
-        let rhsPriority = statusPriority(SessionDisplayStatus.from(rhs))
+        let lhsPriority = statusPriority(lhs.displayStatus)
+        let rhsPriority = statusPriority(rhs.displayStatus)
         if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
         return sortDate(lhs) > sortDate(rhs)
       case .tokens:

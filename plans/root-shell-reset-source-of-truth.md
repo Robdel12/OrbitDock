@@ -1,6 +1,6 @@
 # Root Shell Reset
 
-Status: `Planned`
+Status: `In progress`
 Owner: `OrbitDock reset effort`
 Source of truth: `This file replaces the older root-shell rewrite notes.`
 
@@ -488,7 +488,7 @@ If a phase ships without user-outcome coverage, it is not done.
 
 ## Phase 0: Foundations, Spike, and Bridge Deletion
 
-Status: `In progress`
+Status: `Completed`
 
 Goal:
 
@@ -506,7 +506,7 @@ Tasks:
 - [x] delete the final `RootSessionRecord` references
 - [x] delete bridge-only tests and replace them with `RootSessionNode` outcome tests
 - [x] remove any remaining root state ownership from `SessionStore`
-- [ ] update this plan if any hidden bridge remains
+- [x] update this plan if any hidden bridge remains
 - [x] verify `QuickSwitcher`, `MenuBar`, and dashboard shell do not depend on bridge-only types
 
 Done when:
@@ -516,6 +516,14 @@ Done when:
 - the app builds
 - the test suite is green on the pre-reset baseline
 
+Current note:
+
+- `WindowSessionCoordinator` is deleted and replaced by `WindowRootRuntime`.
+- `RootSessionRecord` and `UnifiedSessionsStore` are gone.
+- Root-safe list events no longer hydrate `SessionStore`.
+- `QuickSwitcher`, dashboard stream cards, menu bar, notification/toast flow, and root shell routing are on the new root-safe path.
+- The remaining reset work is no longer bridge cleanup; it is finishing the new root shell so it scales cleanly.
+
 Parallel lanes:
 
 - Lane 0A: foundational types + spike
@@ -524,7 +532,7 @@ Parallel lanes:
 
 ## Phase 1: Server Root Stream
 
-Status: `Not started`
+Status: `In progress`
 
 Goal:
 
@@ -592,9 +600,9 @@ Goal:
 
 Tasks:
 
-- [ ] add new `RootShellStore`
-- [ ] accept only batched registry outputs
-- [ ] expose normalized records plus small derived indexes
+- [x] add new `RootShellStore`
+- [x] accept only batched registry outputs
+- [x] expose normalized records plus small derived indexes
 - [ ] keep published state minimal
 - [ ] ensure stored-value-only models for all hot UI paths
 
@@ -610,7 +618,7 @@ Parallel lanes:
 
 ## Phase 4: Surface Projections
 
-Status: `Not started`
+Status: `In progress`
 
 Goal:
 
@@ -618,10 +626,10 @@ Goal:
 
 Tasks:
 
-- [ ] start from one inert root record
-- [ ] add surface-specific projections only when a surface has materially different needs
+- [x] start from one inert root record
+- [x] add surface-specific projections only when a surface has materially different needs
 - [ ] keep any added projection surface-specific and inert
-- [ ] avoid speculative mapping layers
+- [x] avoid speculative mapping layers
 
 Done when:
 
@@ -637,7 +645,7 @@ Parallel lanes:
 
 ## Phase 5: Surface Migration
 
-Status: `Not started`
+Status: `In progress`
 
 Goal:
 
@@ -645,13 +653,13 @@ Goal:
 
 Tasks:
 
-- [ ] migrate dashboard
-- [ ] migrate quick switcher
-- [ ] migrate menu bar
-- [ ] migrate notifications/attention
-- [ ] migrate app-shell navigation selection
-- [ ] ensure detail entry promotes a session to hot
-- [ ] ensure detail exit demotes it back to warm
+- [x] migrate dashboard
+- [x] migrate quick switcher
+- [x] migrate menu bar
+- [x] migrate notifications/attention
+- [x] migrate app-shell navigation selection
+- [x] ensure detail entry promotes a session to hot
+- [x] ensure detail exit demotes it back to warm
 
 Done when:
 
@@ -666,7 +674,7 @@ Parallel lanes:
 
 ## Phase 6: Delete Legacy Root Spine
 
-Status: `Not started`
+Status: `In progress`
 
 Goal:
 
@@ -674,11 +682,11 @@ Goal:
 
 Tasks:
 
-- [ ] delete `WindowSessionCoordinator`
-- [ ] delete any remaining root compatibility types
+- [x] delete `WindowSessionCoordinator`
+- [x] delete any remaining root compatibility types
 - [ ] delete dead root helper code
 - [ ] delete root fallback logic from detail stores
-- [ ] delete tests that only exist for the old architecture
+- [x] delete tests that only exist for the old architecture
 
 Done when:
 
