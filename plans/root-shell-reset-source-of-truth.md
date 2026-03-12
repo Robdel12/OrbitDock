@@ -585,11 +585,16 @@ Tasks:
 - [x] ingest root-safe events into normalized warm state
 - [ ] ingest detail events into hot state only
 - [x] batch bursts into small change sets
-- [ ] implement bounded hot detail cache
+- [~] implement bounded hot detail cache
 
 Done when:
 
 - the registry can run without any UI and prove tier correctness under load
+
+Current note:
+
+- `SessionRegistry` now enforces a bounded hot session set with explicit recency ordering.
+- The remaining work here is attaching that policy to real detail cache ownership and promotion/demotion side effects, not inventing the boundary from scratch.
 
 Parallel lanes:
 
