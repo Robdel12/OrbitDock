@@ -390,7 +390,7 @@ impl WatcherRuntime {
 
             if let Ok(summary) = actor.summary().await {
                 self.app_state
-                    .broadcast_to_list(ServerMessage::SessionCreated {
+                    .broadcast_to_list(ServerMessage::SessionListItemUpdated {
                         session: SessionListItem::from_summary(&summary),
                     });
             }
@@ -879,7 +879,7 @@ impl WatcherRuntime {
                 .await;
             if let Ok(summary) = rx.await {
                 self.app_state
-                    .broadcast_to_list(ServerMessage::SessionCreated {
+                    .broadcast_to_list(ServerMessage::SessionListItemUpdated {
                         session: SessionListItem::from_summary(&summary),
                     });
             }
@@ -1067,7 +1067,7 @@ impl WatcherRuntime {
 
             if let Ok(summary) = actor.summary().await {
                 self.app_state
-                    .broadcast_to_list(ServerMessage::SessionCreated {
+                    .broadcast_to_list(ServerMessage::SessionListItemUpdated {
                         session: SessionListItem::from_summary(&summary),
                     });
             }

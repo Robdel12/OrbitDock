@@ -32,7 +32,7 @@ final class SessionStore {
   // MARK: - Observable state
 
   var sessions: [Session] = []
-  var rootSessions: [RootSessionRecord] = []
+  var latestSessionListItems: [ServerSessionListItem] = []
   var hasReceivedInitialSessionsList = false
   var codexModels: [ServerCodexModelOption] = []
   var claudeModels: [ServerClaudeModelOption] = []
@@ -44,6 +44,7 @@ final class SessionStore {
   var serverPrimaryClaims: [ServerClientPrimaryClaim] = []
   let initialSessionsListUpdates: AsyncStream<Bool>
   let sessionListUpdates: AsyncStream<Void>
+  let rootShellEvents: AsyncStream<RootShellEvent>
   let selectionRequests: AsyncStream<SessionRef>
 
   // MARK: - Per-session registries (not @Observable tracked)
@@ -64,6 +65,7 @@ final class SessionStore {
   @ObservationIgnored private(set) var eventProcessingStartCount = 0
   @ObservationIgnored private let initialSessionsListContinuation: AsyncStream<Bool>.Continuation
   @ObservationIgnored private let sessionListContinuation: AsyncStream<Void>.Continuation
+  @ObservationIgnored private let rootShellContinuation: AsyncStream<RootShellEvent>.Continuation
   @ObservationIgnored private let selectionRequestContinuation: AsyncStream<SessionRef>.Continuation
 
   /// Shared project file index for @ mention completions.
@@ -72,12 +74,15 @@ final class SessionStore {
   init(clients: ServerClients, eventStream: EventStream, endpointId: UUID, endpointName: String? = nil) {
     var initialSessionsListContinuation: AsyncStream<Bool>.Continuation!
     var sessionListContinuation: AsyncStream<Void>.Continuation!
+    var rootShellContinuation: AsyncStream<RootShellEvent>.Continuation!
     var selectionRequestContinuation: AsyncStream<SessionRef>.Continuation!
     self.initialSessionsListUpdates = AsyncStream { initialSessionsListContinuation = $0 }
     self.sessionListUpdates = AsyncStream { sessionListContinuation = $0 }
+    self.rootShellEvents = AsyncStream { rootShellContinuation = $0 }
     self.selectionRequests = AsyncStream { selectionRequestContinuation = $0 }
     self.initialSessionsListContinuation = initialSessionsListContinuation
     self.sessionListContinuation = sessionListContinuation
+    self.rootShellContinuation = rootShellContinuation
     self.selectionRequestContinuation = selectionRequestContinuation
     self.clients = clients
     self.eventStream = eventStream
@@ -98,6 +103,7 @@ final class SessionStore {
   deinit {
     initialSessionsListContinuation.finish()
     sessionListContinuation.finish()
+    rootShellContinuation.finish()
     selectionRequestContinuation.finish()
   }
 
@@ -125,6 +131,10 @@ final class SessionStore {
 
   func emitSessionListUpdate() {
     sessionListContinuation.yield()
+  }
+
+  func emitRootShellEvent(_ event: RootShellEvent) {
+    rootShellContinuation.yield(event)
   }
 
   func requestSelection(_ ref: SessionRef) {

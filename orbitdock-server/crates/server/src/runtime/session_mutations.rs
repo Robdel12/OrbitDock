@@ -61,7 +61,7 @@ pub(crate) async fn rename_session(
         .await;
 
     if let Ok(summary) = reply_rx.await {
-        state.broadcast_to_list(ServerMessage::SessionCreated {
+        state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
             session: SessionListItem::from_summary(&summary),
         });
     }
@@ -124,7 +124,7 @@ pub(crate) async fn update_session_config(
         .await;
 
     if let Ok(summary) = actor.summary().await {
-        state.broadcast_to_list(ServerMessage::SessionCreated {
+        state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
             session: SessionListItem::from_summary(&summary),
         });
     }

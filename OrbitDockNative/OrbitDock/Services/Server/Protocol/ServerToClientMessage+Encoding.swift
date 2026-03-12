@@ -45,6 +45,10 @@ extension ServerToClientMessage {
         try container.encode("session_created", forKey: .type)
         try container.encode(session, forKey: .session)
 
+      case let .sessionListItemUpdated(session):
+        try container.encode("session_list_item_updated", forKey: .type)
+        try container.encode(session, forKey: .session)
+
       case let .sessionEnded(sessionId, reason):
         try container.encode("session_ended", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)

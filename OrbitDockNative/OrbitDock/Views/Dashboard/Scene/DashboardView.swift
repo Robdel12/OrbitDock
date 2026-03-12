@@ -14,10 +14,8 @@ struct DashboardView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
+  @Environment(RootShellStore.self) private var rootShellStore
 
-  let sessions: [SessionSummary]
-  let rootSessions: [RootSessionRecord]
-  let endpointHealth: [UnifiedEndpointHealth]
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
 
@@ -35,7 +33,7 @@ struct DashboardView: View {
 
   private var activityStream: ActivityStream {
     ActivityStream.build(
-      from: rootSessions,
+      from: rootShellStore.records(),
       filter: activeWorkbenchFilter,
       sort: activeSort,
       providerFilter: activeProviderFilter,
@@ -43,12 +41,26 @@ struct DashboardView: View {
     )
   }
 
-  private var navigableSessions: [RootSessionRecord] {
+  private var rootSessions: [RootSessionNode] {
+    rootShellStore.records()
+  }
+
+  private var librarySessions: [SessionSummary] {
+    runtimeRegistry.runtimes
+      .flatMap { runtime in
+        runtime.sessionStore.sessions.map(SessionSummary.init(session:))
+      }
+      .sorted { lhs, rhs in
+        LibraryArchivePlanner.compareSessions(lhs, rhs)
+      }
+  }
+
+  private var navigableSessions: [RootSessionNode] {
     activityStream.attention + activityStream.working + activityStream.ready
   }
 
   private var showingLoadingSkeleton: Bool {
-    isInitialLoading && sessions.isEmpty
+    isInitialLoading && librarySessions.isEmpty
   }
 
   private var dashboardScrollAnchorBinding: Binding<String?> {
@@ -81,7 +93,7 @@ struct DashboardView: View {
             )
           case .library:
             LibraryView(
-              sessions: sessions,
+              sessions: librarySessions,
               containerWidth: containerWidth
             )
         }
@@ -384,9 +396,6 @@ private struct DashboardSidebarResizeHandle: View {
   )
   let router = AppRouter()
   DashboardView(
-    sessions: [],
-    rootSessions: [],
-    endpointHealth: [],
     isInitialLoading: false,
     isRefreshingCachedSessions: false
   )

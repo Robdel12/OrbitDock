@@ -97,7 +97,7 @@ struct QuickSwitcherShell<SearchBar: View, Content: View, EmptyState: View, Foot
 
 struct QuickSwitcherCommandsSection<Row: View>: View {
   let commands: [QuickSwitcherCommand]
-  let activeSession: RootSessionRecord?
+  let activeSession: RootSessionNode?
   let isCompactLayout: Bool
   @ViewBuilder let row: (QuickSwitcherCommand, Int) -> Row
 
@@ -132,10 +132,10 @@ struct QuickSwitcherCommandsSection<Row: View>: View {
 }
 
 struct QuickSwitcherActiveSessionsSection<Row: View>: View {
-  let sessions: [RootSessionRecord]
+  let sessions: [RootSessionNode]
   let isCompactLayout: Bool
   let sessionStartIndex: Int
-  @ViewBuilder let row: (RootSessionRecord, Int) -> Row
+  @ViewBuilder let row: (RootSessionNode, Int) -> Row
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -165,7 +165,7 @@ struct QuickSwitcherActiveSessionsSection<Row: View>: View {
 }
 
 struct QuickSwitcherRecentSessionsSection<Row: View>: View {
-  let sessions: [RootSessionRecord]
+  let sessions: [RootSessionNode]
   let isCompactLayout: Bool
   let searchQuery: String
   let isExpanded: Bool
@@ -173,7 +173,7 @@ struct QuickSwitcherRecentSessionsSection<Row: View>: View {
   let sessionStartIndex: Int
   let activeSessionCount: Int
   let onToggleExpanded: () -> Void
-  @ViewBuilder let row: (RootSessionRecord, Int) -> Row
+  @ViewBuilder let row: (RootSessionNode, Int) -> Row
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {

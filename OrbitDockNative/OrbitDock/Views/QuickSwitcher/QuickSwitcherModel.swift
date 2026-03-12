@@ -4,7 +4,7 @@ struct QuickSwitcherState {
   var searchText = ""
   var selectedIndex = 0
   var hoveredIndex: Int?
-  var renamingSession: RootSessionRecord?
+  var renamingSession: RootSessionNode?
   var renameText = ""
   var targetSessionScopedID: String?
   var isRecentExpanded = false

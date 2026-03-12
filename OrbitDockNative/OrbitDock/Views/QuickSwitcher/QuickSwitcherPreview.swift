@@ -6,82 +6,133 @@ import SwiftUI
       .ignoresSafeArea()
 
     QuickSwitcher(
-      sessions: [
-        RootSessionRecord(summary: SessionSummary(session: Session(
-          id: "1",
-          projectPath: "/Users/developer/Developer/vizzly-cli",
-          projectName: "vizzly-cli",
-          branch: "feat/auth",
-          model: "claude-opus-4-5-20251101",
-          contextLabel: "Auth refactor",
-          transcriptPath: nil,
-          status: .active,
-          workStatus: .working,
-          startedAt: Date(),
-          endedAt: nil,
-          endReason: nil,
-          totalTokens: 0,
-          totalCostUSD: 0,
-          lastActivityAt: nil,
-          lastTool: nil,
-          lastToolAt: nil,
-          promptCount: 0,
-          toolCount: 0,
-          terminalSessionId: nil,
-          terminalApp: nil
-        ))),
-        RootSessionRecord(summary: SessionSummary(session: Session(
-          id: "2",
-          projectPath: "/Users/developer/Developer/backchannel",
-          projectName: "backchannel",
-          branch: "main",
-          model: "claude-sonnet-4-20250514",
-          contextLabel: "API review",
-          transcriptPath: nil,
-          status: .active,
-          workStatus: .waiting,
-          startedAt: Date(),
-          endedAt: nil,
-          endReason: nil,
-          totalTokens: 0,
-          totalCostUSD: 0,
-          lastActivityAt: nil,
-          lastTool: nil,
-          lastToolAt: nil,
-          promptCount: 0,
-          toolCount: 0,
-          terminalSessionId: nil,
-          terminalApp: nil
-        ))),
-        RootSessionRecord(summary: SessionSummary(session: Session(
-          id: "3",
-          projectPath: "/Users/developer/Developer/docs",
-          projectName: "docs",
-          branch: "main",
-          model: "claude-haiku-3-5-20241022",
-          contextLabel: nil,
-          transcriptPath: nil,
-          status: .ended,
-          workStatus: .unknown,
-          startedAt: Date().addingTimeInterval(-7_200),
-          endedAt: Date().addingTimeInterval(-3_600),
-          endReason: nil,
-          totalTokens: 0,
-          totalCostUSD: 0,
-          lastActivityAt: nil,
-          lastTool: nil,
-          lastToolAt: nil,
-          promptCount: 0,
-          toolCount: 0,
-          terminalSessionId: nil,
-          terminalApp: nil
-        ))),
-      ],
       onQuickLaunchClaude: nil,
       onQuickLaunchCodex: nil
     )
     .environment(AppRouter())
+    .environment(quickSwitcherPreviewRootShellStore())
   }
   .frame(width: 800, height: 600)
   .environment(SessionStore())
+}
+
+private func quickSwitcherPreviewNode(
+  id: String,
+  projectPath: String,
+  projectName: String,
+  branch: String?,
+  model: String?,
+  contextLine: String?,
+  status: Session.SessionStatus,
+  workStatus: Session.WorkStatus,
+  startedAt: Date,
+  endedAt: Date? = nil
+) -> RootSessionNode {
+  let attentionReason: Session.AttentionReason = switch workStatus {
+    case .permission: .awaitingPermission
+    case .waiting: .awaitingReply
+    default: .none
+  }
+  let listStatus: RootSessionListStatus = switch (status, attentionReason) {
+    case (.ended, _):
+      .ended
+    case (_, .awaitingPermission):
+      .permission
+    case (_, .awaitingQuestion):
+      .question
+    case (.active, _):
+      workStatus == .working ? .working : .reply
+    default:
+      .ended
+  }
+  let displayStatus: SessionDisplayStatus = switch listStatus {
+    case .working: .working
+    case .permission: .permission
+    case .question: .question
+    case .reply: .reply
+    case .ended: .ended
+  }
+  return RootSessionNode(
+    sessionId: id,
+    sessionRef: SessionRef(endpointId: UUID(), sessionId: id),
+    endpointName: "Local",
+    endpointConnectionStatus: .connected,
+    provider: .claude,
+    status: status,
+    workStatus: workStatus,
+    attentionReason: attentionReason,
+    listStatus: listStatus,
+    displayStatus: displayStatus,
+    title: projectName,
+    titleSortKey: projectName.lowercased(),
+    searchText: [projectName, branch, model, contextLine].compactMap { $0 }.joined(separator: " "),
+    customName: nil,
+    contextLine: contextLine,
+    projectPath: projectPath,
+    projectName: projectName,
+    projectKey: projectPath,
+    branch: branch,
+    model: model,
+    startedAt: startedAt,
+    lastActivityAt: endedAt ?? startedAt,
+    unreadCount: 0,
+    pendingToolName: nil,
+    repositoryRoot: nil,
+    isWorktree: false,
+    worktreeId: nil,
+    codexIntegrationMode: nil,
+    claudeIntegrationMode: .direct,
+    effort: nil,
+    totalTokens: 0,
+    totalCostUSD: 0,
+    isActive: status == .active,
+    showsInMissionControl: SessionSemantics.showsInMissionControl(status: status, endpointConnectionStatus: .connected),
+    needsAttention: SessionSemantics.needsAttention(status: status, attentionReason: attentionReason),
+    isReady: SessionSemantics.isReady(status: status, attentionReason: attentionReason),
+    allowsUserNotifications: true
+  )
+}
+
+private func quickSwitcherPreviewRootShellStore() -> RootShellStore {
+  let store = RootShellStore()
+  store.apply(.seed(
+    endpointId: UUID(),
+    records: [
+      quickSwitcherPreviewNode(
+        id: "1",
+        projectPath: "/Users/developer/Developer/vizzly-cli",
+        projectName: "vizzly-cli",
+        branch: "feat/auth",
+        model: "claude-opus-4-5-20251101",
+        contextLine: "Auth refactor",
+        status: .active,
+        workStatus: .working,
+        startedAt: Date()
+      ),
+      quickSwitcherPreviewNode(
+        id: "2",
+        projectPath: "/Users/developer/Developer/backchannel",
+        projectName: "backchannel",
+        branch: "main",
+        model: "claude-sonnet-4-20250514",
+        contextLine: "API review",
+        status: .active,
+        workStatus: .waiting,
+        startedAt: Date()
+      ),
+      quickSwitcherPreviewNode(
+        id: "3",
+        projectPath: "/Users/developer/Developer/docs",
+        projectName: "docs",
+        branch: "main",
+        model: "claude-haiku-3-5-20241022",
+        contextLine: nil,
+        status: .ended,
+        workStatus: .unknown,
+        startedAt: Date().addingTimeInterval(-7_200),
+        endedAt: Date().addingTimeInterval(-3_600)
+      ),
+    ]
+  ))
+  return store
 }

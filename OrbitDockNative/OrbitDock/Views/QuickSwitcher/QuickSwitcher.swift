@@ -14,10 +14,10 @@ import SwiftUI
 
 struct QuickSwitcher: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(RootShellStore.self) private var rootShellStore
   @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
-  let sessions: [RootSessionRecord]
 
   // Quick launch callbacks
   let onQuickLaunchClaude: ((String) -> Void)?
@@ -29,7 +29,7 @@ struct QuickSwitcher: View {
   /// The session currently being viewed (for commands to act on)
   private var viewState: QuickSwitcherViewState {
     QuickSwitcherViewState.make(
-      sessions: sessions,
+      sessions: rootShellStore.records(),
       state: quickSwitcherState,
       selectedScopedID: router.selectedScopedID,
       isCompactLayout: isCompactLayout
@@ -150,7 +150,7 @@ struct QuickSwitcher: View {
         router.openNewSession(provider: provider)
         router.closeQuickSwitcher()
       case .renameSession(let session):
-        quickSwitcherState.renameText = session.customName ?? ""
+        quickSwitcherState.renameText = sessionObservable(for: session).customName ?? ""
         quickSwitcherState.renamingSession = session
       case .openInFinder(let path):
         _ = Platform.services.revealInFileBrowser(path)
@@ -287,7 +287,7 @@ struct QuickSwitcher: View {
 
   // MARK: - Switcher Row
 
-  private func switcherRow(session: RootSessionRecord, index: Int) -> some View {
+  private func switcherRow(session: RootSessionNode, index: Int) -> some View {
     QuickSwitcherSessionRow(
       session: session,
       index: index,
@@ -389,7 +389,7 @@ struct QuickSwitcher: View {
       return
     }
 
-    quickSwitcherState.renameText = session.customName ?? ""
+    quickSwitcherState.renameText = sessionObservable(for: session).customName ?? ""
     quickSwitcherState.renamingSession = session
   }
 
@@ -401,12 +401,12 @@ struct QuickSwitcher: View {
     }
   }
 
-  private func appState(for session: RootSessionRecord) -> SessionStore {
-    runtimeRegistry.sessionStore(for: session, fallback: serverState)
+  private func appState(for session: RootSessionNode) -> SessionStore {
+    runtimeRegistry.sessionStore(for: session.endpointId, fallback: serverState)
   }
 
-  private func sessionObservable(for session: RootSessionRecord) -> SessionObservable {
-    runtimeRegistry.sessionObservable(for: session, fallback: serverState)
+  private func sessionObservable(for session: RootSessionNode) -> SessionObservable {
+    appState(for: session).session(session.sessionId)
   }
 
   // MARK: - Quick Launch

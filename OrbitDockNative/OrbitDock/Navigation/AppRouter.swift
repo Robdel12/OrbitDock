@@ -78,7 +78,7 @@ final class AppRouter {
     selectedEndpointId = ref.endpointId
   }
 
-  func selectSession(scopedID: String, store: UnifiedSessionsStore) {
+  func selectSession(scopedID: String, store: RootShellStore) {
     guard let ref = store.sessionRef(for: scopedID) else {
       selectedSessionRef = nil
       return
@@ -125,7 +125,7 @@ final class AppRouter {
   func handleExternalNavigation(
     sessionID: String,
     endpointId: UUID?,
-    store: UnifiedSessionsStore,
+    store: RootShellStore,
     fallbackEndpointId: UUID?
   ) {
     if let ref = AppExternalNavigationPlanner.resolvedSessionRef(
@@ -133,7 +133,7 @@ final class AppRouter {
       explicitEndpointId: endpointId,
       selectedEndpointId: selectedEndpointId,
       fallbackEndpointId: fallbackEndpointId,
-      unifiedSessionsStore: store
+      rootShellStore: store
     ) {
       selectSession(ref)
     }

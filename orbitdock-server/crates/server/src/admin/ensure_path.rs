@@ -1,7 +1,7 @@
-//! `orbitdock-server ensure-path` — ensure the server binary directory is on PATH.
+//! `orbitdock ensure-path` — ensure the server binary directory is on PATH.
 //!
 //! Adds the current binary directory to a shell profile when missing so
-//! `orbitdock-server` is easy to run from terminal sessions.
+//! `orbitdock` is easy to run from terminal sessions.
 
 use std::ffi::OsStr;
 use std::fs::OpenOptions;

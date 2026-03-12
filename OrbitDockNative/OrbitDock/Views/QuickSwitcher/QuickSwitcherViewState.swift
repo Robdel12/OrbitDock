@@ -2,8 +2,8 @@ import SwiftUI
 
 struct QuickSwitcherViewState {
   let isCompactLayout: Bool
-  let currentSession: RootSessionRecord?
-  let targetSession: RootSessionRecord?
+  let currentSession: RootSessionNode?
+  let targetSession: RootSessionNode?
   let queryPlan: QuickSwitcherQueryPlan
   let commands: [QuickSwitcherCommand]
   let filteredCommands: [QuickSwitcherCommand]
@@ -12,10 +12,10 @@ struct QuickSwitcherViewState {
   let recentProjects: [ServerRecentProject]
 
   var searchQuery: String { queryPlan.normalizedQuery }
-  var filteredSessions: [RootSessionRecord] { projection.filteredSessions }
-  var activeSessions: [RootSessionRecord] { projection.activeSessions }
-  var recentSessions: [RootSessionRecord] { projection.recentSessions }
-  var allVisibleSessions: [RootSessionRecord] { projection.allVisibleSessions }
+  var filteredSessions: [RootSessionNode] { projection.filteredSessions }
+  var activeSessions: [RootSessionNode] { projection.activeSessions }
+  var recentSessions: [RootSessionNode] { projection.recentSessions }
+  var allVisibleSessions: [RootSessionNode] { projection.allVisibleSessions }
   var totalItems: Int { projection.totalItems }
   var commandCount: Int { projection.commandCount }
   var dashboardIndex: Int { projection.dashboardIndex }
@@ -25,7 +25,7 @@ struct QuickSwitcherViewState {
   var isEmptyState: Bool { allVisibleSessions.isEmpty && filteredCommands.isEmpty && !searchQuery.isEmpty }
 
   static func make(
-    sessions: [RootSessionRecord],
+    sessions: [RootSessionNode],
     state: QuickSwitcherState,
     selectedScopedID: String?,
     isCompactLayout: Bool
@@ -66,19 +66,4 @@ struct QuickSwitcherViewState {
       recentProjects: state.recentProjects
     )
   }
-
-  static func make(
-    sessions: [SessionSummary],
-    state: QuickSwitcherState,
-    selectedScopedID: String?,
-    isCompactLayout: Bool
-  ) -> QuickSwitcherViewState {
-    make(
-      sessions: sessions.map(RootSessionRecord.init(summary:)),
-      state: state,
-      selectedScopedID: selectedScopedID,
-      isCompactLayout: isCompactLayout
-    )
-  }
-
 }

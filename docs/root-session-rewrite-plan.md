@@ -1,95 +1,176 @@
-# Root Session Rewrite Plan
+# Root Shell Rewrite Plan
 
 ## Why We Are Doing This
 
-The current root-session path is still carrying too much baggage.
+The current root-session architecture is still paying the wrong costs.
 
-We already moved off full `[Session]` in a lot of places, and that was the right direction. But profiling is still telling us the same story:
+We have already reduced a lot of obvious baggage:
+- full session snapshots no longer hydrate conversations
+- root surfaces no longer depend on the heaviest `Session` shape
+- conversation loading is paged
+- detail state is richer and more isolated than it was before
 
-- root SwiftUI surfaces are doing expensive work they should never do
-- session list sorting still reaches into computed display semantics
-- display-name derivation still does string cleaning and XML stripping on the hot path
-- the app is paying detail-view costs for list-view needs
+But profiling is still telling us the same core story:
+- the main thread is still dominated by SwiftUI graph churn
+- root arrays are still being replaced and compared too often
+- even the “lighter” root record path is still too broad and too chatty
+- passive-session bursts still invalidate too much of the app shell
 
-That is not a tuning problem anymore. It is a modeling problem.
+At this point, this is not a tuning problem.
+It is not a sorting problem.
+It is not a regex problem.
 
-The fix is to replace the root session projection spine with a truly inert, projection-first architecture.
+It is an architecture problem.
 
-## The Design Goal
+The right fix is to delete and replace the root UI underpinning while keeping the visible UI mostly intact.
 
-Make one thing true:
+## The Goal
 
-- detail state stays rich
-- root state stays tiny
-- projections are pure and precomputed
-- root UI never performs expensive semantic work at render/sort time
+Make these things true:
 
-In practice, that means:
+- root state is tiny, inert, and incremental
+- detail state is rich, isolated, and lazy
+- root surfaces never consume session detail models
+- root updates are applied by reducer-like transforms, not broad recomputation
+- root views render stored values only
+- no root hot path computes titles, sort keys, search text, or display semantics
 
-- the dashboard
-- quick switcher
-- menu bar
-- attention/toast/notification surfaces
-- any root navigation shell
+This is the SwiftUI-appropriate shape too:
+- tiny observable owners
+- narrow invalidation
+- stable identity
+- pure transforms in the middle
+- side effects at the boundaries
 
-should all run on tiny stored values, not on `Session` and not on "summary types" that still compute their own display semantics.
+## Architectural Principles
 
-## What The Current API Gets Right
+### 1. Root and Detail Must Be Separate Systems
 
-The server is not the main problem.
+The root shell should answer questions like:
+- what sessions exist?
+- which ones need attention?
+- what should the dashboard show?
+- what should quick switcher show?
+- what should the menu bar show?
 
-What is already good:
+The detail layer should answer questions like:
+- what is happening in this conversation?
+- what approvals are pending?
+- what workers exist and what are they doing?
+- what is the current timeline state?
 
-- `GET /api/sessions` exists and already returns list-oriented session data
-- `GET /api/sessions/{id}` is now metadata-first by default
-- conversation history is already separate
-- WebSocket already has list and delta concepts:
-  - `sessions_list`
-  - `session_created`
-  - `session_delta`
-- the server is already authoritative for status, approvals, unread counts, worker state, and config
+Those are different workloads and they should not share the same in-memory model.
 
-So this is not a case where the API forces us into a bad client architecture.
+### 2. Root State Must Be Stored-Value Only
 
-## Where The Contract Still Hurts
+No computed display semantics on read.
+No fallback title logic in view models.
+No sort-key construction at compare time.
+No search-corpus building at filter time.
+No regex or normalization on hot paths.
 
-Even though the server is not the root cause, the contract still nudges the client into doing too much work:
+If the root UI needs a value, that value should already exist.
 
-- `SessionSummary` is still too broad for true root-list use
-- it includes many fields that root surfaces do not need
-- it does not include a server-authored, precomputed display title
-- it does not include a server-authored sort key
-- it does not include a server-authored search corpus
-- it does not include a server-authored list-status value
-- list semantics like title fallback and text cleanup still happen client-side
-- the same summary shape is being asked to serve:
-  - session list
-  - dashboard cards
-  - quick switcher
-  - toasts/attention
-  - creation/resume responses
+### 3. Root Updates Must Be Incremental
 
-That is convenient, but it is not cheap.
+The root shell should not replace `[Session]`, `[SessionSummary]`, or `[RootSessionRecord]` on every change burst.
 
-## Recommended API Adjustments
+It should instead:
+- upsert one record
+- remove one record
+- update one endpoint bucket
+- update one attention counter
+- update one selected row
 
-These are intentionally small and high-leverage.
+The root store can still expose arrays to SwiftUI, but those arrays must be materialized from normalized state only when needed and with very narrow churn.
 
-### 1. Add a true root-list payload
+### 4. Projection Work Should Be Pure
 
-Introduce a dedicated server type for root UI, for example:
+The root shell should be built out of:
+- raw server contracts
+- a normalized root store
+- pure projection functions for each surface
 
+That means:
+- mutation at the boundary
+- pure transforms in the middle
+- dumb render models at the edge
+
+## What We Should Delete
+
+These are the main delete-and-replace targets.
+
+### Delete the current root coordinator spine
+- [WindowSessionCoordinator.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Services/WindowSessionCoordinator.swift)
+- [UnifiedSessionsStore.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Services/Server/UnifiedSessionsStore.swift)
+
+Why:
+- they still centralize too many responsibilities
+- they still rebuild root arrays too broadly
+- they still mix orchestration, notification, projection, and root selection concerns
+
+### Delete root list ownership from session stores
+- [SessionStore.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Services/Server/SessionStore.swift)
+- [SessionStore+Events.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Services/Server/SessionStore+Events.swift)
+
+Why:
+- the per-session store should not also own root-shell collection state
+- this is where detail state leaks into root-state churn
+
+### Delete overloaded root models
+- [SessionSummary.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Models/SessionSummary.swift)
+- [RootSessionRecord.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Models/RootSessionRecord.swift)
+
+Why:
+- they are still trying to serve too many surfaces
+- they still carry compatibility baggage
+- they still encourage “one root summary for everything” thinking
+
+## What We Should Keep
+
+These are good and should remain the detail path.
+
+### Keep rich detail state
+- `SessionStore.session(_:)`
+- `SessionStore.conversation(_:)`
+- `SessionObservable`
+- rich session subscribe/unsubscribe
+- conversation paging
+- worker and approval detail state
+
+### Keep UI surfaces
+- [ContentView.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/ContentView.swift)
+- [DashboardView.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Views/Dashboard/Scene/DashboardView.swift)
+- [QuickSwitcher.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Views/QuickSwitcher/QuickSwitcher.swift)
+- [MenuBarView.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Views/MenuBar/MenuBarView.swift)
+- existing navigation shell views
+
+We are replacing the underpinning, not the visual product.
+
+### Keep root-adjacent responsibilities, but re-home them
+- [AttentionService.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Services/AttentionService.swift)
+- [ToastManager.swift](/Users/robertdeluca/Developer/OrbitDock/OrbitDockNative/OrbitDock/Services/ToastManager.swift)
+
+They should survive, but feed from the new root projections, not from a giant root coordinator.
+
+## API Changes We Should Make
+
+The API is not the main problem, but it can make the rewrite much cleaner.
+
+### 1. Introduce a true root-safe list contract
+
+Add a dedicated protocol type, likely:
 - `SessionListItem`
 
-This should be smaller than `SessionSummary` and include only list-safe stored values:
+This should be the root-shell source of truth.
 
+It should include only stored values needed for root surfaces, such as:
 - `id`
 - endpoint identity
 - provider
-- status / work status
-- attention reason or list-level display status
+- connection/display status
 - unread count
-- started / last-activity timestamps
+- started/last-activity timestamps
 - project name
 - branch
 - model
@@ -98,398 +179,237 @@ This should be smaller than `SessionSummary` and include only list-safe stored v
 - `display_search_text`
 - one short `context_line`
 - `list_status`
-- lightweight direct/passive / integration flags
+- direct/passive flags
+- lightweight attention fields
+- lightweight token/cost totals if the dashboard needs them
 
-The point is not to make it "comprehensive." The point is to make it inert.
+This should be inert. No root semantics should be left to the client.
 
-### 2. Use that list item everywhere root state flows
+### 2. Add a root-safe live delta event
 
-Use `SessionListItem` for:
+We should add a websocket event like:
+- `session_list_item_updated`
 
-- `GET /api/sessions`
+It should carry exactly one `SessionListItem`.
+
+The root shell should consume:
 - `sessions_list`
 - `session_created`
-- `session_delta` for the root-safe subset of live fields
+- `session_list_item_updated`
+- `session_ended`
 
-Keep richer session detail on:
+The root shell should not interpret rich `session_snapshot` and `session_delta` events.
 
+### 3. Keep detail contracts rich
+
+Do not try to collapse detail and list payloads into one contract.
+
+Keep these rich:
 - `GET /api/sessions/{id}`
 - `session_snapshot`
-- detail-specific REST endpoints
+- `session_delta`
+- conversation/history endpoints
+- approval and worker detail endpoints
 
-### 3. Move title/sort semantics to the server
+That split is good.
 
-The server should author:
+## The Replacement Architecture
 
-- `display_title`
-- `display_title_sort_key`
-- `display_search_text`
+## Layer 1: Raw server contracts
 
-This is a great place to stop client-side `SessionSemantics.displayName(...)` churn for root surfaces.
+Keep raw contracts dumb.
 
-If XML/tag cleanup is part of the product semantics, do it once on the server.
-
-### 4. Optionally add a root-level display status
-
-We may also want a small server-authored field like:
-
-- `list_status`
-
-This would collapse "active/working/permission/question/reply/ended" into the root-facing display state we actually render.
-
-This is optional, but it would remove one more layer of client-side semantic mapping.
-
-### 5. Add a root-delta shape
-
-The root shell should not need to reinterpret rich session deltas just because one lightweight list field changed.
-
-The clean end state is:
-
-- a `session_list_delta` event or equivalent root-shaped delta payload
-- only list-safe fields included
-- no transcript or detail baggage
-
-This is not strictly required for the first migration, but it is the right target if we want passive and multi-agent session counts to scale.
-
-### 6. Keep detail contracts rich
-
-Do not try to turn detail/session APIs into list payloads.
-
-That split is healthy:
-
-- list contracts are tiny
-- detail contracts are rich
-
-## What We Should Delete Or Stop Using
-
-These are the main patterns to retire:
-
-- using `Session` as a root list model
-- using `SessionSummary` computed properties for root sorting or filtering
-- any root sorting that calls `displayName`
-- any root list code that normalizes strings during comparison
-- any shared "one model serves every surface" assumption
-
-## New Client Architecture
-
-### Layer 1: Raw server contracts
-
-Keep these dumb.
-
+Examples:
 - `ServerSessionListItem`
 - `ServerSessionState`
 - `ServerStateChanges`
+- websocket root events
 
-### Layer 2: Pure root projections
+These are input data, not view models.
 
-Create small stored render models, likely one per major root surface:
+## Layer 2: RootShellStore
 
-- `RootSessionRecord`
-- `DashboardSessionCardModel`
-- `QuickSwitcherSessionModel`
-- `AttentionSessionModel`
-- `MenuBarSessionModel`
-- `LibrarySessionRowModel`
+Build a brand new root store.
 
-These should be plain stored values.
+### Responsibilities
+- ingest root-safe server events
+- normalize root items by scoped session id
+- maintain endpoint buckets and lightweight counts
+- maintain ordered ids separately from record storage
+- emit surface-specific projection snapshots
 
-No expensive computed properties.
-No regex.
-No fallback chains at render time.
+### Non-responsibilities
+- conversation data
+- approval queue detail
+- worker detail
+- timeline detail
+- session restore/resume behavior
+- rich session observables
 
-`RootSessionRecord` is the only shared root input. Every other root model is a pure surface-specific projection from that smaller record.
+### Proposed shape
+- `recordsByScopedID: [String: RootRecord]`
+- `orderedScopedIDs: [String]`
+- `endpointBuckets: [UUID: EndpointRootBucket]`
+- `selectionState`
+- `attentionState`
+- `surfaceCaches`
 
-### Layer 3: Detail state stays separate
+The store should own tiny mutable state.
+The transforms inside it should be mostly pure.
 
-Keep using:
+## Layer 3: Surface Projections
 
+Build separate stored-value models per root surface.
+
+Examples:
+- `DashboardSessionItem`
+- `QuickSwitcherSessionItem`
+- `MenuBarSessionItem`
+- `AttentionSessionItem`
+- `LibrarySessionItem`
+
+These should all be projected from `RootRecord` through pure functions.
+
+No one shared “summary” type should serve every surface.
+
+## Layer 4: Detail remains separate
+
+Selected session detail should continue to flow through:
 - `SessionStore`
 - `SessionObservable`
+- `ConversationStore`
 
-for selected-session/detail-only behavior.
+The root shell may know the selected session id.
+It should not own the selected session’s rich data.
 
-That path can stay richer because it is not supposed to power the entire app shell.
+## Ownership Boundaries
 
-## Recommended Ownership Boundaries
+### Server owns
+- root-safe title fallback semantics
+- sort keys
+- search corpus
+- root-safe status semantics
+- root-safe lightweight totals
 
-### Server side
-
-Own:
-
-- title fallback semantics for root lists
-- sort-key generation
-- search-text generation
-- root-list payload shaping
-
-### Root client state
-
-Own:
-
-- merging endpoint-scoped list payloads
-- pure per-surface projection transforms
-- selection / navigation state
+### Root client store owns
+- normalized root records
 - endpoint filtering
+- ordering
+- selection
+- attention aggregation
+- pure surface projections
 
-### Detail client state
-
-Own:
-
-- live session detail
+### Detail client stores own
+- conversation
 - approvals
 - workers
-- conversation
-- rich session controls
+- live session state
+- control-plane detail
 
-## Migration Plan
+## Migration Sequence
 
-### Phase 1: Add the new server payload
+### Phase 1: API groundwork
 
-Server work:
+Server:
+- add `SessionListItem` if not already fully root-safe
+- add server-authored display title / sort key / search text / list status
+- add `session_list_item_updated`
+- keep existing rich contracts intact
 
-- add `SessionListItem` in protocol
-- include `display_title`, `display_title_sort_key`, `display_search_text`, and `list_status`
-- add server adapters from session domain to list item
-- change `GET /api/sessions` to return list items
-- change WS `sessions_list` and `session_created` to emit list items
-- add a list-safe delta path for root updates
+### Phase 2: New root store in parallel
 
-Do not remove existing `SessionSummary` yet if detail/create paths still need it.
+Client:
+- build `RootShellStore`
+- build normalized storage and reducers
+- build pure surface projections
+- do not yet swap the UI
 
-### Phase 2: Add new Swift contracts and adapters
+### Phase 3: Surface migration
 
-Client work:
-
-- add `ServerSessionListItem`
-- add `RootSessionRecord` as the only shared root input type
-- make the root store ingest only the new list item payload
-
-At this phase, detail views still work exactly the same way.
-
-### Phase 3: Replace the root projection spine
-
-Replace:
-
-- `UnifiedSessionsStore`
-- `WindowSessionCoordinator`
-- root dashboard/menu/quick-switcher inputs
-
-with summary-first root records and small pure projections.
-
-Important:
-
-- root sorting must use stored sort keys only
-- root filtering/search must use stored search text only
-- root surfaces must not touch `SessionSemantics.displayName(...)`
-- root surfaces must not touch `SessionSummaryItem`
-- root surfaces must not reach into `SessionObservable`
-
-### Phase 4: Strip old root dependencies
-
-Once the new root path is stable:
-
-- remove old `SessionSummary`-based root adapters
-- stop using `SessionSummaryItem` for root-only surfaces
-- keep `SessionSummary` only where it still legitimately belongs, or remove it entirely if it becomes redundant
-- delete compatibility overloads that still accept `[Session]` for root planners
-
-### Phase 5: Move detail-only semantics out of the root path
-
-This is the cleanup pass that makes the rewrite stick:
-
-- split `SessionSemantics` into root-safe vs detail-only helpers, or remove root usage entirely
-- root notification/attention paths stop consulting `SessionObservable`
-- library and quick-switcher planners stop supporting both `[Session]` and `[SessionSummary]`
-- root views receive already-projected surface models instead of doing last-mile derivation in `body`
-
-### Phase 6: Profile and tighten
-
-After the rewrite:
-
-- profile idle passive sessions
-- profile 10+ CLI / passive sessions
-- profile 50+ synthetic summaries if we can
-
-The success bar is:
-
-- root CPU stays low when not in a conversation
-- passive session churn does not peg the main thread
-- session sorting/filtering no longer shows semantic string work on the hot path
-- attention/notification updates stay on root-safe data only
-
-### Profiling Targets
-
-These are the concrete signatures we want to disappear from the root path:
-
-- `Session.displayName.getter`
-- `SessionSemantics.displayName(...)`
-- `String.strippingXMLTags()`
-- `NSRegularExpression.init(pattern:options:)`
-- `Array<Session>.==`
-- broad `WindowSessionCoordinator.refreshSessions()` churn
-
-The first proof pass after the rewrite should capture:
-
-- idle dashboard with 10 passive CLIs
-- idle dashboard with 25+ sessions if we can simulate it
-- quick switcher open with live query typing
-- one burst of root list updates while no conversation is open
-
-And we should add signposts around:
-
-- root snapshot creation
-- root sort
-- quick switcher projection
-- activity stream projection
-- attention/toast update
-
-## Parallel Worker Lanes
-
-These can move in parallel with very little overlap.
-
-### Lane A: Server contract lane
-
-Own:
-
-- protocol types
-- REST list endpoint
-- WS list/create payloads
-- server-side title/sort-key shaping
-
-Key files:
-
-- `orbitdock-server/crates/protocol/src/types.rs`
-- `orbitdock-server/crates/protocol/src/server.rs`
-- `orbitdock-server/crates/server/src/runtime/session_registry.rs`
-- `orbitdock-server/crates/server/src/domain/sessions/session.rs`
-- `orbitdock-server/crates/server/src/transport/http/sessions.rs`
-
-### Lane B: Root client contracts lane
-
-Own:
-
-- Swift contract decoding for the new list item
-- root internal record model
-- adapter functions from server list item to root record
-
-Key files:
-
-- `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerSessionContracts.swift`
-- `OrbitDockNative/OrbitDock/Services/Server/ServerTypeAdapters.swift`
-- new root-model files under `OrbitDockNative/OrbitDock/Models/`
-
-### Lane C: Root projection lane
-
-Own:
-
-- replacement for `UnifiedSessionsStore`
-- replacement for `WindowSessionCoordinator` root list flow
-- pure projection builders
-
-Key files:
-
-- `OrbitDockNative/OrbitDock/Services/Server/UnifiedSessionsStore.swift`
-- `OrbitDockNative/OrbitDock/Services/WindowSessionCoordinator.swift`
-- `OrbitDockNative/OrbitDock/ContentView.swift`
-
-### Lane D: Surface migration lane
-
-Own:
-
+Move these one by one onto the new root store:
 - dashboard
 - quick switcher
 - menu bar
-- attention/toasts/notifications
+- attention
+- toast/notification
+- root selection/navigation support
 
-Key files:
+### Phase 4: Delete old spine
 
-- `OrbitDockNative/OrbitDock/Views/Dashboard/`
-- `OrbitDockNative/OrbitDock/Views/QuickSwitcher/`
-- `OrbitDockNative/OrbitDock/Views/MenuBar/MenuBarView.swift`
-- `OrbitDockNative/OrbitDock/Services/AttentionService.swift`
-- `OrbitDockNative/OrbitDock/Services/ToastManager.swift`
-- `OrbitDockNative/OrbitDock/Services/NotificationManager.swift`
+Delete:
+- `WindowSessionCoordinator`
+- `UnifiedSessionsStore`
+- root list ownership in `SessionStore`
+- old root summary compatibility types
 
-### Lane E: Verification lane
+### Phase 5: Validate under load
 
+Run profiling with many passive sessions and confirm:
+- root invalidation is narrow
+- main-thread CPU stays sane
+- dashboard and quick switcher remain responsive
+- opening detail views still works correctly
+
+## Worker Lanes
+
+### Lane A: Server contract lane
 Own:
+- protocol changes for `SessionListItem`
+- root-safe websocket delta event
+- server adapters and emitters
 
-- unit tests for pure projections
-- integration tests for root session updates
-- profiling notes / signposts
-
-Focus:
-
-- root session ordering
-- attention state
-- search/filter behavior
-- endpoint filtering
-- idle passive-session CPU behavior
-
-### Lane F: Dead-code and compatibility cleanup lane
-
+### Lane B: Root store lane
 Own:
+- `RootShellStore`
+- reducers
+- normalized storage
+- ordering and filtering
+- event ingestion
 
-- deleting `[Session]` root overloads
-- removing root dependencies on `SessionSummaryItem`
-- shrinking `SessionSummary` usage down to real detail or compatibility-only needs
+### Lane C: Surface projection lane
+Own:
+- `DashboardSessionItem`
+- `QuickSwitcherSessionItem`
+- `MenuBarSessionItem`
+- `AttentionSessionItem`
+- `LibrarySessionItem`
 
-Key files:
+### Lane D: Surface migration lane
+Own:
+- dashboard wiring
+- quick switcher wiring
+- menu bar wiring
+- notification/toast wiring
 
-- `OrbitDockNative/OrbitDock/Models/SessionSummary.swift`
-- `OrbitDockNative/OrbitDock/Views/QuickSwitcher/QuickSwitcherProjection.swift`
-- `OrbitDockNative/OrbitDock/Views/Library/LibraryArchivePlanner.swift`
-- `OrbitDockNative/OrbitDock/Services/AttentionService.swift`
+### Lane E: Cleanup lane
+Own:
+- deleting `WindowSessionCoordinator`
+- deleting `UnifiedSessionsStore`
+- deleting old root summary compatibility paths
 
-## Concrete Delete / Hollow-Out List
+### Lane F: Verification lane
+Own:
+- projection tests
+- reducer tests
+- root event-flow tests
+- synthetic passive-session stress fixture
+- profiling pass before and after swap
 
-These are the strongest candidates to replace instead of adapt:
-
-- `OrbitDockNative/OrbitDock/Services/Server/UnifiedSessionsStore.swift`
-- `OrbitDockNative/OrbitDock/Services/WindowSessionCoordinator.swift`
-
-These should be hollowed out so root surfaces stop leaning on `SessionSummary` semantics:
-
-- `OrbitDockNative/OrbitDock/Models/SessionSummary.swift`
-- `OrbitDockNative/OrbitDock/Views/QuickSwitcher/QuickSwitcherProjection.swift`
-- `OrbitDockNative/OrbitDock/Views/Library/LibraryArchivePlanner.swift`
-
-These should remain rich and detail-only:
-
-- `OrbitDockNative/OrbitDock/Models/Session.swift`
-- `OrbitDockNative/OrbitDock/Services/Server/SessionStore.swift`
-- `OrbitDockNative/OrbitDock/Services/Server/SessionObservable.swift`
-- `OrbitDockNative/OrbitDock/Views/SessionDetail/`
-
-## Working Principles For The Rewrite
-
-- root models must be stored-value only
-- root search/sort keys must be precomputed
-- root updates must be cheap to compare
-- detail state must not leak into root invalidation
-- if a root feature needs more data, change the API or projection layer instead of reaching sideways into detail state
-
-## Risk Notes
-
-The main risk is temporary duplication while both the old and new root paths coexist.
-
-That is acceptable.
-
-What we should avoid is half-adapting the old model again. If we take this on, the goal should be replacement, not another wrapper layer.
-
-## Definition Of Done
+## Definition of Done
 
 We are done when:
+- root UI no longer depends on detail models
+- root UI no longer rebuilds broad arrays on passive-session bursts
+- dashboard, quick switcher, menu bar, attention, and toast all run on root-safe stored values
+- the new root store is incremental and normalized
+- detail views still behave the same
+- profiling confirms passive-session load is cheap enough to scale
 
-- root UI no longer depends on `Session` or computed `SessionSummary` semantics
-- `GET /api/sessions` and root WS list payloads are cheap and purpose-built
-- root sorting/filtering uses stored values only
-- detail views still use the richer session path
-- profiling no longer shows root CPU dominated by session equality, display-name derivation, or regex/string normalization
+## What We Will Not Do
 
-## Recommendation
+- we will not rewrite the visible dashboard UI from scratch
+- we will not collapse detail state into root state again
+- we will not keep compatibility shims just because they are familiar
+- we will not let root surfaces compute semantics on the fly
 
-Yes, the API should change a little.
-
-But only a little.
-
-This is mostly a client architecture rewrite, and the server should support it by giving the client a better list-shaped contract instead of forcing it to derive list semantics from a richer session object.
+The whole point of this rewrite is to stop carrying the old baggage forward.

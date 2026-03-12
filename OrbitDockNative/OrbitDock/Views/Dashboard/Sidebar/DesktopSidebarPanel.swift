@@ -9,12 +9,12 @@
 import SwiftUI
 
 struct DesktopSidebarPanel: View {
-  let sessions: [RootSessionRecord]
+  let sessions: [RootSessionNode]
   let width: CGFloat
   @Binding var projectFilter: String?
-  let onSelectSession: (RootSessionRecord) -> Void
+  let onSelectSession: (RootSessionNode) -> Void
 
-  private var activeSessions: [RootSessionRecord] {
+  private var activeSessions: [RootSessionNode] {
     sessions.filter(\.showsInMissionControl)
       .sorted { lhs, rhs in
         let lhsDate = lhs.startedAt ?? lhs.lastActivityAt ?? .distantPast
@@ -109,7 +109,7 @@ struct DesktopSidebarPanel: View {
     }
   }
 
-  private func sidebarSessionRow(_ session: RootSessionRecord) -> some View {
+  private func sidebarSessionRow(_ session: RootSessionNode) -> some View {
     let status = SessionDisplayStatus.from(session)
     let label = session.displayName
 
@@ -156,7 +156,7 @@ struct DesktopSidebarPanel: View {
     .buttonStyle(.plain)
   }
 
-  private func sidebarTitleColor(for session: RootSessionRecord, status: SessionDisplayStatus) -> Color {
+  private func sidebarTitleColor(for session: RootSessionNode, status: SessionDisplayStatus) -> Color {
     if status.needsAttention {
       return status.color
     }

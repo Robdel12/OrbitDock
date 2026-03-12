@@ -203,7 +203,7 @@ struct QuickSwitcherProjectionTests {
     startedAt: Date? = nil,
     endedAt: Date? = nil,
     lastActivityAt: Date? = nil
-  ) -> RootSessionRecord {
+  ) -> RootSessionNode {
     var session = Session(
       id: id,
       projectPath: projectPath,
@@ -222,6 +222,6 @@ struct QuickSwitcherProjectionTests {
     session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
     session.endpointName = "Primary"
     session.endpointConnectionStatus = .connected
-    return RootSessionRecord(summary: SessionSummary(session: session))
+    return RootSessionNode(session: session)
   }
 }

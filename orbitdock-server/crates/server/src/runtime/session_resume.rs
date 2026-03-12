@@ -55,7 +55,7 @@ pub(crate) async fn launch_resumed_session(
 
     let session_id = session_id.to_string();
     let summary = prepared.summary.clone();
-    state.broadcast_to_list(ServerMessage::SessionCreated {
+    state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
         session: SessionListItem::from_summary(&summary),
     });
 

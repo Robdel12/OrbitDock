@@ -49,6 +49,9 @@ pub enum ServerMessage {
     SessionCreated {
         session: SessionListItem,
     },
+    SessionListItemUpdated {
+        session: SessionListItem,
+    },
     SessionEnded {
         session_id: String,
         reason: String,

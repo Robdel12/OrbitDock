@@ -11,12 +11,12 @@ import SwiftUI
 struct ActivityStreamToolbar: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-  let sessions: [RootSessionRecord]
+  let sessions: [RootSessionNode]
   @Binding var filter: ActiveSessionWorkbenchFilter
   @Binding var sort: ActiveSessionSort
   @Binding var providerFilter: ActiveSessionProviderFilter
 
-  private var allActiveSessions: [RootSessionRecord] {
+  private var allActiveSessions: [RootSessionNode] {
     sessions.filter(\.showsInMissionControl)
   }
 

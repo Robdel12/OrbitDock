@@ -62,7 +62,7 @@ struct QuickSwitcherSearchTransitionPlannerTests {
     #expect(transition.shouldLoadRecentProjects == false)
   }
 
-  private func makeSession(id: String) -> RootSessionRecord {
+  private func makeSession(id: String) -> RootSessionNode {
     var session = Session(
       id: id,
       projectPath: "/tmp/\(id)",
@@ -74,6 +74,6 @@ struct QuickSwitcherSearchTransitionPlannerTests {
     session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
     session.endpointName = "Primary"
     session.endpointConnectionStatus = .connected
-    return RootSessionRecord(summary: SessionSummary(session: session))
+    return RootSessionNode(session: session)
   }
 }

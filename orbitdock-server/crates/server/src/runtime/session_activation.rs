@@ -62,7 +62,7 @@ pub(crate) async fn reactivate_passive_and_prepare_subscribe(
         .await;
 
     if let Ok(summary) = actor.summary().await {
-        state.broadcast_to_list(ServerMessage::SessionCreated {
+        state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
             session: SessionListItem::from_summary(&summary),
         });
     }

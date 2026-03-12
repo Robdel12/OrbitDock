@@ -82,4 +82,45 @@ final class AttentionService {
 
     events = newEvents
   }
+
+  func update(
+    sessions: [RootSessionNode],
+    sessionObservable: (RootSessionNode) -> SessionObservable?
+  ) {
+    var newEvents: [AttentionEvent] = []
+
+    for session in sessions where session.showsInMissionControl {
+      let obs = sessionObservable(session)
+      let now = Date()
+
+      if session.workStatus == .permission || session.attentionReason == .awaitingPermission {
+        newEvents.append(AttentionEvent(
+          id: "attention-perm-\(session.scopedID)",
+          sessionId: session.scopedID,
+          type: .permissionRequired,
+          timestamp: now
+        ))
+      }
+
+      if session.attentionReason == .awaitingQuestion {
+        newEvents.append(AttentionEvent(
+          id: "attention-question-\(session.scopedID)",
+          sessionId: session.scopedID,
+          type: .questionWaiting,
+          timestamp: now
+        ))
+      }
+
+      if let obs, !obs.turnDiffs.isEmpty {
+        newEvents.append(AttentionEvent(
+          id: "attention-diff-\(session.scopedID)",
+          sessionId: session.scopedID,
+          type: .unreviewedDiff,
+          timestamp: now
+        ))
+      }
+    }
+
+    events = newEvents
+  }
 }

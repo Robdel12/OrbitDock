@@ -12,7 +12,7 @@ struct RenameSessionSheet: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
 
-  let session: RootSessionRecord
+  let session: RootSessionNode
   let initialText: String
   let onSave: (String) -> Void
   let onCancel: () -> Void
@@ -113,13 +113,13 @@ struct RenameSessionSheet: View {
           .foregroundStyle(.primary)
       }
 
-      if let summary = session.summary {
+      if let contextLine = session.contextLine {
         VStack(alignment: .leading, spacing: Spacing.sm_) {
           Text("\(session.provider.displayName)'s Title")
             .font(.system(size: TypeScale.meta, weight: .medium))
             .foregroundStyle(.secondary)
 
-          Text(summary.strippingXMLTags())
+          Text(contextLine.strippingXMLTags())
             .font(.system(size: TypeScale.caption))
             .foregroundStyle(.primary.opacity(0.8))
             .padding(.horizontal, Spacing.md_)

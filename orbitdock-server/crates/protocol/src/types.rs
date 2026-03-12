@@ -538,9 +538,12 @@ impl SessionSummary {
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
             unread_count: self.unread_count,
+            pending_tool_name: self.pending_tool_name.clone(),
             repository_root: self.repository_root.clone(),
             is_worktree: self.is_worktree,
             worktree_id: self.worktree_id.clone(),
+            total_tokens: self.token_usage.input_tokens + self.token_usage.output_tokens,
+            total_cost_usd: 0.0,
             display_title: self.display_title.clone(),
             display_title_sort_key: self.display_title_sort_key.clone(),
             display_search_text: self.display_search_text.clone(),
@@ -567,9 +570,12 @@ impl From<SessionSummary> for SessionListItem {
             started_at: summary.started_at,
             last_activity_at: summary.last_activity_at,
             unread_count: summary.unread_count,
+            pending_tool_name: summary.pending_tool_name,
             repository_root: summary.repository_root,
             is_worktree: summary.is_worktree,
             worktree_id: summary.worktree_id,
+            total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
+            total_cost_usd: 0.0,
             display_title: summary.display_title,
             display_title_sort_key: summary.display_title_sort_key,
             display_search_text: summary.display_search_text,
@@ -749,7 +755,7 @@ pub struct SessionState {
     pub unread_count: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionListItem {
     pub id: String,
     pub provider: Provider,
@@ -771,11 +777,17 @@ pub struct SessionListItem {
     #[serde(default)]
     pub unread_count: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_tool_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository_root: Option<String>,
     #[serde(default)]
     pub is_worktree: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_id: Option<String>,
+    #[serde(default)]
+    pub total_tokens: u64,
+    #[serde(default)]
+    pub total_cost_usd: f64,
     pub display_title: String,
     pub display_title_sort_key: String,
     pub display_search_text: String,
@@ -802,9 +814,12 @@ impl SessionListItem {
             started_at: summary.started_at.clone(),
             last_activity_at: summary.last_activity_at.clone(),
             unread_count: summary.unread_count,
+            pending_tool_name: summary.pending_tool_name.clone(),
             repository_root: summary.repository_root.clone(),
             is_worktree: summary.is_worktree,
             worktree_id: summary.worktree_id.clone(),
+            total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
+            total_cost_usd: 0.0,
             display_title: summary.display_title.clone(),
             display_title_sort_key: summary.display_title_sort_key.clone(),
             display_search_text: summary.display_search_text.clone(),

@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::{ServerMessage, SessionStatus, StateChanges, WorkStatus};
+use orbitdock_protocol::{ServerMessage, SessionListItem, SessionStatus, StateChanges, WorkStatus};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::warn;
@@ -355,6 +355,9 @@ pub async fn handle_session_command(
                         ..Default::default()
                     },
                 });
+                handle.broadcast(ServerMessage::SessionListItemUpdated {
+                    session: SessionListItem::from_summary(&handle.summary()),
+                });
             }
             let _ = reply.send(handle.unread_count());
         }
@@ -416,6 +419,7 @@ pub(crate) async fn dispatch_transition_input(
     persist_tx: &mpsc::Sender<PersistCommand>,
 ) {
     let now = chrono_now();
+    let previous_list_item = SessionListItem::from_summary(&handle.summary());
     let state = handle.extract_state();
     let (new_state, effects) = transition::transition(state, input, &now);
     handle.apply_state(new_state);
@@ -475,6 +479,13 @@ pub(crate) async fn dispatch_transition_input(
         handle.broadcast(ServerMessage::SessionDelta {
             session_id: handle.id().to_string(),
             changes,
+        });
+    }
+
+    let next_list_item = SessionListItem::from_summary(&handle.summary());
+    if next_list_item != previous_list_item {
+        handle.broadcast(ServerMessage::SessionListItemUpdated {
+            session: next_list_item,
         });
     }
 
@@ -613,6 +624,102 @@ mod tests {
             SubscribeResult::Snapshot { .. } => {
                 panic!("expected empty replay, not snapshot");
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn mark_read_broadcasts_root_safe_list_update() {
+        let (persist_tx, _persist_rx) = mpsc::channel(8);
+        let mut handle = SessionHandle::new(
+            "session-mark-read".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        handle.note_transition_message_append(&Message {
+            id: "assistant-1".to_string(),
+            session_id: String::new(),
+            sequence: None,
+            message_type: MessageType::Assistant,
+            content: "finished".to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            is_in_progress: false,
+            timestamp: "2026-03-12T10:00:00Z".to_string(),
+            duration_ms: None,
+            images: vec![],
+        });
+
+        let mut rx = handle.subscribe();
+        let (reply_tx, reply_rx) = oneshot::channel();
+
+        handle_session_command(
+            SessionCommand::MarkRead { reply: reply_tx },
+            &mut handle,
+            &persist_tx,
+        )
+        .await;
+
+        assert_eq!(reply_rx.await.expect("mark read reply"), 0);
+
+        let first = rx.recv().await.expect("expected unread delta");
+        match first {
+            ServerMessage::SessionDelta { changes, .. } => {
+                assert_eq!(changes.unread_count, Some(0));
+            }
+            other => panic!("expected SessionDelta, got {other:?}"),
+        }
+
+        let second = rx.recv().await.expect("expected root list update");
+        match second {
+            ServerMessage::SessionListItemUpdated { session } => {
+                assert_eq!(session.unread_count, 0);
+            }
+            other => panic!("expected SessionListItemUpdated, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn token_updates_broadcast_root_safe_list_update() {
+        let (persist_tx, _persist_rx) = mpsc::channel(8);
+        let mut handle = SessionHandle::new(
+            "session-tokens".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        let session_id = handle.id().to_string();
+        let mut rx = handle.subscribe();
+
+        dispatch_transition_input(
+            &session_id,
+            transition::Input::TokensUpdated {
+                usage: orbitdock_protocol::TokenUsage {
+                    input_tokens: 120,
+                    output_tokens: 30,
+                    cached_tokens: 10,
+                    context_window: 2_000,
+                },
+                snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::LifetimeTotals,
+            },
+            &mut handle,
+            &persist_tx,
+        )
+        .await;
+
+        let first = rx.recv().await.expect("expected TokensUpdated");
+        assert!(
+            matches!(first, ServerMessage::TokensUpdated { .. }),
+            "expected TokensUpdated, got {first:?}"
+        );
+
+        let second = rx.recv().await.expect("expected SessionListItemUpdated");
+        match second {
+            ServerMessage::SessionListItemUpdated { session } => {
+                assert_eq!(session.id, "session-tokens");
+                assert_eq!(session.total_tokens, 150);
+            }
+            other => panic!("expected SessionListItemUpdated, got {other:?}"),
         }
     }
 }

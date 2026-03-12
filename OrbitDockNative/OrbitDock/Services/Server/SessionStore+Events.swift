@@ -9,6 +9,8 @@ extension SessionStore {
       handleSessionsList(summaries)
     case .sessionCreated(let summary):
       handleSessionCreated(summary)
+    case .sessionListItemUpdated(let summary):
+      handleSessionListItemUpdated(summary)
     case .sessionEnded(let sessionId, let reason):
       handleSessionEnded(sessionId, reason)
     case .sessionSnapshot(let state):
@@ -31,6 +33,7 @@ extension SessionStore {
       let obs = session(sessionId)
       if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
         sessions[idx].applyTokenUsage(usage, snapshotKind: kind)
+        notifySessionsChanged()
       }
       obs.applyTokenUsage(usage, snapshotKind: kind)
     case .modelsList(let models):
@@ -174,6 +177,7 @@ extension SessionStore {
     switch event {
     case .sessionsList(let sessions): "sessionsList(\(sessions.count))"
     case .sessionCreated(let s): "sessionCreated(\(s.id))"
+    case .sessionListItemUpdated(let s): "sessionListItemUpdated(\(s.id))"
     case .sessionEnded(let sid, _): "sessionEnded(\(sid))"
     case .sessionSnapshot(let s): "sessionSnapshot(\(s.id))"
     case .sessionDelta(let sid, _): "sessionDelta(\(sid))"
@@ -191,11 +195,11 @@ extension SessionStore {
   func handleSessionsList(_ items: [ServerSessionListItem]) {
     netLog(.info, cat: .store, "Received sessions list", data: ["count": items.count])
     setHasReceivedInitialSessionsList(true)
+    latestSessionListItems = items
 
     let currentById = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
-    let currentRootBySessionId = Dictionary(uniqueKeysWithValues: rootSessions.map { ($0.sessionId, $0) })
 
-    sessions = items.map { item in
+    let nextSessions = items.map { item in
       if subscribedSessions.contains(item.id), let existing = currentById[item.id] {
         return existing
       }
@@ -206,14 +210,7 @@ extension SessionStore {
       )
     }
 
-    rootSessions = items.map { item in
-      currentRootBySessionId[item.id]
-        ?? item.toRootSessionRecord(
-          endpointId: endpointId,
-          endpointName: endpointName ?? "",
-          endpointConnectionStatus: eventStream.connectionStatus
-        )
-    }
+    let sessionsChanged = replaceSessionsListIfNeeded(nextSessions)
 
     for sessionSummary in sessions where !subscribedSessions.contains(sessionSummary.id) {
       hydrateObservable(session(sessionSummary.id), from: sessionSummary)
@@ -228,24 +225,61 @@ extension SessionStore {
       controlStates.removeValue(forKey: id)
     }
 
-    notifySessionsChanged()
+    if sessionsChanged || !staleIds.isEmpty {
+      notifySessionsChanged()
+    }
+    emitRootShellEvent(
+      .sessionsList(
+        endpointId: endpointId,
+        endpointName: endpointName,
+        connectionStatus: eventStream.connectionStatus,
+        sessions: items
+      )
+    )
   }
 
   func handleSessionCreated(_ item: ServerSessionListItem) {
+    upsertLatestSessionListItem(item)
     let session = item.toSession(
       endpointId: endpointId,
       endpointName: endpointName ?? "",
       endpointConnectionStatus: eventStream.connectionStatus
     )
-    updateSessionInList(session)
-    updateRootSessionInList(
-      item.toRootSessionRecord(
+    let sessionChanged = updateSessionInList(session)
+    hydrateObservable(self.session(item.id), from: session)
+    if sessionChanged {
+      notifySessionsChanged()
+    }
+    emitRootShellEvent(
+      .sessionCreated(
         endpointId: endpointId,
-        endpointName: endpointName ?? "",
-        endpointConnectionStatus: eventStream.connectionStatus
+        endpointName: endpointName,
+        connectionStatus: eventStream.connectionStatus,
+        session: item
       )
     )
+  }
+
+  func handleSessionListItemUpdated(_ item: ServerSessionListItem) {
+    upsertLatestSessionListItem(item)
+    let session = item.toSession(
+      endpointId: endpointId,
+      endpointName: endpointName ?? "",
+      endpointConnectionStatus: eventStream.connectionStatus
+    )
+    let sessionChanged = updateSessionInList(session)
     hydrateObservable(self.session(item.id), from: session)
+    if sessionChanged {
+      notifySessionsChanged()
+    }
+    emitRootShellEvent(
+      .sessionUpdated(
+        endpointId: endpointId,
+        endpointName: endpointName,
+        connectionStatus: eventStream.connectionStatus,
+        session: item
+      )
+    )
   }
 
   func handleSessionEnded(_ sessionId: String, _ reason: String) {
@@ -256,16 +290,34 @@ extension SessionStore {
     obs.pendingApproval = nil
     obs.clearTransientState()
 
+    let sessionChanged: Bool
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
       sessions[idx].status = .ended
       sessions[idx].endedAt = Date()
       sessions[idx].clearPendingApprovalSummary(resetAttention: true)
-    }
-    if let sessionIndex = sessions.firstIndex(where: { $0.id == sessionId }) {
-      updateRootSessionInList(sessions[sessionIndex].toRootSessionRecord())
+      sessionChanged = true
+    } else {
+      sessionChanged = false
     }
     controlStates.removeValue(forKey: sessionId)
-    notifySessionsChanged()
+    if sessionChanged {
+      notifySessionsChanged()
+    }
+    emitRootShellEvent(
+      .sessionEnded(
+        endpointId: endpointId,
+        sessionId: sessionId,
+        reason: reason
+      )
+    )
+  }
+
+  private func upsertLatestSessionListItem(_ item: ServerSessionListItem) {
+    if let idx = latestSessionListItems.firstIndex(where: { $0.id == item.id }) {
+      latestSessionListItems[idx] = item
+    } else {
+      latestSessionListItems.append(item)
+    }
   }
 
   func handleSessionSnapshot(_ state: ServerSessionState) {
@@ -289,8 +341,10 @@ extension SessionStore {
       supportsServerControlConfiguration: state.provider == .codex || state.claudeIntegrationMode == .direct
     )
     applyControlTransition(transition, sessionId: state.id, session: &session, observable: obs)
-    updateSessionInList(session)
-    updateRootSessionInList(session.toRootSessionRecord())
+    let sessionChanged = updateSessionInList(session)
+    if sessionChanged {
+      notifySessionsChanged()
+    }
   }
 
   func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
@@ -311,9 +365,14 @@ extension SessionStore {
     )
     applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
 
-    sessions[idx] = session
-    updateRootSessionInList(session.toRootSessionRecord())
-    notifySessionsChanged()
+    let previousSession = sessions[idx]
+    let sessionChanged = previousSession != session
+    if sessionChanged {
+      sessions[idx] = session
+    }
+    if sessionChanged {
+      notifySessionsChanged()
+    }
   }
 
   func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
@@ -340,8 +399,14 @@ extension SessionStore {
       return
     }
     applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
-    sessions[idx] = session
-    updateRootSessionInList(session.toRootSessionRecord())
+    let previousSession = sessions[idx]
+    let sessionChanged = previousSession != session
+    if sessionChanged {
+      sessions[idx] = session
+    }
+    if sessionChanged {
+      notifySessionsChanged()
+    }
   }
 
   func handleApprovalDecisionResult(
@@ -361,8 +426,14 @@ extension SessionStore {
       version: version
     )
     applyControlTransition(transition, sessionId: sessionId, session: &session, observable: obs)
-    sessions[idx] = session
-    updateRootSessionInList(session.toRootSessionRecord())
+    let previousSession = sessions[idx]
+    let sessionChanged = previousSession != session
+    if sessionChanged {
+      sessions[idx] = session
+    }
+    if sessionChanged {
+      notifySessionsChanged()
+    }
 
     inFlightApprovalDispatches.remove(requestId)
   }
@@ -399,6 +470,14 @@ extension SessionStore {
   }
 
   func handleConnectionStatusChanged(_ status: ConnectionStatus) {
+    emitRootShellEvent(
+      .endpointConnectionChanged(
+        endpointId: endpointId,
+        endpointName: endpointName,
+        connectionStatus: status
+      )
+    )
+
     guard let plan = SessionFeedPlanner.connectionRecoveryPlan(
       status: status,
       subscribedSessionIds: subscribedSessions,
@@ -430,24 +509,25 @@ extension SessionStore {
     obs.applySession(session)
   }
 
-  func updateSessionInList(_ session: Session) {
+  @discardableResult
+  func updateSessionInList(_ session: Session) -> Bool {
     var stamped = session
     stamped.endpointId = stamped.endpointId ?? endpointId
     stamped.endpointName = stamped.endpointName ?? endpointName
     if let idx = sessions.firstIndex(where: { $0.id == stamped.id }) {
+      guard sessions[idx] != stamped else { return false }
       sessions[idx] = stamped
     } else {
       sessions.append(stamped)
     }
-    notifySessionsChanged()
+    return true
   }
 
-  func updateRootSessionInList(_ record: RootSessionRecord) {
-    if let idx = rootSessions.firstIndex(where: { $0.sessionId == record.sessionId }) {
-      rootSessions[idx] = record
-    } else {
-      rootSessions.append(record)
-    }
+  @discardableResult
+  func replaceSessionsListIfNeeded(_ nextSessions: [Session]) -> Bool {
+    guard sessions != nextSessions else { return false }
+    sessions = nextSessions
+    return true
   }
 
   func notifySessionsChanged() {

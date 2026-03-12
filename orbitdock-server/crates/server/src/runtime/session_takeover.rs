@@ -174,7 +174,7 @@ pub(crate) async fn takeover_passive_session(
 
     if let Some(actor) = state.get_session(session_id) {
         if let Ok(summary) = actor.summary().await {
-            state.broadcast_to_list(ServerMessage::SessionCreated {
+            state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
                 session: SessionListItem::from_summary(&summary),
             });
         }

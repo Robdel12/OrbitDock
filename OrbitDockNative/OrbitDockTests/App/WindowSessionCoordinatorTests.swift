@@ -4,7 +4,7 @@ import Testing
 
 @MainActor
 struct WindowSessionCoordinatorTests {
-  @Test func startRefreshesSessionProjectionAndTracksCurrentSelection() throws {
+  @Test func startBootstrapsRootShellAndTracksCurrentSelection() async throws {
     let endpoint = try makeEndpoint(
       id: "11111111-1111-1111-1111-111111111111",
       name: "Local"
@@ -23,7 +23,7 @@ struct WindowSessionCoordinatorTests {
       projectPath: "/repo/project"
     )
     store.sessions = [session]
-    store.rootSessions = [RootSessionRecord(summary: SessionSummary(session: session))]
+    store.latestSessionListItems = [makeListItem(from: session)]
     store.setHasReceivedInitialSessionsList(true)
 
     let router = AppRouter()
@@ -39,9 +39,17 @@ struct WindowSessionCoordinatorTests {
       router: router
     )
 
+    let firstUpdate = Task { () -> RootShellRuntimeUpdate? in
+      for await update in coordinator.rootShellRuntime.updates {
+        return update
+      }
+      return nil
+    }
+
     coordinator.start(currentScopedId: session.scopedID)
 
-    #expect(coordinator.sessions.map { $0.id } == ["session-1"])
+    let update = try #require(await firstUpdate.value)
+    #expect(update.currentSessions.map(\.sessionId) == ["session-1"])
     #expect(coordinator.rootSessions.map(\.sessionId) == ["session-1"])
     #expect(toastManager.currentSessionId == session.scopedID)
     #expect(coordinator.isAnyInitialLoading == false)
@@ -116,6 +124,36 @@ struct WindowSessionCoordinatorTests {
       startedAt: Date(timeIntervalSince1970: 0),
       lastActivityAt: lastActivityAt,
       attentionReason: attentionReason
+    )
+  }
+
+  private func makeListItem(from session: Session) -> ServerSessionListItem {
+    ServerSessionListItem(
+      id: session.id,
+      provider: .codex,
+      projectPath: session.projectPath,
+      projectName: session.projectName,
+      gitBranch: session.branch,
+      model: session.model,
+      status: session.status == .active ? .active : .ended,
+      workStatus: .waiting,
+      codexIntegrationMode: .direct,
+      claudeIntegrationMode: nil,
+      startedAt: session.startedAt?.ISO8601Format(),
+      lastActivityAt: session.lastActivityAt?.ISO8601Format(),
+      unreadCount: session.unreadCount,
+      pendingToolName: session.pendingToolName,
+      repositoryRoot: session.repositoryRoot,
+      isWorktree: session.isWorktree,
+      worktreeId: session.worktreeId,
+      totalTokens: UInt64(session.totalTokens),
+      totalCostUSD: session.totalCostUSD,
+      displayTitle: session.displayName,
+      displayTitleSortKey: session.normalizedDisplayName,
+      displaySearchText: session.displaySearchText,
+      contextLine: session.summary,
+      listStatus: nil,
+      effort: session.effort
     )
   }
 }

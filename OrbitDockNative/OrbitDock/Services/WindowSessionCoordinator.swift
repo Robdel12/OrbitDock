@@ -8,11 +8,9 @@ final class WindowSessionCoordinator {
   private let notificationManager: NotificationManager
   let toastManager: ToastManager
   private let router: AppRouter
-  private let unifiedSessionsStore: UnifiedSessionsStore
-  @ObservationIgnored private var sessionObservationTasks: [UUID: Task<Void, Never>] = [:]
-
-  private(set) var sessions: [SessionSummary] = []
-  private(set) var rootSessions: [RootSessionRecord] = []
+  @ObservationIgnored private var selectionObservationTasks: [UUID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var rootShellUpdateTask: Task<Void, Never>?
+  let rootShellRuntime: RootShellRuntime
 
   init(
     runtimeRegistry: ServerRuntimeRegistry,
@@ -26,18 +24,27 @@ final class WindowSessionCoordinator {
     self.notificationManager = notificationManager
     self.toastManager = toastManager
     self.router = router
-    self.unifiedSessionsStore = UnifiedSessionsStore()
+    self.rootShellRuntime = RootShellRuntime(
+      runtimeRegistry: runtimeRegistry,
+      rootShellStore: RootShellStore()
+    )
   }
 
-  var endpointHealth: [UnifiedEndpointHealth] {
-    unifiedSessionsStore.endpointHealth
+  var rootShellStore: RootShellStore { rootShellRuntime.rootShellStore }
+
+  var rootSessions: [RootSessionNode] {
+    rootShellStore.records()
   }
 
-  var missionControlSessions: [RootSessionRecord] {
+  var endpointHealth: [RootShellEndpointHealth] {
+    rootShellStore.endpointHealth
+  }
+
+  var missionControlSessions: [RootSessionNode] {
     rootSessions.filter(\.showsInMissionControl)
   }
 
-  var missionControlAttentionSessions: [RootSessionRecord] {
+  var missionControlAttentionSessions: [RootSessionNode] {
     missionControlSessions.filter(\.needsAttention)
   }
 
@@ -49,35 +56,44 @@ final class WindowSessionCoordinator {
 
   func start(currentScopedId: String?) {
     updateToastSelection(currentScopedId: currentScopedId)
-    syncSessionObservers()
-    refreshSessions()
+    rootShellRuntime.start()
+    observeRootShellUpdatesIfNeeded()
+    syncSelectionObservers()
+    runtimeRegistry.refreshEnabledSessionLists()
   }
 
   func runtimeGraphDidChange() {
-    syncSessionObservers()
-    refreshSessions()
+    rootShellRuntime.runtimeGraphDidChange()
+    observeRootShellUpdatesIfNeeded()
+    syncSelectionObservers()
+  }
+
+  func refreshSessions() {
+    if let selectedScopedID = router.selectedScopedID,
+       rootShellStore.sessionRef(for: selectedScopedID) == nil
+    {
+      router.goToDashboard()
+    }
   }
 
   func selectedSessionDidChange(to currentScopedId: String?) {
     updateToastSelection(currentScopedId: currentScopedId)
   }
 
-  func refreshSessions() {
-    let previousMissionControlSessions = missionControlSessions
-    let oldWaitingIds = Set(missionControlAttentionSessions.map(\.scopedID))
-    let oldSessions = rootSessions
-
-    unifiedSessionsStore.refresh(from: projectionInputs())
-    sessions = unifiedSessionsStore.sessions
-    rootSessions = unifiedSessionsStore.rootSessions
+  private func syncAttentionState(
+    previousMissionControlSessions: [RootSessionNode],
+    previousSessions: [RootSessionNode]
+  ) {
+    let oldWaitingIds = Set(previousMissionControlSessions.filter(\.needsAttention).map(\.scopedID))
+    let oldSessions = previousSessions
 
     if let selectedScopedID = router.selectedScopedID,
-       !unifiedSessionsStore.containsSession(scopedID: selectedScopedID)
+       rootShellStore.sessionRef(for: selectedScopedID) == nil
     {
       router.goToDashboard()
     }
 
-    let notificationSessions = MissionControlNotificationSessions.merge(
+    let notificationSessions = Self.mergeMissionControlSessions(
       previousSessions: previousMissionControlSessions,
       currentSessions: missionControlSessions
     )
@@ -100,31 +116,41 @@ final class WindowSessionCoordinator {
     )
 
     attentionService.update(sessions: missionControlSessions) { session in
-      guard let ref = session.sessionRef else { return nil }
-      guard let runtime = self.runtimeRegistry.runtimesByEndpointId[ref.endpointId] else { return nil }
-      return runtime.sessionStore.session(ref.sessionId)
+      guard let runtime = self.runtimeRegistry.runtimesByEndpointId[session.endpointId] else { return nil }
+      return runtime.sessionStore.session(session.sessionId)
     }
   }
 
-  func syncSessionObservers() {
+  func syncSelectionObservers() {
     let currentEndpointIds = Set(runtimeRegistry.runtimes.map(\.endpoint.id))
 
-    for endpointId in sessionObservationTasks.keys where !currentEndpointIds.contains(endpointId) {
-      sessionObservationTasks[endpointId]?.cancel()
-      sessionObservationTasks.removeValue(forKey: endpointId)
+    for endpointId in selectionObservationTasks.keys where !currentEndpointIds.contains(endpointId) {
+      selectionObservationTasks[endpointId]?.cancel()
+      selectionObservationTasks.removeValue(forKey: endpointId)
     }
 
-    for runtime in runtimeRegistry.runtimes where sessionObservationTasks[runtime.endpoint.id] == nil {
+    for runtime in runtimeRegistry.runtimes where selectionObservationTasks[runtime.endpoint.id] == nil {
       let store = runtime.sessionStore
       let endpointId = runtime.endpoint.id
       let coordinator = self
-      sessionObservationTasks[endpointId] = Task {
-        await withTaskGroup(of: Void.self) { group in
-          group.addTask { await coordinator.observeSessionListUpdates(from: store) }
-          group.addTask { await coordinator.observeSelectionRequests(from: store) }
+      selectionObservationTasks[endpointId] = Task {
+        await coordinator.observeSelectionRequests(from: store)
+      }
+    }
+  }
 
-          await group.waitForAll()
-        }
+  private func observeRootShellUpdatesIfNeeded() {
+    guard rootShellUpdateTask == nil else { return }
+
+    rootShellUpdateTask = Task { [weak self] in
+      guard let self else { return }
+
+      for await update in self.rootShellRuntime.updates {
+        guard !Task.isCancelled else { break }
+        self.syncAttentionState(
+          previousMissionControlSessions: update.previousSessions.filter(\.showsInMissionControl),
+          previousSessions: update.previousSessions
+        )
       }
     }
   }
@@ -145,26 +171,9 @@ final class WindowSessionCoordinator {
     router.handleExternalNavigation(
       sessionID: sessionID,
       endpointId: endpointId,
-      store: unifiedSessionsStore,
+      store: rootShellStore,
       fallbackEndpointId: runtimeRegistry.primaryEndpointId ?? runtimeRegistry.activeEndpointId
     )
-  }
-
-  private func projectionInputs() -> [UnifiedSessionsProjection.EndpointInput] {
-    runtimeRegistry.runtimes.map { runtime in
-      UnifiedSessionsProjection.EndpointInput(
-        endpoint: runtime.endpoint,
-        status: runtimeRegistry.displayConnectionStatus(for: runtime.endpoint.id),
-        rootSessions: runtime.sessionStore.rootSessions
-      )
-    }
-  }
-
-  private func observeSessionListUpdates(from store: SessionStore) async {
-    for await _ in store.sessionListUpdates {
-      guard !Task.isCancelled else { break }
-      refreshSessions()
-    }
   }
 
   private func observeSelectionRequests(from store: SessionStore) async {
@@ -175,8 +184,33 @@ final class WindowSessionCoordinator {
   }
 
   deinit {
-    for task in sessionObservationTasks.values {
+    rootShellUpdateTask?.cancel()
+    for task in selectionObservationTasks.values {
       task.cancel()
     }
+  }
+}
+private extension WindowSessionCoordinator {
+  static func mergeMissionControlSessions(
+    previousSessions: [RootSessionNode],
+    currentSessions: [RootSessionNode]
+  ) -> [RootSessionNode] {
+    var mergedByScopedID: [String: RootSessionNode] = [:]
+    var orderedScopedIDs: [String] = []
+
+    for session in currentSessions {
+      if mergedByScopedID[session.scopedID] == nil {
+        orderedScopedIDs.append(session.scopedID)
+      }
+      mergedByScopedID[session.scopedID] = session
+    }
+
+    for session in previousSessions {
+      guard mergedByScopedID[session.scopedID] == nil else { continue }
+      mergedByScopedID[session.scopedID] = session
+      orderedScopedIDs.append(session.scopedID)
+    }
+
+    return orderedScopedIDs.compactMap { mergedByScopedID[$0] }
   }
 }

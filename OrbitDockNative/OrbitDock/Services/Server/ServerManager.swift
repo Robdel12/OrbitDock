@@ -209,11 +209,15 @@ enum ServerInstallStateResolver {
         let binDir = PlatformPaths.orbitDockBinDirectory
         PlatformPaths.ensureDirectory(binDir)
         let destPath = binDir.appendingPathComponent("orbitdock").path
+        let staleInstalledPath = binDir.appendingPathComponent("orbitdock-server").path
 
         do {
           // Remove existing if present
           if FileManager.default.fileExists(atPath: destPath) {
             try FileManager.default.removeItem(atPath: destPath)
+          }
+          if FileManager.default.fileExists(atPath: staleInstalledPath) {
+            try FileManager.default.removeItem(atPath: staleInstalledPath)
           }
           try FileManager.default.copyItem(atPath: sourcePath, toPath: destPath)
 
@@ -237,12 +241,12 @@ enum ServerInstallStateResolver {
         binaryPath = sourcePath
       }
 
-      // Ensure CLI binary directory is persisted on PATH (non-fatal for older binaries)
+      // Ensure CLI binary directory is persisted on PATH.
       do {
         try await runCLI(binaryPath, arguments: ["ensure-path"])
-        logger.info("orbitdock-server ensure-path completed")
+        logger.info("orbitdock ensure-path completed")
       } catch {
-        logger.warning("orbitdock-server ensure-path failed: \(error.localizedDescription)")
+        logger.warning("orbitdock ensure-path failed: \(error.localizedDescription)")
       }
 
       // Run init

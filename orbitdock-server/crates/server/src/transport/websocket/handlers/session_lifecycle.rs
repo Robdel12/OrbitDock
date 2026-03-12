@@ -141,7 +141,7 @@ pub(crate) async fn handle(
             .await;
 
             // Broadcast updated summary to session list
-            state.broadcast_to_list(ServerMessage::SessionCreated {
+            state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
                 session: SessionListItem::from_summary(&handle.summary()),
             });
 
@@ -1021,7 +1021,7 @@ pub(crate) async fn handle(
 
                     // Broadcast updated summary to list subscribers
                     if let Ok(summary) = new_actor.summary().await {
-                        state.broadcast_to_list(ServerMessage::SessionCreated {
+                        state.broadcast_to_list(ServerMessage::SessionListItemUpdated {
                             session: SessionListItem::from_summary(&summary),
                         });
                     }

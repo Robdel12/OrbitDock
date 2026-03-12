@@ -47,6 +47,10 @@ extension ServerToClientMessage {
         let session = try container.decode(ServerSessionListItem.self, forKey: .session)
         self = .sessionCreated(session: session)
 
+      case "session_list_item_updated":
+        let session = try container.decode(ServerSessionListItem.self, forKey: .session)
+        self = .sessionListItemUpdated(session: session)
+
       case "session_ended":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let reason = try container.decode(String.self, forKey: .reason)

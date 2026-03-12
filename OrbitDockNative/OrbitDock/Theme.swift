@@ -501,6 +501,10 @@ enum SessionDisplayStatus {
     from(session)
   }
 
+  static func from(_ session: RootSessionNode) -> SessionDisplayStatus {
+    session.displayStatus
+  }
+
 }
 
 // MARK: - Session Status Badge (Design System Component)
@@ -566,6 +570,12 @@ struct SessionStatusBadge: View {
     self.size = size
   }
 
+  init(session: RootSessionNode, showIcon: Bool = true, size: BadgeSize = .regular) {
+    self.status = SessionDisplayStatus.from(session)
+    self.showIcon = showIcon
+    self.size = size
+  }
+
   var body: some View {
     if size == .mini {
       // Just a colored dot
@@ -605,6 +615,12 @@ struct SessionStatusDot: View {
 
   init(status: SessionDisplayStatus, size: CGFloat = IconScale.xs, showGlow: Bool = true) {
     self.status = status
+    self.size = size
+    self.showGlow = showGlow
+  }
+
+  init(session: RootSessionNode, size: CGFloat = IconScale.xs, showGlow: Bool = true) {
+    status = SessionDisplayStatus.from(session)
     self.size = size
     self.showGlow = showGlow
   }

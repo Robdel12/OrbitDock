@@ -1,10 +1,10 @@
 import Foundation
 
 struct QuickSwitcherProjection: Equatable, Sendable {
-  let filteredSessions: [RootSessionRecord]
-  let activeSessions: [RootSessionRecord]
-  let recentSessions: [RootSessionRecord]
-  let allVisibleSessions: [RootSessionRecord]
+  let filteredSessions: [RootSessionNode]
+  let activeSessions: [RootSessionNode]
+  let recentSessions: [RootSessionNode]
+  let allVisibleSessions: [RootSessionNode]
   let shouldShowRecentSessions: Bool
   let commandCount: Int
   let dashboardIndex: Int
@@ -12,7 +12,7 @@ struct QuickSwitcherProjection: Equatable, Sendable {
   let totalItems: Int
 
   static func make(
-    sessions: [RootSessionRecord],
+    sessions: [RootSessionNode],
     normalizedQuery: String,
     isRecentExpanded: Bool,
     commandCount: Int,
@@ -49,23 +49,7 @@ struct QuickSwitcherProjection: Equatable, Sendable {
     )
   }
 
-  static func make(
-    sessions: [SessionSummary],
-    normalizedQuery: String,
-    isRecentExpanded: Bool,
-    commandCount: Int,
-    quickLaunchProjectCount: Int? = nil
-  ) -> QuickSwitcherProjection {
-    make(
-      sessions: sessions.map(RootSessionRecord.init(summary:)),
-      normalizedQuery: normalizedQuery,
-      isRecentExpanded: isRecentExpanded,
-      commandCount: commandCount,
-      quickLaunchProjectCount: quickLaunchProjectCount
-    )
-  }
-
-  private static func filterSessions(_ sessions: [RootSessionRecord], normalizedQuery: String) -> [RootSessionRecord] {
+  private static func filterSessions(_ sessions: [RootSessionNode], normalizedQuery: String) -> [RootSessionNode] {
     guard !normalizedQuery.isEmpty else { return sessions }
 
     return sessions.filter { session in
@@ -85,7 +69,7 @@ struct QuickSwitcherProjection: Equatable, Sendable {
       .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private static func recentSessionDate(for session: RootSessionRecord) -> Date {
+  private static func recentSessionDate(for session: RootSessionNode) -> Date {
     session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
   }
 }

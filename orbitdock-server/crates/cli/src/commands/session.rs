@@ -1249,6 +1249,7 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
         ServerMessage::ApprovalsList { .. } => "approvals_list",
         ServerMessage::TokensUpdated { .. } => "tokens_updated",
         ServerMessage::SessionCreated { .. } => "session_created",
+        ServerMessage::SessionListItemUpdated { .. } => "session_list_item_updated",
         ServerMessage::SessionEnded { .. } => "session_ended",
         ServerMessage::SessionForked { .. } => "session_forked",
         ServerMessage::ContextCompacted { .. } => "context_compacted",

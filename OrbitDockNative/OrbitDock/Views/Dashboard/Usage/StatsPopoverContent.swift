@@ -300,6 +300,29 @@ struct StatusBarStats {
     )
   }
 
+  static func from(
+    sessions: [RootSessionNode],
+    costCalculator: TokenCostCalculator
+  ) -> StatusBarStats {
+    var costByModel: [String: Double] = [:]
+
+    for session in sessions {
+      guard let model = normalizeModelName(session.model) else { continue }
+      costByModel[model, default: 0] += session.totalCostUSD
+    }
+
+    let sortedCosts = costByModel.sorted { $0.value > $1.value }.map {
+      (model: $0.key, cost: $0.value, color: colorForModel($0.key))
+    }
+
+    return StatusBarStats(
+      sessionCount: sessions.count,
+      cost: sessions.reduce(0) { $0 + $1.totalCostUSD },
+      tokens: sessions.reduce(0) { $0 + $1.totalTokens },
+      costByModel: sortedCosts
+    )
+  }
+
   private static func normalizeModelName(_ model: String?) -> String? {
     guard let model = model?.lowercased(), !model.isEmpty else { return nil }
     if model.contains("opus") { return "Opus" }

@@ -16,6 +16,7 @@ enum ServerEvent: Sendable {
   // Session list
   case sessionsList([ServerSessionListItem])
   case sessionCreated(ServerSessionListItem)
+  case sessionListItemUpdated(ServerSessionListItem)
   case sessionEnded(sessionId: String, reason: String)
 
   // Session state
@@ -435,6 +436,8 @@ final class EventStream {
       emit(.tokensUpdated(sessionId: sessionId, usage: usage, snapshotKind: snapshotKind))
     case let .sessionCreated(session):
       emit(.sessionCreated(session))
+    case let .sessionListItemUpdated(session):
+      emit(.sessionListItemUpdated(session))
     case let .sessionEnded(sessionId, reason):
       emit(.sessionEnded(sessionId: sessionId, reason: reason))
     case let .approvalsList(sessionId, approvals):

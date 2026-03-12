@@ -71,9 +71,12 @@ struct ServerSessionListItem: Codable, Identifiable {
   let startedAt: String?
   let lastActivityAt: String?
   let unreadCount: UInt64?
+  let pendingToolName: String?
   let repositoryRoot: String?
   let isWorktree: Bool?
   let worktreeId: String?
+  let totalTokens: UInt64?
+  let totalCostUSD: Double?
   let displayTitle: String?
   let displayTitleSortKey: String?
   let displaySearchText: String?
@@ -95,9 +98,12 @@ struct ServerSessionListItem: Codable, Identifiable {
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
     case unreadCount = "unread_count"
+    case pendingToolName = "pending_tool_name"
     case repositoryRoot = "repository_root"
     case isWorktree = "is_worktree"
     case worktreeId = "worktree_id"
+    case totalTokens = "total_tokens"
+    case totalCostUSD = "total_cost_usd"
     case displayTitle = "display_title"
     case displayTitleSortKey = "display_title_sort_key"
     case displaySearchText = "display_search_text"

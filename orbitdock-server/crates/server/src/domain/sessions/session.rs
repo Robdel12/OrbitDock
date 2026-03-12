@@ -25,6 +25,7 @@ fn is_list_relevant(msg: &ServerMessage) -> bool {
     matches!(
         msg,
         ServerMessage::SessionCreated { .. }
+            | ServerMessage::SessionListItemUpdated { .. }
             | ServerMessage::SessionEnded { .. }
             | ServerMessage::SessionDelta { .. }
             | ServerMessage::SessionForked { .. }

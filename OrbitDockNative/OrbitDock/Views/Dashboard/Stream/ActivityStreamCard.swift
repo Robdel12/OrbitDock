@@ -19,7 +19,7 @@ import SwiftUI
 // MARK: - Attention Card (large, prominent, demands action)
 
 struct AttentionCard: View {
-  let session: RootSessionRecord
+  let session: RootSessionNode
   let onSelect: () -> Void
 
   @Environment(SessionStore.self) private var serverState
@@ -163,7 +163,7 @@ struct AttentionCard: View {
 // MARK: - Working Card (medium, activity-focused)
 
 struct WorkingCard: View {
-  let session: RootSessionRecord
+  let session: RootSessionNode
   let onSelect: () -> Void
 
   @Environment(SessionStore.self) private var serverState
@@ -276,7 +276,7 @@ struct CompactSessionRow: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(SessionStore.self) private var serverState
 
-  let session: RootSessionRecord
+  let session: RootSessionNode
   let onSelect: () -> Void
   var isSelected: Bool = false
 
@@ -465,15 +465,15 @@ struct CompactSessionRow: View {
 // MARK: - Shared Helpers
 
 enum SessionCardHelpers {
-  static func agentLabel(for session: RootSessionRecord) -> String {
+  static func agentLabel(for session: RootSessionNode) -> String {
     session.displayTitle
   }
 
-  static func projectName(for session: RootSessionRecord) -> String {
+  static func projectName(for session: RootSessionNode) -> String {
     session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown"
   }
 
-  static func branch(for session: RootSessionRecord, maxLength: Int) -> String? {
+  static func branch(for session: RootSessionNode, maxLength: Int) -> String? {
     guard let branch = session.branch, !branch.isEmpty else { return nil }
     if branch.count > maxLength {
       return String(branch.prefix(maxLength - 2)) + "…"
@@ -481,23 +481,22 @@ enum SessionCardHelpers {
     return branch
   }
 
-  static func contextLine(for session: RootSessionRecord) -> String? {
+  static func contextLine(for session: RootSessionNode) -> String? {
     session.contextLine
   }
 
-  static func recency(for session: RootSessionRecord) -> String? {
+  static func recency(for session: RootSessionNode) -> String? {
     DashboardFormatters.recency(for: session.lastActivityAt ?? session.startedAt)
   }
 
-  private static func hasExplicitTitle(_ session: RootSessionRecord) -> Bool {
-    [session.customName, session.summary].contains { value in
-      guard let value else { return false }
+  private static func hasExplicitTitle(_ session: RootSessionNode) -> Bool {
+    [session.displayTitle].contains { value in
       return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
   }
 
   @ViewBuilder
-  static func contextMenu(for session: RootSessionRecord, serverState: SessionStore) -> some View {
+  static func contextMenu(for session: RootSessionNode, serverState: SessionStore) -> some View {
     Button {
       _ = Platform.services.revealInFileBrowser(session.projectPath)
     } label: {

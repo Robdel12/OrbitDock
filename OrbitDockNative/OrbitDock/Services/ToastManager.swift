@@ -112,4 +112,68 @@ class ToastManager: ObservableObject {
       }
     }
   }
+
+  func showToast(for session: RootSessionNode) {
+    let scopedID = session.scopedID
+
+    guard session.showsInMissionControl else { return }
+    guard session.allowsUserNotifications else {
+      clearNotification(for: scopedID)
+      return
+    }
+    guard scopedID != currentSessionId else { return }
+    guard !notifiedSessionIds.contains(scopedID) else { return }
+
+    let status = SessionDisplayStatus.from(session)
+    guard status == .permission || status == .question else { return }
+
+    let toast = SessionToast(
+      sessionId: scopedID,
+      sessionName: session.displayName,
+      status: status,
+      detail: session.pendingToolName
+    )
+
+    notifiedSessionIds.insert(scopedID)
+    toasts.append(toast)
+    if Date().timeIntervalSince(lastAttentionHapticAt) > 0.75 {
+      Platform.services.playHaptic(.warning)
+      lastAttentionHapticAt = Date()
+    }
+
+    let task = Task {
+      try? await Task.sleep(for: .seconds(dismissDuration))
+      dismiss(toast)
+    }
+    dismissTasks[toast.id] = task
+  }
+
+  func checkForAttentionChanges(
+    sessions: [RootSessionNode],
+    previousSessions: [RootSessionNode]
+  ) {
+    let previousStates = Dictionary(uniqueKeysWithValues: previousSessions
+      .map { ($0.scopedID, SessionDisplayStatus.from($0)) })
+
+    for session in sessions {
+      let scopedID = session.scopedID
+      let currentStatus = SessionDisplayStatus.from(session)
+      let previousStatus = previousStates[scopedID]
+
+      if !session.allowsUserNotifications {
+        clearNotification(for: scopedID)
+        continue
+      }
+
+      if currentStatus == .permission || currentStatus == .question,
+         previousStatus != currentStatus
+      {
+        showToast(for: session)
+      }
+
+      if currentStatus != .permission, currentStatus != .question {
+        clearNotification(for: scopedID)
+      }
+    }
+  }
 }

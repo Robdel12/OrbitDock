@@ -14,12 +14,14 @@ struct MenuBarView: View {
   @Environment(\.colorScheme) private var colorScheme
   @State private var refreshRotation: Double = 0
 
-    var activeSessions: [RootSessionRecord] {
-      windowSessionCoordinator.rootSessions.filter(\.showsInMissionControl)
+    @Environment(RootShellStore.self) private var rootShellStore
+
+    var activeSessions: [RootSessionNode] {
+      rootShellStore.records().filter(\.showsInMissionControl)
     }
 
-    var recentSessions: [RootSessionRecord] {
-      windowSessionCoordinator.rootSessions
+    var recentSessions: [RootSessionNode] {
+      rootShellStore.records()
         .filter { !$0.showsInMissionControl }
         .sorted { activityDate(for: $0) > activityDate(for: $1) }
         .prefix(5)
@@ -97,7 +99,7 @@ struct MenuBarView: View {
               }
             }
 
-            if windowSessionCoordinator.rootSessions.isEmpty {
+            if rootShellStore.records().isEmpty {
               emptyView
             }
           }
@@ -208,13 +210,13 @@ struct MenuBarView: View {
       colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.1)
     }
 
-    private func activityDate(for session: RootSessionRecord) -> Date {
+    private func activityDate(for session: RootSessionNode) -> Date {
       session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
     }
   }
 
   struct MenuBarSessionRow: View {
-    let session: RootSessionRecord
+    let session: RootSessionNode
     let isActive: Bool
     @State private var isHovering = false
     @Environment(\.colorScheme) private var colorScheme

@@ -41,6 +41,7 @@ struct OrbitDockWindowRoot: View {
       .environment(attentionService)
       .environment(router)
       .environment(windowSessionCoordinator)
+      .environment(windowSessionCoordinator.rootShellStore)
       .focusedSceneValue(\.orbitDockRouter, router)
       .preferredColorScheme(.dark)
       .onAppear {

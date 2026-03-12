@@ -54,6 +54,32 @@ struct LibraryArchiveSummary: Equatable {
 }
 
 enum LibraryArchivePlanner {
+  nonisolated static func compareSessions(_ lhs: SessionSummary, _ rhs: SessionSummary) -> Bool {
+    let lhsIsActive = lhs.status == .active
+    let rhsIsActive = rhs.status == .active
+    if lhsIsActive != rhsIsActive {
+      return lhsIsActive && !rhsIsActive
+    }
+
+    let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+    let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+    if lhsDate != rhsDate {
+      return lhsDate > rhsDate
+    }
+
+    if lhs.normalizedDisplayName != rhs.normalizedDisplayName {
+      return lhs.normalizedDisplayName < rhs.normalizedDisplayName
+    }
+
+    if lhs.endpointName != rhs.endpointName {
+      return (lhs.endpointName ?? "") < (rhs.endpointName ?? "")
+    }
+
+    let lhsScopedID = "\(lhs.endpointId?.uuidString ?? "")::\(lhs.id)"
+    let rhsScopedID = "\(rhs.endpointId?.uuidString ?? "")::\(rhs.id)"
+    return lhsScopedID < rhsScopedID
+  }
+
   static func state(
     sessions: [Session],
     searchText: String,

@@ -144,9 +144,6 @@ struct ContentView: View {
 
   private var dashboardView: some View {
     DashboardView(
-      sessions: windowSessionCoordinator.sessions,
-      rootSessions: windowSessionCoordinator.rootSessions,
-      endpointHealth: windowSessionCoordinator.endpointHealth,
       isInitialLoading: windowSessionCoordinator.isAnyInitialLoading,
       isRefreshingCachedSessions: isAnyRefreshingCachedSessions
     )
@@ -167,7 +164,6 @@ struct ContentView: View {
 
       // Quick Switcher
       QuickSwitcher(
-        sessions: windowSessionCoordinator.rootSessions,
         onQuickLaunchClaude: { path in
           Task {
             try? await windowSessionCoordinator.creationStore(fallback: serverState).createSession(
