@@ -11,7 +11,7 @@ struct LibraryView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(AppRouter.self) private var router
 
-  let sessions: [Session]
+  let sessions: [SessionSummary]
   var containerWidth: CGFloat? = nil
 
   @State private var searchText = ""
@@ -37,7 +37,7 @@ struct LibraryView: View {
     )
   }
 
-  private var providerScopedSessions: [Session] {
+  private var providerScopedSessions: [SessionSummary] {
     archiveState.providerScopedSessions
   }
 
@@ -45,11 +45,11 @@ struct LibraryView: View {
     archiveState.endpointFacets
   }
 
-  private var endpointScopedSessions: [Session] {
+  private var endpointScopedSessions: [SessionSummary] {
     archiveState.endpointScopedSessions
   }
 
-  private var filteredSessions: [Session] {
+  private var filteredSessions: [SessionSummary] {
     archiveState.filteredSessions
   }
 
@@ -122,7 +122,7 @@ struct LibraryView: View {
 
   // MARK: - Navigation
 
-  private func selectSession(_ session: Session) {
+  private func selectSession(_ session: SessionSummary) {
     withAnimation(Motion.standard) {
       router.navigateToSession(scopedID: session.scopedID)
     }

@@ -76,7 +76,7 @@ struct QuickSwitcherModelTests {
     #expect(viewState.filteredCommands.contains(where: { $0.name.lowercased().contains("rename") }))
   }
 
-  private func makeSession(id: String) -> Session {
+  private func makeSession(id: String) -> SessionSummary {
     var session = Session(
       id: id,
       projectPath: "/tmp/\(id)",
@@ -86,6 +86,8 @@ struct QuickSwitcherModelTests {
       totalCostUSD: 0
     )
     session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
-    return session
+    session.endpointName = "Primary"
+    session.endpointConnectionStatus = .connected
+    return SessionSummary(session: session)
   }
 }

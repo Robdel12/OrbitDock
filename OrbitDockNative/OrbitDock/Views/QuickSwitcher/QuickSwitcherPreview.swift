@@ -6,8 +6,8 @@ import SwiftUI
       .ignoresSafeArea()
 
     QuickSwitcher(
-      sessions: [
-        Session(
+      sessions: [SessionSummary]([
+        SessionSummary(session: Session(
           id: "1",
           projectPath: "/Users/developer/Developer/vizzly-cli",
           projectName: "vizzly-cli",
@@ -29,8 +29,8 @@ import SwiftUI
           toolCount: 0,
           terminalSessionId: nil,
           terminalApp: nil
-        ),
-        Session(
+        )),
+        SessionSummary(session: Session(
           id: "2",
           projectPath: "/Users/developer/Developer/backchannel",
           projectName: "backchannel",
@@ -52,8 +52,8 @@ import SwiftUI
           toolCount: 0,
           terminalSessionId: nil,
           terminalApp: nil
-        ),
-        Session(
+        )),
+        SessionSummary(session: Session(
           id: "3",
           projectPath: "/Users/developer/Developer/docs",
           projectName: "docs",
@@ -75,8 +75,8 @@ import SwiftUI
           toolCount: 0,
           terminalSessionId: nil,
           terminalApp: nil
-        ),
-      ],
+        )),
+      ]),
       onQuickLaunchClaude: nil,
       onQuickLaunchCodex: nil
     )

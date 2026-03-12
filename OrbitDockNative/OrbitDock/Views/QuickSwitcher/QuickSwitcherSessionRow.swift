@@ -3,7 +3,7 @@ import SwiftUI
 struct QuickSwitcherSessionRow: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  let session: Session
+  let session: SessionSummary
   let index: Int
   let isCompactLayout: Bool
   let isSelected: Bool
@@ -145,7 +145,7 @@ struct QuickSwitcherSessionRow: View {
 }
 
 private struct QuickSwitcherSessionActivityBadge: View {
-  let session: Session
+  let session: SessionSummary
   let status: SessionDisplayStatus
 
   var body: some View {

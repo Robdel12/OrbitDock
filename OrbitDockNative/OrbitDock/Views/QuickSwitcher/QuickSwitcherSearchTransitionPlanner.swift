@@ -1,11 +1,26 @@
 import Foundation
 
 struct QuickSwitcherSearchTransition: Equatable {
-  let targetSession: Session?
+  let targetSession: SessionSummary?
   let selectedIndex: Int
   let hoveredIndex: Int?
   let mode: QuickSwitcherSearchMode
   let shouldLoadRecentProjects: Bool
+
+  init(
+    targetSession: SessionSummary?,
+    selectedIndex: Int,
+    hoveredIndex: Int?,
+    mode: QuickSwitcherSearchMode,
+    shouldLoadRecentProjects: Bool
+  ) {
+    self.targetSession = targetSession
+    self.selectedIndex = selectedIndex
+    self.hoveredIndex = hoveredIndex
+    self.mode = mode
+    self.shouldLoadRecentProjects = shouldLoadRecentProjects
+  }
+
 }
 
 enum QuickSwitcherSearchTransitionPlanner {
@@ -14,7 +29,7 @@ enum QuickSwitcherSearchTransitionPlanner {
     newSearchText: String,
     previousMode: QuickSwitcherSearchMode,
     selectedKind: QuickSwitcherSelectionKind,
-    visibleSessions: [Session]
+    visibleSessions: [SessionSummary]
   ) -> QuickSwitcherSearchTransition {
     let nextMode = QuickSwitcherQueryPlanner.plan(searchText: newSearchText).mode
     let targetSession = QuickSwitcherActionPlanner.capturedTargetSession(
@@ -30,6 +45,22 @@ enum QuickSwitcherSearchTransitionPlanner {
       hoveredIndex: nil,
       mode: nextMode,
       shouldLoadRecentProjects: !isQuickLaunch(mode: previousMode) && isQuickLaunch(mode: nextMode)
+    )
+  }
+
+  static func transition(
+    oldSearchText: String,
+    newSearchText: String,
+    previousMode: QuickSwitcherSearchMode,
+    selectedKind: QuickSwitcherSelectionKind,
+    visibleSessions: [Session]
+  ) -> QuickSwitcherSearchTransition {
+    transition(
+      oldSearchText: oldSearchText,
+      newSearchText: newSearchText,
+      previousMode: previousMode,
+      selectedKind: selectedKind,
+      visibleSessions: visibleSessions.map(SessionSummary.init(session:))
     )
   }
 

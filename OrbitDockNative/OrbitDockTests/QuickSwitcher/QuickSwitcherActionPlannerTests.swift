@@ -85,7 +85,7 @@ struct QuickSwitcherActionPlannerTests {
       selectedKind: .command(index: 0),
       recentProjects: [],
       filteredCommands: [command],
-      visibleSessions: [],
+      visibleSessions: [SessionSummary](),
       currentSession: nil,
       explicitTargetSession: nil
     )
@@ -114,14 +114,14 @@ struct QuickSwitcherActionPlannerTests {
     )
   }
 
-  private func makeSession(id: String) -> Session {
-    Session(
+  private func makeSession(id: String) -> SessionSummary {
+    SessionSummary(session: Session(
       id: id,
       projectPath: "/tmp/\(id)",
       status: .active,
       workStatus: .waiting,
       totalTokens: 0,
       totalCostUSD: 0
-    )
+    ))
   }
 }

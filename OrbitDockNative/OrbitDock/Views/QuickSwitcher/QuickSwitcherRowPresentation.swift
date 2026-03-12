@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum QuickSwitcherRowPresentation {
-  nonisolated static func displayPath(_ path: String) -> String {
+  static func displayPath(_ path: String) -> String {
     if path.hasPrefix("/Users/") {
       let parts = path.split(separator: "/", maxSplits: 3)
       if parts.count >= 2 {
@@ -11,11 +11,14 @@ enum QuickSwitcherRowPresentation {
     return path.isEmpty ? "~" : path
   }
 
-  nonisolated static func projectName(for session: Session) -> String {
+  static func projectName<SessionType: SessionSummaryItem>(for session: SessionType) -> String {
     session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown"
   }
 
-  nonisolated static func activityText(for session: Session, status: SessionDisplayStatus) -> String {
+  static func activityText<SessionType: SessionSummaryItem>(
+    for session: SessionType,
+    status: SessionDisplayStatus
+  ) -> String {
     switch status {
       case .permission:
         session.pendingToolName ?? "Permission"
@@ -31,7 +34,10 @@ enum QuickSwitcherRowPresentation {
   }
 
   @MainActor
-  static func activityIcon(for session: Session, status: SessionDisplayStatus) -> String {
+  static func activityIcon<SessionType: SessionSummaryItem>(
+    for session: SessionType,
+    status: SessionDisplayStatus
+  ) -> String {
     switch status {
       case .permission:
         return "lock.fill"

@@ -15,7 +15,7 @@ struct DashboardView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
 
-  let sessions: [Session]
+  let sessions: [SessionSummary]
   let endpointHealth: [UnifiedEndpointHealth]
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
@@ -42,7 +42,7 @@ struct DashboardView: View {
     )
   }
 
-  private var navigableSessions: [Session] {
+  private var navigableSessions: [SessionSummary] {
     activityStream.attention + activityStream.working + activityStream.ready
   }
 

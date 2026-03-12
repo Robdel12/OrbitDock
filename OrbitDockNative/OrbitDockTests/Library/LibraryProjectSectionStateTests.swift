@@ -102,8 +102,8 @@ struct LibraryProjectSectionStateTests {
     totalTokens: Int = 0,
     totalCostUSD: Double = 0,
     connectionStatus: ConnectionStatus? = nil
-  ) -> Session {
-    Session(
+  ) -> SessionSummary {
+    SessionSummary(session: Session(
       id: id,
       endpointId: endpointId,
       endpointName: endpointName,
@@ -115,6 +115,6 @@ struct LibraryProjectSectionStateTests {
       totalTokens: totalTokens,
       totalCostUSD: totalCostUSD,
       provider: provider
-    )
+    ))
   }
 }

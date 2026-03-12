@@ -66,7 +66,7 @@ enum ClaudeIntegrationMode: String, Hashable, Sendable {
   case direct // Server-managed bidirectional control
 }
 
-struct Session: Identifiable, Hashable, Sendable {
+struct Session: Identifiable, Hashable, Sendable, SessionSummaryItem {
   let id: String
   var endpointId: UUID?
   var endpointName: String?

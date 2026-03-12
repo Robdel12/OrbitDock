@@ -17,7 +17,7 @@ struct QuickSwitcher: View {
   @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
-  let sessions: [Session]
+  let sessions: [SessionSummary]
 
   // Quick launch callbacks
   let onQuickLaunchClaude: ((String) -> Void)?
@@ -287,7 +287,7 @@ struct QuickSwitcher: View {
 
   // MARK: - Switcher Row
 
-  private func switcherRow(session: Session, index: Int) -> some View {
+  private func switcherRow(session: SessionSummary, index: Int) -> some View {
     QuickSwitcherSessionRow(
       session: session,
       index: index,
@@ -401,11 +401,11 @@ struct QuickSwitcher: View {
     }
   }
 
-  private func appState(for session: Session) -> SessionStore {
+  private func appState(for session: SessionSummary) -> SessionStore {
     runtimeRegistry.sessionStore(for: session, fallback: serverState)
   }
 
-  private func sessionObservable(for session: Session) -> SessionObservable {
+  private func sessionObservable(for session: SessionSummary) -> SessionObservable {
     runtimeRegistry.sessionObservable(for: session, fallback: serverState)
   }
 

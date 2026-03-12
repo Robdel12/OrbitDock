@@ -11,7 +11,7 @@ final class WindowSessionCoordinator {
   private let unifiedSessionsStore: UnifiedSessionsStore
   @ObservationIgnored private var sessionObservationTasks: [UUID: Task<Void, Never>] = [:]
 
-  private(set) var sessions: [Session] = []
+  private(set) var sessions: [SessionSummary] = []
 
   init(
     runtimeRegistry: ServerRuntimeRegistry,
@@ -32,11 +32,11 @@ final class WindowSessionCoordinator {
     unifiedSessionsStore.endpointHealth
   }
 
-  var missionControlSessions: [Session] {
+  var missionControlSessions: [SessionSummary] {
     sessions.filter(\.showsInMissionControl)
   }
 
-  var missionControlAttentionSessions: [Session] {
+  var missionControlAttentionSessions: [SessionSummary] {
     missionControlSessions.filter(\.needsAttention)
   }
 

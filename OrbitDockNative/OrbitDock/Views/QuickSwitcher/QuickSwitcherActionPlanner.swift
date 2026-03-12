@@ -3,17 +3,17 @@ import Foundation
 enum QuickSwitcherCommandPlan: Equatable {
   case goToDashboard
   case openNewSession(SessionProvider)
-  case renameSession(Session)
+  case renameSession(SessionSummary)
   case openInFinder(path: String)
   case copyResumeCommand(String)
-  case closeSession(Session)
+  case closeSession(SessionSummary)
 }
 
 enum QuickSwitcherSelectionPlan: Equatable {
   case none
   case quickLaunch(path: String)
   case goToDashboard
-  case openSession(Session)
+  case openSession(SessionSummary)
   case command(QuickSwitcherCommandPlan)
 }
 
@@ -22,8 +22,8 @@ enum QuickSwitcherActionPlanner {
     oldSearchText: String,
     newSearchText: String,
     selectedKind: QuickSwitcherSelectionKind,
-    visibleSessions: [Session]
-  ) -> Session? {
+    visibleSessions: [SessionSummary]
+  ) -> SessionSummary? {
     if oldSearchText.isEmpty, !newSearchText.isEmpty {
       switch selectedKind {
         case .session(let index):
@@ -43,9 +43,9 @@ enum QuickSwitcherActionPlanner {
 
   static func commandPlan(
     command: QuickSwitcherCommand,
-    currentSession: Session?,
-    explicitTargetSession: Session?,
-    fallbackVisibleSession: Session?
+    currentSession: SessionSummary?,
+    explicitTargetSession: SessionSummary?,
+    fallbackVisibleSession: SessionSummary?
   ) -> QuickSwitcherCommandPlan? {
     let targetSession = QuickSwitcherSelectionResolver.commandTargetSession(
       currentSession: currentSession,
@@ -81,9 +81,9 @@ enum QuickSwitcherActionPlanner {
     selectedKind: QuickSwitcherSelectionKind,
     recentProjects: [ServerRecentProject],
     filteredCommands: [QuickSwitcherCommand],
-    visibleSessions: [Session],
-    currentSession: Session?,
-    explicitTargetSession: Session?
+    visibleSessions: [SessionSummary],
+    currentSession: SessionSummary?,
+    explicitTargetSession: SessionSummary?
   ) -> QuickSwitcherSelectionPlan {
     switch selectedKind {
       case .none:
@@ -112,12 +112,13 @@ enum QuickSwitcherActionPlanner {
 
   static func renameTargetSession(
     selectedKind: QuickSwitcherSelectionKind,
-    visibleSessions: [Session]
-  ) -> Session? {
+    visibleSessions: [SessionSummary]
+  ) -> SessionSummary? {
     guard case .session(let index) = selectedKind, visibleSessions.indices.contains(index) else {
       return nil
     }
 
     return visibleSessions[index]
   }
+
 }

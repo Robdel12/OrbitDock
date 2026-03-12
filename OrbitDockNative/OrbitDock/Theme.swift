@@ -480,7 +480,7 @@ enum SessionDisplayStatus {
   }
 
   /// Create from Session model
-  static func from(_ session: Session) -> SessionDisplayStatus {
+  static func from<SessionType: SessionSummaryItem>(_ session: SessionType) -> SessionDisplayStatus {
     guard session.isActive else { return .ended }
 
     // Check attention reason first (more specific)
@@ -495,6 +495,10 @@ enum SessionDisplayStatus {
         // Fall back to work status
         return session.workStatus == .working ? .working : .reply
     }
+  }
+
+  static func fromSummary(_ session: SessionSummary) -> SessionDisplayStatus {
+    from(session)
   }
 
 }
@@ -550,7 +554,7 @@ struct SessionStatusBadge: View {
     }
   }
 
-  init(session: Session, showIcon: Bool = true, size: BadgeSize = .regular) {
+  init<SessionType: SessionSummaryItem>(session: SessionType, showIcon: Bool = true, size: BadgeSize = .regular) {
     self.status = SessionDisplayStatus.from(session)
     self.showIcon = showIcon
     self.size = size
@@ -593,8 +597,8 @@ struct SessionStatusDot: View {
   var size: CGFloat = IconScale.xs
   var showGlow: Bool = true
 
-  init(session: Session, size: CGFloat = IconScale.xs, showGlow: Bool = true) {
-    self.status = SessionDisplayStatus.from(session)
+  init<SessionType: SessionSummaryItem>(session: SessionType, size: CGFloat = IconScale.xs, showGlow: Bool = true) {
+    status = SessionDisplayStatus.from(session)
     self.size = size
     self.showGlow = showGlow
   }

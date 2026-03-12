@@ -10,7 +10,7 @@
 import SwiftUI
 
 struct FlatSessionRow: View {
-  let session: Session
+  let session: SessionSummary
   let onSelect: () -> Void
   var isSelected: Bool = false
   var hideBranch: Bool = false
@@ -402,7 +402,7 @@ struct FlatSessionRow: View {
   VStack(spacing: Spacing.xxs) {
     // Has summary — shows prompt as context
     FlatSessionRow(
-      session: Session(
+      session: SessionSummary(session: Session(
         id: "1",
         projectPath: "/Users/dev/project",
         projectName: "project",
@@ -414,14 +414,14 @@ struct FlatSessionRow: View {
         workStatus: .working,
         startedAt: Date().addingTimeInterval(-2_460),
         totalTokens: 7_600
-      ),
+      )),
       onSelect: {},
       isSelected: true
     )
 
     // No summary, has first prompt — prompt becomes the label
     FlatSessionRow(
-      session: Session(
+      session: SessionSummary(session: Session(
         id: "2",
         projectPath: "/Users/dev/project",
         projectName: "project",
@@ -434,13 +434,13 @@ struct FlatSessionRow: View {
         totalTokens: 2_100,
         attentionReason: .awaitingPermission,
         pendingToolName: "Bash"
-      ),
+      )),
       onSelect: {}
     )
 
     // No summary, no prompt — model shorthand as label
     FlatSessionRow(
-      session: Session(
+      session: SessionSummary(session: Session(
         id: "3",
         projectPath: "/Users/dev/project",
         projectName: "project",
@@ -451,13 +451,13 @@ struct FlatSessionRow: View {
         startedAt: Date().addingTimeInterval(-300),
         totalTokens: 500,
         attentionReason: .awaitingReply
-      ),
+      )),
       onSelect: {}
     )
 
     // Codex session with branch on different project
     FlatSessionRow(
-      session: Session(
+      session: SessionSummary(session: Session(
         id: "4",
         projectPath: "/Users/dev/vizzly",
         projectName: "vizzly",
@@ -470,7 +470,7 @@ struct FlatSessionRow: View {
         startedAt: Date().addingTimeInterval(-1_200),
         totalTokens: 12_500,
         provider: .codex
-      ),
+      )),
       onSelect: {}
     )
   }

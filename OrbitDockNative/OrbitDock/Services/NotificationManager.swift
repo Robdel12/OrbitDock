@@ -187,7 +187,7 @@ class NotificationManager {
     return preferences.boolForKey("notifyOnWorkComplete")
   }
 
-  func notifyNeedsAttention(session: Session) {
+  func notifyNeedsAttention<SessionType: SessionSummaryItem>(session: SessionType) {
     let scopedID = session.scopedID
 
     guard isAuthorized else { return }
@@ -262,7 +262,7 @@ class NotificationManager {
   }
 
   /// Track session work status and notify when work completes
-  func updateSessionWorkStatus(session: Session) {
+  func updateSessionWorkStatus<SessionType: SessionSummaryItem>(session: SessionType) {
     let scopedID = session.scopedID
     let wasWorking = workingSessionIds.contains(scopedID)
     let isWorking = Self.shouldTrackAsWorking(session)
@@ -283,7 +283,7 @@ class NotificationManager {
     }
   }
 
-  private func notifyWorkComplete(session: Session) {
+  private func notifyWorkComplete<SessionType: SessionSummaryItem>(session: SessionType) {
     guard isAuthorized else { return }
     guard notificationsEnabled else { return }
     guard notifyOnWorkComplete else { return }
@@ -324,7 +324,7 @@ class NotificationManager {
     }
   }
 
-  static func attentionMessage(for session: Session) -> String {
+  static func attentionMessage<SessionType: SessionSummaryItem>(for session: SessionType) -> String {
     switch SessionDisplayStatus.from(session) {
       case .permission:
         return "Waiting for permission approval"
@@ -335,7 +335,7 @@ class NotificationManager {
     }
   }
 
-  static func completionMessage(for session: Session) -> String {
+  static func completionMessage<SessionType: SessionSummaryItem>(for session: SessionType) -> String {
     switch SessionDisplayStatus.from(session) {
       case .permission:
         return "Needs permission to continue"
@@ -346,7 +346,7 @@ class NotificationManager {
     }
   }
 
-  static func shouldTrackAsWorking(_ session: Session) -> Bool {
+  static func shouldTrackAsWorking<SessionType: SessionSummaryItem>(_ session: SessionType) -> Bool {
     session.showsInMissionControl
       && session.allowsUserNotifications
       && SessionDisplayStatus.from(session) == .working

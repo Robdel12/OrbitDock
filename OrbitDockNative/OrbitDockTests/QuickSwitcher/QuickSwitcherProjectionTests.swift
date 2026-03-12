@@ -203,8 +203,8 @@ struct QuickSwitcherProjectionTests {
     startedAt: Date? = nil,
     endedAt: Date? = nil,
     lastActivityAt: Date? = nil
-  ) -> Session {
-    Session(
+  ) -> SessionSummary {
+    var session = Session(
       id: id,
       projectPath: projectPath,
       projectName: projectName,
@@ -219,5 +219,9 @@ struct QuickSwitcherProjectionTests {
       totalCostUSD: 0,
       lastActivityAt: lastActivityAt
     )
+    session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
+    session.endpointName = "Primary"
+    session.endpointConnectionStatus = .connected
+    return SessionSummary(session: session)
   }
 }

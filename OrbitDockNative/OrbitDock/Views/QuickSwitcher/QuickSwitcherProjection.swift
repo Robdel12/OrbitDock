@@ -1,10 +1,10 @@
 import Foundation
 
 struct QuickSwitcherProjection: Equatable, Sendable {
-  let filteredSessions: [Session]
-  let activeSessions: [Session]
-  let recentSessions: [Session]
-  let allVisibleSessions: [Session]
+  let filteredSessions: [SessionSummary]
+  let activeSessions: [SessionSummary]
+  let recentSessions: [SessionSummary]
+  let allVisibleSessions: [SessionSummary]
   let shouldShowRecentSessions: Bool
   let commandCount: Int
   let dashboardIndex: Int
@@ -12,7 +12,7 @@ struct QuickSwitcherProjection: Equatable, Sendable {
   let totalItems: Int
 
   static func make(
-    sessions: [Session],
+    sessions: [SessionSummary],
     normalizedQuery: String,
     isRecentExpanded: Bool,
     commandCount: Int,
@@ -49,7 +49,23 @@ struct QuickSwitcherProjection: Equatable, Sendable {
     )
   }
 
-  private static func filterSessions(_ sessions: [Session], normalizedQuery: String) -> [Session] {
+  static func make(
+    sessions: [Session],
+    normalizedQuery: String,
+    isRecentExpanded: Bool,
+    commandCount: Int,
+    quickLaunchProjectCount: Int? = nil
+  ) -> QuickSwitcherProjection {
+    make(
+      sessions: sessions.map(SessionSummary.init(session:)),
+      normalizedQuery: normalizedQuery,
+      isRecentExpanded: isRecentExpanded,
+      commandCount: commandCount,
+      quickLaunchProjectCount: quickLaunchProjectCount
+    )
+  }
+
+  private static func filterSessions(_ sessions: [SessionSummary], normalizedQuery: String) -> [SessionSummary] {
     guard !normalizedQuery.isEmpty else { return sessions }
 
     return sessions.filter { session in
@@ -73,7 +89,7 @@ struct QuickSwitcherProjection: Equatable, Sendable {
       .trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  private static func recentSessionDate(for session: Session) -> Date {
+  private static func recentSessionDate(for session: SessionSummary) -> Date {
     session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
   }
 }

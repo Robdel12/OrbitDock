@@ -19,7 +19,7 @@ import SwiftUI
 // MARK: - Attention Card (large, prominent, demands action)
 
 struct AttentionCard: View {
-  let session: Session
+  let session: SessionSummary
   let onSelect: () -> Void
 
   @Environment(SessionStore.self) private var serverState
@@ -163,7 +163,7 @@ struct AttentionCard: View {
 // MARK: - Working Card (medium, activity-focused)
 
 struct WorkingCard: View {
-  let session: Session
+  let session: SessionSummary
   let onSelect: () -> Void
 
   @Environment(SessionStore.self) private var serverState
@@ -276,7 +276,7 @@ struct CompactSessionRow: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(SessionStore.self) private var serverState
 
-  let session: Session
+  let session: SessionSummary
   let onSelect: () -> Void
   var isSelected: Bool = false
 
@@ -465,15 +465,15 @@ struct CompactSessionRow: View {
 // MARK: - Shared Helpers
 
 enum SessionCardHelpers {
-  static func agentLabel(for session: Session) -> String {
+  static func agentLabel(for session: SessionSummary) -> String {
     session.displayName
   }
 
-  static func projectName(for session: Session) -> String {
+  static func projectName(for session: SessionSummary) -> String {
     session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown"
   }
 
-  static func branch(for session: Session, maxLength: Int) -> String? {
+  static func branch(for session: SessionSummary, maxLength: Int) -> String? {
     guard let branch = session.branch, !branch.isEmpty else { return nil }
     if branch.count > maxLength {
       return String(branch.prefix(maxLength - 2)) + "…"
@@ -481,7 +481,7 @@ enum SessionCardHelpers {
     return branch
   }
 
-  static func contextLine(for session: Session) -> String? {
+  static func contextLine(for session: SessionSummary) -> String? {
     if let lastMsg = session.lastMessage, !lastMsg.isEmpty {
       let cleaned = DashboardFormatters.cleanPrompt(lastMsg, maxLength: 100)
       let label = agentLabel(for: session)
@@ -497,11 +497,11 @@ enum SessionCardHelpers {
     return nil
   }
 
-  static func recency(for session: Session) -> String? {
+  static func recency(for session: SessionSummary) -> String? {
     DashboardFormatters.recency(for: session.lastActivityAt ?? session.startedAt)
   }
 
-  private static func hasExplicitTitle(_ session: Session) -> Bool {
+  private static func hasExplicitTitle(_ session: SessionSummary) -> Bool {
     [session.customName, session.summary].contains { value in
       guard let value else { return false }
       return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -509,7 +509,7 @@ enum SessionCardHelpers {
   }
 
   @ViewBuilder
-  static func contextMenu(for session: Session, serverState: SessionStore) -> some View {
+  static func contextMenu(for session: SessionSummary, serverState: SessionStore) -> some View {
     Button {
       _ = Platform.services.revealInFileBrowser(session.projectPath)
     } label: {

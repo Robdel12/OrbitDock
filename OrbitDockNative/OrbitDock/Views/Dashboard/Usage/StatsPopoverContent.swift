@@ -235,8 +235,8 @@ struct StatusBarStats {
   let tokens: Int
   let costByModel: [(model: String, cost: Double, color: Color)]
 
-  static func from(
-    sessions: [Session],
+  static func from<SessionType: SessionSummaryItem>(
+    sessions: [SessionType],
     costCalculator: TokenCostCalculator
   ) -> StatusBarStats {
     var inputTokens = 0

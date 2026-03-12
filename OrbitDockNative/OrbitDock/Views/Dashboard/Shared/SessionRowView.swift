@@ -6,7 +6,7 @@
 import SwiftUI
 
 struct SessionRowView: View {
-  let session: Session
+  let session: SessionSummary
   var isSelected: Bool = false
 
   @Environment(SessionStore.self) private var serverState
@@ -236,7 +236,7 @@ struct PassiveBadge: View {
 
 #Preview {
   VStack(spacing: Spacing.xxs) {
-    SessionRowView(session: Session(
+    SessionRowView(session: SessionSummary(session: Session(
       id: "test-123",
       projectPath: "/Users/developer/Developer/vizzly-cli",
       projectName: "vizzly-cli",
@@ -256,9 +256,9 @@ struct PassiveBadge: View {
       lastToolAt: Date(),
       promptCount: 12,
       toolCount: 45
-    ), isSelected: true)
+    )), isSelected: true)
 
-    SessionRowView(session: Session(
+    SessionRowView(session: SessionSummary(session: Session(
       id: "test-456",
       projectPath: "/Users/developer/Developer/backchannel",
       projectName: "backchannel",
@@ -278,9 +278,9 @@ struct PassiveBadge: View {
       lastToolAt: nil,
       promptCount: 5,
       toolCount: 23
-    ))
+    )))
 
-    SessionRowView(session: Session(
+    SessionRowView(session: SessionSummary(session: Session(
       id: "test-789",
       projectPath: "/Users/developer/Developer/marketing",
       projectName: "marketing",
@@ -300,7 +300,7 @@ struct PassiveBadge: View {
       lastToolAt: nil,
       promptCount: 3,
       toolCount: 12
-    ))
+    )))
   }
   .padding()
   .frame(width: 380)

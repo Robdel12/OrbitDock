@@ -104,14 +104,14 @@ struct QuickSwitcherSelectionResolverTests {
     )
   }
 
-  private func makeSession(id: String) -> Session {
-    Session(
+  private func makeSession(id: String) -> SessionSummary {
+    SessionSummary(session: Session(
       id: id,
       projectPath: "/tmp/\(id)",
       status: .active,
       workStatus: .waiting,
       totalTokens: 0,
       totalCostUSD: 0
-    )
+    ))
   }
 }

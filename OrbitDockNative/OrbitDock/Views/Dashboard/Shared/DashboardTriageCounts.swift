@@ -10,7 +10,7 @@ struct DashboardTriageCounts {
   var running = 0
   var ready = 0
 
-  init(sessions: [Session]) {
+  init(sessions: [SessionSummary]) {
     for session in sessions {
       guard session.showsInMissionControl else { continue }
       let status = SessionDisplayStatus.from(session)

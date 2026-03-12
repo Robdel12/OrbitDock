@@ -1,10 +1,10 @@
 import Foundation
 
 struct LibraryArchiveState: Equatable {
-  let providerScopedSessions: [Session]
+  let providerScopedSessions: [SessionSummary]
   let endpointFacets: [LibraryEndpointFacet]
-  let endpointScopedSessions: [Session]
-  let filteredSessions: [Session]
+  let endpointScopedSessions: [SessionSummary]
+  let filteredSessions: [SessionSummary]
   let summary: LibraryArchiveSummary
   let selectedEndpointFacet: LibraryEndpointFacet?
   let scopeDescription: String
@@ -14,8 +14,8 @@ struct LibraryArchiveState: Equatable {
 struct LibraryProjectGroup: Identifiable, Equatable {
   let path: String
   let name: String
-  let liveSessions: [Session]
-  let archivedSessions: [Session]
+  let liveSessions: [SessionSummary]
+  let archivedSessions: [SessionSummary]
   let activeSessionCount: Int
   let totalCost: Double
   let totalTokens: Int
@@ -61,6 +61,22 @@ enum LibraryArchivePlanner {
     selectedEndpointId: UUID?,
     sort: ActiveSessionSort
   ) -> LibraryArchiveState {
+    state(
+      sessions: sessions.map(SessionSummary.init(session:)),
+      searchText: searchText,
+      providerFilter: providerFilter,
+      selectedEndpointId: selectedEndpointId,
+      sort: sort
+    )
+  }
+
+  static func state(
+    sessions: [SessionSummary],
+    searchText: String,
+    providerFilter: ActiveSessionProviderFilter,
+    selectedEndpointId: UUID?,
+    sort: ActiveSessionSort
+  ) -> LibraryArchiveState {
     let providerScopedSessions = providerScopedSessions(
       sessions: sessions,
       providerFilter: providerFilter
@@ -100,9 +116,9 @@ enum LibraryArchivePlanner {
   }
 
   static func providerScopedSessions(
-    sessions: [Session],
+    sessions: [SessionSummary],
     providerFilter: ActiveSessionProviderFilter
-  ) -> [Session] {
+  ) -> [SessionSummary] {
     switch providerFilter {
       case .all:
         sessions
@@ -113,7 +129,7 @@ enum LibraryArchivePlanner {
     }
   }
 
-  static func endpointFacets(from sessions: [Session]) -> [LibraryEndpointFacet] {
+  static func endpointFacets(from sessions: [SessionSummary]) -> [LibraryEndpointFacet] {
     let grouped = Dictionary(grouping: sessions) { $0.endpointId }
 
     return grouped
@@ -144,6 +160,10 @@ enum LibraryArchivePlanner {
       }
   }
 
+  static func endpointFacets(from sessions: [Session]) -> [LibraryEndpointFacet] {
+    endpointFacets(from: sessions.map(SessionSummary.init(session:)))
+  }
+
   static func selectedEndpointFacet(
     endpointId: UUID?,
     endpointFacets: [LibraryEndpointFacet]
@@ -153,17 +173,17 @@ enum LibraryArchivePlanner {
   }
 
   static func endpointScopedSessions(
-    sessions: [Session],
+    sessions: [SessionSummary],
     selectedEndpointFacet: LibraryEndpointFacet?
-  ) -> [Session] {
+  ) -> [SessionSummary] {
     guard let selectedEndpointFacet else { return sessions }
     return sessions.filter { $0.endpointId == selectedEndpointFacet.endpointId }
   }
 
   static func filteredSessions(
-    sessions: [Session],
+    sessions: [SessionSummary],
     query: String
-  ) -> [Session] {
+  ) -> [SessionSummary] {
     guard !query.isEmpty else { return sessions }
 
     let loweredQuery = query.lowercased()
@@ -184,7 +204,7 @@ enum LibraryArchivePlanner {
     }
   }
 
-  static func summary(for sessions: [Session]) -> LibraryArchiveSummary {
+  static func summary(for sessions: [SessionSummary]) -> LibraryArchiveSummary {
     LibraryArchiveSummary(
       projectCount: Set(sessions.map(\.groupingPath)).count,
       sessionCount: sessions.count,
@@ -219,7 +239,7 @@ enum LibraryArchivePlanner {
   }
 
   static func projectGroups(
-    sessions: [Session],
+    sessions: [SessionSummary],
     sort: ActiveSessionSort
   ) -> [LibraryProjectGroup] {
     let grouped = Dictionary(grouping: sessions) { $0.groupingPath }
@@ -277,11 +297,21 @@ enum LibraryArchivePlanner {
     }
   }
 
-  static func activityDate(for session: Session) -> Date {
+  static func projectGroups(
+    sessions: [Session],
+    sort: ActiveSessionSort
+  ) -> [LibraryProjectGroup] {
+    projectGroups(
+      sessions: sessions.map(SessionSummary.init(session:)),
+      sort: sort
+    )
+  }
+
+  static func activityDate(for session: SessionSummary) -> Date {
     session.lastActivityAt ?? session.endedAt ?? session.startedAt ?? .distantPast
   }
 
-  nonisolated static func isLiveSession(_ session: Session) -> Bool {
+  nonisolated static func isLiveSession(_ session: SessionSummary) -> Bool {
     let hasLiveConnection: Bool
     switch session.endpointConnectionStatus {
       case .none, .some(.connected):
@@ -291,5 +321,9 @@ enum LibraryArchivePlanner {
     }
 
     return session.status == .active && hasLiveConnection
+  }
+
+  nonisolated static func isLiveSession(_ session: Session) -> Bool {
+    isLiveSession(SessionSummary(session: session))
   }
 }

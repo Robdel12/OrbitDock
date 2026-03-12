@@ -25,7 +25,7 @@ struct UnifiedEndpointHealth: Identifiable, Sendable {
 }
 
 struct UnifiedSessionsSnapshot: Sendable {
-  let sessions: [Session]
+  let sessions: [SessionSummary]
   let sessionRefsByScopedID: [String: SessionRef]
   let endpointHealth: [UnifiedEndpointHealth]
   let counts: UnifiedSessionCounts
@@ -52,7 +52,7 @@ enum UnifiedSessionsProjection {
       return lhs.endpoint.id.uuidString < rhs.endpoint.id.uuidString
     }
 
-    var mergedSessions: [Session] = []
+    var mergedSessions: [SessionSummary] = []
     var refsByScopedID: [String: SessionRef] = [:]
     var totalCounts = UnifiedSessionCounts()
     var endpointHealth: [UnifiedEndpointHealth] = []
@@ -78,9 +78,10 @@ enum UnifiedSessionsProjection {
         decorated.endpointConnectionStatus = input.status
 
         if shouldInclude(ref: ref, filter: filter) {
-          mergedSessions.append(decorated)
+          let summary = SessionSummary(session: decorated)
+          mergedSessions.append(summary)
           refsByScopedID[ref.scopedID] = ref
-          accumulate(into: &totalCounts, session: decorated)
+          accumulate(into: &totalCounts, session: summary)
         }
       }
     }
@@ -109,38 +110,85 @@ enum UnifiedSessionsProjection {
   }
 
   private static func compareSessions(_ lhs: Session, _ rhs: Session) -> Bool {
-    if lhs.isActive != rhs.isActive {
-      return lhs.isActive && !rhs.isActive
+    compareSessionValues(
+      lhsIsActive: lhs.isActive,
+      rhsIsActive: rhs.isActive,
+      lhsLastActivityAt: lhs.lastActivityAt,
+      rhsLastActivityAt: rhs.lastActivityAt,
+      lhsStartedAt: lhs.startedAt,
+      rhsStartedAt: rhs.startedAt,
+      lhsDisplayName: lhs.displayName,
+      rhsDisplayName: rhs.displayName,
+      lhsEndpointName: lhs.endpointName,
+      rhsEndpointName: rhs.endpointName,
+      lhsId: lhs.id,
+      rhsId: rhs.id
+    )
+  }
+
+  private static func compareSessions(_ lhs: SessionSummary, _ rhs: SessionSummary) -> Bool {
+    compareSessionValues(
+      lhsIsActive: lhs.isActive,
+      rhsIsActive: rhs.isActive,
+      lhsLastActivityAt: lhs.lastActivityAt,
+      rhsLastActivityAt: rhs.lastActivityAt,
+      lhsStartedAt: lhs.startedAt,
+      rhsStartedAt: rhs.startedAt,
+      lhsDisplayName: lhs.displayName,
+      rhsDisplayName: rhs.displayName,
+      lhsEndpointName: lhs.endpointName,
+      rhsEndpointName: rhs.endpointName,
+      lhsId: lhs.id,
+      rhsId: rhs.id
+    )
+  }
+
+  private static func compareSessionValues(
+    lhsIsActive: Bool,
+    rhsIsActive: Bool,
+    lhsLastActivityAt: Date?,
+    rhsLastActivityAt: Date?,
+    lhsStartedAt: Date?,
+    rhsStartedAt: Date?,
+    lhsDisplayName: String,
+    rhsDisplayName: String,
+    lhsEndpointName: String?,
+    rhsEndpointName: String?,
+    lhsId: String,
+    rhsId: String
+  ) -> Bool {
+    if lhsIsActive != rhsIsActive {
+      return lhsIsActive && !rhsIsActive
     }
 
-    let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
-    let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+    let lhsDate = lhsLastActivityAt ?? lhsStartedAt ?? .distantPast
+    let rhsDate = rhsLastActivityAt ?? rhsStartedAt ?? .distantPast
     if lhsDate != rhsDate {
       return lhsDate > rhsDate
     }
 
-    let lhsName = lhs.displayName.lowercased()
-    let rhsName = rhs.displayName.lowercased()
+    let lhsName = lhsDisplayName.lowercased()
+    let rhsName = rhsDisplayName.lowercased()
     if lhsName != rhsName {
       return lhsName < rhsName
     }
 
-    if lhs.endpointName != rhs.endpointName {
-      return (lhs.endpointName ?? "") < (rhs.endpointName ?? "")
+    if lhsEndpointName != rhsEndpointName {
+      return (lhsEndpointName ?? "") < (rhsEndpointName ?? "")
     }
 
-    return lhs.id < rhs.id
+    return lhsId < rhsId
   }
 
   private static func buildCounts(from sessions: [Session]) -> UnifiedSessionCounts {
     var counts = UnifiedSessionCounts()
     for session in sessions {
-      accumulate(into: &counts, session: session)
+      accumulate(into: &counts, session: SessionSummary(session: session))
     }
     return counts
   }
 
-  private static func accumulate(into counts: inout UnifiedSessionCounts, session: Session) {
+  private static func accumulate(into counts: inout UnifiedSessionCounts, session: SessionSummary) {
     counts.total += 1
     if session.isActive {
       counts.active += 1
@@ -161,7 +209,7 @@ enum UnifiedSessionsProjection {
 @MainActor
 final class UnifiedSessionsStore {
   private(set) var selectedEndpointFilter: UnifiedEndpointFilter = .all
-  private(set) var sessions: [Session] = []
+  private(set) var sessions: [SessionSummary] = []
   private(set) var sessionRefsByScopedID: [String: SessionRef] = [:]
   private(set) var endpointHealth: [UnifiedEndpointHealth] = []
   private(set) var counts = UnifiedSessionCounts()

@@ -204,8 +204,8 @@ struct UnifiedSessionsStoreTests {
     )
 
     let merged = MissionControlNotificationSessions.merge(
-      previousSessions: [previousShared, previousOnly],
-      currentSessions: [currentShared]
+      previousSessions: [SessionSummary(session: previousShared), SessionSummary(session: previousOnly)],
+      currentSessions: [SessionSummary(session: currentShared)]
     )
 
     #expect(merged.map(\.id) == ["shared", "previous-only"])

@@ -2,8 +2,8 @@ import SwiftUI
 
 struct QuickSwitcherViewState {
   let isCompactLayout: Bool
-  let currentSession: Session?
-  let targetSession: Session?
+  let currentSession: SessionSummary?
+  let targetSession: SessionSummary?
   let queryPlan: QuickSwitcherQueryPlan
   let commands: [QuickSwitcherCommand]
   let filteredCommands: [QuickSwitcherCommand]
@@ -12,10 +12,10 @@ struct QuickSwitcherViewState {
   let recentProjects: [ServerRecentProject]
 
   var searchQuery: String { queryPlan.normalizedQuery }
-  var filteredSessions: [Session] { projection.filteredSessions }
-  var activeSessions: [Session] { projection.activeSessions }
-  var recentSessions: [Session] { projection.recentSessions }
-  var allVisibleSessions: [Session] { projection.allVisibleSessions }
+  var filteredSessions: [SessionSummary] { projection.filteredSessions }
+  var activeSessions: [SessionSummary] { projection.activeSessions }
+  var recentSessions: [SessionSummary] { projection.recentSessions }
+  var allVisibleSessions: [SessionSummary] { projection.allVisibleSessions }
   var totalItems: Int { projection.totalItems }
   var commandCount: Int { projection.commandCount }
   var dashboardIndex: Int { projection.dashboardIndex }
@@ -25,7 +25,7 @@ struct QuickSwitcherViewState {
   var isEmptyState: Bool { allVisibleSessions.isEmpty && filteredCommands.isEmpty && !searchQuery.isEmpty }
 
   static func make(
-    sessions: [Session],
+    sessions: [SessionSummary],
     state: QuickSwitcherState,
     selectedScopedID: String?,
     isCompactLayout: Bool
@@ -64,6 +64,20 @@ struct QuickSwitcherViewState {
       projection: projection,
       quickLaunchMode: state.quickLaunchMode,
       recentProjects: state.recentProjects
+    )
+  }
+
+  static func make(
+    sessions: [Session],
+    state: QuickSwitcherState,
+    selectedScopedID: String?,
+    isCompactLayout: Bool
+  ) -> QuickSwitcherViewState {
+    make(
+      sessions: sessions.map(SessionSummary.init(session:)),
+      state: state,
+      selectedScopedID: selectedScopedID,
+      isCompactLayout: isCompactLayout
     )
   }
 }

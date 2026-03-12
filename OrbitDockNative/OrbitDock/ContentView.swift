@@ -8,8 +8,8 @@
 import SwiftUI
 
 enum MissionControlNotificationSessions {
-  static func merge(previousSessions: [Session], currentSessions: [Session]) -> [Session] {
-    var mergedByScopedID: [String: Session] = [:]
+  static func merge(previousSessions: [SessionSummary], currentSessions: [SessionSummary]) -> [SessionSummary] {
+    var mergedByScopedID: [String: SessionSummary] = [:]
     var orderedScopedIDs: [String] = []
 
     for session in currentSessions {

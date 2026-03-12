@@ -204,8 +204,8 @@ struct LibraryArchivePlannerTests {
     totalCostUSD: Double = 0,
     lastActivityAt: Date? = nil,
     connectionStatus: ConnectionStatus? = nil
-  ) -> Session {
-    Session(
+  ) -> SessionSummary {
+    SessionSummary(session: Session(
       id: id,
       endpointId: endpointId,
       endpointName: endpointName,
@@ -219,6 +219,6 @@ struct LibraryArchivePlannerTests {
       totalCostUSD: totalCostUSD,
       lastActivityAt: lastActivityAt,
       provider: provider
-    )
+    ))
   }
 }
