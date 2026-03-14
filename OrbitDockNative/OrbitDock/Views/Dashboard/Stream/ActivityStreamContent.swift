@@ -200,10 +200,6 @@ struct ActivityStreamContent: View {
   // MARK: - Navigation
 
   private func selectSession(_ session: RootSessionNode) {
-    print("this doing anything?")
-
-//    withAnimation(Motion.standard) {
-//      router.selectSession(session.sessionRef)
-//    }
+    router.selectSession(session.sessionRef)
   }
 }

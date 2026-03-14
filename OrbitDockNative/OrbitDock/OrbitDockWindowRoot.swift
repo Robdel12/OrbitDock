@@ -5,6 +5,7 @@ struct OrbitDockWindowRoot: View {
   @State private var appStore: AppStore
   @State private var router = AppRouter()
   @State private var toastManager = ToastManager()
+  @State private var navigationPath = NavigationPath()
 
   init(appRuntime: OrbitDockAppRuntime) {
     self.appRuntime = appRuntime
@@ -12,12 +13,20 @@ struct OrbitDockWindowRoot: View {
   }
 
   var body: some View {
-    NavigationSplitView {
-      sidebar
-    } detail: {
-      detail
+    NavigationStack(path: $navigationPath) {
+      DashboardView(
+        isInitialLoading: false,
+        isRefreshingCachedSessions: false
+      )
+      .navigationDestination(for: SessionRef.self) { ref in
+        SessionDetailView(
+          sessionId: ref.sessionId,
+          endpointId: ref.endpointId
+        )
+        .environment(detailSessionStore(for: ref.endpointId))
+        .id(ref.scopedID)
+      }
     }
-    .navigationSplitViewStyle(.balanced)
     #if os(macOS)
       .environment(\.serverManager, appRuntime.serverManager)
     #endif
@@ -31,42 +40,19 @@ struct OrbitDockWindowRoot: View {
     .environment(\.modelPricingService, ModelPricingService.live())
     .focusedSceneValue(\.orbitDockRouter, router)
     .preferredColorScheme(.dark)
+    .toolbar(.hidden)
     .task {
       appStore.start()
     }
-  }
-
-  // MARK: - Sidebar: Dashboard with session list
-
-  private var sidebar: some View {
-    DashboardView(
-      isInitialLoading: false,
-      isRefreshingCachedSessions: false
-    )
-    #if os(macOS)
-      .navigationSplitViewColumnWidth(min: 600, ideal: 700, max: .infinity)
-    #endif
-    .toolbar(.hidden)
-  }
-
-  // MARK: - Detail: Session conversation when selected
-
-  @ViewBuilder
-  private var detail: some View {
-    if let ref = router.selectedSessionRef {
-      SessionDetailView(
-        sessionId: ref.sessionId,
-        endpointId: ref.endpointId
-      )
-      .environment(detailSessionStore(for: ref.endpointId))
-      .id(ref.scopedID)
-      .toolbar(.hidden)
-    } else {
-      ContentUnavailableView(
-        "Select a Session",
-        systemImage: "bubble.left.and.bubble.right",
-        description: Text("Choose an agent session from the sidebar")
-      )
+    .onChange(of: router.route) { _, newRoute in
+      // Sync router state → NavigationStack path
+      switch newRoute {
+      case let .session(ref):
+        // Always navigate — replace entire path
+        navigationPath = NavigationPath([ref])
+      case .dashboard:
+        navigationPath = NavigationPath()
+      }
     }
   }
 
