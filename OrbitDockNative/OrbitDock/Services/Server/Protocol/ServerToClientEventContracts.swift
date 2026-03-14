@@ -12,6 +12,7 @@ enum ServerToClientMessage: Codable {
 
   case sessionsList(sessions: [ServerSessionListItem])
   case conversationBootstrap(session: ServerSessionState, conversation: ServerConversationHistoryPage)
+  case sessionSnapshot(session: ServerSessionState)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
   case conversationRowsChanged(
     sessionId: String,

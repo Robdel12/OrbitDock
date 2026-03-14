@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use orbitdock_protocol::{ClientMessage, ServerMessage};
 
@@ -10,13 +10,12 @@ use crate::runtime::session_activation::{
     reactivate_passive_and_prepare_subscribe, start_lazy_connector_and_prepare_subscribe,
 };
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_subscription_queries::load_persisted_subscribe_state;
 use crate::runtime::session_subscriptions::{
     plan_session_subscribe, prepare_subscribe_result, request_subscribe, PreparedSubscribeResult,
     SessionSubscribeInputs,
 };
 use crate::transport::websocket::{
-    send_json, send_replay_or_snapshot_fallback, send_snapshot_if_requested,
+    send_json, send_replay_or_snapshot_fallback, send_rest_only_error, send_snapshot_if_requested,
     spawn_broadcast_forwarder, OutboundMessage,
 };
 
@@ -60,6 +59,15 @@ pub(crate) async fn handle(
             since_revision,
             include_snapshot,
         } => {
+            if include_snapshot {
+                send_rest_only_error(
+                    client_tx,
+                    &format!("/api/sessions/{session_id}/conversation"),
+                    Some(session_id.clone()),
+                )
+                .await;
+            }
+
             if let Some(actor) = state.get_session(&session_id) {
                 let snap = actor.snapshot();
 
@@ -170,7 +178,7 @@ pub(crate) async fn handle(
 
                 match request_subscribe(&actor, since_revision).await {
                     Ok(result) => {
-                        let prepared = prepare_subscribe_result(&actor, &session_id, result).await;
+                        let prepared = prepare_subscribe_result(result);
                         forward_subscribe_result(
                             client_tx,
                             &session_id,
@@ -191,47 +199,15 @@ pub(crate) async fn handle(
                     }
                 }
             } else {
-                match load_persisted_subscribe_state(&session_id).await {
-                    Ok(Some(snapshot)) => {
-                        send_snapshot_if_requested(
-                            client_tx,
-                            &session_id,
-                            snapshot,
-                            include_snapshot,
-                            conn_id,
-                        )
-                        .await;
-                    }
-                    Ok(None) => {
-                        send_json(
-                            client_tx,
-                            ServerMessage::Error {
-                                code: "not_found".into(),
-                                message: format!("Session {} not found", session_id),
-                                session_id: Some(session_id),
-                            },
-                        )
-                        .await;
-                    }
-                    Err(error) => {
-                        error!(
-                            component = "websocket",
-                            event = "session.subscribe.db_error",
-                            session_id = %session_id,
-                            error = %error,
-                            "Failed to load session from database"
-                        );
-                        send_json(
-                            client_tx,
-                            ServerMessage::Error {
-                                code: "db_error".into(),
-                                message: error,
-                                session_id: Some(session_id),
-                            },
-                        )
-                        .await;
-                    }
-                }
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "not_found".into(),
+                        message: format!("Session {} not found", session_id),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
             }
         }
 

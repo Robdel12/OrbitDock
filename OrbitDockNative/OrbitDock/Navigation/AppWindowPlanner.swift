@@ -10,17 +10,18 @@ enum AppWindowPlanner {
   static func contentDestination(
     connectedRuntimeCount: Int,
     installState: ServerInstallState,
-    selectedSessionRef: SessionRef?
+    route: AppRoute
   ) -> AppContentDestination {
     if shouldShowSetup(connectedRuntimeCount: connectedRuntimeCount, installState: installState) {
       return .setup
     }
 
-    if let selectedSessionRef {
-      return .session(selectedSessionRef)
+    switch route {
+    case .dashboard:
+      return .dashboard
+    case let .session(sessionRef):
+      return .session(sessionRef)
     }
-
-    return .dashboard
   }
 
   static func shouldShowSetup(

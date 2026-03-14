@@ -39,7 +39,7 @@ struct ContentView: View {
     AppWindowPlanner.contentDestination(
       connectedRuntimeCount: runtimeRegistry.connectedRuntimeCount,
       installState: currentInstallState,
-      selectedSessionRef: router.selectedSessionRef
+      route: router.route
     )
   }
 
@@ -102,15 +102,33 @@ struct ContentView: View {
       switch contentDestination {
       case .setup:
         ServerSetupView()
+          .onAppear {
+            let message =
+              "rendering setup destination route=\(String(describing: router.route)) router=\(String(describing: ObjectIdentifier(router)))"
+            print("[OrbitDock][ContentView] \(message)")
+            NSLog("[OrbitDock][ContentView] %@", message)
+          }
       case let .session(ref):
         SessionDetailView(
           sessionId: ref.sessionId,
           endpointId: ref.endpointId
         )
         .environment(detailSessionStore(for: ref.endpointId))
+        .onAppear {
+          let message =
+            "rendering session destination scopedID=\(ref.scopedID) endpoint=\(ref.endpointId.uuidString) session=\(ref.sessionId) route=\(String(describing: router.route)) router=\(String(describing: ObjectIdentifier(router)))"
+          print("[OrbitDock][ContentView] \(message)")
+          NSLog("[OrbitDock][ContentView] %@", message)
+        }
         .id(ref.scopedID)
       case .dashboard:
         dashboardView
+          .onAppear {
+            let message =
+              "rendering dashboard destination tab=\(router.dashboardTab) route=\(String(describing: router.route)) router=\(String(describing: ObjectIdentifier(router)))"
+            print("[OrbitDock][ContentView] \(message)")
+            NSLog("[OrbitDock][ContentView] %@", message)
+          }
       }
     }
   }

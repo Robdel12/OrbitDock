@@ -63,6 +63,12 @@ struct HeaderView: View {
         regularHeader
       }
     }
+    .onAppear {
+      let message =
+        "onAppear session=\(sessionId) endpoint=\(endpointId.uuidString) route=\(String(describing: router.route)) router=\(String(describing: ObjectIdentifier(router)))"
+      print("[OrbitDock][HeaderView] \(message)")
+      NSLog("[OrbitDock][HeaderView] %@", message)
+    }
   }
 
   // MARK: - Layouts

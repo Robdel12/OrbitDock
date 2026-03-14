@@ -3,47 +3,30 @@ import SwiftUI
 struct OrbitDockWindowRoot: View {
   @Environment(\.scenePhase) private var scenePhase
   let appRuntime: OrbitDockAppRuntime
-  let sharedRootShellStore: RootShellStore
-  let sharedRootShellRuntime: RootShellRuntime
-  @State private var attentionService: AttentionService
+  @State private var appStore: AppStore
   @State private var router: AppRouter
   @State private var toastManager: ToastManager
   @State private var rootSessionActions: RootSessionActions
-  @State private var rootShellEffectsCoordinator: RootShellEffectsCoordinator
-  @State private var rootSelectionBridge: RootSelectionBridge
   @State private var windowID = UUID()
 
-  init(
-    appRuntime: OrbitDockAppRuntime,
-    rootShellStore: RootShellStore,
-    rootShellRuntime: RootShellRuntime
-  ) {
+  init(appRuntime: OrbitDockAppRuntime) {
     self.appRuntime = appRuntime
-    self.sharedRootShellStore = rootShellStore
-    self.sharedRootShellRuntime = rootShellRuntime
 
     let attentionService = AttentionService()
     let router = AppRouter()
     let toastManager = ToastManager()
-    _attentionService = State(initialValue: attentionService)
+    let appStore = AppStore(
+      runtimeRegistry: appRuntime.runtimeRegistry,
+      attentionService: attentionService,
+      notificationManager: appRuntime.notificationManager,
+      toastManager: toastManager
+    )
+    appStore.router = router
+
+    _appStore = State(initialValue: appStore)
     _router = State(initialValue: router)
     _toastManager = State(initialValue: toastManager)
     _rootSessionActions = State(initialValue: RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
-    _rootShellEffectsCoordinator = State(
-      initialValue: RootShellEffectsCoordinator(
-        rootShellStore: rootShellStore,
-        attentionService: attentionService,
-        notificationManager: appRuntime.notificationManager,
-        toastManager: toastManager,
-        router: router
-      )
-    )
-    _rootSelectionBridge = State(
-      initialValue: RootSelectionBridge(
-        runtimeRegistry: appRuntime.runtimeRegistry,
-        router: router
-      )
-    )
   }
 
   var body: some View {
@@ -54,26 +37,21 @@ struct OrbitDockWindowRoot: View {
       .environment(appRuntime.runtimeRegistry)
       .environment(appRuntime.usageServiceRegistry)
       .environment(appRuntime.notificationManager)
-      .environment(attentionService)
       .environment(router)
       .environment(toastManager)
       .environment(\.rootSessionActions, rootSessionActions)
-      .environment(sharedRootShellStore)
+      .environment(appStore)
       .focusedSceneValue(\.orbitDockRouter, router)
       .preferredColorScheme(.dark)
-      .task {
-        for await update in sharedRootShellRuntime.updates {
-          rootShellEffectsCoordinator.applyRootChange(update: update)
-        }
-      }
       .onAppear {
+        let message = "onAppear windowID=\(windowID.uuidString) router=\(String(describing: ObjectIdentifier(router)))"
+        print("[OrbitDock][WindowRoot] \(message)")
+        NSLog("[OrbitDock][WindowRoot] %@", message)
         appRuntime.externalNavigationCenter.registerWindow(windowID) { command in
           handleExternalCommand(command)
         }
-        rootShellEffectsCoordinator.setCurrentSelection(router.selectedScopedID)
-        sharedRootShellRuntime.start()
-        sharedRootShellRuntime.selectedSessionDidChange(to: router.selectedScopedID)
-        rootSelectionBridge.start()
+        appStore.setCurrentSelection(router.selectedSessionRef)
+        appStore.start()
         updateWindowFocus(for: scenePhase)
       }
       .onDisappear {
@@ -85,17 +63,18 @@ struct OrbitDockWindowRoot: View {
           appRuntime.runtimeRegistry.reconnectAllIfNeeded()
         }
       }
-      .onChange(of: router.selectedScopedID, initial: true) { _, newId in
-        rootShellEffectsCoordinator.setCurrentSelection(newId)
-        sharedRootShellRuntime.selectedSessionDidChange(to: newId)
+      .onChange(of: router.route, initial: true) { _, newRoute in
+        let message =
+          "route changed to \(String(describing: newRoute)) windowID=\(windowID.uuidString) router=\(String(describing: ObjectIdentifier(router)))"
+        print("[OrbitDock][WindowRoot] \(message)")
+        NSLog("[OrbitDock][WindowRoot] %@", message)
+        appStore.setCurrentSelection(router.selectedSessionRef)
       }
       .onChange(of: appRuntime.runtimeRegistry.connectionStatusByEndpointId) { _, _ in
-        sharedRootShellRuntime.runtimeGraphDidChange()
-        rootSelectionBridge.runtimeGraphDidChange()
+        appStore.runtimeGraphDidChange()
       }
       .onChange(of: appRuntime.runtimeRegistry.runtimesByEndpointId.count) { _, _ in
-        sharedRootShellRuntime.runtimeGraphDidChange()
-        rootSelectionBridge.runtimeGraphDidChange()
+        appStore.runtimeGraphDidChange()
       }
   }
 
@@ -114,13 +93,13 @@ struct OrbitDockWindowRoot: View {
       scenePhase: scenePhase
     ) else { return }
 
-      withAnimation(Motion.standard) {
-        router.handleExternalNavigation(
-          sessionID: selection.sessionID,
-          endpointId: selection.endpointID,
-          store: sharedRootShellStore,
-          fallbackEndpointId: appRuntime.runtimeRegistry.primaryEndpointId ?? appRuntime.runtimeRegistry.activeEndpointId
-        )
-      }
+    withAnimation(Motion.standard) {
+      router.handleExternalNavigation(
+        sessionID: selection.sessionID,
+        endpointId: selection.endpointID,
+        store: appStore,
+        fallbackEndpointId: appRuntime.runtimeRegistry.primaryEndpointId ?? appRuntime.runtimeRegistry.activeEndpointId
+      )
+    }
   }
 }

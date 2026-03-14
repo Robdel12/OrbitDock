@@ -12,6 +12,16 @@ struct ServerHTTPClient: Sendable {
 
   private static let decoder = JSONDecoder()
 
+  private func debugPreview(_ data: Data, maxCharacters: Int = 600) -> String {
+    guard let text = String(data: data, encoding: .utf8) else {
+      return "<non-utf8 body: \(data.count) bytes>"
+    }
+    if text.count <= maxCharacters {
+      return text
+    }
+    return String(text.prefix(maxCharacters)) + "…"
+  }
+
   func get<R: Decodable>(
     _ path: String,
     query: [URLQueryItem] = []
@@ -40,6 +50,9 @@ struct ServerHTTPClient: Sendable {
       return try Self.decoder.decode(R.self, from: response.body)
     } catch {
       netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": error.localizedDescription])
+      print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
+      print("[OrbitDock][HTTP] Error: \(error.localizedDescription)")
+      print("[OrbitDock][HTTP] Body preview: \(debugPreview(response.body))")
       throw error
     }
   }
@@ -64,6 +77,9 @@ struct ServerHTTPClient: Sendable {
       return try Self.decoder.decode(R.self, from: response.body)
     } catch {
       netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": error.localizedDescription])
+      print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
+      print("[OrbitDock][HTTP] Error: \(error.localizedDescription)")
+      print("[OrbitDock][HTTP] Body preview: \(debugPreview(response.body))")
       throw error
     }
   }
@@ -90,6 +106,9 @@ struct ServerHTTPClient: Sendable {
       return try Self.decoder.decode(R.self, from: response.body)
     } catch {
       netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": error.localizedDescription])
+      print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
+      print("[OrbitDock][HTTP] Error: \(error.localizedDescription)")
+      print("[OrbitDock][HTTP] Body preview: \(debugPreview(response.body))")
       throw error
     }
   }

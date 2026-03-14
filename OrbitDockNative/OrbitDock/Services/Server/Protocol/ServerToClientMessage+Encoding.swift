@@ -14,6 +14,10 @@ extension ServerToClientMessage {
         try container.encode(session, forKey: .session)
         try container.encode(conversation, forKey: .conversation)
 
+      case let .sessionSnapshot(session):
+        try container.encode("session_snapshot", forKey: .type)
+        try container.encode(session, forKey: .session)
+
       case let .sessionDelta(sessionId, changes):
         try container.encode("session_delta", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)

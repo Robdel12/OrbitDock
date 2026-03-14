@@ -68,7 +68,7 @@ pub(crate) async fn reactivate_passive_and_prepare_subscribe(
     }
 
     let result = request_subscribe(actor, None).await?;
-    Ok(prepare_subscribe_result(actor, session_id, result).await)
+    Ok(prepare_subscribe_result(result))
 }
 
 pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
@@ -140,9 +140,7 @@ pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
 
     if let Some(new_actor) = state.get_session(session_id) {
         let result = request_subscribe(&new_actor, None).await?;
-        return Ok(Some(
-            prepare_subscribe_result(&new_actor, session_id, result).await,
-        ));
+        return Ok(Some(prepare_subscribe_result(result)));
     }
 
     if connector_connected {

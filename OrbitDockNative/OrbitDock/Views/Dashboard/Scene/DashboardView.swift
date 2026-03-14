@@ -13,7 +13,7 @@ import SwiftUI
 struct DashboardView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(AppRouter.self) private var router
-  @Environment(RootShellStore.self) private var rootShellStore
+  @Environment(AppStore.self) private var appStore
 
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
@@ -32,7 +32,7 @@ struct DashboardView: View {
 
   private var activityStream: ActivityStream {
     ActivityStream.build(
-      from: rootShellStore.missionControlRecords(),
+      from: appStore.missionControlRecords(),
       filter: activeWorkbenchFilter,
       sort: activeSort,
       providerFilter: activeProviderFilter,
@@ -41,11 +41,11 @@ struct DashboardView: View {
   }
 
   private var rootSessions: [RootSessionNode] {
-    rootShellStore.records()
+    appStore.records()
   }
 
   private var missionControlSessions: [RootSessionNode] {
-    rootShellStore.missionControlRecords()
+    appStore.missionControlRecords()
   }
 
   private var librarySessions: [RootSessionNode] {
@@ -121,8 +121,13 @@ struct DashboardView: View {
             width: sidebarWidth,
             projectFilter: $activeProjectFilter,
             onSelectSession: { session in
+              let message =
+                "sidebar tap scopedID=\(session.scopedID) endpoint=\(session.sessionRef.endpointId.uuidString)"
+              print("[OrbitDock][DashboardSidebar] \(message)")
+              NSLog("[OrbitDock][DashboardSidebar] %@", message)
               withAnimation(Motion.hover) {
                 dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
+                router.selectSession(session.sessionRef)
               }
             }
           )
@@ -312,7 +317,7 @@ struct DashboardView: View {
     let session = navigableSessions[selectedIndex]
     dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
     withAnimation(Motion.standard) {
-      router.navigateToSession(scopedID: session.scopedID)
+      router.selectSession(session.sessionRef)
     }
   }
 

@@ -10,7 +10,7 @@ import SwiftUI
       onQuickLaunchCodex: nil
     )
     .environment(AppRouter())
-    .environment(quickSwitcherPreviewRootShellStore())
+    .environment(quickSwitcherPreviewAppStore())
   }
   .frame(width: 800, height: 600)
 }
@@ -93,46 +93,68 @@ private func quickSwitcherPreviewNode(
   )
 }
 
-private func quickSwitcherPreviewRootShellStore() -> RootShellStore {
-  let store = RootShellStore()
-  store.apply(.seed(
-    endpointId: UUID(),
-    records: [
-      quickSwitcherPreviewNode(
-        id: "1",
-        projectPath: "/Users/developer/Developer/vizzly-cli",
-        projectName: "vizzly-cli",
-        branch: "feat/auth",
-        model: "claude-opus-4-5-20251101",
-        contextLine: "Auth refactor",
-        status: .active,
-        workStatus: .working,
-        startedAt: Date()
+private func quickSwitcherPreviewAppStore() -> AppStore {
+  let registry = ServerRuntimeRegistry(
+    endpointsProvider: { [] },
+    runtimeFactory: { _ in fatalError("No runtime in preview") },
+    shouldBootstrapFromSettings: false
+  )
+  let store = AppStore(
+    runtimeRegistry: registry,
+    attentionService: AttentionService(),
+    notificationManager: NotificationManager(
+      isAuthorized: false,
+      shouldRequestAuthorizationOnStart: false,
+      notificationCenter: NotificationCenterClient(
+        requestAuthorization: { completion in completion(false, nil) },
+        setDelegate: { _ in },
+        setNotificationCategories: { _ in },
+        addRequest: { _, completion in completion(nil) },
+        removeDeliveredNotifications: { _ in }
       ),
-      quickSwitcherPreviewNode(
-        id: "2",
-        projectPath: "/Users/developer/Developer/backchannel",
-        projectName: "backchannel",
-        branch: "main",
-        model: "claude-sonnet-4-20250514",
-        contextLine: "API review",
-        status: .active,
-        workStatus: .waiting,
-        startedAt: Date()
-      ),
-      quickSwitcherPreviewNode(
-        id: "3",
-        projectPath: "/Users/developer/Developer/docs",
-        projectName: "docs",
-        branch: "main",
-        model: "claude-haiku-3-5-20241022",
-        contextLine: nil,
-        status: .ended,
-        workStatus: .unknown,
-        startedAt: Date().addingTimeInterval(-7_200),
-        endedAt: Date().addingTimeInterval(-3_600)
-      ),
-    ]
-  ))
+      preferences: NotificationPreferences(
+        stringForKey: { _ in nil },
+        objectForKey: { _ in nil },
+        boolForKey: { _ in false }
+      )
+    ),
+    toastManager: ToastManager()
+  )
+  store.seed(records: [
+    quickSwitcherPreviewNode(
+      id: "1",
+      projectPath: "/Users/developer/Developer/vizzly-cli",
+      projectName: "vizzly-cli",
+      branch: "feat/auth",
+      model: "claude-opus-4-5-20251101",
+      contextLine: "Auth refactor",
+      status: .active,
+      workStatus: .working,
+      startedAt: Date()
+    ),
+    quickSwitcherPreviewNode(
+      id: "2",
+      projectPath: "/Users/developer/Developer/backchannel",
+      projectName: "backchannel",
+      branch: "main",
+      model: "claude-sonnet-4-20250514",
+      contextLine: "API review",
+      status: .active,
+      workStatus: .waiting,
+      startedAt: Date()
+    ),
+    quickSwitcherPreviewNode(
+      id: "3",
+      projectPath: "/Users/developer/Developer/docs",
+      projectName: "docs",
+      branch: "main",
+      model: "claude-haiku-3-5-20241022",
+      contextLine: nil,
+      status: .ended,
+      workStatus: .unknown,
+      startedAt: Date().addingTimeInterval(-7_200),
+      endedAt: Date().addingTimeInterval(-3_600)
+    ),
+  ])
   return store
 }

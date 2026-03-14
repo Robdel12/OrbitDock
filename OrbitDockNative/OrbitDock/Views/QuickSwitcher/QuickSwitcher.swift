@@ -14,7 +14,7 @@ import SwiftUI
 
 struct QuickSwitcher: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(RootShellStore.self) private var rootShellStore
+  @Environment(AppStore.self) private var appStore
   @Environment(\.rootSessionActions) private var rootSessionActions
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
@@ -29,9 +29,9 @@ struct QuickSwitcher: View {
   /// The session currently being viewed (for commands to act on)
   private var viewState: QuickSwitcherViewState {
     QuickSwitcherViewState.make(
-      sessions: rootShellStore.records(),
+      sessions: appStore.records(),
       state: quickSwitcherState,
-      selectedScopedID: router.selectedScopedID,
+      selectedSessionRef: router.selectedSessionRef,
       isCompactLayout: isCompactLayout
     )
   }
@@ -299,7 +299,7 @@ struct QuickSwitcher: View {
       },
       onNavigate: {
         Platform.services.playHaptic(.navigation)
-        router.navigateToSession(scopedID: session.scopedID)
+        router.selectSession(session.sessionRef)
         router.closeQuickSwitcher()
       },
       onOpenInFinder: {
@@ -375,7 +375,7 @@ struct QuickSwitcher: View {
         router.closeQuickSwitcher()
       case .openSession(let session):
         Platform.services.playHaptic(.navigation)
-        router.navigateToSession(scopedID: session.scopedID)
+        router.selectSession(session.sessionRef)
         router.closeQuickSwitcher()
     }
   }

@@ -4,7 +4,6 @@ use orbitdock_protocol::{ServerMessage, SessionState};
 
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::{SessionCommand, SubscribeResult};
-use crate::runtime::session_subscription_queries::hydrate_runtime_subscribe_snapshot;
 use crate::support::session_modes::{
     needs_lazy_connector, should_reactivate_passive_codex_session,
 };
@@ -78,15 +77,11 @@ pub(crate) async fn request_subscribe(
     sub_rx.await.map_err(|error| error.to_string())
 }
 
-pub(crate) async fn prepare_subscribe_result(
-    actor: &SessionActorHandle,
-    session_id: &str,
-    result: SubscribeResult,
-) -> PreparedSubscribeResult {
+pub(crate) fn prepare_subscribe_result(result: SubscribeResult) -> PreparedSubscribeResult {
     match result {
         SubscribeResult::Replay { events, rx } => PreparedSubscribeResult::Replay { events, rx },
         SubscribeResult::Snapshot { state, rx } => PreparedSubscribeResult::Snapshot {
-            state: Box::new(hydrate_runtime_subscribe_snapshot(actor, *state, session_id).await),
+            state,
             rx,
         },
     }

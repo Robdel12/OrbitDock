@@ -150,6 +150,58 @@ extension ServerApprovalRequest {
 // MARK: - ServerMessage → TranscriptMessage
 
 extension ServerMessage {
+  func toConversationRowEntry(defaultSessionId: String? = nil) -> ServerConversationRowEntry {
+    let resolvedSessionId = sessionId.isEmpty ? (defaultSessionId ?? "") : sessionId
+    let resolvedSequence = sequence ?? 0
+    let messageRow = ServerConversationMessageRow(
+      id: id,
+      content: content,
+      turnId: nil,
+      timestamp: timestamp,
+      isStreaming: isInProgress,
+      images: images
+    )
+
+    let row: ServerConversationRow = switch type {
+      case .user:
+        .user(messageRow)
+      case .assistant:
+        .assistant(messageRow)
+      case .thinking:
+        .thinking(messageRow)
+      case .steer, .shell:
+        .system(messageRow)
+      case .tool, .toolResult:
+        .tool(
+          ServerConversationToolRow(
+            id: id,
+            provider: .codex,
+            family: toolFamily.flatMap(ServerConversationToolFamily.init(rawValue:)) ?? .generic,
+            kind: toolName.flatMap(ServerConversationToolKind.init(rawValue:)) ?? .generic,
+            status: isInProgress ? .running : (isError ? .failed : .completed),
+            title: toolName ?? content,
+            subtitle: nil,
+            summary: content,
+            preview: nil,
+            startedAt: timestamp,
+            endedAt: nil,
+            durationMs: durationMs,
+            groupingKey: nil,
+            invocation: AnyCodable(toolInputDict ?? [:]),
+            result: toolOutput.map { AnyCodable(["output": $0]) },
+            renderHints: ServerConversationRenderHints()
+          )
+        )
+    }
+
+    return ServerConversationRowEntry(
+      sessionId: resolvedSessionId,
+      sequence: resolvedSequence,
+      turnId: nil,
+      row: row
+    )
+  }
+
   func toTranscriptMessage(endpointId: UUID? = nil) -> TranscriptMessage {
     let msgType: TranscriptMessage.MessageType = switch type {
       case .user: .user

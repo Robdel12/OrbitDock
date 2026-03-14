@@ -66,7 +66,7 @@ struct QuickSwitcherModelTests {
     let viewState = QuickSwitcherViewState.make(
       sessions: sessions,
       state: state,
-      selectedScopedID: sessions[0].scopedID,
+      selectedSessionRef: sessions[0].sessionRef,
       isCompactLayout: false
     )
 

@@ -4,26 +4,27 @@ import Testing
 
 @MainActor
 struct AppExternalNavigationPlannerTests {
-  @Test func prefersRootShellLookupForScopedIDs() {
+  @Test func prefersStoreLookupForScopedIDs() {
     let endpointId = UUID()
     let otherEndpointId = UUID()
-    let store = RootShellStore()
+    let store = makeTestAppStore()
 
-    store.apply(
-      .sessionsList(
+    let item = makeSessionListItem(id: "session-1")
+    store.seed(records: [
+      RootSessionNode(
+        session: item,
         endpointId: endpointId,
         endpointName: "Local",
-        connectionStatus: .connected,
-        sessions: [makeSessionListItem(id: "session-1")]
-      )
-    )
+        connectionStatus: .connected
+      ),
+    ])
 
     let ref = AppExternalNavigationPlanner.resolvedSessionRef(
       sessionID: SessionRef(endpointId: endpointId, sessionId: "session-1").scopedID,
       explicitEndpointId: otherEndpointId,
       selectedEndpointId: otherEndpointId,
       fallbackEndpointId: otherEndpointId,
-      rootShellStore: store
+      store: store
     )
 
     #expect(ref == SessionRef(endpointId: endpointId, sessionId: "session-1"))
@@ -31,14 +32,14 @@ struct AppExternalNavigationPlannerTests {
 
   @Test func fallsBackToExplicitEndpointWhenLookupMisses() {
     let explicitEndpointId = UUID()
-    let store = RootShellStore()
+    let store = makeTestAppStore()
 
     let ref = AppExternalNavigationPlanner.resolvedSessionRef(
       sessionID: "session-2",
       explicitEndpointId: explicitEndpointId,
       selectedEndpointId: UUID(),
       fallbackEndpointId: UUID(),
-      rootShellStore: store
+      store: store
     )
 
     #expect(ref == SessionRef(endpointId: explicitEndpointId, sessionId: "session-2"))
@@ -47,32 +48,62 @@ struct AppExternalNavigationPlannerTests {
   @Test func fallsBackToSelectedEndpointBeforeWindowFallback() {
     let selectedEndpointId = UUID()
     let fallbackEndpointId = UUID()
-    let store = RootShellStore()
+    let store = makeTestAppStore()
 
     let ref = AppExternalNavigationPlanner.resolvedSessionRef(
       sessionID: "session-3",
       explicitEndpointId: nil,
       selectedEndpointId: selectedEndpointId,
       fallbackEndpointId: fallbackEndpointId,
-      rootShellStore: store
+      store: store
     )
 
     #expect(ref == SessionRef(endpointId: selectedEndpointId, sessionId: "session-3"))
   }
 
   @Test func returnsNilWhenNoResolutionPathExists() {
-    let store = RootShellStore()
+    let store = makeTestAppStore()
 
     let ref = AppExternalNavigationPlanner.resolvedSessionRef(
       sessionID: "session-4",
       explicitEndpointId: nil,
       selectedEndpointId: nil,
       fallbackEndpointId: nil,
-      rootShellStore: store
+      store: store
     )
 
     #expect(ref == nil)
   }
+}
+
+@MainActor
+private func makeTestAppStore() -> AppStore {
+  let registry = ServerRuntimeRegistry(
+    endpointsProvider: { [] },
+    runtimeFactory: { _ in fatalError("No runtime in test") },
+    shouldBootstrapFromSettings: false
+  )
+  return AppStore(
+    runtimeRegistry: registry,
+    attentionService: AttentionService(),
+    notificationManager: NotificationManager(
+      isAuthorized: false,
+      shouldRequestAuthorizationOnStart: false,
+      notificationCenter: NotificationCenterClient(
+        requestAuthorization: { completion in completion(false, nil) },
+        setDelegate: { _ in },
+        setNotificationCategories: { _ in },
+        addRequest: { _, completion in completion(nil) },
+        removeDeliveredNotifications: { _ in }
+      ),
+      preferences: NotificationPreferences(
+        stringForKey: { _ in nil },
+        objectForKey: { _ in nil },
+        boolForKey: { _ in false }
+      )
+    ),
+    toastManager: ToastManager()
+  )
 }
 
 private func makeSessionListItem(id: String) -> ServerSessionListItem {

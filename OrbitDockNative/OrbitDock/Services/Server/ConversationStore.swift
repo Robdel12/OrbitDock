@@ -140,18 +140,36 @@ final class ConversationStore {
   /// issuing a second full-session request.
   func bootstrapSnapshot(goal: ConversationRecoveryGoal = .coherentRecent) async -> ServerConversationBootstrap? {
     netLog(.info, cat: .conv, "Bootstrapping", sid: self.sessionId)
+    print("[OrbitDock][Conversation] Bootstrap start session=\(sessionId) goal=\(goal)")
     lastHydrationGoal = goal
     if !hydrationState.hasRenderableConversation {
       hydrationState = .loadingRecent
     }
     do {
       let result = try await clients.conversation.fetchConversationBootstrap(sessionId, limit: kPageSize)
+      print(
+        """
+        [OrbitDock][Conversation] Bootstrap response session=\(sessionId) \
+        sessionRows=\(result.session.rows.count) topLevelRows=\(result.rows.count) \
+        totalRows=\(result.totalRowCount) hasMoreBefore=\(result.hasMoreBefore) \
+        oldest=\(result.oldestSequence.map(String.init) ?? "nil") newest=\(result.newestSequence.map(String.init) ?? "nil")
+        """
+      )
       applyBootstrap(result, goal: goal)
       netLog(.info, cat: .conv, "Bootstrap complete", sid: self.sessionId, data: ["messages": self.messages.count, "revision": result.session.revision ?? 0])
+      print(
+        """
+        [OrbitDock][Conversation] Bootstrap applied session=\(sessionId) \
+        messages=\(messages.count) hydration=\(hydrationState) \
+        oldestLoaded=\(oldestLoadedSequence.map(String.init) ?? "nil") \
+        newestLoaded=\(newestLoadedSequence.map(String.init) ?? "nil")
+        """
+      )
       return result
     } catch {
       hydrationState = messages.isEmpty ? .failed : .readyPartial
       netLog(.error, cat: .conv, "Bootstrap failed", sid: self.sessionId, data: ["error": error.localizedDescription])
+      print("[OrbitDock][Conversation] Bootstrap failed session=\(sessionId) error=\(error.localizedDescription)")
       return nil
     }
   }
@@ -214,11 +232,25 @@ final class ConversationStore {
   // MARK: - Live event handlers (called by SessionStore)
 
   func handleConversationBootstrap(session: ServerSessionState, conversation: ServerConversationHistoryPage) {
+    print(
+      """
+      [OrbitDock][Conversation] Handle bootstrap session=\(sessionId) \
+      stateRows=\(session.rows.count) conversationRows=\(conversation.rows.count) \
+      beforeMessages=\(messages.count)
+      """
+    )
     applyRowsPage(conversation.rows, totalRowCount: conversation.totalRowCount, hasMoreBefore: conversation.hasMoreBefore, oldestSequence: conversation.oldestSequence, newestSequence: conversation.newestSequence, goal: lastHydrationGoal, preserveOlderMessages: true)
     hasReceivedInitialData = true
     if session.rows.isEmpty == false {
       newestLoadedSequence = max(newestLoadedSequence ?? 0, session.rows.last?.sequence ?? 0)
     }
+    print(
+      """
+      [OrbitDock][Conversation] Handle bootstrap applied session=\(sessionId) \
+      messages=\(messages.count) totalMessageCount=\(totalMessageCount) \
+      hasMoreBefore=\(hasMoreHistoryBefore)
+      """
+    )
   }
 
   func handleConversationRowsChanged(
@@ -265,6 +297,52 @@ final class ConversationStore {
     hasReceivedInitialData = true
     hydrationState = shouldContinueRecovering(for: lastHydrationGoal) ? .readyPartial : .readyComplete
     bumpRevision()
+  }
+
+  func handleMessageUpdated(messageId: String, changes: ServerMessageChanges) {
+    guard let idx = messages.firstIndex(where: { $0.id == messageId }) else { return }
+
+    var msg = messages[idx]
+
+    if let content = changes.content {
+      msg = TranscriptMessage(
+        id: msg.id,
+        sequence: msg.sequence,
+        type: msg.type,
+        content: content,
+        timestamp: msg.timestamp,
+        toolName: msg.toolName,
+        toolInput: msg.toolInput,
+        rawToolInput: msg.rawToolInput,
+        toolOutput: changes.toolOutput ?? msg.toolOutput,
+        toolDuration: changes.durationMs.map { Double($0) / 1_000.0 } ?? msg.toolDuration,
+        inputTokens: msg.inputTokens,
+        outputTokens: msg.outputTokens,
+        isError: changes.isError ?? msg.isError,
+        isInProgress: changes.isInProgress ?? msg.isInProgress,
+        images: msg.images,
+        thinking: msg.thinking,
+        toolDisplay: changes.toolDisplay ?? msg.toolDisplay
+      )
+    } else {
+      if let toolOutput = changes.toolOutput { msg.toolOutput = toolOutput }
+      if let durationMs = changes.durationMs { msg.toolDuration = Double(durationMs) / 1_000.0 }
+      if let isError = changes.isError { msg.isError = isError }
+      if let isInProgress = changes.isInProgress { msg.isInProgress = isInProgress }
+      if let toolDisplay = changes.toolDisplay { msg.toolDisplay = toolDisplay }
+    }
+
+    let updateRoute = StreamingMessageRegistry.classify(
+      existing: messages[idx],
+      changes: changes,
+      messageId: messageId
+    )
+    messages[idx] = msg
+    if case .streamingPatch = updateRoute {
+      scheduleStreamingPatch(messageId: messageId)
+    } else {
+      bumpRevision()
+    }
   }
 
   /// Re-fetch the full conversation from HTTP after a lagged/overflow event.
@@ -377,6 +455,28 @@ final class ConversationStore {
     messagesRevision += 1
   }
 
+  private func scheduleStreamingPatch(messageId: String) {
+    let shouldSchedule = streamingRegistry.enqueuePatch(messageId: messageId)
+    guard shouldSchedule, pendingStreamingPatchFlushTask == nil else { return }
+    pendingStreamingPatchFlushTask = Task { @MainActor [weak self] in
+      await Task.yield()
+      self?.flushPendingStreamingPatches()
+    }
+  }
+
+  private func flushPendingStreamingPatches() {
+    pendingStreamingPatchFlushTask = nil
+    switch streamingRegistry.flushPendingPatches() {
+      case .none:
+        return
+      case let .patch(patch, revision):
+        latestStreamingPatch = patch
+        streamingPatchRevision = revision
+      case .structuralReset:
+        bumpRevision()
+    }
+  }
+
   // MARK: - Normalization
 
   private func normalizeMessages(_ incoming: [TranscriptMessage]) -> [TranscriptMessage] {
@@ -440,8 +540,16 @@ final class ConversationStore {
 
     messages = merged
     totalMessageCount = max(Int(totalRowCount), messages.count)
-    self.oldestLoadedSequence = oldestSequence ?? messages.compactMap(\.sequence).min()
-    self.newestLoadedSequence = newestSequence ?? messages.compactMap(\.sequence).max()
+    let mergedOldestSequence = messages.compactMap(\.sequence).min()
+    let mergedNewestSequence = messages.compactMap(\.sequence).max()
+    self.oldestLoadedSequence = min(oldestLoadedSequence ?? UInt64.max, oldestSequence ?? mergedOldestSequence ?? UInt64.max)
+    if self.oldestLoadedSequence == UInt64.max {
+      self.oldestLoadedSequence = nil
+    }
+    self.newestLoadedSequence = max(newestLoadedSequence ?? 0, mergedNewestSequence ?? 0)
+    if self.newestLoadedSequence == 0 {
+      self.newestLoadedSequence = nil
+    }
     hasMoreHistoryBefore = preserveOlderMessages ? (preserved.isEmpty ? hasMoreBefore : true) : hasMoreBefore
     hasReceivedInitialData = true
     hydrationState = shouldContinueRecovering(for: goal) ? .readyPartial : .readyComplete

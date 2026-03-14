@@ -401,6 +401,16 @@ struct ServerConversationWorkerRow: Codable {
   let worker: AnyCodable
   let operation: String?
   let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case title
+    case subtitle
+    case summary
+    case worker
+    case operation
+    case renderHints = "render_hints"
+  }
 }
 
 struct ServerConversationPlanRow: Codable {
@@ -632,7 +642,7 @@ struct ServerReviewComment: Codable, Identifiable {
   }
 }
 
-struct ServerConversationBootstrap: Codable {
+struct ServerConversationBootstrap: Decodable {
   let session: ServerSessionState
   let rows: [ServerConversationRowEntry]
   let totalRowCount: UInt64
@@ -644,9 +654,22 @@ struct ServerConversationBootstrap: Codable {
     case session
     case rows
     case totalRowCount = "total_row_count"
+    case totalMessageCount = "total_message_count"
     case hasMoreBefore = "has_more_before"
     case oldestSequence = "oldest_sequence"
     case newestSequence = "newest_sequence"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    session = try container.decode(ServerSessionState.self, forKey: .session)
+    rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? session.rows
+    let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
+    let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
+    totalRowCount = directTotalRowCount ?? legacyTotalMessageCount ?? UInt64(rows.count)
+    hasMoreBefore = try container.decodeIfPresent(Bool.self, forKey: .hasMoreBefore) ?? false
+    oldestSequence = try container.decodeIfPresent(UInt64.self, forKey: .oldestSequence)
+    newestSequence = try container.decodeIfPresent(UInt64.self, forKey: .newestSequence)
   }
 }
 
@@ -660,9 +683,52 @@ struct ServerConversationHistoryPage: Codable {
   enum CodingKeys: String, CodingKey {
     case rows
     case totalRowCount = "total_row_count"
+    case totalMessageCount = "total_message_count"
+    case messages
+    case sessionId = "session_id"
     case hasMoreBefore = "has_more_before"
     case oldestSequence = "oldest_sequence"
     case newestSequence = "newest_sequence"
+  }
+
+  init(
+    rows: [ServerConversationRowEntry],
+    totalRowCount: UInt64,
+    hasMoreBefore: Bool,
+    oldestSequence: UInt64?,
+    newestSequence: UInt64?
+  ) {
+    self.rows = rows
+    self.totalRowCount = totalRowCount
+    self.hasMoreBefore = hasMoreBefore
+    self.oldestSequence = oldestSequence
+    self.newestSequence = newestSequence
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    if let directRows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) {
+      rows = directRows
+    } else {
+      let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId) ?? ""
+      let messages = try container.decodeIfPresent([ServerMessage].self, forKey: .messages) ?? []
+      rows = messages.map { $0.toConversationRowEntry(defaultSessionId: sessionId) }
+    }
+    let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
+    let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
+    totalRowCount = directTotalRowCount ?? legacyTotalMessageCount ?? UInt64(rows.count)
+    hasMoreBefore = try container.decodeIfPresent(Bool.self, forKey: .hasMoreBefore) ?? false
+    oldestSequence = try container.decodeIfPresent(UInt64.self, forKey: .oldestSequence)
+    newestSequence = try container.decodeIfPresent(UInt64.self, forKey: .newestSequence)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(rows, forKey: .rows)
+    try container.encode(totalRowCount, forKey: .totalRowCount)
+    try container.encode(hasMoreBefore, forKey: .hasMoreBefore)
+    try container.encodeIfPresent(oldestSequence, forKey: .oldestSequence)
+    try container.encodeIfPresent(newestSequence, forKey: .newestSequence)
   }
 }
 

@@ -10,7 +10,7 @@ struct AppWindowPlannerTests {
     let destination = AppWindowPlanner.contentDestination(
       connectedRuntimeCount: 0,
       installState: .notConfigured,
-      selectedSessionRef: ref
+      route: .session(ref)
     )
 
     #expect(destination == .setup)
@@ -22,7 +22,7 @@ struct AppWindowPlannerTests {
     let destination = AppWindowPlanner.contentDestination(
       connectedRuntimeCount: 1,
       installState: .running,
-      selectedSessionRef: ref
+      route: .session(ref)
     )
 
     #expect(destination == .session(ref))
@@ -32,7 +32,7 @@ struct AppWindowPlannerTests {
     let destination = AppWindowPlanner.contentDestination(
       connectedRuntimeCount: 1,
       installState: .running,
-      selectedSessionRef: nil
+      route: .dashboard(.missionControl)
     )
 
     #expect(destination == .dashboard)

@@ -123,8 +123,12 @@ struct LibraryView: View {
   // MARK: - Navigation
 
   private func selectSession(_ session: RootSessionNode) {
+    let message =
+      "library tap scopedID=\(session.scopedID) endpoint=\(session.sessionRef.endpointId.uuidString)"
+    print("[OrbitDock][Library] \(message)")
+    NSLog("[OrbitDock][Library] %@", message)
     withAnimation(Motion.standard) {
-      router.navigateToSession(scopedID: session.scopedID)
+      router.selectSession(session.sessionRef)
     }
   }
 }

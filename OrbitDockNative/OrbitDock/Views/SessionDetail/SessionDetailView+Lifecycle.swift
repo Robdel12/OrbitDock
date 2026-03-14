@@ -2,52 +2,42 @@ import SwiftUI
 
 extension SessionDetailView {
   func handleOnAppear() {
-    let plan = SessionDetailLifecyclePlanner.onAppearPlan(
-      shouldSubscribeToServerSession: shouldSubscribeToServerSession,
-      isDirect: obs.isDirect,
-      isPinned: isPinned
-    )
+    let sessionId = self.sessionId
+    let endpointId = self.endpointId
+    print("[OrbitDock][SessionDetail] onAppear session=\(sessionId) endpoint=\(endpointId)")
+    NSLog("[OrbitDock][SessionDetail] onAppear session=%@ endpoint=%@", sessionId, endpointId.uuidString)
 
-    guard plan.shouldSubscribe else { return }
+    guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      print("[OrbitDock][SessionDetail] skipping subscribe — empty sessionId")
+      return
+    }
 
-    scopedServerState.subscribeToSession(sessionId, recoveryGoal: .coherentRecent)
-    scopedServerState.setSessionAutoMarkRead(sessionId, enabled: plan.autoMarkReadEnabled)
+    scopedServerState.subscribeToSession(sessionId)
+    scopedServerState.setSessionAutoMarkRead(sessionId, enabled: isPinned)
     syncSelectedWorker()
 
-    guard plan.shouldLoadApprovalHistory else { return }
-    loadApprovalHistory()
+    if obs.isDirect {
+      loadApprovalHistory()
+    }
   }
 
   func handleOnDisappear() {
-    let plan = SessionDetailLifecyclePlanner.onDisappearPlan(
-      shouldSubscribeToServerSession: shouldSubscribeToServerSession
-    )
+    let sessionId = self.sessionId
+    print("[OrbitDock][SessionDetail] onDisappear session=\(sessionId)")
 
-    if plan.shouldSetAutoMarkRead {
-      scopedServerState.setSessionAutoMarkRead(sessionId, enabled: plan.autoMarkReadEnabled)
-    }
-    if plan.shouldUnsubscribe {
-      scopedServerState.unsubscribeFromSession(sessionId)
-    }
+    guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+    scopedServerState.setSessionAutoMarkRead(sessionId, enabled: false)
+    scopedServerState.unsubscribeFromSession(sessionId)
   }
 
   func handlePinnedChange(_ pinned: Bool) {
-    guard let enabled = SessionDetailLifecyclePlanner.autoMarkReadEnabled(
-      shouldSubscribeToServerSession: shouldSubscribeToServerSession,
-      isPinned: pinned
-    ) else {
-      return
-    }
-    scopedServerState.setSessionAutoMarkRead(sessionId, enabled: enabled)
+    guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+    scopedServerState.setSessionAutoMarkRead(sessionId, enabled: pinned)
   }
 
   func handleDiffChange(oldDiff: String?, newDiff: String?) {
-    guard SessionDetailLifecyclePlanner.shouldRevealDiffBanner(
-      isDirect: obs.isDirect,
-      oldDiff: oldDiff,
-      newDiff: newDiff,
-      layoutConfig: layoutConfig
-    ) else {
+    guard obs.isDirect, oldDiff == nil, newDiff != nil, layoutConfig == .conversationOnly else {
       return
     }
     withAnimation(Motion.standard) {

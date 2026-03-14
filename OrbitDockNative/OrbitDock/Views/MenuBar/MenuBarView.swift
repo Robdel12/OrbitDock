@@ -12,12 +12,12 @@ struct MenuBarView: View {
   @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
   @Environment(\.colorScheme) private var colorScheme
   @State private var refreshRotation: Double = 0
-  @Environment(RootShellStore.self) private var rootShellStore
+  @Environment(AppStore.self) private var appStore
 
   var body: some View {
-      let activeSessions = rootShellStore.missionControlRecords()
-      let recentSessions = rootShellStore.recentRecords(limit: 5)
-      let hasAnySessions = rootShellStore.counts.total > 0
+      let activeSessions = appStore.missionControlRecords()
+      let recentSessions = appStore.recentRecords(limit: 5)
+      let hasAnySessions = appStore.counts.total > 0
 
       VStack(alignment: .leading, spacing: 0) {
         // Header

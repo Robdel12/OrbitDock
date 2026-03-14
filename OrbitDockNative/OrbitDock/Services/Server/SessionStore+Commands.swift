@@ -401,12 +401,11 @@ extension SessionStore {
   }
 
   func handleMemoryPressure() {
-    conversationCache.removeAll()
     for (id, _) in _conversationStores where !subscribedSessions.contains(id) {
       _conversationStores[id]?.clear()
       _conversationStores.removeValue(forKey: id)
     }
-    for (id, observable) in _sessionObservables where !subscribedSessions.contains(id) && !hotDetailSessions.contains(id) {
+    for (id, observable) in _sessionObservables where !subscribedSessions.contains(id) {
       observable.trimInactiveDetailPayloads()
     }
   }

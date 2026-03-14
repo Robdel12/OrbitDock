@@ -103,6 +103,9 @@ struct ConversationView: View {
         case .empty:
           ConversationEmptyStateView()
             .transition(.opacity)
+            .onAppear {
+              print("why")
+            }
         case .ready:
           VStack(spacing: 0) {
             // Fork origin banner (persistent, above scroll)
@@ -127,6 +130,9 @@ struct ConversationView: View {
     .onChange(of: sessionId) { _, newId in
       loadedSessionId = newId
       currentPrompt = nil
+    }
+    .onAppear {
+      print("why lol")
     }
   }
 

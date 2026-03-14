@@ -8,8 +8,6 @@
 
 import Foundation
 
-let kConversationCacheMax = 8
-
 // MARK: - SessionStore
 
 @Observable
@@ -45,14 +43,12 @@ final class SessionStore {
 
   @ObservationIgnored var _sessionObservables: [String: SessionObservable] = [:]
   @ObservationIgnored var _conversationStores: [String: ConversationStore] = [:]
-  @ObservationIgnored var conversationCache: [String: CachedConversation] = [:]
 
   // MARK: - Private tracking
 
   @ObservationIgnored var lastRevision: [String: UInt64] = [:]
   @ObservationIgnored var controlStates: [String: SessionControlState] = [:]
   @ObservationIgnored var subscribedSessions: Set<String> = []
-  @ObservationIgnored var hotDetailSessions: Set<String> = []
   @ObservationIgnored var autoMarkReadSessions: Set<String> = []
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []
   @ObservationIgnored var eventProcessingTask: Task<Void, Never>?
@@ -130,86 +126,59 @@ final class SessionStore {
 
   // MARK: - Session subscription
 
-  func subscribeToSession(
-    _ sessionId: String,
-    forceRefresh: Bool = false,
-    recoveryGoal: ConversationRecoveryGoal = .coherentRecent
-  ) {
+  func subscribeToSession(_ sessionId: String) {
     subscribedSessions.insert(sessionId)
+    let msg = "[OrbitDock][SessionStore] subscribeToSession called session=\(sessionId) endpoint=\(endpointId.uuidString)"
+    print(msg)
+    NSLog("%@", msg)
+    netLog(.info, cat: .store, "Subscribe: fresh HTTP bootstrap + WS", sid: sessionId)
 
-    let conv = conversation(sessionId)
-
-    let plan = SessionFeedPlanner.subscriptionPlan(
-      forceRefresh: forceRefresh,
-      hasInitialConversationData: conv.hasReceivedInitialData,
-      hasCachedConversation: conversationCache[sessionId] != nil,
-      recoveryGoal: recoveryGoal
-    )
-
-    switch plan.strategy {
-      case .retainedSnapshot:
-        netLog(.info, cat: .store, "Subscribe: Path 1 — retained snapshot, re-subscribing WS", sid: sessionId)
-        if let goal = plan.deferredBootstrapGoal {
-          Task {
-            _ = await conv.bootstrap(goal: goal)
-          }
-        }
-        eventStream.subscribeSession(
-          sessionId,
-          sinceRevision: nil,
-          includeSnapshot: false
-        )
-
-      case .cachedSnapshot:
-        netLog(.info, cat: .store, "Subscribe: Path 2 — restoring from cache, WS + HTTP reconcile", sid: sessionId)
-        if let cached = conversationCache.removeValue(forKey: sessionId) {
-          conv.restoreFromCache(cached)
-        }
-        eventStream.subscribeSession(
-          sessionId,
-          sinceRevision: lastRevision[sessionId],
-          includeSnapshot: false
-        )
-        if let goal = plan.deferredBootstrapGoal {
-          Task {
-            _ = await conv.bootstrap(goal: goal)
-          }
-        }
-
-      case .freshBootstrap:
-        netLog(.info, cat: .store, "Subscribe: Path 3 — fresh HTTP bootstrap", sid: sessionId)
-        Task {
-          let bootstrap = await conv.bootstrapSnapshot(goal: recoveryGoal)
-          if let state = bootstrap?.session {
-            handleConversationBootstrap(
-              state,
-              ServerConversationHistoryPage(
-                rows: bootstrap?.rows ?? [],
-                totalRowCount: bootstrap?.totalRowCount ?? 0,
-                hasMoreBefore: bootstrap?.hasMoreBefore ?? false,
-                oldestSequence: bootstrap?.oldestSequence,
-                newestSequence: bootstrap?.newestSequence
-              )
-            )
-          }
-          eventStream.subscribeSession(
-            sessionId,
-            sinceRevision: bootstrap?.session.revision,
-            includeSnapshot: false
-          )
-        }
+    Task {
+      let msg2 = "[OrbitDock][SessionStore] starting HTTP bootstrap session=\(sessionId)"
+      print(msg2)
+      NSLog("%@", msg2)
+      let bootstrap = await hydrateSessionFromHTTPBootstrap(sessionId: sessionId)
+      let msg3 = "[OrbitDock][SessionStore] HTTP bootstrap completed session=\(sessionId) success=\(bootstrap != nil) rows=\(bootstrap?.rows.count ?? -1)"
+      print(msg3)
+      NSLog("%@", msg3)
+      eventStream.subscribeSession(
+        sessionId,
+        sinceRevision: bootstrap?.session.revision,
+        includeSnapshot: false
+      )
     }
 
-    if plan.shouldFetchApprovals {
-      Task {
-        do {
-          let response = try await clients.approvals.listApprovals(sessionId: sessionId, limit: 200)
-          session(sessionId).approvalHistory = response.approvals
-        } catch {
-          netLog(.error, cat: .store, "Load approvals failed", sid: sessionId, data: ["error": error.localizedDescription])
-        }
+    Task {
+      do {
+        let response = try await clients.approvals.listApprovals(sessionId: sessionId, limit: 200)
+        session(sessionId).approvalHistory = response.approvals
+      } catch {
+        netLog(.error, cat: .store, "Load approvals failed", sid: sessionId, data: ["error": error.localizedDescription])
       }
     }
+  }
+
+  @discardableResult
+  func hydrateSessionFromHTTPBootstrap(
+    sessionId: String
+  ) async -> ServerConversationBootstrap? {
+    let bootstrap = await conversation(sessionId).bootstrapSnapshot()
+    guard let bootstrap else {
+      return nil
+    }
+    let state = bootstrap.session
+
+    handleConversationBootstrap(
+      state,
+      ServerConversationHistoryPage(
+        rows: bootstrap.rows,
+        totalRowCount: bootstrap.totalRowCount,
+        hasMoreBefore: bootstrap.hasMoreBefore,
+        oldestSequence: bootstrap.oldestSequence,
+        newestSequence: bootstrap.newestSequence
+      )
+    )
+    return bootstrap
   }
 
   func unsubscribeFromSession(_ sessionId: String) {
@@ -217,27 +186,11 @@ final class SessionStore {
     subscribedSessions.remove(sessionId)
     autoMarkReadSessions.remove(sessionId)
     eventStream.unsubscribeSession(sessionId)
-    if !hotDetailSessions.contains(sessionId) {
-      cacheConversationBeforeTrim(sessionId: sessionId)
-      trimInactiveSessionPayload(sessionId)
-    }
+    trimInactiveSessionPayload(sessionId)
   }
 
   func isSessionSubscribed(_ sessionId: String) -> Bool {
     subscribedSessions.contains(sessionId)
-  }
-
-  func promoteHotDetailResidency(for sessionId: String) {
-    hotDetailSessions.insert(sessionId)
-    _ = session(sessionId)
-    _ = conversation(sessionId)
-  }
-
-  func demoteHotDetailResidency(for sessionId: String) {
-    hotDetailSessions.remove(sessionId)
-    guard !subscribedSessions.contains(sessionId) else { return }
-    cacheConversationBeforeTrim(sessionId: sessionId)
-    trimInactiveSessionPayload(sessionId)
   }
 
   // MARK: - Codex Account Actions

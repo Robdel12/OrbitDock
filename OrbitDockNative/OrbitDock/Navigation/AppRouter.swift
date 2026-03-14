@@ -5,6 +5,11 @@ enum DashboardTab: String, CaseIterable {
   case library
 }
 
+enum AppRoute: Equatable {
+  case dashboard(DashboardTab)
+  case session(SessionRef)
+}
+
 struct SessionContinuation: Hashable, Sendable {
   let endpointId: UUID
   let sessionId: String
@@ -64,9 +69,8 @@ struct SessionContinuation: Hashable, Sendable {
 @MainActor
 @Observable
 final class AppRouter {
-  var selectedSessionRef: SessionRef?
-  var selectedEndpointId: UUID?
-  var dashboardTab: DashboardTab = .missionControl
+  var route: AppRoute = .dashboard(.missionControl)
+  private var lastSelectedEndpointId: UUID?
   var dashboardScrollAnchorID: String?
   var showQuickSwitcher = false
   var showNewSessionSheet = false
@@ -74,13 +78,15 @@ final class AppRouter {
   var newSessionContinuation: SessionContinuation?
 
   func selectSession(_ ref: SessionRef) {
-    selectedSessionRef = ref
-    selectedEndpointId = ref.endpointId
+    let message = "selectSession scopedID=\(ref.scopedID)"
+    print("[OrbitDock][Router] \(message)")
+    NSLog("[OrbitDock][Router] %@", message)
+    route = .session(ref)
+    lastSelectedEndpointId = ref.endpointId
   }
 
-  func selectSession(scopedID: String, store: RootShellStore) {
+  func selectSession(scopedID: String, store: AppStore) {
     guard let ref = store.sessionRef(for: scopedID) else {
-      selectedSessionRef = nil
       return
     }
     selectSession(ref)
@@ -88,18 +94,21 @@ final class AppRouter {
 
   /// Navigate to a session by scopedID. Resolves via SessionRef parsing.
   func navigateToSession(scopedID: String) {
+    let message = "navigateToSession scopedID=\(scopedID)"
+    print("[OrbitDock][Router] \(message)")
+    NSLog("[OrbitDock][Router] %@", message)
     guard let ref = SessionRef(scopedID: scopedID) else { return }
     selectSession(ref)
   }
 
   func goToDashboard() {
-    selectedSessionRef = nil
-    dashboardTab = .missionControl
+    print("[OrbitDock][Router] goToDashboard")
+    NSLog("[OrbitDock][Router] goToDashboard")
+    route = .dashboard(.missionControl)
   }
 
   func goToLibrary() {
-    selectedSessionRef = nil
-    dashboardTab = .library
+    route = .dashboard(.library)
   }
 
   func openQuickSwitcher() {
@@ -125,7 +134,7 @@ final class AppRouter {
   func handleExternalNavigation(
     sessionID: String,
     endpointId: UUID?,
-    store: RootShellStore,
+    store: AppStore,
     fallbackEndpointId: UUID?
   ) {
     if let ref = AppExternalNavigationPlanner.resolvedSessionRef(
@@ -133,14 +142,29 @@ final class AppRouter {
       explicitEndpointId: endpointId,
       selectedEndpointId: selectedEndpointId,
       fallbackEndpointId: fallbackEndpointId,
-      rootShellStore: store
+      store: store
     ) {
       selectSession(ref)
     }
   }
 
-  var selectedScopedID: String? {
-    selectedSessionRef?.scopedID
+  var selectedSessionRef: SessionRef? {
+    guard case let .session(ref) = route else { return nil }
+    return ref
+  }
+
+  var selectedEndpointId: UUID? {
+    selectedSessionRef?.endpointId ?? lastSelectedEndpointId
+  }
+
+  var dashboardTab: DashboardTab {
+    get {
+      guard case let .dashboard(tab) = route else { return .missionControl }
+      return tab
+    }
+    set {
+      route = .dashboard(newValue)
+    }
   }
 }
 

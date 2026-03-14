@@ -27,11 +27,11 @@ struct QuickSwitcherViewState {
   static func make(
     sessions: [RootSessionNode],
     state: QuickSwitcherState,
-    selectedScopedID: String?,
+    selectedSessionRef: SessionRef?,
     isCompactLayout: Bool
   ) -> QuickSwitcherViewState {
-    let currentSession = selectedScopedID.flatMap { scopedID in
-      sessions.first { $0.scopedID == scopedID }
+    let currentSession = selectedSessionRef.flatMap { ref in
+      sessions.first { $0.sessionRef == ref }
     }
     let targetSession = state.targetSessionScopedID.flatMap { scopedID in
       sessions.first { $0.scopedID == scopedID }

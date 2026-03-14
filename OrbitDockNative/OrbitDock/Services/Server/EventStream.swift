@@ -22,6 +22,7 @@ enum ServerEvent: Sendable {
 
   // Session state
   case conversationBootstrap(session: ServerSessionState, conversation: ServerConversationHistoryPage)
+  case sessionSnapshot(ServerSessionState)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
 
   // Messages
@@ -136,8 +137,13 @@ enum ServerEvent: Sendable {
 /// Receive-only WebSocket connection that produces `ServerEvent`s via `AsyncStream`.
 @MainActor
 final class EventStream {
-  /// Max inbound WS message size — matches server's WS_MAX_TEXT_MESSAGE_BYTES.
-  private static let maxInboundBytes = 1 * 1_024 * 1_024
+  /// Max inbound WS message size.
+  ///
+  /// The server's nominal cap is 1 MiB, but in practice root/session bootstrap
+  /// payloads can exceed that during large local restores. Keeping the client cap
+  /// comfortably above the server-side target prevents an immediate close/reconnect
+  /// loop when the server emits an oversized frame before we can hydrate.
+  private static let maxInboundBytes = 8 * 1_024 * 1_024
 
   private(set) var connectionStatus: ConnectionStatus = .disconnected
 
@@ -483,6 +489,8 @@ final class EventStream {
       emit(.sessionsList(sessions))
     case let .conversationBootstrap(session, conversation):
       emit(.conversationBootstrap(session: session, conversation: conversation))
+    case let .sessionSnapshot(session):
+      emit(.sessionSnapshot(session))
     case let .sessionDelta(sessionId, changes):
       emit(.sessionDelta(sessionId: sessionId, changes: changes))
     case let .conversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount):

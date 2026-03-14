@@ -511,8 +511,10 @@ struct ServerSessionState: Codable, Identifiable {
     case summary
     case status
     case workStatus = "work_status"
+    case messages
     case rows
     case totalRowCount = "total_row_count"
+    case totalMessageCount = "total_message_count"
     case hasMoreBefore = "has_more_before"
     case oldestSequence = "oldest_sequence"
     case newestSequence = "newest_sequence"
@@ -560,7 +562,8 @@ struct ServerSessionState: Codable, Identifiable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(String.self, forKey: .id)
+    let decodedID = try container.decode(String.self, forKey: .id)
+    id = decodedID
     provider = try container.decode(ServerProvider.self, forKey: .provider)
     projectPath = try container.decode(String.self, forKey: .projectPath)
     transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
@@ -570,8 +573,15 @@ struct ServerSessionState: Codable, Identifiable {
     summary = try container.decodeIfPresent(String.self, forKey: .summary)
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
-    rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? []
-    totalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
+    if let decodedRows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) {
+      rows = decodedRows
+    } else {
+      let decodedMessages = try container.decodeIfPresent([ServerMessage].self, forKey: .messages) ?? []
+      rows = decodedMessages.map { $0.toConversationRowEntry(defaultSessionId: decodedID) }
+    }
+    let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
+    let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
+    totalRowCount = directTotalRowCount ?? legacyTotalMessageCount
     hasMoreBefore = try container.decodeIfPresent(Bool.self, forKey: .hasMoreBefore)
     oldestSequence = try container.decodeIfPresent(UInt64.self, forKey: .oldestSequence)
     newestSequence = try container.decodeIfPresent(UInt64.self, forKey: .newestSequence)
@@ -619,6 +629,136 @@ struct ServerSessionState: Codable, Identifiable {
     isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree)
     worktreeId = try container.decodeIfPresent(String.self, forKey: .worktreeId)
     unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(provider, forKey: .provider)
+    try container.encode(projectPath, forKey: .projectPath)
+    try container.encodeIfPresent(transcriptPath, forKey: .transcriptPath)
+    try container.encodeIfPresent(projectName, forKey: .projectName)
+    try container.encodeIfPresent(model, forKey: .model)
+    try container.encodeIfPresent(customName, forKey: .customName)
+    try container.encodeIfPresent(summary, forKey: .summary)
+    try container.encode(status, forKey: .status)
+    try container.encode(workStatus, forKey: .workStatus)
+    try container.encode(rows, forKey: .rows)
+    try container.encodeIfPresent(totalRowCount, forKey: .totalRowCount)
+    try container.encodeIfPresent(hasMoreBefore, forKey: .hasMoreBefore)
+    try container.encodeIfPresent(oldestSequence, forKey: .oldestSequence)
+    try container.encodeIfPresent(newestSequence, forKey: .newestSequence)
+    try container.encodeIfPresent(pendingApproval, forKey: .pendingApproval)
+    try container.encode(tokenUsage, forKey: .tokenUsage)
+    try container.encode(tokenUsageSnapshotKind, forKey: .tokenUsageSnapshotKind)
+    try container.encodeIfPresent(currentDiff, forKey: .currentDiff)
+    try container.encodeIfPresent(currentPlan, forKey: .currentPlan)
+    try container.encodeIfPresent(codexIntegrationMode, forKey: .codexIntegrationMode)
+    try container.encodeIfPresent(claudeIntegrationMode, forKey: .claudeIntegrationMode)
+    try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
+    try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
+    try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
+    try container.encodeIfPresent(collaborationMode, forKey: .collaborationMode)
+    try container.encodeIfPresent(multiAgent, forKey: .multiAgent)
+    try container.encodeIfPresent(personality, forKey: .personality)
+    try container.encodeIfPresent(serviceTier, forKey: .serviceTier)
+    try container.encodeIfPresent(developerInstructions, forKey: .developerInstructions)
+    try container.encodeIfPresent(pendingToolName, forKey: .pendingToolName)
+    try container.encodeIfPresent(pendingToolInput, forKey: .pendingToolInput)
+    try container.encodeIfPresent(pendingQuestion, forKey: .pendingQuestion)
+    try container.encodeIfPresent(pendingApprovalId, forKey: .pendingApprovalId)
+    try container.encodeIfPresent(startedAt, forKey: .startedAt)
+    try container.encodeIfPresent(lastActivityAt, forKey: .lastActivityAt)
+    try container.encodeIfPresent(forkedFromSessionId, forKey: .forkedFromSessionId)
+    try container.encodeIfPresent(revision, forKey: .revision)
+    try container.encodeIfPresent(currentTurnId, forKey: .currentTurnId)
+    try container.encode(turnCount, forKey: .turnCount)
+    try container.encode(turnDiffs, forKey: .turnDiffs)
+    try container.encodeIfPresent(gitBranch, forKey: .gitBranch)
+    try container.encodeIfPresent(gitSha, forKey: .gitSha)
+    try container.encodeIfPresent(currentCwd, forKey: .currentCwd)
+    try container.encodeIfPresent(firstPrompt, forKey: .firstPrompt)
+    try container.encodeIfPresent(lastMessage, forKey: .lastMessage)
+    try container.encode(subagents, forKey: .subagents)
+    try container.encodeIfPresent(effort, forKey: .effort)
+    try container.encodeIfPresent(terminalSessionId, forKey: .terminalSessionId)
+    try container.encodeIfPresent(terminalApp, forKey: .terminalApp)
+    try container.encodeIfPresent(approvalVersion, forKey: .approvalVersion)
+    try container.encodeIfPresent(repositoryRoot, forKey: .repositoryRoot)
+    try container.encodeIfPresent(isWorktree, forKey: .isWorktree)
+    try container.encodeIfPresent(worktreeId, forKey: .worktreeId)
+    try container.encodeIfPresent(unreadCount, forKey: .unreadCount)
+  }
+}
+
+// MARK: - Session Capabilities
+
+struct ServerConversationSearchQuery: Sendable, Equatable {
+  var text: String?
+  var family: ServerConversationToolFamily?
+  var status: ServerConversationToolStatus?
+  var kind: ServerConversationToolKind?
+
+  init(
+    text: String? = nil,
+    family: ServerConversationToolFamily? = nil,
+    status: ServerConversationToolStatus? = nil,
+    kind: ServerConversationToolKind? = nil
+  ) {
+    self.text = text
+    self.family = family
+    self.status = status
+    self.kind = kind
+  }
+}
+
+struct ServerSessionStats: Decodable, Sendable {
+  let sessionId: String
+  let totalRows: UInt64
+  let toolCount: UInt64
+  let toolCountByFamily: [String: UInt64]
+  let failedToolCount: UInt64
+  let averageToolDurationMs: UInt64
+  let turnCount: UInt64
+  let totalTokens: ServerTokenUsage
+  let workerCount: UInt32
+  let durationMs: UInt64
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case totalRows = "total_rows"
+    case toolCount = "tool_count"
+    case toolCountByFamily = "tool_count_by_family"
+    case failedToolCount = "failed_tool_count"
+    case averageToolDurationMs = "average_tool_duration_ms"
+    case turnCount = "turn_count"
+    case totalTokens = "total_tokens"
+    case workerCount = "worker_count"
+    case durationMs = "duration_ms"
+  }
+}
+
+struct ServerSessionInstructionsPayload: Decodable, Sendable {
+  let claudeMD: String?
+  let systemPrompt: String?
+  let developerInstructions: String?
+
+  enum CodingKeys: String, CodingKey {
+    case claudeMD = "claude_md"
+    case systemPrompt = "system_prompt"
+    case developerInstructions = "developer_instructions"
+  }
+}
+
+struct ServerSessionInstructions: Decodable, Sendable {
+  let sessionId: String
+  let provider: ServerProvider
+  let instructions: ServerSessionInstructionsPayload
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case provider
+    case instructions
   }
 }
 

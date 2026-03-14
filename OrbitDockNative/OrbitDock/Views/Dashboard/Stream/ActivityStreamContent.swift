@@ -197,8 +197,12 @@ struct ActivityStreamContent: View {
   // MARK: - Navigation
 
   private func selectSession(_ session: RootSessionNode) {
+    let message =
+      "dashboard tap scopedID=\(session.scopedID) endpoint=\(session.sessionRef.endpointId.uuidString)"
+    print("[OrbitDock][Dashboard] \(message)")
+    NSLog("[OrbitDock][Dashboard] %@", message)
     withAnimation(Motion.standard) {
-      router.navigateToSession(scopedID: session.scopedID)
+      router.selectSession(session.sessionRef)
     }
   }
 }

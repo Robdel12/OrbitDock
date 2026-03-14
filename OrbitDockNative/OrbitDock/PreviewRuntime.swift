@@ -19,8 +19,7 @@ struct PreviewRuntime {
   let toastManager: ToastManager
   let rootSessionActions: RootSessionActions
   let notificationManager: NotificationManager
-  let rootShellStore: RootShellStore
-  let rootShellRuntime: RootShellRuntime
+  let appStore: AppStore
   let externalNavigationCenter: AppExternalNavigationCenter
   #if os(macOS)
     let serverManager: ServerManager
@@ -78,8 +77,6 @@ struct PreviewRuntime {
     self.attentionService = AttentionService()
     self.router = AppRouter()
     self.toastManager = ToastManager()
-    let rootShellStore = RootShellStore()
-    self.rootShellStore = rootShellStore
     self.rootSessionActions = RootSessionActions(runtimeRegistry: runtimeRegistry)
     self.notificationManager = NotificationManager(
       isAuthorized: false,
@@ -98,11 +95,14 @@ struct PreviewRuntime {
       )
     )
     self.externalNavigationCenter = AppExternalNavigationCenter()
-    self.rootShellRuntime = RootShellRuntime(
+    self.appStore = AppStore(
       runtimeRegistry: runtimeRegistry,
-      rootShellStore: rootShellStore
+      attentionService: attentionService,
+      notificationManager: notificationManager,
+      toastManager: toastManager
     )
-    self.rootShellRuntime.start()
+    self.appStore.router = router
+    self.appStore.start()
 
     #if os(macOS)
       self.serverManager = ServerManager(
@@ -122,7 +122,7 @@ struct PreviewRuntime {
       .environment(router)
       .environment(toastManager)
       .environment(\.rootSessionActions, rootSessionActions)
-      .environment(rootShellStore)
+      .environment(appStore)
       #if os(macOS)
         .environment(\.serverManager, serverManager)
       #endif

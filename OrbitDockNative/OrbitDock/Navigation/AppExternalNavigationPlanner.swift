@@ -7,9 +7,9 @@ enum AppExternalNavigationPlanner {
     explicitEndpointId: UUID?,
     selectedEndpointId: UUID?,
     fallbackEndpointId: UUID?,
-    rootShellStore: RootShellStore
+    store: AppStore
   ) -> SessionRef? {
-    if let ref = rootShellStore.sessionRef(for: sessionID) {
+    if let ref = store.sessionRef(for: sessionID) {
       return ref
     }
 

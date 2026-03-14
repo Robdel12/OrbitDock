@@ -11,6 +11,17 @@ extension SessionStore {
       handleSessionEnded(sessionId, reason)
     case .conversationBootstrap(let state, let conversation):
       handleConversationBootstrap(state, conversation)
+    case .sessionSnapshot(let state):
+      handleConversationBootstrap(
+        state,
+        ServerConversationHistoryPage(
+          rows: state.rows,
+          totalRowCount: state.totalRowCount ?? UInt64(state.rows.count),
+          hasMoreBefore: state.hasMoreBefore ?? false,
+          oldestSequence: state.oldestSequence,
+          newestSequence: state.newestSequence
+        )
+      )
     case .sessionDelta(let sessionId, let changes):
       handleSessionDelta(sessionId, changes)
     case .conversationRowsChanged(let sessionId, let upserted, let removedRowIds, let totalRowCount):
@@ -168,6 +179,7 @@ extension SessionStore {
     case .sessionListItemRemoved(let sid): "sessionListItemRemoved(\(sid))"
     case .sessionEnded(let sid, _): "sessionEnded(\(sid))"
     case .conversationBootstrap(let s, let conversation): "conversationBootstrap(\(s.id), \(conversation.rows.count))"
+    case .sessionSnapshot(let s): "sessionSnapshot(\(s.id))"
     case .sessionDelta(let sid, _): "sessionDelta(\(sid))"
     case .conversationRowsChanged(let sid, let upserted, let removed, _):
       "conversationRowsChanged(\(sid), +\(upserted.count), -\(removed.count))"
@@ -192,6 +204,14 @@ extension SessionStore {
 
   func handleConversationBootstrap(_ state: ServerSessionState, _ conversation: ServerConversationHistoryPage) {
     netLog(.info, cat: .store, "Received bootstrap", sid: state.id, data: ["rowCount": conversation.rows.count])
+    print(
+      """
+      [OrbitDock][SessionStore] Bootstrap received session=\(state.id) \
+      project=\(state.projectPath) projectName=\(state.projectName ?? "nil") \
+      stateRows=\(state.rows.count) conversationRows=\(conversation.rows.count) \
+      revision=\(state.revision.map(String.init) ?? "nil")
+      """
+    )
 
     if let rev = state.revision {
       lastRevision[state.id] = rev
@@ -203,6 +223,13 @@ extension SessionStore {
 
     let obs = self.session(state.id)
     obs.applySnapshotProjection(state.toDetailSnapshotProjection())
+    print(
+      """
+      [OrbitDock][SessionStore] Snapshot applied session=\(state.id) \
+      displayName=\(obs.displayName) projectPath=\(obs.projectPath) \
+      provider=\(obs.provider.rawValue) canSend=\(obs.canSendInput)
+      """
+    )
     obs.subagents = state.subagents
     let transition = SessionControlStateReducer.snapshotTransition(
       current: controlState(sessionId: state.id, observable: obs),
@@ -307,26 +334,19 @@ extension SessionStore {
   }
 
   func handleConnectionStatusChanged(_ status: ConnectionStatus) {
-    guard let plan = SessionFeedPlanner.connectionRecoveryPlan(
-      status: status,
-      subscribedSessionIds: subscribedSessions,
-      sessionHasInitialConversationData: Dictionary(
-        uniqueKeysWithValues: subscribedSessions.map { ($0, conversation($0).hasReceivedInitialData) }
-      ),
-      lastRevisionBySession: lastRevision
-    ) else {
-      return
-    }
+    guard status == .connected else { return }
 
-    guard plan.shouldSubscribeList else { return }
-
+    // Re-subscribe list and all active sessions on reconnect
     eventStream.subscribeList()
-    for request in plan.replayRequests {
-      eventStream.subscribeSession(
-        request.sessionId,
-        sinceRevision: request.sinceRevision,
-        includeSnapshot: request.includeSnapshot
-      )
+    for sessionId in subscribedSessions {
+      Task {
+        let bootstrap = await hydrateSessionFromHTTPBootstrap(sessionId: sessionId)
+        eventStream.subscribeSession(
+          sessionId,
+          sinceRevision: bootstrap?.session.revision,
+          includeSnapshot: false
+        )
+      }
     }
   }
 
@@ -374,17 +394,6 @@ extension SessionStore {
     case .clear(let resetAttention):
       observable.clearPendingApprovalDetails(resetAttention: resetAttention)
     }
-  }
-
-  func cacheConversationBeforeTrim(sessionId: String) {
-    guard let conv = _conversationStores[sessionId], !conv.messages.isEmpty else { return }
-
-    if conversationCache.count >= kConversationCacheMax,
-       let oldest = conversationCache.min(by: { $0.value.cachedAt < $1.value.cachedAt })?.key {
-      conversationCache.removeValue(forKey: oldest)
-    }
-
-    conversationCache[sessionId] = conv.cacheSnapshot()
   }
 
   func trimInactiveSessionPayload(_ sessionId: String) {

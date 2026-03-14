@@ -12,7 +12,6 @@ final class ServerClients: Sendable {
   let filesystem: FilesystemClient
   let skills: SkillsClient
   let mcp: McpClient
-  let featureFlags: FeatureFlagsClient
   let usage: UsageClient
   let sessions: SessionsClient
   let conversation: ConversationClient
@@ -62,7 +61,6 @@ final class ServerClients: Sendable {
     self.filesystem = FilesystemClient(http: http)
     self.skills = SkillsClient(http: http, requestBuilder: requestBuilder)
     self.mcp = McpClient(http: http, requestBuilder: requestBuilder)
-    self.featureFlags = FeatureFlagsClient(http: http, requestBuilder: requestBuilder)
     self.usage = UsageClient(http: http)
     self.sessions = SessionsClient(http: http, requestBuilder: requestBuilder)
     self.conversation = ConversationClient(http: http, requestBuilder: requestBuilder)
