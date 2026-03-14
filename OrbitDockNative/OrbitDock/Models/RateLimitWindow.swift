@@ -224,7 +224,7 @@ extension RateLimitWindow {
   }
 
   /// Create a window with duration in minutes (for Codex variable windows)
-  static func fromMinutes(id: String, utilization: Double, windowMinutes: Int, resetsAt: Date) -> RateLimitWindow {
+  static func fromMinutes(id: String, utilization: Double, windowMinutes: Int, resetsAt: Date?) -> RateLimitWindow {
     let hours = windowMinutes / 60
     let label: String
     if hours >= 24 {
