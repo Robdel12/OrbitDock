@@ -1,17 +1,7 @@
-//
-//  EventStream.swift
-//  OrbitDock
-//
-//  Receive-only WebSocket that publishes server events as an AsyncStream.
-//  No mutations flow through here — all actions go via typed HTTP server clients.
-//  Only 3 outbound messages: subscribeList, subscribeSession, unsubscribeSession.
-//
-
 import Foundation
 
-// MARK: - Event
-
-/// Every server push event, typed and ready for consumption by stores.
+/// Decoded server push event, typed and ready for consumption.
+/// Reuses the existing ServerToClientMessage decode pipeline.
 enum ServerEvent: Sendable {
   // Session list
   case sessionsList([ServerSessionListItem])
@@ -128,40 +118,26 @@ enum ServerEvent: Sendable {
   // Connection lifecycle
   case connectionStatusChanged(ConnectionStatus)
 
-  // Revision tracking (for incremental replay)
+  // Revision tracking
   case revision(sessionId: String, revision: UInt64)
 }
 
 // MARK: - EventStream
 
-/// Receive-only WebSocket connection that produces `ServerEvent`s via `AsyncStream`.
+/// Single WebSocket connection to one OrbitDock server.
+/// Produces events via callback. Handles reconnection with exponential backoff.
+/// Only 3 outbound messages: subscribeList, subscribeSession, unsubscribeSession.
 @MainActor
 final class EventStream {
-  /// Max inbound WS message size.
-  ///
-  /// The server's nominal cap is 1 MiB, but in practice root/session bootstrap
-  /// payloads can exceed that during large local restores. Keeping the client cap
-  /// comfortably above the server-side target prevents an immediate close/reconnect
-  /// loop when the server emits an oversized frame before we can hydrate.
-  private static let maxInboundBytes = 8 * 1_024 * 1_024
-
   private(set) var connectionStatus: ConnectionStatus = .disconnected
+  private(set) var latestSessionListItems: [ServerSessionListItem] = []
+  private(set) var hasReceivedInitialSessionsList = false
 
-  /// The full event stream. Prefer `rootEvents` or `detailEvents` when a consumer
-  /// only needs one lane.
-  let events: AsyncStream<ServerEvent>
-  private let continuation: AsyncStream<ServerEvent>.Continuation
-  let rootEvents: AsyncStream<ServerEvent>
-  private let rootContinuation: AsyncStream<ServerEvent>.Continuation
-  let detailEvents: AsyncStream<ServerEvent>
-  private let detailContinuation: AsyncStream<ServerEvent>.Continuation
-  let statusUpdates: AsyncStream<ConnectionStatus>
-  private let statusContinuation: AsyncStream<ConnectionStatus>.Continuation
-  let initialSessionsListUpdates: AsyncStream<Bool>
-  private let initialSessionsListContinuation: AsyncStream<Bool>.Continuation
+  /// Callback for all events. Set by the consumer (ServerConnection).
+  var onEvent: ((ServerEvent) -> Void)?
 
-  private var serverURL: URL?
   private let authToken: String?
+  private var serverURL: URL?
   private var webSocket: URLSessionWebSocketTask?
   private var urlSession: URLSession?
   private var receiveTask: Task<Void, Never>?
@@ -170,14 +146,8 @@ final class EventStream {
   private var connectAttempts = 0
   private var lastConnectedAt: Date?
 
-  /// A connection must survive this long before we consider it "stable" and reset
-  /// the attempt counter. Short-lived connections (flapping) let attempts accumulate
-  /// so backoff and the max-retry limit can stop a hot reconnect loop.
+  private static let maxInboundBytes = 8 * 1_024 * 1_024
   private static let stableConnectionThreshold: TimeInterval = 30
-  private(set) var latestSessionListItems: [ServerSessionListItem] = []
-  private(set) var hasReceivedInitialSessionsList = false
-
-  /// Keep-alive ping interval in seconds.
   private static let keepAliveInterval: TimeInterval = 30
 
   var isRemote: Bool {
@@ -190,31 +160,6 @@ final class EventStream {
 
   init(authToken: String?) {
     self.authToken = authToken
-    var eventContinuation: AsyncStream<ServerEvent>.Continuation!
-    events = AsyncStream { eventContinuation = $0 }
-    continuation = eventContinuation
-    var rootEventContinuation: AsyncStream<ServerEvent>.Continuation!
-    rootEvents = AsyncStream { rootEventContinuation = $0 }
-    rootContinuation = rootEventContinuation
-    var detailEventContinuation: AsyncStream<ServerEvent>.Continuation!
-    detailEvents = AsyncStream { detailEventContinuation = $0 }
-    detailContinuation = detailEventContinuation
-
-    var connectionContinuation: AsyncStream<ConnectionStatus>.Continuation!
-    statusUpdates = AsyncStream { connectionContinuation = $0 }
-    statusContinuation = connectionContinuation
-
-    var initialSessionsListContinuation: AsyncStream<Bool>.Continuation!
-    initialSessionsListUpdates = AsyncStream { initialSessionsListContinuation = $0 }
-    self.initialSessionsListContinuation = initialSessionsListContinuation
-  }
-
-  deinit {
-    continuation.finish()
-    rootContinuation.finish()
-    detailContinuation.finish()
-    statusContinuation.finish()
-    initialSessionsListContinuation.finish()
   }
 
   // MARK: - Connection
@@ -226,35 +171,25 @@ final class EventStream {
     case .connecting, .connected:
       return
     }
-    netLog(.info, cat: .ws, "Connecting", data: ["url": url.absoluteString])
     serverURL = url
     attemptConnect()
   }
 
-  /// Re-establish the connection if it's not currently connected.
-  /// Called when the app returns to the foreground.
   func reconnectIfNeeded() {
     guard serverURL != nil else { return }
     switch connectionStatus {
     case .connected, .connecting:
-      // Already connected or in progress — send a ping to verify liveness
       Task {
-        do {
-          try await ping()
-        } catch {
-          netLog(.warning, cat: .ws, "Foreground liveness ping failed, reconnecting")
-          handleDisconnect()
-        }
+        do { try await ping() }
+        catch { handleDisconnect() }
       }
     case .disconnected, .failed:
-      netLog(.info, cat: .ws, "Reconnecting after foreground resume")
       connectAttempts = 0
       attemptConnect()
     }
   }
 
   func disconnect() {
-    netLog(.info, cat: .ws, "Disconnecting", data: ["url": serverURL?.absoluteString ?? "nil"])
     stopKeepAlive()
     connectTask?.cancel()
     connectTask = nil
@@ -267,52 +202,41 @@ final class EventStream {
     connectAttempts = 0
     lastConnectedAt = nil
     latestSessionListItems = []
-    if hasReceivedInitialSessionsList {
-      hasReceivedInitialSessionsList = false
-      initialSessionsListContinuation.yield(false)
-    }
+    hasReceivedInitialSessionsList = false
     setStatus(.disconnected)
   }
 
+  // MARK: - Outbound
+
+  func subscribeList() {
+    send(.subscribeList)
+  }
+
+  func subscribeSession(_ sessionId: String, sinceRevision: UInt64? = nil, includeSnapshot: Bool = true) {
+    send(.subscribeSession(sessionId: sessionId, sinceRevision: sinceRevision, includeSnapshot: includeSnapshot))
+  }
+
+  func unsubscribeSession(_ sessionId: String) {
+    send(.unsubscribeSession(sessionId: sessionId))
+  }
+
+  // MARK: - Testing
+
   func seedSessionsListForTesting(_ sessions: [ServerSessionListItem]) {
     latestSessionListItems = sessions
-    if !hasReceivedInitialSessionsList {
-      hasReceivedInitialSessionsList = true
-      initialSessionsListContinuation.yield(true)
-    }
-    rootContinuation.yield(.sessionsList(sessions))
+    hasReceivedInitialSessionsList = true
+    emit(.sessionsList(sessions))
   }
 
   func emitForTesting(_ event: ServerEvent) {
     emit(event)
   }
 
-  // MARK: - Outbound (subscription management only)
-
-  func subscribeList() {
-    netLog(.debug, cat: .ws, "Subscribe to session list")
-    send(.subscribeList)
-  }
-
-  func subscribeSession(
-    _ sessionId: String, sinceRevision: UInt64? = nil, includeSnapshot: Bool = true
-  ) {
-    netLog(.info, cat: .ws, "Subscribe session", sid: sessionId, data: ["sinceRevision": sinceRevision.map(String.init) ?? "nil", "snapshot": includeSnapshot])
-    send(.subscribeSession(
-      sessionId: sessionId, sinceRevision: sinceRevision, includeSnapshot: includeSnapshot))
-  }
-
-  func unsubscribeSession(_ sessionId: String) {
-    netLog(.debug, cat: .ws, "Unsubscribe session", sid: sessionId)
-    send(.unsubscribeSession(sessionId: sessionId))
-  }
-
-  // MARK: - Private
+  // MARK: - Private: Connection
 
   private func attemptConnect() {
     guard let serverURL else { return }
     guard connectAttempts < maxConnectAttempts else {
-      netLog(.error, cat: .ws, "Connect failed: max attempts exceeded", data: ["maxAttempts": maxConnectAttempts, "url": serverURL.absoluteString])
       let msg = isRemote
         ? "Could not reach remote server after \(maxConnectAttempts) attempts"
         : "Failed to connect after \(maxConnectAttempts) attempts"
@@ -321,7 +245,6 @@ final class EventStream {
     }
 
     connectAttempts += 1
-    netLog(.info, cat: .ws, "Connect attempt \(connectAttempts)/\(maxConnectAttempts)", data: ["url": serverURL.absoluteString])
     setStatus(.connecting)
 
     stopKeepAlive()
@@ -348,7 +271,7 @@ final class EventStream {
     connectTask = Task {
       do {
         try await ping()
-        await MainActor.run { self.completeConnection(trigger: "ping") }
+        await MainActor.run { self.completeConnection() }
       } catch {
         guard !Task.isCancelled else { return }
         let shouldRetry = await MainActor.run { () -> Bool in
@@ -356,7 +279,6 @@ final class EventStream {
           return false
         }
         guard shouldRetry else { return }
-
         let delay = min(pow(2.0, Double(connectAttempts - 1)), maxBackoffSeconds)
         try? await Task.sleep(for: .seconds(delay))
         guard !Task.isCancelled else { return }
@@ -365,20 +287,13 @@ final class EventStream {
     }
   }
 
-  private func completeConnection(trigger: String) {
+  private func completeConnection() {
     guard case .connecting = connectionStatus else { return }
-    netLog(.info, cat: .ws, "Connected (trigger: \(trigger))", data: ["url": serverURL?.absoluteString ?? "?"])
-    if trigger != "ping" {
-      connectTask?.cancel()
-      connectTask = nil
-    }
+    connectTask?.cancel()
+    connectTask = nil
     lastConnectedAt = Date()
-    // Don't reset connectAttempts here — handleDisconnect decides whether
-    // the connection was stable enough to warrant a fresh retry budget.
     setStatus(.connected)
     startKeepAlive()
-
-    // Auto-subscribe to session list
     subscribeList()
   }
 
@@ -397,10 +312,8 @@ final class EventStream {
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(Self.keepAliveInterval))
         guard !Task.isCancelled else { break }
-        do {
-          try await ping()
-        } catch {
-          netLog(.warning, cat: .ws, "Keep-alive ping failed", data: ["error": error.localizedDescription])
+        do { try await ping() }
+        catch {
           await MainActor.run { self.handleDisconnect() }
           break
         }
@@ -424,19 +337,13 @@ final class EventStream {
           handleDisconnect()
           break
         }
-
         switch message {
-        case let .string(text):
-          handleFrame(text)
+        case let .string(text): handleFrame(text)
         case let .data(data):
-          if let text = String(data: data, encoding: .utf8) {
-            handleFrame(text)
-          }
-        @unknown default:
-          break
+          if let text = String(data: data, encoding: .utf8) { handleFrame(text) }
+        @unknown default: break
         }
       } catch {
-        netLog(.error, cat: .ws, "Receive error", data: ["error": error.localizedDescription])
         handleDisconnect()
         break
       }
@@ -446,26 +353,25 @@ final class EventStream {
   private func handleDisconnect() {
     switch connectionStatus {
     case .connected, .connecting:
-      // Only reset attempt budget if the connection was stable long enough.
-      // Short-lived connections (flapping) let attempts accumulate so
-      // exponential backoff and the max-retry cap stop a hot loop.
       if let t = lastConnectedAt, Date().timeIntervalSince(t) >= Self.stableConnectionThreshold {
         connectAttempts = 0
       }
       lastConnectedAt = nil
-      netLog(.warning, cat: .ws, "Disconnected unexpectedly, will reconnect", data: [
-        "url": serverURL?.absoluteString ?? "?",
-        "attemptsBudget": "\(connectAttempts)/\(maxConnectAttempts)",
-      ])
       attemptConnect()
     case .disconnected, .failed:
       break
     }
   }
 
+  // MARK: - Private: Frame handling
+
   private func handleFrame(_ text: String) {
     guard let data = text.data(using: .utf8) else { return }
-    completeConnection(trigger: "first_frame")
+
+    // If we're still connecting, receiving a frame means we're connected
+    if case .connecting = connectionStatus {
+      completeConnection()
+    }
 
     // Extract revision before full decode
     if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -479,104 +385,66 @@ final class EventStream {
       let msg = try JSONDecoder().decode(ServerToClientMessage.self, from: data)
       routeMessage(msg)
     } catch {
-      netLog(.warning, cat: .ws, "Undecodable frame", data: ["chars": text.count, "preview": String(text.prefix(200)), "error": error.localizedDescription])
+      // Silently ignore undecodable frames
     }
   }
 
   private func routeMessage(_ message: ServerToClientMessage) {
     switch message {
-    case let .sessionsList(sessions):
-      emit(.sessionsList(sessions))
+    case let .sessionsList(sessions): emit(.sessionsList(sessions))
     case let .conversationBootstrap(session, conversation):
       emit(.conversationBootstrap(session: session, conversation: conversation))
-    case let .sessionSnapshot(session):
-      emit(.sessionSnapshot(session))
-    case let .sessionDelta(sessionId, changes):
-      emit(.sessionDelta(sessionId: sessionId, changes: changes))
+    case let .sessionSnapshot(session): emit(.sessionSnapshot(session))
+    case let .sessionDelta(sessionId, changes): emit(.sessionDelta(sessionId: sessionId, changes: changes))
     case let .conversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount):
-      emit(.conversationRowsChanged(
-        sessionId: sessionId,
-        upserted: upserted,
-        removedRowIds: removedRowIds,
-        totalRowCount: totalRowCount
-      ))
+      emit(.conversationRowsChanged(sessionId: sessionId, upserted: upserted, removedRowIds: removedRowIds, totalRowCount: totalRowCount))
     case let .approvalRequested(sessionId, request, approvalVersion):
-      emit(.approvalRequested(
-        sessionId: sessionId, request: request, approvalVersion: approvalVersion))
+      emit(.approvalRequested(sessionId: sessionId, request: request, approvalVersion: approvalVersion))
     case let .approvalDecisionResult(sessionId, requestId, outcome, activeRequestId, approvalVersion):
-      emit(.approvalDecisionResult(
-        sessionId: sessionId, requestId: requestId, outcome: outcome,
-        activeRequestId: activeRequestId, approvalVersion: approvalVersion))
+      emit(.approvalDecisionResult(sessionId: sessionId, requestId: requestId, outcome: outcome, activeRequestId: activeRequestId, approvalVersion: approvalVersion))
     case let .tokensUpdated(sessionId, usage, snapshotKind):
       emit(.tokensUpdated(sessionId: sessionId, usage: usage, snapshotKind: snapshotKind))
-    case let .sessionCreated(session):
-      emit(.sessionCreated(session))
-    case let .sessionListItemUpdated(session):
-      emit(.sessionListItemUpdated(session))
-    case let .sessionListItemRemoved(sessionId):
-      emit(.sessionListItemRemoved(sessionId: sessionId))
-    case let .sessionEnded(sessionId, reason):
-      emit(.sessionEnded(sessionId: sessionId, reason: reason))
-    case let .approvalsList(sessionId, approvals):
-      emit(.approvalsList(sessionId: sessionId, approvals: approvals))
-    case let .approvalDeleted(approvalId):
-      emit(.approvalDeleted(approvalId: approvalId))
-    case let .modelsList(models):
-      emit(.modelsList(models))
-    case let .codexAccountStatus(status):
-      emit(.codexAccountStatus(status))
+    case let .sessionCreated(session): emit(.sessionCreated(session))
+    case let .sessionListItemUpdated(session): emit(.sessionListItemUpdated(session))
+    case let .sessionListItemRemoved(sessionId): emit(.sessionListItemRemoved(sessionId: sessionId))
+    case let .sessionEnded(sessionId, reason): emit(.sessionEnded(sessionId: sessionId, reason: reason))
+    case let .approvalsList(sessionId, approvals): emit(.approvalsList(sessionId: sessionId, approvals: approvals))
+    case let .approvalDeleted(approvalId): emit(.approvalDeleted(approvalId: approvalId))
+    case let .modelsList(models): emit(.modelsList(models))
+    case let .codexAccountStatus(status): emit(.codexAccountStatus(status))
     case let .codexLoginChatgptStarted(loginId, authUrl):
       emit(.codexLoginChatgptStarted(loginId: loginId, authUrl: authUrl))
     case let .codexLoginChatgptCompleted(loginId, success, error):
       emit(.codexLoginChatgptCompleted(loginId: loginId, success: success, error: error))
     case let .codexLoginChatgptCanceled(loginId, status):
       emit(.codexLoginChatgptCanceled(loginId: loginId, status: status))
-    case let .codexAccountUpdated(status):
-      emit(.codexAccountUpdated(status))
+    case let .codexAccountUpdated(status): emit(.codexAccountUpdated(status))
     case let .skillsList(sessionId, skills, errors):
       emit(.skillsList(sessionId: sessionId, skills: skills, errors: errors))
     case let .remoteSkillsList(sessionId, skills):
       emit(.remoteSkillsList(sessionId: sessionId, skills: skills))
     case let .remoteSkillDownloaded(sessionId, skillId, name, path):
-      emit(.remoteSkillDownloaded(
-        sessionId: sessionId, skillId: skillId, name: name, path: path))
-    case let .skillsUpdateAvailable(sessionId):
-      emit(.skillsUpdateAvailable(sessionId: sessionId))
+      emit(.remoteSkillDownloaded(sessionId: sessionId, skillId: skillId, name: name, path: path))
+    case let .skillsUpdateAvailable(sessionId): emit(.skillsUpdateAvailable(sessionId: sessionId))
     case let .mcpToolsList(sessionId, tools, resources, resourceTemplates, authStatuses):
-      emit(.mcpToolsList(
-        sessionId: sessionId, tools: tools, resources: resources,
-        resourceTemplates: resourceTemplates, authStatuses: authStatuses))
+      emit(.mcpToolsList(sessionId: sessionId, tools: tools, resources: resources, resourceTemplates: resourceTemplates, authStatuses: authStatuses))
     case let .mcpStartupUpdate(sessionId, server, status):
       emit(.mcpStartupUpdate(sessionId: sessionId, server: server, status: status))
     case let .mcpStartupComplete(sessionId, ready, failed, cancelled):
-      emit(.mcpStartupComplete(
-        sessionId: sessionId, ready: ready, failed: failed, cancelled: cancelled))
+      emit(.mcpStartupComplete(sessionId: sessionId, ready: ready, failed: failed, cancelled: cancelled))
     case let .claudeCapabilities(sessionId, slashCommands, skills, tools, models):
-      emit(.claudeCapabilities(
-        sessionId: sessionId, slashCommands: slashCommands, skills: skills,
-        tools: tools, models: models))
-    case let .claudeModelsList(models):
-      emit(.claudeModelsList(models))
-    case let .contextCompacted(sessionId):
-      emit(.contextCompacted(sessionId: sessionId))
-    case let .undoStarted(sessionId, message):
-      emit(.undoStarted(sessionId: sessionId, message: message))
+      emit(.claudeCapabilities(sessionId: sessionId, slashCommands: slashCommands, skills: skills, tools: tools, models: models))
+    case let .claudeModelsList(models): emit(.claudeModelsList(models))
+    case let .contextCompacted(sessionId): emit(.contextCompacted(sessionId: sessionId))
+    case let .undoStarted(sessionId, message): emit(.undoStarted(sessionId: sessionId, message: message))
     case let .undoCompleted(sessionId, success, message):
       emit(.undoCompleted(sessionId: sessionId, success: success, message: message))
     case let .threadRolledBack(sessionId, numTurns):
       emit(.threadRolledBack(sessionId: sessionId, numTurns: numTurns))
     case let .sessionForked(sourceSessionId, newSessionId, forkedFromThreadId):
-      emit(.sessionForked(
-        sourceSessionId: sourceSessionId, newSessionId: newSessionId,
-        forkedFromThreadId: forkedFromThreadId))
-    case let .turnDiffSnapshot(
-      sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens,
-      contextWindow, snapshotKind):
-      emit(.turnDiffSnapshot(
-        sessionId: sessionId, turnId: turnId, diff: diff,
-        inputTokens: inputTokens, outputTokens: outputTokens,
-        cachedTokens: cachedTokens, contextWindow: contextWindow,
-        snapshotKind: snapshotKind))
+      emit(.sessionForked(sourceSessionId: sourceSessionId, newSessionId: newSessionId, forkedFromThreadId: forkedFromThreadId))
+    case let .turnDiffSnapshot(sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow, snapshotKind):
+      emit(.turnDiffSnapshot(sessionId: sessionId, turnId: turnId, diff: diff, inputTokens: inputTokens, outputTokens: outputTokens, cachedTokens: cachedTokens, contextWindow: contextWindow, snapshotKind: snapshotKind))
     case let .reviewCommentCreated(sessionId, reviewRevision, comment):
       emit(.reviewCommentCreated(sessionId: sessionId, reviewRevision: reviewRevision, comment: comment))
     case let .reviewCommentUpdated(sessionId, reviewRevision, comment):
@@ -590,36 +458,24 @@ final class EventStream {
     case let .shellStarted(sessionId, requestId, command):
       emit(.shellStarted(sessionId: sessionId, requestId: requestId, command: command))
     case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome):
-      emit(.shellOutput(
-        sessionId: sessionId, requestId: requestId, stdout: stdout, stderr: stderr,
-        exitCode: exitCode, durationMs: durationMs, outcome: outcome))
+      emit(.shellOutput(sessionId: sessionId, requestId: requestId, stdout: stdout, stderr: stderr, exitCode: exitCode, durationMs: durationMs, outcome: outcome))
     case let .worktreesList(requestId, repoRoot, worktreeRevision, worktrees):
-      emit(.worktreesList(
-        requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktrees: worktrees))
+      emit(.worktreesList(requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktrees: worktrees))
     case let .worktreeCreated(requestId, repoRoot, worktreeRevision, worktree):
-      emit(.worktreeCreated(
-        requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktree: worktree))
+      emit(.worktreeCreated(requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktree: worktree))
     case let .worktreeRemoved(requestId, repoRoot, worktreeRevision, worktreeId):
-      emit(.worktreeRemoved(
-        requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktreeId: worktreeId))
+      emit(.worktreeRemoved(requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktreeId: worktreeId))
     case let .worktreeStatusChanged(worktreeId, status, repoRoot):
-      emit(.worktreeStatusChanged(
-        worktreeId: worktreeId, status: status, repoRoot: repoRoot))
+      emit(.worktreeStatusChanged(worktreeId: worktreeId, status: status, repoRoot: repoRoot))
     case let .worktreeError(requestId, code, message):
       emit(.worktreeError(requestId: requestId, code: code, message: message))
-    case let .rateLimitEvent(sessionId, info):
-      emit(.rateLimitEvent(sessionId: sessionId, info: info))
+    case let .rateLimitEvent(sessionId, info): emit(.rateLimitEvent(sessionId: sessionId, info: info))
     case let .promptSuggestion(sessionId, suggestion):
       emit(.promptSuggestion(sessionId: sessionId, suggestion: suggestion))
-    case let .filesPersisted(sessionId, files):
-      emit(.filesPersisted(sessionId: sessionId, files: files))
-    case let .serverInfo(isPrimary, claims):
-      emit(.serverInfo(isPrimary: isPrimary, claims: claims))
-    case let .permissionRules(sessionId, rules):
-      emit(.permissionRules(sessionId: sessionId, rules: rules))
-    case let .error(code, message, sessionId):
-      emit(.error(code: code, message: message, sessionId: sessionId))
-    // Silently ignore WS-only response types that are now fetched via HTTP
+    case let .filesPersisted(sessionId, files): emit(.filesPersisted(sessionId: sessionId, files: files))
+    case let .serverInfo(isPrimary, claims): emit(.serverInfo(isPrimary: isPrimary, claims: claims))
+    case let .permissionRules(sessionId, rules): emit(.permissionRules(sessionId: sessionId, rules: rules))
+    case let .error(code, message, sessionId): emit(.error(code: code, message: message, sessionId: sessionId))
     case .directoryListing, .recentProjectsList, .openAiKeyStatus,
          .codexUsageResult, .claudeUsageResult:
       break
@@ -628,79 +484,33 @@ final class EventStream {
 
   private func emit(_ event: ServerEvent) {
     updateRootState(for: event)
-    continuation.yield(event)
-    if isRootSafe(event) {
-      rootContinuation.yield(event)
-    }
-    if isDetailSafe(event) {
-      detailContinuation.yield(event)
-    }
+    onEvent?(event)
   }
 
   private func setStatus(_ status: ConnectionStatus) {
     guard connectionStatus != status else { return }
-    netLog(.info, cat: .ws, "Status → \(status)")
     connectionStatus = status
     if status != .connected {
       latestSessionListItems = []
-      if hasReceivedInitialSessionsList {
-        hasReceivedInitialSessionsList = false
-        initialSessionsListContinuation.yield(false)
-      }
+      hasReceivedInitialSessionsList = false
     }
-    statusContinuation.yield(status)
     emit(.connectionStatusChanged(status))
-  }
-
-  private func isRootSafe(_ event: ServerEvent) -> Bool {
-    switch event {
-      case .sessionsList,
-        .sessionCreated,
-        .sessionListItemUpdated,
-        .sessionListItemRemoved,
-        .sessionEnded,
-        .connectionStatusChanged:
-        true
-      default:
-        false
-    }
-  }
-
-  private func isDetailSafe(_ event: ServerEvent) -> Bool {
-    switch event {
-      case .sessionsList,
-        .sessionCreated,
-        .sessionListItemUpdated,
-        .sessionListItemRemoved:
-        false
-      default:
-        true
-    }
   }
 
   private func updateRootState(for event: ServerEvent) {
     switch event {
-      case let .sessionsList(sessions):
-        latestSessionListItems = sessions
-        if !hasReceivedInitialSessionsList {
-          hasReceivedInitialSessionsList = true
-          initialSessionsListContinuation.yield(true)
-        }
-      case let .sessionCreated(session),
-        let .sessionListItemUpdated(session):
-        if let idx = latestSessionListItems.firstIndex(where: { $0.id == session.id }) {
-          latestSessionListItems[idx] = session
-        } else {
-          latestSessionListItems.append(session)
-        }
-      case let .sessionListItemRemoved(sessionId):
-        latestSessionListItems.removeAll { $0.id == sessionId }
-      case .sessionEnded:
-        break
-      case .connectionStatusChanged:
-        break
-      default:
-        break
+    case let .sessionsList(sessions):
+      latestSessionListItems = sessions
+      hasReceivedInitialSessionsList = true
+    case let .sessionCreated(session), let .sessionListItemUpdated(session):
+      if let idx = latestSessionListItems.firstIndex(where: { $0.id == session.id }) {
+        latestSessionListItems[idx] = session
+      } else {
+        latestSessionListItems.append(session)
+      }
+    case let .sessionListItemRemoved(sessionId):
+      latestSessionListItems.removeAll { $0.id == sessionId }
+    default: break
     }
   }
 
@@ -709,14 +519,7 @@ final class EventStream {
     let encoder = JSONEncoder()
     encoder.keyEncodingStrategy = .convertToSnakeCase
     guard let data = try? encoder.encode(message),
-          let text = String(data: data, encoding: .utf8)
-    else { return }
-
-    netLog(.debug, cat: .ws, "Send", data: ["preview": String(text.prefix(200))])
-    webSocket.send(.string(text)) { error in
-      if let error {
-        netLog(.error, cat: .ws, "Send failed", data: ["error": error.localizedDescription])
-      }
-    }
+          let text = String(data: data, encoding: .utf8) else { return }
+    webSocket.send(.string(text)) { _ in }
   }
 }

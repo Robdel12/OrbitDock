@@ -1,5 +1,10 @@
 import Foundation
 
+struct ServerClientIdentity: Sendable {
+  let clientId: String
+  let deviceName: String
+}
+
 struct ControlPlaneClient: Sendable {
   private enum Implementation: Sendable {
     case live(ServerHTTPClient)
