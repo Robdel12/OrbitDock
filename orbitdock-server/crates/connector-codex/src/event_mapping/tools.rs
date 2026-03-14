@@ -1,5 +1,6 @@
 use super::{SharedEnvironmentTracker, SharedStringBuffers};
-use crate::timeline::{dynamic_tool_output_to_text, tool_input_with_arguments};
+use crate::runtime::row_entry;
+use crate::timeline::dynamic_tool_output_to_text;
 use crate::workers::iso_now;
 use codex_protocol::dynamic_tools::DynamicToolCallRequest;
 use codex_protocol::protocol::DynamicToolCallResponseEvent;
@@ -9,7 +10,18 @@ use codex_protocol::protocol::{
     TerminalInteractionEvent, ViewImageToolCallEvent, WebSearchBeginEvent, WebSearchEndEvent,
 };
 use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry, ToolRow};
+use orbitdock_protocol::domain_events::{
+    CommandExecutionPayload, FileChangePayload, GenericInvocationPayload, GenericResultPayload,
+    ImageViewPayload, McpToolPayload, ToolFamily, ToolInvocationPayload, ToolKind,
+    ToolResultPayload, ToolStatus, WebSearchPayload,
+};
+use orbitdock_protocol::Provider;
 use serde_json::json;
+
+fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
+    row_entry(ConversationRow::Tool(row))
+}
 
 pub(crate) async fn handle_exec_command_begin(
     event: ExecCommandBeginEvent,
@@ -17,18 +29,6 @@ pub(crate) async fn handle_exec_command_begin(
     env_tracker: &SharedEnvironmentTracker,
 ) -> Vec<ConnectorEvent> {
     let command_str = event.command.join(" ");
-    let tool_input = serde_json::to_string(&json!({
-        "command": command_str.clone(),
-        "argv": event.command.clone(),
-        "cwd": event.cwd.display().to_string(),
-        "source": event.source.to_string(),
-        "call_id": event.call_id.clone(),
-        "turn_id": event.turn_id.clone(),
-        "process_id": event.process_id.clone(),
-        "interaction_input": event.interaction_input.clone(),
-        "parsed_cmd": event.parsed_cmd.clone(),
-    }))
-    .ok();
 
     {
         let mut buffers = output_buffers.lock().await;
@@ -53,30 +53,39 @@ pub(crate) async fn handle_exec_command_begin(
             tracker.branch = new_branch.clone();
             tracker.sha = new_sha.clone();
             connector_events.push(ConnectorEvent::EnvironmentChanged {
-                cwd: Some(new_cwd),
+                cwd: Some(new_cwd.clone()),
                 git_branch: new_branch,
                 git_sha: new_sha,
             });
         }
     }
 
-    connector_events.push(ConnectorEvent::MessageCreated(
-        orbitdock_protocol::Message {
+    connector_events.push(ConnectorEvent::ConversationRowCreated(tool_row_entry(
+        ToolRow {
             id: event.call_id.clone(),
-            session_id: String::new(),
-            sequence: None,
-            message_type: orbitdock_protocol::MessageType::Tool,
-            content: command_str,
-            tool_name: Some("Bash".to_string()),
-            tool_input,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: true,
-            timestamp: iso_now(),
+            provider: Provider::Codex,
+            family: ToolFamily::Shell,
+            kind: ToolKind::Bash,
+            status: ToolStatus::Running,
+            title: command_str.clone(),
+            subtitle: Some(new_cwd),
+            summary: None,
+            preview: None,
+            started_at: Some(iso_now()),
+            ended_at: None,
             duration_ms: None,
-            images: vec![],
+            grouping_key: None,
+            invocation: ToolInvocationPayload::Shell(CommandExecutionPayload {
+                command: command_str,
+                cwd: Some(event.cwd.display().to_string()),
+                input: None,
+                output: None,
+                exit_code: None,
+            }),
+            result: None,
+            render_hints: Default::default(),
         },
-    ));
+    )));
 
     connector_events
 }
@@ -86,25 +95,46 @@ pub(crate) async fn handle_exec_command_output_delta(
     output_buffers: &SharedStringBuffers,
 ) -> Vec<ConnectorEvent> {
     let chunk_str = String::from_utf8_lossy(&event.chunk).to_string();
-    let mut accumulated = String::new();
-    {
+    let accumulated = {
         let mut buffers = output_buffers.lock().await;
         if let Some(buffer) = buffers.get_mut(&event.call_id) {
             buffer.push_str(&chunk_str);
-            accumulated = buffer.clone();
+            buffer.clone()
+        } else {
+            return vec![];
         }
-    }
+    };
 
     if accumulated.is_empty() {
         vec![]
     } else {
-        vec![ConnectorEvent::MessageUpdated {
-            message_id: event.call_id,
-            content: None,
-            tool_output: Some(accumulated),
-            is_error: None,
-            is_in_progress: Some(true),
+        let entry = tool_row_entry(ToolRow {
+            id: event.call_id.clone(),
+            provider: Provider::Codex,
+            family: ToolFamily::Shell,
+            kind: ToolKind::Bash,
+            status: ToolStatus::Running,
+            title: String::new(),
+            subtitle: None,
+            summary: None,
+            preview: None,
+            started_at: None,
+            ended_at: None,
             duration_ms: None,
+            grouping_key: None,
+            invocation: ToolInvocationPayload::Shell(CommandExecutionPayload {
+                command: String::new(),
+                cwd: None,
+                input: None,
+                output: Some(accumulated),
+                exit_code: None,
+            }),
+            result: None,
+            render_hints: Default::default(),
+        });
+        vec![ConnectorEvent::ConversationRowUpdated {
+            row_id: event.call_id,
+            entry,
         }]
     }
 }
@@ -126,13 +156,47 @@ pub(crate) async fn handle_exec_command_end(
         output
     };
 
-    vec![ConnectorEvent::MessageUpdated {
-        message_id: event.call_id,
-        content: None,
-        tool_output: Some(output_str),
-        is_error: Some(event.exit_code != 0),
-        is_in_progress: Some(false),
-        duration_ms: Some(event.duration.as_millis() as u64),
+    let is_error = event.exit_code != 0;
+    let duration_ms = Some(event.duration.as_millis() as u64);
+    let status = if is_error {
+        ToolStatus::Failed
+    } else {
+        ToolStatus::Completed
+    };
+
+    let entry = tool_row_entry(ToolRow {
+        id: event.call_id.clone(),
+        provider: Provider::Codex,
+        family: ToolFamily::Shell,
+        kind: ToolKind::Bash,
+        status,
+        title: String::new(),
+        subtitle: None,
+        summary: None,
+        preview: None,
+        started_at: None,
+        ended_at: Some(iso_now()),
+        duration_ms,
+        grouping_key: None,
+        invocation: ToolInvocationPayload::Shell(CommandExecutionPayload {
+            command: String::new(),
+            cwd: None,
+            input: None,
+            output: None,
+            exit_code: Some(event.exit_code),
+        }),
+        result: Some(ToolResultPayload::Shell(CommandExecutionPayload {
+            command: String::new(),
+            cwd: None,
+            input: None,
+            output: Some(output_str),
+            exit_code: Some(event.exit_code),
+        })),
+        render_hints: Default::default(),
+    });
+    vec![ConnectorEvent::ConversationRowUpdated {
+        row_id: event.call_id,
+        entry,
     }]
 }
 
@@ -143,7 +207,6 @@ pub(crate) fn handle_patch_apply_begin(event: PatchApplyBeginEvent) -> Vec<Conne
         .map(|path| path.display().to_string())
         .collect();
     let first_file = files.first().cloned().unwrap_or_default();
-    let content = files.join(", ");
 
     let unified_diff = event
         .changes
@@ -183,33 +246,32 @@ pub(crate) fn handle_patch_apply_begin(event: PatchApplyBeginEvent) -> Vec<Conne
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    let tool_input = serde_json::to_string(&json!({
-        "file_path": first_file,
-        "unified_diff": unified_diff,
-        "files": files,
-        "call_id": event.call_id,
-        "turn_id": event.turn_id,
-        "auto_approved": event.auto_approved,
-    }))
-    .unwrap_or_default();
-
-    vec![ConnectorEvent::MessageCreated(
-        orbitdock_protocol::Message {
+    vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
+        ToolRow {
             id: event.call_id.clone(),
-            session_id: String::new(),
-            sequence: None,
-            message_type: orbitdock_protocol::MessageType::Tool,
-            content,
-            tool_name: Some("Edit".to_string()),
-            tool_input: Some(tool_input),
-            tool_output: None,
-            is_error: false,
-            is_in_progress: true,
-            timestamp: iso_now(),
+            provider: Provider::Codex,
+            family: ToolFamily::FileChange,
+            kind: ToolKind::Edit,
+            status: ToolStatus::Running,
+            title: first_file.clone(),
+            subtitle: Some(files.join(", ")),
+            summary: None,
+            preview: None,
+            started_at: Some(iso_now()),
+            ended_at: None,
             duration_ms: None,
-            images: vec![],
+            grouping_key: None,
+            invocation: ToolInvocationPayload::FileChange(FileChangePayload {
+                path: Some(first_file),
+                diff: Some(unified_diff),
+                summary: None,
+                additions: None,
+                deletions: None,
+            }),
+            result: None,
+            render_hints: Default::default(),
         },
-    )]
+    ))]
 }
 
 pub(crate) fn handle_patch_apply_end(event: PatchApplyEndEvent) -> Vec<ConnectorEvent> {
@@ -232,13 +294,43 @@ pub(crate) fn handle_patch_apply_end(event: PatchApplyEndEvent) -> Vec<Connector
     }
     let output = output_lines.join("\n");
 
-    vec![ConnectorEvent::MessageUpdated {
-        message_id: event.call_id,
-        content: None,
-        tool_output: Some(output),
-        is_error: Some(!event.success),
-        is_in_progress: Some(false),
+    let status = if event.success {
+        ToolStatus::Completed
+    } else {
+        ToolStatus::Failed
+    };
+
+    let entry = tool_row_entry(ToolRow {
+        id: event.call_id.clone(),
+        provider: Provider::Codex,
+        family: ToolFamily::FileChange,
+        kind: ToolKind::Edit,
+        status,
+        title: String::new(),
+        subtitle: None,
+        summary: Some(output.clone()),
+        preview: None,
+        started_at: None,
+        ended_at: Some(iso_now()),
         duration_ms: None,
+        grouping_key: None,
+        invocation: ToolInvocationPayload::FileChange(FileChangePayload {
+            path: None,
+            diff: None,
+            summary: Some(output.clone()),
+            additions: None,
+            deletions: None,
+        }),
+        result: Some(ToolResultPayload::Generic(GenericResultPayload {
+            tool_name: "Edit".to_string(),
+            raw_output: Some(json!(output)),
+            summary: None,
+        })),
+        render_hints: Default::default(),
+    });
+    vec![ConnectorEvent::ConversationRowUpdated {
+        row_id: event.call_id,
+        entry,
     }]
 }
 
@@ -246,152 +338,242 @@ pub(crate) fn handle_mcp_tool_call_begin(event: McpToolCallBeginEvent) -> Vec<Co
     let server = event.invocation.server.clone();
     let tool = event.invocation.tool.clone();
     let call_id = event.call_id.clone();
-    let tool_name = format!("mcp__{}__{}", server, tool);
-    let input_str = tool_input_with_arguments(
-        json!({
-            "call_id": call_id.clone(),
-            "server": server,
-            "tool": tool,
-        }),
-        event.invocation.arguments.as_ref(),
-    );
 
-    vec![ConnectorEvent::MessageCreated(
-        orbitdock_protocol::Message {
+    vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
+        ToolRow {
             id: call_id,
-            session_id: String::new(),
-            sequence: None,
-            message_type: orbitdock_protocol::MessageType::Tool,
-            content: event.invocation.tool.clone(),
-            tool_name: Some(tool_name),
-            tool_input: input_str,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: true,
-            timestamp: iso_now(),
+            provider: Provider::Codex,
+            family: ToolFamily::Mcp,
+            kind: ToolKind::McpToolCall,
+            status: ToolStatus::Running,
+            title: tool.clone(),
+            subtitle: Some(server.clone()),
+            summary: None,
+            preview: None,
+            started_at: Some(iso_now()),
+            ended_at: None,
             duration_ms: None,
-            images: vec![],
+            grouping_key: None,
+            invocation: ToolInvocationPayload::McpTool(McpToolPayload {
+                server,
+                tool_name: tool,
+                input: event
+                    .invocation
+                    .arguments
+                    .as_ref()
+                    .and_then(|args| serde_json::to_value(args).ok()),
+                output: None,
+            }),
+            result: None,
+            render_hints: Default::default(),
         },
-    )]
+    ))]
 }
 
 pub(crate) fn handle_mcp_tool_call_end(event: McpToolCallEndEvent) -> Vec<ConnectorEvent> {
-    let (output, is_error) = match &event.result {
-        Ok(result) => (serde_json::to_string(result).unwrap_or_default(), false),
-        Err(message) => (message.clone(), true),
+    let (output_value, is_error) = match &event.result {
+        Ok(result) => (serde_json::to_value(result).ok(), false),
+        Err(message) => (Some(json!(message)), true),
     };
 
-    vec![ConnectorEvent::MessageUpdated {
-        message_id: event.call_id,
-        content: None,
-        tool_output: Some(output),
-        is_error: Some(is_error),
-        is_in_progress: Some(false),
+    let status = if is_error {
+        ToolStatus::Failed
+    } else {
+        ToolStatus::Completed
+    };
+
+    let entry = tool_row_entry(ToolRow {
+        id: event.call_id.clone(),
+        provider: Provider::Codex,
+        family: ToolFamily::Mcp,
+        kind: ToolKind::McpToolCall,
+        status,
+        title: String::new(),
+        subtitle: None,
+        summary: None,
+        preview: None,
+        started_at: None,
+        ended_at: Some(iso_now()),
         duration_ms: Some(event.duration.as_millis() as u64),
+        grouping_key: None,
+        invocation: ToolInvocationPayload::McpTool(McpToolPayload {
+            server: event.invocation.server.clone(),
+            tool_name: event.invocation.tool.clone(),
+            input: None,
+            output: output_value.clone(),
+        }),
+        result: Some(ToolResultPayload::McpTool(GenericResultPayload {
+            tool_name: event.invocation.tool.clone(),
+            raw_output: output_value,
+            summary: None,
+        })),
+        render_hints: Default::default(),
+    });
+    vec![ConnectorEvent::ConversationRowUpdated {
+        row_id: event.call_id,
+        entry,
     }]
 }
 
 pub(crate) fn handle_web_search_begin(event: WebSearchBeginEvent) -> Vec<ConnectorEvent> {
-    vec![ConnectorEvent::MessageCreated(
-        orbitdock_protocol::Message {
+    vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
+        ToolRow {
             id: event.call_id,
-            session_id: String::new(),
-            sequence: None,
-            message_type: orbitdock_protocol::MessageType::Tool,
-            content: "Searching the web".to_string(),
-            tool_name: Some("websearch".to_string()),
-            tool_input: None,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: true,
-            timestamp: iso_now(),
+            provider: Provider::Codex,
+            family: ToolFamily::Web,
+            kind: ToolKind::WebSearch,
+            status: ToolStatus::Running,
+            title: "Searching the web".to_string(),
+            subtitle: None,
+            summary: None,
+            preview: None,
+            started_at: Some(iso_now()),
+            ended_at: None,
             duration_ms: None,
-            images: vec![],
+            grouping_key: None,
+            invocation: ToolInvocationPayload::WebSearch(WebSearchPayload {
+                query: String::new(),
+                results: vec![],
+            }),
+            result: None,
+            render_hints: Default::default(),
         },
-    )]
+    ))]
 }
 
 pub(crate) fn handle_web_search_end(event: WebSearchEndEvent) -> Vec<ConnectorEvent> {
     let output = serde_json::to_string_pretty(&event.action)
         .or_else(|_| serde_json::to_string(&event.action))
         .unwrap_or_default();
-    vec![ConnectorEvent::MessageUpdated {
-        message_id: event.call_id,
-        content: Some(event.query),
-        tool_output: Some(output),
-        is_error: Some(false),
-        is_in_progress: Some(false),
+    let entry = tool_row_entry(ToolRow {
+        id: event.call_id.clone(),
+        provider: Provider::Codex,
+        family: ToolFamily::Web,
+        kind: ToolKind::WebSearch,
+        status: ToolStatus::Completed,
+        title: event.query.clone(),
+        subtitle: None,
+        summary: None,
+        preview: None,
+        started_at: None,
+        ended_at: Some(iso_now()),
         duration_ms: None,
+        grouping_key: None,
+        invocation: ToolInvocationPayload::WebSearch(WebSearchPayload {
+            query: event.query,
+            results: vec![],
+        }),
+        result: Some(ToolResultPayload::Generic(GenericResultPayload {
+            tool_name: "websearch".to_string(),
+            raw_output: Some(json!(output)),
+            summary: None,
+        })),
+        render_hints: Default::default(),
+    });
+    vec![ConnectorEvent::ConversationRowUpdated {
+        row_id: event.call_id,
+        entry,
     }]
 }
 
 pub(crate) fn handle_view_image_tool_call(event: ViewImageToolCallEvent) -> Vec<ConnectorEvent> {
     let path = event.path.to_string_lossy().to_string();
-    vec![ConnectorEvent::MessageCreated(
-        orbitdock_protocol::Message {
+    vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
+        ToolRow {
             id: event.call_id,
-            session_id: String::new(),
-            sequence: None,
-            message_type: orbitdock_protocol::MessageType::Tool,
-            content: path.clone(),
-            tool_name: Some("view_image".to_string()),
-            tool_input: serde_json::to_string(&json!({ "path": path })).ok(),
-            tool_output: Some("Image loaded".to_string()),
-            is_error: false,
-            is_in_progress: false,
-            timestamp: iso_now(),
+            provider: Provider::Codex,
+            family: ToolFamily::Image,
+            kind: ToolKind::ViewImage,
+            status: ToolStatus::Completed,
+            title: path.clone(),
+            subtitle: None,
+            summary: Some("Image loaded".to_string()),
+            preview: None,
+            started_at: Some(iso_now()),
+            ended_at: Some(iso_now()),
             duration_ms: None,
-            images: vec![orbitdock_protocol::ImageInput {
-                input_type: "path".to_string(),
-                value: event.path.to_string_lossy().to_string(),
-                ..Default::default()
-            }],
+            grouping_key: None,
+            invocation: ToolInvocationPayload::ImageView(ImageViewPayload {
+                image_paths: vec![path],
+                caption: None,
+            }),
+            result: Some(ToolResultPayload::ImageView(ImageViewPayload {
+                image_paths: vec![event.path.to_string_lossy().to_string()],
+                caption: Some("Image loaded".to_string()),
+            })),
+            render_hints: Default::default(),
         },
-    )]
+    ))]
 }
 
 pub(crate) fn handle_dynamic_tool_call_request(
     event: DynamicToolCallRequest,
 ) -> Vec<ConnectorEvent> {
     let call_id = event.call_id.clone();
-    let turn_id = event.turn_id.clone();
     let tool = event.tool.clone();
-    vec![ConnectorEvent::MessageCreated(
-        orbitdock_protocol::Message {
-            id: call_id.clone(),
-            session_id: String::new(),
-            sequence: None,
-            message_type: orbitdock_protocol::MessageType::Tool,
-            content: tool.clone(),
-            tool_name: Some(tool),
-            tool_input: tool_input_with_arguments(
-                json!({
-                    "call_id": call_id,
-                    "turn_id": turn_id,
-                }),
-                Some(&event.arguments),
-            ),
-            tool_output: None,
-            is_error: false,
-            is_in_progress: true,
-            timestamp: iso_now(),
+    vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
+        ToolRow {
+            id: call_id,
+            provider: Provider::Codex,
+            family: ToolFamily::Generic,
+            kind: ToolKind::DynamicToolCall,
+            status: ToolStatus::Running,
+            title: tool.clone(),
+            subtitle: None,
+            summary: None,
+            preview: None,
+            started_at: Some(iso_now()),
+            ended_at: None,
             duration_ms: None,
-            images: vec![],
+            grouping_key: None,
+            invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
+                tool_name: tool,
+                raw_input: Some(event.arguments),
+            }),
+            result: None,
+            render_hints: Default::default(),
         },
-    )]
+    ))]
 }
 
 pub(crate) fn handle_dynamic_tool_call_response(
     event: DynamicToolCallResponseEvent,
 ) -> Vec<ConnectorEvent> {
     let output = dynamic_tool_output_to_text(&event.content_items, event.error);
-    vec![ConnectorEvent::MessageUpdated {
-        message_id: event.call_id,
-        content: None,
-        tool_output: output,
-        is_error: Some(!event.success),
-        is_in_progress: Some(false),
+    let status = if event.success {
+        ToolStatus::Completed
+    } else {
+        ToolStatus::Failed
+    };
+
+    let entry = tool_row_entry(ToolRow {
+        id: event.call_id.clone(),
+        provider: Provider::Codex,
+        family: ToolFamily::Generic,
+        kind: ToolKind::DynamicToolCall,
+        status,
+        title: String::new(),
+        subtitle: None,
+        summary: output.clone(),
+        preview: None,
+        started_at: None,
+        ended_at: Some(iso_now()),
         duration_ms: Some(event.duration.as_millis() as u64),
+        grouping_key: None,
+        invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
+            tool_name: String::new(),
+            raw_input: None,
+        }),
+        result: Some(ToolResultPayload::Generic(GenericResultPayload {
+            tool_name: String::new(),
+            raw_output: output.as_ref().map(|o| json!(o)),
+            summary: output,
+        })),
+        render_hints: Default::default(),
+    });
+    vec![ConnectorEvent::ConversationRowUpdated {
+        row_id: event.call_id,
+        entry,
     }]
 }
 
@@ -407,12 +589,32 @@ pub(crate) async fn handle_terminal_interaction(
         entry.clone()
     };
 
-    vec![ConnectorEvent::MessageUpdated {
-        message_id: event.call_id,
-        content: None,
-        tool_output: Some(next_output),
-        is_error: None,
-        is_in_progress: Some(true),
+    let entry = tool_row_entry(ToolRow {
+        id: event.call_id.clone(),
+        provider: Provider::Codex,
+        family: ToolFamily::Shell,
+        kind: ToolKind::Bash,
+        status: ToolStatus::Running,
+        title: String::new(),
+        subtitle: None,
+        summary: None,
+        preview: None,
+        started_at: None,
+        ended_at: None,
         duration_ms: None,
+        grouping_key: None,
+        invocation: ToolInvocationPayload::Shell(CommandExecutionPayload {
+            command: String::new(),
+            cwd: None,
+            input: Some(event.stdin),
+            output: Some(next_output),
+            exit_code: None,
+        }),
+        result: None,
+        render_hints: Default::default(),
+    });
+    vec![ConnectorEvent::ConversationRowUpdated {
+        row_id: event.call_id,
+        entry,
     }]
 }

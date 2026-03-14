@@ -12,11 +12,13 @@ struct ExpandedToolCardLayoutPlan: Equatable {
   let cardWidth: CGFloat
   let headerHeight: CGFloat
   let contentHeight: CGFloat
+  let visibleContentHeight: CGFloat
   let totalHeight: CGFloat
   let cardFrame: CGRect
   let accentFrame: CGRect
   let headerDividerFrame: CGRect?
   let contentBackgroundFrame: CGRect?
+  let contentScrollFrame: CGRect
   let iconFrame: CGRect
   let contentContainerFrame: CGRect
   let header: ExpandedToolHeaderLayoutPlan
@@ -46,6 +48,7 @@ enum ExpandedToolCellPlanning {
     let cardWidth = width - inset * 2
     let headerHeight = ExpandedToolLayout.headerHeight(for: model, cardWidth: cardWidth)
     let contentHeight = ExpandedToolLayout.contentHeight(for: model, cardWidth: cardWidth)
+    let visibleContentHeight = ExpandedToolLayout.visibleContentHeight(for: contentHeight)
     let totalHeight = ExpandedToolLayout.requiredHeight(for: width, model: model)
 
     let dividerX = ExpandedToolLayout.accentBarWidth
@@ -117,14 +120,16 @@ enum ExpandedToolCellPlanning {
       cardWidth: cardWidth,
       headerHeight: headerHeight,
       contentHeight: contentHeight,
+      visibleContentHeight: visibleContentHeight,
       totalHeight: totalHeight,
       cardFrame: CGRect(x: inset, y: 0, width: cardWidth, height: totalHeight),
       accentFrame: CGRect(x: 0, y: 0, width: ExpandedToolLayout.accentBarWidth, height: totalHeight),
-      headerDividerFrame: contentHeight > 0 ? CGRect(x: dividerX, y: headerHeight, width: dividerWidth, height: 1) : nil,
-      contentBackgroundFrame: contentHeight > 0
-        ? CGRect(x: dividerX, y: headerHeight + 1, width: dividerWidth, height: contentHeight) : nil,
+      headerDividerFrame: visibleContentHeight > 0 ? CGRect(x: dividerX, y: headerHeight, width: dividerWidth, height: 1) : nil,
+      contentBackgroundFrame: visibleContentHeight > 0
+        ? CGRect(x: dividerX, y: headerHeight + 1, width: dividerWidth, height: visibleContentHeight) : nil,
+      contentScrollFrame: CGRect(x: dividerX, y: headerHeight + 1, width: dividerWidth, height: visibleContentHeight),
       iconFrame: iconFrame,
-      contentContainerFrame: CGRect(x: 0, y: headerHeight, width: cardWidth, height: contentHeight),
+      contentContainerFrame: CGRect(x: 0, y: 0, width: cardWidth, height: contentHeight),
       header: header,
       progressFrame: progressFrame,
       cancelFrame: cancelFrame,

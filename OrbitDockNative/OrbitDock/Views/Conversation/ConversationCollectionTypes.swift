@@ -24,110 +24,6 @@ nonisolated enum ApprovalCardMode: Hashable, Sendable {
   case none // No approval needed
 }
 
-// MARK: - Timeline Source + UI State
-
-nonisolated struct ConversationSourceState {
-  var messages: [TranscriptMessage]
-  var turns: [TurnSummary]
-  var metadata: SessionMetadata
-
-  nonisolated struct SessionMetadata: Hashable {
-    var chatViewMode: ChatViewMode
-    var isSessionActive: Bool
-    var workStatus: Session.WorkStatus
-    var currentTool: String?
-    var pendingToolName: String?
-    var pendingApprovalCommand: String?
-    var pendingPermissionDetail: String?
-    var currentPrompt: String?
-    var messageCount: Int
-    var remainingLoadCount: Int
-    var hasMoreMessages: Bool
-
-    // Approval card fields
-    var needsApprovalCard: Bool
-    var approvalMode: ApprovalCardMode
-    var pendingQuestion: String?
-    var pendingApprovalId: String?
-    var isDirectSession: Bool
-    var isDirectCodexSession: Bool
-    var supportsRichToolingCards: Bool
-    var sessionId: String?
-    var projectPath: String?
-
-    var shouldShowLiveIndicator: Bool {
-      isSessionActive && (workStatus == .permission || workStatus == .waiting)
-    }
-  }
-
-  init(
-    messages: [TranscriptMessage] = [],
-    turns: [TurnSummary] = [],
-    metadata: SessionMetadata = .init(
-      chatViewMode: .focused,
-      isSessionActive: false,
-      workStatus: .unknown,
-      currentTool: nil,
-      pendingToolName: nil,
-      pendingApprovalCommand: nil,
-      pendingPermissionDetail: nil,
-      currentPrompt: nil,
-      messageCount: 0,
-      remainingLoadCount: 0,
-      hasMoreMessages: false,
-      needsApprovalCard: false,
-      approvalMode: .none,
-      pendingQuestion: nil,
-      pendingApprovalId: nil,
-      isDirectSession: false,
-      isDirectCodexSession: false,
-      supportsRichToolingCards: false,
-      sessionId: nil,
-      projectPath: nil
-    )
-  ) {
-    self.messages = messages
-    self.turns = turns
-    self.metadata = metadata
-  }
-}
-
-nonisolated struct ConversationUIState: Hashable, Sendable {
-  var expandedToolCards: Set<String>
-  var expandedRollups: Set<String>
-  var expandedMarkdownBlocks: Set<String>
-  var isPinnedToBottom: Bool
-  var widthBucket: Int
-  var scrollAnchor: ScrollAnchor?
-  var focusModeEnabled: Bool
-  var expandedTurns: Set<String>
-
-  nonisolated struct ScrollAnchor: Hashable, Sendable {
-    var rowID: TimelineRowID
-    var deltaFromRowTop: Double
-  }
-
-  init(
-    expandedToolCards: Set<String> = [],
-    expandedRollups: Set<String> = [],
-    expandedMarkdownBlocks: Set<String> = [],
-    isPinnedToBottom: Bool = true,
-    widthBucket: Int = 1,
-    scrollAnchor: ScrollAnchor? = nil,
-    focusModeEnabled: Bool = false,
-    expandedTurns: Set<String> = []
-  ) {
-    self.expandedToolCards = expandedToolCards
-    self.expandedRollups = expandedRollups
-    self.expandedMarkdownBlocks = expandedMarkdownBlocks
-    self.isPinnedToBottom = isPinnedToBottom
-    self.widthBucket = widthBucket
-    self.scrollAnchor = scrollAnchor
-    self.focusModeEnabled = focusModeEnabled
-    self.expandedTurns = expandedTurns
-  }
-}
-
 // MARK: - Card Position
 
 /// Position of a row within a turn card — determines corner rounding.
@@ -138,8 +34,6 @@ nonisolated enum CardPosition: Hashable, Sendable {
   case bottom  // Bottom of card (bottom corners rounded)
   case solo    // Single-row card (all corners rounded)
 }
-
-// MARK: - Timeline Projection Types
 
 nonisolated struct TimelineRowID: Hashable, Sendable, RawRepresentable, ExpressibleByStringLiteral {
   let rawValue: String
@@ -153,7 +47,6 @@ nonisolated struct TimelineRowID: Hashable, Sendable, RawRepresentable, Expressi
   }
 
   static let loadMore: Self = "timeline:load-more"
-  static let messageCount: Self = "timeline:message-count"
   static let liveIndicator: Self = "timeline:live-indicator"
   static let approvalCard: Self = "timeline:approval-card"
   static let bottomSpacer: Self = "timeline:bottom-spacer"
@@ -165,10 +58,6 @@ nonisolated struct TimelineRowID: Hashable, Sendable, RawRepresentable, Expressi
     Self(rawValue: "timeline:message:\(messageID)")
   }
 
-  static func turnHeader(_ turnID: String) -> Self {
-    Self(rawValue: "timeline:turn-header:\(turnID)")
-  }
-
   static func tool(_ toolID: String) -> Self {
     Self(rawValue: "timeline:tool:\(toolID)")
   }
@@ -177,19 +66,10 @@ nonisolated struct TimelineRowID: Hashable, Sendable, RawRepresentable, Expressi
     Self(rawValue: "timeline:worker-event:\(messageID)")
   }
 
-  static func rollupSummary(_ rollupID: String) -> Self {
-    Self(rawValue: "timeline:rollup-summary:\(rollupID)")
+  static func activitySummary(_ anchorID: String) -> Self {
+    Self(rawValue: "timeline:activity:\(anchorID)")
   }
 
-  static func turnRollupKey(_ turnID: String) -> String {
-    "timeline:turn-rollup:\(turnID)"
-  }
-
-  static let liveProgress: Self = "timeline:live-progress"
-
-  static func collapsedTurn(_ turnID: String) -> Self {
-    Self(rawValue: "timeline:collapsed-turn:\(turnID)")
-  }
 }
 
 nonisolated struct ConversationJumpTarget: Equatable, Sendable {
@@ -199,53 +79,28 @@ nonisolated struct ConversationJumpTarget: Equatable, Sendable {
 
 nonisolated enum TimelineRowKind: Hashable, Sendable {
   case loadMore
-  case messageCount
-  case turnHeader
   case message
   case tool
   case workerEvent
-  case rollupSummary
+  case activitySummary
   case liveIndicator
   case approvalCard
   case workerOrchestration
   case bottomSpacer
-  case liveProgress
-  case collapsedTurn
-}
-
-/// Tool breakdown entry for rollup summary — groups tool usage by name.
-nonisolated struct ToolBreakdownEntry: Hashable, Sendable {
-  let name: String
-  let icon: String
-  let colorKey: String
-  let count: Int
 }
 
 nonisolated enum TimelineRowPayload: Hashable, Sendable {
   case none
   case message(id: String, showHeader: Bool)
-  case turnHeader(turnID: String, turnNumber: Int, timestamp: Date?)
   case tool(id: String)
   case workerEvent(id: String)
-  case rollupSummary(
-    id: String, hiddenCount: Int, totalToolCount: Int, isExpanded: Bool,
-    breakdown: [ToolBreakdownEntry],
-    hiddenMessageIDs: [String]
-  )
+  case activitySummary(anchorID: String, messageIDs: [String], isExpanded: Bool)
   case approvalCard(mode: ApprovalCardMode)
   case workerOrchestration(turnID: String, workerIDs: [String])
-  case liveProgress(
-    currentTool: String,
-    completedCount: Int,
-    elapsedTime: TimeInterval
-  )
-  case collapsedTurn(
-    turnID: String,
-    userPreview: String,
-    assistantPreview: String,
-    toolCount: Int,
-    totalDuration: TimeInterval?
-  )
+}
+
+nonisolated struct ConversationTimelineExpansionState: Hashable, Sendable {
+  var expandedActivityGroupIDs: Set<String> = []
 }
 
 nonisolated struct TimelineRow: Hashable, Sendable {
@@ -254,29 +109,4 @@ nonisolated struct TimelineRow: Hashable, Sendable {
   let payload: TimelineRowPayload
   let layoutHash: Int
   let renderHash: Int
-
-}
-
-// MARK: - Projection + Diff Contract
-
-nonisolated struct ProjectionResult: Hashable, Sendable {
-  var rows: [TimelineRow]
-  var diff: ProjectionDiff
-  var dirtyRowIDs: Set<TimelineRowID>
-
-  static let empty = ProjectionResult(rows: [], diff: .empty, dirtyRowIDs: [])
-}
-
-nonisolated struct ProjectionDiff: Hashable, Sendable {
-  var insertions: [Int]
-  var deletions: [Int]
-  var moves: [ProjectionMove]
-  var reloads: [Int]
-
-  static let empty = ProjectionDiff(insertions: [], deletions: [], moves: [], reloads: [])
-}
-
-nonisolated struct ProjectionMove: Hashable, Sendable {
-  let from: Int
-  let to: Int
 }

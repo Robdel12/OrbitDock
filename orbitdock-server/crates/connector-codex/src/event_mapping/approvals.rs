@@ -1,3 +1,4 @@
+use crate::runtime::row_entry;
 use crate::workers::iso_now;
 use codex_protocol::approvals::ElicitationRequestEvent;
 use codex_protocol::protocol::{
@@ -5,8 +6,18 @@ use codex_protocol::protocol::{
 };
 use codex_protocol::request_permissions::RequestPermissionsEvent;
 use orbitdock_connector_core::{ApprovalType, ConnectorEvent};
+use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry, ToolRow};
+use orbitdock_protocol::domain_events::{
+    GenericInvocationPayload, QuestionToolPayload, ToolFamily, ToolInvocationPayload, ToolKind,
+    ToolStatus,
+};
+use orbitdock_protocol::Provider;
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
+    row_entry(ConversationRow::Tool(row))
+}
 
 pub(crate) fn handle_exec_approval_request(event: ExecApprovalRequestEvent) -> Vec<ConnectorEvent> {
     let command = event.command.join(" ");
@@ -102,31 +113,43 @@ pub(crate) fn handle_request_user_input(
     event: RequestUserInputEvent,
     msg_counter: &AtomicU64,
 ) -> Vec<ConnectorEvent> {
-    let question_text = event.questions.first().map(|question| question.question.clone());
+    let question_text = event
+        .questions
+        .first()
+        .map(|question| question.question.clone());
     let tool_input = serde_json::to_string(&json!({
         "questions": event.questions,
     }))
     .ok();
     let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-    let message = orbitdock_protocol::Message {
+
+    let row = ToolRow {
         id: format!("ask-user-question-{}-{}", event_id, seq),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Tool,
-        content: question_text
+        provider: Provider::Codex,
+        family: ToolFamily::Question,
+        kind: ToolKind::AskUserQuestion,
+        status: ToolStatus::Completed,
+        title: question_text
             .clone()
             .unwrap_or_else(|| "Question requested".to_string()),
-        tool_name: Some("askuserquestion".to_string()),
-        tool_input: tool_input.clone(),
-        tool_output: None,
-        is_error: false,
-        is_in_progress: false,
-        timestamp: iso_now(),
+        subtitle: None,
+        summary: None,
+        preview: None,
+        started_at: Some(iso_now()),
+        ended_at: Some(iso_now()),
         duration_ms: None,
-        images: vec![],
+        grouping_key: None,
+        invocation: ToolInvocationPayload::Question(QuestionToolPayload {
+            question_id: None,
+            prompt: question_text.clone(),
+            response: None,
+        }),
+        result: None,
+        render_hints: Default::default(),
     };
+
     vec![
-        ConnectorEvent::MessageCreated(message),
+        ConnectorEvent::ConversationRowCreated(tool_row_entry(row)),
         ConnectorEvent::ApprovalRequested {
             request_id: event_id.to_string(),
             approval_type: ApprovalType::Question,
@@ -179,25 +202,33 @@ pub(crate) fn handle_elicitation_request(
     };
     let tool_input = serde_json::to_string(&event).ok();
     let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-    let message = orbitdock_protocol::Message {
+
+    let row = ToolRow {
         id: format!("mcp-approval-{}-{}", event_id, seq),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Tool,
-        content: question_text
+        provider: Provider::Codex,
+        family: ToolFamily::Mcp,
+        kind: ToolKind::McpToolCall,
+        status: ToolStatus::Completed,
+        title: question_text
             .clone()
             .unwrap_or_else(|| "MCP approval requested".to_string()),
-        tool_name: Some("mcp_approval".to_string()),
-        tool_input: tool_input.clone(),
-        tool_output: None,
-        is_error: false,
-        is_in_progress: false,
-        timestamp: iso_now(),
+        subtitle: Some(event.server_name.clone()),
+        summary: None,
+        preview: None,
+        started_at: Some(iso_now()),
+        ended_at: Some(iso_now()),
         duration_ms: None,
-        images: vec![],
+        grouping_key: None,
+        invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
+            tool_name: "mcp_approval".to_string(),
+            raw_input: serde_json::to_value(&event).ok(),
+        }),
+        result: None,
+        render_hints: Default::default(),
     };
+
     vec![
-        ConnectorEvent::MessageCreated(message),
+        ConnectorEvent::ConversationRowCreated(tool_row_entry(row)),
         ConnectorEvent::ApprovalRequested {
             request_id: format!(
                 "elicitation-{}-{}",

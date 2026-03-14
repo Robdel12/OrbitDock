@@ -1,4 +1,4 @@
-use crate::runtime::{EnvironmentTracker, ReasoningEventTracker};
+use crate::runtime::{thinking_row_entry, EnvironmentTracker, ReasoningEventTracker};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{SessionConfiguredEvent, TurnAbortedEvent};
 use orbitdock_connector_core::ConnectorEvent;
@@ -24,26 +24,23 @@ pub(crate) async fn handle_turn_complete(
     delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
 ) -> Vec<ConnectorEvent> {
-    let pending_delta_ids = {
+    let pending_deltas = {
         let mut buffers = delta_buffers.lock().await;
-        let ids = buffers.keys().cloned().collect::<Vec<_>>();
+        let deltas: Vec<(String, String)> = buffers
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         buffers.clear();
-        ids
+        deltas
     };
     {
         let mut tracker = reasoning_tracker.lock().await;
         tracker.reset_for_turn();
     }
     let mut events = vec![ConnectorEvent::TurnCompleted];
-    for message_id in pending_delta_ids {
-        events.push(ConnectorEvent::MessageUpdated {
-            message_id,
-            content: None,
-            tool_output: None,
-            is_error: None,
-            is_in_progress: Some(false),
-            duration_ms: None,
-        });
+    for (row_id, content) in pending_deltas {
+        let entry = thinking_row_entry(row_id.clone(), content);
+        events.push(ConnectorEvent::ConversationRowUpdated { row_id, entry });
     }
     events
 }
@@ -53,11 +50,14 @@ pub(crate) async fn handle_turn_aborted(
     delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
 ) -> Vec<ConnectorEvent> {
-    let pending_delta_ids = {
+    let pending_deltas = {
         let mut buffers = delta_buffers.lock().await;
-        let ids = buffers.keys().cloned().collect::<Vec<_>>();
+        let deltas: Vec<(String, String)> = buffers
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         buffers.clear();
-        ids
+        deltas
     };
     {
         let mut tracker = reasoning_tracker.lock().await;
@@ -66,15 +66,9 @@ pub(crate) async fn handle_turn_aborted(
     let mut events = vec![ConnectorEvent::TurnAborted {
         reason: format!("{:?}", event.reason),
     }];
-    for message_id in pending_delta_ids {
-        events.push(ConnectorEvent::MessageUpdated {
-            message_id,
-            content: None,
-            tool_output: None,
-            is_error: None,
-            is_in_progress: Some(false),
-            duration_ms: None,
-        });
+    for (row_id, content) in pending_deltas {
+        let entry = thinking_row_entry(row_id.clone(), content);
+        events.push(ConnectorEvent::ConversationRowUpdated { row_id, entry });
     }
     events
 }

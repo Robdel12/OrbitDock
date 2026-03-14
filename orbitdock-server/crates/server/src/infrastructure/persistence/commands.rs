@@ -1,8 +1,9 @@
 use serde_json::Value;
 
+use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
-    ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Message, Provider, SessionStatus,
-    SubagentInfo, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Provider, SessionStatus, SubagentInfo,
+    TokenUsage, TokenUsageSnapshotKind, WorkStatus,
 };
 
 /// Commands that can be persisted.
@@ -38,21 +39,16 @@ pub enum PersistCommand {
     /// End a session
     SessionEnd { id: String, reason: String },
 
-    /// Append a message
-    MessageAppend {
+    /// Append a conversation row
+    RowAppend {
         session_id: String,
-        message: Message,
+        entry: ConversationRowEntry,
     },
 
-    /// Update a message (tool output, completion, etc.)
-    MessageUpdate {
+    /// Upsert a conversation row (update existing or insert new)
+    RowUpsert {
         session_id: String,
-        message_id: String,
-        content: Option<String>,
-        tool_output: Option<String>,
-        duration_ms: Option<u64>,
-        is_error: Option<bool>,
-        is_in_progress: Option<bool>,
+        entry: ConversationRowEntry,
     },
 
     /// Update token usage
@@ -123,6 +119,8 @@ pub enum PersistCommand {
         personality: Option<String>,
         service_tier: Option<String>,
         developer_instructions: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
     },
 
     /// Mark messages as read up to a given sequence number
@@ -216,6 +214,12 @@ pub enum PersistCommand {
         info: SubagentInfo,
     },
 
+    /// Upsert multiple provider-reported subagent/worker rows in one persistence pass
+    UpsertSubagents {
+        session_id: String,
+        infos: Vec<SubagentInfo>,
+    },
+
     /// Upsert a passive rollout-backed Codex session
     RolloutSessionUpsert {
         id: String,
@@ -260,6 +264,19 @@ pub enum PersistCommand {
 
     /// Increment rollout tool counter
     RolloutToolIncrement { id: String },
+
+    /// Upsert a rollout checkpoint for an active/passive Codex JSONL file cursor
+    UpsertRolloutCheckpoint {
+        path: String,
+        offset: u64,
+        session_id: Option<String>,
+        project_path: Option<String>,
+        model_provider: Option<String>,
+        ignore_existing: bool,
+    },
+
+    /// Delete a rollout checkpoint when a tracked file should be pruned
+    DeleteRolloutCheckpoint { path: String },
 
     /// Persist an approval request event
     ApprovalRequested {

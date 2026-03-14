@@ -1,6 +1,7 @@
 import Testing
 @testable import OrbitDock
 
+@MainActor
 struct SettingsGeneralPlanningTests {
   @Test func configuredNamingPresentationShowsEncryptedStoredKey() {
     let presentation = SettingsGeneralPlanning.openAiNamingPresentation(

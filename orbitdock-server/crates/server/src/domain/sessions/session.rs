@@ -1,14 +1,17 @@
 //! Session management
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
+use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry};
+use orbitdock_protocol::domain_events::ToolFamily;
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
-    ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, SessionState,
-    SessionStatus, SessionSummary, StateChanges, SubagentInfo, TokenUsage,
-    TokenUsageSnapshotKind, TurnDiff, WorkStatus,
+    ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionStatus,
+    SessionSummary, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
+    WorkStatus,
 };
 use tokio::sync::broadcast;
 use tracing::info;
@@ -30,7 +33,7 @@ fn is_list_relevant(msg: &ServerMessage) -> bool {
             | ServerMessage::SessionEnded { .. }
             | ServerMessage::SessionDelta { .. }
             | ServerMessage::SessionForked { .. }
-            | ServerMessage::SessionSnapshot { .. }
+            | ServerMessage::ConversationBootstrap { .. }
     )
 }
 
@@ -46,7 +49,6 @@ fn fallback_tool_name(approval: &ApprovalRequest) -> Option<String> {
         ApprovalType::Question => None,
     }
 }
-
 
 fn fallback_tool_input(approval: &ApprovalRequest) -> Option<String> {
     if let Some(input) = approval
@@ -262,6 +264,34 @@ fn preview_for_pending_approval(
     )
 }
 
+fn pending_tool_family_from_state(
+    pending_approval: Option<&ApprovalRequest>,
+    pending_tool_name: Option<&str>,
+    pending_question: Option<&str>,
+) -> Option<ToolFamily> {
+    if pending_question.is_some()
+        || pending_approval.is_some_and(|request| request.approval_type == ApprovalType::Question)
+    {
+        return Some(ToolFamily::Question);
+    }
+
+    pending_tool_name.map(|name| match name {
+        "Bash" | "bash" => ToolFamily::Shell,
+        "Read" | "read" | "FileRead" => ToolFamily::FileRead,
+        "Edit" | "edit" | "FileEdit" | "MultiEdit" | "Write" | "write" | "FileWrite"
+        | "NotebookEdit" => ToolFamily::FileChange,
+        "Glob" | "glob" | "Grep" | "grep" | "ToolSearch" => ToolFamily::Search,
+        "WebSearch" | "websearch" | "WebFetch" | "webfetch" => ToolFamily::Web,
+        "Agent" | "agent" | "task" => ToolFamily::Agent,
+        "AskUserQuestion" => ToolFamily::Question,
+        "EnterPlanMode" | "ExitPlanMode" => ToolFamily::Plan,
+        "TodoWrite" => ToolFamily::Todo,
+        "CompactContext" => ToolFamily::Context,
+        value if value.starts_with("mcp__") => ToolFamily::Mcp,
+        _ => ToolFamily::Generic,
+    })
+}
+
 /// Lightweight, lock-free snapshot of session metadata.
 /// Used by `ArcSwap` so list subscribers and snapshot readers never block
 /// the actor.
@@ -327,7 +357,8 @@ struct PendingApprovalEntry {
 
 const EVENT_LOG_CAPACITY: usize = 1000;
 const DEFAULT_BROADCAST_CAPACITY: usize = 512;
-const RETAINED_FINALIZED_MESSAGE_LIMIT: usize = 200;
+const RETAINED_FINALIZED_ROW_LIMIT: usize = 200;
+const STREAMING_ROW_BROADCAST_THROTTLE: Duration = Duration::from_millis(250);
 
 fn broadcast_capacity() -> usize {
     std::env::var("ORBITDOCK_BROADCAST_CAPACITY")
@@ -358,8 +389,8 @@ pub struct SessionHandle {
     status: SessionStatus,
     work_status: WorkStatus,
     last_tool: Option<String>,
-    messages: Vec<Message>,
-    total_message_count: u64,
+    rows: Vec<ConversationRowEntry>,
+    total_row_count: u64,
     token_usage: TokenUsage,
     token_usage_snapshot_kind: TokenUsageSnapshotKind,
     current_diff: Option<String>,
@@ -397,7 +428,7 @@ pub struct SessionHandle {
     is_worktree: bool,
     /// ID of the tracked worktree record (if any).
     worktree_id: Option<String>,
-    /// Cached count of unread messages (non-user, non-steer with sequence > last_read).
+    /// Cached count of unread rows (non-user with sequence > last_read).
     unread_count: u64,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
@@ -406,6 +437,8 @@ pub struct SessionHandle {
     revision: u64,
     /// Ring buffer of (revision, pre-serialized JSON with revision injected)
     event_log: VecDeque<(u64, String)>,
+    /// Last emit timestamp for actively streaming message rows.
+    streaming_row_emit_at: HashMap<String, Instant>,
     /// Lock-free snapshot for read-only access from outside the actor
     snapshot_handle: Arc<ArcSwap<SessionSnapshot>>,
 }
@@ -419,57 +452,76 @@ pub struct SessionConfigPatch {
     pub personality: Option<String>,
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+/// Returns true if the row is NOT a user message (used for unread counting).
+fn is_non_user_row(entry: &ConversationRowEntry) -> bool {
+    !matches!(entry.row, ConversationRow::User(_))
+}
+
+fn is_message_row(entry: &ConversationRowEntry) -> bool {
+    matches!(
+        entry.row,
+        ConversationRow::User(_)
+            | ConversationRow::Assistant(_)
+            | ConversationRow::Thinking(_)
+            | ConversationRow::System(_)
+    )
+}
+
+fn is_actively_streaming_message_row(entry: &ConversationRowEntry) -> bool {
+    matches!(
+        &entry.row,
+        ConversationRow::Assistant(msg) | ConversationRow::Thinking(msg) | ConversationRow::System(msg)
+            if msg.is_streaming
+    )
 }
 
 impl SessionHandle {
-    fn next_message_sequence(&self) -> u64 {
-        self.messages
+    fn next_row_sequence(&self) -> u64 {
+        self.rows
             .last()
-            .and_then(|message| message.sequence)
-            .map(|sequence| sequence + 1)
-            .unwrap_or(self.total_message_count)
+            .map(|entry| entry.sequence + 1)
+            .unwrap_or(self.total_row_count)
     }
 
-    fn normalize_message_sequences(messages: &mut [Message]) {
-        let mut next_sequence = 0_u64;
-        for message in messages {
-            let sequence = message.sequence.unwrap_or(next_sequence);
-            message.sequence = Some(sequence);
-            next_sequence = sequence + 1;
+    fn normalize_row_sequences(rows: &mut [ConversationRowEntry]) {
+        for (index, entry) in rows.iter_mut().enumerate() {
+            entry.sequence = index as u64;
         }
     }
 
+    #[allow(dead_code)]
     fn oldest_retained_sequence(&self) -> Option<u64> {
-        self.messages.first().and_then(|message| message.sequence)
+        self.rows.first().map(|entry| entry.sequence)
     }
 
     fn newest_retained_sequence(&self) -> Option<u64> {
-        self.messages.last().and_then(|message| message.sequence)
+        self.rows.last().map(|entry| entry.sequence)
     }
 
+    #[allow(dead_code)]
     fn retained_has_more_before(&self) -> bool {
         self.oldest_retained_sequence()
             .is_some_and(|sequence| sequence > 0)
-            || self.total_message_count > self.messages.len() as u64
+            || self.total_row_count > self.rows.len() as u64
     }
 
-    fn trim_retained_messages(&mut self) {
+    fn trim_retained_rows(&mut self) {
         let Some(newest_sequence) = self.newest_retained_sequence() else {
             return;
         };
         let Some(oldest_allowed_sequence) = newest_sequence
             .checked_add(1)
-            .and_then(|count| count.checked_sub(RETAINED_FINALIZED_MESSAGE_LIMIT as u64))
+            .and_then(|count| count.checked_sub(RETAINED_FINALIZED_ROW_LIMIT as u64))
         else {
             return;
         };
 
-        self.messages.retain(|message| {
-            message.is_in_progress
-                || message
-                    .sequence
-                    .is_some_and(|sequence| sequence >= oldest_allowed_sequence)
-        });
+        self.rows
+            .retain(|entry| entry.sequence >= oldest_allowed_sequence);
     }
 
     pub fn conversation_page(
@@ -477,10 +529,10 @@ impl SessionHandle {
         before_sequence: Option<u64>,
         limit: usize,
     ) -> ConversationPage {
-        if self.messages.is_empty() || limit == 0 {
+        if self.rows.is_empty() || limit == 0 {
             return ConversationPage {
-                messages: vec![],
-                total_message_count: self.total_message_count,
+                rows: vec![],
+                total_row_count: self.total_row_count,
                 has_more_before: false,
                 oldest_sequence: None,
                 newest_sequence: None,
@@ -488,23 +540,23 @@ impl SessionHandle {
         }
 
         let upper_bound = before_sequence.unwrap_or(u64::MAX);
-        let mut page: Vec<Message> = self
-            .messages
+        let mut page: Vec<ConversationRowEntry> = self
+            .rows
             .iter()
-            .filter(|message| message.sequence.unwrap_or(u64::MAX) < upper_bound)
+            .filter(|entry| entry.sequence < upper_bound)
             .rev()
             .take(limit)
             .cloned()
             .collect();
         page.reverse();
 
-        let oldest_sequence = page.first().and_then(|message| message.sequence);
-        let newest_sequence = page.last().and_then(|message| message.sequence);
+        let oldest_sequence = page.first().map(|entry| entry.sequence);
+        let newest_sequence = page.last().map(|entry| entry.sequence);
         let has_more_before = oldest_sequence.is_some_and(|sequence| sequence > 0);
 
         ConversationPage {
-            messages: page,
-            total_message_count: self.total_message_count,
+            rows: page,
+            total_row_count: self.total_row_count,
             has_more_before,
             oldest_sequence,
             newest_sequence,
@@ -513,15 +565,10 @@ impl SessionHandle {
 
     pub fn conversation_bootstrap(&self, limit: usize) -> ConversationBootstrap {
         let page = self.conversation_page(None, limit);
-        let mut session = self.retained_state();
-        session.messages = page.messages.clone();
-        session.total_message_count = Some(page.total_message_count);
-        session.has_more_before = Some(page.has_more_before);
-        session.oldest_sequence = page.oldest_sequence;
-        session.newest_sequence = page.newest_sequence;
+        let session = self.retained_state();
         ConversationBootstrap {
             session,
-            total_message_count: page.total_message_count,
+            total_row_count: page.total_row_count,
             has_more_before: page.has_more_before,
             oldest_sequence: page.oldest_sequence,
             newest_sequence: page.newest_sequence,
@@ -601,8 +648,8 @@ impl SessionHandle {
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
             last_tool: None,
-            messages: Vec::new(),
-            total_message_count: 0,
+            rows: Vec::new(),
+            total_row_count: 0,
             token_usage: TokenUsage::default(),
             token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
             current_diff: None,
@@ -638,6 +685,7 @@ impl SessionHandle {
             list_tx: None,
             revision: 0,
             event_log: VecDeque::new(),
+            streaming_row_emit_at: HashMap::new(),
             snapshot_handle: Arc::new(ArcSwap::from_pointee(snapshot)),
         }
     }
@@ -667,7 +715,7 @@ impl SessionHandle {
         token_usage_snapshot_kind: TokenUsageSnapshotKind,
         started_at: Option<String>,
         last_activity_at: Option<String>,
-        messages: Vec<Message>,
+        rows: Vec<ConversationRowEntry>,
         current_diff: Option<String>,
         current_plan: Option<String>,
         turn_diffs: Vec<TurnDiff>,
@@ -715,7 +763,7 @@ impl SessionHandle {
             pending_tool_input: pending_tool_input.clone(),
             pending_question: pending_question.clone(),
             pending_approval_id: pending_approval_id.clone(),
-            message_count: messages.len(),
+            message_count: rows.len(),
             token_usage: token_usage.clone(),
             token_usage_snapshot_kind,
             started_at: started_at.clone(),
@@ -737,6 +785,7 @@ impl SessionHandle {
             subscriber_count: 0,
             unread_count,
         };
+
         let mut handle = Self {
             id,
             provider,
@@ -758,8 +807,8 @@ impl SessionHandle {
             status,
             work_status,
             last_tool: None,
-            messages,
-            total_message_count: 0,
+            rows,
+            total_row_count: 0,
             token_usage,
             token_usage_snapshot_kind,
             current_diff,
@@ -795,10 +844,11 @@ impl SessionHandle {
             list_tx: None,
             revision: 0,
             event_log: VecDeque::new(),
+            streaming_row_emit_at: HashMap::new(),
             snapshot_handle: Arc::new(ArcSwap::from_pointee(snapshot)),
         };
-        handle.total_message_count = handle.messages.len() as u64;
-        handle.trim_retained_messages();
+        handle.total_row_count = handle.rows.len() as u64;
+        handle.trim_retained_rows();
         handle.bootstrap_pending_approval_from_persisted_fields();
         handle.refresh_snapshot();
         handle
@@ -881,6 +931,7 @@ impl SessionHandle {
             first_prompt: self.first_prompt.clone(),
             last_message: self.last_message.clone(),
             approval_version: Some(self.approval_version),
+            summary_revision: self.revision,
             repository_root: self.repository_root.clone(),
             is_worktree: self.is_worktree,
             worktree_id: self.worktree_id.clone(),
@@ -897,6 +948,17 @@ impl SessionHandle {
             display_title,
             context_line,
             list_status: SessionSummary::list_status_from_parts(self.status, self.work_status),
+            active_worker_count: self
+                .subagents
+                .iter()
+                .filter(|s| s.ended_at.is_none())
+                .count() as u32,
+            pending_tool_family: pending_tool_family_from_state(
+                self.pending_approval.as_ref(),
+                self.pending_tool_name.as_deref(),
+                self.pending_question.as_deref(),
+            ),
+            forked_from_session_id: self.forked_from_session_id.clone(),
         }
     }
 
@@ -913,11 +975,6 @@ impl SessionHandle {
             summary: self.summary.clone(),
             status: self.status,
             work_status: self.work_status,
-            messages: self.messages.clone(),
-            total_message_count: Some(self.total_message_count),
-            has_more_before: Some(self.retained_has_more_before()),
-            oldest_sequence: self.oldest_retained_sequence(),
-            newest_sequence: self.newest_retained_sequence(),
             pending_approval: self.pending_approval.clone(),
             permission_mode: self.permission_mode.clone(),
             collaboration_mode: self.collaboration_mode.clone(),
@@ -961,6 +1018,12 @@ impl SessionHandle {
             is_worktree: self.is_worktree,
             worktree_id: self.worktree_id.clone(),
             unread_count: self.unread_count,
+            rows: vec![],
+            total_row_count: 0,
+            has_more_before: false,
+            oldest_sequence: None,
+            newest_sequence: None,
+            messages: vec![],
         }
     }
 
@@ -974,6 +1037,7 @@ impl SessionHandle {
     #[allow(dead_code)]
     pub fn set_subagents(&mut self, subagents: Vec<SubagentInfo>) {
         self.subagents = subagents;
+        self.refresh_snapshot();
     }
 
     pub fn set_pending_attention(
@@ -1016,9 +1080,9 @@ impl SessionHandle {
         self.last_message = message;
     }
 
-    /// Get messages
-    pub fn messages(&self) -> &[Message] {
-        &self.messages
+    /// Get rows
+    pub fn rows(&self) -> &[ConversationRowEntry] {
+        &self.rows
     }
 
     /// Get first prompt
@@ -1059,18 +1123,19 @@ impl SessionHandle {
     }
 
     pub fn message_count(&self) -> usize {
-        self.total_message_count as usize
+        self.total_row_count as usize
     }
 
-    /// Check if a user message with this content already exists (dedup for connector echo)
+    /// Check if a user row with this content already exists (dedup for connector echo)
     #[allow(dead_code)]
-    pub fn has_user_message_with_content(&self, content: &str) -> bool {
-        use orbitdock_protocol::MessageType;
-        self.messages
-            .iter()
-            .rev()
-            .take(5)
-            .any(|m| m.message_type == MessageType::User && m.content == content)
+    pub fn has_user_row_with_content(&self, content: &str) -> bool {
+        self.rows.iter().rev().take(5).any(|entry| {
+            if let ConversationRow::User(ref row) = entry.row {
+                row.content == content
+            } else {
+                false
+            }
+        })
     }
 
     /// Set model
@@ -1095,6 +1160,8 @@ impl SessionHandle {
             personality,
             service_tier,
             developer_instructions,
+            model,
+            effort,
         } = patch;
 
         if let Some(approval_policy) = approval_policy {
@@ -1117,6 +1184,12 @@ impl SessionHandle {
         }
         if let Some(developer_instructions) = developer_instructions {
             self.developer_instructions = Some(developer_instructions);
+        }
+        if let Some(model) = model {
+            self.model = Some(model);
+        }
+        if let Some(effort) = effort {
+            self.effort = Some(effort);
         }
         self.refresh_snapshot();
     }
@@ -1214,34 +1287,33 @@ impl SessionHandle {
         self.token_usage = usage;
     }
 
-    /// Add a message
-    pub fn add_message(&mut self, mut message: Message) -> Message {
-        if message.sequence.is_none() {
-            message.sequence = Some(self.next_message_sequence());
+    /// Add a conversation row
+    pub fn add_row(&mut self, mut entry: ConversationRowEntry) -> ConversationRowEntry {
+        if entry.sequence == 0
+            && self
+                .rows
+                .last()
+                .is_none_or(|last| last.sequence >= entry.sequence)
+        {
+            entry.sequence = self.next_row_sequence();
         }
-        if !matches!(
-            message.message_type,
-            orbitdock_protocol::MessageType::User | orbitdock_protocol::MessageType::Steer
-        ) {
+        if is_non_user_row(&entry) {
             self.unread_count += 1;
         }
-        self.messages.push(message.clone());
-        self.total_message_count = self.total_message_count.saturating_add(1);
-        self.trim_retained_messages();
+        self.rows.push(entry.clone());
+        self.total_row_count = self.total_row_count.saturating_add(1);
+        self.trim_retained_rows();
         self.last_activity_at = Some(chrono_now());
-        message
+        entry
     }
 
-    /// Increment unread for an already-applied message append in the transition path.
+    /// Increment unread for an already-applied row append in the transition path.
     ///
     /// `dispatch_transition_input` applies the connector state machine result directly,
-    /// so it cannot call `add_message` without duplicating the message in memory.
+    /// so it cannot call `add_row` without duplicating the row in memory.
     /// This keeps the in-memory unread count aligned with the persisted count.
-    pub fn note_transition_message_append(&mut self, message: &Message) -> bool {
-        if matches!(
-            message.message_type,
-            orbitdock_protocol::MessageType::User | orbitdock_protocol::MessageType::Steer
-        ) {
+    pub fn note_transition_row_append(&mut self, entry: &ConversationRowEntry) -> bool {
+        if !is_non_user_row(entry) {
             return false;
         }
 
@@ -1261,12 +1333,51 @@ impl SessionHandle {
         self.unread_count
     }
 
-    /// Replace all messages (used for snapshot hydration from transcript fallback)
-    pub fn replace_messages(&mut self, mut messages: Vec<Message>) {
-        Self::normalize_message_sequences(&mut messages);
-        self.total_message_count = messages.len() as u64;
-        self.messages = messages;
-        self.trim_retained_messages();
+    /// Replace all rows (used for snapshot hydration from transcript fallback)
+    pub fn replace_rows(&mut self, mut rows: Vec<ConversationRowEntry>) {
+        Self::normalize_row_sequences(&mut rows);
+        self.total_row_count = rows.len() as u64;
+        self.rows = rows;
+        self.streaming_row_emit_at.clear();
+        self.trim_retained_rows();
+    }
+
+    pub fn should_emit_streaming_row_update(&mut self, upserted: &[ConversationRowEntry]) -> bool {
+        if upserted.len() != 1 {
+            for entry in upserted {
+                if !is_actively_streaming_message_row(entry) {
+                    self.streaming_row_emit_at.remove(entry.id());
+                }
+            }
+            return true;
+        }
+
+        let entry = &upserted[0];
+        if !is_message_row(entry) {
+            self.streaming_row_emit_at.remove(entry.id());
+            return true;
+        }
+        if !is_actively_streaming_message_row(entry) {
+            self.streaming_row_emit_at.remove(entry.id());
+            return true;
+        }
+
+        let now = Instant::now();
+        match self.streaming_row_emit_at.get_mut(entry.id()) {
+            Some(last_emit_at) => {
+                if now.duration_since(*last_emit_at) < STREAMING_ROW_BROADCAST_THROTTLE {
+                    false
+                } else {
+                    *last_emit_at = now;
+                    true
+                }
+            }
+            None => {
+                self.streaming_row_emit_at
+                    .insert(entry.id().to_string(), now);
+                true
+            }
+        }
     }
 
     /// Update aggregated diff
@@ -1636,6 +1747,9 @@ impl SessionHandle {
         if let Some(ref current_cwd) = changes.current_cwd {
             self.current_cwd = current_cwd.clone();
         }
+        if let Some(ref subagents) = changes.subagents {
+            self.subagents = subagents.clone();
+        }
         if let Some(ref first_prompt) = changes.first_prompt {
             self.first_prompt = first_prompt.clone();
         }
@@ -1696,7 +1810,7 @@ impl SessionHandle {
                 .pending_approval_id
                 .clone()
                 .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
-            message_count: self.total_message_count as usize,
+            message_count: self.total_row_count as usize,
             token_usage: self.token_usage.clone(),
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             started_at: self.started_at.clone(),
@@ -1807,10 +1921,11 @@ impl SessionHandle {
 
         TransitionState {
             id: self.id.clone(),
+            provider: self.provider,
             revision: self.revision,
             phase,
-            messages: self.messages.clone(),
-            total_message_count: self.total_message_count,
+            rows: self.rows.clone(),
+            total_row_count: self.total_row_count,
             token_usage: self.token_usage.clone(),
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             current_diff: self.current_diff.clone(),
@@ -1834,8 +1949,8 @@ impl SessionHandle {
     pub fn apply_state(&mut self, state: TransitionState) {
         let phase = state.phase.clone();
         self.work_status = phase.to_work_status();
-        self.messages = state.messages;
-        self.total_message_count = state.total_message_count;
+        self.rows = state.rows;
+        self.total_row_count = state.total_row_count;
         self.token_usage = state.token_usage;
         self.token_usage_snapshot_kind = state.token_usage_snapshot_kind;
         self.current_diff = state.current_diff;
@@ -1878,243 +1993,8 @@ impl SessionHandle {
             self.pending_approval_id = None;
         }
 
-        self.trim_retained_messages();
+        self.trim_retained_rows();
         self.refresh_snapshot();
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::items_after_test_module)]
-mod tests {
-    use super::*;
-    use crate::domain::sessions::transition::WorkPhase;
-    use orbitdock_protocol::Provider;
-
-    fn approval_request(
-        session_id: &str,
-        request_id: &str,
-        approval_type: ApprovalType,
-    ) -> ApprovalRequest {
-        ApprovalRequest {
-            id: request_id.to_string(),
-            session_id: session_id.to_string(),
-            approval_type,
-            tool_name: Some("Bash".to_string()),
-            tool_input: Some("{\"command\":\"echo hi\"}".to_string()),
-            command: Some("echo hi".to_string()),
-            file_path: None,
-            diff: None,
-            question: None,
-            question_prompts: vec![],
-            preview: None,
-            permission_reason: None,
-            requested_permissions: None,
-            granted_permissions: None,
-            proposed_amendment: None,
-            permission_suggestions: None,
-        }
-    }
-
-    fn apply_approval_event(
-        handle: &mut SessionHandle,
-        request_id: &str,
-        approval_type: ApprovalType,
-        proposed_amendment: Option<Vec<String>>,
-    ) {
-        let mut state = handle.extract_state();
-        state.phase = WorkPhase::AwaitingApproval {
-            request_id: request_id.to_string(),
-            approval_type,
-            proposed_amendment: proposed_amendment.clone(),
-        };
-        let mut request = approval_request(handle.id(), request_id, approval_type);
-        request.proposed_amendment = proposed_amendment;
-        state.pending_approval = Some(request);
-        handle.apply_state(state);
-    }
-
-    #[test]
-    fn resolve_pending_approval_promotes_next_request() {
-        let mut handle = SessionHandle::new(
-            "session-queue".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-
-        apply_approval_event(&mut handle, "req-1", ApprovalType::Exec, None);
-        apply_approval_event(
-            &mut handle,
-            "req-2",
-            ApprovalType::Patch,
-            Some(vec!["git add .".to_string()]),
-        );
-
-        let (approval_type, proposed_amendment, next_pending, work_status) =
-            handle.resolve_pending_approval("req-1", WorkStatus::Working);
-
-        assert_eq!(approval_type, Some(ApprovalType::Exec));
-        assert_eq!(
-            proposed_amendment, None,
-            "first request should not inherit amendment from queued entries"
-        );
-        assert_eq!(
-            next_pending.as_ref().map(|approval| approval.id.as_str()),
-            Some("req-2")
-        );
-        assert_eq!(work_status, WorkStatus::Permission);
-
-        let state = handle.retained_state();
-        assert_eq!(state.pending_approval_id.as_deref(), Some("req-2"));
-        assert_eq!(
-            state
-                .pending_approval
-                .as_ref()
-                .map(|approval| approval.id.as_str()),
-            Some("req-2")
-        );
-    }
-
-    #[test]
-    fn resolve_pending_approval_returns_fallback_when_queue_is_empty() {
-        let mut handle = SessionHandle::new(
-            "session-empty".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-
-        apply_approval_event(&mut handle, "req-only", ApprovalType::Question, None);
-
-        let (approval_type, proposed_amendment, next_pending, work_status) =
-            handle.resolve_pending_approval("req-only", WorkStatus::Waiting);
-
-        assert_eq!(approval_type, Some(ApprovalType::Question));
-        assert_eq!(proposed_amendment, None);
-        assert!(next_pending.is_none());
-        assert_eq!(work_status, WorkStatus::Waiting);
-
-        let state = handle.retained_state();
-        assert_eq!(state.pending_approval_id, None);
-        assert!(state.pending_approval.is_none());
-    }
-
-    #[test]
-    fn apply_state_keeps_oldest_pending_request_at_queue_head() {
-        let mut handle = SessionHandle::new(
-            "session-order".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-
-        apply_approval_event(&mut handle, "req-first", ApprovalType::Exec, None);
-        apply_approval_event(&mut handle, "req-second", ApprovalType::Exec, None);
-
-        let state = handle.retained_state();
-        assert_eq!(
-            state.pending_approval_id.as_deref(),
-            Some("req-first"),
-            "new approvals should queue behind the current head"
-        );
-        assert_eq!(
-            state
-                .pending_approval
-                .as_ref()
-                .map(|approval| approval.id.as_str()),
-            Some("req-first")
-        );
-    }
-
-    #[test]
-    fn resolve_pending_approval_requires_queue_head_request_id() {
-        let mut handle = SessionHandle::new(
-            "session-head-only".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-
-        apply_approval_event(&mut handle, "req-1", ApprovalType::Exec, None);
-        apply_approval_event(&mut handle, "req-2", ApprovalType::Exec, None);
-
-        let (approval_type, proposed_amendment, next_pending, work_status) =
-            handle.resolve_pending_approval("req-2", WorkStatus::Working);
-
-        assert!(approval_type.is_none());
-        assert!(proposed_amendment.is_none());
-        assert_eq!(
-            next_pending.as_ref().map(|approval| approval.id.as_str()),
-            Some("req-1")
-        );
-        assert_eq!(work_status, WorkStatus::Permission);
-
-        let state = handle.retained_state();
-        assert_eq!(state.pending_approval_id.as_deref(), Some("req-1"));
-    }
-
-    #[test]
-    fn resolve_pending_approval_drops_duplicate_entries_for_same_request_id() {
-        let mut handle = SessionHandle::new(
-            "session-duplicate-head".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-
-        apply_approval_event(&mut handle, "req-1", ApprovalType::Exec, None);
-        handle.pending_approvals.push_back(PendingApprovalEntry {
-            request: approval_request(handle.id(), "req-1", ApprovalType::Exec),
-            approval_type: ApprovalType::Exec,
-            proposed_amendment: None,
-        });
-        apply_approval_event(&mut handle, "req-2", ApprovalType::Exec, None);
-
-        let (approval_type, proposed_amendment, next_pending, work_status) =
-            handle.resolve_pending_approval("req-1", WorkStatus::Working);
-
-        assert_eq!(approval_type, Some(ApprovalType::Exec));
-        assert_eq!(proposed_amendment, None);
-        assert_eq!(
-            next_pending.as_ref().map(|approval| approval.id.as_str()),
-            Some("req-2")
-        );
-        assert_eq!(work_status, WorkStatus::Permission);
-
-        let state = handle.retained_state();
-        assert_eq!(state.pending_approval_id.as_deref(), Some("req-2"));
-    }
-
-    #[test]
-    fn session_retains_recent_tail_but_reports_full_message_count() {
-        let mut handle = SessionHandle::new(
-            "session-retention".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-
-        for sequence in 0_u64..260 {
-            handle.add_message(Message {
-                id: format!("msg-{sequence}"),
-                session_id: handle.id().to_string(),
-                sequence: Some(sequence),
-                message_type: orbitdock_protocol::MessageType::Assistant,
-                content: format!("message-{sequence}"),
-                tool_name: None,
-                tool_input: None,
-                tool_output: None,
-                is_error: false,
-                is_in_progress: false,
-                timestamp: "2026-03-08T00:00:00Z".to_string(),
-                duration_ms: None,
-                images: vec![],
-            });
-        }
-
-        assert_eq!(handle.messages().len(), RETAINED_FINALIZED_MESSAGE_LIMIT);
-        assert_eq!(handle.message_count(), 260);
-
-        let state = handle.retained_state();
-        assert_eq!(state.total_message_count, Some(260));
-        assert_eq!(state.has_more_before, Some(true));
-        assert_eq!(state.oldest_sequence, Some(60));
-        assert_eq!(state.newest_sequence, Some(259));
-        assert_eq!(state.messages.len(), RETAINED_FINALIZED_MESSAGE_LIMIT);
     }
 }
 

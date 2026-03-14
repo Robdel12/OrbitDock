@@ -208,6 +208,9 @@ async fn passive_actor_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use orbitdock_protocol::conversation_contracts::{
+        ConversationRow, ConversationRowEntry, MessageRowContent,
+    };
     use orbitdock_protocol::{Provider, WorkStatus};
 
     fn test_handle() -> SessionHandle {
@@ -298,5 +301,100 @@ mod tests {
 
         let snap = actor_handle.snapshot();
         assert_eq!(snap.work_status, WorkStatus::Working);
+    }
+
+    #[tokio::test]
+    async fn actor_throttles_streaming_row_update_broadcasts_but_emits_final_row() {
+        let (persist_tx, _persist_rx) = mpsc::channel(64);
+        let actor_handle = SessionActorHandle::spawn(test_handle(), persist_tx);
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        actor_handle
+            .send(SessionCommand::Subscribe {
+                since_revision: None,
+                reply: reply_tx,
+            })
+            .await;
+
+        let mut rx = match reply_rx.await.unwrap() {
+            crate::runtime::session_commands::SubscribeResult::Snapshot { rx, .. } => rx,
+            crate::runtime::session_commands::SubscribeResult::Replay { .. } => {
+                panic!("expected snapshot, got replay")
+            }
+        };
+
+        actor_handle
+            .send(SessionCommand::ProcessEvent {
+                event: crate::domain::sessions::transition::Input::TurnStarted,
+            })
+            .await;
+
+        let row_id = "assistant-stream".to_string();
+        let row = |content: &str, is_streaming: bool| ConversationRowEntry {
+            session_id: "test-session".to_string(),
+            sequence: 0,
+            turn_id: Some("turn-1".to_string()),
+            row: ConversationRow::Assistant(MessageRowContent {
+                id: row_id.clone(),
+                content: content.to_string(),
+                turn_id: Some("turn-1".to_string()),
+                timestamp: Some("2026-03-13T12:00:00Z".to_string()),
+                is_streaming,
+                images: vec![],
+            }),
+        };
+
+        actor_handle
+            .send(SessionCommand::ProcessEvent {
+                event: crate::domain::sessions::transition::Input::RowCreated(row("a", true)),
+            })
+            .await;
+        actor_handle
+            .send(SessionCommand::ProcessEvent {
+                event: crate::domain::sessions::transition::Input::RowUpdated {
+                    row_id: row_id.clone(),
+                    entry: row("ab", true),
+                },
+            })
+            .await;
+        actor_handle
+            .send(SessionCommand::ProcessEvent {
+                event: crate::domain::sessions::transition::Input::RowUpdated {
+                    row_id: row_id.clone(),
+                    entry: row("abc", true),
+                },
+            })
+            .await;
+        actor_handle
+            .send(SessionCommand::ProcessEvent {
+                event: crate::domain::sessions::transition::Input::RowUpdated {
+                    row_id: row_id.clone(),
+                    entry: row("abcd", false),
+                },
+            })
+            .await;
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let mut emitted_contents = Vec::new();
+        while let Ok(message) = rx.try_recv() {
+            if let orbitdock_protocol::ServerMessage::ConversationRowsChanged { upserted, .. } =
+                message
+            {
+                for entry in upserted {
+                    if entry.id() == row_id {
+                        if let ConversationRow::Assistant(message) = entry.row {
+                            emitted_contents.push((message.content, message.is_streaming));
+                        }
+                    }
+                }
+            }
+        }
+
+        assert_eq!(
+            emitted_contents,
+            vec![("a".to_string(), true), ("abcd".to_string(), false)]
+        );
     }
 }

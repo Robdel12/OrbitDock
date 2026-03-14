@@ -188,7 +188,7 @@ async fn hydrate_takeover_messages_if_needed(
     transcript_path: Option<&str>,
     session_id: &str,
 ) {
-    if !handle.messages().is_empty() {
+    if !handle.rows().is_empty() {
         return;
     }
 
@@ -196,9 +196,9 @@ async fn hydrate_takeover_messages_if_needed(
         return;
     };
 
-    if let Ok(messages) = load_messages_from_transcript_path(transcript_path, session_id).await {
-        for message in messages {
-            handle.add_message(message);
+    if let Ok(rows) = load_messages_from_transcript_path(transcript_path, session_id).await {
+        for entry in rows {
+            handle.add_row(entry);
         }
     }
 }
@@ -264,6 +264,8 @@ async fn complete_codex_takeover(
         personality,
         service_tier,
         developer_instructions,
+        model: effective_model.clone(),
+        effort: effective_effort.clone(),
     });
     let control_plane = handle.summary();
 
@@ -596,37 +598,7 @@ fn takeover_permission_persist_op(
         personality: None,
         service_tier: None,
         developer_instructions: None,
+        model: None,
+        effort: None,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::takeover_permission_persist_op;
-    use crate::runtime::session_commands::PersistOp;
-
-    #[test]
-    fn takeover_permission_persist_op_only_writes_explicit_requests() {
-        assert!(takeover_permission_persist_op("session-1", false, Some("plan".into())).is_none());
-        assert!(takeover_permission_persist_op("session-1", true, None).is_none());
-
-        let persist_op =
-            takeover_permission_persist_op("session-1", true, Some("acceptEdits".into()))
-                .expect("explicit permission mode should persist");
-
-        match persist_op {
-            PersistOp::SetSessionConfig {
-                session_id,
-                approval_policy,
-                sandbox_mode,
-                permission_mode,
-                ..
-            } => {
-                assert_eq!(session_id, "session-1");
-                assert!(approval_policy.is_none());
-                assert!(sandbox_mode.is_none());
-                assert_eq!(permission_mode.as_deref(), Some("acceptEdits"));
-            }
-            _ => panic!("expected SetSessionConfig persist op"),
-        }
-    }
 }

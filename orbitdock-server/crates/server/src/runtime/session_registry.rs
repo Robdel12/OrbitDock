@@ -76,6 +76,7 @@ pub struct SessionRegistry {
 
 impl SessionRegistry {
     #[cfg(test)]
+    #[allow(dead_code)]
     pub fn new(persist_tx: mpsc::Sender<PersistCommand>) -> Self {
         Self::new_with_primary_and_db_path(
             persist_tx,
@@ -278,6 +279,7 @@ impl SessionRegistry {
                     last_message: snap.last_message.clone(),
                     effort: snap.effort.clone(),
                     approval_version: Some(snap.approval_version),
+                    summary_revision: snap.revision,
                     repository_root: snap.repository_root.clone(),
                     is_worktree: snap.is_worktree,
                     worktree_id: snap.worktree_id.clone(),
@@ -293,7 +295,13 @@ impl SessionRegistry {
                     ),
                     display_title,
                     context_line,
-                    list_status: SessionSummary::list_status_from_parts(snap.status, snap.work_status),
+                    list_status: SessionSummary::list_status_from_parts(
+                        snap.status,
+                        snap.work_status,
+                    ),
+                    active_worker_count: 0,
+                    pending_tool_family: None,
+                    forked_from_session_id: None,
                 }
             })
             .collect()

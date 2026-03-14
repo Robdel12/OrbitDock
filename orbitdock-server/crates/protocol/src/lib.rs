@@ -7,6 +7,10 @@ use uuid::Uuid;
 
 // Re-exports
 pub mod client;
+pub mod conversation_contracts;
+pub mod domain_events;
+pub mod grouping;
+pub mod provider_normalization;
 pub mod server;
 pub mod types;
 

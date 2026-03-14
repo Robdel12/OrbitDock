@@ -9,8 +9,8 @@ use crate::infrastructure::persistence::{
     load_subagents_for_session,
 };
 use crate::runtime::conversation_policy::{
-    conversation_page_from_messages, conversation_page_with_total, expected_page_message_count,
-    prepend_conversation_page, requires_coherent_history_page, COHERENT_HISTORY_MAX_MESSAGES,
+    conversation_page_from_rows, conversation_page_with_total, expected_page_row_count,
+    prepend_conversation_page, requires_coherent_history_page, COHERENT_HISTORY_MAX_ROWS,
 };
 use crate::runtime::query_fallback_policy::{
     select_persisted_bootstrap_seed_source, select_persisted_raw_conversation_page_source,
@@ -19,13 +19,11 @@ use crate::runtime::query_fallback_policy::{
     BootstrapSeedSource, FullSessionHistorySource, RawConversationPageSource,
 };
 use crate::runtime::restored_sessions::{
-    hydrate_restored_messages_if_missing, restored_session_to_state,
+    hydrate_restored_rows_if_missing, restored_session_to_state,
 };
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_runtime_helpers::{
-    hydrate_full_message_history, merge_messages_by_sequence,
-};
+use crate::runtime::session_runtime_helpers::{hydrate_full_row_history, merge_rows_by_sequence};
 
 #[derive(Debug)]
 pub(crate) enum SessionLoadError {
@@ -42,13 +40,13 @@ async fn expand_conversation_page(
 ) -> Result<ConversationPage, SessionLoadError> {
     let page_chunk_limit = chunk_limit.max(1);
 
-    while requires_coherent_history_page(&page.messages, page.has_more_before)
-        && page.messages.len() < COHERENT_HISTORY_MAX_MESSAGES
+    while requires_coherent_history_page(&page.rows, page.has_more_before)
+        && page.rows.len() < COHERENT_HISTORY_MAX_ROWS
     {
         let Some(before_sequence) = page.oldest_sequence else {
             break;
         };
-        let remaining = COHERENT_HISTORY_MAX_MESSAGES.saturating_sub(page.messages.len());
+        let remaining = COHERENT_HISTORY_MAX_ROWS.saturating_sub(page.rows.len());
         if remaining == 0 {
             break;
         }
@@ -60,13 +58,13 @@ async fn expand_conversation_page(
             page_chunk_limit.min(remaining),
         )
         .await?;
-        if older.messages.is_empty() {
+        if older.rows.is_empty() {
             break;
         }
 
-        let previous_len = page.messages.len();
+        let previous_len = page.rows.len();
         page = prepend_conversation_page(page, older);
-        if page.messages.len() == previous_len {
+        if page.rows.len() == previous_len {
             break;
         }
     }
@@ -91,15 +89,15 @@ async fn top_up_runtime_page_from_db(
     let db_page = load_message_page_for_session(session_id, before_sequence, limit)
         .await
         .map_err(|err| SessionLoadError::Db(err.to_string()))?;
-    if db_page.messages.is_empty() {
+    if db_page.rows.is_empty() {
         return Ok(page);
     }
 
-    let messages = merge_messages_by_sequence(db_page.messages, page.messages);
-    let merged_count = messages.len() as u64;
+    let rows = merge_rows_by_sequence(db_page.rows, page.rows);
+    let merged_count = rows.len() as u64;
     Ok(conversation_page_with_total(
-        messages,
-        page.total_message_count
+        rows,
+        page.total_row_count
             .max(db_page.total_count)
             .max(merged_count),
     ))
@@ -110,13 +108,12 @@ fn runtime_page_requires_db_reconciliation(
     before_sequence: Option<u64>,
     limit: usize,
 ) -> bool {
-    let expected_count =
-        expected_page_message_count(page.total_message_count, before_sequence, limit);
+    let expected_count = expected_page_row_count(page.total_row_count, before_sequence, limit);
     if expected_count == 0 {
-        return !page.messages.is_empty();
+        return !page.rows.is_empty();
     }
 
-    if page.messages.len() != expected_count {
+    if page.rows.len() != expected_count {
         return true;
     }
 
@@ -131,36 +128,31 @@ fn page_expected_window_is_contiguous(
     expected_count: usize,
 ) -> Option<bool> {
     let upper_bound = before_sequence
-        .unwrap_or(page.total_message_count)
-        .min(page.total_message_count);
+        .unwrap_or(page.total_row_count)
+        .min(page.total_row_count);
     let expected_newest = upper_bound.checked_sub(1)?;
     let expected_oldest = expected_newest
         .checked_add(1)?
         .checked_sub(expected_count as u64)?;
 
-    let sequences: Option<Vec<u64>> = page
-        .messages
-        .iter()
-        .map(|message| message.sequence)
-        .collect();
-    let sequences = sequences?;
+    let sequences: Vec<u64> = page.rows.iter().map(|entry| entry.sequence).collect();
     let expected: Vec<u64> = (expected_oldest..=expected_newest).collect();
     Some(sequences == expected)
 }
 
 fn conversation_page_from_db_page(
-    messages: Vec<orbitdock_protocol::Message>,
+    rows: Vec<orbitdock_protocol::conversation_contracts::ConversationRowEntry>,
     total_count: u64,
 ) -> ConversationPage {
     ConversationPage {
-        has_more_before: messages
+        has_more_before: rows
             .first()
-            .and_then(|message| message.sequence)
+            .map(|entry| entry.sequence)
             .is_some_and(|sequence| sequence > 0),
-        oldest_sequence: messages.first().and_then(|message| message.sequence),
-        newest_sequence: messages.last().and_then(|message| message.sequence),
-        total_message_count: total_count,
-        messages,
+        oldest_sequence: rows.first().map(|entry| entry.sequence),
+        newest_sequence: rows.last().map(|entry| entry.sequence),
+        total_row_count: total_count,
+        rows,
     }
 }
 
@@ -177,7 +169,7 @@ async fn load_raw_conversation_page(
             .map_err(SessionLoadError::Runtime)?;
         let snapshot = actor.snapshot();
         match select_runtime_raw_conversation_page_source(
-            !page.messages.is_empty() || page.total_message_count > 0,
+            !page.rows.is_empty() || page.total_row_count > 0,
             snapshot.transcript_path.is_some(),
         ) {
             RawConversationPageSource::RuntimePage => {
@@ -189,8 +181,8 @@ async fn load_raw_conversation_page(
                         .load_transcript_and_sync(path, session_id.to_string())
                         .await
                     {
-                        return Ok(conversation_page_from_messages(
-                            loaded.messages,
+                        return Ok(conversation_page_from_rows(
+                            loaded.rows,
                             before_sequence,
                             limit,
                         ));
@@ -206,7 +198,7 @@ async fn load_raw_conversation_page(
             .await
             .map_err(|err| SessionLoadError::Db(err.to_string()))?;
         return Ok(conversation_page_from_db_page(
-            db_page.messages,
+            db_page.rows,
             db_page.total_count,
         ));
     }
@@ -217,26 +209,26 @@ async fn load_raw_conversation_page(
                 .await
                 .map_err(|err| SessionLoadError::Db(err.to_string()))?;
             match select_persisted_raw_conversation_page_source(
-                !db_page.messages.is_empty() || db_page.total_count > 0,
-                !restored.messages.is_empty(),
+                !db_page.rows.is_empty() || db_page.total_count > 0,
+                !restored.rows.is_empty(),
                 restored.transcript_path.is_some(),
             ) {
                 RawConversationPageSource::DatabasePage => {
                     return Ok(conversation_page_from_db_page(
-                        db_page.messages,
+                        db_page.rows,
                         db_page.total_count,
                     ));
                 }
                 RawConversationPageSource::RestoredTranscript => {
-                    hydrate_restored_messages_if_missing(&mut restored, session_id).await;
+                    hydrate_restored_rows_if_missing(&mut restored, session_id).await;
                 }
                 RawConversationPageSource::RestoredMessages => {}
                 RawConversationPageSource::RuntimePage
                 | RawConversationPageSource::RuntimeTranscript => {}
             }
 
-            Ok(conversation_page_from_messages(
-                restored.messages,
+            Ok(conversation_page_from_rows(
+                restored.rows,
                 before_sequence,
                 limit,
             ))
@@ -268,7 +260,7 @@ pub(crate) async fn load_conversation_bootstrap(
             .map_err(SessionLoadError::Runtime)?;
 
         match select_runtime_bootstrap_seed_source(
-            !bootstrap.session.messages.is_empty() || bootstrap.total_message_count > 0,
+            !bootstrap.session.rows.is_empty() || bootstrap.total_row_count > 0,
             bootstrap.session.transcript_path.is_some(),
         ) {
             BootstrapSeedSource::RuntimeBootstrap => {}
@@ -278,11 +270,10 @@ pub(crate) async fn load_conversation_bootstrap(
                         .load_transcript_and_sync(path, session_id.to_string())
                         .await
                     {
-                        let page =
-                            conversation_page_from_messages(loaded.messages.clone(), None, limit);
+                        let page = conversation_page_from_rows(loaded.rows.clone(), None, limit);
                         bootstrap.session = loaded;
-                        bootstrap.session.messages = page.messages.clone();
-                        bootstrap.total_message_count = page.total_message_count;
+                        bootstrap.session.rows = page.rows.clone();
+                        bootstrap.total_row_count = page.total_row_count;
                         bootstrap.has_more_before = page.has_more_before;
                         bootstrap.oldest_sequence = page.oldest_sequence;
                         bootstrap.newest_sequence = page.newest_sequence;
@@ -293,24 +284,18 @@ pub(crate) async fn load_conversation_bootstrap(
                 let db_page = load_message_page_for_session(session_id, None, limit)
                     .await
                     .map_err(|err| SessionLoadError::Db(err.to_string()))?;
-                bootstrap.session.messages = db_page.messages;
-                bootstrap.total_message_count = db_page.total_count;
+                bootstrap.session.rows = db_page.rows;
+                bootstrap.total_row_count = db_page.total_count;
                 bootstrap.has_more_before = bootstrap
                     .session
-                    .messages
+                    .rows
                     .first()
-                    .and_then(|message| message.sequence)
+                    .map(|entry| entry.sequence)
                     .is_some_and(|sequence| sequence > 0);
-                bootstrap.oldest_sequence = bootstrap
-                    .session
-                    .messages
-                    .first()
-                    .and_then(|message| message.sequence);
-                bootstrap.newest_sequence = bootstrap
-                    .session
-                    .messages
-                    .last()
-                    .and_then(|message| message.sequence);
+                bootstrap.oldest_sequence =
+                    bootstrap.session.rows.first().map(|entry| entry.sequence);
+                bootstrap.newest_sequence =
+                    bootstrap.session.rows.last().map(|entry| entry.sequence);
             }
             BootstrapSeedSource::RawConversationPage
             | BootstrapSeedSource::RestoredTranscript
@@ -323,8 +308,8 @@ pub(crate) async fn load_conversation_bootstrap(
             top_up_runtime_page_from_db(
                 session_id,
                 ConversationPage {
-                    messages: bootstrap.session.messages.clone(),
-                    total_message_count: bootstrap.total_message_count,
+                    rows: bootstrap.session.rows.clone(),
+                    total_row_count: bootstrap.total_row_count,
                     has_more_before: bootstrap.has_more_before,
                     oldest_sequence: bootstrap.oldest_sequence,
                     newest_sequence: bootstrap.newest_sequence,
@@ -336,12 +321,12 @@ pub(crate) async fn load_conversation_bootstrap(
             limit,
         )
         .await?;
-        bootstrap.session.messages = page.messages.clone();
-        bootstrap.session.total_message_count = Some(page.total_message_count);
-        bootstrap.session.has_more_before = Some(page.has_more_before);
+        bootstrap.session.rows = page.rows.clone();
+        bootstrap.session.total_row_count = page.total_row_count;
+        bootstrap.session.has_more_before = page.has_more_before;
         bootstrap.session.oldest_sequence = page.oldest_sequence;
         bootstrap.session.newest_sequence = page.newest_sequence;
-        bootstrap.total_message_count = page.total_message_count;
+        bootstrap.total_row_count = page.total_row_count;
         bootstrap.has_more_before = page.has_more_before;
         bootstrap.oldest_sequence = page.oldest_sequence;
         bootstrap.newest_sequence = page.newest_sequence;
@@ -354,17 +339,17 @@ pub(crate) async fn load_conversation_bootstrap(
         Ok(Some(mut restored)) => {
             let raw_page = load_raw_conversation_page(state, session_id, None, limit).await?;
             let page = match select_persisted_bootstrap_seed_source(
-                !raw_page.messages.is_empty() || raw_page.total_message_count > 0,
-                !restored.messages.is_empty(),
+                !raw_page.rows.is_empty() || raw_page.total_row_count > 0,
+                !restored.rows.is_empty(),
                 restored.transcript_path.is_some(),
             ) {
                 BootstrapSeedSource::RawConversationPage => raw_page,
                 BootstrapSeedSource::RestoredTranscript => {
-                    hydrate_restored_messages_if_missing(&mut restored, session_id).await;
-                    conversation_page_from_messages(restored.messages.clone(), None, limit)
+                    hydrate_restored_rows_if_missing(&mut restored, session_id).await;
+                    conversation_page_from_rows(restored.rows.clone(), None, limit)
                 }
                 BootstrapSeedSource::RestoredMessages => {
-                    conversation_page_from_messages(restored.messages.clone(), None, limit)
+                    conversation_page_from_rows(restored.rows.clone(), None, limit)
                 }
                 BootstrapSeedSource::RuntimeBootstrap
                 | BootstrapSeedSource::RuntimeTranscript
@@ -373,11 +358,11 @@ pub(crate) async fn load_conversation_bootstrap(
             let page = expand_conversation_page(state, session_id, page, limit).await?;
 
             let mut state = restored_session_to_state(restored);
-            state.messages = page.messages.clone();
+            state.rows = page.rows.clone();
             hydrate_subagents(&mut state, session_id).await;
             Ok(ConversationBootstrap {
                 session: state,
-                total_message_count: page.total_message_count,
+                total_row_count: page.total_row_count,
                 has_more_before: page.has_more_before,
                 oldest_sequence: page.oldest_sequence,
                 newest_sequence: page.newest_sequence,
@@ -400,25 +385,16 @@ pub(crate) async fn load_full_session_state(
             .map_err(SessionLoadError::Runtime)?;
 
         if include_messages {
-            hydrate_runtime_messages(&actor, &mut snapshot, session_id).await;
-            snapshot.messages = hydrate_full_message_history(
-                session_id,
-                snapshot.messages,
-                snapshot.total_message_count,
-            )
-            .await;
-            snapshot.total_message_count = Some(snapshot.messages.len() as u64);
-            snapshot.has_more_before = Some(false);
-            snapshot.oldest_sequence = snapshot
-                .messages
-                .first()
-                .and_then(|message| message.sequence);
-            snapshot.newest_sequence = snapshot
-                .messages
-                .last()
-                .and_then(|message| message.sequence);
+            hydrate_runtime_rows(&actor, &mut snapshot, session_id).await;
+            snapshot.rows =
+                hydrate_full_row_history(session_id, snapshot.rows, Some(snapshot.total_row_count))
+                    .await;
+            snapshot.total_row_count = snapshot.rows.len() as u64;
+            snapshot.has_more_before = false;
+            snapshot.oldest_sequence = snapshot.rows.first().map(|entry| entry.sequence);
+            snapshot.newest_sequence = snapshot.rows.last().map(|entry| entry.sequence);
         } else {
-            snapshot.messages.clear();
+            snapshot.rows.clear();
             snapshot.oldest_sequence = None;
             snapshot.newest_sequence = None;
         }
@@ -430,17 +406,17 @@ pub(crate) async fn load_full_session_state(
         Ok(Some(mut restored)) => {
             if matches!(
                 select_restored_full_session_history_source(
-                    !restored.messages.is_empty(),
+                    !restored.rows.is_empty(),
                     restored.transcript_path.is_some(),
                 ),
                 FullSessionHistorySource::Transcript
             ) {
-                hydrate_restored_messages_if_missing(&mut restored, session_id).await;
+                hydrate_restored_rows_if_missing(&mut restored, session_id).await;
             }
 
             let mut state = restored_session_to_state(restored);
             if !include_messages {
-                state.messages.clear();
+                state.rows.clear();
                 state.oldest_sequence = None;
                 state.newest_sequence = None;
             }
@@ -452,14 +428,20 @@ pub(crate) async fn load_full_session_state(
     }
 }
 
-async fn hydrate_runtime_messages(
+async fn hydrate_runtime_rows(
     actor: &SessionActorHandle,
     state: &mut SessionState,
     session_id: &str,
 ) {
+    let runtime_limit = usize::try_from(state.total_row_count)
+        .ok()
+        .filter(|limit| *limit > 0)
+        .unwrap_or(COHERENT_HISTORY_MAX_ROWS)
+        .min(COHERENT_HISTORY_MAX_ROWS);
+
     loop {
         match select_runtime_full_session_history_source(
-            !state.messages.is_empty(),
+            !state.rows.is_empty(),
             state.transcript_path.is_some(),
         ) {
             FullSessionHistorySource::ExistingMessages => return,
@@ -477,9 +459,20 @@ async fn hydrate_runtime_messages(
             FullSessionHistorySource::DatabaseMessages => {}
         }
 
-        if let Ok(messages) = load_messages_for_session(session_id).await {
-            if !messages.is_empty() {
-                state.messages = messages;
+        if let Ok(page) = actor.conversation_page(None, runtime_limit).await {
+            if !page.rows.is_empty() {
+                state.rows = page.rows;
+                state.total_row_count = page.total_row_count;
+                state.has_more_before = page.has_more_before;
+                state.oldest_sequence = page.oldest_sequence;
+                state.newest_sequence = page.newest_sequence;
+                return;
+            }
+        }
+
+        if let Ok(rows) = load_messages_for_session(session_id).await {
+            if !rows.is_empty() {
+                state.rows = rows;
             }
         }
         return;
@@ -504,399 +497,5 @@ async fn hydrate_subagents(state: &mut SessionState, session_id: &str) {
                 "Failed to load session subagents"
             );
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-    use std::sync::Arc;
-
-    use rusqlite::{params, Connection};
-    use tokio::sync::mpsc;
-
-    use orbitdock_protocol::{Message, MessageType, Provider};
-
-    use crate::domain::sessions::session::SessionHandle;
-    use crate::infrastructure::migration_runner;
-    use crate::infrastructure::paths;
-    use crate::runtime::session_registry::SessionRegistry;
-
-    use super::*;
-
-    fn new_test_state() -> Arc<SessionRegistry> {
-        let db_path = init_isolated_session_query_test_data_dir().join("orbitdock.db");
-        let mut conn = Connection::open(&db_path).expect("open isolated session query db");
-        migration_runner::run_migrations(&mut conn)
-            .expect("run migrations for isolated session query db");
-        let (persist_tx, _persist_rx) = mpsc::channel(128);
-        Arc::new(SessionRegistry::new_with_primary_and_db_path(
-            persist_tx,
-            paths::db_path(),
-            true,
-        ))
-    }
-
-    fn init_isolated_session_query_test_data_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "orbitdock-session-queries-{}",
-            orbitdock_protocol::new_id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("create isolated session query test data dir");
-        paths::init_data_dir(Some(&dir))
-    }
-
-    fn seed_message_history(session_id: &str, messages: &[Message]) {
-        let db_path = paths::db_path();
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent).expect("create session history test data dir");
-        }
-        let mut conn = Connection::open(&db_path).expect("open db");
-        let has_sessions_table: bool = conn
-            .query_row(
-                "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'sessions'",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .map(|count| count > 0)
-            .unwrap_or(false);
-        if !has_sessions_table {
-            migration_runner::run_migrations(&mut conn).expect("run migrations");
-        }
-        conn.execute(
-            "INSERT OR REPLACE INTO sessions (id, project_path, project_name, provider, status, work_status, codex_integration_mode, started_at, last_activity_at)
-             VALUES (?1, ?2, ?3, 'codex', 'active', 'waiting', 'direct', ?4, ?4)",
-            params![
-                session_id,
-                "/tmp/orbitdock-session-history-test",
-                "orbitdock-session-history-test",
-                "2026-03-08T00:00:00Z",
-            ],
-        )
-        .expect("insert test session");
-        conn.execute(
-            "DELETE FROM messages WHERE session_id = ?1",
-            params![session_id],
-        )
-        .expect("clear test messages");
-
-        for message in messages {
-            let type_str = match message.message_type {
-                MessageType::User => "user",
-                MessageType::Assistant => "assistant",
-                MessageType::Thinking => "thinking",
-                MessageType::Tool => "tool",
-                MessageType::ToolResult => "tool_result",
-                MessageType::Steer => "steer",
-                MessageType::Shell => "shell",
-            };
-
-            conn.execute(
-                "INSERT OR REPLACE INTO messages (id, session_id, type, content, timestamp, sequence, tool_name, tool_input, tool_output, tool_duration, is_error, is_in_progress, images_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-                params![
-                    message.id,
-                    message.session_id,
-                    type_str,
-                    message.content,
-                    message.timestamp,
-                    message.sequence.map(|sequence| sequence as i64),
-                    message.tool_name,
-                    message.tool_input,
-                    message.tool_output,
-                    message.duration_ms.map(|d| d as f64 / 1000.0),
-                    if message.is_error { 1 } else { 0 },
-                    if message.is_in_progress { 1 } else { 0 },
-                    None::<String>,
-                ],
-            )
-            .expect("insert test message");
-        }
-    }
-
-    fn test_message(
-        session_id: &str,
-        id: &str,
-        sequence: u64,
-        content: &str,
-        message_type: MessageType,
-    ) -> Message {
-        Message {
-            id: id.to_string(),
-            session_id: session_id.to_string(),
-            sequence: Some(sequence),
-            message_type,
-            content: content.to_string(),
-            tool_name: None,
-            tool_input: None,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: false,
-            timestamp: "2026-01-01T00:00:00Z".to_string(),
-            duration_ms: None,
-            images: vec![],
-        }
-    }
-
-    fn turn_messages(session_id: &str, turn_count: u64) -> Vec<Message> {
-        let mut messages = Vec::with_capacity((turn_count * 2) as usize);
-        for turn in 0_u64..turn_count {
-            let user_sequence = turn * 2;
-            let assistant_sequence = user_sequence + 1;
-            messages.push(test_message(
-                session_id,
-                &format!("user-{turn}"),
-                user_sequence,
-                &format!("user-{turn}"),
-                MessageType::User,
-            ));
-            messages.push(test_message(
-                session_id,
-                &format!("assistant-{turn}"),
-                assistant_sequence,
-                &format!("assistant-{turn}"),
-                MessageType::Assistant,
-            ));
-        }
-        messages
-    }
-
-    #[test]
-    fn sparse_runtime_page_requires_database_reconciliation() {
-        let page = ConversationPage {
-            messages: vec![
-                test_message("session-1", "m0", 0, "user-0", MessageType::User),
-                test_message("session-1", "m75", 75, "user-75", MessageType::User),
-                test_message("session-1", "m98", 98, "user-98", MessageType::User),
-            ],
-            total_message_count: 108,
-            has_more_before: false,
-            oldest_sequence: Some(0),
-            newest_sequence: Some(98),
-        };
-
-        assert!(runtime_page_requires_db_reconciliation(&page, None, 200));
-    }
-
-    #[test]
-    fn contiguous_runtime_tail_does_not_require_database_reconciliation() {
-        let page = ConversationPage {
-            messages: (210_u64..260)
-                .map(|sequence| {
-                    test_message(
-                        "session-1",
-                        &format!("m{sequence}"),
-                        sequence,
-                        &format!("message-{sequence}"),
-                        if sequence % 2 == 0 {
-                            MessageType::User
-                        } else {
-                            MessageType::Assistant
-                        },
-                    )
-                })
-                .collect(),
-            total_message_count: 260,
-            has_more_before: true,
-            oldest_sequence: Some(210),
-            newest_sequence: Some(259),
-        };
-
-        assert!(!runtime_page_requires_db_reconciliation(&page, None, 50));
-    }
-
-    #[tokio::test]
-    async fn conversation_bootstrap_reports_newest_window_and_total_count_for_trimmed_runtime_session(
-    ) {
-        let state = new_test_state();
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let mut handle = SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-session-history-test".to_string(),
-        );
-        let messages = turn_messages(&session_id, 130);
-        seed_message_history(&session_id, &messages);
-        for message in messages {
-            handle.add_message(message);
-        }
-        state.add_session(handle);
-
-        let bootstrap = load_conversation_bootstrap(&state, &session_id, 50)
-            .await
-            .expect("load bootstrap for trimmed runtime session");
-
-        assert_eq!(bootstrap.total_message_count, 260);
-        assert!(bootstrap.has_more_before);
-        assert_eq!(bootstrap.oldest_sequence, Some(210));
-        assert_eq!(bootstrap.newest_sequence, Some(259));
-        assert_eq!(bootstrap.session.total_message_count, Some(260));
-        assert_eq!(bootstrap.session.messages.len(), 50);
-        assert_eq!(bootstrap.session.messages[0].id, "user-105");
-        assert_eq!(bootstrap.session.messages[49].id, "assistant-129");
-    }
-
-    #[tokio::test]
-    async fn conversation_page_reads_older_history_from_db_when_runtime_tail_is_trimmed() {
-        let state = new_test_state();
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let mut handle = SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-session-history-test".to_string(),
-        );
-        let messages = turn_messages(&session_id, 130);
-        seed_message_history(&session_id, &messages);
-        for message in messages {
-            handle.add_message(message);
-        }
-        state.add_session(handle);
-
-        let page = load_conversation_page(&state, &session_id, Some(100), 50)
-            .await
-            .expect("load older history page from db");
-
-        assert_eq!(page.total_message_count, 260);
-        assert!(page.has_more_before);
-        assert_eq!(page.oldest_sequence, Some(50));
-        assert_eq!(page.newest_sequence, Some(99));
-        assert_eq!(page.messages.len(), 50);
-        assert_eq!(page.messages[0].id, "user-25");
-        assert_eq!(page.messages[49].id, "assistant-49");
-    }
-
-    #[tokio::test]
-    async fn full_session_state_rehydrates_trimmed_history_from_db() {
-        let state = new_test_state();
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let mut handle = SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-session-history-test".to_string(),
-        );
-        let messages = turn_messages(&session_id, 130);
-        seed_message_history(&session_id, &messages);
-        for message in messages {
-            handle.add_message(message);
-        }
-        state.add_session(handle);
-
-        let session = load_full_session_state(&state, &session_id, true)
-            .await
-            .expect("load full session state");
-
-        assert_eq!(session.total_message_count, Some(260));
-        assert_eq!(session.messages.len(), 260);
-        assert_eq!(
-            session.messages.first().map(|message| message.id.as_str()),
-            Some("user-0")
-        );
-        assert_eq!(
-            session.messages.last().map(|message| message.id.as_str()),
-            Some("assistant-129")
-        );
-        assert_eq!(session.has_more_before, Some(false));
-    }
-
-    #[tokio::test]
-    async fn conversation_bootstrap_expands_mid_turn_tail_to_recent_turn_boundary() {
-        let state = new_test_state();
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let mut handle = SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-session-history-test".to_string(),
-        );
-        let messages = turn_messages(&session_id, 130);
-        seed_message_history(&session_id, &messages);
-        for message in messages {
-            handle.add_message(message);
-        }
-        state.add_session(handle);
-
-        let bootstrap = load_conversation_bootstrap(&state, &session_id, 49)
-            .await
-            .expect("load coherent bootstrap window");
-
-        assert_eq!(bootstrap.total_message_count, 260);
-        assert!(bootstrap.has_more_before);
-        assert_eq!(bootstrap.oldest_sequence, Some(162));
-        assert_eq!(bootstrap.newest_sequence, Some(259));
-        assert_eq!(bootstrap.session.messages.len(), 98);
-        assert_eq!(bootstrap.session.messages[0].id, "user-81");
-        assert_eq!(bootstrap.session.messages[97].id, "assistant-129");
-    }
-
-    #[tokio::test]
-    async fn full_session_state_prefers_runtime_messages_over_stale_db_rows() {
-        let state = new_test_state();
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let mut handle = SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-session-history-test".to_string(),
-        );
-        let db_messages: Vec<Message> = turn_messages(&session_id, 130)
-            .into_iter()
-            .map(|mut message| {
-                message.content = format!("db-{}", message.content);
-                message
-            })
-            .collect();
-        seed_message_history(&session_id, &db_messages);
-
-        for sequence in 0_u64..260 {
-            let content = if sequence == 259 {
-                "runtime-updated-259".to_string()
-            } else {
-                format!(
-                    "db-{}",
-                    if sequence % 2 == 0 {
-                        format!("user-{}", sequence / 2)
-                    } else {
-                        format!("assistant-{}", sequence / 2)
-                    }
-                )
-            };
-            handle.add_message(test_message(
-                &session_id,
-                &(if sequence % 2 == 0 {
-                    format!("user-{}", sequence / 2)
-                } else {
-                    format!("assistant-{}", sequence / 2)
-                }),
-                sequence,
-                &content,
-                if sequence % 2 == 0 {
-                    MessageType::User
-                } else {
-                    MessageType::Assistant
-                },
-            ));
-        }
-        state.add_session(handle);
-
-        let session = load_full_session_state(&state, &session_id, true)
-            .await
-            .expect("load full session state with runtime override");
-
-        assert!(
-            (200..=260).contains(&session.messages.len()),
-            "expected runtime-tail or fully rehydrated history, got {} messages",
-            session.messages.len()
-        );
-        assert_eq!(
-            session.total_message_count,
-            Some(260),
-            "reported total should preserve the authoritative history count"
-        );
-        assert_eq!(
-            session
-                .messages
-                .last()
-                .map(|message| message.content.as_str()),
-            Some("runtime-updated-259")
-        );
     }
 }

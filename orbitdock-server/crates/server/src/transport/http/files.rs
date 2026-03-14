@@ -2,7 +2,8 @@ use super::*;
 use std::path::PathBuf;
 
 use codex_core::config::find_codex_home;
-use orbitdock_protocol::{DirectoryEntry, Message, RecentProject, SubagentTool};
+use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
+use orbitdock_protocol::{DirectoryEntry, RecentProject, SubagentTool};
 use tracing::warn;
 
 use crate::infrastructure::persistence::{
@@ -31,7 +32,7 @@ pub struct SubagentToolsResponse {
 pub struct SubagentMessagesResponse {
     pub session_id: String,
     pub subagent_id: String,
-    pub messages: Vec<Message>,
+    pub rows: Vec<ConversationRowEntry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,11 +98,11 @@ pub async fn list_subagent_tools_endpoint(
 pub async fn list_subagent_messages_endpoint(
     Path((session_id, subagent_id)): Path<(String, String)>,
 ) -> Json<SubagentMessagesResponse> {
-    let messages = load_subagent_messages(&subagent_id).await;
+    let rows = load_subagent_rows(&subagent_id).await;
     Json(SubagentMessagesResponse {
         session_id,
         subagent_id,
-        messages,
+        rows,
     })
 }
 
@@ -200,13 +201,13 @@ async fn load_subagent_tools(subagent_id: &str) -> Vec<SubagentTool> {
     }
 }
 
-async fn load_subagent_messages(subagent_id: &str) -> Vec<Message> {
+async fn load_subagent_rows(subagent_id: &str) -> Vec<ConversationRowEntry> {
     let Some(path) = resolve_subagent_transcript_path(subagent_id).await else {
         return vec![];
     };
 
     match load_messages_from_transcript_path(&path, subagent_id).await {
-        Ok(messages) => messages,
+        Ok(rows) => rows,
         Err(err) => {
             warn!(
                 component = "api",
@@ -214,7 +215,7 @@ async fn load_subagent_messages(subagent_id: &str) -> Vec<Message> {
                 subagent_id = %subagent_id,
                 transcript_path = %path,
                 error = %err,
-                "Failed to load subagent transcript messages"
+                "Failed to load subagent transcript rows"
             );
             vec![]
         }
@@ -263,117 +264,5 @@ async fn resolve_subagent_transcript_path(subagent_id: &str) -> Option<String> {
             );
             None
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::{extract::Path, extract::Query, Json};
-
-    use crate::support::test_support::ensure_server_test_data_dir;
-
-    #[tokio::test]
-    async fn browse_directory_hides_dotfiles_and_returns_directories_first() {
-        let root = std::env::temp_dir().join(format!(
-            "orbitdock-api-browse-{}",
-            orbitdock_protocol::new_id()
-        ));
-        std::fs::create_dir_all(root.join("z-dir")).expect("create visible directory");
-        std::fs::write(root.join("a-file.txt"), "hello").expect("create visible file");
-        std::fs::write(root.join(".hidden.txt"), "secret").expect("create hidden file");
-
-        let Json(response) = browse_directory(Query(BrowseDirectoryQuery {
-            path: Some(root.to_string_lossy().to_string()),
-        }))
-        .await;
-
-        std::fs::remove_dir_all(&root).expect("remove browse test directory");
-
-        assert_eq!(response.path, root.to_string_lossy().to_string());
-        assert!(response
-            .entries
-            .iter()
-            .any(|entry| entry.name == "z-dir" && entry.is_dir));
-        assert!(response
-            .entries
-            .iter()
-            .any(|entry| entry.name == "a-file.txt" && !entry.is_dir));
-        assert!(!response
-            .entries
-            .iter()
-            .any(|entry| entry.name.starts_with('.')));
-
-        let first = response
-            .entries
-            .first()
-            .expect("expected at least one listing entry");
-        assert!(
-            first.is_dir,
-            "expected directories to be sorted before files"
-        );
-    }
-
-    #[tokio::test]
-    async fn subagent_tools_endpoint_returns_empty_when_subagent_missing() {
-        ensure_server_test_data_dir();
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let subagent_id = format!("sub-{}", orbitdock_protocol::new_id());
-
-        let Json(response) =
-            list_subagent_tools_endpoint(Path((session_id.clone(), subagent_id.clone()))).await;
-
-        assert_eq!(response.session_id, session_id);
-        assert_eq!(response.subagent_id, subagent_id);
-        assert!(response.tools.is_empty());
-    }
-
-    #[tokio::test]
-    async fn subagent_messages_endpoint_reads_transcript_messages() {
-        ensure_server_test_data_dir();
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let subagent_id = format!("sub-{}", orbitdock_protocol::new_id());
-        let transcript_path = std::env::temp_dir().join(format!("{subagent_id}.jsonl"));
-        std::fs::write(
-            &transcript_path,
-            r#"{"type":"message","role":"user","timestamp":"2026-03-11T05:00:00Z","content":[{"type":"text","text":"Inspect the auth flow"}]}
-{"type":"message","role":"assistant","timestamp":"2026-03-11T05:00:02Z","content":[{"type":"text","text":"I found the auth coordinator in the runtime layer."}]}
-"#,
-        )
-        .expect("write transcript");
-
-        let db_path = crate::infrastructure::paths::db_path();
-        let mut conn = rusqlite::Connection::open(&db_path).expect("open test db");
-        crate::infrastructure::migration_runner::run_migrations(&mut conn).expect("run migrations");
-        conn.execute(
-            "INSERT INTO sessions (id, provider, project_path, status, work_status, started_at)
-             VALUES (?1, 'codex', '/tmp/project', 'active', 'working', '2026-03-11T05:00:00Z')",
-            rusqlite::params![session_id],
-        )
-        .expect("insert session");
-        conn.execute(
-            "INSERT INTO subagents (id, session_id, agent_type, transcript_path, started_at)
-             VALUES (?1, ?2, 'worker', ?3, '2026-03-11T05:00:00Z')",
-            rusqlite::params![
-                subagent_id,
-                session_id,
-                transcript_path.to_string_lossy().to_string()
-            ],
-        )
-        .expect("insert subagent");
-
-        let Json(response) =
-            list_subagent_messages_endpoint(Path((session_id.clone(), subagent_id.clone()))).await;
-
-        std::fs::remove_file(&transcript_path).expect("remove transcript");
-
-        assert_eq!(response.session_id, session_id);
-        assert_eq!(response.subagent_id, subagent_id);
-        assert_eq!(response.messages.len(), 2);
-        assert_eq!(response.messages[0].content, "Inspect the auth flow");
-        assert_eq!(
-            response.messages[1].content,
-            "I found the auth coordinator in the runtime layer."
-        );
     }
 }

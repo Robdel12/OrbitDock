@@ -50,24 +50,15 @@ enum ConversationLayout {
 
   // MARK: - Fixed Row Heights (macOS native rows — no SwiftUI measurement)
 
-  /// Turn header: section divider between turns
-  static let turnHeaderHeight: CGFloat = 36
-
-  /// First turn header: minimal spacer (no visual break before first message)
-  static let firstTurnHeaderHeight: CGFloat = 12
-
   /// Compact tool row: strip card base height (3+3 strip padding + 34 content)
   static let compactToolRowHeight: CGFloat = 40
 
   /// "Load N earlier messages" button
   static let loadMoreHeight: CGFloat = 44
 
-  /// "Showing N of M messages" label
-  static let messageCountHeight: CGFloat = 28
-
   /// Bottom status row ("Working", "Your turn", "Permission")
   #if os(iOS)
-    static let liveIndicatorHeight: CGFloat = 36
+    static let liveIndicatorHeight: CGFloat = 64
   #else
     static let liveIndicatorHeight: CGFloat = 44
   #endif
@@ -76,7 +67,9 @@ enum ConversationLayout {
   #if os(iOS)
     static let bottomSpacerHeight: CGFloat = 16
   #else
-    static let bottomSpacerHeight: CGFloat = 48
+    /// macOS timeline needs enough runway to clear the floating composer and
+    /// footer chrome when the last row is a large expanded tool/result card.
+    static let bottomSpacerHeight: CGFloat = 112
   #endif
 
   // MARK: - Turn Cards
@@ -96,24 +89,14 @@ enum ConversationLayout {
   static let activityCapsuleHeight: CGFloat = 36
 
   /// Worker orchestration strip row height
-  static let workerOrchestrationHeight: CGFloat = 84
+  #if os(iOS)
+    static let workerOrchestrationHeight: CGFloat = 106
+  #else
+    static let workerOrchestrationHeight: CGFloat = 72
+  #endif
 
   /// Activity capsule corner radius (pill shape)
   static let capsuleCornerRadius: CGFloat = 16
-
-  // MARK: - Focus Mode
-
-  /// Collapsed turn row height
-  static let collapsedTurnHeight: CGFloat = 44
-
-  // MARK: - Live Progress
-
-  /// Live progress bar row height
-  #if os(iOS)
-    static let liveProgressHeight: CGFloat = 36
-  #else
-    static let liveProgressHeight: CGFloat = 44
-  #endif
 
   #if os(macOS)
     static var backgroundPrimary: NSColor {

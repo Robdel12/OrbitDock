@@ -50,6 +50,14 @@ struct ConversationView: View {
     conversationStore?.messagesRevision ?? 0
   }
 
+  private var streamingPatchRevision: Int {
+    conversationStore?.streamingPatchRevision ?? 0
+  }
+
+  private var latestStreamingPatch: ConversationStreamingPatch? {
+    conversationStore?.latestStreamingPatch
+  }
+
   private var viewState: ConversationViewState {
     guard let conversationStore else {
       return ConversationViewState(
@@ -127,38 +135,96 @@ struct ConversationView: View {
   @Environment(\.openFileInReview) private var openFileInReview
   @Environment(\.focusWorkerInDeck) private var focusWorkerInDeck
 
+  @ViewBuilder
   private var conversationThread: some View {
-    ConversationCollectionView(
-      messages: displayedMessages,
-      messagesRevision: messagesRevision,
-      chatViewMode: chatViewMode,
-      isSessionActive: isSessionActive,
-      workStatus: workStatus,
-      currentTool: currentTool,
-      pendingToolName: pendingToolName,
-      pendingPermissionDetail: pendingPermissionDetail,
-      provider: provider,
-      model: model,
-      sessionId: sessionId,
-      serverState: serverState,
-      hasMoreMessages: hasMoreMessages,
-      currentPrompt: currentPrompt,
-      messageCount: totalMessageCount,
-      remainingLoadCount: remainingLoadCount,
-      selectedWorkerID: selectedWorkerID,
-      openFileInReview: openFileInReview,
-      focusWorkerInDeck: focusWorkerInDeck,
-      onLoadMore: {
-        guard let sid = sessionId else { return }
-        serverState.loadOlderMessages(sessionId: sid, limit: pageSize)
-      },
-      onNavigateToReviewFile: onNavigateToReviewFile,
-      onOpenPendingApprovalPanel: onOpenPendingApprovalPanel,
-      jumpToMessageTarget: $jumpToMessageTarget,
-      isPinned: $isPinned,
-      unreadCount: $unreadCount,
-      scrollToBottomTrigger: $scrollToBottomTrigger
-    )
+    #if os(macOS)
+      if let conversationStore, let sessionId, let endpointId {
+        ConversationMacDetailView(
+          session: ScopedSessionID(endpointId: endpointId, sessionId: sessionId),
+          conversationStore: conversationStore,
+          obs: obs,
+          provider: provider,
+          model: model,
+          currentTool: currentTool,
+          pendingToolName: pendingToolName,
+          pendingPermissionDetail: pendingPermissionDetail,
+          currentPrompt: currentPrompt,
+          chatViewMode: chatViewMode,
+          loadState: viewState.loadState,
+          remainingLoadCount: remainingLoadCount,
+          isPinnedToBottom: isPinned,
+          unreadCount: unreadCount,
+          selectedWorkerID: selectedWorkerID,
+          focusWorkerInDeck: focusWorkerInDeck,
+          onLoadMore: {
+            serverState.loadOlderMessages(sessionId: sessionId, limit: pageSize)
+          }
+        )
+      } else {
+        MacTimelineView(
+          viewState: MacTimelineViewState(
+            rows: [
+              .utility(
+                .init(
+                  id: "utility:empty",
+                  kind: .live,
+                  iconName: "bubble.left.and.text.bubble.right",
+                  eyebrow: "Timeline",
+                  title: "No conversation yet",
+                  subtitle: nil,
+                  spotlight: nil,
+                  trailingBadge: nil,
+                  accentColorName: "reply",
+                  chips: [],
+                  activityAnchorID: nil,
+                  isExpanded: false
+                )
+              )
+            ],
+            isPinnedToBottom: isPinned,
+            unreadCount: unreadCount
+          ),
+          onLoadMore: nil,
+          onToggleToolExpansion: nil,
+          onToggleActivityExpansion: nil,
+          onFocusWorker: nil
+        )
+      }
+    #else
+      ConversationCollectionView(
+        messages: displayedMessages,
+        messagesRevision: messagesRevision,
+        streamingPatchRevision: streamingPatchRevision,
+        latestStreamingPatch: latestStreamingPatch,
+        chatViewMode: chatViewMode,
+        isSessionActive: isSessionActive,
+        workStatus: workStatus,
+        currentTool: currentTool,
+        pendingToolName: pendingToolName,
+        pendingPermissionDetail: pendingPermissionDetail,
+        provider: provider,
+        model: model,
+        sessionId: sessionId,
+        serverState: serverState,
+        hasMoreMessages: hasMoreMessages,
+        currentPrompt: currentPrompt,
+        messageCount: totalMessageCount,
+        remainingLoadCount: remainingLoadCount,
+        selectedWorkerID: selectedWorkerID,
+        openFileInReview: openFileInReview,
+        focusWorkerInDeck: focusWorkerInDeck,
+        onLoadMore: {
+          guard let sid = sessionId else { return }
+          serverState.loadOlderMessages(sessionId: sid, limit: pageSize)
+        },
+        onNavigateToReviewFile: onNavigateToReviewFile,
+        onOpenPendingApprovalPanel: onOpenPendingApprovalPanel,
+        jumpToMessageTarget: $jumpToMessageTarget,
+        isPinned: $isPinned,
+        unreadCount: $unreadCount,
+        scrollToBottomTrigger: $scrollToBottomTrigger
+      )
+    #endif
   }
 }
 

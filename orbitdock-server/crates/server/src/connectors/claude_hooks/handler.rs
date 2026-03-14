@@ -16,7 +16,7 @@ use std::time::Instant;
 use serde_json::Value;
 use tracing::warn;
 
-use orbitdock_protocol::{ClientMessage, Provider, ServerMessage};
+use orbitdock_protocol::{ClientMessage, Provider, ServerMessage, SubagentInfo, SubagentStatus};
 
 use crate::domain::sessions::transition::{
     approval_preview, approval_question, approval_question_prompts,
@@ -220,9 +220,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 .await;
 
             if state.remove_session(&session_id).is_some() {
-                state.broadcast_to_list(ServerMessage::SessionListItemRemoved {
-                    session_id,
-                });
+                state.broadcast_to_list(ServerMessage::SessionListItemRemoved { session_id });
             }
         }
 
@@ -1187,6 +1185,15 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                     agent_type: normalized_type.clone(),
                                 })
                                 .await;
+                            publish_claude_subagent_update(
+                                state,
+                                &owning_id,
+                                ClaudeSubagentUpdate::Started {
+                                    agent_id: agent_id.clone(),
+                                    agent_type: normalized_type.clone(),
+                                },
+                            )
+                            .await;
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSessionUpdate {
                                     id: owning_id,
@@ -1208,12 +1215,21 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 .await;
                         }
                         "SubagentStop" => {
+                            let subagent_id = agent_id.clone();
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSubagentEnd {
-                                    id: agent_id,
+                                    id: subagent_id.clone(),
                                     transcript_path: agent_transcript_path,
                                 })
                                 .await;
+                            publish_claude_subagent_update(
+                                state,
+                                &owning_id,
+                                ClaudeSubagentUpdate::Stopped {
+                                    agent_id: subagent_id,
+                                },
+                            )
+                            .await;
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSessionUpdate {
                                     id: owning_id,
@@ -1277,6 +1293,15 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             agent_type: normalized_type.clone(),
                         })
                         .await;
+                    publish_claude_subagent_update(
+                        state,
+                        &session_id,
+                        ClaudeSubagentUpdate::Started {
+                            agent_id: agent_id.clone(),
+                            agent_type: normalized_type.clone(),
+                        },
+                    )
+                    .await;
                     let _ = persist_tx
                         .send(PersistCommand::ClaudeSessionUpdate {
                             id: session_id,
@@ -1298,12 +1323,21 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .await;
                 }
                 "SubagentStop" => {
+                    let subagent_id = agent_id.clone();
                     let _ = persist_tx
                         .send(PersistCommand::ClaudeSubagentEnd {
-                            id: agent_id,
+                            id: subagent_id.clone(),
                             transcript_path: agent_transcript_path,
                         })
                         .await;
+                    publish_claude_subagent_update(
+                        state,
+                        &session_id,
+                        ClaudeSubagentUpdate::Stopped {
+                            agent_id: subagent_id,
+                        },
+                    )
+                    .await;
                     let _ = persist_tx
                         .send(PersistCommand::ClaudeSessionUpdate {
                             id: session_id,
@@ -1338,17 +1372,136 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
     }
 }
 
+enum ClaudeSubagentUpdate {
+    Started {
+        agent_id: String,
+        agent_type: String,
+    },
+    Stopped {
+        agent_id: String,
+    },
+}
+
+async fn publish_claude_subagent_update(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    update: ClaudeSubagentUpdate,
+) {
+    let Some(actor) = state.get_session(session_id) else {
+        return;
+    };
+
+    let current_subagents = actor
+        .retained_state()
+        .await
+        .map(|session| session.subagents)
+        .unwrap_or_default();
+
+    let updated_subagents = apply_claude_subagent_update(current_subagents, update);
+    actor
+        .send(SessionCommand::SetSubagents {
+            subagents: updated_subagents,
+        })
+        .await;
+}
+
+fn apply_claude_subagent_update(
+    subagents: Vec<SubagentInfo>,
+    update: ClaudeSubagentUpdate,
+) -> Vec<SubagentInfo> {
+    let now = chrono_now();
+
+    match update {
+        ClaudeSubagentUpdate::Started {
+            agent_id,
+            agent_type,
+        } => {
+            let mut updated = false;
+            let mut next_subagents: Vec<SubagentInfo> = subagents
+                .into_iter()
+                .map(|mut subagent| {
+                    if subagent.id == agent_id {
+                        subagent.agent_type = agent_type.clone();
+                        subagent.provider = Some(Provider::Claude);
+                        subagent.status = SubagentStatus::Running;
+                        subagent.ended_at = None;
+                        subagent.last_activity_at = Some(now.clone());
+                        updated = true;
+                    }
+                    subagent
+                })
+                .collect();
+
+            if !updated {
+                next_subagents.push(SubagentInfo {
+                    id: agent_id,
+                    agent_type,
+                    started_at: now.clone(),
+                    ended_at: None,
+                    provider: Some(Provider::Claude),
+                    label: None,
+                    status: SubagentStatus::Running,
+                    task_summary: None,
+                    result_summary: None,
+                    error_summary: None,
+                    parent_subagent_id: None,
+                    model: None,
+                    last_activity_at: Some(now),
+                });
+            }
+
+            next_subagents
+        }
+        ClaudeSubagentUpdate::Stopped { agent_id } => {
+            let mut updated = false;
+            let mut next_subagents: Vec<SubagentInfo> = subagents
+                .into_iter()
+                .map(|mut subagent| {
+                    if subagent.id == agent_id {
+                        subagent.provider = Some(Provider::Claude);
+                        subagent.status = SubagentStatus::Completed;
+                        subagent.ended_at = Some(now.clone());
+                        subagent.last_activity_at = Some(now.clone());
+                        updated = true;
+                    }
+                    subagent
+                })
+                .collect();
+
+            if !updated {
+                next_subagents.push(SubagentInfo {
+                    id: agent_id,
+                    agent_type: "unknown".to_string(),
+                    started_at: now.clone(),
+                    ended_at: Some(now.clone()),
+                    provider: Some(Provider::Claude),
+                    label: None,
+                    status: SubagentStatus::Completed,
+                    task_summary: None,
+                    result_summary: None,
+                    error_summary: None,
+                    parent_subagent_id: None,
+                    model: None,
+                    last_activity_at: Some(now),
+                });
+            }
+
+            next_subagents
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use orbitdock_protocol::{
         ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionStatus, SessionSummary,
-        TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+        SubagentInfo, SubagentStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
     };
     use serde_json::json;
 
     use super::{
-        classify_permission_request, extract_plan_from_tool_input,
-        extract_question_from_tool_input, is_codex_rollout_payload,
+        apply_claude_subagent_update, classify_permission_request, extract_plan_from_tool_input,
+        extract_question_from_tool_input, is_codex_rollout_payload, ClaudeSubagentUpdate,
     };
     use crate::connectors::claude_hooks::session_materialization::most_recent_claude_session_id;
     use crate::support::session_time::chrono_now;
@@ -1403,6 +1556,7 @@ mod tests {
             current_cwd: None,
             effort: None,
             approval_version: Some(0),
+            summary_revision: 0,
             repository_root: None,
             is_worktree: false,
             worktree_id: None,
@@ -1419,6 +1573,9 @@ mod tests {
             display_title,
             context_line: None,
             list_status: orbitdock_protocol::SessionListStatus::Reply,
+            active_worker_count: 0,
+            pending_tool_family: None,
+            forked_from_session_id: None,
         }
     }
 
@@ -1528,5 +1685,56 @@ mod tests {
             most_recent_claude_session_id("current", "/repo", summaries.iter()),
             Some("latest".to_string())
         );
+    }
+
+    #[test]
+    fn claude_subagent_start_creates_or_reactivates_running_worker() {
+        let subagents = vec![SubagentInfo {
+            id: "worker-1".to_string(),
+            agent_type: "worker".to_string(),
+            started_at: "2026-03-12T09:00:00Z".to_string(),
+            ended_at: Some("2026-03-12T09:05:00Z".to_string()),
+            provider: Some(Provider::Claude),
+            label: Some("Existing".to_string()),
+            status: SubagentStatus::Completed,
+            task_summary: None,
+            result_summary: Some("done".to_string()),
+            error_summary: None,
+            parent_subagent_id: None,
+            model: None,
+            last_activity_at: Some("2026-03-12T09:05:00Z".to_string()),
+        }];
+
+        let updated = apply_claude_subagent_update(
+            subagents,
+            ClaudeSubagentUpdate::Started {
+                agent_id: "worker-1".to_string(),
+                agent_type: "explorer".to_string(),
+            },
+        );
+
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0].agent_type, "explorer");
+        assert_eq!(updated[0].status, SubagentStatus::Running);
+        assert_eq!(updated[0].provider, Some(Provider::Claude));
+        assert_eq!(updated[0].ended_at, None);
+        assert!(updated[0].last_activity_at.is_some());
+    }
+
+    #[test]
+    fn claude_subagent_stop_marks_worker_completed_even_if_start_was_missed() {
+        let updated = apply_claude_subagent_update(
+            vec![],
+            ClaudeSubagentUpdate::Stopped {
+                agent_id: "worker-2".to_string(),
+            },
+        );
+
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0].id, "worker-2");
+        assert_eq!(updated[0].status, SubagentStatus::Completed);
+        assert_eq!(updated[0].provider, Some(Provider::Claude));
+        assert_eq!(updated[0].agent_type, "unknown");
+        assert!(updated[0].ended_at.is_some());
     }
 }

@@ -86,12 +86,12 @@ struct ConversationSnapshotCacheTests {
     #expect(store.hydrationState == ConversationHydrationState.empty)
   }
 
-  @Test func messageUpdateBumpsRevisionEvenWhenMessageCountStaysFlat() throws {
+  @Test func contentOnlyStreamingUpdateUsesStreamingPatchRevision() async throws {
     let store = ConversationStore(sessionId: "session-cache", endpointId: endpointId, clients: makeClients())
     store.restoreFromCache(
       CachedConversation(
         messages: [
-          makeMessage(id: "msg-1", sequence: 1, type: .assistant, content: "hello")
+          makeMessage(id: "msg-1", sequence: 1, type: .assistant, content: "hello", isInProgress: true)
         ],
         totalMessageCount: 1,
         oldestSequence: 1,
@@ -102,6 +102,7 @@ struct ConversationSnapshotCacheTests {
     )
 
     let revisionBefore = store.messagesRevision
+    let patchRevisionBefore = store.streamingPatchRevision
 
     store.handleMessageUpdated(
       messageId: "msg-1",
@@ -113,11 +114,105 @@ struct ConversationSnapshotCacheTests {
         durationMs: nil
       )
     )
+    await waitForStreamingPatch(
+      store,
+      expectedRevision: patchRevisionBefore + 1,
+      expectedPatch: ConversationStreamingPatch(messageId: "msg-1")
+    )
 
     #expect(store.messages.count == 1)
     #expect(store.messages.first?.content == "hello there")
     #expect(store.messages.first?.isInProgress == true)
+    #expect(store.messagesRevision == revisionBefore)
+    #expect(store.streamingPatchRevision == patchRevisionBefore + 1)
+    #expect(store.latestStreamingPatch == ConversationStreamingPatch(messageId: "msg-1"))
+  }
+
+  @Test func completedStreamingUpdateStillBumpsStructuralRevision() throws {
+    let store = ConversationStore(sessionId: "session-cache", endpointId: endpointId, clients: makeClients())
+    store.restoreFromCache(
+      CachedConversation(
+        messages: [
+          makeMessage(id: "msg-1", sequence: 1, type: .assistant, content: "hello", isInProgress: true)
+        ],
+        totalMessageCount: 1,
+        oldestSequence: 1,
+        newestSequence: 1,
+        hasMoreHistoryBefore: false,
+        cachedAt: Date()
+      )
+    )
+
+    let revisionBefore = store.messagesRevision
+    let patchRevisionBefore = store.streamingPatchRevision
+
+    store.handleMessageUpdated(
+      messageId: "msg-1",
+      changes: ServerMessageChanges(
+        content: "hello there",
+        toolOutput: nil,
+        isError: nil,
+        isInProgress: false,
+        durationMs: nil
+      )
+    )
+
+    #expect(store.messages.count == 1)
+    #expect(store.messages.first?.content == "hello there")
+    #expect(store.messages.first?.isInProgress == false)
     #expect(store.messagesRevision == revisionBefore + 1)
+    #expect(store.streamingPatchRevision == patchRevisionBefore)
+    #expect(store.latestStreamingPatch == nil)
+  }
+
+  @Test func multipleStreamingUpdatesCoalesceIntoOnePatchPerMainActorTurn() async throws {
+    let store = ConversationStore(sessionId: "session-cache", endpointId: endpointId, clients: makeClients())
+    store.restoreFromCache(
+      CachedConversation(
+        messages: [
+          makeMessage(id: "msg-1", sequence: 1, type: .assistant, content: "hello", isInProgress: true)
+        ],
+        totalMessageCount: 1,
+        oldestSequence: 1,
+        newestSequence: 1,
+        hasMoreHistoryBefore: false,
+        cachedAt: Date()
+      )
+    )
+
+    let revisionBefore = store.messagesRevision
+    let patchRevisionBefore = store.streamingPatchRevision
+
+    store.handleMessageUpdated(
+      messageId: "msg-1",
+      changes: ServerMessageChanges(
+        content: "hello there",
+        toolOutput: nil,
+        isError: nil,
+        isInProgress: true,
+        durationMs: nil
+      )
+    )
+    store.handleMessageUpdated(
+      messageId: "msg-1",
+      changes: ServerMessageChanges(
+        content: "hello there again",
+        toolOutput: nil,
+        isError: nil,
+        isInProgress: true,
+        durationMs: nil
+      )
+    )
+    await waitForStreamingPatch(
+      store,
+      expectedRevision: patchRevisionBefore + 1,
+      expectedPatch: ConversationStreamingPatch(messageId: "msg-1")
+    )
+
+    #expect(store.messages.first?.content == "hello there again")
+    #expect(store.messagesRevision == revisionBefore)
+    #expect(store.streamingPatchRevision == patchRevisionBefore + 1)
+    #expect(store.latestStreamingPatch == ConversationStreamingPatch(messageId: "msg-1"))
   }
 
   private func makeClients() -> ServerClients {
@@ -136,7 +231,8 @@ struct ConversationSnapshotCacheTests {
     sequence: UInt64,
     type: TranscriptMessage.MessageType,
     content: String,
-    toolName: String? = nil
+    toolName: String? = nil,
+    isInProgress: Bool = false
   ) -> TranscriptMessage {
     TranscriptMessage(
       id: id,
@@ -144,7 +240,24 @@ struct ConversationSnapshotCacheTests {
       type: type,
       content: content,
       timestamp: Date(timeIntervalSince1970: TimeInterval(sequence)),
-      toolName: toolName
+      toolName: toolName,
+      isInProgress: isInProgress
     )
+  }
+
+  private func waitForStreamingPatch(
+    _ store: ConversationStore,
+    expectedRevision: Int,
+    expectedPatch: ConversationStreamingPatch,
+    maxTurns: Int = 10
+  ) async {
+    for _ in 0..<maxTurns {
+      if store.streamingPatchRevision == expectedRevision,
+         store.latestStreamingPatch == expectedPatch
+      {
+        return
+      }
+      await Task.yield()
+    }
   }
 }

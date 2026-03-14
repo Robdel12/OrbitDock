@@ -15,7 +15,7 @@
         }
       }
 
-      compactToolCellReg = UICollectionView.CellRegistration<UIKitCompactToolCell, String> {
+      toolStripCellReg = UICollectionView.CellRegistration<UIKitToolStripCell, String> {
         [weak self] cell, _, messageId in
         guard let self else { return }
         guard let model = buildCompactToolModel(for: messageId) else { return }
@@ -45,35 +45,11 @@
         }
       }
 
-      turnHeaderCellReg = UICollectionView.CellRegistration<UIKitTurnHeaderCell, String> {
-        [weak self] cell, _, turnId in
-        guard let self, let model = buildTurnHeaderModel(for: turnId) else { return }
-        cell.configure(model: model)
-      }
-
-      rollupSummaryCellReg = UICollectionView.CellRegistration<UIKitRollupSummaryCell, String> {
-        [weak self] cell, _, rollupId in
-        guard let self, let model = buildRollupSummaryModel(for: rollupId) else { return }
-        cell.configure(model: model)
-        cell.onToggle = { [weak self] in
-          self?.toggleRollup(id: rollupId)
-        }
-      }
-
       loadMoreCellReg = UICollectionView.CellRegistration<UIKitLoadMoreCell, Void> {
         [weak self] cell, _, _ in
         guard let self else { return }
-        cell.configure(remainingCount: sourceState.metadata.remainingLoadCount)
+        cell.configure(remainingCount: currentRemainingLoadCount)
         cell.onLoadMore = onLoadMore
-      }
-
-      messageCountCellReg = UICollectionView.CellRegistration<UIKitMessageCountCell, Void> {
-        [weak self] cell, _, _ in
-        guard let self else { return }
-        cell.configure(
-          displayedCount: sourceState.messages.count,
-          totalCount: sourceState.metadata.messageCount
-        )
       }
 
       liveIndicatorCellReg = UICollectionView.CellRegistration<UIKitLiveIndicatorCell, Void> {
@@ -82,7 +58,7 @@
         cell.configure(model: buildLiveIndicatorModel())
       }
 
-      workerEventCellReg = UICollectionView.CellRegistration<UIKitCompactToolCell, String> {
+      workerEventCellReg = UICollectionView.CellRegistration<UIKitToolStripCell, String> {
         [weak self] cell, indexPath, _ in
         guard let self else { return }
         guard indexPath.item < currentRows.count else { return }
@@ -109,12 +85,17 @@
         }
       }
 
-      liveProgressCellReg = UICollectionView.CellRegistration<UIKitLiveProgressCell, Void> {
+      activitySummaryCellReg = UICollectionView.CellRegistration<UIKitActivitySummaryCell, String> {
         [weak self] cell, indexPath, _ in
         guard let self else { return }
         guard indexPath.item < currentRows.count else { return }
-        guard let model = buildLiveProgressModel(for: currentRows[indexPath.item]) else { return }
+        guard let model = buildActivitySummaryModel(for: currentRows[indexPath.item]) else { return }
         cell.configure(model: model)
+        if case let .activitySummary(anchorID, _, _) = currentRows[indexPath.item].payload {
+          cell.onTap = { [weak self] in
+            self?.toggleRollup(id: anchorID)
+          }
+        }
       }
 
       approvalCardCellReg = UICollectionView.CellRegistration<UIKitApprovalCardCell, Void> {
@@ -122,15 +103,6 @@
         guard let self, let model = buildApprovalCardModel() else { return }
         cell.onTap = onOpenPendingApprovalPanel
         cell.configure(model: model)
-      }
-
-      collapsedTurnCellReg = UICollectionView.CellRegistration<UIKitCollapsedTurnCell, String> {
-        [weak self] cell, _, turnId in
-        guard let self, let model = buildCollapsedTurnModel(for: turnId) else { return }
-        cell.configure(model: model)
-        cell.onTap = { [weak self] in
-          self?.toggleTurnExpansion(turnID: turnId)
-        }
       }
 
       spacerCellReg = UICollectionView.CellRegistration<UIKitSpacerCell, Void> { _, _, _ in
@@ -161,10 +133,6 @@
           return collectionView.dequeueConfiguredReusableCell(
             using: loadMoreCellReg, for: indexPath, item: ()
           )
-        case .messageCount:
-          return collectionView.dequeueConfiguredReusableCell(
-            using: messageCountCellReg, for: indexPath, item: ()
-          )
         case .message:
           guard case let .message(id, _) = row.payload else { return nil }
           return collectionView.dequeueConfiguredReusableCell(
@@ -172,23 +140,13 @@
           )
         case .tool:
           guard case let .tool(id) = row.payload else { return nil }
-          if uiState.expandedToolCards.contains(id) {
+          if expandedToolCardIDs.contains(id) {
             return collectionView.dequeueConfiguredReusableCell(
               using: expandedToolCellReg, for: indexPath, item: id
             )
           }
           return collectionView.dequeueConfiguredReusableCell(
-            using: compactToolCellReg, for: indexPath, item: id
-          )
-        case .turnHeader:
-          guard case let .turnHeader(turnID, _, _) = row.payload else { return nil }
-          return collectionView.dequeueConfiguredReusableCell(
-            using: turnHeaderCellReg, for: indexPath, item: turnID
-          )
-        case .rollupSummary:
-          guard case let .rollupSummary(rollupID, _, _, _, _, _) = row.payload else { return nil }
-          return collectionView.dequeueConfiguredReusableCell(
-            using: rollupSummaryCellReg, for: indexPath, item: rollupID
+            using: toolStripCellReg, for: indexPath, item: id
           )
         case .liveIndicator:
           return collectionView.dequeueConfiguredReusableCell(
@@ -204,6 +162,11 @@
           return collectionView.dequeueConfiguredReusableCell(
             using: workerOrchestrationCellReg, for: indexPath, item: turnID
           )
+        case .activitySummary:
+          guard case let .activitySummary(anchorID, _, _) = row.payload else { return nil }
+          return collectionView.dequeueConfiguredReusableCell(
+            using: activitySummaryCellReg, for: indexPath, item: anchorID
+          )
         case .approvalCard:
           return collectionView.dequeueConfiguredReusableCell(
             using: approvalCardCellReg, for: indexPath, item: ()
@@ -211,15 +174,6 @@
         case .bottomSpacer:
           return collectionView.dequeueConfiguredReusableCell(
             using: spacerCellReg, for: indexPath, item: ()
-          )
-        case .liveProgress:
-          return collectionView.dequeueConfiguredReusableCell(
-            using: liveProgressCellReg, for: indexPath, item: ()
-          )
-        case .collapsedTurn:
-          guard case let .collapsedTurn(turnID, _, _, _, _) = row.payload else { return nil }
-          return collectionView.dequeueConfiguredReusableCell(
-            using: collapsedTurnCellReg, for: indexPath, item: turnID
           )
       }
     }

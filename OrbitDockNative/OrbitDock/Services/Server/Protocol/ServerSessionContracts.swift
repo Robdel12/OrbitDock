@@ -23,7 +23,7 @@ enum ServerWorkStatus: String, Codable {
   case ended
 }
 
-struct ServerTokenUsage: Codable {
+struct ServerTokenUsage: Codable, Equatable {
   let inputTokens: UInt64
   let outputTokens: UInt64
   let cachedTokens: UInt64
@@ -83,7 +83,66 @@ struct ServerSessionListItem: Codable, Identifiable {
   let displaySearchText: String?
   let contextLine: String?
   let listStatus: ServerSessionListStatus?
+  let summaryRevision: UInt64?
   let effort: String?
+
+  init(
+    id: String,
+    provider: ServerProvider,
+    projectPath: String,
+    projectName: String?,
+    gitBranch: String?,
+    model: String?,
+    status: ServerSessionStatus,
+    workStatus: ServerWorkStatus,
+    codexIntegrationMode: ServerCodexIntegrationMode?,
+    claudeIntegrationMode: ServerClaudeIntegrationMode?,
+    startedAt: String?,
+    lastActivityAt: String?,
+    unreadCount: UInt64?,
+    hasTurnDiff: Bool?,
+    pendingToolName: String?,
+    repositoryRoot: String?,
+    isWorktree: Bool?,
+    worktreeId: String?,
+    totalTokens: UInt64?,
+    totalCostUSD: Double?,
+    displayTitle: String?,
+    displayTitleSortKey: String?,
+    displaySearchText: String?,
+    contextLine: String?,
+    listStatus: ServerSessionListStatus?,
+    summaryRevision: UInt64? = nil,
+    effort: String?
+  ) {
+    self.id = id
+    self.provider = provider
+    self.projectPath = projectPath
+    self.projectName = projectName
+    self.gitBranch = gitBranch
+    self.model = model
+    self.status = status
+    self.workStatus = workStatus
+    self.codexIntegrationMode = codexIntegrationMode
+    self.claudeIntegrationMode = claudeIntegrationMode
+    self.startedAt = startedAt
+    self.lastActivityAt = lastActivityAt
+    self.unreadCount = unreadCount
+    self.hasTurnDiff = hasTurnDiff
+    self.pendingToolName = pendingToolName
+    self.repositoryRoot = repositoryRoot
+    self.isWorktree = isWorktree
+    self.worktreeId = worktreeId
+    self.totalTokens = totalTokens
+    self.totalCostUSD = totalCostUSD
+    self.displayTitle = displayTitle
+    self.displayTitleSortKey = displayTitleSortKey
+    self.displaySearchText = displaySearchText
+    self.contextLine = contextLine
+    self.listStatus = listStatus
+    self.summaryRevision = summaryRevision
+    self.effort = effort
+  }
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -111,6 +170,7 @@ struct ServerSessionListItem: Codable, Identifiable {
     case displaySearchText = "display_search_text"
     case contextLine = "context_line"
     case listStatus = "list_status"
+    case summaryRevision = "summary_revision"
     case effort
   }
 }
@@ -163,6 +223,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let displaySearchText: String?
   let contextLine: String?
   let listStatus: String?
+  let summaryRevision: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -210,6 +271,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case displaySearchText = "display_search_text"
     case contextLine = "context_line"
     case listStatus = "list_status"
+    case summaryRevision = "summary_revision"
   }
 }
 
@@ -575,6 +637,7 @@ struct ServerStateChanges: Codable {
   let gitBranch: String??
   let gitSha: String??
   let currentCwd: String??
+  let subagents: [ServerSubagentInfo]?
   let firstPrompt: String??
   let lastMessage: String??
   let model: String??
@@ -584,6 +647,78 @@ struct ServerStateChanges: Codable {
   let repositoryRoot: String??
   let isWorktree: Bool?
   let unreadCount: UInt64?
+
+  init(
+    status: ServerSessionStatus? = nil,
+    workStatus: ServerWorkStatus? = nil,
+    pendingApproval: ServerApprovalRequest?? = nil,
+    tokenUsage: ServerTokenUsage? = nil,
+    tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind? = nil,
+    currentDiff: String?? = nil,
+    currentPlan: String?? = nil,
+    customName: String?? = nil,
+    summary: String?? = nil,
+    codexIntegrationMode: ServerCodexIntegrationMode?? = nil,
+    claudeIntegrationMode: ServerClaudeIntegrationMode?? = nil,
+    approvalPolicy: String?? = nil,
+    sandboxMode: String?? = nil,
+    collaborationMode: String?? = nil,
+    multiAgent: Bool?? = nil,
+    personality: String?? = nil,
+    serviceTier: String?? = nil,
+    developerInstructions: String?? = nil,
+    lastActivityAt: String? = nil,
+    currentTurnId: String?? = nil,
+    turnCount: UInt64? = nil,
+    gitBranch: String?? = nil,
+    gitSha: String?? = nil,
+    currentCwd: String?? = nil,
+    subagents: [ServerSubagentInfo]? = nil,
+    firstPrompt: String?? = nil,
+    lastMessage: String?? = nil,
+    model: String?? = nil,
+    effort: String?? = nil,
+    permissionMode: String?? = nil,
+    approvalVersion: UInt64? = nil,
+    repositoryRoot: String?? = nil,
+    isWorktree: Bool? = nil,
+    unreadCount: UInt64? = nil
+  ) {
+    self.status = status
+    self.workStatus = workStatus
+    self.pendingApproval = pendingApproval
+    self.tokenUsage = tokenUsage
+    self.tokenUsageSnapshotKind = tokenUsageSnapshotKind
+    self.currentDiff = currentDiff
+    self.currentPlan = currentPlan
+    self.customName = customName
+    self.summary = summary
+    self.codexIntegrationMode = codexIntegrationMode
+    self.claudeIntegrationMode = claudeIntegrationMode
+    self.approvalPolicy = approvalPolicy
+    self.sandboxMode = sandboxMode
+    self.collaborationMode = collaborationMode
+    self.multiAgent = multiAgent
+    self.personality = personality
+    self.serviceTier = serviceTier
+    self.developerInstructions = developerInstructions
+    self.lastActivityAt = lastActivityAt
+    self.currentTurnId = currentTurnId
+    self.turnCount = turnCount
+    self.gitBranch = gitBranch
+    self.gitSha = gitSha
+    self.currentCwd = currentCwd
+    self.subagents = subagents
+    self.firstPrompt = firstPrompt
+    self.lastMessage = lastMessage
+    self.model = model
+    self.effort = effort
+    self.permissionMode = permissionMode
+    self.approvalVersion = approvalVersion
+    self.repositoryRoot = repositoryRoot
+    self.isWorktree = isWorktree
+    self.unreadCount = unreadCount
+  }
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -610,6 +745,7 @@ struct ServerStateChanges: Codable {
     case gitBranch = "git_branch"
     case gitSha = "git_sha"
     case currentCwd = "current_cwd"
+    case subagents
     case firstPrompt = "first_prompt"
     case lastMessage = "last_message"
     case model
@@ -647,6 +783,7 @@ struct ServerStateChanges: Codable {
     gitBranch = try container.decodePatchValue(String.self, forKey: .gitBranch)
     gitSha = try container.decodePatchValue(String.self, forKey: .gitSha)
     currentCwd = try container.decodePatchValue(String.self, forKey: .currentCwd)
+    subagents = try container.decodeIfPresent([ServerSubagentInfo].self, forKey: .subagents)
     firstPrompt = try container.decodePatchValue(String.self, forKey: .firstPrompt)
     lastMessage = try container.decodePatchValue(String.self, forKey: .lastMessage)
     model = try container.decodePatchValue(String.self, forKey: .model)

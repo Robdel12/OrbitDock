@@ -53,6 +53,10 @@ pub fn spool_dir() -> PathBuf {
     data_dir().join("spool")
 }
 
+/// Legacy JSON checkpoint path for the rollout watcher.
+///
+/// New durable checkpoints live in SQLite; this path is only used for one-time import
+/// of older watcher state during startup.
 pub fn rollout_state_path() -> PathBuf {
     data_dir().join("codex-rollout-state.json")
 }
@@ -108,6 +112,7 @@ fn secure_dir_permissions(_path: &Path) -> io::Result<()> {
 
 /// Reset data dir — for test isolation only.
 #[cfg(test)]
+#[allow(dead_code)]
 pub fn reset_data_dir() {
     let mut guard = DATA_DIR.write().expect("DATA_DIR lock poisoned");
     *guard = None;

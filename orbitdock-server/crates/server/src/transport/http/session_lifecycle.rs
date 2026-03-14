@@ -101,6 +101,10 @@ pub struct UpdateSessionConfigRequest {
     pub service_tier: Option<String>,
     #[serde(default)]
     pub developer_instructions: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
 }
 
 pub async fn rename_session(
@@ -132,6 +136,8 @@ pub async fn update_session_config(
             personality: body.personality,
             service_tier: body.service_tier,
             developer_instructions: body.developer_instructions,
+            model: body.model,
+            effort: body.effort,
         },
     )
     .await

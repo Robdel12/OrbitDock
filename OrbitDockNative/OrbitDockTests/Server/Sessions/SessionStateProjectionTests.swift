@@ -102,6 +102,70 @@ struct SessionStateProjectionTests {
     #expect(observable.contextWindow == 200_000)
   }
 
+  @Test func sessionObservableApplyProjectionUpdatesSubagentsFromServerDelta() {
+    let observable = SessionObservable(id: "session-1")
+    let worker = ServerSubagentInfo(
+      id: "worker-1",
+      agentType: "worker",
+      startedAt: "2026-03-12T10:00:00Z",
+      endedAt: nil,
+      provider: .codex,
+      label: "Descartes",
+      status: .running,
+      taskSummary: "Check whether Makefile exists",
+      resultSummary: nil,
+      errorSummary: nil,
+      parentSubagentId: nil,
+      model: "gpt-5.4",
+      lastActivityAt: "2026-03-12T10:00:01Z"
+    )
+
+    let projection = SessionStateProjection.from(
+      ServerStateChanges(
+        status: nil,
+        workStatus: nil,
+        pendingApproval: nil,
+        tokenUsage: nil,
+        tokenUsageSnapshotKind: nil,
+        currentDiff: nil,
+        currentPlan: nil,
+        customName: nil,
+        summary: nil,
+        codexIntegrationMode: nil,
+        claudeIntegrationMode: nil,
+        approvalPolicy: nil,
+        sandboxMode: nil,
+        collaborationMode: nil,
+        multiAgent: nil,
+        personality: nil,
+        serviceTier: nil,
+        developerInstructions: nil,
+        lastActivityAt: nil,
+        currentTurnId: nil,
+        turnCount: nil,
+        gitBranch: nil,
+        gitSha: nil,
+        currentCwd: nil,
+        subagents: [worker],
+        firstPrompt: nil,
+        lastMessage: nil,
+        model: nil,
+        effort: nil,
+        permissionMode: nil,
+        approvalVersion: nil,
+        repositoryRoot: nil,
+        isWorktree: nil,
+        unreadCount: nil
+      )
+    )
+
+    observable.applyProjection(projection)
+
+    #expect(observable.subagents.count == 1)
+    #expect(observable.subagents.first?.id == "worker-1")
+    #expect(observable.subagents.first?.status == .running)
+  }
+
   @Test func sessionDetailSnapshotProjectionCapturesDetailMirrorFields() {
     var session = Session(
       id: "session-1",

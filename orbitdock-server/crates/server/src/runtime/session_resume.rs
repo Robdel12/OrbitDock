@@ -48,7 +48,7 @@ pub(crate) async fn launch_resumed_session(
             component = "session",
             event = "session.resume.transcript_loaded",
             session_id = %session_id,
-            message_count = prepared.message_count,
+            message_count = prepared.row_count,
             "Loaded messages from transcript for resume"
         );
     }
@@ -91,7 +91,7 @@ pub(crate) async fn launch_resumed_session(
                 prepared.model,
                 provider_resume_id,
                 prepared.handle,
-                prepared.message_count,
+                prepared.row_count,
             )
             .await;
         }
@@ -111,7 +111,7 @@ pub(crate) async fn launch_resumed_session(
                     service_tier: prepared.service_tier,
                     developer_instructions: prepared.developer_instructions,
                     handle: prepared.handle,
-                    message_count: prepared.message_count,
+                    message_count: prepared.row_count,
                 },
             )
             .await;

@@ -7,7 +7,6 @@
 
 import Foundation
 import SwiftUI
-import SwiftUI
 
 enum SharedModelBuilders {
   private struct WorkerLinkPresentation {
@@ -83,74 +82,131 @@ enum SharedModelBuilders {
 
   static func compactToolModel(
     from message: TranscriptMessage,
-    supportsRichToolingCards: Bool,
     subagentsByID: [String: ServerSubagentInfo] = [:],
     selectedWorkerID: String? = nil
   ) -> NativeCompactToolRowModel {
-    let glyph = ToolGlyphInfo.from(message: message)
-    let toolType = CompactToolHelpers.toolType(for: message)
-    let summary = CompactToolHelpers.compactSingleLineSummary(
-      CompactToolHelpers.summary(for: message, supportsRichToolingCards: supportsRichToolingCards)
+    guard let display = message.toolDisplay else {
+      // Server didn't provide display data — minimal fallback
+      let glyph = ToolGlyphInfo.from(message: message)
+      let toolName = message.toolName ?? (message.isShell ? "bash" : "tool")
+      let workerID = linkedWorkerID(for: message)
+      let workerPresentation = linkedWorkerPresentation(for: message, subagentsByID: subagentsByID)
+      let workerSubtitle = workerPresentation.map { "\($0.label) · \($0.statusText)" }
+      return NativeCompactToolRowModel(
+        summary: CompactToolHelpers.displayName(for: toolName),
+        subtitle: workerSubtitle,
+        rightMeta: message.isInProgress ? "LIVE" : nil,
+        glyphSymbol: glyph.symbol,
+        glyphColor: glyph.color,
+        toolType: .generic,
+        language: nil,
+        diffPreview: nil,
+        outputPreview: workerPresentation?.detailText,
+        liveOutputPreview: nil,
+        todoItems: nil,
+        summaryFont: .system,
+        displayTier: .standard,
+        timestamp: message.timestamp,
+        family: message.toolFamily,
+        isInProgress: message.isInProgress,
+        mcpServer: CompactToolHelpers.mcpServerName(for: message),
+        linkedWorkerID: workerID,
+        linkedWorkerLabel: workerPresentation?.label,
+        linkedWorkerStatusText: workerPresentation?.statusText,
+        isFocusedWorker: workerID != nil && workerID == selectedWorkerID
+      )
+    }
+
+    return compactToolModelFromServer(
+      display: display,
+      message: message,
+      subagentsByID: subagentsByID,
+      selectedWorkerID: selectedWorkerID
     )
-    var meta = CompactToolHelpers.rightMeta(for: message, supportsRichToolingCards: supportsRichToolingCards)
-    let preview = CompactToolHelpers.diffPreview(for: message)
-    let liveOutputPreview = CompactToolHelpers.liveOutputPreview(for: message)
-    let outputPreview = CompactToolHelpers.outputPreview(for: message)
-    let language = CompactToolHelpers.detectedLanguage(for: message)
+  }
+
+  private static func compactToolModelFromServer(
+    display: ServerToolDisplay,
+    message: TranscriptMessage,
+    subagentsByID: [String: ServerSubagentInfo],
+    selectedWorkerID: String?
+  ) -> NativeCompactToolRowModel {
+    let glyphColor = PlatformColor.fromSemanticName(display.glyphColor)
+    let toolType = CompactToolHelpers.toolTypeFromString(display.toolType)
     let mcpServer = CompactToolHelpers.mcpServerName(for: message)
-    let todoItems = CompactToolHelpers.compactTodoItems(for: message, supportsRichToolingCards: supportsRichToolingCards)
     let workerPresentation = linkedWorkerPresentation(for: message, subagentsByID: subagentsByID)
 
-    if toolType == .read, let lang = language, let existing = meta {
+    let diffPreview = display.diffPreview.map { dp in
+      DiffPreviewInfo(
+        contextLine: dp.contextLine,
+        snippetText: dp.snippetText,
+        snippetPrefix: dp.snippetPrefix,
+        isAddition: dp.isAddition,
+        additions: Int(dp.additions),
+        deletions: Int(dp.deletions)
+      )
+    }
+
+    let todoItems: [CompactTodoItem]? = display.todoItems.isEmpty
+      ? nil
+      : display.todoItems.map { CompactTodoItem(status: NativeTodoStatus($0.status)) }
+
+    var meta = display.rightMeta
+    if toolType == .read, let lang = display.language, let existing = meta {
       meta = "\(existing) · \(lang)"
-    } else if toolType == .read, let lang = language {
+    } else if toolType == .read, let lang = display.language {
       meta = lang
     }
 
-    let subtitle = CompactToolHelpers.subtitle(
-      for: message,
-      toolType: toolType,
-      rightMeta: meta,
-      supportsRichToolingCards: supportsRichToolingCards
-    )
     let workerSubtitle = workerPresentation.map { "\($0.label) · \($0.statusText)" }
-    let mergedSubtitle = mergeSubtitle(primary: subtitle, workerSubtitle: workerSubtitle)
+    let mergedSubtitle = mergeSubtitle(primary: display.subtitle, workerSubtitle: workerSubtitle)
     let fallbackPreview = fallbackWorkerPreview(
-      summary: summary,
+      summary: display.summary,
       subtitle: mergedSubtitle,
-      existingPreview: outputPreview,
+      existingPreview: display.outputPreview,
       workerPresentation: workerPresentation
     )
-    if CompactToolHelpers.subtitleAbsorbsMeta(toolType), subtitle != nil {
+
+    if display.subtitleAbsorbsMeta, display.subtitle != nil {
       meta = nil
     }
 
+    let fontStyle: SummaryFontStyle = display.summaryFont == "mono" ? .mono : .system
+    let tier: DisplayTier = switch display.displayTier {
+      case "prominent": .prominent
+      case "compact": .compact
+      case "minimal": .minimal
+      default: .standard
+    }
+
     return NativeCompactToolRowModel(
-      timestamp: message.timestamp,
-      glyphSymbol: glyph.symbol,
-      glyphColor: glyph.color,
-      summary: summary,
+      summary: display.summary,
       subtitle: mergedSubtitle,
       rightMeta: meta,
+      glyphSymbol: display.glyphSymbol,
+      glyphColor: glyphColor,
+      toolType: toolType,
+      language: display.language,
+      diffPreview: diffPreview,
+      outputPreview: fallbackPreview,
+      liveOutputPreview: display.liveOutputPreview,
+      todoItems: todoItems,
+      summaryFont: fontStyle,
+      displayTier: tier,
+      timestamp: message.timestamp,
+      family: message.toolFamily,
+      isInProgress: message.isInProgress,
+      mcpServer: mcpServer,
       linkedWorkerID: linkedWorkerID(for: message),
       linkedWorkerLabel: workerPresentation?.label,
       linkedWorkerStatusText: workerPresentation?.statusText,
-      isFocusedWorker: linkedWorkerID(for: message) == selectedWorkerID,
-      isInProgress: message.isInProgress,
-      diffPreview: preview,
-      liveOutputPreview: liveOutputPreview,
-      toolType: toolType,
-      outputPreview: fallbackPreview,
-      language: language,
-      mcpServer: mcpServer,
-      todoItems: todoItems
+      isFocusedWorker: linkedWorkerID(for: message) == selectedWorkerID
     )
   }
 
   static func expandedToolModel(
     from message: TranscriptMessage,
     messageID: String,
-    supportsRichToolingCards: Bool,
     subagentsByID: [String: ServerSubagentInfo] = [:]
   ) -> NativeExpandedToolModel {
     let glyph = ToolGlyphInfo.from(message: message)
@@ -158,7 +214,6 @@ enum SharedModelBuilders {
     let content = expandedToolContent(
       from: message,
       toolName: toolName,
-      supportsRichToolingCards: supportsRichToolingCards,
       subagentsByID: subagentsByID
     )
 
@@ -171,6 +226,7 @@ enum SharedModelBuilders {
       canCancel: (message.isShell || toolName.lowercased() == "task") && message.isInProgress,
       duration: message.formattedDuration,
       linkedWorkerID: linkedWorkerID(for: message),
+      family: message.toolFamily,
       content: content
     )
   }
@@ -192,24 +248,27 @@ enum SharedModelBuilders {
     let toolType = workerEventToolType(for: message)
 
     return NativeCompactToolRowModel(
-      timestamp: message.timestamp,
-      glyphSymbol: workerGlyphSymbol(for: worker),
-      glyphColor: workerGlyphColor(for: worker, message: message),
       summary: eventPresentation.summary,
       subtitle: eventPresentation.subtitle,
       rightMeta: statusText,
+      glyphSymbol: workerGlyphSymbol(for: worker),
+      glyphColor: workerGlyphColor(for: worker, message: message),
+      toolType: toolType,
+      language: nil,
+      diffPreview: nil,
+      outputPreview: reportPreview,
+      liveOutputPreview: nil,
+      todoItems: nil,
+      summaryFont: .system,
+      displayTier: .standard,
+      timestamp: message.timestamp,
+      family: message.toolFamily,
+      isInProgress: message.isInProgress || worker?.status == .running || worker?.status == .pending,
+      mcpServer: nil,
       linkedWorkerID: workerID,
       linkedWorkerLabel: workerLabel,
       linkedWorkerStatusText: statusText,
-      isFocusedWorker: workerID == selectedWorkerID,
-      isInProgress: message.isInProgress || worker?.status == .running || worker?.status == .pending,
-      diffPreview: nil,
-      liveOutputPreview: nil,
-      toolType: toolType,
-      outputPreview: reportPreview,
-      language: nil,
-      mcpServer: nil,
-      todoItems: nil
+      isFocusedWorker: workerID == selectedWorkerID
     )
   }
 
@@ -273,7 +332,7 @@ enum SharedModelBuilders {
 
     switch toolName {
     case "handoff":
-      let summary = CompactToolHelpers.summary(for: message, supportsRichToolingCards: true)
+      let summary = message.toolDisplay?.summary ?? "Handoff"
       let detail = summaryText ?? workerReportPreview(for: message)
       let subtitle = trimmed(
         [workerLabel, detail]
@@ -455,183 +514,129 @@ enum SharedModelBuilders {
   static func expandedToolContent(
     from message: TranscriptMessage,
     toolName: String,
-    supportsRichToolingCards: Bool,
     subagentsByID: [String: ServerSubagentInfo] = [:]
   ) -> NativeToolContent {
-    let lowercased = toolName.lowercased()
-    if let payload = TodoToolParser.payload(
-      from: message,
-      toolName: toolName,
-      supportsRichToolingCards: supportsRichToolingCards
-    ) {
-      return .todo(
-        title: payload.title,
-        subtitle: payload.subtitle,
-        items: payload.items,
-        output: payload.output
-      )
-    }
+    let family = message.toolFamily
+    switch family {
+      case .shell:
+        let command = String.shellCommandDisplay(from: message.content) ?? message.bashCommand ?? message.content
+        return .bash(command: command, input: message.fullFormattedToolInput, output: message.sanitizedToolOutput)
 
-    switch lowercased {
-      case "bash":
-        return .bash(
-          command: message.bashCommand ?? message.content,
-          input: message.bashMetadataInput,
-          output: message.sanitizedToolOutput
-        )
+      case .file:
+        let path = message.filePath
+        let filename = path.map { ($0 as NSString).lastPathComponent }
+        let normalized = toolName.lowercased()
 
-      case "edit", "write", "notebookedit":
-        let filename = message.filePath?.components(separatedBy: "/").last
-        let isWrite = lowercased == "write"
-        let diffLines: [DiffLine] = if isWrite, let wc = message.writeContent {
-          wc.components(separatedBy: "\n").enumerated().map { index, line in
-            DiffLine(type: .added, content: line, oldLineNum: nil, newLineNum: index + 1, prefix: "+")
+        if normalized == "read" {
+          let language = ToolCardStyle.detectLanguage(from: path)
+          let lines = (message.sanitizedToolOutput ?? "").components(separatedBy: "\n")
+          return .read(filename: filename, path: path, language: language, lines: lines)
+        }
+
+        // edit / write / notebookedit
+        let isWriteNew = normalized == "write" && message.editOldString == nil
+        let diffLines: [DiffLine]
+        if isWriteNew, let content = message.writeContent {
+          diffLines = content.components(separatedBy: "\n").enumerated().map { idx, line in
+            DiffLine(type: .added, content: line, oldLineNum: nil, newLineNum: idx + 1, prefix: "+")
           }
         } else if let diff = message.unifiedDiff, !diff.isEmpty {
-          EditCard.extractAllLines(fromUnifiedDiff: diff)
+          diffLines = DiffModel.extractChangedLines(fromUnifiedDiff: diff)
         } else {
-          EditCard.extractLinesWithContext(
+          diffLines = DiffModel.extractChangedLines(
             oldString: message.editOldString ?? "",
             newString: message.editNewString ?? ""
           )
         }
         let additions = diffLines.filter { $0.type == .added }.count
         let deletions = diffLines.filter { $0.type == .removed }.count
-        return .edit(
-          filename: filename,
-          path: message.filePath,
-          additions: additions,
-          deletions: deletions,
-          lines: diffLines,
-          isWriteNew: isWrite && message.editOldString == nil
-        )
+        return .edit(filename: filename, path: path, additions: additions, deletions: deletions, lines: diffLines, isWriteNew: isWriteNew)
 
-      case "read":
-        let output = message.toolOutput ?? ""
-        let lines = output.components(separatedBy: "\n")
-        let language = ToolCardStyle.detectLanguage(from: message.filePath)
-        let filename = message.filePath?.components(separatedBy: "/").last
-        return .read(filename: filename, path: message.filePath, language: language, lines: lines)
-
-      case "glob":
-        let output = message.toolOutput ?? ""
-        let files = output.components(separatedBy: "\n").filter { !$0.isEmpty }
-        let grouped = Dictionary(grouping: files) { path -> String in
-          let components = path.components(separatedBy: "/")
-          return components.count > 1 ? components.dropLast().joined(separator: "/") : "."
-        }
-        .map { (dir: $0.key, files: $0.value) }
-        .sorted { $0.dir < $1.dir }
-        return .glob(pattern: message.globPattern ?? "**/*", grouped: grouped)
-
-      case "grep":
-        let output = message.toolOutput ?? ""
-        let lines = output.components(separatedBy: "\n").filter { !$0.isEmpty }
-        let isFileList = lines.first.map { !$0.contains(":") } ?? true
-        let grouped: [(file: String, matches: [String])]
-        if isFileList {
-          grouped = lines.map { (file: $0, matches: []) }
+      case .search:
+        let normalized = toolName.lowercased()
+        if normalized == "glob" {
+          let pattern = message.globPattern ?? "glob"
+          let grouped = Self.groupGlobOutput(message.sanitizedToolOutput)
+          return .glob(pattern: pattern, grouped: grouped)
         } else {
-          var fileMatches: [String: [String]] = [:]
-          for line in lines {
-            let parts = line.split(separator: ":", maxSplits: 2)
-            if parts.count >= 2 {
-              let file = String(parts[0])
-              let match = parts.count > 2 ? String(parts[1]) + ":" + String(parts[2]) : String(parts[1])
-              fileMatches[file, default: []].append(match)
-            }
-          }
-          grouped = fileMatches.keys.sorted().map { (file: $0, matches: fileMatches[$0] ?? []) }
+          let pattern = message.grepPattern ?? "grep"
+          let grouped = Self.groupGrepOutput(message.sanitizedToolOutput)
+          return .grep(pattern: pattern, grouped: grouped)
         }
-        return .grep(pattern: message.grepPattern ?? "", grouped: grouped)
 
-      case "task":
-        let workerPresentation = linkedWorkerPresentation(for: message, subagentsByID: subagentsByID)
-        let agentType = (message.toolInput?["subagent_type"] as? String) ?? "general"
-        let agentLabel = workerPresentation?.label ?? (agentType.isEmpty ? "Agent" : agentType.capitalized)
-        let agentColor = ToolGlyphInfo.taskAgentColor(agentType)
-        let isComplete = workerPresentation?.statusText == "Complete"
-          || (!message.isInProgress && !(message.toolOutput ?? "").isEmpty)
-        return .task(
-          agentLabel: agentLabel,
-          agentColor: agentColor,
-          description: workerPresentation?.detailText ?? (message.taskDescription ?? ""),
-          output: message.sanitizedToolOutput ?? workerPresentation?.detailText,
-          isComplete: isComplete
-        )
+      case .agent:
+        let description = message.taskDescription ?? message.taskPrompt ?? message.content
+        let workerID = linkedWorkerID(for: message)
+        let worker = workerID.flatMap { subagentsByID[$0] }
+        let agentLabel = worker?.label ?? worker?.agentType ?? "Agent"
+        let agentColor = ToolGlyphInfo.taskAgentColor(worker?.agentType ?? "")
+        let isComplete = !message.isInProgress
+        return .task(agentLabel: agentLabel, agentColor: agentColor, description: description, output: message.sanitizedToolOutput, isComplete: isComplete)
 
-      case "hook":
-        return .generic(
-          toolName: "Hook",
-          input: message.fullFormattedToolInput,
-          output: message.sanitizedToolOutput
-        )
+      case .plan:
+        let todoPayload = TodoToolParser.payload(from: message, toolName: toolName, supportsRichToolingCards: true)
+        if let payload = todoPayload {
+          return .todo(title: payload.title, subtitle: payload.subtitle, items: payload.items, output: payload.output)
+        }
+        return .generic(toolName: toolName, input: message.fullFormattedToolInput, output: message.sanitizedToolOutput)
 
-      case "compactcontext":
-        return .generic(
-          toolName: "Compact Context",
-          input: message.fullFormattedToolInput,
-          output: message.sanitizedToolOutput
-        )
+      case .mcp:
+        let parts = toolName.replacingOccurrences(of: "mcp__", with: "").components(separatedBy: "__")
+        let server = parts.first ?? "MCP"
+        let displayTool = parts.count > 1 ? parts[1] : toolName
+        return .mcp(server: server, displayTool: displayTool, subtitle: nil, input: message.fullFormattedToolInput, output: message.sanitizedToolOutput)
 
-      case "askuserquestion":
-        return .generic(
-          toolName: "Question",
-          input: message.fullFormattedToolInput,
-          output: message.sanitizedToolOutput
-        )
-
-      case "mcp_approval":
-        return .generic(
-          toolName: "MCP Approval",
-          input: message.fullFormattedToolInput,
-          output: message.sanitizedToolOutput
-        )
-
-      default:
-        if toolName.hasPrefix("mcp__") {
-          let parts = toolName.dropFirst(5).split(separator: "__", maxSplits: 1)
-          let server = parts.count >= 1 ? String(parts[0]) : "mcp"
-          let tool = parts.count >= 2 ? String(parts[1]) : toolName
-          let displayTool = tool
-            .replacingOccurrences(of: "_", with: " ")
-            .split(separator: " ")
-            .map(\.capitalized)
-            .joined(separator: " ")
-          let subtitle = CompactToolHelpers.mcpPrimaryParameter(message: message)
-          return .mcp(
-            server: server,
-            displayTool: displayTool,
-            subtitle: subtitle,
-            input: message.fullFormattedToolInput,
-            output: message.sanitizedToolOutput
-          )
-        } else if lowercased == "webfetch" {
-          let url = CompactToolHelpers.inputString(message, key: "url") ?? ""
+      case .web:
+        let normalized = toolName.lowercased()
+        if normalized == "websearch" {
+          let query = message.toolInput?["query"] as? String ?? message.content
+          return .webSearch(query: query, input: message.fullFormattedToolInput, output: message.sanitizedToolOutput)
+        } else {
+          let url = message.toolInput?["url"] as? String ?? ""
           let domain = URL(string: url)?.host ?? url
-          return .webFetch(
-            domain: domain,
-            url: url,
-            input: message.fullFormattedToolInput,
-            output: message.sanitizedToolOutput
-          )
-        } else if lowercased == "websearch" {
-          let query = (CompactToolHelpers.inputString(message, key: "query")?
-            .trimmingCharacters(in: .whitespacesAndNewlines))
-            .flatMap { $0.isEmpty ? nil : $0 } ?? message.content
-          return .webSearch(
-            query: query,
-            input: message.fullFormattedToolInput,
-            output: message.sanitizedToolOutput
-          )
-        } else {
-          return .generic(
-            toolName: toolName,
-            input: message.fullFormattedToolInput,
-            output: message.sanitizedToolOutput
-          )
+          return .webFetch(domain: domain, url: url, input: message.fullFormattedToolInput, output: message.sanitizedToolOutput)
         }
+
+      case .question, .hook, .skill, .generic:
+        return .generic(toolName: toolName, input: message.fullFormattedToolInput, output: message.sanitizedToolOutput)
     }
+  }
+
+  private static func groupGlobOutput(_ output: String?) -> [(dir: String, files: [String])] {
+    guard let output, !output.isEmpty else { return [] }
+    let files = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+    var grouped: [(dir: String, files: [String])] = []
+    var seen: [String: Int] = [:]
+    for file in files {
+      let components = file.components(separatedBy: "/")
+      let dir = components.count > 1 ? components.dropLast().joined(separator: "/") : "."
+      if let idx = seen[dir] {
+        grouped[idx].files.append(file)
+      } else {
+        seen[dir] = grouped.count
+        grouped.append((dir: dir, files: [file]))
+      }
+    }
+    return grouped
+  }
+
+  private static func groupGrepOutput(_ output: String?) -> [(file: String, matches: [String])] {
+    guard let output, !output.isEmpty else { return [] }
+    let lines = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+    var grouped: [(file: String, matches: [String])] = []
+    var seen: [String: Int] = [:]
+    for line in lines {
+      let parts = line.split(separator: ":", maxSplits: 1)
+      let file = parts.count > 0 ? String(parts[0]) : ""
+      let match = parts.count > 1 ? String(parts[1]) : line
+      if let idx = seen[file] {
+        grouped[idx].matches.append(match)
+      } else {
+        seen[file] = grouped.count
+        grouped.append((file: file, matches: [match]))
+      }
+    }
+    return grouped
   }
 
   nonisolated private static func linkedWorkerPresentation(

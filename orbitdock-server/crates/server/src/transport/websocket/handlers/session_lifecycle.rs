@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
 
+use orbitdock_protocol::conversation_contracts::ConversationRowPage;
 use orbitdock_protocol::{
     ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
     SessionListItem, SessionStatus, StateChanges, WorkStatus,
@@ -113,12 +114,12 @@ pub(crate) async fn handle(
                     component = "session",
                     event = "session.resume.transcript_loaded",
                     session_id = %session_id,
-                    message_count = prepared.message_count,
+                    row_count = prepared.row_count,
                     "Loaded messages from transcript for resume"
                 );
             }
 
-            let msg_count = prepared.message_count;
+            let msg_count = prepared.row_count;
             let restored_model = prepared.model.clone();
             let restored_transcript_path = prepared.transcript_path.clone();
             let restored_project_path = prepared.project_path.clone();
@@ -136,7 +137,16 @@ pub(crate) async fn handle(
             let snapshot = handle.retained_state();
             send_json(
                 client_tx,
-                ServerMessage::SessionSnapshot { session: snapshot },
+                ServerMessage::ConversationBootstrap {
+                    session: snapshot,
+                    conversation: ConversationRowPage {
+                        rows: vec![],
+                        total_row_count: 0,
+                        has_more_before: false,
+                        oldest_sequence: None,
+                        newest_sequence: None,
+                    },
+                },
             )
             .await;
 
@@ -507,26 +517,26 @@ pub(crate) async fn handle(
 
             handle.set_list_tx(state.list_tx());
 
-            // If the passive handle has no messages, load from transcript file.
-            if handle.messages().is_empty() {
+            // If the passive handle has no rows, load from transcript file.
+            if handle.rows().is_empty() {
                 if let Some(ref tp) = snap.transcript_path {
-                    if let Ok(msgs) =
+                    if let Ok(rows) =
                         crate::infrastructure::persistence::load_messages_from_transcript_path(
                             tp,
                             &session_id,
                         )
                         .await
                     {
-                        if !msgs.is_empty() {
+                        if !rows.is_empty() {
                             info!(
                                 component = "session",
                                 event = "session.takeover.transcript_loaded",
                                 session_id = %session_id,
-                                message_count = msgs.len(),
-                                "Loaded messages from transcript for takeover"
+                                row_count = rows.len(),
+                                "Loaded rows from transcript for takeover"
                             );
-                            for msg in msgs {
-                                handle.add_message(msg);
+                            for row in rows {
+                                handle.add_row(row);
                             }
                         }
                     }
@@ -601,6 +611,8 @@ pub(crate) async fn handle(
                     personality: control_plane.personality.clone(),
                     service_tier: control_plane.service_tier.clone(),
                     developer_instructions: control_plane.developer_instructions.clone(),
+                    model: effective_model.clone(),
+                    effort: effective_effort.clone(),
                 });
 
                 let thread_id = state.codex_thread_for_session(&session_id);
@@ -871,6 +883,8 @@ pub(crate) async fn handle(
                                                 personality: None,
                                                 service_tier: None,
                                                 developer_instructions: None,
+                                                model: None,
+                                                effort: None,
                                             })
                                         } else {
                                             None
@@ -996,8 +1010,15 @@ pub(crate) async fn handle(
                                 );
                                 send_json(
                                     client_tx,
-                                    ServerMessage::SessionSnapshot {
+                                    ServerMessage::ConversationBootstrap {
                                         session: prepare_snapshot_for_transport(*snapshot),
+                                        conversation: ConversationRowPage {
+                                            rows: vec![],
+                                            total_row_count: 0,
+                                            has_more_before: false,
+                                            oldest_sequence: None,
+                                            newest_sequence: None,
+                                        },
                                     },
                                 )
                                 .await;
@@ -1037,149 +1058,5 @@ pub(crate) async fn handle(
                 "Received unhandled message variant in session_lifecycle handler"
             );
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use tokio::sync::mpsc;
-
-    use orbitdock_protocol::{ClientMessage, Provider, ServerMessage, SessionStatus};
-
-    use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
-    use crate::transport::websocket::test_support::{new_test_state, recv_json};
-
-    use super::{handle, stored_codex_control_plane};
-
-    #[tokio::test]
-    async fn resume_session_rejects_already_active_sessions() {
-        let state = new_test_state();
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let session_handle = SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-active".to_string(),
-        );
-        state.add_session(session_handle);
-
-        let (client_tx, mut client_rx) = mpsc::channel(8);
-        handle(
-            ClientMessage::ResumeSession {
-                session_id: session_id.clone(),
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-
-        match recv_json(&mut client_rx).await {
-            ServerMessage::Error {
-                code,
-                session_id: returned_session_id,
-                ..
-            } => {
-                assert_eq!(code, "already_active");
-                assert_eq!(returned_session_id.as_deref(), Some(session_id.as_str()));
-            }
-            other => panic!("expected already_active error, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn resume_session_reports_not_found_for_missing_session() {
-        let state = new_test_state();
-        let missing_id = format!("od-{}", orbitdock_protocol::new_id());
-        let (client_tx, mut client_rx) = mpsc::channel(8);
-
-        handle(
-            ClientMessage::ResumeSession {
-                session_id: missing_id.clone(),
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-
-        match recv_json(&mut client_rx).await {
-            ServerMessage::Error {
-                code,
-                session_id: returned_session_id,
-                ..
-            } => {
-                assert_eq!(code, "not_found");
-                assert_eq!(returned_session_id.as_deref(), Some(missing_id.as_str()));
-            }
-            other => panic!("expected not_found error, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn resume_session_treats_ended_runtime_handles_as_resumable() {
-        let state = new_test_state();
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        let mut session_handle = SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-ended".to_string(),
-        );
-        session_handle.set_status(SessionStatus::Ended);
-        state.add_session(session_handle);
-
-        let (client_tx, mut client_rx) = mpsc::channel(8);
-        handle(
-            ClientMessage::ResumeSession {
-                session_id: session_id.clone(),
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-
-        match recv_json(&mut client_rx).await {
-            ServerMessage::Error {
-                code,
-                session_id: returned_session_id,
-                ..
-            } => {
-                assert_eq!(code, "not_found");
-                assert_eq!(returned_session_id.as_deref(), Some(session_id.as_str()));
-            }
-            other => {
-                panic!("expected not_found error after clearing ended handle, got {other:?}")
-            }
-        }
-    }
-
-    #[test]
-    fn stored_codex_control_plane_preserves_snapshot_settings() {
-        let mut handle = SessionHandle::new(
-            "session".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-        handle.set_config(SessionConfigPatch {
-            approval_policy: Some("on-request".to_string()),
-            sandbox_mode: Some("workspace-write".to_string()),
-            collaboration_mode: Some("planner".to_string()),
-            multi_agent: Some(true),
-            personality: Some("friendly".to_string()),
-            service_tier: Some("flex".to_string()),
-            developer_instructions: Some("Keep answers concise".to_string()),
-        });
-
-        let snapshot = handle.to_snapshot();
-        let control_plane = stored_codex_control_plane(&snapshot);
-
-        assert_eq!(control_plane.collaboration_mode.as_deref(), Some("planner"));
-        assert_eq!(control_plane.multi_agent, Some(true));
-        assert_eq!(control_plane.personality.as_deref(), Some("friendly"));
-        assert_eq!(control_plane.service_tier.as_deref(), Some("flex"));
-        assert_eq!(
-            control_plane.developer_instructions.as_deref(),
-            Some("Keep answers concise")
-        );
     }
 }

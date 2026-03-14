@@ -22,7 +22,7 @@ enum ToolCardStyle {
     if tool.hasPrefix("mcp__") {
       let parts = tool.dropFirst(5).split(separator: "__", maxSplits: 1)
       if let server = parts.first {
-        return MCPCard.serverColor(String(server))
+        return mcpServerColor(String(server))
       }
     }
 
@@ -68,7 +68,7 @@ enum ToolCardStyle {
     if tool.hasPrefix("mcp__") {
       let parts = tool.dropFirst(5).split(separator: "__", maxSplits: 1)
       if let server = parts.first {
-        return MCPCard.serverIcon(String(server))
+        return mcpServerIcon(String(server))
       }
     }
 
@@ -130,5 +130,41 @@ enum ToolCardStyle {
       return ".../" + components.suffix(2).joined(separator: "/")
     }
     return path
+  }
+
+  // MARK: - MCP Server Styling
+
+  static func mcpServerColor(_ server: String) -> Color {
+    switch server.lowercased() {
+      case "github":
+        .serverGitHub
+      case "linear-server", "linear":
+        .serverLinear
+      case "chrome-devtools", "chrome":
+        .serverChrome
+      case "slack":
+        .serverSlack
+      case "cupertino":
+        .serverApple
+      default:
+        .serverDefault
+    }
+  }
+
+  static func mcpServerIcon(_ server: String) -> String {
+    switch server.lowercased() {
+      case "github":
+        "chevron.left.forwardslash.chevron.right"
+      case "linear-server", "linear":
+        "list.bullet.rectangle"
+      case "chrome-devtools", "chrome":
+        "globe"
+      case "slack":
+        "bubble.left.and.bubble.right"
+      case "cupertino":
+        "apple.logo"
+      default:
+        "puzzlepiece.extension"
+    }
   }
 }

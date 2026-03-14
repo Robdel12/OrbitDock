@@ -28,11 +28,24 @@ import SwiftUI
 
       if shouldHandleHorizontally {
         super.scrollWheel(with: event)
+      } else if let outerScrollView = outerVerticalScrollView() {
+        outerScrollView.scrollWheel(with: event)
       } else if let nextResponder {
         nextResponder.scrollWheel(with: event)
       } else {
         super.scrollWheel(with: event)
       }
+    }
+
+    private func outerVerticalScrollView() -> NSScrollView? {
+      var current: NSView? = superview
+      while let view = current {
+        if let scrollView = view as? NSScrollView, scrollView !== self {
+          return scrollView
+        }
+        current = view.superview
+      }
+      return nil
     }
   }
 
@@ -96,15 +109,18 @@ import SwiftUI
     private let collapseChevron = NSImageView()
     private let cancelButton = NSButton(title: "Stop", target: nil, action: nil)
     private let workerButton = NSButton(title: "", target: nil, action: nil)
+    private let contentViewport = NSView()
     private let contentContainer = FlippedContentView()
     private let progressIndicator = NSProgressIndicator()
 
     // ── State ──
 
     private var model: NativeExpandedToolModel?
+    private var lastConfiguredContentFingerprint: Int?
     var onCollapse: ((String) -> Void)?
     var onCancel: ((String) -> Void)?
     var onFocusWorker: ((String) -> Void)?
+    var onMeasuredHeightChange: ((String, CGFloat) -> Void)?
 
     // ── Init ──
 
@@ -144,6 +160,9 @@ import SwiftUI
       contentBg.wantsLayer = true
       contentBg.layer?.backgroundColor = Self.contentBgColor.cgColor
       cardBackground.addSubview(contentBg)
+
+      contentViewport.wantsLayer = false
+      cardBackground.addSubview(contentViewport)
 
       // Icon
       iconView.imageScaling = .scaleProportionallyUpOrDown
@@ -215,7 +234,7 @@ import SwiftUI
 
       // Content container — on top of content background
       contentContainer.wantsLayer = true
-      cardBackground.addSubview(contentContainer)
+      contentViewport.addSubview(contentContainer)
 
       // Header tap gesture
       let click = NSClickGestureRecognizer(target: self, action: #selector(handleHeaderTap(_:)))
@@ -253,9 +272,9 @@ import SwiftUI
 
       let layoutPlan = ExpandedToolCellPlanning.cardLayoutPlan(for: model, width: width)
       let cardWidth = layoutPlan.cardWidth
+      let contentWidth = cardWidth - Self.accentBarWidth
       let headerH = layoutPlan.headerHeight
-      let contentH = layoutPlan.contentHeight
-      let totalH = layoutPlan.totalHeight
+      let plannedContentH = layoutPlan.contentHeight
 
       // Card background — inset from lane edges
       cardBackground.frame = layoutPlan.cardFrame
@@ -266,21 +285,11 @@ import SwiftUI
       accentBar.layer?.backgroundColor = accentColor.cgColor
       accentBar.frame = layoutPlan.accentFrame
 
-      // Header divider line
-      if let headerDividerFrame = layoutPlan.headerDividerFrame {
-        headerDivider.frame = headerDividerFrame
-        headerDivider.isHidden = false
-      } else {
-        headerDivider.isHidden = true
-      }
-
-      // Content background — darker region behind output (stops before card corner radius)
-      if let contentBackgroundFrame = layoutPlan.contentBackgroundFrame {
-        contentBg.isHidden = false
-        contentBg.frame = contentBackgroundFrame
-      } else {
-        contentBg.isHidden = true
-      }
+      // The actual content height is measured after we build the native tool body.
+      // Start hidden and let the measured pass own the final content region frames.
+      headerDivider.isHidden = true
+      contentBg.isHidden = true
+      contentViewport.isHidden = true
 
       // Icon
       let iconConfig = NSImage.SymbolConfiguration(pointSize: Self.iconSize, weight: .medium)
@@ -343,26 +352,84 @@ import SwiftUI
 
       // Content
       contentContainer.subviews.forEach { $0.removeFromSuperview() }
-      contentContainer.frame = layoutPlan.contentContainerFrame
-      buildContent(model: model, width: cardWidth)
-
-      // ── Diagnostic: detect content overflow ──
+      contentContainer.frame = CGRect(x: 0, y: 0, width: contentWidth, height: 0)
+      buildContent(model: model, width: contentWidth)
       let maxSubviewBottom = contentContainer.subviews
         .map(\.frame.maxY)
         .max() ?? 0
+      let measuredContentHeight = max(
+        max(0, plannedContentH),
+        maxSubviewBottom + Self.sectionPadding
+      )
+      let actualVisibleContentH = measuredContentHeight
+      let actualTotalHeight = headerH + actualVisibleContentH + (actualVisibleContentH > 0 ? Self.bottomPadding : 0)
+
+      cardBackground.frame = NSRect(
+        x: layoutPlan.cardFrame.origin.x,
+        y: layoutPlan.cardFrame.origin.y,
+        width: layoutPlan.cardFrame.width,
+        height: actualTotalHeight
+      )
+      accentBar.frame = NSRect(
+        x: layoutPlan.accentFrame.origin.x,
+        y: layoutPlan.accentFrame.origin.y,
+        width: layoutPlan.accentFrame.width,
+        height: actualTotalHeight
+      )
+
+      if actualVisibleContentH > 0 {
+        headerDivider.isHidden = false
+        headerDivider.frame = CGRect(
+          x: Self.accentBarWidth,
+          y: headerH,
+          width: cardWidth - Self.accentBarWidth,
+          height: 1
+        )
+        contentBg.isHidden = false
+        contentBg.frame = CGRect(
+          x: Self.accentBarWidth,
+          y: headerH + 1,
+          width: contentWidth,
+          height: actualVisibleContentH
+        )
+        contentViewport.isHidden = false
+        contentViewport.frame = CGRect(
+          x: Self.accentBarWidth,
+          y: headerH + 1,
+          width: contentWidth,
+          height: actualVisibleContentH
+        )
+      } else {
+        contentViewport.isHidden = true
+      }
+
+      let measuredContainerFrame = NSRect(
+        x: 0,
+        y: 0,
+        width: contentWidth,
+        height: measuredContentHeight
+      )
+      contentContainer.frame = measuredContainerFrame
+      let contentFingerprint = model.messageID.hashValue ^ measuredContentHeight.bitPattern.hashValue
+      if lastConfiguredContentFingerprint != contentFingerprint {
+        lastConfiguredContentFingerprint = contentFingerprint
+      }
+      onMeasuredHeightChange?(model.messageID, actualTotalHeight)
+
+      // ── Diagnostic: detect content overflow ──
       let toolType = ExpandedToolLayout.toolTypeName(model.content)
-      if maxSubviewBottom > contentH + 1 {
+      if maxSubviewBottom > plannedContentH + 1 {
         // Content overflows calculated height — this causes clipping
         Self.logger.info(
           "⚠️ OVERFLOW tool-cell[\(model.messageID)] \(toolType) "
-            + "contentH=\(f(contentH)) maxSubview=\(f(maxSubviewBottom)) "
-            + "overflow=\(f(maxSubviewBottom - contentH)) "
-            + "headerH=\(f(headerH)) totalH=\(f(totalH)) w=\(f(width))"
+            + "contentH=\(f(plannedContentH)) maxSubview=\(f(maxSubviewBottom)) "
+            + "overflow=\(f(maxSubviewBottom - plannedContentH)) "
+            + "headerH=\(f(headerH)) totalH=\(f(actualTotalHeight)) w=\(f(width))"
         )
       } else {
         Self.logger.debug(
           "tool-cell[\(model.messageID)] \(toolType) "
-            + "headerH=\(f(headerH)) contentH=\(f(contentH)) totalH=\(f(totalH)) "
+            + "headerH=\(f(headerH)) contentH=\(f(plannedContentH)) visibleH=\(f(actualVisibleContentH)) totalH=\(f(actualTotalHeight)) "
             + "maxSubview=\(f(maxSubviewBottom)) w=\(f(width))"
         )
       }

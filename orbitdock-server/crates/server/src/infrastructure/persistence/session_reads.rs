@@ -1,6 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
-use orbitdock_protocol::{Message, TokenUsageSnapshotKind};
+use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
+use orbitdock_protocol::TokenUsageSnapshotKind;
 
 use super::chrono_now;
 use super::messages::{load_latest_completed_conversation_message_from_db, load_messages_from_db};
@@ -51,7 +52,7 @@ pub struct RestoredSession {
     pub pending_tool_input: Option<String>,
     pub pending_question: Option<String>,
     pub pending_approval_id: Option<String>,
-    pub messages: Vec<Message>,
+    pub rows: Vec<ConversationRowEntry>,
     pub forked_from_session_id: Option<String>,
     pub current_diff: Option<String>,
     pub current_plan: Option<String>,
@@ -304,16 +305,16 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 let is_ended_history = status == "ended"
                     && !matches!(end_reason_val.as_deref(), Some("server_shutdown"));
 
-                let messages = if is_ended_history {
+                let rows = if is_ended_history {
                     Vec::new()
                 } else {
-                    let mut messages = load_messages_from_db(&conn, &id)?;
-                    if messages.is_empty() {
+                    let mut rows = load_messages_from_db(&conn, &id)?;
+                    if rows.is_empty() {
                         if let Some(path) = transcript_path.as_deref() {
-                            messages = load_messages_from_transcript(path, &id)?;
+                            rows = load_messages_from_transcript(path, &id)?;
                         }
                     }
-                    messages
+                    rows
                 };
                 let custom_name = resolve_custom_name_from_first_prompt(
                     &conn,
@@ -520,7 +521,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     pending_tool_input,
                     pending_question,
                     pending_approval_id,
-                    messages,
+                    rows,
                     forked_from_session_id,
                     current_diff,
                     current_plan,
@@ -654,7 +655,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             let token_usage_snapshot_kind =
                 snapshot_kind_from_str(Some(token_usage_snapshot_kind_str.as_str()));
 
-            let messages = load_messages_from_db(&conn, &id)?;
+            let rows = load_messages_from_db(&conn, &id)?;
             let custom_name = resolve_custom_name_from_first_prompt(
                 &conn,
                 &id,
@@ -802,7 +803,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 pending_tool_input,
                 pending_question,
                 pending_approval_id,
-                messages,
+                rows,
                 forked_from_session_id: None,
                 current_diff,
                 current_plan,

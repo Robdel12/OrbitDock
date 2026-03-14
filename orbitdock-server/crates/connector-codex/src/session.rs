@@ -64,6 +64,8 @@ pub enum CodexAction {
         personality: Option<String>,
         service_tier: Option<String>,
         developer_instructions: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
     },
     SetThreadName {
         name: String,
@@ -166,6 +168,8 @@ impl std::fmt::Debug for CodexAction {
                 personality,
                 service_tier,
                 developer_instructions,
+                model,
+                effort,
             } => f
                 .debug_struct("UpdateConfig")
                 .field("approval_policy", approval_policy)
@@ -179,6 +183,8 @@ impl std::fmt::Debug for CodexAction {
                     "developer_instructions",
                     &developer_instructions.as_ref().map(|_| "[set]"),
                 )
+                .field("model", model)
+                .field("effort", effort)
                 .finish(),
             Self::SetThreadName { name } => {
                 f.debug_struct("SetThreadName").field("name", name).finish()
@@ -382,6 +388,8 @@ impl CodexSession {
                 personality,
                 service_tier,
                 developer_instructions,
+                model,
+                effort,
             } => {
                 connector
                     .update_config(UpdateConfigOptions {
@@ -393,6 +401,8 @@ impl CodexSession {
                         personality: personality.as_deref(),
                         service_tier: service_tier.as_deref(),
                         developer_instructions: developer_instructions.as_deref(),
+                        model: model.as_deref(),
+                        effort: effort.as_deref(),
                     })
                     .await?;
             }

@@ -3,6 +3,9 @@ use super::CodexConnector;
 use codex_core::{CodexThread, ThreadManager};
 use codex_protocol::openai_models::ReasoningEffort;
 use orbitdock_connector_core::{ConnectorError, ConnectorEvent};
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRow, ConversationRowEntry, MessageRowContent,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
@@ -217,15 +220,46 @@ impl CodexConnector {
             }
         }
     }
-
 }
 
-pub(crate) async fn apply_delta_message(
+/// Helper to build a ConversationRowEntry with empty session_id and zero sequence.
+pub(crate) fn row_entry(row: ConversationRow) -> ConversationRowEntry {
+    ConversationRowEntry {
+        session_id: String::new(),
+        sequence: 0,
+        turn_id: None,
+        row,
+    }
+}
+
+/// Build a thinking row and wrap it for delta streaming.
+pub(crate) fn thinking_row_entry(id: String, content: String) -> ConversationRowEntry {
+    row_entry(ConversationRow::Thinking(MessageRowContent {
+        id,
+        content,
+        turn_id: None,
+        timestamp: Some(iso_now()),
+        is_streaming: true,
+        images: vec![],
+    }))
+}
+
+/// Build a finalized thinking row (not streaming).
+pub(crate) fn finalized_thinking_row_entry(id: String, content: String) -> ConversationRowEntry {
+    row_entry(ConversationRow::Thinking(MessageRowContent {
+        id,
+        content,
+        turn_id: None,
+        timestamp: Some(iso_now()),
+        is_streaming: false,
+        images: vec![],
+    }))
+}
+
+pub(crate) async fn apply_delta_thinking(
     delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     message_id: String,
     delta: String,
-    message_type: orbitdock_protocol::MessageType,
-    tool_input: Option<String>,
 ) -> Vec<ConnectorEvent> {
     let (is_new, content) = {
         let mut buffers = delta_buffers.lock().await;
@@ -241,30 +275,14 @@ pub(crate) async fn apply_delta_message(
         }
     };
 
+    let entry = thinking_row_entry(message_id.clone(), content);
+
     if is_new {
-        vec![ConnectorEvent::MessageCreated(orbitdock_protocol::Message {
-            id: message_id,
-            session_id: String::new(),
-            sequence: None,
-            message_type,
-            content,
-            tool_name: None,
-            tool_input,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: true,
-            timestamp: iso_now(),
-            duration_ms: None,
-            images: vec![],
-        })]
+        vec![ConnectorEvent::ConversationRowCreated(entry)]
     } else {
-        vec![ConnectorEvent::MessageUpdated {
-            message_id,
-            content: Some(content),
-            tool_output: None,
-            is_error: None,
-            is_in_progress: Some(true),
-            duration_ms: None,
+        vec![ConnectorEvent::ConversationRowUpdated {
+            row_id: message_id,
+            entry,
         }]
     }
 }

@@ -18,17 +18,13 @@ pub enum ConnectorEvent {
     /// Turn aborted
     TurnAborted { reason: String },
 
-    /// New message created
-    MessageCreated(orbitdock_protocol::Message),
+    /// New conversation row created
+    ConversationRowCreated(orbitdock_protocol::conversation_contracts::ConversationRowEntry),
 
-    /// Message updated
-    MessageUpdated {
-        message_id: String,
-        content: Option<String>,
-        tool_output: Option<String>,
-        is_error: Option<bool>,
-        is_in_progress: Option<bool>,
-        duration_ms: Option<u64>,
+    /// Conversation row updated
+    ConversationRowUpdated {
+        row_id: String,
+        entry: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
     },
 
     /// Approval requested

@@ -42,22 +42,15 @@ struct WindowRootRuntimeTests {
       router: router
     )
 
-    let firstUpdate = Task { () -> RootShellRuntimeUpdate? in
-      for await update in runtimeCoordinator.updates {
-        return update
-      }
-      return nil
-    }
-
     effects.setCurrentSelection(session.scopedID)
-    runtimeCoordinator.start()
-
-    let update = try #require(await firstUpdate.value)
+    let update = try await RootShellRuntimeTestSupport.firstUpdate(from: runtimeCoordinator) {
+      runtimeCoordinator.start()
+    }
     effects.applyRootChange(update: update)
     #expect(update.upsertedSessions.map(\.sessionId) == ["session-1"])
     #expect(update.removedScopedIDs.isEmpty)
     #expect(rootShellStore.records().map(\.sessionId) == ["session-1"])
-    #expect(rootShellStore.records().first?.showsInMissionControl == false)
+    #expect(rootShellStore.records().first?.showsInMissionControl == true)
     #expect(toastManager.currentSessionId == session.scopedID)
     #expect(runtime.eventStream.hasReceivedInitialSessionsList)
   }

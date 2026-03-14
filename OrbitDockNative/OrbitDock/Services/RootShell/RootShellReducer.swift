@@ -34,10 +34,56 @@ struct RootShellState: Equatable, Sendable {
   }
 }
 
+struct RootShellChangeSet: Equatable, Sendable {
+  let upsertedScopedIDs: [String]
+  let removedScopedIDs: [String]
+  let didChange: Bool
+
+  nonisolated init(
+    upsertedScopedIDs: [String] = [],
+    removedScopedIDs: [String] = [],
+    didChange: Bool = false
+  ) {
+    self.upsertedScopedIDs = upsertedScopedIDs
+    self.removedScopedIDs = removedScopedIDs
+    self.didChange = didChange
+  }
+}
+
 enum RootShellReducer {
   @discardableResult
   nonisolated static func reduce(state: inout RootShellState, event: RootShellEvent) -> Bool {
+    reduce(state: &state, events: [event])
+  }
+
+  @discardableResult
+  nonisolated static func reduce(state: inout RootShellState, events: [RootShellEvent]) -> Bool {
+    guard !events.isEmpty else { return false }
+
     var changed = false
+    var needsDerivedStateRefresh = false
+
+    for event in events {
+      let mutation = apply(event, to: &state)
+      changed = changed || mutation.changed
+      needsDerivedStateRefresh = needsDerivedStateRefresh || mutation.needsDerivedStateRefresh
+    }
+
+    if changed && needsDerivedStateRefresh {
+      refreshDerivedState(&state)
+    }
+
+    return changed
+  }
+
+  private struct ReductionMutation {
+    let changed: Bool
+    let needsDerivedStateRefresh: Bool
+  }
+
+  nonisolated private static func apply(_ event: RootShellEvent, to state: inout RootShellState) -> ReductionMutation {
+    var changed = false
+    var needsDerivedStateRefresh = false
 
     switch event {
       case let .seed(endpointId, records):
@@ -50,8 +96,8 @@ enum RootShellReducer {
         }
         if nextRecords != state.recordsByScopedID {
           state.recordsByScopedID = nextRecords
-          refreshDerivedState(&state)
           changed = true
+          needsDerivedStateRefresh = true
         }
 
       case let .sessionsList(endpointId, endpointName, connectionStatus, sessions):
@@ -62,6 +108,7 @@ enum RootShellReducer {
           connectionStatus: connectionStatus,
           sessions: sessions
         )
+        needsDerivedStateRefresh = changed
 
       case let .sessionCreated(endpointId, endpointName, connectionStatus, session),
         let .sessionUpdated(endpointId, endpointName, connectionStatus, session):
@@ -73,15 +120,15 @@ enum RootShellReducer {
         )
         if state.recordsByScopedID[record.scopedID] != record {
           state.recordsByScopedID[record.scopedID] = record
-          refreshDerivedState(&state)
           changed = true
+          needsDerivedStateRefresh = true
         }
 
       case let .sessionRemoved(endpointId, sessionId):
         let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
         if state.recordsByScopedID.removeValue(forKey: scopedID) != nil {
-          refreshDerivedState(&state)
           changed = true
+          needsDerivedStateRefresh = true
         }
 
       case let .sessionEnded(endpointId, sessionId, reason):
@@ -90,8 +137,8 @@ enum RootShellReducer {
           let endedRecord = record.ended(reason: reason)
           if endedRecord != record {
             state.recordsByScopedID[scopedID] = endedRecord
-            refreshDerivedState(&state)
             changed = true
+            needsDerivedStateRefresh = true
           }
         }
 
@@ -106,9 +153,7 @@ enum RootShellReducer {
             changed = true
           }
         }
-        if changed {
-          refreshDerivedState(&state)
-        }
+        needsDerivedStateRefresh = changed
 
       case let .endpointFilterChanged(filter):
         if endpointFiltersDiffer(state.selectedEndpointFilter, filter) {
@@ -117,7 +162,7 @@ enum RootShellReducer {
         }
     }
 
-    return changed
+    return ReductionMutation(changed: changed, needsDerivedStateRefresh: needsDerivedStateRefresh)
   }
 
   nonisolated private static func applySessionsList(
@@ -149,7 +194,6 @@ enum RootShellReducer {
     }
 
     state.recordsByScopedID = nextRecords
-    refreshDerivedState(&state)
     return true
   }
 

@@ -54,6 +54,27 @@ struct StatusBarStatsTests {
     #expect(stats.costByModel.isEmpty)
   }
 
+  @Test func fromFallsBackToEstimatedCostWhenRootCostIsMissing() {
+    let sessions = [
+      makeSession(
+        id: "gpt-1",
+        model: "gpt-5",
+        totalTokens: 1_000_000,
+        totalCostUSD: 0
+      ),
+    ]
+
+    let stats = StatusBarStats.from(
+      sessions: sessions,
+      costCalculator: costCalculator
+    )
+
+    #expect(stats.tokens == 1_000_000)
+    #expect(stats.cost > 0)
+    #expect(stats.costByModel.map(\.model) == ["GPT-5"])
+    #expect(stats.costByModel.first?.cost == stats.cost)
+  }
+
   private func makeSession(
     id: String,
     model: String,

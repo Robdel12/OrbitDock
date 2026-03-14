@@ -18,6 +18,18 @@ use super::config::{
 use super::{CodexConnector, CodexControlPlane, SteerOutcome, UpdateConfigOptions};
 use orbitdock_connector_core::ConnectorError;
 
+fn parse_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
+    Some(match value {
+        "none" => ReasoningEffort::None,
+        "minimal" => ReasoningEffort::Minimal,
+        "low" => ReasoningEffort::Low,
+        "medium" => ReasoningEffort::Medium,
+        "high" => ReasoningEffort::High,
+        "xhigh" => ReasoningEffort::XHigh,
+        _ => return None,
+    })
+}
+
 impl CodexConnector {
     pub async fn fork_thread(
         &self,
@@ -456,6 +468,8 @@ impl CodexConnector {
             personality,
             service_tier,
             developer_instructions,
+            model,
+            effort,
         } = options;
 
         let policy = approval_policy.map(|p| match p {
@@ -488,11 +502,11 @@ impl CodexConnector {
             },
         });
 
-        let model = {
+        let current_model = {
             let current = self.current_model.lock().await;
             current.clone().unwrap_or_else(|| "gpt-5-codex".to_string())
         };
-        let effort = {
+        let current_effort = {
             let current = self.current_reasoning_effort.lock().await;
             *current
         };
@@ -500,8 +514,8 @@ impl CodexConnector {
             self.thread_manager.as_ref(),
             collaboration_mode,
             permission_mode,
-            model,
-            effort,
+            current_model,
+            current_effort,
             developer_instructions,
         );
         let collaboration_mode_log = collaboration_mode.clone();
@@ -511,8 +525,8 @@ impl CodexConnector {
             approval_policy: policy,
             sandbox_policy: sandbox,
             windows_sandbox_level: None,
-            model: None,
-            effort: None,
+            model: model.map(ToString::to_string),
+            effort: effort.and_then(parse_reasoning_effort).map(Some),
             summary: None,
             service_tier: parse_service_tier_override(service_tier),
             collaboration_mode,
@@ -524,7 +538,7 @@ impl CodexConnector {
         })?;
 
         info!(
-            "Updated session config: approval={:?}, sandbox={:?}, permission_mode={:?}, collaboration_mode={:?}, multi_agent={:?}, personality={:?}, service_tier={:?}, developer_instructions={:?}",
+            "Updated session config: approval={:?}, sandbox={:?}, permission_mode={:?}, collaboration_mode={:?}, multi_agent={:?}, personality={:?}, service_tier={:?}, developer_instructions={:?}, model={:?}, effort={:?}",
             approval_policy,
             sandbox_mode,
             permission_mode,
@@ -532,7 +546,9 @@ impl CodexConnector {
             multi_agent,
             personality,
             service_tier,
-            developer_instructions.map(|_| "[set]")
+            developer_instructions.map(|_| "[set]"),
+            model,
+            effort
         );
         Ok(())
     }

@@ -205,64 +205,18 @@ final class RootShellRuntime {
     pendingRootEvents.removeAll(keepingCapacity: true)
     guard !events.isEmpty else { return }
 
-    let affectedScopedIDs = affectedScopedIDs(for: events)
-    let changed = events.reduce(into: false) { didChange, event in
-      if rootShellStore.apply(event) {
-        didChange = true
-      }
-    }
-    guard changed else { return }
+    let changeSet = rootShellStore.apply(events)
+    guard changeSet.didChange else { return }
 
-    let removedScopedIDs = affectedScopedIDs.filter { rootShellStore.sessionRef(for: $0) == nil }
-    let upsertedSessions = affectedScopedIDs.compactMap { scopedID in
+    let upsertedSessions = changeSet.upsertedScopedIDs.compactMap { scopedID in
       rootShellStore.record(for: scopedID)
     }
 
     updatesContinuation.yield(
       RootShellRuntimeUpdate(
         upsertedSessions: upsertedSessions,
-        removedScopedIDs: removedScopedIDs
+        removedScopedIDs: changeSet.removedScopedIDs
       )
     )
-  }
-
-  private func affectedScopedIDs(for events: [RootShellEvent]) -> [String] {
-    var affected = Set<String>()
-
-    for event in events {
-      switch event {
-        case let .seed(endpointId, records):
-          let endpointPrefix = ScopedSessionID.endpointPrefix(endpointId: endpointId)
-          for scopedID in rootShellStore.records().map(\.scopedID) where scopedID.hasPrefix(endpointPrefix) {
-            affected.insert(scopedID)
-          }
-          for record in records {
-            affected.insert(record.scopedID)
-          }
-        case let .sessionsList(endpointId, _, _, sessions):
-          let endpointPrefix = ScopedSessionID.endpointPrefix(endpointId: endpointId)
-          for scopedID in rootShellStore.records().map(\.scopedID) where scopedID.hasPrefix(endpointPrefix) {
-            affected.insert(scopedID)
-          }
-          for session in sessions {
-            affected.insert(ScopedSessionID(endpointId: endpointId, sessionId: session.id).scopedID)
-          }
-        case let .sessionCreated(endpointId, _, _, session),
-          let .sessionUpdated(endpointId, _, _, session):
-          affected.insert(ScopedSessionID(endpointId: endpointId, sessionId: session.id).scopedID)
-        case let .sessionRemoved(endpointId, sessionId),
-          let .sessionEnded(endpointId, sessionId, _):
-          affected.insert(ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID)
-        case let .endpointConnectionChanged(endpointId, _, _):
-          let endpointPrefix = ScopedSessionID.endpointPrefix(endpointId: endpointId)
-          for scopedID in rootShellStore.records().map(\.scopedID) where scopedID.hasPrefix(endpointPrefix) {
-            affected.insert(scopedID)
-          }
-        case .endpointFilterChanged:
-          break
-      }
-    }
-
-    return affected.sorted()
   }
 }

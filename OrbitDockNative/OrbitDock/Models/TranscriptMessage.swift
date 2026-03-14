@@ -69,6 +69,21 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
   var images: [MessageImage] = [] { didSet { recomputeContentSignature() } }
   var thinking: String? { didSet { recomputeContentSignature() } }
 
+  /// Server-provided tool family string, if available.
+  let serverToolFamily: String?
+
+  /// Server-computed display metadata for tool messages.
+  var toolDisplay: ServerToolDisplay?
+
+  /// Resolved tool family — reads server value, falls back to local classification.
+  var toolFamily: ToolFamily {
+    if let serverToolFamily {
+      let resolved = ToolFamily(serverValue: serverToolFamily)
+      if resolved != .generic { return resolved }
+    }
+    return ToolFamily.classify(toolName: toolName, isShell: isShell)
+  }
+
   var imageMimeType: String? {
     images.first?.mimeType
   }
@@ -132,7 +147,9 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
     isError: Bool = false,
     isInProgress: Bool = false,
     images: [MessageImage] = [],
-    thinking: String? = nil
+    thinking: String? = nil,
+    serverToolFamily: String? = nil,
+    toolDisplay: ServerToolDisplay? = nil
   ) {
     self.id = id
     self.sequence = sequence
@@ -150,6 +167,8 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
     self.isInProgress = isInProgress
     self.images = images
     self.thinking = thinking
+    self.serverToolFamily = serverToolFamily
+    self.toolDisplay = toolDisplay
     self.contentSignature = Self.computeContentSignature(
       content: content, rawToolInput: rawToolInput,
       toolOutput: toolOutput, thinking: thinking,

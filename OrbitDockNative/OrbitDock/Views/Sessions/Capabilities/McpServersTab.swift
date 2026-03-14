@@ -265,13 +265,13 @@ struct McpServersTab: View {
           statusDot(entry.status)
 
           // Server icon + name
-          Image(systemName: MCPCard.serverIcon(entry.name))
+          Image(systemName: ToolCardStyle.mcpServerIcon(entry.name))
             .font(.system(size: TypeScale.meta, weight: .medium))
-            .foregroundStyle(MCPCard.serverColor(entry.name))
+            .foregroundStyle(ToolCardStyle.mcpServerColor(entry.name))
 
           Text(entry.name)
             .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(MCPCard.serverColor(entry.name))
+            .foregroundStyle(ToolCardStyle.mcpServerColor(entry.name))
             .lineLimit(1)
 
           // Auth badge
@@ -323,21 +323,21 @@ struct McpServersTab: View {
           if !entry.tools.isEmpty {
             capabilitySectionTitle("Tools", count: entry.tools.count)
             ForEach(entry.tools, id: \.name) { tool in
-              toolRow(tool, color: MCPCard.serverColor(entry.name))
+              toolRow(tool, color: ToolCardStyle.mcpServerColor(entry.name))
             }
           }
 
           if !entry.resources.isEmpty {
             capabilitySectionTitle("Resources", count: entry.resources.count)
             ForEach(entry.resources, id: \.uri) { resource in
-              resourceRow(resource, color: MCPCard.serverColor(entry.name))
+              resourceRow(resource, color: ToolCardStyle.mcpServerColor(entry.name))
             }
           }
 
           if !entry.resourceTemplates.isEmpty {
             capabilitySectionTitle("Templates", count: entry.resourceTemplates.count)
             ForEach(entry.resourceTemplates, id: \.uriTemplate) { resourceTemplate in
-              resourceTemplateRow(resourceTemplate, color: MCPCard.serverColor(entry.name))
+              resourceTemplateRow(resourceTemplate, color: ToolCardStyle.mcpServerColor(entry.name))
             }
           }
         }

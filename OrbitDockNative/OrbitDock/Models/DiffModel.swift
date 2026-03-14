@@ -294,6 +294,46 @@ struct DiffModel {
   }
 }
 
+// MARK: - Diff Line Extraction
+
+extension DiffModel {
+  /// Extract changed lines (additions and removals) from a unified diff string.
+  static func extractChangedLines(fromUnifiedDiff diff: String) -> [DiffLine] {
+    let parsed = DiffModel.parse(unifiedDiff: diff)
+    return parsed.files.flatMap { $0.hunks.flatMap(\.lines) }
+      .filter { $0.type == .added || $0.type == .removed }
+  }
+
+  /// Compute changed lines from old/new string comparison.
+  static func extractChangedLines(oldString: String, newString: String) -> [DiffLine] {
+    let oldLines = oldString.components(separatedBy: "\n")
+    let newLines = newString.components(separatedBy: "\n")
+    let diff = newLines.difference(from: oldLines)
+
+    var result: [DiffLine] = []
+    var removedOffsets = Set<Int>()
+    var insertedOffsets = Set<Int>()
+
+    for change in diff {
+      switch change {
+        case let .remove(offset, _, _):
+          removedOffsets.insert(offset)
+        case let .insert(offset, _, _):
+          insertedOffsets.insert(offset)
+      }
+    }
+
+    for (index, line) in oldLines.enumerated() where removedOffsets.contains(index) {
+      result.append(DiffLine(type: .removed, content: line, oldLineNum: index + 1, newLineNum: nil, prefix: "-"))
+    }
+    for (index, line) in newLines.enumerated() where insertedOffsets.contains(index) {
+      result.append(DiffLine(type: .added, content: line, oldLineNum: nil, newLineNum: index + 1, prefix: "+"))
+    }
+
+    return result
+  }
+}
+
 // MARK: - Word-Level Inline Diff
 
 extension DiffModel {

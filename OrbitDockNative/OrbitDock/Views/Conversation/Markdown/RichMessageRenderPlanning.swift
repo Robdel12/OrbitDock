@@ -12,6 +12,13 @@ struct RichMessageBodyRenderPlan {
   let content: RichMessageRenderableContent
 }
 
+struct StreamingRichMessageUpdateState {
+  let presentation: RichMessagePresentation
+  let bodyHeight: CGFloat
+  let layoutPlan: RichMessageBodyLayoutPlan
+  let attributedText: NSAttributedString
+}
+
 struct RichMessageCellRenderState {
   let presentation: RichMessagePresentation
   let blocks: [MarkdownBlock]
@@ -158,6 +165,55 @@ enum RichMessageRenderPlanning {
       bodyHeight: bodyHeight,
       layoutPlan: layoutPlan,
       content: content
+    )
+  }
+
+  static func streamingUpdateState(
+    for width: CGFloat,
+    model: NativeRichMessageRowModel,
+    imageHeightProvider: (CGFloat) -> CGFloat
+  ) -> StreamingRichMessageUpdateState? {
+    guard model.usesStreamingTextRenderer else { return nil }
+
+    let presentation = ConversationRichMessageLayout.presentation(for: model)
+    let attributedText = ConversationRichMessageLayout.streamingAttributedText(
+      for: model,
+      style: presentation.contentStyle
+    )
+    let contentWidth = ConversationRichMessageLayout.contentWidth(for: width, presentation: presentation)
+
+    let contentHeight: CGFloat
+    switch presentation.bodyChrome {
+      case .assistant:
+        contentHeight = NativeMarkdownContentView.measureTextHeight(attributedText, width: contentWidth)
+
+      case let .thinking(horizontalPadding, _, _, _, _):
+        let innerWidth = contentWidth - horizontalPadding * 2
+        contentHeight = NativeMarkdownContentView.measureTextHeight(attributedText, width: innerWidth)
+
+      default:
+        return nil
+    }
+
+    let layoutPlan = ConversationRichMessageLayout.bodyLayoutPlan(
+      totalWidth: width,
+      model: model,
+      presentation: presentation,
+      contentHeight: contentHeight
+    )
+
+    let bodyHeight = ConversationRichMessageLayout.bodyHeight(
+      for: width,
+      model: model,
+      blocks: [],
+      imageHeightProvider: imageHeightProvider
+    )
+
+    return StreamingRichMessageUpdateState(
+      presentation: presentation,
+      bodyHeight: bodyHeight,
+      layoutPlan: layoutPlan,
+      attributedText: attributedText
     )
   }
 }

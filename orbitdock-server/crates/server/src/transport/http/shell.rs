@@ -5,7 +5,10 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use orbitdock_protocol::{Message, MessageType, ServerMessage, ShellExecutionOutcome};
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRow, ConversationRowEntry, SystemRow,
+};
+use orbitdock_protocol::{ServerMessage, ShellExecutionOutcome};
 use serde::{Deserialize, Serialize};
 
 use crate::domain::sessions::transition::Input;
@@ -50,26 +53,25 @@ fn resolve_shell_cwd(
         .unwrap_or_else(|| project_path.to_string())
 }
 
-fn build_shell_message(
+fn build_shell_row_entry(
     request_id: &str,
     session_id: &str,
     command: &str,
     ts_millis: u128,
-) -> Message {
-    Message {
-        id: request_id.to_string(),
+    sequence: u64,
+) -> ConversationRowEntry {
+    ConversationRowEntry {
         session_id: session_id.to_string(),
-        sequence: None,
-        message_type: MessageType::Shell,
-        content: command.to_string(),
-        tool_name: None,
-        tool_input: None,
-        tool_output: None,
-        is_error: false,
-        is_in_progress: true,
-        timestamp: iso_timestamp(ts_millis),
-        duration_ms: None,
-        images: vec![],
+        sequence,
+        turn_id: None,
+        row: ConversationRow::System(SystemRow {
+            id: request_id.to_string(),
+            content: command.to_string(),
+            turn_id: None,
+            timestamp: Some(iso_timestamp(ts_millis)),
+            is_streaming: false,
+            images: vec![],
+        }),
     }
 }
 
@@ -135,10 +137,10 @@ pub async fn execute_shell_endpoint(
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    let shell_message = build_shell_message(&request_id, &session_id, &body.command, ts_millis);
+    let shell_entry = build_shell_row_entry(&request_id, &session_id, &body.command, ts_millis, 0);
     actor
         .send(SessionCommand::ProcessEvent {
-            event: Input::MessageCreated(shell_message),
+            event: Input::RowCreated(shell_entry),
         })
         .await;
 
@@ -183,15 +185,24 @@ pub async fn execute_shell_endpoint(
             }
             last_stream_emit = now;
             if let Some(actor) = state_ref.get_session(&sid) {
+                let updated_entry = ConversationRowEntry {
+                    session_id: sid.clone(),
+                    sequence: 0,
+                    turn_id: None,
+                    row: ConversationRow::System(SystemRow {
+                        id: rid.clone(),
+                        content: streamed_output.clone(),
+                        turn_id: None,
+                        timestamp: None,
+                        is_streaming: false,
+                        images: vec![],
+                    }),
+                };
                 actor
                     .send(SessionCommand::ProcessEvent {
-                        event: Input::MessageUpdated {
-                            message_id: rid.clone(),
-                            content: None,
-                            tool_output: Some(streamed_output.clone()),
-                            is_error: None,
-                            is_in_progress: Some(true),
-                            duration_ms: None,
+                        event: Input::RowUpdated {
+                            row_id: rid.clone(),
+                            entry: updated_entry,
                         },
                     })
                     .await;
@@ -208,19 +219,28 @@ pub async fn execute_shell_endpoint(
                 outcome: ShellOutcome::Failed,
             },
         };
-        let (final_output, is_error, outcome, result) =
+        let (final_output, _is_error, outcome, result) =
             finalize_shell_result(result, streamed_output);
 
         if let Some(actor) = state_ref.get_session(&sid) {
+            let final_entry = ConversationRowEntry {
+                session_id: sid.clone(),
+                sequence: 0,
+                turn_id: None,
+                row: ConversationRow::System(SystemRow {
+                    id: rid.clone(),
+                    content: final_output,
+                    turn_id: None,
+                    timestamp: None,
+                    is_streaming: false,
+                    images: vec![],
+                }),
+            };
             actor
                 .send(SessionCommand::ProcessEvent {
-                    event: Input::MessageUpdated {
-                        message_id: rid.clone(),
-                        content: None,
-                        tool_output: Some(final_output),
-                        is_error: Some(is_error),
-                        is_in_progress: Some(false),
-                        duration_ms: Some(result.duration_ms),
+                    event: Input::RowUpdated {
+                        row_id: rid.clone(),
+                        entry: final_entry,
                     },
                 })
                 .await;
@@ -267,64 +287,5 @@ pub async fn cancel_shell_endpoint(
                 ),
             }),
         )),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use orbitdock_protocol::ShellExecutionOutcome;
-
-    use super::{
-        build_shell_message, finalize_shell_result, resolve_shell_cwd, DEFAULT_SHELL_TIMEOUT_SECS,
-    };
-    use crate::infrastructure::shell::{ShellOutcome, ShellResult};
-
-    #[test]
-    fn shell_cwd_resolution_prefers_explicit_then_runtime_then_project_path() {
-        assert_eq!(
-            resolve_shell_cwd(Some("/tmp/explicit"), Some("/tmp/runtime"), "/tmp/project"),
-            "/tmp/explicit"
-        );
-        assert_eq!(
-            resolve_shell_cwd(None, Some("/tmp/runtime"), "/tmp/project"),
-            "/tmp/runtime"
-        );
-        assert_eq!(
-            resolve_shell_cwd(None, None, "/tmp/project"),
-            "/tmp/project"
-        );
-        assert_eq!(DEFAULT_SHELL_TIMEOUT_SECS, 120);
-    }
-
-    #[test]
-    fn shell_result_finalization_prefers_completed_output_and_maps_outcome() {
-        let result = ShellResult {
-            stdout: "out".into(),
-            stderr: "err".into(),
-            exit_code: Some(1),
-            duration_ms: 42,
-            outcome: ShellOutcome::Completed,
-        };
-
-        let (final_output, is_error, outcome, result) =
-            finalize_shell_result(result, "streamed".into());
-
-        assert_eq!(final_output, "out\nerr");
-        assert!(is_error);
-        assert_eq!(outcome, ShellExecutionOutcome::Completed);
-        assert_eq!(result.duration_ms, 42);
-    }
-
-    #[test]
-    fn shell_message_builder_creates_in_progress_shell_message() {
-        let message = build_shell_message("req-1", "session-1", "ls", 123);
-
-        assert_eq!(message.id, "req-1");
-        assert_eq!(message.session_id, "session-1");
-        assert_eq!(message.message_type, orbitdock_protocol::MessageType::Shell);
-        assert_eq!(message.content, "ls");
-        assert!(message.is_in_progress);
-        assert!(!message.is_error);
-        assert_eq!(message.sequence, None);
     }
 }

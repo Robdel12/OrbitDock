@@ -4,9 +4,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tracing::info;
 
-use orbitdock_protocol::{
-    new_id, ClientMessage, MessageType, ServerMessage, ShellExecutionOutcome,
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRow, ConversationRowEntry, SystemRow,
 };
+use orbitdock_protocol::{new_id, ClientMessage, ServerMessage, ShellExecutionOutcome};
 
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
@@ -74,30 +75,27 @@ pub(crate) async fn handle(
                 })
                 .await;
 
-            let shell_msg = orbitdock_protocol::Message {
-                id: rid.clone(),
+            let ts_millis = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let shell_entry = ConversationRowEntry {
                 session_id: sid.clone(),
-                sequence: None,
-                message_type: MessageType::Shell,
-                content: cmd_clone.clone(),
-                tool_name: None,
-                tool_input: None,
-                tool_output: None,
-                is_error: false,
-                is_in_progress: true,
-                timestamp: iso_timestamp(
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis(),
-                ),
-                duration_ms: None,
-                images: vec![],
+                sequence: 0,
+                turn_id: None,
+                row: ConversationRow::System(SystemRow {
+                    id: rid.clone(),
+                    content: cmd_clone.clone(),
+                    turn_id: None,
+                    timestamp: Some(iso_timestamp(ts_millis)),
+                    is_streaming: false,
+                    images: vec![],
+                }),
             };
 
             actor
                 .send(SessionCommand::ProcessEvent {
-                    event: crate::domain::sessions::transition::Input::MessageCreated(shell_msg),
+                    event: crate::domain::sessions::transition::Input::RowCreated(shell_entry),
                 })
                 .await;
 
@@ -147,15 +145,24 @@ pub(crate) async fn handle(
                     last_stream_emit = now;
 
                     if let Some(actor) = state_ref.get_session(&sid) {
+                        let updated_entry = ConversationRowEntry {
+                            session_id: sid.clone(),
+                            sequence: 0,
+                            turn_id: None,
+                            row: ConversationRow::System(SystemRow {
+                                id: rid.clone(),
+                                content: streamed_output.clone(),
+                                turn_id: None,
+                                timestamp: None,
+                                is_streaming: false,
+                                images: vec![],
+                            }),
+                        };
                         actor
                             .send(SessionCommand::ProcessEvent {
-                                event: crate::domain::sessions::transition::Input::MessageUpdated {
-                                    message_id: rid.clone(),
-                                    content: None,
-                                    tool_output: Some(streamed_output.clone()),
-                                    is_error: None,
-                                    is_in_progress: Some(true),
-                                    duration_ms: None,
+                                event: crate::domain::sessions::transition::Input::RowUpdated {
+                                    row_id: rid.clone(),
+                                    entry: updated_entry,
                                 },
                             })
                             .await;
@@ -181,6 +188,7 @@ pub(crate) async fn handle(
                     | crate::infrastructure::shell::ShellOutcome::TimedOut => true,
                     crate::infrastructure::shell::ShellOutcome::Canceled => false,
                 };
+                let _ = is_error; // preserved for future use
                 let combined_output = if result.stderr.is_empty() {
                     result.stdout.clone()
                 } else if result.stdout.is_empty() {
@@ -209,15 +217,24 @@ pub(crate) async fn handle(
                 };
 
                 if let Some(actor) = state_ref.get_session(&sid) {
+                    let final_entry = ConversationRowEntry {
+                        session_id: sid.clone(),
+                        sequence: 0,
+                        turn_id: None,
+                        row: ConversationRow::System(SystemRow {
+                            id: rid.clone(),
+                            content: final_output,
+                            turn_id: None,
+                            timestamp: None,
+                            is_streaming: false,
+                            images: vec![],
+                        }),
+                    };
                     actor
                         .send(SessionCommand::ProcessEvent {
-                            event: crate::domain::sessions::transition::Input::MessageUpdated {
-                                message_id: rid.clone(),
-                                content: None,
-                                tool_output: Some(final_output),
-                                is_error: Some(is_error),
-                                is_in_progress: Some(false),
-                                duration_ms: Some(result.duration_ms),
+                            event: crate::domain::sessions::transition::Input::RowUpdated {
+                                row_id: rid.clone(),
+                                entry: final_entry,
                             },
                         })
                         .await;

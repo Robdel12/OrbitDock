@@ -20,14 +20,23 @@ struct OrbitDockApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   #endif
   @State private var appRuntime: OrbitDockAppRuntime
+  @State private var rootShellStore: RootShellStore
+  @State private var rootShellRuntime: RootShellRuntime
   private let modelPricingService: ModelPricingService
 
   init() {
     let appRuntime = OrbitDockAppRuntime(
       dependencies: OrbitDockAppRuntimeDependencies.live()
     )
+    let rootShellStore = RootShellStore()
+    let rootShellRuntime = RootShellRuntime(
+      runtimeRegistry: appRuntime.runtimeRegistry,
+      rootShellStore: rootShellStore
+    )
     let modelPricingService = ModelPricingService.live()
     _appRuntime = State(initialValue: appRuntime)
+    _rootShellStore = State(initialValue: rootShellStore)
+    _rootShellRuntime = State(initialValue: rootShellRuntime)
     self.modelPricingService = modelPricingService
   #if os(macOS)
     appDelegate.configure(appRuntime: appRuntime, modelPricingService: modelPricingService)
@@ -35,9 +44,14 @@ struct OrbitDockApp: App {
   }
 
   private var mainRootView: some View {
-    OrbitDockWindowRoot(appRuntime: appRuntime)
+    OrbitDockWindowRoot(
+      appRuntime: appRuntime,
+      rootShellStore: rootShellStore,
+      rootShellRuntime: rootShellRuntime
+    )
       .environment(\.modelPricingService, modelPricingService)
       .task {
+        rootShellRuntime.start()
         await appRuntime.startIfNeeded()
       }
   }
@@ -74,8 +88,12 @@ struct OrbitDockApp: App {
           .environment(\.modelPricingService, modelPricingService)
           .environment(appRuntime.runtimeRegistry)
           .environment(appRuntime.usageServiceRegistry)
+          .environment(rootShellStore)
           .environment(\.colorScheme, .dark)
           .preferredColorScheme(.dark)
+          .task {
+            rootShellRuntime.start()
+          }
       } label: {
         Image(systemName: "terminal.fill")
           .symbolRenderingMode(.monochrome)

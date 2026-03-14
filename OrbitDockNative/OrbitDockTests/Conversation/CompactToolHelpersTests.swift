@@ -13,6 +13,30 @@ struct CompactToolHelpersTests {
     #expect(CompactToolHelpers.compactSingleLineSummary(" \n\t\r ") == "tool")
   }
 
+  @Test func toolTypeFromStringMapsKnownTypes() {
+    #expect(CompactToolHelpers.toolTypeFromString("bash") == .bash)
+    #expect(CompactToolHelpers.toolTypeFromString("edit") == .edit)
+    #expect(CompactToolHelpers.toolTypeFromString("mcp") == .mcp)
+    #expect(CompactToolHelpers.toolTypeFromString("unknown") == .generic)
+  }
+
+  @Test func displayNameFormatsToolNames() {
+    #expect(CompactToolHelpers.displayName(for: "bash") == "Bash")
+    #expect(CompactToolHelpers.displayName(for: "edit") == "Edit")
+    #expect(CompactToolHelpers.displayName(for: "webfetch") == "Fetch")
+    #expect(CompactToolHelpers.displayName(for: "askuserquestion") == "Question")
+  }
+
+  @Test func mcpServerNameExtractsServerFromMcpToolName() {
+    let message = makeToolMessage(toolName: "mcp__github__create_issue", toolInput: [:])
+    #expect(CompactToolHelpers.mcpServerName(for: message) == "github")
+  }
+
+  @Test func mcpServerNameReturnsNilForNonMcpTools() {
+    let message = makeToolMessage(toolName: "bash", toolInput: [:])
+    #expect(CompactToolHelpers.mcpServerName(for: message) == nil)
+  }
+
   @Test func todoWriteInputRendersStructuredTodoItems() {
     let message = makeToolMessage(
       toolName: "TodoWrite",
@@ -34,8 +58,7 @@ struct CompactToolHelpersTests {
 
     let content = SharedModelBuilders.expandedToolContent(
       from: message,
-      toolName: "TodoWrite",
-      supportsRichToolingCards: true
+      toolName: "TodoWrite"
     )
     switch content {
       case let .todo(title, subtitle, items, output):
@@ -63,8 +86,7 @@ struct CompactToolHelpersTests {
 
     let content = SharedModelBuilders.expandedToolContent(
       from: message,
-      toolName: "TodoWrite",
-      supportsRichToolingCards: true
+      toolName: "TodoWrite"
     )
     switch content {
       case let .todo(_, subtitle, items, renderedOutput):
@@ -78,23 +100,13 @@ struct CompactToolHelpersTests {
     }
   }
 
-  @Test func codexServerPrefixedTaskCreateStillClassifiesAsTodo() {
-    let message = makeToolMessage(
-      toolName: "planner:taskcreate",
-      toolInput: ["subject": "Ship polished todo UI", "status": "pending"]
-    )
-
-    #expect(CompactToolHelpers.summary(for: message, supportsRichToolingCards: true) == "Ship polished todo UI")
-    #expect(ToolGlyphInfo.from(message: message).symbol == "checklist")
-  }
-
   @Test func compactToolModelCarriesLinkedWorkerIDForWorkerMessages() {
     let message = makeToolMessage(
       toolName: "spawn_agent",
       toolInput: ["receiver_thread_id": "worker-123"]
     )
 
-    let model = SharedModelBuilders.compactToolModel(from: message, supportsRichToolingCards: true)
+    let model = SharedModelBuilders.compactToolModel(from: message)
 
     #expect(model.linkedWorkerID == "worker-123")
   }
@@ -108,10 +120,7 @@ struct CompactToolHelpersTests {
       ]
     )
 
-    let model = SharedModelBuilders.compactToolModel(
-      from: message,
-      supportsRichToolingCards: true
-    )
+    let model = SharedModelBuilders.compactToolModel(from: message)
 
     #expect(model.linkedWorkerID == "worker-123")
   }
@@ -140,7 +149,6 @@ struct CompactToolHelpersTests {
 
     let model = SharedModelBuilders.compactToolModel(
       from: message,
-      supportsRichToolingCards: true,
       subagentsByID: [worker.id: worker]
     )
 
@@ -159,12 +167,10 @@ struct CompactToolHelpersTests {
 
     let focusedModel = SharedModelBuilders.compactToolModel(
       from: message,
-      supportsRichToolingCards: true,
       selectedWorkerID: "worker-123"
     )
     let unfocusedModel = SharedModelBuilders.compactToolModel(
       from: message,
-      supportsRichToolingCards: true,
       selectedWorkerID: "worker-999"
     )
 
@@ -191,36 +197,6 @@ struct CompactToolHelpersTests {
     #expect(unfocusedModel?.isFocusedWorker == false)
   }
 
-  @Test func handoffCompactToolUsesIntentionalRealtimeCopy() {
-    let message = makeToolMessage(
-      toolName: "handoff",
-      toolInput: ["receiver_thread_ids": ["worker-1", "worker-2"]],
-      toolOutput: "Queued follow-up work for two specialists."
-    )
-
-    let model = SharedModelBuilders.compactToolModel(from: message, supportsRichToolingCards: true)
-
-    #expect(model.toolType == .handoff)
-    #expect(model.summary == "Coordinated 2 workers")
-    #expect(model.subtitle == "Multi-worker coordination")
-    #expect(model.outputPreview == "Queued follow-up work for two specialists.")
-  }
-
-  @Test func bashOutputPreviewUsesTailExcerptAndStripsAnsiCodes() {
-    let noisyPrefix = String(repeating: "prefix-line\n", count: 500)
-    let message = makeToolMessage(
-      toolName: "bash",
-      toolInput: [:],
-      toolOutput: noisyPrefix + "\u{001B}[31mfinal line\u{001B}[0m\nplain tail"
-    )
-
-    let preview = CompactToolHelpers.outputPreview(for: message)
-
-    #expect(preview?.contains("final line") == true)
-    #expect(preview?.hasSuffix("plain tail") == true)
-    #expect(preview?.contains("\u{001B}[31m") == false)
-  }
-
   @Test func workerEventPreviewUsesCheapSanitizedPrefix() {
     let longOutput = String(repeating: "header\n", count: 200) + "\u{001B}[32mWorker finished cleanly\u{001B}[0m"
     let message = makeToolMessage(
@@ -245,7 +221,7 @@ struct CompactToolHelpersTests {
     let model = SharedModelBuilders.workerEventModel(from: message)
 
     #expect(model?.toolType == .handoff)
-    #expect(model?.summary == "Handoff complete")
+    #expect(model?.summary == "Handoff")
     #expect(model?.subtitle == "Worker · Passed the renderer polish pass to Wegener.")
   }
 

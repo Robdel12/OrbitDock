@@ -1,7 +1,8 @@
 use std::time::Duration;
 
+use orbitdock_protocol::conversation_contracts::ConversationRowPage;
 use orbitdock_protocol::{
-    ClientMessage, MessageType, Provider, ServerMessage, SessionState, SessionStatus, WorkStatus,
+    ClientMessage, Provider, ServerMessage, SessionState, SessionStatus, WorkStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -344,7 +345,7 @@ async fn create(
 
     loop {
         match ws.recv_timeout(Duration::from_secs(30)).await {
-            Ok(Some(ServerMessage::SessionSnapshot { session })) => {
+            Ok(Some(ServerMessage::ConversationBootstrap { session, .. })) => {
                 if output.json {
                     output.print_json(&serde_json::json!({
                         "session_id": session.id,
@@ -773,7 +774,7 @@ async fn fork(
                 }
                 return EXIT_SUCCESS;
             }
-            Ok(Some(ServerMessage::SessionSnapshot { session })) => {
+            Ok(Some(ServerMessage::ConversationBootstrap { session, .. })) => {
                 if output.json {
                     output.print_json(&serde_json::json!({
                         "forked": true,
@@ -1010,8 +1011,15 @@ async fn watch(
     };
 
     if output.json {
-        output.print_json(&ServerMessage::SessionSnapshot {
+        output.print_json(&ServerMessage::ConversationBootstrap {
             session: session.clone(),
+            conversation: ConversationRowPage {
+                rows: vec![],
+                total_row_count: 0,
+                has_more_before: false,
+                oldest_sequence: None,
+                newest_sequence: None,
+            },
         });
     } else {
         let bold = console::Style::new().bold();
@@ -1117,7 +1125,7 @@ async fn resume(config: &ClientConfig, output: &Output, session_id: &str) -> i32
 
     loop {
         match ws.recv_timeout(Duration::from_secs(30)).await {
-            Ok(Some(ServerMessage::SessionSnapshot { session })) => {
+            Ok(Some(ServerMessage::ConversationBootstrap { session, .. })) => {
                 if output.json {
                     output.print_json(&serde_json::json!({
                         "resumed": true,
@@ -1165,10 +1173,15 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
                     output.print_json(msg);
                 }
                 match msg {
-                    ServerMessage::MessageAppended { message, .. } => {
-                        if !output.json && !message.content.is_empty() {
-                            let role = format_role(message.message_type);
-                            println!("[{role}] {}", message.content);
+                    ServerMessage::ConversationRowsChanged { upserted, .. } => {
+                        if !output.json {
+                            for entry in upserted {
+                                let role = format_row_type(&entry.row);
+                                let content = orbitdock_protocol::conversation_contracts::extract_row_content_str(&entry.row);
+                                if !content.is_empty() {
+                                    println!("[{role}] {content}");
+                                }
+                            }
                         }
                     }
                     ServerMessage::ApprovalRequested { request, .. } => {
@@ -1226,23 +1239,29 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
     }
 }
 
-fn format_role(msg_type: MessageType) -> &'static str {
-    match msg_type {
-        MessageType::User => "user",
-        MessageType::Assistant => "assistant",
-        MessageType::Tool => "tool",
-        MessageType::ToolResult => "tool-result",
-        _ => "system",
+fn format_row_type(
+    row: &orbitdock_protocol::conversation_contracts::ConversationRow,
+) -> &'static str {
+    use orbitdock_protocol::conversation_contracts::ConversationRow;
+    match row {
+        ConversationRow::User(_) => "user",
+        ConversationRow::Assistant(_) => "assistant",
+        ConversationRow::Tool(_) => "tool",
+        ConversationRow::Thinking(_) => "thinking",
+        ConversationRow::System(_) => "system",
+        ConversationRow::Worker(_) => "worker",
+        ConversationRow::Hook(_) => "hook",
+        ConversationRow::Plan(_) => "plan",
+        _ => "other",
     }
 }
 
 fn event_type_name(msg: &ServerMessage) -> &'static str {
     match msg {
         ServerMessage::SessionsList { .. } => "sessions_list",
-        ServerMessage::SessionSnapshot { .. } => "session_snapshot",
+        ServerMessage::ConversationBootstrap { .. } => "conversation_bootstrap",
         ServerMessage::SessionDelta { .. } => "session_delta",
-        ServerMessage::MessageAppended { .. } => "message_appended",
-        ServerMessage::MessageUpdated { .. } => "message_updated",
+        ServerMessage::ConversationRowsChanged { .. } => "conversation_rows_changed",
         ServerMessage::ApprovalRequested { .. } => "approval_requested",
         ServerMessage::ApprovalDecisionResult { .. } => "approval_decision_result",
         ServerMessage::ApprovalDeleted { .. } => "approval_deleted",
@@ -1319,10 +1338,14 @@ fn print_watch_event(msg: &ServerMessage) {
                 println!("{} summary -> {summary}", dim.apply_to("delta"));
             }
         }
-        ServerMessage::MessageAppended { message, .. } => {
-            let role = format_role(message.message_type);
-            let content = truncate(&message.content, 120);
-            println!("{} [{role}] {content}", bold.apply_to("+msg"));
+        ServerMessage::ConversationRowsChanged { upserted, .. } => {
+            for entry in upserted {
+                let role = format_row_type(&entry.row);
+                let content =
+                    orbitdock_protocol::conversation_contracts::extract_row_content_str(&entry.row);
+                let content = truncate(&content, 120);
+                println!("{} [{role}] {content}", bold.apply_to("+row"));
+            }
         }
         ServerMessage::ApprovalRequested { request, .. } => {
             let coral = console::Style::new().red().bold();
@@ -1433,24 +1456,7 @@ fn print_session_detail(session: &SessionState, show_messages: bool) {
         );
     }
 
-    if show_messages && !session.messages.is_empty() {
-        println!("\n{}", bold.apply_to("Messages:"));
-        for msg in &session.messages {
-            let role_style = match msg.message_type {
-                MessageType::User => console::Style::new().cyan().bold(),
-                MessageType::Assistant => console::Style::new().green(),
-                MessageType::Tool | MessageType::ToolResult => console::Style::new().yellow(),
-                _ => console::Style::new().dim(),
-            };
-
-            let role = format_role(msg.message_type);
-            let content_preview = truncate(&msg.content, 200);
-
-            println!(
-                "  {} {}",
-                role_style.apply_to(format!("[{role}]")),
-                content_preview
-            );
-        }
-    }
+    // Messages are now delivered via ConversationRowPage, not inline on SessionState.
+    // The CLI `session get -m` flag should use the conversation history endpoint.
+    let _ = show_messages;
 }

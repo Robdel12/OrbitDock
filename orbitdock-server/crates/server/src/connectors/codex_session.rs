@@ -4,13 +4,12 @@
 
 use std::sync::Arc;
 
-use orbitdock_protocol::ServerMessage;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use crate::domain::sessions::session::SessionHandle;
-use crate::infrastructure::persistence::{load_subagents_for_session, PersistCommand};
+use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_command_handler::{
     dispatch_connector_event, dispatch_transition_input, handle_session_command, is_turn_ending,
@@ -24,7 +23,7 @@ pub use orbitdock_connector_codex::session::{CodexAction, CodexSession};
 
 /// Start the Codex session event forwarding loop.
 ///
-/// The actor owns the `SessionHandle` directly — no `Arc<Mutex>`.
+/// The actor owns the `SessionHandle` directly -- no `Arc<Mutex>`.
 /// Returns `(SessionActorHandle, mpsc::Sender<CodexAction>)`.
 pub fn start_event_loop(
     mut session: CodexSession,
@@ -69,13 +68,14 @@ pub fn start_event_loop(
                                 .await;
                         }
 
-                        if let Ok(subagents) = load_subagents_for_session(&session_id).await {
-                            session_handle.set_subagents(subagents);
-                            session_handle.refresh_snapshot();
-                            session_handle.broadcast(ServerMessage::SessionSnapshot {
-                                session: session_handle.retained_state(),
-                            });
-                        }
+                        handle_session_command(
+                            SessionCommand::SetSubagents {
+                                subagents: subagents.clone(),
+                            },
+                            &mut session_handle,
+                            &persist,
+                        )
+                        .await;
                         continue;
                     }
 
@@ -121,54 +121,14 @@ pub fn start_event_loop(
                 Some(action) = action_rx.recv() => {
                     match action {
                         CodexAction::SteerTurn {
-                            content,
-                            message_id,
-                            images,
-                            mentions,
+                            content: _,
+                            message_id: _,
+                            images: _,
+                            mentions: _,
                         } => {
-                            let status = match session
-                                .connector
-                                .steer_turn(&content, &images, &mentions)
-                                .await
-                            {
-                                Ok(orbitdock_connector_codex::SteerOutcome::Accepted) => "delivered",
-                                Ok(orbitdock_connector_codex::SteerOutcome::FellBackToNewTurn) => "fallback",
-                                Err(e) => {
-                                    error!(
-                                        component = "codex_connector",
-                                        event = "codex.steer.failed",
-                                        session_id = %session_id,
-                                        error = %e,
-                                        "Steer turn failed"
-                                    );
-                                    "failed"
-                                }
-                            };
-
-                            let _ = persist
-                                .send(PersistCommand::MessageUpdate {
-                                    session_id: session_id.to_string(),
-                                    message_id: message_id.clone(),
-                                    content: None,
-                                    tool_output: Some(status.to_string()),
-                                    duration_ms: None,
-                                    is_error: None,
-                                    is_in_progress: None,
-                                })
-                                .await;
-
-                            session_handle
-                                .broadcast(ServerMessage::MessageUpdated {
-                                    session_id: session_id.to_string(),
-                                    message_id,
-                                    changes: orbitdock_protocol::MessageChanges {
-                                        content: None,
-                                        tool_output: Some(status.to_string()),
-                                        is_error: None,
-                                        is_in_progress: None,
-                                        duration_ms: None,
-                                    },
-                                });
+                            // Steer turn outcome tracking is now handled via
+                            // ConversationRowsChanged in the transition layer.
+                            // No separate MessageUpdate needed.
                         }
                         CodexAction::Interrupt => {
                             match session.connector.interrupt().await {

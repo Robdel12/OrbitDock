@@ -33,6 +33,7 @@ pub(crate) fn dynamic_tool_output_to_text(
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn tool_input_with_arguments(
     metadata: serde_json::Value,
     arguments: Option<&serde_json::Value>,
@@ -57,6 +58,7 @@ pub(crate) fn tool_input_with_arguments(
     serde_json::to_string(&serde_json::Value::Object(payload)).ok()
 }
 
+#[allow(dead_code)]
 pub(crate) fn reasoning_trace_metadata_json(
     reasoning_kind: &'static str,
     stream: &'static str,

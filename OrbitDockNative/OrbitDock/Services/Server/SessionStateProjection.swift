@@ -151,6 +151,7 @@ struct SessionStateProjection {
   let branch: String??
   let gitSha: String??
   let currentCwd: String??
+  let subagents: [ServerSubagentInfo]?
   let model: String??
   let effort: String??
   let collaborationMode: String??
@@ -183,6 +184,7 @@ struct SessionStateProjection {
       branch: changes.gitBranch,
       gitSha: changes.gitSha,
       currentCwd: changes.currentCwd,
+      subagents: changes.subagents,
       model: changes.model,
       effort: changes.effort,
       collaborationMode: changes.collaborationMode,
@@ -477,6 +479,9 @@ extension SessionObservable {
     }
     if let currentCwd = projection.currentCwd {
       self.currentCwd = currentCwd
+    }
+    if let subagents = projection.subagents {
+      self.subagents = subagents
     }
     if let model = projection.model {
       self.model = model

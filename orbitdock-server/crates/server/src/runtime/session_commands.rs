@@ -1,9 +1,9 @@
 //! Commands sent to a session actor from websocket/rollout_watcher callers.
 
 use orbitdock_protocol::{
-    ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, Message,
-    ServerMessage, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo,
-    WorkStatus,
+    conversation_contracts::ConversationRowEntry, ApprovalRequest, ApprovalType,
+    ClaudeIntegrationMode, CodexIntegrationMode, ServerMessage, SessionState, SessionStatus,
+    SessionSummary, StateChanges, SubagentInfo, WorkStatus,
 };
 use tokio::sync::{broadcast, oneshot};
 
@@ -32,6 +32,8 @@ pub enum PersistOp {
         personality: Option<String>,
         service_tier: Option<String>,
         developer_instructions: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
     },
 }
 
@@ -132,16 +134,16 @@ pub enum SessionCommand {
         reply: oneshot::Sender<SessionSummary>,
     },
 
-    // -- Message operations --
-    AddMessage {
-        message: Message,
+    // -- Row operations --
+    AddRow {
+        entry: ConversationRowEntry,
     },
-    ReplaceMessages {
-        messages: Vec<Message>,
+    ReplaceRows {
+        rows: Vec<ConversationRowEntry>,
     },
-    /// Add a message and broadcast MessageAppended
-    AddMessageAndBroadcast {
-        message: Message,
+    /// Add a row and broadcast ConversationRowsChanged
+    AddRowAndBroadcast {
+        entry: ConversationRowEntry,
     },
 
     // -- Approval --

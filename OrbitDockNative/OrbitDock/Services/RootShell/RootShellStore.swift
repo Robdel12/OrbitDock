@@ -18,12 +18,22 @@ final class RootShellStore {
 
   @discardableResult
   func apply(_ event: RootShellEvent) -> Bool {
+    apply([event]).didChange
+  }
+
+  @discardableResult
+  func apply(_ events: [RootShellEvent]) -> RootShellChangeSet {
+    guard !events.isEmpty else { return RootShellChangeSet() }
+
+    let previousState = state
     var nextState = state
-    let changed = RootShellReducer.reduce(state: &nextState, event: event)
-    guard changed else { return false }
+    let changed = RootShellReducer.reduce(state: &nextState, events: events)
+    guard changed else { return RootShellChangeSet() }
+
     state = nextState
     syncPublishedState(from: nextState)
-    return true
+
+    return diff(previous: previousState, next: nextState)
   }
 
   func sessionRef(for scopedID: ScopedSessionID) -> SessionRef? {
@@ -71,5 +81,24 @@ final class RootShellStore {
     missionControlRecordsStorage = state.missionControlRecords
     recentRecordsStorage = state.recentRecords
     selectedEndpointFilter = state.selectedEndpointFilter
+  }
+
+  private func diff(previous: RootShellState, next: RootShellState) -> RootShellChangeSet {
+    let previousRecords = previous.recordsByScopedID
+    let nextRecords = next.recordsByScopedID
+
+    let upsertedScopedIDs = next.orderedScopedIDs.filter { scopedID in
+      previousRecords[scopedID] != nextRecords[scopedID]
+    }
+
+    let removedScopedIDs = previous.orderedScopedIDs.filter { scopedID in
+      nextRecords[scopedID] == nil
+    }
+
+    return RootShellChangeSet(
+      upsertedScopedIDs: upsertedScopedIDs,
+      removedScopedIDs: removedScopedIDs,
+      didChange: true
+    )
   }
 }

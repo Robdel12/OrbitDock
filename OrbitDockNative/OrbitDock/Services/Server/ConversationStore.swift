@@ -73,8 +73,13 @@ final class ConversationStore {
 
   private(set) var messages: [TranscriptMessage] = []
   private(set) var messagesRevision: Int = 0
+  private(set) var streamingPatchRevision: Int = 0
+  private(set) var latestStreamingPatch: ConversationStreamingPatch?
+  private var pendingStreamingPatchFlushTask: Task<Void, Never>?
+  private var streamingRegistry = StreamingMessageRegistry()
   private var normalizedMessagesCache: [TranscriptMessage] = []
   private var normalizedMessagesRevision: Int = -1
+  private var normalizedMessagesStreamingRevision: Int = -1
   private(set) var totalMessageCount: Int = 0
   private(set) var oldestLoadedSequence: UInt64?
   private(set) var newestLoadedSequence: UInt64?
@@ -95,7 +100,9 @@ final class ConversationStore {
   }
 
   var normalizedMessages: [TranscriptMessage] {
-    if normalizedMessagesRevision == messagesRevision {
+    if normalizedMessagesRevision == messagesRevision,
+       normalizedMessagesStreamingRevision == streamingPatchRevision
+    {
       return normalizedMessagesCache
     }
 
@@ -105,6 +112,7 @@ final class ConversationStore {
       source: "conversation-store"
     )
     normalizedMessagesRevision = messagesRevision
+    normalizedMessagesStreamingRevision = streamingPatchRevision
     return normalizedMessagesCache
   }
 
@@ -112,6 +120,10 @@ final class ConversationStore {
     self.sessionId = sessionId
     self.endpointId = endpointId
     self.clients = clients
+  }
+
+  var serverClients: ServerClients {
+    clients
   }
 
   // MARK: - Bootstrap (initial load from HTTP)
@@ -270,17 +282,28 @@ final class ConversationStore {
         isError: changes.isError ?? msg.isError,
         isInProgress: changes.isInProgress ?? msg.isInProgress,
         images: msg.images,
-        thinking: msg.thinking
+        thinking: msg.thinking,
+        toolDisplay: changes.toolDisplay ?? msg.toolDisplay
       )
     } else {
       if let toolOutput = changes.toolOutput { msg.toolOutput = toolOutput }
       if let durationMs = changes.durationMs { msg.toolDuration = Double(durationMs) / 1_000.0 }
       if let isError = changes.isError { msg.isError = isError }
       if let isInProgress = changes.isInProgress { msg.isInProgress = isInProgress }
+      if let toolDisplay = changes.toolDisplay { msg.toolDisplay = toolDisplay }
     }
 
+    let updateRoute = StreamingMessageRegistry.classify(
+      existing: messages[idx],
+      changes: changes,
+      messageId: messageId
+    )
     messages[idx] = msg
-    bumpRevision()
+    if case .streamingPatch = updateRoute {
+      scheduleStreamingPatch(messageId: messageId)
+    } else {
+      bumpRevision()
+    }
   }
 
   /// Re-fetch the full conversation from HTTP after a lagged/overflow event.
@@ -426,7 +449,33 @@ final class ConversationStore {
   }
 
   private func bumpRevision() {
+    streamingRegistry.resetForStructuralChange()
+    pendingStreamingPatchFlushTask?.cancel()
+    pendingStreamingPatchFlushTask = nil
+    latestStreamingPatch = streamingRegistry.latestPatch
     messagesRevision += 1
+  }
+
+  private func scheduleStreamingPatch(messageId: String) {
+    let shouldSchedule = streamingRegistry.enqueuePatch(messageId: messageId)
+    guard shouldSchedule, pendingStreamingPatchFlushTask == nil else { return }
+    pendingStreamingPatchFlushTask = Task { @MainActor [weak self] in
+      await Task.yield()
+      self?.flushPendingStreamingPatches()
+    }
+  }
+
+  private func flushPendingStreamingPatches() {
+    pendingStreamingPatchFlushTask = nil
+    switch streamingRegistry.flushPendingPatches() {
+      case .none:
+        return
+      case let .patch(patch, revision):
+        latestStreamingPatch = patch
+        streamingPatchRevision = revision
+      case .structuralReset:
+        bumpRevision()
+    }
   }
 
   // MARK: - Normalization

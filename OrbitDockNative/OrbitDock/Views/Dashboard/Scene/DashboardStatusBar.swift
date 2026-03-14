@@ -33,22 +33,17 @@ struct DashboardStatusBar: View {
     sessions.filter { !$0.isActive || $0.hasLiveEndpointConnection }
   }
 
-  private var todayStats: StatusBarStats {
+  private var precomputedStats: (today: StatusBarStats, all: StatusBarStats) {
+    let calculator = modelPricingService.calculatorSnapshot
     let calendar = Calendar.current
+    let startOfToday = calendar.startOfDay(for: Date())
     let todaySessions = dashboardStatsSessions.filter {
       guard let start = $0.startedAt else { return false }
-      return calendar.isDateInToday(start)
+      return start >= startOfToday
     }
-    return StatusBarStats.from(
-      sessions: todaySessions,
-      costCalculator: modelPricingService.calculatorSnapshot
-    )
-  }
-
-  private var allStats: StatusBarStats {
-    StatusBarStats.from(
-      sessions: sessions,
-      costCalculator: modelPricingService.calculatorSnapshot
+    return (
+      today: StatusBarStats.from(sessions: todaySessions, costCalculator: calculator),
+      all: StatusBarStats.from(sessions: sessions, costCalculator: calculator)
     )
   }
 
@@ -145,10 +140,11 @@ struct DashboardStatusBar: View {
   }
 
   var body: some View {
+    let stats = precomputedStats
     VStack(spacing: 0) {
       switch layoutMode {
-        case .phoneCompact: phoneHeader
-        case .pad, .desktop: desktopHeader
+        case .phoneCompact: phoneHeader(stats: stats)
+        case .pad, .desktop: desktopHeader(stats: stats)
       }
     }
     .fixedSize(horizontal: false, vertical: true)
@@ -163,7 +159,7 @@ struct DashboardStatusBar: View {
 
   // MARK: - Desktop Header
 
-  private var desktopHeader: some View {
+  private func desktopHeader(stats: (today: StatusBarStats, all: StatusBarStats)) -> some View {
     HStack(spacing: Spacing.md) {
       DashboardTabSwitcher()
 
@@ -173,7 +169,7 @@ struct DashboardStatusBar: View {
         connectionStateBadge(text: connectionSummaryText)
       }
 
-      todayStatsCluster
+      todayStatsCluster(todayStats: stats.today, allStats: stats.all)
 
       actionButtons
     }
@@ -183,7 +179,7 @@ struct DashboardStatusBar: View {
 
   // MARK: - Phone Header
 
-  private var phoneHeader: some View {
+  private func phoneHeader(stats: (today: StatusBarStats, all: StatusBarStats)) -> some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
       HStack(spacing: Spacing.sm) {
         DashboardTabSwitcher(compact: true)
@@ -195,7 +191,7 @@ struct DashboardStatusBar: View {
       }
 
       HStack(spacing: Spacing.sm_) {
-        phoneStatsButton
+        phoneStatsButton(todayStats: stats.today, allStats: stats.all)
 
         Spacer(minLength: Spacing.sm_)
 
@@ -212,7 +208,7 @@ struct DashboardStatusBar: View {
     .padding(.vertical, Spacing.sm)
   }
 
-  private var phoneStatsButton: some View {
+  private func phoneStatsButton(todayStats: StatusBarStats, allStats: StatusBarStats) -> some View {
     Button {
       showStatsPopover.toggle()
     } label: {
@@ -252,7 +248,7 @@ struct DashboardStatusBar: View {
 
   // MARK: - Stats Cluster
 
-  private var todayStatsCluster: some View {
+  private func todayStatsCluster(todayStats: StatusBarStats, allStats: StatusBarStats) -> some View {
     Button {
       showStatsPopover.toggle()
     } label: {

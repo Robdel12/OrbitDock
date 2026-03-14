@@ -2,18 +2,20 @@
 //  CompactToolModels.swift
 //  OrbitDock
 //
-//  Shared compact tool model types and glyph metadata.
+//  View model for compact tool rows. Mirrors the server's ToolDisplay 1:1
+//  plus message-level fields (worker linkage, progress state). The cell is
+//  a pure renderer — no tool-specific branching here.
 //
 
 import SwiftUI
 
+// MARK: - Tool Type (dispatch only, no visual meaning)
+
 nonisolated enum CompactToolType: Hashable, Sendable {
-  case bash, read, edit, glob, grep, task, todo, mcp, web, plan, question, skill, handoff, hook, generic
+  case bash, read, edit, glob, grep, task, todo, mcp, web, plan, question, skill, handoff, hook, toolSearch, generic
 }
 
-struct CompactTodoItem: Hashable {
-  let status: NativeTodoStatus
-}
+// MARK: - Diff Preview (from server ToolDiffPreview)
 
 struct DiffPreviewInfo {
   let contextLine: String?
@@ -32,44 +34,88 @@ struct DiffPreviewInfo {
   }
 }
 
+// MARK: - Todo Item (from server ToolTodoItem)
+
+struct CompactTodoItem: Hashable {
+  let status: NativeTodoStatus
+}
+
+// MARK: - The Model
+
+/// Font style for the summary text, computed server-side.
+enum SummaryFontStyle {
+  case system
+  case mono
+}
+
+/// Visual weight tier, computed server-side. Drives card visibility,
+/// font size, and overall visual presence in the timeline.
+enum DisplayTier {
+  case prominent  // Question — demands attention, full card, bright
+  case standard   // Shell, Edit, Agent — normal card with detail
+  case compact    // Read, Glob, Grep — no card, inline, muted
+  case minimal    // Skill, Plan, Hook — nearly invisible
+}
+
 struct NativeCompactToolRowModel {
-  let timestamp: Date
-  let glyphSymbol: String
-  let glyphColor: PlatformColor
+  // From server ToolDisplay — these are the rendered fields
   let summary: String
   let subtitle: String?
   let rightMeta: String?
+  let glyphSymbol: String
+  let glyphColor: PlatformColor
+  let toolType: CompactToolType
+  let language: String?
+  let diffPreview: DiffPreviewInfo?
+  let outputPreview: String?
+  let liveOutputPreview: String?
+  let todoItems: [CompactTodoItem]?
+  let summaryFont: SummaryFontStyle
+  let displayTier: DisplayTier
+
+  // From message metadata
+  let timestamp: Date
+  let family: ToolFamily
+  let isInProgress: Bool
+  let mcpServer: String?
+
+  // Worker linkage (from message + subagent registry)
   let linkedWorkerID: String?
   let linkedWorkerLabel: String?
   let linkedWorkerStatusText: String?
   let isFocusedWorker: Bool
-  let isInProgress: Bool
-  let diffPreview: DiffPreviewInfo?
-  let liveOutputPreview: String?
-  let toolType: CompactToolType
-  let outputPreview: String?
-  let language: String?
-  let mcpServer: String?
-  let todoItems: [CompactTodoItem]?
 }
 
-extension NativeCompactToolRowModel {
-  static func requiredHeight(for model: NativeCompactToolRowModel, width: CGFloat) -> CGFloat {
-    let base: CGFloat = 40
+// MARK: - Semantic Color Mapping
 
-    if model.diffPreview != nil {
-      let contextExtra: CGFloat = model.diffPreview?.contextLine != nil ? 15 : 0
-      return base + 22 + contextExtra
+extension PlatformColor {
+  static func fromSemanticName(_ name: String) -> PlatformColor {
+    switch name {
+    case "toolBash": PlatformColor(Color.toolBash)
+    case "toolRead": PlatformColor(Color.toolRead)
+    case "toolWrite": PlatformColor(Color.toolWrite)
+    case "toolSearch": PlatformColor(Color.toolSearch)
+    case "toolTask": PlatformColor(Color.toolTask)
+    case "toolQuestion": PlatformColor(Color.toolQuestion)
+    case "toolTodo": PlatformColor(Color.toolTodo)
+    case "toolPlan": PlatformColor(Color.toolPlan)
+    case "toolMcp": PlatformColor(Color.toolMcp)
+    case "toolWeb": PlatformColor(Color.toolWeb)
+    case "toolSkill": PlatformColor(Color.toolSkill)
+    case "feedbackCaution": PlatformColor(Color.feedbackCaution)
+    case "feedbackPositive": PlatformColor(Color.feedbackPositive)
+    case "feedbackNegative": PlatformColor(Color.feedbackNegative)
+    case "feedbackWarning": PlatformColor(Color.feedbackWarning)
+    case "statusReply": PlatformColor(Color.statusReply)
+    case "statusWorking": PlatformColor(Color.statusWorking)
+    case "accent": PlatformColor(Color.accentColor)
+    case "secondaryLabel": PlatformColor.secondaryLabelCompat
+    default: PlatformColor.secondaryLabelCompat
     }
-    if model.liveOutputPreview != nil { return base + 17 }
-    if let items = model.todoItems, !items.isEmpty { return base + 17 }
-    if let preview = model.outputPreview {
-      let lineCount = min(preview.components(separatedBy: "\n").count, 3)
-      return base + CGFloat(lineCount) * 15
-    }
-    return base
   }
 }
+
+// MARK: - Glyph Info (fallback only — server provides glyph for all tool messages)
 
 struct ToolGlyphInfo {
   let symbol: String
@@ -95,7 +141,8 @@ struct ToolGlyphInfo {
         return ToolGlyphInfo(symbol: "pencil.line", color: PlatformColor(Color.toolWrite))
       case "glob", "grep":
         return ToolGlyphInfo(symbol: "magnifyingglass", color: PlatformColor(Color.toolSearch))
-      case "task": return ToolGlyphInfo(symbol: "bolt.fill", color: PlatformColor(Color.toolTask))
+      case "task", "agent", "wait", "send_input", "spawn_agent":
+        return ToolGlyphInfo(symbol: "bolt.fill", color: PlatformColor(Color.toolTask))
       case "handoff":
         return ToolGlyphInfo(symbol: "arrow.triangle.branch", color: PlatformColor(Color.statusReply))
       case "hook":
@@ -105,11 +152,13 @@ struct ToolGlyphInfo {
       case "webfetch", "websearch": return ToolGlyphInfo(symbol: "globe", color: PlatformColor(Color.toolWeb))
       case "view_image": return ToolGlyphInfo(symbol: "photo", color: PlatformColor(Color.toolRead))
       case "skill": return ToolGlyphInfo(symbol: "wand.and.stars", color: PlatformColor(Color.toolSkill))
-      case "enterplanmode", "exitplanmode":
+      case "toolsearch", "tool_search":
+        return ToolGlyphInfo(symbol: "puzzlepiece.extension", color: PlatformColor(Color.toolSearch))
+      case "enterplanmode", "exitplanmode", "plan", "update_plan":
         return ToolGlyphInfo(symbol: "map", color: PlatformColor(Color.toolPlan))
-      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan":
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
         return ToolGlyphInfo(symbol: "checklist", color: PlatformColor(Color.toolTodo))
-      case "askuserquestion":
+      case "askuserquestion", "question":
         return ToolGlyphInfo(symbol: "questionmark.bubble", color: PlatformColor(Color.toolQuestion))
       case "mcp_approval":
         return ToolGlyphInfo(symbol: "shield.lefthalf.filled", color: PlatformColor(Color.toolQuestion))

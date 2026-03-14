@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 use orbitdock_connector_codex::CodexConnector;
+use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionSummary,
 };
@@ -12,11 +13,11 @@ use crate::connectors::codex_session::CodexSession;
 use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
 use crate::infrastructure::persistence::{load_messages_from_transcript_path, PersistCommand};
 use crate::runtime::session_fork_policy::{
-    remap_messages_for_fork, select_fork_messages, truncate_messages_before_nth_user_message,
+    remap_rows_for_fork, select_fork_rows, truncate_rows_before_nth_user_row,
 };
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-    claim_codex_thread_for_direct_session, hydrate_full_message_history,
+    claim_codex_thread_for_direct_session, hydrate_full_row_history,
 };
 
 pub(crate) struct ForkedSessionStart {
@@ -150,25 +151,24 @@ pub(crate) async fn finalize_codex_fork_session(
     });
     handle.set_forked_from(source_session_id.to_string());
 
-    let source_fork_messages =
-        load_source_fork_messages(state, source_session_id, nth_user_message, &new_session_id)
-            .await;
-    let rollout_messages = load_rollout_fork_messages(&new_connector, &new_session_id).await;
+    let source_fork_rows =
+        load_source_fork_rows(state, source_session_id, nth_user_message, &new_session_id).await;
+    let rollout_rows = load_rollout_fork_rows(&new_connector, &new_session_id).await;
 
-    if !source_fork_messages.is_empty() && rollout_messages.len() < source_fork_messages.len() {
+    if !source_fork_rows.is_empty() && rollout_rows.len() < source_fork_rows.len() {
         info!(
             component = "session",
-            event = "session.fork.messages_source_selected",
+            event = "session.fork.rows_source_selected",
             new_session_id = %new_session_id,
-            source_message_count = source_fork_messages.len(),
-            rollout_message_count = rollout_messages.len(),
-            "Selected source session messages for fork hydration"
+            source_row_count = source_fork_rows.len(),
+            rollout_row_count = rollout_rows.len(),
+            "Selected source session rows for fork hydration"
         );
     }
 
-    let forked_messages = select_fork_messages(source_fork_messages, rollout_messages);
-    if !forked_messages.is_empty() {
-        handle.replace_messages(forked_messages.clone());
+    let forked_rows = select_fork_rows(source_fork_rows, rollout_rows);
+    if !forked_rows.is_empty() {
+        handle.replace_rows(forked_rows.clone());
     }
 
     let summary = handle.summary();
@@ -195,11 +195,11 @@ pub(crate) async fn finalize_codex_fork_session(
         })
         .await;
 
-    for message in forked_messages {
+    for entry in forked_rows {
         let _ = persist_tx
-            .send(PersistCommand::MessageAppend {
+            .send(PersistCommand::RowAppend {
                 session_id: new_session_id.clone(),
-                message,
+                entry,
             })
             .await;
     }
@@ -235,26 +235,26 @@ pub(crate) async fn finalize_codex_fork_session(
     })
 }
 
-async fn load_source_fork_messages(
+async fn load_source_fork_rows(
     state: &Arc<SessionRegistry>,
     source_session_id: &str,
     nth_user_message: Option<u32>,
     new_session_id: &str,
-) -> Vec<orbitdock_protocol::Message> {
+) -> Vec<ConversationRowEntry> {
     let Some(source_actor) = state.get_session(source_session_id) else {
         return Vec::new();
     };
 
     match source_actor.retained_state().await {
         Ok(source_state) => {
-            let full_source_messages = hydrate_full_message_history(
+            let full_source_rows = hydrate_full_row_history(
                 source_session_id,
-                source_state.messages,
-                source_state.total_message_count,
+                source_state.rows,
+                Some(source_state.total_row_count),
             )
             .await;
-            remap_messages_for_fork(
-                truncate_messages_before_nth_user_message(&full_source_messages, nth_user_message),
+            remap_rows_for_fork(
+                truncate_rows_before_nth_user_row(&full_source_rows, nth_user_message),
                 new_session_id,
             )
         }
@@ -271,38 +271,38 @@ async fn load_source_fork_messages(
     }
 }
 
-async fn load_rollout_fork_messages(
+async fn load_rollout_fork_rows(
     connector: &CodexConnector,
     new_session_id: &str,
-) -> Vec<orbitdock_protocol::Message> {
+) -> Vec<ConversationRowEntry> {
     let Some(rollout_path) = connector.rollout_path().await else {
         return Vec::new();
     };
 
     match load_messages_from_transcript_path(&rollout_path, new_session_id).await {
-        Ok(messages) if !messages.is_empty() => {
+        Ok(rows) if !rows.is_empty() => {
             info!(
                 component = "session",
-                event = "session.fork.messages_loaded",
+                event = "session.fork.rows_loaded",
                 new_session_id = %new_session_id,
-                message_count = messages.len(),
+                row_count = rows.len(),
                 "Loaded forked conversation history"
             );
-            messages
+            rows
         }
         Ok(_) => {
             debug!(
                 component = "session",
-                event = "session.fork.no_messages",
+                event = "session.fork.no_rows",
                 new_session_id = %new_session_id,
-                "Forked thread rollout has no parseable messages"
+                "Forked thread rollout has no parseable rows"
             );
             Vec::new()
         }
         Err(error) => {
             warn!(
                 component = "session",
-                event = "session.fork.messages_load_failed",
+                event = "session.fork.rows_load_failed",
                 new_session_id = %new_session_id,
                 error = %error,
                 "Failed to load forked conversation history"

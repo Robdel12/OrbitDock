@@ -1,6 +1,6 @@
 # OrbitDock Server API
 
-Last updated: 2026-03-09
+Last updated: 2026-03-13
 
 This doc is the route-level contract for OrbitDock's server. It covers every current HTTP endpoint plus the WebSocket entrypoint.
 
@@ -103,15 +103,31 @@ Response:
       "provider": "codex",
       "project_path": "/Users/.../repo",
       "status": "active",
-      "work_status": "waiting"
+      "work_status": "waiting",
+      "active_worker_count": 1,
+      "pending_tool_family": "shell",
+      "forked_from_session_id": "od-parent"
     }
   ]
 }
 ```
 
+Notes:
+
+- Session summaries and list items now include `active_worker_count`, `pending_tool_family`, and `forked_from_session_id`.
+
 #### `GET /api/sessions/{session_id}`
 
 Returns full session state.
+
+Query params:
+
+- `include_messages` optional, default `false`
+
+Notes:
+
+- Despite the legacy query name, this endpoint returns typed conversation rows in `session.rows` when `include_messages=true`.
+- When `include_messages=false`, the session payload is returned without hydrated row history.
 
 Response:
 
@@ -120,8 +136,12 @@ Response:
   "session": {
     "id": "od-...",
     "provider": "codex",
-    "messages": [],
-    "revision": 123
+    "status": "active",
+    "work_status": "waiting",
+    "revision": 123,
+    "rows": [],
+    "total_row_count": 0,
+    "has_more_before": false
   }
 }
 ```
@@ -134,7 +154,7 @@ Error responses:
 
 #### `GET /api/sessions/{session_id}/conversation?limit=<n>`
 
-Returns the bootstrap payload for a conversation view.
+Returns the bootstrap payload for a conversation view. Includes the session state plus the first page of typed `ConversationRow` entries.
 
 Query params:
 
@@ -145,14 +165,55 @@ Response:
 ```json
 {
   "session": {
-    "id": "od-..."
+    "id": "od-...",
+    "rows": [
+      {
+        "session_id": "od-...",
+        "sequence": 1,
+        "turn_id": "turn-1",
+        "row": {
+          "row_type": "user",
+          "id": "msg-1",
+          "content": "Review the approval flow",
+          "turn_id": "turn-1",
+          "timestamp": "2026-03-13T12:00:00Z",
+          "is_streaming": false,
+          "images": []
+        }
+      },
+      {
+        "session_id": "od-...",
+        "sequence": 2,
+        "turn_id": "turn-1",
+        "row": {
+          "row_type": "assistant",
+          "id": "msg-2",
+          "content": "Looking at the approval flow now",
+          "turn_id": "turn-1",
+          "timestamp": "2026-03-13T12:00:01Z",
+          "is_streaming": true
+        }
+      }
+    ],
+    "total_row_count": 120,
+    "has_more_before": true,
+    "oldest_sequence": 71,
+    "newest_sequence": 120
   },
-  "total_message_count": 120,
+  "total_row_count": 120,
   "has_more_before": true,
   "oldest_sequence": 71,
   "newest_sequence": 120
 }
 ```
+
+See `docs/conversation-contracts.md` for the full row type reference.
+
+Notes:
+
+- The top-level response is flattened: `session`, `total_row_count`, `has_more_before`, `oldest_sequence`, and `newest_sequence`.
+- Every `ConversationRowEntry` now carries row-level `turn_id`.
+- Message rows (`user`, `assistant`, `thinking`, `system`) may carry `is_streaming` and `images`.
 
 Error responses:
 
@@ -162,7 +223,7 @@ Error responses:
 
 #### `GET /api/sessions/{session_id}/messages?before_sequence=<seq>&limit=<n>`
 
-Returns a paged slice of older conversation messages.
+Returns a paged slice of older conversation rows for infinite scroll.
 
 Query params:
 
@@ -173,9 +234,26 @@ Response:
 
 ```json
 {
-  "session_id": "od-...",
-  "messages": [],
-  "total_message_count": 120,
+  "rows": [
+    {
+      "session_id": "od-...",
+      "sequence": 21,
+      "turn_id": "turn-3",
+      "row": {
+        "row_type": "tool",
+        "id": "tool-use-abc",
+        "provider": "claude",
+        "family": "search",
+        "kind": "grep",
+        "status": "completed",
+        "title": "Grep",
+        "invocation": { "...": "..." },
+        "result": { "...": "..." },
+        "render_hints": { "can_expand": true }
+      }
+    }
+  ],
+  "total_row_count": 120,
   "has_more_before": true,
   "oldest_sequence": 21,
   "newest_sequence": 70
@@ -204,6 +282,89 @@ Response:
 Error responses:
 
 - `404 session_not_found`
+
+#### `GET /api/sessions/{session_id}/search?q=<text>&family=<family>&status=<status>&kind=<kind>`
+
+Searches conversation rows within a session.
+
+Query params:
+
+- `q` optional substring match against row content/title
+- `family` optional tool-family filter such as `shell`, `search`, `file_change`
+- `status` optional tool-status filter such as `running`, `completed`, `failed`
+- `kind` optional tool-kind filter such as `bash`, `grep`, `edit`
+
+Response:
+
+```json
+{
+  "rows": [
+    {
+      "session_id": "od-...",
+      "sequence": 42,
+      "turn_id": "turn-7",
+      "row": {
+        "row_type": "tool",
+        "id": "tool-1",
+        "provider": "codex",
+        "family": "shell",
+        "kind": "bash",
+        "status": "completed",
+        "title": "Deploy preview build",
+        "duration_ms": 1200,
+        "invocation": { "...": "..." },
+        "result": { "...": "..." },
+        "render_hints": {}
+      }
+    }
+  ],
+  "total_row_count": 1,
+  "has_more_before": false,
+  "oldest_sequence": 42,
+  "newest_sequence": 42
+}
+```
+
+Error responses:
+
+- `404 not_found`
+- `500 db_error`
+- `503 runtime_error`
+
+#### `GET /api/sessions/{session_id}/stats`
+
+Returns aggregate session metrics for dashboard and detail views.
+
+Response:
+
+```json
+{
+  "session_id": "od-...",
+  "total_rows": 120,
+  "tool_count": 45,
+  "tool_count_by_family": {
+    "shell": 12,
+    "file_change": 8
+  },
+  "failed_tool_count": 3,
+  "average_tool_duration_ms": 1200,
+  "turn_count": 8,
+  "total_tokens": {
+    "input_tokens": 50000,
+    "output_tokens": 12000,
+    "cached_tokens": 30000,
+    "context_window": 200000
+  },
+  "worker_count": 2,
+  "duration_ms": 300000
+}
+```
+
+Error responses:
+
+- `404 not_found`
+- `500 db_error`
+- `503 runtime_error`
 
 ### Sessions: Lifecycle
 
@@ -348,7 +509,14 @@ Request:
 {
   "approval_policy": "on-request",
   "sandbox_mode": "workspace-write",
-  "permission_mode": "default"
+  "permission_mode": "default",
+  "collaboration_mode": "default",
+  "multi_agent": true,
+  "personality": "balanced",
+  "service_tier": "priority",
+  "developer_instructions": "Stay concise",
+  "model": "gpt-5",
+  "effort": "high"
 }
 ```
 
@@ -857,6 +1025,45 @@ Response:
 Notes:
 
 - If the subagent transcript is missing or unreadable, this returns an empty list.
+
+#### `GET /api/sessions/{session_id}/instructions`
+
+Returns the instructions currently associated with the session.
+
+Response:
+
+```json
+{
+  "session_id": "od-...",
+  "provider": "codex",
+  "instructions": {
+    "developer_instructions": "Stay concise"
+  }
+}
+```
+
+Response for Claude may also include `claude_md` when either `~/.claude/CLAUDE.md` or
+`<project>/CLAUDE.md` exists:
+
+```json
+{
+  "session_id": "od-...",
+  "provider": "claude",
+  "instructions": {
+    "claude_md": "# Project Instructions\n...",
+    "developer_instructions": "Stay concise"
+  }
+}
+```
+
+Notes:
+
+- `system_prompt` is part of the response shape but is currently `null`/omitted.
+- For Claude, `claude_md` is the concatenated contents of global and project `CLAUDE.md` files when present.
+
+Error responses:
+
+- `404 not_found`
 
 #### `GET /api/sessions/{session_id}/skills?cwd=<path>&force_reload=true|false`
 
@@ -1736,3 +1943,21 @@ Example:
 ```
 
 When `include_snapshot=false`, the server skips the initial snapshot and only streams replayed or live incremental events.
+
+Server-pushed event types:
+
+- `conversation_bootstrap` — full session state + conversation rows (on subscribe)
+- `conversation_rows_changed` — incremental row upserts/removals
+- `session_delta` — session metadata changes (status, tokens, name, etc.)
+- `approval_requested` — tool needs user approval
+- `approval_decision_result` — approval outcome
+- `tokens_updated` — token usage snapshot
+- `session_created` / `session_ended` / `session_forked`
+- `shell_started` / `shell_output` — shell execution streaming
+- `context_compacted` / `undo_started` / `undo_completed` / `thread_rolled_back`
+- `rate_limit_event` / `prompt_suggestion` / `files_persisted`
+- `skills_list` / `mcp_tools_list` / `mcp_startup_update` / `mcp_startup_complete`
+- `review_comment_created` / `review_comment_updated` / `review_comment_deleted`
+- `worktree_created` / `worktree_removed` / `worktree_status_changed`
+
+See `docs/conversation-contracts.md` for the typed row schema used in `conversation_bootstrap` and `conversation_rows_changed`.

@@ -15,6 +15,8 @@ import SwiftUI
   struct ConversationCollectionView: UIViewControllerRepresentable {
     let messages: [TranscriptMessage]
     let messagesRevision: Int
+    let streamingPatchRevision: Int
+    let latestStreamingPatch: ConversationStreamingPatch?
     let chatViewMode: ChatViewMode
     let isSessionActive: Bool
     let workStatus: Session.WorkStatus
@@ -73,6 +75,7 @@ import SwiftUI
         remainingLoadCount: remainingLoadCount,
         hasMoreMessages: hasMoreMessages
       )
+      vc.streamingPatchRevision = streamingPatchRevision
       return vc
     }
 
@@ -90,31 +93,74 @@ import SwiftUI
       vc.onNavigateToReviewFile = onNavigateToReviewFile
       vc.onOpenPendingApprovalPanel = onOpenPendingApprovalPanel
 
-      let oldMode = vc.chatViewMode
+      let oldMode = vc.currentChatViewMode
       let oldMessagesRevision = vc.messagesRevision
-
-      vc.applyFullState(
-        messages: messages,
-        chatViewMode: chatViewMode,
-        isSessionActive: isSessionActive,
-        workStatus: workStatus,
-        currentTool: currentTool,
-        pendingToolName: pendingToolName,
-        pendingPermissionDetail: pendingPermissionDetail,
-        currentPrompt: currentPrompt,
-        messageCount: messageCount,
-        remainingLoadCount: remainingLoadCount,
-        hasMoreMessages: hasMoreMessages
-      )
-      vc.messagesRevision = messagesRevision
+      let oldStreamingPatchRevision = vc.streamingPatchRevision
+      let oldMessageCount = vc.currentMessageCount
 
       // Defer snapshot work to avoid "modifying state during view update"
       // — snapshot application triggers UIKit layout which can read back into SwiftUI bindings.
       let modeChanged = oldMode != chatViewMode
       let revisionChanged = oldMessagesRevision != messagesRevision
+      let selectedWorkerChanged = oldSelectedWorkerID != selectedWorkerID
+      let streamingPatchChanged = oldStreamingPatchRevision != streamingPatchRevision
+      let messageCountChanged = oldMessageCount != messages.count
+      let needsStructureHydration = modeChanged || revisionChanged || messageCountChanged
+      let canApplyStreamingPatch = !modeChanged
+        && !revisionChanged
+        && !messageCountChanged
+        && !selectedWorkerChanged
+        && streamingPatchChanged
+        && latestStreamingPatch != nil
       let needsScroll = context.coordinator.lastScrollToBottomTrigger != scrollToBottomTrigger
       let jumpTargetChanged = context.coordinator.lastJumpTarget != jumpToMessageTarget
-      let selectedWorkerChanged = oldSelectedWorkerID != selectedWorkerID
+      if canApplyStreamingPatch, let latestStreamingPatch {
+        vc.applySessionMetadata(
+          chatViewMode: chatViewMode,
+          isSessionActive: isSessionActive,
+          workStatus: workStatus,
+          currentTool: currentTool,
+          pendingToolName: pendingToolName,
+          pendingPermissionDetail: pendingPermissionDetail,
+          currentPrompt: currentPrompt,
+          messageCount: messageCount,
+          remainingLoadCount: remainingLoadCount,
+          hasMoreMessages: hasMoreMessages
+        )
+        vc.applyStreamingPatch(latestStreamingPatch, messages: messages)
+      } else {
+        if needsStructureHydration {
+          vc.applyFullState(
+            messages: messages,
+            chatViewMode: chatViewMode,
+            isSessionActive: isSessionActive,
+            workStatus: workStatus,
+            currentTool: currentTool,
+            pendingToolName: pendingToolName,
+            pendingPermissionDetail: pendingPermissionDetail,
+            currentPrompt: currentPrompt,
+            messageCount: messageCount,
+            remainingLoadCount: remainingLoadCount,
+            hasMoreMessages: hasMoreMessages
+          )
+        } else {
+          vc.forceMetadataReconfigure = true
+          vc.applySessionMetadata(
+            chatViewMode: chatViewMode,
+            isSessionActive: isSessionActive,
+            workStatus: workStatus,
+            currentTool: currentTool,
+            pendingToolName: pendingToolName,
+            pendingPermissionDetail: pendingPermissionDetail,
+            currentPrompt: currentPrompt,
+            messageCount: messageCount,
+            remainingLoadCount: remainingLoadCount,
+            hasMoreMessages: hasMoreMessages
+          )
+        }
+      }
+      vc.messagesRevision = messagesRevision
+      vc.streamingPatchRevision = streamingPatchRevision
       if needsScroll {
         context.coordinator.lastScrollToBottomTrigger = scrollToBottomTrigger
       }
@@ -124,8 +170,14 @@ import SwiftUI
       Task { @MainActor in
         if modeChanged {
           vc.rebuildSnapshot(animated: false)
-        } else if revisionChanged || vc.currentMessages.count != messages.count || selectedWorkerChanged {
+        } else if revisionChanged
+          || messageCountChanged
+          || selectedWorkerChanged
+          || (!needsStructureHydration && !canApplyStreamingPatch)
+        {
           vc.applyProjectionUpdate()
+        } else if canApplyStreamingPatch {
+          // Content-only streaming patch already updated the visible row in place.
         }
         if needsScroll {
           vc.isPinnedToBottom = true
@@ -182,51 +234,49 @@ import SwiftUI
     var onOpenPendingApprovalPanel: (() -> Void)?
     var isPinnedToBottom = true
 
-    // Timeline state — mirrors macOS VC pattern
-    var sourceState = ConversationSourceState()
-    var uiState = ConversationUIState()
+    // Timeline state
     var messagesByID: [String: TranscriptMessage] = [:]
-    var turnsByID: [String: TurnSummary] = [:]
-    var projectionResult = ProjectionResult.empty
+    var runtime: ConversationDetailRuntime?
     var currentRows: [TimelineRow] = []
     var rowIndexByTimelineRowID: [TimelineRowID: Int] = [:]
     var previousMessageCount = 0
     var messagesRevision = 0
-
-    /// Convenience accessors
-    var currentMessages: [TranscriptMessage] {
-      sourceState.messages
-    }
-
-    var chatViewMode: ChatViewMode {
-      sourceState.metadata.chatViewMode
-    }
+    var streamingPatchRevision = 0
+    var currentChatViewMode: ChatViewMode = .focused
+    var currentMessageCount = 0
+    var currentRemainingLoadCount = 0
+    var currentHasMoreMessages = false
+    var supportsRichToolingCards = false
+    var expandedToolCardIDs: Set<String> = []
+    var expandedActivityGroupIDs: Set<String> = []
 
     var collectionView: UICollectionView!
     var dataSource: UICollectionViewDiffableDataSource<ConversationSection, TimelineRowID>!
 
     // Cell registrations
     var messageCellReg: UICollectionView.CellRegistration<UIKitRichMessageCell, String>!
-    var compactToolCellReg: UICollectionView.CellRegistration<UIKitCompactToolCell, String>!
+    var toolStripCellReg: UICollectionView.CellRegistration<UIKitToolStripCell, String>!
     var expandedToolCellReg: UICollectionView.CellRegistration<UIKitExpandedToolCell, String>!
-    var turnHeaderCellReg: UICollectionView.CellRegistration<UIKitTurnHeaderCell, String>!
-    var rollupSummaryCellReg: UICollectionView.CellRegistration<UIKitRollupSummaryCell, String>!
     var loadMoreCellReg: UICollectionView.CellRegistration<UIKitLoadMoreCell, Void>!
-    var messageCountCellReg: UICollectionView.CellRegistration<UIKitMessageCountCell, Void>!
     var liveIndicatorCellReg: UICollectionView.CellRegistration<UIKitLiveIndicatorCell, Void>!
-    var workerEventCellReg: UICollectionView.CellRegistration<UIKitCompactToolCell, String>!
+    var workerEventCellReg: UICollectionView.CellRegistration<UIKitToolStripCell, String>!
     var workerOrchestrationCellReg: UICollectionView.CellRegistration<UIKitWorkerOrchestrationCell, String>!
-    var liveProgressCellReg: UICollectionView.CellRegistration<UIKitLiveProgressCell, Void>!
+    var activitySummaryCellReg: UICollectionView.CellRegistration<UIKitActivitySummaryCell, String>!
     var approvalCardCellReg: UICollectionView.CellRegistration<UIKitApprovalCardCell, Void>!
-    var collapsedTurnCellReg: UICollectionView.CellRegistration<UIKitCollapsedTurnCell, String>!
     var spacerCellReg: UICollectionView.CellRegistration<UIKitSpacerCell, Void>!
 
     private var needsInitialScroll = true
+    var forceMetadataReconfigure = false
     var expandedThinkingIDs: Set<String> = []
     /// Cached heights keyed by TimelineRowID. Invalidated on width change.
     var heightCache: [TimelineRowID: CGFloat] = [:]
     private var lastLayoutWidth: CGFloat = 0
     let logger = TimelineFileLogger.shared
+
+    private var scopedSessionID: ScopedSessionID? {
+      guard let sessionId, let endpointId = serverState?.endpointId else { return nil }
+      return ScopedSessionID(endpointId: endpointId, sessionId: sessionId)
+    }
 
     override func viewDidLoad() {
       super.viewDidLoad()
@@ -241,12 +291,11 @@ import SwiftUI
       let width = collectionView.bounds.width
       if abs(width - lastLayoutWidth) > 0.5, width > 0 {
         lastLayoutWidth = width
-        ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .widthChanged(width))
         heightCache.removeAll()
         collectionView.collectionViewLayout.invalidateLayout()
       }
 
-      if needsInitialScroll, !currentMessages.isEmpty {
+      if needsInitialScroll, currentMessageCount > 0 {
         needsInitialScroll = false
         scrollToBottom(animated: false)
       }
@@ -280,6 +329,50 @@ import SwiftUI
 
     // MARK: - State Updates
 
+    func applySessionMetadata(
+      chatViewMode: ChatViewMode,
+      isSessionActive: Bool,
+      workStatus: Session.WorkStatus,
+      currentTool: String?,
+      pendingToolName: String?,
+      pendingPermissionDetail: String?,
+      currentPrompt: String?,
+      messageCount: Int,
+      remainingLoadCount: Int,
+      hasMoreMessages: Bool
+    ) {
+      let observable = sessionId.flatMap { serverState?.session($0) }
+      let resolvedApprovalId = observable?.pendingApprovalId
+      currentChatViewMode = chatViewMode
+      currentRemainingLoadCount = remainingLoadCount
+      currentHasMoreMessages = hasMoreMessages
+      supportsRichToolingCards = observable?.isDirect ?? false
+
+      ensureRuntime()
+      runtime?.hydrateMetadata(
+        ConversationMetadataInput(
+          isSessionActive: isSessionActive,
+          workStatus: workStatus,
+          currentTool: observable?.lastTool ?? currentTool,
+          pendingToolName: observable?.pendingToolName ?? pendingToolName,
+          pendingPermissionDetail: observable?.pendingPermissionDetail ?? pendingPermissionDetail,
+          currentPrompt: currentPrompt,
+          approval: observable?.pendingApproval,
+          pendingApprovalId: resolvedApprovalId,
+          approvalVersion: observable?.approvalVersion,
+          pendingQuestion: observable?.pendingQuestion,
+          workers: observable?.subagents ?? [],
+          selectedWorkerID: selectedWorkerID,
+          toolsByWorker: observable?.subagentTools ?? [:],
+          messagesByWorker: observable?.subagentMessages ?? [:],
+          tokenUsage: observable?.tokenUsage,
+          tokenUsageSnapshotKind: observable?.tokenUsageSnapshotKind,
+          provider: provider,
+          model: model
+        )
+      )
+    }
+
     func applyFullState(
       messages: [TranscriptMessage],
       chatViewMode: ChatViewMode,
@@ -298,69 +391,109 @@ import SwiftUI
         sessionId: self.sessionId,
         source: "timeline-apply-ios"
       )
+      messagesByID = Dictionary(uniqueKeysWithValues: resolvedMessages.map { ($0.id, $0) })
+      currentMessageCount = resolvedMessages.count
+      previousMessageCount = resolvedMessages.count
 
-      // Approval metadata is server-authoritative from session summary fields.
-      let observable = sessionId.flatMap { serverState?.session($0) }
-      let resolvedApprovalId = observable?.pendingApprovalId
-      let approvalMode: ApprovalCardMode = {
-        guard let observable else { return .none }
-        return ApprovalCardModeResolver.resolve(
-          for: observable.approvalCardContext,
-          pendingApprovalId: resolvedApprovalId,
-          approvalType: nil
-        )
-      }()
-      let shouldShowApprovalCard = approvalMode != .none
+      ensureRuntime()
+      runtime?.hydrateStructure(
+        messages: resolvedMessages,
+        oldestLoadedSequence: resolvedMessages.first?.sequence,
+        newestLoadedSequence: resolvedMessages.last?.sequence,
+        hasMoreHistoryBefore: hasMoreMessages
+      )
 
-      let metadata = ConversationSourceState.SessionMetadata(
+      applySessionMetadata(
         chatViewMode: chatViewMode,
         isSessionActive: isSessionActive,
         workStatus: workStatus,
-        currentTool: observable?.lastTool ?? currentTool,
-        pendingToolName: observable?.pendingToolName ?? pendingToolName,
-        pendingApprovalCommand: String.shellCommandDisplay(from: observable?.pendingToolInput),
-        pendingPermissionDetail: observable?.pendingPermissionDetail ?? pendingPermissionDetail,
+        currentTool: currentTool,
+        pendingToolName: pendingToolName,
+        pendingPermissionDetail: pendingPermissionDetail,
         currentPrompt: currentPrompt,
         messageCount: messageCount,
         remainingLoadCount: remainingLoadCount,
-        hasMoreMessages: hasMoreMessages,
-        needsApprovalCard: shouldShowApprovalCard,
-        approvalMode: approvalMode,
-        pendingQuestion: observable?.pendingQuestion,
-        pendingApprovalId: resolvedApprovalId,
-        isDirectSession: observable?.isDirect ?? false,
-        isDirectCodexSession: observable?.isDirectCodex ?? false,
-        supportsRichToolingCards: observable?.isDirect ?? false,
-        sessionId: self.sessionId,
-        projectPath: observable?.projectPath
+        hasMoreMessages: hasMoreMessages
       )
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setSessionMetadata(metadata))
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setMessages(resolvedMessages))
+    }
 
-      messagesByID = Dictionary(uniqueKeysWithValues: sourceState.messages.map { ($0.id, $0) })
+    func applyStreamingPatch(_ patch: ConversationStreamingPatch, messages: [TranscriptMessage]) {
+      guard let incoming = messages.first(where: { $0.id == patch.messageId }),
+            let previousMessage = messagesByID[patch.messageId]
+      else {
+        return
+      }
+      messagesByID[patch.messageId] = incoming
 
-      rebuildTurns()
-      ConversationTimelineReducer.reduce(
-        source: &sourceState,
-        ui: &uiState,
-        action: .setPinnedToBottom(isPinnedToBottom)
-      )
+      if incoming.isInProgress {
+        runtime?.applyStreaming(.replace(
+          messageID: incoming.id,
+          content: incoming.content,
+          invalidatesHeight: shouldInvalidateStreamingHeight(previous: previousMessage, next: incoming)
+        ))
+      } else {
+        runtime?.applyStreaming(.finalize(
+          messageID: incoming.id,
+          content: incoming.content,
+          invalidatesHeight: true
+        ))
+      }
+
+      guard let rowIndex = currentRows.firstIndex(where: { row in
+        if case let .message(id, _) = row.payload {
+          return id == patch.messageId
+        }
+        return false
+      }) else {
+        return
+      }
+
+      let timelineRow = currentRows[rowIndex]
+      guard let model = buildRichMessageModel(for: timelineRow) else {
+        applyProjectionUpdate()
+        return
+      }
+
+      let indexPath = IndexPath(item: rowIndex, section: 0)
+      let rowID = currentRows[rowIndex].id
+
+      if let richCell = collectionView.cellForItem(at: indexPath) as? UIKitRichMessageCell,
+         richCell.applyStreamingUpdate(model: model, width: collectionView.bounds.width)
+      {
+        if shouldInvalidateStreamingHeight(previous: previousMessage, next: incoming) {
+          heightCache[rowID] = UIKitRichMessageCell.requiredHeight(for: collectionView.bounds.width, model: model)
+          collectionView.collectionViewLayout.invalidateLayout()
+        }
+      } else {
+        heightCache.removeValue(forKey: rowID)
+        applyProjectionUpdate()
+      }
+    }
+
+    private func shouldInvalidateStreamingHeight(previous: TranscriptMessage, next: TranscriptMessage) -> Bool {
+      let previousNewlines = previous.content.reduce(into: 0) { count, character in
+        if character == "\n" { count += 1 }
+      }
+      let nextNewlines = next.content.reduce(into: 0) { count, character in
+        if character == "\n" { count += 1 }
+      }
+      if previousNewlines != nextNewlines {
+        return true
+      }
+
+      let previousBucket = previous.content.count / 96
+      let nextBucket = next.content.count / 96
+      return previousBucket != nextBucket
     }
 
     func rebuildSnapshot(animated: Bool = false) {
       guard dataSource != nil else { return }
-      let previousProjection = projectionResult
-      projectionResult = ConversationTimelineProjector.project(
-        source: sourceState,
-        ui: uiState,
-        previous: previousProjection
-      )
-      currentRows = projectionResult.rows
+      currentRows = buildTimelineRows()
       rebuildRowLookup()
 
       logger.info(
-        "rebuildSnapshot rows=\(currentRows.count) msgs=\(sourceState.messages.count) "
-          + "turns=\(sourceState.turns.count) mode=\(chatViewMode) "
+        "rebuildSnapshot rows=\(currentRows.count) msgs=\(currentMessageCount) "
+          + "mode=\(currentChatViewMode) "
           + "w=\(Self.formatWidth(collectionView.bounds.width))"
       )
 
@@ -373,14 +506,10 @@ import SwiftUI
 
     func applyProjectionUpdate() {
       guard dataSource != nil else { return }
-      let previous = projectionResult
-      let next = ConversationTimelineProjector.project(
-        source: sourceState,
-        ui: uiState,
-        previous: previous
-      )
       let oldIDs = currentRows.map(\.id)
-      let newIDs = next.rows.map(\.id)
+      let oldRows = currentRows
+      let newRows = buildTimelineRows()
+      let newIDs = newRows.map(\.id)
       let structureChanged = oldIDs != newIDs
 
       // Capture scroll anchor before applying changes when not pinned to bottom
@@ -392,25 +521,23 @@ import SwiftUI
       }
 
       if structureChanged {
-        projectionResult = next
-        currentRows = next.rows
+        currentRows = newRows
         rebuildRowLookup()
-        for dirtyID in next.dirtyRowIDs {
-          heightCache.removeValue(forKey: dirtyID)
-        }
+        heightCache.removeAll()
         var snapshot = NSDiffableDataSourceSnapshot<ConversationSection, TimelineRowID>()
         snapshot.appendSections([.main])
         snapshot.appendItems(currentRows.map(\.id))
         dataSource.apply(snapshot, animatingDifferences: false)
+        forceMetadataReconfigure = false
       } else {
-        // Content-only update — reconfigure dirty rows
-        projectionResult = next
-        currentRows = next.rows
+        currentRows = newRows
+        rebuildRowLookup()
 
-        var reconfigureIDs: [TimelineRowID] = []
-        for dirtyID in next.dirtyRowIDs {
-          heightCache.removeValue(forKey: dirtyID)
-          reconfigureIDs.append(dirtyID)
+        var reconfigureIDs: [TimelineRowID] = forceMetadataReconfigure ? newRows.map(\.id) : []
+        for (index, row) in newRows.enumerated() where index < oldRows.count {
+          guard oldRows[index] != row else { continue }
+          heightCache.removeValue(forKey: row.id)
+          reconfigureIDs.append(row.id)
         }
 
         if !reconfigureIDs.isEmpty {
@@ -420,6 +547,7 @@ import SwiftUI
           // Heights may have changed — force layout to re-query sizeForItemAt
           collectionView.collectionViewLayout.invalidateLayout()
         }
+        forceMetadataReconfigure = false
       }
 
       // Restore scroll anchor after prepend
@@ -427,28 +555,11 @@ import SwiftUI
         restoreScrollAnchor(anchor)
       } else if isPinnedToBottom {
         scrollToBottom(animated: false)
-      } else if sourceState.messages.count > previousMessageCount {
-        let delta = sourceState.messages.count - previousMessageCount
+      } else if currentMessageCount > previousMessageCount {
+        let delta = currentMessageCount - previousMessageCount
         coordinator?.unreadDelta(delta)
       }
-      previousMessageCount = sourceState.messages.count
-    }
-
-    private func rebuildTurns() {
-      guard sourceState.metadata.chatViewMode == .focused, let serverState else {
-        ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setTurns([]))
-        turnsByID = [:]
-        return
-      }
-      let serverDiffs = sessionId.flatMap { serverState.session($0).turnDiffs } ?? []
-      let turns = TurnBuilder.build(
-        from: sourceState.messages,
-        serverTurnDiffs: serverDiffs,
-        currentTurnId: sourceState.metadata.isSessionActive
-          && sourceState.metadata.workStatus == .working ? "active" : nil
-      )
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setTurns(turns))
-      turnsByID = Dictionary(uniqueKeysWithValues: sourceState.turns.map { ($0.id, $0) })
+      previousMessageCount = currentMessageCount
     }
 
     private func rebuildRowLookup() {
@@ -458,6 +569,32 @@ import SwiftUI
       }
     }
 
+    private func buildTimelineRows() -> [TimelineRow] {
+      guard let runtime else { return [] }
+      return IOSTimelineBuilder.build(
+        renderStore: runtime.renderStore,
+        messagesByID: messagesByID,
+        hasMoreMessages: currentHasMoreMessages,
+        chatViewMode: currentChatViewMode,
+        expansionState: .init(expandedActivityGroupIDs: expandedActivityGroupIDs)
+      )
+    }
+
+    private func ensureRuntime() {
+      guard let scopedSessionID, let serverState, let sessionId else {
+        runtime = nil
+        return
+      }
+
+      if runtime?.session != scopedSessionID {
+        runtime = ConversationDetailRuntime(
+          session: scopedSessionID,
+          clients: serverState.conversation(sessionId).serverClients,
+          provider: provider,
+          model: model
+        )
+      }
+    }
   }
 
 #endif

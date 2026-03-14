@@ -124,6 +124,13 @@ Clients connect to:
 
 Clients can keep multiple endpoints connected simultaneously.
 
+API highlights:
+
+- Session reads are REST-first: `GET /api/sessions`, `GET /api/sessions/{id}`, `GET /api/sessions/{id}/conversation`, and `GET /api/sessions/{id}/messages`
+- Conversation APIs use typed `ConversationRow` payloads, including row-level `turn_id`, streaming message state (`is_streaming`), and message `images`
+- Session detail routes also include `GET /api/sessions/{id}/search`, `GET /api/sessions/{id}/stats`, and `GET /api/sessions/{id}/instructions`
+- Session summaries include dashboard-focused fields like `active_worker_count`, `pending_tool_family`, and `forked_from_session_id`
+
 Control-plane metadata:
 
 - `PUT /api/server/role` — mark this server as primary/secondary (broadcasts `server_info` via WS)

@@ -21,10 +21,16 @@ use codex_protocol::protocol::{
 // Re-export SessionSource so the server crate can use it without depending on codex-protocol
 pub use codex_protocol::protocol::SessionSource;
 use notify::EventKind;
-use orbitdock_protocol::{ImageInput, MessageType, SubagentInfo, TokenUsage, WorkStatus};
+use orbitdock_protocol::provider_normalization::shared::{
+    NormalizedApprovalKind, NormalizedApprovalRequest, NormalizedHandoff, NormalizedHandoffKind,
+    NormalizedHookEvent, NormalizedHookLifecycle, NormalizedPlanEvent, NormalizedQuestion,
+    NormalizedQuestionKind, NormalizedWorkerLifecycle, NormalizedWorkerLifecycleKind,
+    ProviderEventEnvelope, SharedNormalizedProviderEvent,
+};
+use orbitdock_protocol::{ImageInput, Provider, SubagentInfo, TokenUsage, WorkStatus};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::timeline::{
     hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
@@ -78,7 +84,7 @@ pub enum RolloutEvent {
     },
     AppendChatMessage {
         session_id: String,
-        message_type: MessageType,
+        role: String,
         content: String,
         tool_name: Option<String>,
         tool_input: Option<String>,
@@ -117,6 +123,10 @@ pub enum RolloutEvent {
     PlanUpdated {
         session_id: String,
         plan: String,
+    },
+    ProviderEvent {
+        session_id: String,
+        event: ProviderEventEnvelope,
     },
     SessionEnded {
         session_id: String,
@@ -176,17 +186,15 @@ pub struct PersistedFileState {
 pub struct RolloutFileProcessor {
     pub watcher_started_at: SystemTime,
     pub file_states: HashMap<String, FileState>,
-    pub persisted_state: PersistedState,
-    state_path: PathBuf,
+    checkpoint_seeds: HashMap<String, PersistedFileState>,
 }
 
 impl RolloutFileProcessor {
-    pub fn new(state_path: PathBuf, persisted_state: PersistedState) -> Self {
+    pub fn new(checkpoint_seeds: HashMap<String, PersistedFileState>) -> Self {
         Self {
             watcher_started_at: SystemTime::now(),
             file_states: HashMap::new(),
-            persisted_state,
-            state_path,
+            checkpoint_seeds,
         }
     }
 
@@ -238,13 +246,11 @@ impl RolloutFileProcessor {
                 let mut events = self.ensure_session_meta(&path_string).await?;
                 let more = self.read_and_parse_lines(&path_string, path, size).await?;
                 events.extend(more);
-                self.persist_state(&path_string);
                 return Ok(events);
             } else {
                 if let Some(state) = self.file_states.get_mut(&path_string) {
                     state.offset = size;
                 }
-                self.persist_state(&path_string);
                 return Ok(vec![]);
             }
         }
@@ -263,12 +269,10 @@ impl RolloutFileProcessor {
             .map(|s| s.offset)
             .unwrap_or(0);
         if size == offset {
-            self.persist_state(&path_string);
             return Ok(vec![]);
         }
 
         let events = self.read_and_parse_lines(&path_string, path, size).await?;
-        self.persist_state(&path_string);
         Ok(events)
     }
 
@@ -459,6 +463,38 @@ impl RolloutFileProcessor {
             model,
             effort,
         }]
+    }
+
+    fn next_rollout_event_id(&mut self, path: &str, prefix: &str) -> String {
+        let seq = if let Some(state) = self.file_states.get_mut(path) {
+            let seq = state.next_message_seq;
+            state.next_message_seq = state.next_message_seq.saturating_add(1);
+            seq
+        } else {
+            0
+        };
+        let session_id = self
+            .file_session_id(path)
+            .unwrap_or_else(|| "unknown-session".to_string());
+        format!("{prefix}-{session_id}-{seq}")
+    }
+
+    fn provider_rollout_event(
+        &mut self,
+        path: &str,
+        event: SharedNormalizedProviderEvent,
+    ) -> Option<RolloutEvent> {
+        let session_id = self.file_session_id(path)?;
+        Some(RolloutEvent::ProviderEvent {
+            session_id: session_id.clone(),
+            event: ProviderEventEnvelope {
+                provider: Provider::Codex,
+                session_id,
+                turn_id: None,
+                timestamp: Some(current_time_rfc3339()),
+                event,
+            },
+        })
     }
 
     fn parse_event_msg(&mut self, event: EventMsg, path: &str) -> Vec<RolloutEvent> {
@@ -661,55 +697,61 @@ impl RolloutFileProcessor {
                 // Serialize the full event as JSON for the pending_tool_input field
                 let payload_json = serde_json::to_string(&_e).ok();
                 let command = _e.command.join(" ");
-                vec![
-                    RolloutEvent::AppendChatMessage {
-                        session_id: session_id.clone(),
-                        message_type: MessageType::Tool,
-                        content: if command.is_empty() {
-                            "Command approval requested".to_string()
-                        } else {
-                            command
-                        },
+                let mut events = Vec::new();
+                if let Some(event) = self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::ApprovalRequest(NormalizedApprovalRequest {
+                        id: _e.approval_id.clone().unwrap_or_else(|| _e.call_id.clone()),
+                        kind: NormalizedApprovalKind::Exec,
                         tool_name: Some("execcommand".to_string()),
-                        tool_input: payload_json.clone(),
-                        is_error: false,
-                        images: vec![],
-                    },
-                    RolloutEvent::WorkStateChange {
-                        session_id,
-                        work_status: WorkStatus::Permission,
-                        attention_reason: Some("awaitingPermission".to_string()),
-                        pending_tool_name: Some(Some("ExecCommand".to_string())),
-                        pending_tool_input: Some(payload_json),
-                        pending_question: None,
-                        last_tool: None,
-                        last_tool_at: None,
-                    },
-                ]
+                        title: Some("Command approval requested".to_string()),
+                        summary: (!command.is_empty()).then_some(command.clone()),
+                        details: serde_json::to_value(&_e).ok(),
+                        requestor_worker_id: None,
+                    }),
+                ) {
+                    events.push(event);
+                }
+                events.push(RolloutEvent::WorkStateChange {
+                    session_id,
+                    work_status: WorkStatus::Permission,
+                    attention_reason: Some("awaitingPermission".to_string()),
+                    pending_tool_name: Some(Some("ExecCommand".to_string())),
+                    pending_tool_input: Some(payload_json),
+                    pending_question: None,
+                    last_tool: None,
+                    last_tool_at: None,
+                });
+                events
             }
             EventMsg::ApplyPatchApprovalRequest(_e) => {
                 let payload_json = serde_json::to_string(&_e).ok();
-                vec![
-                    RolloutEvent::AppendChatMessage {
-                        session_id: session_id.clone(),
-                        message_type: MessageType::Tool,
-                        content: "Patch approval requested".to_string(),
+                let mut events = Vec::new();
+                if let Some(event) = self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::ApprovalRequest(NormalizedApprovalRequest {
+                        id: _e.call_id.clone(),
+                        kind: NormalizedApprovalKind::Patch,
                         tool_name: Some("applypatch".to_string()),
-                        tool_input: payload_json.clone(),
-                        is_error: false,
-                        images: vec![],
-                    },
-                    RolloutEvent::WorkStateChange {
-                        session_id,
-                        work_status: WorkStatus::Permission,
-                        attention_reason: Some("awaitingPermission".to_string()),
-                        pending_tool_name: Some(Some("ApplyPatch".to_string())),
-                        pending_tool_input: Some(payload_json),
-                        pending_question: None,
-                        last_tool: None,
-                        last_tool_at: None,
-                    },
-                ]
+                        title: Some("Patch approval requested".to_string()),
+                        summary: Some(format!("{} file changes pending", _e.changes.len())),
+                        details: serde_json::to_value(&_e).ok(),
+                        requestor_worker_id: None,
+                    }),
+                ) {
+                    events.push(event);
+                }
+                events.push(RolloutEvent::WorkStateChange {
+                    session_id,
+                    work_status: WorkStatus::Permission,
+                    attention_reason: Some("awaitingPermission".to_string()),
+                    pending_tool_name: Some(Some("ApplyPatch".to_string())),
+                    pending_tool_input: Some(payload_json),
+                    pending_question: None,
+                    last_tool: None,
+                    last_tool_at: None,
+                });
+                events
             }
             EventMsg::RequestPermissions(e) => {
                 let payload_json = serde_json::to_string(&serde_json::json!({
@@ -721,62 +763,190 @@ impl RolloutFileProcessor {
                     .reason
                     .clone()
                     .unwrap_or_else(|| "Permission requested".to_string());
-                vec![
-                    RolloutEvent::AppendChatMessage {
-                        session_id: session_id.clone(),
-                        message_type: MessageType::Tool,
-                        content: content.clone(),
+                let mut events = Vec::new();
+                if let Some(event) = self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::ApprovalRequest(NormalizedApprovalRequest {
+                        id: e.call_id.clone(),
+                        kind: NormalizedApprovalKind::Permissions,
                         tool_name: Some("request_permissions".to_string()),
-                        tool_input: payload_json.clone(),
-                        is_error: false,
-                        images: vec![],
-                    },
-                    RolloutEvent::WorkStateChange {
-                        session_id,
-                        work_status: WorkStatus::Permission,
-                        attention_reason: Some("awaitingPermission".to_string()),
-                        pending_tool_name: Some(Some("RequestPermissions".to_string())),
-                        pending_tool_input: Some(payload_json),
-                        pending_question: Some(Some(content)),
-                        last_tool: None,
-                        last_tool_at: None,
-                    },
-                ]
+                        title: Some("Permission request".to_string()),
+                        summary: Some(content.clone()),
+                        details: serde_json::to_value(&e).ok(),
+                        requestor_worker_id: None,
+                    }),
+                ) {
+                    events.push(event);
+                }
+                events.push(RolloutEvent::WorkStateChange {
+                    session_id,
+                    work_status: WorkStatus::Permission,
+                    attention_reason: Some("awaitingPermission".to_string()),
+                    pending_tool_name: Some(Some("RequestPermissions".to_string())),
+                    pending_tool_input: Some(payload_json),
+                    pending_question: Some(Some(content)),
+                    last_tool: None,
+                    last_tool_at: None,
+                });
+                events
             }
             EventMsg::CollabAgentSpawnEnd(e) => {
                 let Some(thread_id) = e.new_thread_id else {
                     return vec![];
                 };
-                let Some(subagent) = build_inflight_rollout_subagent(
+                let subagent = build_rollout_subagent_for_status(
                     thread_id.to_string(),
                     e.new_agent_role.clone(),
                     e.new_agent_nickname.clone(),
                     Some(e.prompt.clone()),
                     Some(e.sender_thread_id.to_string()),
                     &e.status,
-                ) else {
-                    return vec![];
-                };
-                vec![RolloutEvent::SubagentsUpdated {
+                );
+                let mut events = Vec::new();
+                if let Some(event) = self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::WorkerLifecycle(NormalizedWorkerLifecycle {
+                        worker_id: thread_id.to_string(),
+                        lifecycle: NormalizedWorkerLifecycleKind::Spawned,
+                        operation: Some("spawn".to_string()),
+                        sender_worker_id: Some(e.sender_thread_id.to_string()),
+                        receiver_worker_id: None,
+                        label: subagent.label.clone(),
+                        summary: subagent.task_summary.clone(),
+                        details: serde_json::to_value(&e).ok(),
+                    }),
+                ) {
+                    events.push(event);
+                }
+                events.push(RolloutEvent::SubagentsUpdated {
                     session_id,
                     subagents: vec![subagent],
-                }]
+                });
+                events
+            }
+            EventMsg::CollabAgentInteractionBegin(e) => {
+                let worker_id = e.receiver_thread_id.to_string();
+                let mut events = Vec::new();
+                if let Some(event) = self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::WorkerLifecycle(NormalizedWorkerLifecycle {
+                        worker_id: worker_id.clone(),
+                        lifecycle: NormalizedWorkerLifecycleKind::InteractionStarted,
+                        operation: Some("interact".to_string()),
+                        sender_worker_id: Some(e.sender_thread_id.to_string()),
+                        receiver_worker_id: Some(worker_id.clone()),
+                        label: None,
+                        summary: Some(e.prompt.clone()),
+                        details: serde_json::to_value(&e).ok(),
+                    }),
+                ) {
+                    events.push(event);
+                }
+                events.push(RolloutEvent::SubagentsUpdated {
+                    session_id,
+                    subagents: vec![build_running_rollout_subagent(
+                        worker_id,
+                        None,
+                        None,
+                        Some(e.prompt.clone()),
+                        Some(e.sender_thread_id.to_string()),
+                    )],
+                });
+                events
             }
             EventMsg::CollabAgentInteractionEnd(e) => {
-                let Some(subagent) = build_inflight_rollout_subagent(
+                let subagent = build_rollout_subagent_for_status(
                     e.receiver_thread_id.to_string(),
                     e.receiver_agent_role.clone(),
                     e.receiver_agent_nickname.clone(),
                     Some(e.prompt.clone()),
                     Some(e.sender_thread_id.to_string()),
                     &e.status,
-                ) else {
-                    return vec![];
-                };
-                vec![RolloutEvent::SubagentsUpdated {
+                );
+                let mut events = Vec::new();
+                if let Some(event) = self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::WorkerLifecycle(NormalizedWorkerLifecycle {
+                        worker_id: e.receiver_thread_id.to_string(),
+                        lifecycle: NormalizedWorkerLifecycleKind::InteractionCompleted,
+                        operation: Some("interact".to_string()),
+                        sender_worker_id: Some(e.sender_thread_id.to_string()),
+                        receiver_worker_id: Some(e.receiver_thread_id.to_string()),
+                        label: subagent.label.clone(),
+                        summary: subagent
+                            .result_summary
+                            .clone()
+                            .or(subagent.task_summary.clone()),
+                        details: serde_json::to_value(&e).ok(),
+                    }),
+                ) {
+                    events.push(event);
+                }
+                events.push(RolloutEvent::SubagentsUpdated {
                     session_id,
                     subagents: vec![subagent],
-                }]
+                });
+                events
+            }
+            EventMsg::CollabWaitingBegin(e) => {
+                let subagents: Vec<SubagentInfo> = if !e.receiver_agents.is_empty() {
+                    e.receiver_agents
+                        .iter()
+                        .map(|agent| {
+                            build_running_rollout_subagent(
+                                agent.thread_id.to_string(),
+                                agent.agent_role.clone(),
+                                agent.agent_nickname.clone(),
+                                None,
+                                Some(e.sender_thread_id.to_string()),
+                            )
+                        })
+                        .collect()
+                } else {
+                    e.receiver_thread_ids
+                        .iter()
+                        .map(|thread_id| {
+                            build_running_rollout_subagent(
+                                thread_id.to_string(),
+                                None,
+                                None,
+                                None,
+                                Some(e.sender_thread_id.to_string()),
+                            )
+                        })
+                        .collect()
+                };
+
+                if subagents.is_empty() {
+                    vec![]
+                } else {
+                    let mut events = self
+                        .provider_rollout_event(
+                            path,
+                            SharedNormalizedProviderEvent::WorkerLifecycle(
+                                NormalizedWorkerLifecycle {
+                                    worker_id: e.sender_thread_id.to_string(),
+                                    lifecycle: NormalizedWorkerLifecycleKind::Waiting,
+                                    operation: Some("wait".to_string()),
+                                    sender_worker_id: Some(e.sender_thread_id.to_string()),
+                                    receiver_worker_id: None,
+                                    label: None,
+                                    summary: Some(format!(
+                                        "Waiting for {} agent(s)",
+                                        subagents.len()
+                                    )),
+                                    details: serde_json::to_value(&e).ok(),
+                                },
+                            ),
+                        )
+                        .into_iter()
+                        .collect::<Vec<_>>();
+                    events.push(RolloutEvent::SubagentsUpdated {
+                        session_id,
+                        subagents,
+                    });
+                    events
+                }
             }
             EventMsg::CollabWaitingEnd(e) => {
                 let mut subagents = Vec::new();
@@ -807,24 +977,97 @@ impl RolloutFileProcessor {
                 if subagents.is_empty() {
                     vec![]
                 } else {
-                    vec![RolloutEvent::SubagentsUpdated {
+                    let mut events = self
+                        .provider_rollout_event(
+                            path,
+                            SharedNormalizedProviderEvent::WorkerLifecycle(
+                                NormalizedWorkerLifecycle {
+                                    worker_id: e.sender_thread_id.to_string(),
+                                    lifecycle: NormalizedWorkerLifecycleKind::Updated,
+                                    operation: Some("wait".to_string()),
+                                    sender_worker_id: Some(e.sender_thread_id.to_string()),
+                                    receiver_worker_id: None,
+                                    label: None,
+                                    summary: Some(format!(
+                                        "Updated {} worker status(es)",
+                                        subagents.len()
+                                    )),
+                                    details: serde_json::to_value(&e).ok(),
+                                },
+                            ),
+                        )
+                        .into_iter()
+                        .collect::<Vec<_>>();
+                    events.push(RolloutEvent::SubagentsUpdated {
                         session_id,
                         subagents,
-                    }]
+                    });
+                    events
                 }
             }
-            EventMsg::CollabResumeEnd(e) => {
-                vec![RolloutEvent::SubagentsUpdated {
+            EventMsg::CollabResumeBegin(e) => {
+                let worker_id = e.receiver_thread_id.to_string();
+                let mut events = self
+                    .provider_rollout_event(
+                        path,
+                        SharedNormalizedProviderEvent::WorkerLifecycle(NormalizedWorkerLifecycle {
+                            worker_id: worker_id.clone(),
+                            lifecycle: NormalizedWorkerLifecycleKind::Resumed,
+                            operation: Some("resume".to_string()),
+                            sender_worker_id: Some(e.sender_thread_id.to_string()),
+                            receiver_worker_id: Some(worker_id.clone()),
+                            label: e.receiver_agent_nickname.clone(),
+                            summary: None,
+                            details: serde_json::to_value(&e).ok(),
+                        }),
+                    )
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                events.push(RolloutEvent::SubagentsUpdated {
                     session_id,
-                    subagents: vec![build_authoritative_rollout_subagent(
-                        e.receiver_thread_id.to_string(),
+                    subagents: vec![build_running_rollout_subagent(
+                        worker_id,
                         e.receiver_agent_role.clone(),
                         e.receiver_agent_nickname.clone(),
                         None,
                         Some(e.sender_thread_id.to_string()),
-                        &e.status,
                     )],
-                }]
+                });
+                events
+            }
+            EventMsg::CollabResumeEnd(e) => {
+                let subagent = build_rollout_subagent_for_status(
+                    e.receiver_thread_id.to_string(),
+                    e.receiver_agent_role.clone(),
+                    e.receiver_agent_nickname.clone(),
+                    None,
+                    Some(e.sender_thread_id.to_string()),
+                    &e.status,
+                );
+                let mut events = self
+                    .provider_rollout_event(
+                        path,
+                        SharedNormalizedProviderEvent::WorkerLifecycle(NormalizedWorkerLifecycle {
+                            worker_id: e.receiver_thread_id.to_string(),
+                            lifecycle: NormalizedWorkerLifecycleKind::Updated,
+                            operation: Some("resume".to_string()),
+                            sender_worker_id: Some(e.sender_thread_id.to_string()),
+                            receiver_worker_id: Some(e.receiver_thread_id.to_string()),
+                            label: subagent.label.clone(),
+                            summary: subagent
+                                .result_summary
+                                .clone()
+                                .or(subagent.task_summary.clone()),
+                            details: serde_json::to_value(&e).ok(),
+                        }),
+                    )
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                events.push(RolloutEvent::SubagentsUpdated {
+                    session_id,
+                    subagents: vec![subagent],
+                });
+                events
             }
             EventMsg::RequestUserInput(e) => {
                 let question = e
@@ -846,33 +1089,38 @@ impl RolloutFileProcessor {
                             }
                         })
                     });
-                let tool_input = serde_json::to_string(&serde_json::json!({
+                let _tool_input = serde_json::to_string(&serde_json::json!({
                     "questions": e.questions,
                 }))
                 .ok();
-                vec![
-                    RolloutEvent::AppendChatMessage {
-                        session_id: session_id.clone(),
-                        message_type: MessageType::Tool,
-                        content: question
+                let mut events = Vec::new();
+                let event_id = self.next_rollout_event_id(path, "ask-user-question");
+                if let Some(event) = self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::Question(NormalizedQuestion {
+                        id: event_id,
+                        kind: NormalizedQuestionKind::AskUser,
+                        prompt: question
                             .clone()
                             .unwrap_or_else(|| "Question requested".to_string()),
-                        tool_name: Some("askuserquestion".to_string()),
-                        tool_input,
-                        is_error: false,
-                        images: vec![],
-                    },
-                    RolloutEvent::WorkStateChange {
-                        session_id,
-                        work_status: WorkStatus::Question,
-                        attention_reason: Some("awaitingQuestion".to_string()),
-                        pending_tool_name: None,
-                        pending_tool_input: None,
-                        pending_question: Some(question),
-                        last_tool: None,
-                        last_tool_at: None,
-                    },
-                ]
+                        title: None,
+                        summary: Some(format!("{} prompt(s)", e.questions.len())),
+                        details: serde_json::to_value(&e).ok(),
+                    }),
+                ) {
+                    events.push(event);
+                }
+                events.push(RolloutEvent::WorkStateChange {
+                    session_id,
+                    work_status: WorkStatus::Question,
+                    attention_reason: Some("awaitingQuestion".to_string()),
+                    pending_tool_name: None,
+                    pending_tool_input: None,
+                    pending_question: Some(question),
+                    last_tool: None,
+                    last_tool_at: None,
+                });
+                events
             }
             EventMsg::ElicitationRequest(e) => {
                 let question = if e.request.message().is_empty() {
@@ -880,29 +1128,34 @@ impl RolloutFileProcessor {
                 } else {
                     Some(e.request.message().to_string())
                 };
-                vec![
-                    RolloutEvent::AppendChatMessage {
-                        session_id: session_id.clone(),
-                        message_type: MessageType::Tool,
-                        content: question
+                let mut events = Vec::new();
+                let event_id = self.next_rollout_event_id(path, "elicitation-request");
+                if let Some(event) = self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::Question(NormalizedQuestion {
+                        id: event_id,
+                        kind: NormalizedQuestionKind::Elicitation,
+                        prompt: question
                             .clone()
                             .unwrap_or_else(|| "MCP approval requested".to_string()),
-                        tool_name: Some("mcp_approval".to_string()),
-                        tool_input: serde_json::to_string(&e).ok(),
-                        is_error: false,
-                        images: vec![],
-                    },
-                    RolloutEvent::WorkStateChange {
-                        session_id,
-                        work_status: WorkStatus::Question,
-                        attention_reason: Some("awaitingQuestion".to_string()),
-                        pending_tool_name: None,
-                        pending_tool_input: None,
-                        pending_question: Some(question),
-                        last_tool: None,
-                        last_tool_at: None,
-                    },
-                ]
+                        title: Some(format!("{} request", e.server_name)),
+                        summary: None,
+                        details: serde_json::to_value(&e).ok(),
+                    }),
+                ) {
+                    events.push(event);
+                }
+                events.push(RolloutEvent::WorkStateChange {
+                    session_id,
+                    work_status: WorkStatus::Question,
+                    attention_reason: Some("awaitingQuestion".to_string()),
+                    pending_tool_name: None,
+                    pending_tool_input: None,
+                    pending_question: Some(question),
+                    last_tool: None,
+                    last_tool_at: None,
+                });
+                events
             }
             EventMsg::TokenCount(e) => {
                 let (total_tokens, token_usage) = if let Some(ref info) = e.info {
@@ -936,21 +1189,24 @@ impl RolloutFileProcessor {
                     .filter(|value| !value.is_empty())
                     .unwrap_or("Plan updated");
                 let content = format!("{} ({} steps)", explanation, e.plan.len());
-                vec![
-                    RolloutEvent::PlanUpdated {
-                        session_id: session_id.clone(),
-                        plan,
-                    },
-                    RolloutEvent::AppendChatMessage {
-                        session_id,
-                        message_type: MessageType::Tool,
-                        content,
-                        tool_name: Some("update_plan".to_string()),
-                        tool_input: serde_json::to_string(&e).ok(),
-                        is_error: false,
-                        images: vec![],
-                    },
-                ]
+                let mut events = vec![RolloutEvent::PlanUpdated {
+                    session_id: session_id.clone(),
+                    plan,
+                }];
+                let event_id = self.next_rollout_event_id(path, "plan-update");
+                if let Some(event) = self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::Plan(NormalizedPlanEvent {
+                        id: event_id,
+                        title: Some("Plan updated".to_string()),
+                        summary: Some(content),
+                        steps: e.plan.iter().map(|step| step.step.clone()).collect(),
+                        details: serde_json::to_value(&e).ok(),
+                    }),
+                ) {
+                    events.push(event);
+                }
+                events
             }
             EventMsg::ThreadNameUpdated(e) => {
                 if let Some(name) = e.thread_name {
@@ -970,20 +1226,24 @@ impl RolloutFileProcessor {
                     let Some(content) = realtime_text_from_handoff_request(&handoff) else {
                         return vec![];
                     };
-                    vec![RolloutEvent::AppendChatMessage {
-                        session_id,
-                        message_type: MessageType::Tool,
-                        content,
-                        tool_name: Some("handoff".to_string()),
-                        tool_input: serde_json::to_string(&handoff).ok(),
-                        is_error: false,
-                        images: vec![],
-                    }]
+                    let event_id = self.next_rollout_event_id(path, "handoff");
+                    self.provider_rollout_event(
+                        path,
+                        SharedNormalizedProviderEvent::Handoff(NormalizedHandoff {
+                            id: event_id,
+                            kind: NormalizedHandoffKind::Requested,
+                            target: None,
+                            summary: Some(content),
+                            details: serde_json::to_value(&handoff).ok(),
+                        }),
+                    )
+                    .into_iter()
+                    .collect()
                 }
                 codex_protocol::protocol::RealtimeEvent::Error(message_text) => {
                     vec![RolloutEvent::AppendChatMessage {
                         session_id,
-                        message_type: MessageType::Assistant,
+                        role: "assistant".to_string(),
                         content: format!("Realtime conversation error: {}", message_text),
                         tool_name: None,
                         tool_input: None,
@@ -994,31 +1254,47 @@ impl RolloutFileProcessor {
             },
             EventMsg::BackgroundEvent(e) => vec![RolloutEvent::AppendChatMessage {
                 session_id,
-                message_type: MessageType::Assistant,
+                role: "assistant".to_string(),
                 content: e.message,
                 tool_name: None,
                 tool_input: None,
                 is_error: false,
                 images: vec![],
             }],
-            EventMsg::HookStarted(e) => vec![RolloutEvent::AppendChatMessage {
-                session_id,
-                message_type: MessageType::Tool,
-                content: hook_started_text(&e.run),
-                tool_name: Some("hook".to_string()),
-                tool_input: serde_json::to_string(&e.run).ok(),
-                is_error: false,
-                images: vec![],
-            }],
-            EventMsg::HookCompleted(e) => vec![RolloutEvent::AppendChatMessage {
-                session_id,
-                message_type: MessageType::Tool,
-                content: hook_completed_text(&e.run),
-                tool_name: Some("hook".to_string()),
-                tool_input: hook_output_text(&e.run),
-                is_error: hook_run_is_error(e.run.status),
-                images: vec![],
-            }],
+            EventMsg::HookStarted(e) => {
+                let event_id = self.next_rollout_event_id(path, "hook");
+                self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::Hook(NormalizedHookEvent {
+                        id: event_id,
+                        lifecycle: NormalizedHookLifecycle::Started,
+                        hook_name: Some(format!("{:?}", e.run.event_name)),
+                        summary: Some(hook_started_text(&e.run)),
+                        output: None,
+                        had_error: Some(false),
+                        details: serde_json::to_value(&e.run).ok(),
+                    }),
+                )
+                .into_iter()
+                .collect()
+            }
+            EventMsg::HookCompleted(e) => {
+                let event_id = self.next_rollout_event_id(path, "hook");
+                self.provider_rollout_event(
+                    path,
+                    SharedNormalizedProviderEvent::Hook(NormalizedHookEvent {
+                        id: event_id,
+                        lifecycle: NormalizedHookLifecycle::Completed,
+                        hook_name: Some(format!("{:?}", e.run.event_name)),
+                        summary: Some(hook_completed_text(&e.run)),
+                        output: hook_output_text(&e.run),
+                        had_error: Some(hook_run_is_error(e.run.status)),
+                        details: serde_json::to_value(&e.run).ok(),
+                    }),
+                )
+                .into_iter()
+                .collect()
+            }
             EventMsg::ShutdownComplete => vec![RolloutEvent::SessionEnded {
                 session_id,
                 reason: "shutdown".to_string(),
@@ -1026,7 +1302,7 @@ impl RolloutFileProcessor {
             EventMsg::Warning(e) => {
                 vec![RolloutEvent::AppendChatMessage {
                     session_id,
-                    message_type: MessageType::Assistant,
+                    role: "assistant".to_string(),
                     content: e.message,
                     tool_name: None,
                     tool_input: None,
@@ -1037,7 +1313,7 @@ impl RolloutFileProcessor {
             EventMsg::ModelReroute(e) => {
                 vec![RolloutEvent::AppendChatMessage {
                     session_id,
-                    message_type: MessageType::Assistant,
+                    role: "assistant".to_string(),
                     content: format!(
                         "Model rerouted from {} to {} ({:?})",
                         e.from_model, e.to_model, e.reason
@@ -1057,7 +1333,7 @@ impl RolloutFileProcessor {
                 };
                 vec![RolloutEvent::AppendChatMessage {
                     session_id,
-                    message_type: MessageType::Assistant,
+                    role: "assistant".to_string(),
                     content,
                     tool_name: None,
                     tool_input: None,
@@ -1088,7 +1364,7 @@ impl RolloutFileProcessor {
                     if text.is_some() || !images.is_empty() {
                         events.push(RolloutEvent::AppendChatMessage {
                             session_id: session_id.clone(),
-                            message_type: MessageType::User,
+                            role: "user".to_string(),
                             content: text.clone().unwrap_or_default(),
                             tool_name: None,
                             tool_input: None,
@@ -1109,7 +1385,7 @@ impl RolloutFileProcessor {
                     if let Some(text) = extract_text_from_content(&content) {
                         events.push(RolloutEvent::AppendChatMessage {
                             session_id: session_id.clone(),
-                            message_type: MessageType::Assistant,
+                            role: "assistant".to_string(),
                             content: text,
                             tool_name: None,
                             tool_input: None,
@@ -1205,7 +1481,7 @@ impl RolloutFileProcessor {
             return;
         }
 
-        if let Some(persisted) = self.persisted_state.files.get(path) {
+        if let Some(persisted) = self.checkpoint_seeds.get(path) {
             self.file_states.insert(
                 path.to_string(),
                 FileState {
@@ -1251,28 +1527,14 @@ impl RolloutFileProcessor {
         );
     }
 
-    pub fn persist_state(&mut self, path: &str) {
-        if let Some(state) = self.file_states.get(path) {
-            self.persisted_state.files.insert(
-                path.to_string(),
-                PersistedFileState {
-                    offset: state.offset,
-                    session_id: state.session_id.clone(),
-                    project_path: state.project_path.clone(),
-                    model_provider: state.model_provider.clone(),
-                    ignore_existing: Some(state.ignore_existing),
-                },
-            );
-            if let Err(err) = save_persisted_state(&self.state_path, &self.persisted_state) {
-                warn!(
-                    component = "rollout_watcher",
-                    event = "rollout_watcher.state_persist_failed",
-                    path = %self.state_path.display(),
-                    error = %err,
-                    "Failed writing rollout state"
-                );
-            }
-        }
+    pub fn checkpoint_snapshot(&self, path: &str) -> Option<PersistedFileState> {
+        self.file_states.get(path).map(|state| PersistedFileState {
+            offset: state.offset,
+            session_id: state.session_id.clone(),
+            project_path: state.project_path.clone(),
+            model_provider: state.model_provider.clone(),
+            ignore_existing: Some(state.ignore_existing),
+        })
     }
 
     /// Return file paths that have new bytes since last process.
@@ -1443,6 +1705,57 @@ fn build_inflight_rollout_subagent(
     })
 }
 
+fn build_running_rollout_subagent(
+    id: String,
+    agent_role: Option<String>,
+    agent_nickname: Option<String>,
+    task_summary: Option<String>,
+    parent_subagent_id: Option<String>,
+) -> SubagentInfo {
+    build_inflight_rollout_subagent(
+        id,
+        agent_role,
+        agent_nickname,
+        task_summary,
+        parent_subagent_id,
+        &codex_protocol::protocol::AgentStatus::Running,
+    )
+    .expect("running rollout subagent should always build")
+}
+
+fn build_rollout_subagent_for_status(
+    id: String,
+    agent_role: Option<String>,
+    agent_nickname: Option<String>,
+    task_summary: Option<String>,
+    parent_subagent_id: Option<String>,
+    status: &codex_protocol::protocol::AgentStatus,
+) -> SubagentInfo {
+    match status {
+        codex_protocol::protocol::AgentStatus::PendingInit
+        | codex_protocol::protocol::AgentStatus::Running => build_inflight_rollout_subagent(
+            id,
+            agent_role,
+            agent_nickname,
+            task_summary,
+            parent_subagent_id,
+            status,
+        )
+        .expect("non-terminal rollout subagent should always build"),
+        codex_protocol::protocol::AgentStatus::Completed(_)
+        | codex_protocol::protocol::AgentStatus::Errored(_)
+        | codex_protocol::protocol::AgentStatus::Shutdown
+        | codex_protocol::protocol::AgentStatus::NotFound => build_authoritative_rollout_subagent(
+            id,
+            agent_role,
+            agent_nickname,
+            task_summary,
+            parent_subagent_id,
+            status,
+        ),
+    }
+}
+
 fn map_rollout_agent_status(
     status: &codex_protocol::protocol::AgentStatus,
     now: &str,
@@ -1516,22 +1829,15 @@ fn normalized_rollout_agent_label(
         .or_else(|| Some(id.to_string()))
 }
 
-pub fn load_persisted_state(path: &Path) -> PersistedState {
+pub fn load_legacy_persisted_state(path: &Path) -> PersistedState {
     let Ok(data) = fs::read(path) else {
         return PersistedState::default();
     };
     serde_json::from_slice(&data).unwrap_or_default()
 }
 
-pub fn save_persisted_state(path: &Path, state: &PersistedState) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let data = serde_json::to_vec(state)?;
-    let tmp_path = path.with_extension("json.tmp");
-    fs::write(&tmp_path, data)?;
-    fs::rename(&tmp_path, path)?;
-    Ok(())
+pub fn load_legacy_rollout_checkpoints(path: &Path) -> HashMap<String, PersistedFileState> {
+    load_legacy_persisted_state(path).files
 }
 
 pub fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
@@ -1666,318 +1972,60 @@ pub fn matches_supported_event_kind(kind: &EventKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex_protocol::plan_tool::{PlanItemArg, StepStatus, UpdatePlanArgs};
-    use codex_protocol::protocol::{
-        AgentStatus, BackgroundEventEvent, CollabAgentSpawnEndEvent, CollabAgentStatusEntry,
-        CollabWaitingEndEvent, HookEventName, HookExecutionMode, HookHandlerType, HookOutputEntry,
-        HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
-        RealtimeConversationRealtimeEvent, RealtimeEvent, RealtimeHandoffRequested,
-        RealtimeTranscriptEntry, TurnDiffEvent,
-    };
-    use codex_protocol::ThreadId;
-    use std::path::PathBuf;
 
-    fn test_thread_id(value: &str) -> ThreadId {
-        ThreadId::from_string(value).expect("valid thread id")
-    }
-
-    fn test_processor(session_id: &str, path: &str) -> RolloutFileProcessor {
-        let mut processor = RolloutFileProcessor::new(
-            std::env::temp_dir().join("orbitdock-rollout-parser-tests.json"),
-            PersistedState::default(),
-        );
+    #[test]
+    fn checkpoint_snapshot_reflects_current_file_state() {
+        let path = "/tmp/rollout.jsonl";
+        let mut processor = RolloutFileProcessor::new(HashMap::new());
         processor.file_states.insert(
             path.to_string(),
             FileState {
-                offset: 0,
-                tail: String::new(),
-                session_id: Some(session_id.to_string()),
-                project_path: None,
-                model_provider: None,
-                ignore_existing: false,
+                offset: 42,
+                tail: "partial".to_string(),
+                session_id: Some("session-1".to_string()),
+                project_path: Some("/tmp/repo".to_string()),
+                model_provider: Some("gpt-5".to_string()),
+                ignore_existing: true,
                 pending_tool_calls: HashMap::new(),
-                next_message_seq: 0,
-                saw_user_event: false,
-                saw_agent_event: false,
+                next_message_seq: 7,
+                saw_user_event: true,
+                saw_agent_event: true,
             },
         );
-        processor
+
+        let snapshot = processor
+            .checkpoint_snapshot(path)
+            .expect("checkpoint snapshot");
+
+        assert_eq!(snapshot.offset, 42);
+        assert_eq!(snapshot.session_id.as_deref(), Some("session-1"));
+        assert_eq!(snapshot.project_path.as_deref(), Some("/tmp/repo"));
+        assert_eq!(snapshot.model_provider.as_deref(), Some("gpt-5"));
+        assert_eq!(snapshot.ignore_existing, Some(true));
     }
 
     #[test]
-    fn collab_spawn_end_emits_inflight_subagent_update() {
-        let mut processor = test_processor(
-            "session-1",
-            "/tmp/rollout-00000000-0000-0000-0000-000000000001.jsonl",
-        );
-        let events = processor.parse_event_msg(
-            EventMsg::CollabAgentSpawnEnd(CollabAgentSpawnEndEvent {
-                call_id: "call-1".to_string(),
-                sender_thread_id: test_thread_id("00000000-0000-0000-0000-000000000010"),
-                new_thread_id: Some(test_thread_id("00000000-0000-0000-0000-000000000011")),
-                new_agent_nickname: Some("Scout".to_string()),
-                new_agent_role: Some("explorer".to_string()),
-                prompt: "Inspect the auth flow".to_string(),
-                status: AgentStatus::Running,
-            }),
-            "/tmp/rollout-00000000-0000-0000-0000-000000000001.jsonl",
-        );
+    fn ensure_file_state_uses_seeded_checkpoint_metadata() {
+        let path = "/tmp/rollout.jsonl";
+        let mut processor = RolloutFileProcessor::new(HashMap::from([(
+            path.to_string(),
+            PersistedFileState {
+                offset: 128,
+                session_id: Some("session-2".to_string()),
+                project_path: Some("/tmp/project".to_string()),
+                model_provider: Some("codex".to_string()),
+                ignore_existing: Some(false),
+            },
+        )]));
 
-        match events.as_slice() {
-            [RolloutEvent::SubagentsUpdated {
-                session_id,
-                subagents,
-            }] => {
-                assert_eq!(session_id, "session-1");
-                assert_eq!(subagents.len(), 1);
-                let subagent = &subagents[0];
-                assert_eq!(subagent.label.as_deref(), Some("Scout"));
-                assert_eq!(subagent.agent_type, "explorer");
-                assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Running);
-                assert_eq!(
-                    subagent.task_summary.as_deref(),
-                    Some("Inspect the auth flow")
-                );
-            }
-            other => panic!("unexpected events: {other:?}"),
-        }
-    }
+        processor.ensure_file_state(path, 256, None);
 
-    #[test]
-    fn collab_waiting_end_emits_authoritative_subagent_updates() {
-        let mut processor = test_processor(
-            "session-2",
-            "/tmp/rollout-00000000-0000-0000-0000-000000000002.jsonl",
-        );
-        let events = processor.parse_event_msg(
-            EventMsg::CollabWaitingEnd(CollabWaitingEndEvent {
-                sender_thread_id: test_thread_id("00000000-0000-0000-0000-000000000020"),
-                call_id: "wait-1".to_string(),
-                agent_statuses: vec![CollabAgentStatusEntry {
-                    thread_id: test_thread_id("00000000-0000-0000-0000-000000000021"),
-                    agent_nickname: Some("Mill".to_string()),
-                    agent_role: Some("worker".to_string()),
-                    status: AgentStatus::Completed(Some("Finished cleanly".to_string())),
-                }],
-                statuses: HashMap::new(),
-            }),
-            "/tmp/rollout-00000000-0000-0000-0000-000000000002.jsonl",
-        );
-
-        match events.as_slice() {
-            [RolloutEvent::SubagentsUpdated {
-                session_id,
-                subagents,
-            }] => {
-                assert_eq!(session_id, "session-2");
-                assert_eq!(subagents.len(), 1);
-                let subagent = &subagents[0];
-                assert_eq!(subagent.label.as_deref(), Some("Mill"));
-                assert_eq!(
-                    subagent.status,
-                    orbitdock_protocol::SubagentStatus::Completed
-                );
-                assert_eq!(subagent.result_summary.as_deref(), Some("Finished cleanly"));
-                assert!(subagent.ended_at.is_some());
-            }
-            other => panic!("unexpected events: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn passive_realtime_handoff_emits_tool_message() {
-        let path = "/tmp/rollout-00000000-0000-0000-0000-000000000003.jsonl";
-        let mut processor = test_processor("session-3", path);
-        let events = processor.parse_event_msg(
-            EventMsg::RealtimeConversationRealtime(RealtimeConversationRealtimeEvent {
-                payload: RealtimeEvent::HandoffRequested(RealtimeHandoffRequested {
-                    handoff_id: "handoff-1".to_string(),
-                    item_id: "item-1".to_string(),
-                    input_transcript: String::new(),
-                    active_transcript: vec![
-                        RealtimeTranscriptEntry {
-                            role: "user".to_string(),
-                            text: "Help with auth".to_string(),
-                        },
-                        RealtimeTranscriptEntry {
-                            role: "assistant".to_string(),
-                            text: "Passing this to a worker".to_string(),
-                        },
-                    ],
-                }),
-            }),
-            path,
-        );
-
-        match events.as_slice() {
-            [RolloutEvent::AppendChatMessage {
-                session_id,
-                message_type,
-                content,
-                tool_name,
-                ..
-            }] => {
-                assert_eq!(session_id, "session-3");
-                assert_eq!(*message_type, MessageType::Tool);
-                assert_eq!(tool_name.as_deref(), Some("handoff"));
-                assert_eq!(
-                    content,
-                    "user: Help with auth\nassistant: Passing this to a worker"
-                );
-            }
-            other => panic!("unexpected events: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn passive_hook_events_emit_readable_tool_messages() {
-        let path = "/tmp/rollout-00000000-0000-0000-0000-000000000003-hooks.jsonl";
-        let mut processor = test_processor("session-hooks", path);
-        let run = HookRunSummary {
-            id: "hook-1".to_string(),
-            event_name: HookEventName::Stop,
-            handler_type: HookHandlerType::Command,
-            execution_mode: HookExecutionMode::Sync,
-            scope: HookScope::Turn,
-            source_path: PathBuf::from("/tmp/stop-hook.sh"),
-            display_order: 0,
-            status: HookRunStatus::Completed,
-            status_message: Some("Cleaned up temp files".to_string()),
-            started_at: 1,
-            completed_at: Some(2),
-            duration_ms: Some(88),
-            entries: vec![HookOutputEntry {
-                kind: HookOutputEntryKind::Feedback,
-                text: "Deleted stale lock".to_string(),
-            }],
-        };
-
-        let started_events = processor.parse_event_msg(
-            EventMsg::HookStarted(codex_protocol::protocol::HookStartedEvent {
-                turn_id: Some("turn-1".to_string()),
-                run: run.clone(),
-            }),
-            path,
-        );
-        assert!(matches!(
-            started_events.as_slice(),
-            [RolloutEvent::AppendChatMessage {
-                session_id,
-                message_type,
-                content,
-                tool_name,
-                is_error,
-                ..
-            }] if session_id == "session-hooks"
-                && *message_type == MessageType::Tool
-                && content == "Running stop hook via stop-hook.sh"
-                && tool_name.as_deref() == Some("hook")
-                && !is_error
-        ));
-
-        let completed_events = processor.parse_event_msg(
-            EventMsg::HookCompleted(codex_protocol::protocol::HookCompletedEvent {
-                turn_id: Some("turn-1".to_string()),
-                run,
-            }),
-            path,
-        );
-        assert!(matches!(
-            completed_events.as_slice(),
-            [RolloutEvent::AppendChatMessage {
-                session_id,
-                message_type,
-                content,
-                tool_name,
-                tool_input,
-                is_error,
-                ..
-            }] if session_id == "session-hooks"
-                && *message_type == MessageType::Tool
-                && content == "stop hook completed via stop-hook.sh: Cleaned up temp files"
-                && tool_name.as_deref() == Some("hook")
-                && tool_input.as_deref() == Some("Cleaned up temp files\nDeleted stale lock")
-                && !is_error
-        ));
-    }
-
-    #[test]
-    fn passive_plan_and_diff_events_emit_state_updates() {
-        let path = "/tmp/rollout-00000000-0000-0000-0000-000000000004.jsonl";
-        let mut processor = test_processor("session-4", path);
-
-        let diff_events = processor.parse_event_msg(
-            EventMsg::TurnDiff(TurnDiffEvent {
-                unified_diff: "diff --git a/file b/file".to_string(),
-            }),
-            path,
-        );
-        assert!(matches!(
-            diff_events.as_slice(),
-            [RolloutEvent::DiffUpdated {
-                session_id,
-                diff
-            }] if session_id == "session-4" && diff == "diff --git a/file b/file"
-        ));
-
-        let plan_events = processor.parse_event_msg(
-            EventMsg::PlanUpdate(UpdatePlanArgs {
-                explanation: Some("Sync the worker plan".to_string()),
-                plan: vec![PlanItemArg {
-                    step: "Ship passive parity".to_string(),
-                    status: StepStatus::InProgress,
-                }],
-            }),
-            path,
-        );
-
-        match plan_events.as_slice() {
-            [RolloutEvent::PlanUpdated { session_id, plan }, RolloutEvent::AppendChatMessage {
-                session_id: append_session_id,
-                message_type,
-                content,
-                tool_name,
-                ..
-            }] => {
-                assert_eq!(session_id, "session-4");
-                assert_eq!(append_session_id, "session-4");
-                assert_eq!(*message_type, MessageType::Tool);
-                assert_eq!(tool_name.as_deref(), Some("update_plan"));
-                assert_eq!(content, "Sync the worker plan (1 steps)");
-                assert!(plan.contains("Ship passive parity"));
-            }
-            other => panic!("unexpected events: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn passive_background_and_shutdown_events_are_surfaced() {
-        let path = "/tmp/rollout-00000000-0000-0000-0000-000000000005.jsonl";
-        let mut processor = test_processor("session-5", path);
-
-        let background_events = processor.parse_event_msg(
-            EventMsg::BackgroundEvent(BackgroundEventEvent {
-                message: "Background sync complete".to_string(),
-            }),
-            path,
-        );
-        assert!(matches!(
-            background_events.as_slice(),
-            [RolloutEvent::AppendChatMessage {
-                session_id,
-                message_type,
-                content,
-                ..
-            }] if session_id == "session-5"
-                && *message_type == MessageType::Assistant
-                && content == "Background sync complete"
-        ));
-
-        let shutdown_events = processor.parse_event_msg(EventMsg::ShutdownComplete, path);
-        assert!(matches!(
-            shutdown_events.as_slice(),
-            [RolloutEvent::SessionEnded { session_id, reason }]
-                if session_id == "session-5" && reason == "shutdown"
-        ));
+        let state = processor.file_states.get(path).expect("file state");
+        assert_eq!(state.offset, 128);
+        assert_eq!(state.session_id.as_deref(), Some("session-2"));
+        assert_eq!(state.project_path.as_deref(), Some("/tmp/project"));
+        assert_eq!(state.model_provider.as_deref(), Some("codex"));
+        assert!(!state.ignore_existing);
+        assert!(state.tail.is_empty());
     }
 }

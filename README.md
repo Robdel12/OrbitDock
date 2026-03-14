@@ -130,6 +130,7 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, reverse pro
 - [SWIFT_CLIENT_ARCHITECTURE.md](docs/SWIFT_CLIENT_ARCHITECTURE.md) — Swift client layer boundaries and state ownership guardrails
 - [CLIENT_DESIGN_PRINCIPLES.md](docs/CLIENT_DESIGN_PRINCIPLES.md) — Short guide to the client patterns and habits we want to keep
 - [orbitdock-server/README.md](orbitdock-server/README.md) — Server CLI reference
+- [orbitdock-server/docs/API.md](orbitdock-server/docs/API.md) — Server HTTP and WebSocket contract
 
 ## License
 

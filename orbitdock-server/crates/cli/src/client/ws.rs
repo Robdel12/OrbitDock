@@ -99,7 +99,7 @@ impl WsClient {
         let deadline = Duration::from_secs(15);
         loop {
             match self.recv_timeout(deadline).await? {
-                Some(ServerMessage::SessionSnapshot { session }) => return Ok(session),
+                Some(ServerMessage::ConversationBootstrap { session, .. }) => return Ok(session),
                 Some(ServerMessage::Error { code, message, .. }) => {
                     bail!("[{code}] {message}");
                 }

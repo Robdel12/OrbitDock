@@ -1,5 +1,58 @@
 import Foundation
 
+private struct RootSessionTimestampCacheEntry: Sendable {
+  let date: Date?
+}
+
+private final class RootSessionTimestampParser: @unchecked Sendable {
+  private let lock = NSLock()
+  private var cache: [String: RootSessionTimestampCacheEntry] = [:]
+  private let fractionalFormatter: ISO8601DateFormatter
+  private let internetDateTimeFormatter: ISO8601DateFormatter
+
+  init() {
+    let fractionalFormatter = ISO8601DateFormatter()
+    fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    self.fractionalFormatter = fractionalFormatter
+
+    let internetDateTimeFormatter = ISO8601DateFormatter()
+    internetDateTimeFormatter.formatOptions = [.withInternetDateTime]
+    self.internetDateTimeFormatter = internetDateTimeFormatter
+  }
+
+  func parse(_ rawValue: String) -> Date? {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    lock.lock()
+    if let cached = cache[trimmed] {
+      lock.unlock()
+      return cached.date
+    }
+    lock.unlock()
+
+    let parsedDate = parseUncached(trimmed)
+
+    lock.lock()
+    if cache.count >= 4_096 {
+      cache.removeAll(keepingCapacity: true)
+    }
+    cache[trimmed] = RootSessionTimestampCacheEntry(date: parsedDate)
+    lock.unlock()
+
+    return parsedDate
+  }
+
+  private func parseUncached(_ value: String) -> Date? {
+    let unixCandidate = value.hasSuffix("Z") ? String(value.dropLast()) : value
+    if let seconds = TimeInterval(unixCandidate) {
+      return Date(timeIntervalSince1970: seconds)
+    }
+
+    return fractionalFormatter.date(from: value) ?? internetDateTimeFormatter.date(from: value)
+  }
+}
+
 enum RootSessionStatus: String, Hashable, Sendable {
   case active
   case ended
@@ -454,6 +507,8 @@ extension RootSessionNode {
 }
 
 extension RootSessionNode {
+  private nonisolated static let timestampParser = RootSessionTimestampParser()
+
   nonisolated static func workStatus(from status: ServerWorkStatus) -> RootSessionWorkStatus {
     switch status {
       case .working:
@@ -514,14 +569,11 @@ extension RootSessionNode {
     claudeIntegrationMode: ClaudeIntegrationMode?
   ) -> Bool {
     guard status == .active else { return false }
-    guard hasLiveEndpointConnection(endpointConnectionStatus) else { return false }
-
-    switch provider {
-      case .codex:
-        return codexIntegrationMode != .passive
-      case .claude:
-        return claudeIntegrationMode != .passive
-    }
+    _ = provider
+    _ = endpointConnectionStatus
+    _ = codexIntegrationMode
+    _ = claudeIntegrationMode
+    return true
   }
 
   nonisolated static func needsAttention(
@@ -558,9 +610,7 @@ extension RootSessionNode {
 
   nonisolated static func parseTimestamp(_ value: String?) -> Date? {
     guard let value else { return nil }
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    return timestampParser.parse(value)
   }
 
   nonisolated static func displayTitle(explicit: String?, projectName: String?, projectPath: String) -> String {

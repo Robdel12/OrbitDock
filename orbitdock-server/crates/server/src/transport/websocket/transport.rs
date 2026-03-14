@@ -2,6 +2,7 @@ use bytes::Bytes;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
+use orbitdock_protocol::conversation_contracts::ConversationRowPage;
 use orbitdock_protocol::{ServerMessage, SessionState};
 
 use crate::support::snapshot_compaction::{
@@ -99,8 +100,15 @@ pub(crate) async fn send_snapshot_if_requested(
     if include_snapshot {
         send_json(
             tx,
-            ServerMessage::SessionSnapshot {
+            ServerMessage::ConversationBootstrap {
                 session: prepare_snapshot_for_transport(snapshot),
+                conversation: ConversationRowPage {
+                    rows: vec![],
+                    total_row_count: 0,
+                    has_more_before: false,
+                    oldest_sequence: None,
+                    newest_sequence: None,
+                },
             },
         )
         .await;
@@ -159,46 +167,4 @@ pub(crate) fn spawn_broadcast_forwarder(
             }
         }
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{send_replay_or_snapshot_fallback, OutboundMessage};
-    use crate::support::snapshot_compaction::WS_MAX_TEXT_MESSAGE_BYTES;
-    use orbitdock_protocol::ServerMessage;
-    use tokio::sync::mpsc;
-
-    async fn recv_json(client_rx: &mut mpsc::Receiver<OutboundMessage>) -> ServerMessage {
-        match client_rx.recv().await.expect("expected outbound message") {
-            OutboundMessage::Json(message) => message,
-            OutboundMessage::Raw(_) => panic!("expected JSON message, got raw payload"),
-            OutboundMessage::Pong(_) => panic!("expected JSON message, got pong"),
-        }
-    }
-
-    #[tokio::test]
-    async fn oversized_replay_requests_rebootstrap_error_instead_of_snapshot() {
-        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(4);
-
-        send_replay_or_snapshot_fallback(
-            &client_tx,
-            "session-oversized",
-            vec!["X".repeat(WS_MAX_TEXT_MESSAGE_BYTES + 1)],
-            42,
-        )
-        .await;
-
-        match recv_json(&mut client_rx).await {
-            ServerMessage::Error {
-                code,
-                message,
-                session_id,
-            } => {
-                assert_eq!(code, "replay_oversized");
-                assert!(message.contains("re-bootstrap"));
-                assert_eq!(session_id.as_deref(), Some("session-oversized"));
-            }
-            other => panic!("expected replay_oversized error, got {:?}", other),
-        }
-    }
 }

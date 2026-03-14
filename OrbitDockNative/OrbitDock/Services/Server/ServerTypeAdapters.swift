@@ -191,7 +191,9 @@ extension ServerMessage {
       inputTokens: nil,
       outputTokens: nil,
       isError: isError,
-      isInProgress: isInProgress
+      isInProgress: isInProgress,
+      serverToolFamily: toolFamily,
+      toolDisplay: toolDisplay
     )
     msg.images = messageImages
     return msg

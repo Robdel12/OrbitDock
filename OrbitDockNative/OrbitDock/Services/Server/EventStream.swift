@@ -158,6 +158,12 @@ final class EventStream {
   private var connectTask: Task<Void, Never>?
   private var keepAliveTask: Task<Void, Never>?
   private var connectAttempts = 0
+  private var lastConnectedAt: Date?
+
+  /// A connection must survive this long before we consider it "stable" and reset
+  /// the attempt counter. Short-lived connections (flapping) let attempts accumulate
+  /// so backoff and the max-retry limit can stop a hot reconnect loop.
+  private static let stableConnectionThreshold: TimeInterval = 30
   private(set) var latestSessionListItems: [ServerSessionListItem] = []
   private(set) var hasReceivedInitialSessionsList = false
 
@@ -249,6 +255,7 @@ final class EventStream {
     urlSession?.invalidateAndCancel()
     urlSession = nil
     connectAttempts = 0
+    lastConnectedAt = nil
     latestSessionListItems = []
     if hasReceivedInitialSessionsList {
       hasReceivedInitialSessionsList = false
@@ -355,7 +362,9 @@ final class EventStream {
       connectTask?.cancel()
       connectTask = nil
     }
-    connectAttempts = 0
+    lastConnectedAt = Date()
+    // Don't reset connectAttempts here — handleDisconnect decides whether
+    // the connection was stable enough to warrant a fresh retry budget.
     setStatus(.connected)
     startKeepAlive()
 
@@ -427,7 +436,17 @@ final class EventStream {
   private func handleDisconnect() {
     switch connectionStatus {
     case .connected, .connecting:
-      netLog(.warning, cat: .ws, "Disconnected unexpectedly, will reconnect", data: ["url": serverURL?.absoluteString ?? "?"])
+      // Only reset attempt budget if the connection was stable long enough.
+      // Short-lived connections (flapping) let attempts accumulate so
+      // exponential backoff and the max-retry cap stop a hot loop.
+      if let t = lastConnectedAt, Date().timeIntervalSince(t) >= Self.stableConnectionThreshold {
+        connectAttempts = 0
+      }
+      lastConnectedAt = nil
+      netLog(.warning, cat: .ws, "Disconnected unexpectedly, will reconnect", data: [
+        "url": serverURL?.absoluteString ?? "?",
+        "attemptsBudget": "\(connectAttempts)/\(maxConnectAttempts)",
+      ])
       attemptConnect()
     case .disconnected, .failed:
       break

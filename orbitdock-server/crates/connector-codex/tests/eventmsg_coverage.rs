@@ -75,7 +75,7 @@ fn connector_eventmsg_handlers_match_codex_protocol_variants() {
 }
 
 #[test]
-fn connector_plan_update_emits_tool_message_and_plan_state_update() {
+fn connector_plan_update_emits_tool_row_and_plan_state_update() {
     let source = include_str!("../src/event_mapping/runtime_signals.rs");
     let arm_start = source
         .find("fn handle_plan_update(")
@@ -87,17 +87,17 @@ fn connector_plan_update_emits_tool_message_and_plan_state_update() {
         "PlanUpdate handler must update session plan side-state"
     );
     assert!(
-        arm.contains("ConnectorEvent::MessageCreated(message)"),
-        "PlanUpdate handler must emit a timeline tool message"
+        arm.contains("ConnectorEvent::ConversationRowCreated(tool_row_entry(row))"),
+        "PlanUpdate handler must emit a ConversationRowCreated event"
     );
     assert!(
-        arm.contains("tool_name: Some(\"update_plan\".to_string())"),
-        "PlanUpdate timeline message must use canonical tool name `update_plan`"
+        arm.contains("ToolKind::UpdatePlan"),
+        "PlanUpdate timeline row must use ToolKind::UpdatePlan"
     );
 }
 
 #[test]
-fn connector_hook_events_emit_timeline_hook_messages() {
+fn connector_hook_events_emit_timeline_hook_rows() {
     let source = include_str!("../src/event_mapping/runtime_signals.rs");
 
     let started_start = source
@@ -105,30 +105,30 @@ fn connector_hook_events_emit_timeline_hook_messages() {
         .expect("missing hook-started handler");
     let started_arm = &source[started_start..source.len().min(started_start + 2200)];
     assert!(
-        started_arm.contains("tool_name: Some(\"hook\".to_string())"),
-        "HookStarted handler must emit hook tool rows"
+        started_arm.contains("ConversationRow::Hook(HookRow"),
+        "HookStarted handler must emit Hook rows"
     );
     assert!(
-        started_arm.contains("is_in_progress: true"),
-        "HookStarted handler must create in-progress hook timeline messages"
+        started_arm.contains("ConnectorEvent::ConversationRowCreated(entry)"),
+        "HookStarted handler must create ConversationRowCreated events"
     );
 
     let completed_start = source
         .find("fn handle_hook_completed(")
         .expect("missing hook-completed handler");
-    let completed_arm = &source[completed_start..source.len().min(completed_start + 1200)];
+    let completed_arm = &source[completed_start..source.len().min(completed_start + 1800)];
     assert!(
-        completed_arm.contains("message_id: format!(\"hook-{}\", event.run.id)"),
-        "HookCompleted handler must update the started hook row by run id"
+        completed_arm.contains("ConversationRow::Hook(HookRow"),
+        "HookCompleted handler must emit Hook rows"
     );
     assert!(
-        completed_arm.contains("is_in_progress: Some(false)"),
-        "HookCompleted handler must finalize hook timeline messages"
+        completed_arm.contains("ConnectorEvent::ConversationRowUpdated"),
+        "HookCompleted handler must emit ConversationRowUpdated events"
     );
 }
 
 #[test]
-fn connector_question_events_emit_timeline_tool_messages() {
+fn connector_question_events_emit_timeline_tool_rows() {
     let source = include_str!("../src/event_mapping/approvals.rs");
 
     let request_start = source
@@ -136,12 +136,12 @@ fn connector_question_events_emit_timeline_tool_messages() {
         .expect("missing request-user-input handler");
     let request_arm = &source[request_start..source.len().min(request_start + 2600)];
     assert!(
-        request_arm.contains("tool_name: Some(\"askuserquestion\".to_string())"),
-        "RequestUserInput handler must emit askuserquestion tool rows"
+        request_arm.contains("ToolKind::AskUserQuestion"),
+        "RequestUserInput handler must emit AskUserQuestion tool rows"
     );
     assert!(
-        request_arm.contains("ConnectorEvent::MessageCreated(message)"),
-        "RequestUserInput handler must emit a timeline message"
+        request_arm.contains("ConnectorEvent::ConversationRowCreated(tool_row_entry(row))"),
+        "RequestUserInput handler must emit a ConversationRowCreated event"
     );
     assert!(
         request_arm.contains("request_id: event_id.to_string()"),
@@ -153,12 +153,12 @@ fn connector_question_events_emit_timeline_tool_messages() {
         .expect("missing elicitation handler");
     let elicitation_arm = &source[elicitation_start..source.len().min(elicitation_start + 2800)];
     assert!(
-        elicitation_arm.contains("tool_name: Some(\"mcp_approval\".to_string())"),
-        "ElicitationRequest handler must emit mcp_approval tool rows"
+        elicitation_arm.contains("ToolFamily::Mcp"),
+        "ElicitationRequest handler must emit MCP tool rows"
     );
     assert!(
-        elicitation_arm.contains("ConnectorEvent::MessageCreated(message)"),
-        "ElicitationRequest handler must emit a timeline message"
+        elicitation_arm.contains("ConnectorEvent::ConversationRowCreated(tool_row_entry(row))"),
+        "ElicitationRequest handler must emit a ConversationRowCreated event"
     );
 }
 

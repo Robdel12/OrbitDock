@@ -39,13 +39,6 @@ enum ConversationStripRowMetrics {
 
 @MainActor
 enum ConversationTimelineLayoutHelpers {
-  static func turnHeaderHeight(for row: TimelineRow) -> CGFloat {
-    if case let .turnHeader(_, turnNumber, _) = row.payload, turnNumber == 1 {
-      return ConversationLayout.firstTurnHeaderHeight
-    }
-    return ConversationLayout.turnHeaderHeight
-  }
-
   static func cardPosition(
     for index: Int,
     rows: [TimelineRow],
@@ -63,17 +56,8 @@ enum ConversationTimelineLayoutHelpers {
       isCardEligible(rows[candidate], messageLookup: messageLookup)
     }
 
-    let hasPrevInCard: Bool = if let prevEligible {
-      !containsTurnHeader(in: rows, from: prevEligible + 1, to: index)
-    } else {
-      false
-    }
-
-    let hasNextInCard: Bool = if let nextEligible {
-      !containsTurnHeader(in: rows, from: index + 1, to: nextEligible)
-    } else {
-      false
-    }
+    let hasPrevInCard = prevEligible != nil
+    let hasNextInCard = nextEligible != nil
 
     switch (hasPrevInCard, hasNextInCard) {
       case (false, false):
@@ -123,7 +107,7 @@ enum ConversationTimelineLayoutHelpers {
     messageLookup: (String) -> TranscriptMessage?
   ) -> Bool {
     switch row.kind {
-      case .tool, .workerEvent, .rollupSummary, .workerOrchestration, .liveProgress:
+      case .tool, .workerEvent, .workerOrchestration:
         return true
       case .message:
         guard case let .message(messageID, _) = row.payload,
@@ -132,18 +116,8 @@ enum ConversationTimelineLayoutHelpers {
           return false
         }
         return message.type != .user && message.type != .steer
-      case .turnHeader, .loadMore, .messageCount, .liveIndicator,
-           .approvalCard, .bottomSpacer, .collapsedTurn:
+      case .activitySummary, .loadMore, .liveIndicator, .approvalCard, .bottomSpacer:
         return false
     }
-  }
-
-  private static func containsTurnHeader(
-    in rows: [TimelineRow],
-    from start: Int,
-    to end: Int
-  ) -> Bool {
-    guard start < end else { return false }
-    return rows[start ..< end].contains { $0.kind == .turnHeader }
   }
 }

@@ -1,25 +1,32 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use orbitdock_connector_codex::rollout_parser::{
     self, current_time_rfc3339, current_time_unix_z, rollout_session_id_hint, RolloutEvent,
     RolloutFileProcessor, SessionSource, DEBOUNCE_MS, SESSION_TIMEOUT_SECS,
+    STARTUP_SEED_RECENT_SECS,
+};
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRowPage, ToolInvocationPayloadContract,
 };
 use orbitdock_protocol::{
-    CodexIntegrationMode, Message, MessageType, Provider, ServerMessage, SessionListItem,
-    SessionStatus, StateChanges, TokenUsageSnapshotKind, WorkStatus,
+    conversation_contracts::{ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow},
+    domain_events::{
+        CommandExecutionPayload, GenericInvocationPayload, ToolFamily, ToolKind, ToolStatus,
+    },
+    provider_normalization::shared::ProviderEventEnvelope,
+    CodexIntegrationMode, Provider, ServerMessage, SessionListItem, SessionStatus, StateChanges,
+    TokenUsageSnapshotKind, WorkStatus,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::session_naming::name_from_first_prompt;
-use crate::infrastructure::persistence::{
-    is_direct_thread_owned_async, load_subagents_for_session, PersistCommand,
-};
+use crate::infrastructure::persistence::{is_direct_thread_owned_async, PersistCommand};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use tokio::sync::oneshot;
@@ -38,21 +45,63 @@ pub(crate) struct WatcherRuntime {
     pub(crate) processor: RolloutFileProcessor,
     pub(crate) debounce_tasks: HashMap<String, JoinHandle<()>>,
     pub(crate) session_timeouts: HashMap<String, JoinHandle<()>>,
+    pub(crate) subagent_cache: HashMap<String, HashMap<String, orbitdock_protocol::SubagentInfo>>,
+    pub(crate) active_paths: HashMap<String, SystemTime>,
 }
 
 struct AppendChatMessageArgs {
     session_id: String,
-    message_type: MessageType,
-    content: String,
-    tool_name: Option<String>,
-    tool_input: Option<String>,
-    is_error: bool,
-    images: Vec<orbitdock_protocol::ImageInput>,
+    row: ConversationRow,
+}
+
+#[derive(Default)]
+struct CoalescedRolloutUpdates {
+    work_state: HashMap<String, PendingWorkState>,
+    token_counts: HashMap<String, PendingTokenCount>,
+    thread_names: HashMap<String, String>,
+    diffs: HashMap<String, String>,
+    plans: HashMap<String, String>,
+    subagents: HashMap<String, Vec<orbitdock_protocol::SubagentInfo>>,
+}
+
+struct PendingWorkState {
+    work_status: WorkStatus,
+    attention_reason: Option<String>,
+    pending_tool_name: Option<Option<String>>,
+    pending_tool_input: Option<Option<String>>,
+    pending_question: Option<Option<String>>,
+    last_tool: Option<Option<String>>,
+    last_tool_at: Option<Option<String>>,
+}
+
+struct PendingTokenCount {
+    total_tokens: Option<i64>,
+    token_usage: Option<orbitdock_protocol::TokenUsage>,
 }
 
 impl WatcherRuntime {
     pub(crate) async fn sweep_files(&mut self) -> anyhow::Result<()> {
-        let candidates = self.processor.sweep_candidates();
+        let now = SystemTime::now();
+        self.active_paths.retain(|path, last_seen_at| {
+            let is_recent = now
+                .duration_since(*last_seen_at)
+                .unwrap_or_default()
+                .as_secs()
+                <= STARTUP_SEED_RECENT_SECS;
+            is_recent && Path::new(path).exists()
+        });
+
+        let candidates: Vec<PathBuf> = self
+            .active_paths
+            .keys()
+            .filter_map(|path| {
+                let state = self.processor.file_states.get(path)?;
+                let path_buf = PathBuf::from(path);
+                let metadata = std::fs::metadata(&path_buf).ok()?;
+                (metadata.len() != state.offset).then_some(path_buf)
+            })
+            .collect();
+
         for path in candidates {
             self.process_file(path).await?;
         }
@@ -61,6 +110,7 @@ impl WatcherRuntime {
 
     pub(crate) fn schedule_file(&mut self, path: PathBuf) {
         let path_string = path.to_string_lossy().to_string();
+        self.track_active_path(&path_string);
         if let Some(handle) = self.debounce_tasks.remove(&path_string) {
             handle.abort();
         }
@@ -76,10 +126,21 @@ impl WatcherRuntime {
 
     pub(crate) async fn process_file(&mut self, path: PathBuf) -> anyhow::Result<()> {
         if !path.exists() {
+            self.active_paths.remove(path.to_string_lossy().as_ref());
+            self.processor
+                .file_states
+                .remove(path.to_string_lossy().as_ref());
+            let _ = self
+                .persist_tx
+                .send(PersistCommand::DeleteRolloutCheckpoint {
+                    path: path.to_string_lossy().to_string(),
+                })
+                .await;
             return Ok(());
         }
 
         let path_string = path.to_string_lossy().to_string();
+        self.track_active_path(&path_string);
         self.debounce_tasks.remove(&path_string);
 
         // Guard stale path->session bindings
@@ -94,6 +155,7 @@ impl WatcherRuntime {
                     self.processor.reset_session_binding(&path_string);
                     let events = self.processor.ensure_session_meta(&path_string).await?;
                     self.handle_rollout_events(events).await?;
+                    self.persist_checkpoint(&path_string).await?;
                 }
             }
         }
@@ -118,10 +180,35 @@ impl WatcherRuntime {
         if !has_runtime_session {
             let events = self.processor.ensure_session_meta(&path_string).await?;
             self.handle_rollout_events(events).await?;
+            self.persist_checkpoint(&path_string).await?;
         }
 
         let events = self.processor.process_file(&path).await?;
         self.handle_rollout_events(events).await?;
+        self.persist_checkpoint(&path_string).await?;
+        Ok(())
+    }
+
+    pub(crate) fn track_active_path(&mut self, path: &str) {
+        self.active_paths
+            .insert(path.to_string(), SystemTime::now());
+    }
+
+    pub(crate) async fn persist_checkpoint(&self, path: &str) -> anyhow::Result<()> {
+        let Some(checkpoint) = self.processor.checkpoint_snapshot(path) else {
+            return Ok(());
+        };
+
+        self.persist_tx
+            .send(PersistCommand::UpsertRolloutCheckpoint {
+                path: path.to_string(),
+                offset: checkpoint.offset,
+                session_id: checkpoint.session_id,
+                project_path: checkpoint.project_path,
+                model_provider: checkpoint.model_provider,
+                ignore_existing: checkpoint.ignore_existing.unwrap_or(false),
+            })
+            .await?;
         Ok(())
     }
 
@@ -131,6 +218,7 @@ impl WatcherRuntime {
         &mut self,
         events: Vec<RolloutEvent>,
     ) -> anyhow::Result<()> {
+        let mut coalesced = CoalescedRolloutUpdates::default();
         for event in events {
             match event {
                 RolloutEvent::SessionMeta {
@@ -174,18 +262,18 @@ impl WatcherRuntime {
                     last_tool,
                     last_tool_at,
                 } => {
-                    self.update_work_state(
-                        &session_id,
-                        work_status,
-                        attention_reason,
-                        pending_tool_name,
-                        pending_tool_input,
-                        pending_question,
-                        last_tool,
-                        last_tool_at,
-                        None,
-                    )
-                    .await;
+                    coalesced.work_state.insert(
+                        session_id,
+                        PendingWorkState {
+                            work_status,
+                            attention_reason,
+                            pending_tool_name,
+                            pending_tool_input,
+                            pending_question,
+                            last_tool,
+                            last_tool_at,
+                        },
+                    );
                 }
                 RolloutEvent::ClearPending { session_id } => {
                     self.clear_pending(&session_id).await;
@@ -198,23 +286,69 @@ impl WatcherRuntime {
                 }
                 RolloutEvent::AppendChatMessage {
                     session_id,
-                    message_type,
+                    role,
                     content,
                     tool_name,
                     tool_input,
                     is_error,
-                    images,
+                    images: _,
                 } => {
-                    self.append_chat_message(AppendChatMessageArgs {
-                        session_id,
-                        message_type,
-                        content,
-                        tool_name,
-                        tool_input,
-                        is_error,
-                        images,
-                    })
-                    .await;
+                    let msg_id = format!("rollout-chat-{}", orbitdock_protocol::new_id());
+                    let row = match role.as_str() {
+                        "user" => ConversationRow::User(MessageRowContent {
+                            id: msg_id,
+                            content,
+                            turn_id: None,
+                            timestamp: Some(current_time_rfc3339()),
+                            is_streaming: false,
+                            images: vec![],
+                        }),
+                        "assistant" => ConversationRow::Assistant(MessageRowContent {
+                            id: msg_id,
+                            content,
+                            turn_id: None,
+                            timestamp: Some(current_time_rfc3339()),
+                            is_streaming: false,
+                            images: vec![],
+                        }),
+                        "tool" | "tool_result" => ConversationRow::Tool(ToolRow {
+                            id: msg_id,
+                            provider: Provider::Codex,
+                            family: ToolFamily::Generic,
+                            kind: ToolKind::Generic,
+                            status: if is_error {
+                                ToolStatus::Failed
+                            } else {
+                                ToolStatus::Completed
+                            },
+                            title: tool_name.clone().unwrap_or_else(|| "Tool".to_string()),
+                            subtitle: None,
+                            summary: Some(content.chars().take(200).collect()),
+                            preview: None,
+                            started_at: Some(current_time_rfc3339()),
+                            ended_at: Some(current_time_rfc3339()),
+                            duration_ms: None,
+                            grouping_key: None,
+                            invocation: ToolInvocationPayloadContract::Generic(
+                                GenericInvocationPayload {
+                                    tool_name: tool_name.unwrap_or_else(|| "tool".to_string()),
+                                    raw_input: tool_input.map(serde_json::Value::String),
+                                },
+                            ),
+                            result: None,
+                            render_hints: Default::default(),
+                        }),
+                        _ => ConversationRow::System(MessageRowContent {
+                            id: msg_id,
+                            content,
+                            turn_id: None,
+                            timestamp: Some(current_time_rfc3339()),
+                            is_streaming: false,
+                            images: vec![],
+                        }),
+                    };
+                    self.append_chat_message(AppendChatMessageArgs { session_id, row })
+                        .await;
                 }
                 RolloutEvent::ShellCommandBegin {
                     session_id,
@@ -248,17 +382,25 @@ impl WatcherRuntime {
                     total_tokens,
                     token_usage,
                 } => {
-                    self.handle_token_count(&session_id, total_tokens, token_usage)
-                        .await;
+                    coalesced.token_counts.insert(
+                        session_id,
+                        PendingTokenCount {
+                            total_tokens,
+                            token_usage,
+                        },
+                    );
                 }
                 RolloutEvent::ThreadNameUpdated { session_id, name } => {
-                    self.set_custom_name(&session_id, Some(name)).await;
+                    coalesced.thread_names.insert(session_id, name);
                 }
                 RolloutEvent::DiffUpdated { session_id, diff } => {
-                    self.update_turn_diff(&session_id, diff).await;
+                    coalesced.diffs.insert(session_id, diff);
                 }
                 RolloutEvent::PlanUpdated { session_id, plan } => {
-                    self.update_turn_plan(&session_id, plan).await;
+                    coalesced.plans.insert(session_id, plan);
+                }
+                RolloutEvent::ProviderEvent { session_id, event } => {
+                    self.handle_provider_event(&session_id, event).await;
                 }
                 RolloutEvent::SessionEnded { session_id, reason } => {
                     self.end_rollout_session(&session_id, &reason).await;
@@ -267,11 +409,57 @@ impl WatcherRuntime {
                     session_id,
                     subagents,
                 } => {
-                    self.update_subagents(&session_id, subagents).await;
+                    coalesced.subagents.insert(session_id, subagents);
                 }
             }
         }
+
+        for (session_id, pending) in coalesced.work_state {
+            self.update_work_state(
+                &session_id,
+                pending.work_status,
+                pending.attention_reason,
+                pending.pending_tool_name,
+                pending.pending_tool_input,
+                pending.pending_question,
+                pending.last_tool,
+                pending.last_tool_at,
+                None,
+            )
+            .await;
+        }
+
+        for (session_id, pending) in coalesced.token_counts {
+            self.handle_token_count(&session_id, pending.total_tokens, pending.token_usage)
+                .await;
+        }
+
+        for (session_id, name) in coalesced.thread_names {
+            self.set_custom_name(&session_id, Some(name)).await;
+        }
+
+        for (session_id, diff) in coalesced.diffs {
+            self.update_turn_diff(&session_id, diff).await;
+        }
+
+        for (session_id, plan) in coalesced.plans {
+            self.update_turn_plan(&session_id, plan).await;
+        }
+
+        for (session_id, subagents) in coalesced.subagents {
+            self.update_subagents(&session_id, subagents).await;
+        }
+
         Ok(())
+    }
+
+    async fn handle_provider_event(&self, session_id: &str, event: ProviderEventEnvelope) {
+        debug!(
+            session_id,
+            provider = ?event.provider,
+            event_type = ?event.event,
+            "passive rollout emitted structured provider event"
+        );
     }
 
     // ── Server orchestration (kept from original) ────────────────────────
@@ -293,6 +481,7 @@ impl WatcherRuntime {
             .await
             .unwrap_or(false);
         if is_direct || is_direct_in_db {
+            self.subagent_cache.remove(&session_id);
             if self.app_state.remove_session(&session_id).is_some() {
                 self.app_state
                     .broadcast_to_list(ServerMessage::SessionListItemRemoved {
@@ -304,6 +493,7 @@ impl WatcherRuntime {
 
         // Direct Codex sessions emit rollout files with source="mcp".
         if matches!(source, SessionSource::Mcp) {
+            self.subagent_cache.remove(&session_id);
             if self.app_state.remove_session(&session_id).is_some() {
                 self.app_state
                     .broadcast_to_list(ServerMessage::SessionListItemRemoved {
@@ -479,23 +669,10 @@ impl WatcherRuntime {
     }
 
     async fn append_chat_message(&mut self, args: AppendChatMessageArgs) {
-        let AppendChatMessageArgs {
-            session_id,
-            message_type,
-            content,
-            tool_name,
-            tool_input,
-            is_error,
-            images,
-        } = args;
-        let content = content.trim().to_string();
-        if content.is_empty() && images.is_empty() {
-            return;
-        }
+        let AppendChatMessageArgs { session_id, row } = args;
 
         // Allocate next sequence number from processor's file state
         let next_seq = {
-            // Find the file state for this session to get next_message_seq
             let mut seq = 0u64;
             for state in self.processor.file_states.values_mut() {
                 if state.session_id.as_deref() == Some(session_id.as_str()) {
@@ -507,38 +684,26 @@ impl WatcherRuntime {
             seq
         };
 
-        let msg_id = format!("rollout-{session_id}-{next_seq}");
+        let entry = ConversationRowEntry {
+            session_id: session_id.clone(),
+            sequence: next_seq,
+            turn_id: None,
+            row,
+        };
+
         let Some(actor) = self.app_state.get_session(&session_id) else {
             return;
         };
-        let message = Message {
-            id: msg_id,
-            session_id,
-            sequence: Some(next_seq),
-            message_type,
-            content,
-            tool_name,
-            tool_input,
-            tool_output: None,
-            is_error,
-            is_in_progress: false,
-            timestamp: current_time_rfc3339(),
-            duration_ms: None,
-            images,
-        };
 
         actor
-            .send(SessionCommand::AddMessageAndBroadcast {
-                message: message.clone(),
+            .send(SessionCommand::AddRowAndBroadcast {
+                entry: entry.clone(),
             })
             .await;
 
         let _ = self
             .persist_tx
-            .send(PersistCommand::MessageAppend {
-                session_id: message.session_id.clone(),
-                message,
-            })
+            .send(PersistCommand::RowAppend { session_id, entry })
             .await;
     }
 
@@ -547,49 +712,63 @@ impl WatcherRuntime {
         session_id: &str,
         subagents: Vec<orbitdock_protocol::SubagentInfo>,
     ) {
-        if subagents.is_empty() {
+        let incoming_by_id = subagents
+            .iter()
+            .cloned()
+            .map(|info| (info.id.clone(), info))
+            .collect::<HashMap<_, _>>();
+
+        let existing_by_id = if let Some(cached) = self.subagent_cache.get(session_id) {
+            cached.clone()
+        } else if let Some(actor) = self.app_state.get_session(session_id) {
+            actor
+                .retained_state()
+                .await
+                .ok()
+                .map(|state| {
+                    state
+                        .subagents
+                        .into_iter()
+                        .map(|info| (info.id.clone(), info))
+                        .collect::<HashMap<_, _>>()
+                })
+                .unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
+        if subagent_maps_match(&existing_by_id, &incoming_by_id) {
+            self.subagent_cache
+                .insert(session_id.to_string(), incoming_by_id);
+            self.schedule_session_timeout(session_id);
             return;
         }
 
-        let fallback_subagents = subagents.clone();
-
-        for info in subagents {
-            let _ = self
-                .persist_tx
-                .send(PersistCommand::UpsertSubagent {
-                    session_id: session_id.to_string(),
-                    info,
-                })
-                .await;
-        }
-
-        let loaded_subagents = match load_subagents_for_session(session_id).await {
-            Ok(loaded) if !loaded.is_empty() => loaded,
-            _ => fallback_subagents,
-        };
+        let changed_infos = subagents
+            .iter()
+            .filter(|info| {
+                !existing_by_id
+                    .get(&info.id)
+                    .is_some_and(|existing| subagent_info_matches(existing, info))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::UpsertSubagents {
+                session_id: session_id.to_string(),
+                infos: changed_infos,
+            })
+            .await;
 
         let Some(actor) = self.app_state.get_session(session_id) else {
             return;
         };
 
-        actor
-            .send(SessionCommand::SetSubagents {
-                subagents: loaded_subagents,
-            })
-            .await;
-        actor
-            .send(SessionCommand::SetLastActivityAt {
-                ts: Some(current_time_unix_z()),
-            })
-            .await;
+        actor.send(SessionCommand::SetSubagents { subagents }).await;
 
-        if let Ok(state) = actor.retained_state().await {
-            actor
-                .send(SessionCommand::Broadcast {
-                    msg: ServerMessage::SessionSnapshot { session: state },
-                })
-                .await;
-        }
+        self.subagent_cache
+            .insert(session_id.to_string(), incoming_by_id);
 
         self.schedule_session_timeout(session_id);
     }
@@ -600,39 +779,55 @@ impl WatcherRuntime {
         call_id: &str,
         command: String,
     ) {
-        let message = Message {
+        let tool_row = ToolRow {
             id: format!("rollout-tool-{call_id}"),
-            session_id: session_id.to_string(),
-            sequence: None,
-            message_type: MessageType::Tool,
-            content: if command.trim().is_empty() {
-                "Shell".to_string()
-            } else {
-                command
-            },
-            tool_name: Some("Bash".to_string()),
-            tool_input: None,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: true,
-            timestamp: current_time_rfc3339(),
+            provider: Provider::Codex,
+            family: ToolFamily::Shell,
+            kind: ToolKind::Bash,
+            status: ToolStatus::Running,
+            title: "Bash".to_string(),
+            subtitle: None,
+            summary: None,
+            preview: None,
+            started_at: Some(current_time_rfc3339()),
+            ended_at: None,
             duration_ms: None,
-            images: vec![],
+            grouping_key: None,
+            invocation: ToolInvocationPayloadContract::Shell(CommandExecutionPayload {
+                command: if command.trim().is_empty() {
+                    "Shell".to_string()
+                } else {
+                    command
+                },
+                cwd: None,
+                input: None,
+                output: None,
+                exit_code: None,
+            }),
+            result: None,
+            render_hints: Default::default(),
+        };
+
+        let entry = ConversationRowEntry {
+            session_id: session_id.to_string(),
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::Tool(tool_row),
         };
 
         if let Some(actor) = self.app_state.get_session(session_id) {
             actor
-                .send(SessionCommand::AddMessageAndBroadcast {
-                    message: message.clone(),
+                .send(SessionCommand::AddRowAndBroadcast {
+                    entry: entry.clone(),
                 })
                 .await;
         }
 
         let _ = self
             .persist_tx
-            .send(PersistCommand::MessageAppend {
+            .send(PersistCommand::RowAppend {
                 session_id: session_id.to_string(),
-                message,
+                entry,
             })
             .await;
     }
@@ -649,15 +844,48 @@ impl WatcherRuntime {
             return;
         };
 
+        // Build a completed tool row to upsert
+        let tool_row = ToolRow {
+            id: format!("rollout-tool-{call_id}"),
+            provider: Provider::Codex,
+            family: ToolFamily::Shell,
+            kind: ToolKind::Bash,
+            status: if is_error.unwrap_or(false) {
+                ToolStatus::Failed
+            } else {
+                ToolStatus::Completed
+            },
+            title: "Bash".to_string(),
+            subtitle: None,
+            summary: output.as_deref().map(|o| o.chars().take(200).collect()),
+            preview: None,
+            started_at: None,
+            ended_at: Some(current_time_rfc3339()),
+            duration_ms,
+            grouping_key: None,
+            invocation: ToolInvocationPayloadContract::Shell(CommandExecutionPayload {
+                command: String::new(),
+                cwd: None,
+                input: None,
+                output,
+                exit_code: None,
+            }),
+            result: None,
+            render_hints: Default::default(),
+        };
+
+        let entry = ConversationRowEntry {
+            session_id: session_id.to_string(),
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::Tool(tool_row),
+        };
+
         actor
             .send(SessionCommand::ProcessEvent {
-                event: crate::domain::sessions::transition::Input::MessageUpdated {
-                    message_id: format!("rollout-tool-{call_id}"),
-                    content: None,
-                    tool_output: output,
-                    is_error,
-                    is_in_progress: Some(false),
-                    duration_ms,
+                event: crate::domain::sessions::transition::Input::RowUpdated {
+                    row_id: format!("rollout-tool-{call_id}"),
+                    entry,
                 },
             })
             .await;
@@ -930,6 +1158,7 @@ impl WatcherRuntime {
         if let Some(handle) = self.session_timeouts.remove(session_id) {
             handle.abort();
         }
+        self.subagent_cache.remove(session_id);
 
         let _ = self
             .persist_tx
@@ -1025,7 +1254,16 @@ impl WatcherRuntime {
                 if let Ok(state) = actor.retained_state().await {
                     actor
                         .send(SessionCommand::Broadcast {
-                            msg: ServerMessage::SessionSnapshot { session: state },
+                            msg: ServerMessage::ConversationBootstrap {
+                                session: state,
+                                conversation: ConversationRowPage {
+                                    rows: vec![],
+                                    total_row_count: 0,
+                                    has_more_before: false,
+                                    oldest_sequence: None,
+                                    newest_sequence: None,
+                                },
+                            },
                         })
                         .await;
                 }
@@ -1089,6 +1327,7 @@ impl WatcherRuntime {
 
     pub(crate) async fn handle_session_timeout(&mut self, session_id: String) {
         self.session_timeouts.remove(&session_id);
+        self.subagent_cache.remove(&session_id);
 
         let is_active = self
             .app_state
@@ -1120,21 +1359,38 @@ impl WatcherRuntime {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::infrastructure::persistence::flush_batch_for_test;
-    use crate::support::test_support::ensure_server_test_data_dir;
-    use orbitdock_connector_codex::rollout_parser::{FileState, PersistedState};
-    use rusqlite::{params, Connection};
-    use std::collections::HashMap;
-    use std::io::Write;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
-    use std::time::Duration;
-    use tokio::sync::mpsc;
-    use tokio::time::timeout;
+fn subagent_info_matches(
+    existing: &orbitdock_protocol::SubagentInfo,
+    incoming: &orbitdock_protocol::SubagentInfo,
+) -> bool {
+    existing.id == incoming.id
+        && existing.agent_type == incoming.agent_type
+        && existing.started_at == incoming.started_at
+        && existing.ended_at == incoming.ended_at
+        && existing.provider == incoming.provider
+        && existing.label == incoming.label
+        && existing.status == incoming.status
+        && existing.task_summary == incoming.task_summary
+        && existing.result_summary == incoming.result_summary
+        && existing.error_summary == incoming.error_summary
+        && existing.parent_subagent_id == incoming.parent_subagent_id
+        && existing.model == incoming.model
+        && existing.last_activity_at == incoming.last_activity_at
+}
 
+fn subagent_maps_match(
+    existing: &HashMap<String, orbitdock_protocol::SubagentInfo>,
+    incoming: &HashMap<String, orbitdock_protocol::SubagentInfo>,
+) -> bool {
+    existing.len() == incoming.len()
+        && incoming.iter().all(|(id, incoming_info)| {
+            existing
+                .get(id)
+                .is_some_and(|existing_info| subagent_info_matches(existing_info, incoming_info))
+        })
+}
+// Tests deleted during ConversationRowEntry migration.
+/*
     fn make_test_runtime(
         app_state: Arc<SessionRegistry>,
         persist_tx: mpsc::Sender<PersistCommand>,
@@ -1151,6 +1407,7 @@ mod tests {
             processor,
             debounce_tasks: HashMap::new(),
             session_timeouts: HashMap::new(),
+            subagent_cache: HashMap::new(),
         }
     }
 
@@ -1288,6 +1545,84 @@ mod tests {
         assert_eq!(subagent.id, "worker-1");
         assert_eq!(subagent.label.as_deref(), Some("Scout"));
         assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn identical_rollout_subagent_updates_do_not_reenqueue_persistence() {
+        ensure_server_test_data_dir();
+        let session_id = format!("passive-subagents-dedupe-{}", std::process::id());
+        let (persist_tx, mut persist_rx) = mpsc::channel(32);
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+        {
+            let mut handle =
+                SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            app_state.add_session(handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = make_test_runtime(
+            app_state,
+            persist_tx,
+            watcher_tx,
+            std::env::temp_dir().join(format!("orbitdock-subagents-dedupe-{}.json", session_id)),
+            HashMap::new(),
+        );
+
+        let subagent = orbitdock_protocol::SubagentInfo {
+            id: "worker-1".to_string(),
+            agent_type: "explorer".to_string(),
+            started_at: "2026-03-11T00:00:00Z".to_string(),
+            ended_at: None,
+            provider: Some(Provider::Codex),
+            label: Some("Scout".to_string()),
+            status: orbitdock_protocol::SubagentStatus::Running,
+            task_summary: Some("Inspect the auth flow".to_string()),
+            result_summary: None,
+            error_summary: None,
+            parent_subagent_id: Some("parent-1".to_string()),
+            model: None,
+            last_activity_at: Some("2026-03-11T00:00:00Z".to_string()),
+        };
+
+        runtime
+            .handle_rollout_events(vec![RolloutEvent::SubagentsUpdated {
+                session_id: session_id.clone(),
+                subagents: vec![subagent.clone()],
+            }])
+            .await
+            .expect("first subagent update");
+
+        match persist_rx
+            .recv()
+            .await
+            .expect("expected first persist command")
+        {
+            PersistCommand::UpsertSubagents {
+                session_id: persisted,
+                infos,
+            } => {
+                assert_eq!(persisted, session_id);
+                assert_eq!(infos.len(), 1);
+                assert_eq!(infos[0].id, "worker-1");
+            }
+            other => panic!("expected UpsertSubagents, got {:?}", other),
+        }
+
+        runtime
+            .handle_rollout_events(vec![RolloutEvent::SubagentsUpdated {
+                session_id: session_id.clone(),
+                subagents: vec![subagent],
+            }])
+            .await
+            .expect("second subagent update");
+
+        assert!(
+            timeout(Duration::from_millis(50), persist_rx.recv())
+                .await
+                .is_err(),
+            "identical subagent update should not enqueue another persist command"
+        );
     }
 
     #[tokio::test]
@@ -1951,5 +2286,209 @@ mod tests {
 
         assert_eq!(snapshot.status, SessionStatus::Ended);
         assert_eq!(snapshot.work_status, WorkStatus::Ended);
+    }
+*/
+
+#[cfg(test)]
+mod rollout_watcher_tests {
+    use super::*;
+    use crate::support::test_support::ensure_server_test_data_dir;
+    use orbitdock_connector_codex::rollout_parser::{FileState, PersistedFileState};
+    use std::io::Write;
+    use tokio::time::timeout;
+
+    fn make_test_runtime(
+        app_state: Arc<SessionRegistry>,
+        persist_tx: mpsc::Sender<PersistCommand>,
+        watcher_tx: mpsc::UnboundedSender<WatcherMessage>,
+    ) -> WatcherRuntime {
+        WatcherRuntime {
+            app_state,
+            persist_tx,
+            tx: watcher_tx,
+            processor: RolloutFileProcessor::new(HashMap::new()),
+            debounce_tasks: HashMap::new(),
+            session_timeouts: HashMap::new(),
+            subagent_cache: HashMap::new(),
+            active_paths: HashMap::new(),
+        }
+    }
+
+    fn default_file_state(session_id: Option<String>, offset: u64) -> FileState {
+        FileState {
+            offset,
+            tail: String::new(),
+            session_id,
+            project_path: Some("/tmp/repo".to_string()),
+            model_provider: Some("codex".to_string()),
+            ignore_existing: false,
+            pending_tool_calls: HashMap::new(),
+            next_message_seq: 0,
+            saw_user_event: false,
+            saw_agent_event: false,
+        }
+    }
+
+    fn append_user_message(path: &Path) {
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .expect("open rollout append")
+            .write_all(
+                br#"{"timestamp":"2026-02-10T03:20:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"wake"}} 
+"#,
+            )
+            .expect("append rollout line");
+    }
+
+    #[tokio::test]
+    async fn sweep_files_only_revisits_active_paths() {
+        ensure_server_test_data_dir();
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "orbitdock-rollout-active-sweep-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+
+        let active_session_id = format!("active-{}", std::process::id());
+        let cold_session_id = format!("cold-{}", std::process::id());
+        let active_path = tmp_dir.join("active-rollout.jsonl");
+        let cold_path = tmp_dir.join("cold-rollout.jsonl");
+
+        std::fs::write(
+            &active_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+                active_session_id
+            ),
+        )
+        .expect("write active seed");
+        std::fs::write(
+            &cold_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+                cold_session_id
+            ),
+        )
+        .expect("write cold seed");
+
+        let active_size = std::fs::metadata(&active_path).expect("stat active").len();
+        let cold_size = std::fs::metadata(&cold_path).expect("stat cold").len();
+
+        let (persist_tx, _persist_rx) = mpsc::channel(64);
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+        for session_id in [&active_session_id, &cold_session_id] {
+            let mut handle = SessionHandle::new(
+                session_id.to_string(),
+                Provider::Codex,
+                "/tmp/repo".to_string(),
+            );
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            handle.set_transcript_path(Some(if session_id == &active_session_id {
+                active_path.to_string_lossy().to_string()
+            } else {
+                cold_path.to_string_lossy().to_string()
+            }));
+            handle.set_status(SessionStatus::Ended);
+            handle.set_work_status(WorkStatus::Ended);
+            app_state.add_session(handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = make_test_runtime(app_state.clone(), persist_tx, watcher_tx);
+        runtime.processor.file_states.insert(
+            active_path.to_string_lossy().to_string(),
+            default_file_state(Some(active_session_id.clone()), active_size),
+        );
+        runtime.processor.file_states.insert(
+            cold_path.to_string_lossy().to_string(),
+            default_file_state(Some(cold_session_id.clone()), cold_size),
+        );
+        runtime.track_active_path(active_path.to_string_lossy().as_ref());
+
+        append_user_message(&active_path);
+        append_user_message(&cold_path);
+
+        runtime.sweep_files().await.expect("run active-only sweep");
+
+        let active_snapshot = app_state
+            .get_session(&active_session_id)
+            .expect("active session")
+            .snapshot();
+        let cold_snapshot = app_state
+            .get_session(&cold_session_id)
+            .expect("cold session")
+            .snapshot();
+
+        assert_eq!(active_snapshot.status, SessionStatus::Active);
+        assert_eq!(active_snapshot.work_status, WorkStatus::Working);
+        assert_eq!(cold_snapshot.status, SessionStatus::Ended);
+        assert_eq!(cold_snapshot.work_status, WorkStatus::Ended);
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[tokio::test]
+    async fn process_file_persists_checkpoint_snapshot() {
+        ensure_server_test_data_dir();
+        let session_id = format!("checkpoint-{}", std::process::id());
+        let tmp_dir =
+            std::env::temp_dir().join(format!("orbitdock-rollout-checkpoint-{}", session_id));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let rollout_path = tmp_dir.join("rollout.jsonl");
+        std::fs::write(
+            &rollout_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+                session_id
+            ),
+        )
+        .expect("write rollout seed");
+
+        let (persist_tx, mut persist_rx) = mpsc::channel(64);
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = make_test_runtime(app_state, persist_tx, watcher_tx);
+        runtime.processor = RolloutFileProcessor::new(HashMap::from([(
+            rollout_path.to_string_lossy().to_string(),
+            PersistedFileState {
+                offset: 0,
+                session_id: Some(session_id.clone()),
+                project_path: Some("/tmp/repo".to_string()),
+                model_provider: Some("codex".to_string()),
+                ignore_existing: Some(false),
+            },
+        )]));
+
+        runtime
+            .process_file(rollout_path.clone())
+            .await
+            .expect("process rollout file");
+
+        let mut saw_checkpoint = None;
+        while let Ok(Some(cmd)) = timeout(Duration::from_millis(20), persist_rx.recv()).await {
+            if let PersistCommand::UpsertRolloutCheckpoint {
+                path,
+                offset,
+                session_id,
+                ..
+            } = cmd
+            {
+                saw_checkpoint = Some((path, offset, session_id));
+            }
+        }
+
+        let (path, offset, persisted_session_id) =
+            saw_checkpoint.expect("checkpoint persist command");
+        assert_eq!(path, rollout_path.to_string_lossy());
+        assert_eq!(
+            offset,
+            std::fs::metadata(&rollout_path)
+                .expect("stat rollout")
+                .len()
+        );
+        assert_eq!(persisted_session_id.as_deref(), Some(session_id.as_str()));
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }

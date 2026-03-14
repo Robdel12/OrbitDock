@@ -1,20 +1,32 @@
-use crate::runtime::apply_delta_message;
+use crate::runtime::{apply_delta_thinking, row_entry};
 use crate::timeline::{
-    hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
-    realtime_text_from_handoff_request, stream_error_should_surface_to_timeline,
+    hook_completed_text, hook_output_text, hook_started_text, realtime_text_from_handoff_request,
+    stream_error_should_surface_to_timeline,
 };
 use crate::workers::iso_now;
 use codex_protocol::plan_tool::UpdatePlanArgs;
 use codex_protocol::protocol::{
     BackgroundEventEvent, DeprecationNoticeEvent, HookCompletedEvent, HookStartedEvent,
-    ModelRerouteEvent, PlanDeltaEvent, RealtimeConversationRealtimeEvent,
-    StreamErrorEvent, ThreadNameUpdatedEvent, ThreadRolledBackEvent, TokenCountEvent,
-    TurnDiffEvent, UndoCompletedEvent, UndoStartedEvent, WarningEvent,
+    ModelRerouteEvent, PlanDeltaEvent, RealtimeConversationRealtimeEvent, StreamErrorEvent,
+    ThreadNameUpdatedEvent, ThreadRolledBackEvent, TokenCountEvent, TurnDiffEvent,
+    UndoCompletedEvent, UndoStartedEvent, WarningEvent,
 };
 use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRow, ConversationRowEntry, HandoffRow, HookRow, MessageRowContent, ToolRow,
+};
+use orbitdock_protocol::domain_events::{
+    HandoffPayload, HookPayload, PlanModePayload, PlanStepPayload, PlanStepStatus, ToolFamily,
+    ToolInvocationPayload, ToolKind, ToolStatus,
+};
+use orbitdock_protocol::Provider;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
+    row_entry(ConversationRow::Tool(row))
+}
 
 pub(crate) fn handle_token_count(event: TokenCountEvent) -> Vec<ConnectorEvent> {
     if let Some(info) = event.info {
@@ -51,24 +63,45 @@ pub(crate) fn handle_plan_update(
         _ => "Plan updated",
     };
     let content = format!("{} ({} steps)", explanation, event.plan.len());
-    let message = orbitdock_protocol::Message {
+
+    let steps: Vec<PlanStepPayload> = event
+        .plan
+        .iter()
+        .map(|step| PlanStepPayload {
+            id: None,
+            title: step.step.clone(),
+            status: PlanStepStatus::Pending,
+            detail: None,
+        })
+        .collect();
+
+    let row = ToolRow {
         id: format!("update-plan-{}-{}", event_id, seq),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Tool,
-        content,
-        tool_name: Some("update_plan".to_string()),
-        tool_input: serde_json::to_string(&event).ok(),
-        tool_output: None,
-        is_error: false,
-        is_in_progress: false,
-        timestamp: iso_now(),
+        provider: Provider::Codex,
+        family: ToolFamily::Plan,
+        kind: ToolKind::UpdatePlan,
+        status: ToolStatus::Completed,
+        title: content,
+        subtitle: None,
+        summary: None,
+        preview: None,
+        started_at: Some(iso_now()),
+        ended_at: Some(iso_now()),
         duration_ms: None,
-        images: vec![],
+        grouping_key: None,
+        invocation: ToolInvocationPayload::PlanMode(PlanModePayload {
+            mode: Some("plan".to_string()),
+            summary: event.explanation.clone(),
+            steps,
+            review_mode: None,
+            explanation: event.explanation,
+        }),
+        result: None,
+        render_hints: Default::default(),
     };
     vec![
         ConnectorEvent::PlanUpdated(plan),
-        ConnectorEvent::MessageCreated(message),
+        ConnectorEvent::ConversationRowCreated(tool_row_entry(row)),
     ]
 }
 
@@ -76,12 +109,10 @@ pub(crate) async fn handle_plan_delta(
     delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     event: PlanDeltaEvent,
 ) -> Vec<ConnectorEvent> {
-    apply_delta_message(
+    apply_delta_thinking(
         delta_buffers,
         format!("plan-{}", event.item_id),
         event.delta,
-        orbitdock_protocol::MessageType::Thinking,
-        None,
     )
     .await
 }
@@ -92,22 +123,15 @@ pub(crate) fn handle_warning(
     msg_counter: &AtomicU64,
 ) -> Vec<ConnectorEvent> {
     let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-    let message = orbitdock_protocol::Message {
+    let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
         id: format!("warning-{}-{}", event_id, seq),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Assistant,
         content: event.message,
-        tool_name: None,
-        tool_input: None,
-        tool_output: None,
-        is_error: false,
-        is_in_progress: false,
-        timestamp: iso_now(),
-        duration_ms: None,
+        turn_id: None,
+        timestamp: Some(iso_now()),
+        is_streaming: false,
         images: vec![],
-    };
-    vec![ConnectorEvent::MessageCreated(message)]
+    }));
+    vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
 
 pub(crate) async fn handle_model_reroute(
@@ -122,25 +146,18 @@ pub(crate) async fn handle_model_reroute(
     }
     let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
     let reason = format!("{:?}", event.reason);
-    let message = orbitdock_protocol::Message {
+    let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
         id: format!("model-reroute-{}-{}", event_id, seq),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Assistant,
         content: format!(
             "Model rerouted from {} to {} ({})",
             event.from_model, event.to_model, reason
         ),
-        tool_name: None,
-        tool_input: None,
-        tool_output: None,
-        is_error: false,
-        is_in_progress: false,
-        timestamp: iso_now(),
-        duration_ms: None,
+        turn_id: None,
+        timestamp: Some(iso_now()),
+        is_streaming: false,
         images: vec![],
-    };
-    vec![ConnectorEvent::MessageCreated(message)]
+    }));
+    vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
 
 pub(crate) fn handle_realtime_conversation_started() -> Vec<ConnectorEvent> {
@@ -162,43 +179,34 @@ pub(crate) fn handle_realtime_conversation_realtime(
                 return vec![];
             };
             let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-            let message = orbitdock_protocol::Message {
+            let entry = row_entry(ConversationRow::Handoff(HandoffRow {
                 id: format!("realtime-handoff-{}-{}", event_id, seq),
-                session_id: String::new(),
-                sequence: None,
-                message_type: orbitdock_protocol::MessageType::Tool,
-                content,
-                tool_name: Some("handoff".to_string()),
-                tool_input: serde_json::to_string(&handoff).ok(),
-                tool_output: None,
-                is_error: false,
-                is_in_progress: false,
-                timestamp: iso_now(),
-                duration_ms: None,
-                images: vec![],
-            };
-            vec![ConnectorEvent::MessageCreated(message)]
+                title: "Handoff requested".to_string(),
+                subtitle: None,
+                summary: Some(content),
+                payload: HandoffPayload {
+                    target: None,
+                    summary: serde_json::to_string(&handoff).ok(),
+                    body: None,
+                    transcript_excerpt: None,
+                },
+                render_hints: Default::default(),
+            }));
+            vec![ConnectorEvent::ConversationRowCreated(entry)]
         }
         codex_protocol::protocol::RealtimeEvent::ConversationItemAdded(_) => vec![],
         codex_protocol::protocol::RealtimeEvent::AudioOut(_) => vec![],
         codex_protocol::protocol::RealtimeEvent::Error(message_text) => {
             let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-            let message = orbitdock_protocol::Message {
+            let entry = row_entry(ConversationRow::System(MessageRowContent {
                 id: format!("realtime-error-{}-{}", event_id, seq),
-                session_id: String::new(),
-                sequence: None,
-                message_type: orbitdock_protocol::MessageType::Assistant,
                 content: format!("Realtime conversation error: {}", message_text),
-                tool_name: None,
-                tool_input: None,
-                tool_output: None,
-                is_error: true,
-                is_in_progress: false,
-                timestamp: iso_now(),
-                duration_ms: None,
+                turn_id: None,
+                timestamp: Some(iso_now()),
+                is_streaming: false,
                 images: vec![],
-            };
-            vec![ConnectorEvent::MessageCreated(message)]
+            }));
+            vec![ConnectorEvent::ConversationRowCreated(entry)]
         }
     }
 }
@@ -219,22 +227,15 @@ pub(crate) fn handle_deprecation_notice(
     } else {
         format!("{}\n\n{}", event.summary, details)
     };
-    let message = orbitdock_protocol::Message {
+    let entry = row_entry(ConversationRow::System(MessageRowContent {
         id: format!("deprecation-{}-{}", event_id, seq),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Assistant,
         content,
-        tool_name: None,
-        tool_input: None,
-        tool_output: None,
-        is_error: false,
-        is_in_progress: false,
-        timestamp: iso_now(),
-        duration_ms: None,
+        turn_id: None,
+        timestamp: Some(iso_now()),
+        is_streaming: false,
         images: vec![],
-    };
-    vec![ConnectorEvent::MessageCreated(message)]
+    }));
+    vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
 
 pub(crate) fn handle_background_event(
@@ -243,51 +244,70 @@ pub(crate) fn handle_background_event(
     msg_counter: &AtomicU64,
 ) -> Vec<ConnectorEvent> {
     let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-    let message = orbitdock_protocol::Message {
+    let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
         id: format!("background-event-{}-{}", event_id, seq),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Assistant,
         content: event.message,
-        tool_name: None,
-        tool_input: None,
-        tool_output: None,
-        is_error: false,
-        is_in_progress: false,
-        timestamp: iso_now(),
-        duration_ms: None,
+        turn_id: None,
+        timestamp: Some(iso_now()),
+        is_streaming: false,
         images: vec![],
-    };
-    vec![ConnectorEvent::MessageCreated(message)]
+    }));
+    vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
 
 pub(crate) fn handle_hook_started(event: HookStartedEvent) -> Vec<ConnectorEvent> {
-    let message = orbitdock_protocol::Message {
+    let entry = row_entry(ConversationRow::Hook(HookRow {
         id: format!("hook-{}", event.run.id),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Tool,
-        content: hook_started_text(&event.run),
-        tool_name: Some("hook".to_string()),
-        tool_input: serde_json::to_string(&event.run).ok(),
-        tool_output: None,
-        is_error: false,
-        is_in_progress: true,
-        timestamp: iso_now(),
-        duration_ms: None,
-        images: vec![],
-    };
-    vec![ConnectorEvent::MessageCreated(message)]
+        title: hook_started_text(&event.run),
+        subtitle: None,
+        summary: None,
+        payload: HookPayload {
+            hook_name: Some(format!("{:?}", event.run.event_name)),
+            event_name: Some(format!("{:?}", event.run.event_name)),
+            phase: Some("started".to_string()),
+            status: Some(format!("{:?}", event.run.status)),
+            source_path: Some(event.run.source_path.display().to_string()),
+            summary: None,
+            output: None,
+            duration_ms: None,
+            entries: vec![],
+        },
+        render_hints: Default::default(),
+    }));
+    vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
 
 pub(crate) fn handle_hook_completed(event: HookCompletedEvent) -> Vec<ConnectorEvent> {
-    vec![ConnectorEvent::MessageUpdated {
-        message_id: format!("hook-{}", event.run.id),
-        content: Some(hook_completed_text(&event.run)),
-        tool_output: hook_output_text(&event.run),
-        is_error: Some(hook_run_is_error(event.run.status)),
-        is_in_progress: Some(false),
-        duration_ms: event.run.duration_ms.and_then(|ms| u64::try_from(ms).ok()),
+    let entry = row_entry(ConversationRow::Hook(HookRow {
+        id: format!("hook-{}", event.run.id),
+        title: hook_completed_text(&event.run),
+        subtitle: None,
+        summary: hook_output_text(&event.run),
+        payload: HookPayload {
+            hook_name: Some(format!("{:?}", event.run.event_name)),
+            event_name: Some(format!("{:?}", event.run.event_name)),
+            phase: Some("completed".to_string()),
+            status: Some(format!("{:?}", event.run.status)),
+            source_path: Some(event.run.source_path.display().to_string()),
+            summary: hook_output_text(&event.run),
+            output: hook_output_text(&event.run),
+            duration_ms: event.run.duration_ms.and_then(|ms| u64::try_from(ms).ok()),
+            entries: event
+                .run
+                .entries
+                .iter()
+                .map(|e| orbitdock_protocol::domain_events::HookOutputEntry {
+                    kind: Some(format!("{:?}", e.kind)),
+                    label: None,
+                    value: Some(e.text.clone()),
+                })
+                .collect(),
+        },
+        render_hints: Default::default(),
+    }));
+    vec![ConnectorEvent::ConversationRowUpdated {
+        row_id: format!("hook-{}", event.run.id),
+        entry,
     }]
 }
 
@@ -325,22 +345,15 @@ pub(crate) fn handle_stream_error(
         format!("{}\n\n{}", event.message, details)
     };
     let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-    let message = orbitdock_protocol::Message {
+    let entry = row_entry(ConversationRow::System(MessageRowContent {
         id: format!("stream-error-{}-{}", event_id, seq),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Assistant,
         content,
-        tool_name: None,
-        tool_input: None,
-        tool_output: None,
-        is_error: true,
-        is_in_progress: false,
-        timestamp: iso_now(),
-        duration_ms: None,
+        turn_id: None,
+        timestamp: Some(iso_now()),
+        is_streaming: false,
         images: vec![],
-    };
-    vec![ConnectorEvent::MessageCreated(message)]
+    }));
+    vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
 
 pub(crate) fn handle_context_compacted() -> Vec<ConnectorEvent> {

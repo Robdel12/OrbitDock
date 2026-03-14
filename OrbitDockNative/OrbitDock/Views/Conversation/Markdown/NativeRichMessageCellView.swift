@@ -283,6 +283,110 @@ import SwiftUI
       }
     }
 
+    @discardableResult
+    func applyStreamingUpdate(model: NativeRichMessageRowModel, width: CGFloat) -> Bool {
+      guard let existingModel = currentModel,
+            existingModel.messageID == model.messageID,
+            existingModel.usesStreamingTextRenderer,
+            model.usesStreamingTextRenderer,
+            !existingModel.hasImages,
+            !model.hasImages
+      else {
+        return false
+      }
+
+      let updateState = RichMessageRenderPlanning.streamingUpdateState(
+        for: width,
+        model: model
+      ) { availableWidth in
+        Self.imageBlockHeight(for: model.images, availableWidth: availableWidth)
+      }
+      guard let updateState else {
+        return false
+      }
+      let presentation = updateState.presentation
+
+      configureHeader(model: model, presentation: presentation)
+      if presentation.header.isVisible {
+        headerHeightConstraint?.constant = Self.headerHeight
+        bodyTopConstraint?.constant = Self.headerToBodySpacing
+      } else {
+        headerHeightConstraint?.constant = 0
+        bodyTopConstraint?.constant = 0
+      }
+
+      currentModel = model
+      currentBlocks = []
+      bodyContainer.frame = NSRect(
+        x: 0,
+        y: presentation.bodyOriginY,
+        width: bounds.width,
+        height: updateState.bodyHeight
+      )
+
+      switch (model.messageType, updateState.layoutPlan) {
+        case let (.assistant, .assistant(contentFrame, _)):
+          configureStreamingTextView(updateState.attributedText, frame: contentFrame)
+          if streamingTextView.superview == nil {
+            bodyContainer.addSubview(streamingTextView)
+          }
+          return true
+
+        case let (.thinking, .thinking(backgroundFrame, contentFrame, footerFrame, isCollapsed, fadeHeight)):
+          thinkingBackground.frame = backgroundFrame
+          if thinkingBackground.superview == nil {
+            bodyContainer.addSubview(thinkingBackground)
+          }
+          thinkingBackground.isHidden = false
+
+          configureStreamingTextView(updateState.attributedText, frame: contentFrame)
+          if streamingTextView.superview == nil {
+            bodyContainer.addSubview(streamingTextView)
+          }
+
+          if isCollapsed {
+            let maskLayer = CAGradientLayer()
+            maskLayer.frame = streamingTextView.bounds
+            let renderedHeight = max(contentFrame.height, 1)
+            let fadeStart = max(0, 1.0 - Double(fadeHeight) / Double(renderedHeight))
+            maskLayer.colors = [
+              NSColor.white.cgColor,
+              NSColor.white.cgColor,
+              NSColor.clear.cgColor,
+            ]
+            maskLayer.locations = [0, NSNumber(value: fadeStart), 1.0]
+            streamingTextView.layer?.mask = maskLayer
+          } else {
+            streamingTextView.layer?.mask = nil
+          }
+
+          thinkingFadeOverlay.isHidden = true
+          thinkingSeparator.isHidden = true
+
+          if let buttonTitle = presentation.thinkingButtonTitle, let footerFrame {
+            let attrs: [NSAttributedString.Key: Any] = [
+              .font: NSFont.systemFont(ofSize: TypeScale.body, weight: .medium),
+              .foregroundColor: Self.thinkingColor.withAlphaComponent(0.65),
+              .kern: 0.2,
+            ]
+            thinkingShowMoreButton.attributedTitle = NSAttributedString(string: buttonTitle, attributes: attrs)
+            thinkingShowMoreButton.frame = footerFrame
+            thinkingShowMoreButton.alignment = .left
+            thinkingShowMoreButton.isHidden = false
+            if thinkingShowMoreButton.superview == nil {
+              bodyContainer.addSubview(thinkingShowMoreButton)
+            }
+          } else {
+            thinkingShowMoreButton.isHidden = true
+          }
+
+          return true
+
+        default:
+          return false
+      }
+    }
+
     private func configureHeader(model: NativeRichMessageRowModel, presentation: RichMessagePresentation) {
       let header = presentation.header
       if !header.isVisible {

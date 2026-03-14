@@ -5,14 +5,14 @@ use std::time::Duration;
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use orbitdock_connector_codex::rollout_parser::{
-    collect_jsonl_files, is_jsonl_path, is_recent_file, load_persisted_state,
+    collect_jsonl_files, is_jsonl_path, is_recent_file, load_legacy_rollout_checkpoints,
     matches_supported_event_kind, RolloutFileProcessor, CATCHUP_SWEEP_SECS,
     STARTUP_SEED_RECENT_SECS,
 };
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::infrastructure::persistence::PersistCommand;
+use crate::infrastructure::persistence::{load_rollout_checkpoints, PersistCommand};
 use crate::runtime::session_registry::SessionRegistry;
 
 use super::runtime::{WatcherMessage, WatcherRuntime};
@@ -42,8 +42,34 @@ pub async fn start_rollout_watcher(
         return Ok(());
     }
 
-    let state_path = crate::infrastructure::paths::rollout_state_path();
-    let persisted_state = load_persisted_state(&state_path);
+    let db_path = crate::infrastructure::paths::db_path();
+    let mut checkpoint_seeds = load_rollout_checkpoints(&db_path)?;
+    if checkpoint_seeds.is_empty() {
+        let state_path = crate::infrastructure::paths::rollout_state_path();
+        let legacy_checkpoints = load_legacy_rollout_checkpoints(&state_path);
+        if !legacy_checkpoints.is_empty() {
+            info!(
+                component = "rollout_watcher",
+                event = "rollout_watcher.legacy_checkpoints_import",
+                checkpoint_count = legacy_checkpoints.len(),
+                path = %state_path.display(),
+                "Importing legacy rollout checkpoints into SQLite"
+            );
+            for (path, checkpoint) in &legacy_checkpoints {
+                persist_tx
+                    .send(PersistCommand::UpsertRolloutCheckpoint {
+                        path: path.clone(),
+                        offset: checkpoint.offset,
+                        session_id: checkpoint.session_id.clone(),
+                        project_path: checkpoint.project_path.clone(),
+                        model_provider: checkpoint.model_provider.clone(),
+                        ignore_existing: checkpoint.ignore_existing.unwrap_or(false),
+                    })
+                    .await?;
+            }
+            checkpoint_seeds = legacy_checkpoints;
+        }
+    }
 
     let (tx, mut rx) = mpsc::unbounded_channel::<WatcherMessage>();
     let watcher_tx = tx.clone();
@@ -79,7 +105,7 @@ pub async fn start_rollout_watcher(
         "Rollout watcher started"
     );
 
-    let processor = RolloutFileProcessor::new(state_path, persisted_state);
+    let processor = RolloutFileProcessor::new(checkpoint_seeds);
 
     let mut runtime = WatcherRuntime {
         app_state,
@@ -88,11 +114,19 @@ pub async fn start_rollout_watcher(
         processor,
         debounce_tasks: HashMap::new(),
         session_timeouts: HashMap::new(),
+        subagent_cache: HashMap::new(),
+        active_paths: HashMap::new(),
     };
 
     let existing_files = collect_jsonl_files(&sessions_dir);
+    let recent_files: Vec<PathBuf> = existing_files
+        .iter()
+        .filter(|path| is_recent_file(path, STARTUP_SEED_RECENT_SECS))
+        .cloned()
+        .collect();
     let mut seeded = 0usize;
-    for path in &existing_files {
+    for path in &recent_files {
+        runtime.track_active_path(path.to_string_lossy().as_ref());
         if let Ok(metadata) = std::fs::metadata(path) {
             runtime.processor.ensure_file_state(
                 path.to_string_lossy().as_ref(),
@@ -100,31 +134,37 @@ pub async fn start_rollout_watcher(
                 metadata.created().ok(),
             );
         }
-
-        if is_recent_file(path, STARTUP_SEED_RECENT_SECS) {
-            let path_string = path.to_string_lossy().to_string();
-            match runtime.processor.ensure_session_meta(&path_string).await {
-                Ok(events) => {
-                    if let Err(err) = runtime.handle_rollout_events(events).await {
-                        warn!(
-                            component = "rollout_watcher",
-                            event = "rollout_watcher.seed_event_failed",
-                            path = %path.display(),
-                            error = %err,
-                            "Startup seed event handling failed"
-                        );
-                    }
-                    seeded += 1;
-                }
-                Err(err) => {
+        let path_string = path.to_string_lossy().to_string();
+        match runtime.processor.ensure_session_meta(&path_string).await {
+            Ok(events) => {
+                if let Err(err) = runtime.handle_rollout_events(events).await {
                     warn!(
                         component = "rollout_watcher",
-                        event = "rollout_watcher.seed_failed",
+                        event = "rollout_watcher.seed_event_failed",
                         path = %path.display(),
                         error = %err,
-                        "Startup session_meta seed failed"
+                        "Startup seed event handling failed"
                     );
                 }
+                if let Err(err) = runtime.persist_checkpoint(&path_string).await {
+                    warn!(
+                        component = "rollout_watcher",
+                        event = "rollout_watcher.seed_checkpoint_persist_failed",
+                        path = %path.display(),
+                        error = %err,
+                        "Startup checkpoint persist failed"
+                    );
+                }
+                seeded += 1;
+            }
+            Err(err) => {
+                warn!(
+                    component = "rollout_watcher",
+                    event = "rollout_watcher.seed_failed",
+                    path = %path.display(),
+                    error = %err,
+                    "Startup session_meta seed failed"
+                );
             }
         }
     }

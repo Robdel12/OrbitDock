@@ -7,16 +7,9 @@ struct RootShellRuntimeLoadTests {
   @Test func bootstrapHandlesTwoHundredPassiveSessionsWithRootSafeStateOnly() async throws {
     let runtime = makeRuntime(seedSessions: RootShellLoadFixture.passiveSessions(count: 200))
 
-    let firstUpdate = Task { () -> RootShellRuntimeUpdate? in
-      for await update in runtime.rootShellRuntime.updates {
-        return update
-      }
-      return nil
+    let update = try await RootShellRuntimeTestSupport.firstUpdate(from: runtime.rootShellRuntime) {
+      runtime.rootShellRuntime.start()
     }
-
-    runtime.rootShellRuntime.start()
-
-    let update = try #require(await firstUpdate.value)
     #expect(update.upsertedSessions.count == 200)
     #expect(runtime.rootShellRuntime.rootShellStore.records().count == 200)
     #expect(runtime.rootShellRuntime.rootShellStore.counts.total == 200)
@@ -50,9 +43,7 @@ struct RootShellRuntimeLoadTests {
       )
     }
 
-    for event in RootShellEventCoalescer.coalesce(events) {
-      _ = store.apply(event)
-    }
+    let changeSet = store.apply(RootShellEventCoalescer.coalesce(events))
 
     let updated = try #require(
       store.record(
@@ -60,6 +51,9 @@ struct RootShellRuntimeLoadTests {
       )
     )
 
+    #expect(changeSet.didChange)
+    #expect(changeSet.upsertedScopedIDs.count == 100)
+    #expect(changeSet.removedScopedIDs.isEmpty)
     #expect(updated.workStatus == .working)
     #expect(updated.unreadCount == 2)
     #expect(updated.totalTokens == 2_040)
@@ -71,15 +65,9 @@ struct RootShellRuntimeLoadTests {
     let sessions = RootShellLoadFixture.passiveSessions(count: 25)
     let runtime = makeRuntime(seedSessions: sessions)
 
-    let bootstrap = Task { () -> RootShellRuntimeUpdate? in
-      for await update in runtime.rootShellRuntime.updates {
-        return update
-      }
-      return nil
+    _ = try await RootShellRuntimeTestSupport.firstUpdate(from: runtime.rootShellRuntime) {
+      runtime.rootShellRuntime.start()
     }
-
-    runtime.rootShellRuntime.start()
-    _ = try #require(await bootstrap.value)
 
     let before = runtime.rootShellRuntime.rootShellStore.records()
 

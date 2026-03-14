@@ -8,6 +8,7 @@ use super::timeline::{
     realtime_text_from_handoff_request, stream_error_should_surface_to_timeline,
 };
 use super::workers::{build_authoritative_codex_subagent, build_inflight_codex_subagent};
+use super::workers::{build_codex_subagent_for_status, build_running_codex_subagent};
 use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
@@ -455,4 +456,41 @@ fn build_inflight_codex_subagent_drops_terminal_statuses() {
     assert!(errored.is_none());
     assert!(shutdown.is_none());
     assert!(not_found.is_none());
+}
+
+#[test]
+fn build_running_codex_subagent_marks_worker_running() {
+    let subagent = build_running_codex_subagent(
+        "worker-5".to_string(),
+        Some("worker".to_string()),
+        Some("Beauvoir".to_string()),
+        Some("Confirm the current working directory".to_string()),
+        Some("parent-thread".to_string()),
+    );
+
+    assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Running);
+    assert_eq!(subagent.label.as_deref(), Some("Beauvoir"));
+    assert_eq!(
+        subagent.task_summary.as_deref(),
+        Some("Confirm the current working directory")
+    );
+}
+
+#[test]
+fn build_codex_subagent_for_status_preserves_terminal_updates() {
+    let subagent = build_codex_subagent_for_status(
+        "worker-6".to_string(),
+        Some("explorer".to_string()),
+        Some("Cicero".to_string()),
+        Some("Inspect the worker lifecycle".to_string()),
+        Some("parent-thread".to_string()),
+        &AgentStatus::Completed(Some("Finished cleanly".to_string())),
+    );
+
+    assert_eq!(
+        subagent.status,
+        orbitdock_protocol::SubagentStatus::Completed
+    );
+    assert_eq!(subagent.result_summary.as_deref(), Some("Finished cleanly"));
+    assert!(subagent.ended_at.is_some());
 }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
+use orbitdock_protocol::conversation_contracts::ConversationRowPage;
 use orbitdock_protocol::{Provider, ServerMessage, SessionListItem};
 
 use crate::connectors::codex_session::CodexAction;
@@ -210,8 +211,15 @@ pub(crate) async fn handle_fork_session(
                 Ok(started) => {
                     send_json(
                         client_tx,
-                        ServerMessage::SessionSnapshot {
+                        ServerMessage::ConversationBootstrap {
                             session: started.snapshot,
+                            conversation: ConversationRowPage {
+                                rows: vec![],
+                                total_row_count: 0,
+                                has_more_before: false,
+                                oldest_sequence: None,
+                                newest_sequence: None,
+                            },
                         },
                     )
                     .await;
@@ -364,8 +372,15 @@ pub(crate) async fn handle_fork_session(
                 Ok(started) => {
                     send_json(
                         client_tx,
-                        ServerMessage::SessionSnapshot {
+                        ServerMessage::ConversationBootstrap {
                             session: started.snapshot,
+                            conversation: ConversationRowPage {
+                                rows: vec![],
+                                total_row_count: 0,
+                                has_more_before: false,
+                                oldest_sequence: None,
+                                newest_sequence: None,
+                            },
                         },
                     )
                     .await;

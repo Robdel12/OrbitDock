@@ -70,6 +70,8 @@ pub struct UpdateConfigOptions<'a> {
     pub personality: Option<&'a str>,
     pub service_tier: Option<&'a str>,
     pub developer_instructions: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub effort: Option<&'a str>,
 }
 
 impl CodexConnector {
@@ -190,25 +192,15 @@ impl CodexConnector {
                 event_mapping::collab::handle_collab_waiting_begin(e)
             }
 
-            EventMsg::CollabWaitingEnd(e) => {
-                event_mapping::collab::handle_collab_waiting_end(e)
-            }
+            EventMsg::CollabWaitingEnd(e) => event_mapping::collab::handle_collab_waiting_end(e),
 
-            EventMsg::CollabCloseBegin(e) => {
-                event_mapping::collab::handle_collab_close_begin(e)
-            }
+            EventMsg::CollabCloseBegin(e) => event_mapping::collab::handle_collab_close_begin(e),
 
-            EventMsg::CollabCloseEnd(e) => {
-                event_mapping::collab::handle_collab_close_end(e)
-            }
+            EventMsg::CollabCloseEnd(e) => event_mapping::collab::handle_collab_close_end(e),
 
-            EventMsg::CollabResumeBegin(e) => {
-                event_mapping::collab::handle_collab_resume_begin(e)
-            }
+            EventMsg::CollabResumeBegin(e) => event_mapping::collab::handle_collab_resume_begin(e),
 
-            EventMsg::CollabResumeEnd(e) => {
-                event_mapping::collab::handle_collab_resume_end(e)
-            }
+            EventMsg::CollabResumeEnd(e) => event_mapping::collab::handle_collab_resume_end(e),
 
             EventMsg::ExecApprovalRequest(e) => {
                 event_mapping::approvals::handle_exec_approval_request(e)
@@ -230,13 +222,9 @@ impl CodexConnector {
                 event_mapping::approvals::handle_elicitation_request(&event.id, e, msg_counter)
             }
 
-            EventMsg::TokenCount(e) => {
-                event_mapping::runtime_signals::handle_token_count(e)
-            }
+            EventMsg::TokenCount(e) => event_mapping::runtime_signals::handle_token_count(e),
 
-            EventMsg::TurnDiff(e) => {
-                event_mapping::runtime_signals::handle_turn_diff(e)
-            }
+            EventMsg::TurnDiff(e) => event_mapping::runtime_signals::handle_turn_diff(e),
 
             EventMsg::PlanUpdate(e) => {
                 event_mapping::runtime_signals::handle_plan_update(&event.id, e, msg_counter)
@@ -287,9 +275,7 @@ impl CodexConnector {
                 event_mapping::runtime_signals::handle_background_event(&event.id, e, msg_counter)
             }
 
-            EventMsg::HookStarted(e) => {
-                event_mapping::runtime_signals::handle_hook_started(e)
-            }
+            EventMsg::HookStarted(e) => event_mapping::runtime_signals::handle_hook_started(e),
 
             EventMsg::HookCompleted(e) => event_mapping::runtime_signals::handle_hook_completed(e),
 
@@ -301,9 +287,7 @@ impl CodexConnector {
                 event_mapping::runtime_signals::handle_shutdown_complete()
             }
 
-            EventMsg::Error(e) => {
-                event_mapping::runtime_signals::handle_error(e.message)
-            }
+            EventMsg::Error(e) => event_mapping::runtime_signals::handle_error(e.message),
 
             EventMsg::StreamError(e) => {
                 event_mapping::runtime_signals::handle_stream_error(&event.id, e, msg_counter)
@@ -430,13 +414,9 @@ impl CodexConnector {
                 event_mapping::runtime_signals::handle_context_compacted()
             }
 
-            EventMsg::UndoStarted(e) => {
-                event_mapping::runtime_signals::handle_undo_started(e)
-            }
+            EventMsg::UndoStarted(e) => event_mapping::runtime_signals::handle_undo_started(e),
 
-            EventMsg::UndoCompleted(e) => {
-                event_mapping::runtime_signals::handle_undo_completed(e)
-            }
+            EventMsg::UndoCompleted(e) => event_mapping::runtime_signals::handle_undo_completed(e),
 
             EventMsg::ThreadRolledBack(e) => {
                 event_mapping::runtime_signals::handle_thread_rolled_back(e)

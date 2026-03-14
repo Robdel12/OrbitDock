@@ -35,6 +35,8 @@ struct ServerMessage: Codable, Identifiable {
   let timestamp: String
   let durationMs: UInt64?
   let images: [ServerImageInput]
+  let toolFamily: String?
+  let toolDisplay: ServerToolDisplay?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -50,6 +52,42 @@ struct ServerMessage: Codable, Identifiable {
     case timestamp
     case durationMs = "duration_ms"
     case images
+    case toolFamily = "tool_family"
+    case toolDisplay = "tool_display"
+  }
+
+  init(
+    id: String,
+    sessionId: String,
+    sequence: UInt64?,
+    type: ServerMessageType,
+    content: String,
+    toolName: String?,
+    toolInput: String?,
+    toolOutput: String?,
+    isError: Bool,
+    isInProgress: Bool,
+    timestamp: String,
+    durationMs: UInt64?,
+    images: [ServerImageInput],
+    toolFamily: String? = nil,
+    toolDisplay: ServerToolDisplay? = nil
+  ) {
+    self.id = id
+    self.sessionId = sessionId
+    self.sequence = sequence
+    self.type = type
+    self.content = content
+    self.toolName = toolName
+    self.toolInput = toolInput
+    self.toolOutput = toolOutput
+    self.isError = isError
+    self.isInProgress = isInProgress
+    self.timestamp = timestamp
+    self.durationMs = durationMs
+    self.images = images
+    self.toolFamily = toolFamily
+    self.toolDisplay = toolDisplay
   }
 
   init(from decoder: Decoder) throws {
@@ -67,6 +105,8 @@ struct ServerMessage: Codable, Identifiable {
     timestamp = try container.decode(String.self, forKey: .timestamp)
     durationMs = try container.decodeIfPresent(UInt64.self, forKey: .durationMs)
     images = try container.decodeIfPresent([ServerImageInput].self, forKey: .images) ?? []
+    toolFamily = try container.decodeIfPresent(String.self, forKey: .toolFamily)
+    toolDisplay = try container.decodeIfPresent(ServerToolDisplay.self, forKey: .toolDisplay)
   }
 
   func encode(to encoder: Encoder) throws {
@@ -88,6 +128,8 @@ struct ServerMessage: Codable, Identifiable {
     if !images.isEmpty {
       try container.encode(images, forKey: .images)
     }
+    try container.encodeIfPresent(toolFamily, forKey: .toolFamily)
+    try container.encodeIfPresent(toolDisplay, forKey: .toolDisplay)
   }
 
   /// Parse toolInput JSON string to dictionary if needed
@@ -184,6 +226,7 @@ struct ServerMessageChanges: Codable {
   let isError: Bool?
   let isInProgress: Bool?
   let durationMs: UInt64?
+  var toolDisplay: ServerToolDisplay? = nil
 
   enum CodingKeys: String, CodingKey {
     case content
@@ -191,5 +234,82 @@ struct ServerMessageChanges: Codable {
     case isError = "is_error"
     case isInProgress = "is_in_progress"
     case durationMs = "duration_ms"
+    case toolDisplay = "tool_display"
   }
+}
+
+// MARK: - Tool Display (Server-Computed)
+
+struct ServerToolDisplay: Codable {
+  let summary: String
+  let subtitle: String?
+  let rightMeta: String?
+  let subtitleAbsorbsMeta: Bool
+  let glyphSymbol: String
+  let glyphColor: String
+  let language: String?
+  let diffPreview: ServerToolDiffPreview?
+  let outputPreview: String?
+  let liveOutputPreview: String?
+  let todoItems: [ServerToolTodoItem]
+  let toolType: String
+  let summaryFont: String
+  let displayTier: String
+
+  enum CodingKeys: String, CodingKey {
+    case summary
+    case subtitle
+    case rightMeta = "right_meta"
+    case subtitleAbsorbsMeta = "subtitle_absorbs_meta"
+    case glyphSymbol = "glyph_symbol"
+    case glyphColor = "glyph_color"
+    case language
+    case diffPreview = "diff_preview"
+    case outputPreview = "output_preview"
+    case liveOutputPreview = "live_output_preview"
+    case todoItems = "todo_items"
+    case toolType = "tool_type"
+    case summaryFont = "summary_font"
+    case displayTier = "display_tier"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    summary = try container.decode(String.self, forKey: .summary)
+    subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
+    rightMeta = try container.decodeIfPresent(String.self, forKey: .rightMeta)
+    subtitleAbsorbsMeta = try container.decodeIfPresent(Bool.self, forKey: .subtitleAbsorbsMeta) ?? false
+    glyphSymbol = try container.decode(String.self, forKey: .glyphSymbol)
+    glyphColor = try container.decode(String.self, forKey: .glyphColor)
+    language = try container.decodeIfPresent(String.self, forKey: .language)
+    diffPreview = try container.decodeIfPresent(ServerToolDiffPreview.self, forKey: .diffPreview)
+    outputPreview = try container.decodeIfPresent(String.self, forKey: .outputPreview)
+    liveOutputPreview = try container.decodeIfPresent(String.self, forKey: .liveOutputPreview)
+    todoItems = try container.decodeIfPresent([ServerToolTodoItem].self, forKey: .todoItems) ?? []
+    toolType = try container.decode(String.self, forKey: .toolType)
+    summaryFont = try container.decodeIfPresent(String.self, forKey: .summaryFont) ?? "system"
+    displayTier = try container.decodeIfPresent(String.self, forKey: .displayTier) ?? "standard"
+  }
+}
+
+struct ServerToolDiffPreview: Codable {
+  let contextLine: String?
+  let snippetText: String
+  let snippetPrefix: String
+  let isAddition: Bool
+  let additions: UInt32
+  let deletions: UInt32
+
+  enum CodingKeys: String, CodingKey {
+    case contextLine = "context_line"
+    case snippetText = "snippet_text"
+    case snippetPrefix = "snippet_prefix"
+    case isAddition = "is_addition"
+    case additions
+    case deletions
+  }
+}
+
+struct ServerToolTodoItem: Codable {
+  let status: String
 }

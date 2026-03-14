@@ -56,14 +56,8 @@
       switch row.kind {
         case .bottomSpacer:
           return ConversationLayout.bottomSpacerHeight
-        case .turnHeader:
-          return ConversationTimelineLayoutHelpers.turnHeaderHeight(for: row)
-        case .rollupSummary:
-          return ConversationLayout.activityCapsuleHeight
         case .loadMore:
           return ConversationLayout.loadMoreHeight
-        case .messageCount:
-          return ConversationLayout.messageCountHeight
         case .tool:
           return toolRowHeight(for: row, at: indexPath, width: width)
         case .workerEvent:
@@ -74,18 +68,16 @@
           return ConversationLayout.liveIndicatorHeight
         case .workerOrchestration:
           return ConversationLayout.workerOrchestrationHeight
+        case .activitySummary:
+          return activitySummaryRowHeight(for: row, at: indexPath, width: width)
         case .approvalCard:
           return UIKitApprovalCardCell.requiredHeight(for: buildApprovalCardModel(), availableWidth: width)
-        case .liveProgress:
-          return ConversationLayout.liveProgressHeight
-        case .collapsedTurn:
-          return ConversationLayout.collapsedTurnHeight
       }
     }
 
     private func toolRowHeight(for row: TimelineRow, at indexPath: IndexPath, width: CGFloat) -> CGFloat {
       guard case let .tool(id) = row.payload else { return ConversationLayout.compactToolRowHeight }
-      if uiState.expandedToolCards.contains(id), let toolModel = buildExpandedToolModel(for: id) {
+      if expandedToolCardIDs.contains(id), let toolModel = buildExpandedToolModel(for: id) {
         let height = ExpandedToolLayout.requiredHeight(for: width, model: toolModel)
         logger.debug("sizeForItem[\(indexPath.item)] tool[\(id.prefix(8))] expanded h=\(Self.formatHeight(height))")
         return height
@@ -95,10 +87,9 @@
       if let message = messagesByID[id] {
         let model = SharedModelBuilders.compactToolModel(
           from: message,
-          supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards,
           selectedWorkerID: selectedWorkerID
         )
-        height = UIKitCompactToolCell.requiredHeight(model: model, width: width)
+        height = UIKitToolStripCell.requiredHeight(for: model, width: width)
       } else {
         height = ConversationLayout.compactToolRowHeight
       }
@@ -108,13 +99,24 @@
 
     private func workerEventRowHeight(for row: TimelineRow, at indexPath: IndexPath, width: CGFloat) -> CGFloat {
       if let model = buildWorkerEventModel(for: row) {
-        let height = UIKitCompactToolCell.requiredHeight(model: model, width: width)
+        let height = UIKitToolStripCell.requiredHeight(for: model, width: width)
         logger.debug("sizeForItem[\(indexPath.item)] worker-event h=\(Self.formatHeight(height))")
         return height
       }
 
       logger.debug("sizeForItem[\(indexPath.item)] worker-event fallback h=\(Self.formatHeight(ConversationLayout.compactToolRowHeight))")
       return ConversationLayout.compactToolRowHeight
+    }
+
+    private func activitySummaryRowHeight(for row: TimelineRow, at indexPath: IndexPath, width: CGFloat) -> CGFloat {
+      guard let model = buildActivitySummaryModel(for: row) else {
+        let fallback = UIKitActivitySummaryCell.requiredHeight(for: nil, availableWidth: width)
+        logger.debug("sizeForItem[\(indexPath.item)] activity-summary fallback h=\(Self.formatHeight(fallback))")
+        return fallback
+      }
+      let height = UIKitActivitySummaryCell.requiredHeight(for: model, availableWidth: width)
+      logger.debug("sizeForItem[\(indexPath.item)] activity-summary h=\(Self.formatHeight(height))")
+      return height
     }
 
     private func messageRowHeight(for row: TimelineRow, at indexPath: IndexPath, width: CGFloat) -> CGFloat {
@@ -190,15 +192,13 @@
       switch cell {
         case let c as UIKitRichMessageCell:
           c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
-        case let c as UIKitCompactToolCell:
+        case let c as UIKitToolStripCell:
           c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
         case let c as UIKitExpandedToolCell:
           c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
-        case let c as UIKitRollupSummaryCell:
-          c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
         case let c as UIKitWorkerOrchestrationCell:
           c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
-        case let c as UIKitLiveProgressCell:
+        case let c as UIKitActivitySummaryCell:
           c.configureCardPosition(position, topInset: spacing.topInset, bottomInset: spacing.bottomInset)
         default:
           break

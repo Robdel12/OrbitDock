@@ -29,41 +29,12 @@
       )
     }
 
-    func buildTurnHeaderModel(for turnID: String) -> ConversationUtilityRowModels.TurnHeaderModel? {
-      guard let turn = turnsByID[turnID] else { return nil }
-      return ConversationUtilityRowModels.turnHeader(for: turn)
-    }
-
-    func buildRollupSummaryModel(for rollupID: String) -> ConversationUtilityRowModels.RollupSummaryModel? {
-      guard let row = currentRows.first(where: { $0.id == .rollupSummary(rollupID) }),
-            case let .rollupSummary(_, hiddenCount, totalToolCount, isExpanded, breakdown, hiddenMessageIDs) = row.payload
-      else { return nil }
-
-      let groupMessages = hiddenMessageIDs.compactMap { messagesByID[$0] }
-      return ConversationUtilityRowModels.rollupSummary(
-        hiddenCount: hiddenCount,
-        totalToolCount: totalToolCount,
-        isExpanded: isExpanded,
-        breakdown: breakdown,
-        messages: groupMessages
-      )
-    }
-
     func buildLiveIndicatorModel() -> ConversationUtilityRowModels.LiveIndicatorModel {
-      let meta = sourceState.metadata
+      let meta = runtime?.renderStore.metadata
       return ConversationUtilityRowModels.liveIndicator(
-        workStatus: meta.workStatus,
-        currentTool: meta.currentTool,
-        pendingToolName: meta.pendingToolName
-      )
-    }
-
-    func buildLiveProgressModel(for row: TimelineRow) -> ConversationUtilityRowModels.LiveProgressModel? {
-      guard case let .liveProgress(currentTool, completedCount, elapsedTime) = row.payload else { return nil }
-      return ConversationUtilityRowModels.liveProgress(
-        currentTool: currentTool,
-        completedCount: completedCount,
-        elapsedTime: elapsedTime
+        workStatus: meta?.workStatus ?? .unknown,
+        currentTool: meta?.currentTool,
+        pendingToolName: meta?.pendingToolName
       )
     }
 
@@ -75,17 +46,11 @@
       )
     }
 
-    func buildCollapsedTurnModel(for turnID: String) -> ConversationUtilityRowModels.CollapsedTurnModel? {
-      guard let row = currentRows.first(where: { $0.id == .collapsedTurn(turnID) }),
-            case let .collapsedTurn(_, userPreview, assistantPreview, toolCount, totalDuration) = row.payload
-      else { return nil }
-
-      return ConversationUtilityRowModels.collapsedTurn(
-        userPreview: userPreview,
-        assistantPreview: assistantPreview,
-        toolCount: toolCount,
-        totalDuration: totalDuration
-      )
+    func buildActivitySummaryModel(for row: TimelineRow) -> ConversationUtilityRowModels.ActivitySummaryModel? {
+      guard case let .activitySummary(_, messageIDs, isExpanded) = row.payload else { return nil }
+      let messages = messageIDs.compactMap { messagesByID[$0] }
+      guard !messages.isEmpty else { return nil }
+      return ConversationUtilityRowModels.activitySummary(messages: messages, isExpanded: isExpanded)
     }
 
     func buildRichMessageModel(for row: TimelineRow) -> NativeRichMessageRowModel? {
@@ -103,7 +68,6 @@
       guard let message = messagesByID[messageId], message.isToolLike else { return nil }
       return SharedModelBuilders.compactToolModel(
         from: message,
-        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards,
         subagentsByID: subagentsByID,
         selectedWorkerID: selectedWorkerID
       )
@@ -143,7 +107,6 @@
       return SharedModelBuilders.expandedToolModel(
         from: message,
         messageID: messageId,
-        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards,
         subagentsByID: subagentsByID
       )
     }

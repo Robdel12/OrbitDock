@@ -130,7 +130,7 @@ struct LibraryArchivePlannerTests {
     )
 
     #expect(liveSession.showsInMissionControl)
-    #expect(!cachedActiveSession.showsInMissionControl)
+    #expect(cachedActiveSession.showsInMissionControl)
 
     let groups = LibraryArchivePlanner.projectGroups(
       sessions: [liveSession, cachedActiveSession, archivedSession],

@@ -27,8 +27,7 @@ use axum::{
     Json,
 };
 use orbitdock_protocol::{
-    ApprovalHistoryItem, ImageInput, MentionInput, Message, SessionState, SessionSummary,
-    SkillInput,
+    ApprovalHistoryItem, ImageInput, MentionInput, SessionState, SessionSummary, SkillInput,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -46,7 +45,7 @@ pub use approvals::{
     respond_to_permission_request,
 };
 pub use capabilities::{
-    apply_flag_settings, download_remote_skill, list_mcp_tools_endpoint,
+    apply_flag_settings, download_remote_skill, get_session_instructions, list_mcp_tools_endpoint,
     list_remote_skills_endpoint, list_skills_endpoint, mcp_authenticate, mcp_clear_auth,
     mcp_set_servers, refresh_mcp_servers, toggle_mcp_server,
 };
@@ -82,8 +81,8 @@ pub use session_lifecycle::{
     update_session_config,
 };
 pub use sessions::{
-    get_conversation_bootstrap, get_conversation_history, get_session, list_sessions,
-    mark_session_read,
+    get_conversation_bootstrap, get_conversation_history, get_session, get_session_stats,
+    list_sessions, mark_session_read, search_conversation_rows,
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
 pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};

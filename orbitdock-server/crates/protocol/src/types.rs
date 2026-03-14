@@ -58,28 +58,6 @@ pub enum SessionListStatus {
     Ended,
 }
 
-/// Message role
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MessageRole {
-    User,
-    Assistant,
-    System,
-}
-
-/// Message type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MessageType {
-    User,
-    Assistant,
-    Thinking,
-    Tool,
-    ToolResult,
-    Steer,
-    Shell,
-}
-
 /// Terminal outcome of a shell command execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -88,27 +66,6 @@ pub enum ShellExecutionOutcome {
     Failed,
     TimedOut,
     Canceled,
-}
-
-/// A message in the conversation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub id: String,
-    pub session_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sequence: Option<u64>,
-    pub message_type: MessageType,
-    pub content: String,
-    pub tool_name: Option<String>,
-    pub tool_input: Option<String>,
-    pub tool_output: Option<String>,
-    pub is_error: bool,
-    #[serde(default, skip_serializing_if = "bool_is_false")]
-    pub is_in_progress: bool,
-    pub timestamp: String,
-    pub duration_ms: Option<u64>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub images: Vec<ImageInput>,
 }
 
 /// Rate limit information from the Claude SDK
@@ -411,6 +368,9 @@ pub struct SessionSummary {
     /// Monotonic counter incremented on every approval state change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval_version: Option<u64>,
+    /// Monotonic counter for root-summary freshness.
+    #[serde(default)]
+    pub summary_revision: u64,
     /// Canonical repo root (resolves worktrees to parent repo).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository_root: Option<String>,
@@ -431,6 +391,15 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_line: Option<String>,
     pub list_status: SessionListStatus,
+    /// Number of active sub-agent workers.
+    #[serde(default)]
+    pub active_worker_count: u32,
+    /// Tool family of the pending tool (typed status icon).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_tool_family: Option<crate::domain_events::ToolFamily>,
+    /// Session this was forked from (fork lineage).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from_session_id: Option<String>,
 }
 
 impl SessionSummary {
@@ -441,18 +410,56 @@ impl SessionSummary {
         project_name: Option<&str>,
         project_path: &str,
     ) -> String {
-        [
-            custom_name,
-            summary,
-            first_prompt,
-            project_name,
-            project_path.rsplit('/').next(),
-        ]
-        .into_iter()
-        .flatten()
-        .map(clean_display_text)
-        .find(|value| !value.is_empty())
-        .unwrap_or_else(|| "Unknown".to_string())
+        let project_name_clean = project_name
+            .map(clean_display_text)
+            .filter(|value| !value.is_empty());
+        let project_leaf_clean = project_path
+            .rsplit('/')
+            .next()
+            .map(clean_display_text)
+            .filter(|value| !value.is_empty());
+        let project_fallback = project_name_clean
+            .clone()
+            .or_else(|| project_leaf_clean.clone())
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        if let Some(custom_name) = custom_name
+            .map(clean_display_text)
+            .filter(|value| !value.is_empty())
+        {
+            return custom_name;
+        }
+
+        let first_prompt_clean = first_prompt
+            .map(clean_display_text)
+            .filter(|value| !value.is_empty());
+        let summary_clean = summary
+            .map(clean_display_text)
+            .filter(|value| !value.is_empty());
+
+        if let Some(first_prompt) = first_prompt_clean.as_ref() {
+            if !matches_project_label(
+                first_prompt,
+                project_name_clean.as_deref(),
+                project_leaf_clean.as_deref(),
+            ) {
+                return first_prompt.clone();
+            }
+        }
+
+        if let Some(summary) = summary_clean.as_ref() {
+            if !matches_project_label(
+                summary,
+                project_name_clean.as_deref(),
+                project_leaf_clean.as_deref(),
+            ) {
+                return summary.clone();
+            }
+        }
+
+        first_prompt_clean
+            .or(summary_clean)
+            .unwrap_or(project_fallback)
     }
 
     pub fn display_title_sort_key(display_title: &str) -> String {
@@ -464,11 +471,27 @@ impl SessionSummary {
         first_prompt: Option<&str>,
         last_message: Option<&str>,
     ) -> Option<String> {
-        [last_message, summary, first_prompt]
-            .into_iter()
-            .flatten()
+        let last_message_clean = last_message
             .map(clean_display_text)
-            .find(|value| !value.is_empty())
+            .filter(|value| !value.is_empty());
+        if last_message_clean.is_some() {
+            return last_message_clean;
+        }
+
+        let summary_clean = summary
+            .map(clean_display_text)
+            .filter(|value| !value.is_empty());
+        let first_prompt_clean = first_prompt
+            .map(clean_display_text)
+            .filter(|value| !value.is_empty());
+
+        if let Some(summary) = summary_clean.as_ref() {
+            if first_prompt_clean.as_ref() != Some(summary) {
+                return Some(summary.clone());
+            }
+        }
+
+        first_prompt_clean
     }
 
     pub fn display_search_text_from_parts(
@@ -494,7 +517,10 @@ impl SessionSummary {
         .to_lowercase()
     }
 
-    pub fn list_status_from_parts(status: SessionStatus, work_status: WorkStatus) -> SessionListStatus {
+    pub fn list_status_from_parts(
+        status: SessionStatus,
+        work_status: WorkStatus,
+    ) -> SessionListStatus {
         if status != SessionStatus::Active {
             return SessionListStatus::Ended;
         }
@@ -522,6 +548,23 @@ fn clean_display_text(value: &str) -> String {
     }
 
     stripped.trim().to_string()
+}
+
+fn matches_project_label(
+    candidate: &str,
+    project_name: Option<&str>,
+    project_leaf: Option<&str>,
+) -> bool {
+    let normalized_candidate = normalize_display_comparison(candidate);
+    project_name
+        .into_iter()
+        .chain(project_leaf)
+        .map(normalize_display_comparison)
+        .any(|project_label| !project_label.is_empty() && project_label == normalized_candidate)
+}
+
+fn normalize_display_comparison(value: &str) -> String {
+    value.trim().to_lowercase()
 }
 
 impl SessionSummary {
@@ -553,6 +596,10 @@ impl SessionSummary {
             context_line: self.context_line.clone(),
             list_status: self.list_status,
             effort: self.effort.clone(),
+            summary_revision: self.summary_revision,
+            active_worker_count: self.active_worker_count,
+            pending_tool_family: self.pending_tool_family,
+            forked_from_session_id: self.forked_from_session_id.clone(),
         }
     }
 }
@@ -586,6 +633,10 @@ impl From<SessionSummary> for SessionListItem {
             context_line: summary.context_line,
             list_status: summary.list_status,
             effort: summary.effort,
+            summary_revision: summary.summary_revision,
+            active_worker_count: summary.active_worker_count,
+            pending_tool_family: summary.pending_tool_family,
+            forked_from_session_id: summary.forked_from_session_id,
         }
     }
 }
@@ -673,15 +724,6 @@ pub struct SessionState {
     pub last_message: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
-    pub messages: Vec<Message>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub total_message_count: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub has_more_before: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oldest_sequence: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub newest_sequence: Option<u64>,
     pub pending_approval: Option<ApprovalRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
@@ -757,6 +799,21 @@ pub struct SessionState {
     /// Number of unread messages in this session.
     #[serde(default)]
     pub unread_count: u64,
+
+    // -- Conversation row payload (server-populated) --
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<crate::conversation_contracts::ConversationRowEntry>,
+    #[serde(default)]
+    pub total_row_count: u64,
+    #[serde(default)]
+    pub has_more_before: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_sequence: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub newest_sequence: Option<u64>,
+    /// Legacy compatibility field -- always empty for new code.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -802,6 +859,18 @@ pub struct SessionListItem {
     pub list_status: SessionListStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// Monotonic counter for root-summary freshness.
+    #[serde(default)]
+    pub summary_revision: u64,
+    /// Number of active sub-agent workers.
+    #[serde(default)]
+    pub active_worker_count: u32,
+    /// Tool family of the pending tool (typed status icon).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_tool_family: Option<crate::domain_events::ToolFamily>,
+    /// Session this was forked from (fork lineage).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from_session_id: Option<String>,
 }
 
 impl SessionListItem {
@@ -833,6 +902,10 @@ impl SessionListItem {
             context_line: summary.context_line.clone(),
             list_status: summary.list_status,
             effort: summary.effort.clone(),
+            summary_revision: summary.summary_revision,
+            active_worker_count: summary.active_worker_count,
+            pending_tool_family: summary.pending_tool_family,
+            forked_from_session_id: summary.forked_from_session_id.clone(),
         }
     }
 }
@@ -895,6 +968,8 @@ pub struct StateChanges {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_cwd: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagents: Option<Vec<SubagentInfo>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<Option<String>>,
@@ -908,21 +983,6 @@ pub struct StateChanges {
     /// Updated unread message count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unread_count: Option<u64>,
-}
-
-/// Changes to apply to a message (delta updates)
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct MessageChanges {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_output: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_error: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_in_progress: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub duration_ms: Option<u64>,
 }
 
 /// Codex model option exposed to clients.
@@ -966,7 +1026,7 @@ pub struct SkillInput {
 }
 
 /// Image attached to a message
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ImageInput {
     /// "url" for data URI, "path" for local file, "attachment" for server-managed image ids
     pub input_type: String,
@@ -1390,4 +1450,123 @@ pub enum SessionPermissionRules {
         #[serde(skip_serializing_if = "Option::is_none")]
         sandbox_mode: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        Provider, SessionListItem, SessionListStatus, SessionStatus, SessionSummary, TokenUsage,
+        TokenUsageSnapshotKind, WorkStatus,
+    };
+
+    #[test]
+    fn display_title_prefers_prompt_over_project_like_summary() {
+        let title = SessionSummary::display_title_from_parts(
+            None,
+            Some("OrbitDock"),
+            Some("Add a calmer dashboard shell"),
+            Some("OrbitDock"),
+            "/Users/robert/OrbitDock",
+        );
+
+        assert_eq!(title, "Add a calmer dashboard shell");
+    }
+
+    #[test]
+    fn context_line_prefers_last_message_then_distinct_summary() {
+        let context = SessionSummary::context_line_from_parts(
+            Some("Project-level cleanup is in flight"),
+            Some("Tighten the root shell"),
+            None,
+        );
+        assert_eq!(
+            context.as_deref(),
+            Some("Project-level cleanup is in flight")
+        );
+
+        let duplicate = SessionSummary::context_line_from_parts(
+            Some("Tighten the root shell"),
+            Some("Tighten the root shell"),
+            None,
+        );
+        assert_eq!(duplicate.as_deref(), Some("Tighten the root shell"));
+
+        let last_message = SessionSummary::context_line_from_parts(
+            Some("Project-level cleanup is in flight"),
+            Some("Tighten the root shell"),
+            Some("The worker finished and returned its result."),
+        );
+        assert_eq!(
+            last_message.as_deref(),
+            Some("The worker finished and returned its result.")
+        );
+    }
+
+    #[test]
+    fn session_list_item_from_summary_preserves_summary_revision() {
+        let summary = SessionSummary {
+            id: "sess-1".to_string(),
+            provider: Provider::Codex,
+            project_path: "/tmp/orbitdock".to_string(),
+            transcript_path: None,
+            project_name: Some("OrbitDock".to_string()),
+            model: Some("gpt-5.4".to_string()),
+            custom_name: None,
+            summary: None,
+            first_prompt: None,
+            last_message: None,
+            status: SessionStatus::Active,
+            work_status: WorkStatus::Working,
+            token_usage: TokenUsage::default(),
+            token_usage_snapshot_kind: TokenUsageSnapshotKind::default(),
+            has_pending_approval: false,
+            codex_integration_mode: None,
+            claude_integration_mode: None,
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: None,
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
+            pending_tool_name: None,
+            pending_tool_input: None,
+            pending_question: None,
+            pending_approval_id: None,
+            started_at: None,
+            last_activity_at: None,
+            git_branch: None,
+            git_sha: None,
+            current_cwd: None,
+            effort: None,
+            approval_version: Some(4),
+            summary_revision: 27,
+            repository_root: None,
+            is_worktree: false,
+            worktree_id: None,
+            unread_count: 0,
+            has_turn_diff: false,
+            display_title: "OrbitDock".to_string(),
+            display_title_sort_key: "orbitdock".to_string(),
+            display_search_text: "orbitdock".to_string(),
+            context_line: None,
+            list_status: SessionListStatus::Working,
+            active_worker_count: 3,
+            pending_tool_family: Some(crate::domain_events::ToolFamily::Shell),
+            forked_from_session_id: Some("sess-0".to_string()),
+        };
+
+        let item = SessionListItem::from_summary(&summary);
+
+        assert_eq!(item.summary_revision, 27);
+        assert_eq!(item.active_worker_count, 3);
+        assert_eq!(
+            item.pending_tool_family,
+            Some(crate::domain_events::ToolFamily::Shell)
+        );
+        assert_eq!(item.forked_from_session_id.as_deref(), Some("sess-0"));
+    }
+
+    // classify_tool_family and ensure_tool_family tests removed —
 }

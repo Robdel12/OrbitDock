@@ -4,7 +4,6 @@
 //! becomes the attachment ID. Uploading the same image twice is a no-op —
 //! the second write is skipped because the file already exists.
 
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -118,22 +117,6 @@ pub fn resolve_images_for_connector(session_id: &str, images: &[ImageInput]) -> 
         .collect()
 }
 
-pub fn normalize_images_for_transport(session_id: &str, images: &[ImageInput]) -> Vec<ImageInput> {
-    let mut seen = HashSet::new();
-    images
-        .iter()
-        .map(|image| normalize_image_for_transport(session_id, image))
-        .filter(|image| {
-            // Deduplicate by attachment ID (content-addressed → same content = same ID)
-            if image.input_type == "attachment" {
-                seen.insert(image.value.clone())
-            } else {
-                true
-            }
-        })
-        .collect()
-}
-
 pub fn read_attachment_bytes(
     session_id: &str,
     attachment_id: &str,
@@ -213,16 +196,6 @@ fn resolve_image_for_connector(session_id: &str, image: &ImageInput) -> ImageInp
                 image.clone()
             }
         },
-        _ => image.clone(),
-    }
-}
-
-fn normalize_image_for_transport(session_id: &str, image: &ImageInput) -> ImageInput {
-    match image.input_type.as_str() {
-        "attachment" => enrich_attachment_metadata(session_id, image),
-        "path" => {
-            managed_attachment_ref_from_path(session_id, image).unwrap_or_else(|| image.clone())
-        }
         _ => image.clone(),
     }
 }

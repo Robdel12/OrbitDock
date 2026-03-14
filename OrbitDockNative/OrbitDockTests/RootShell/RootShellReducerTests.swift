@@ -179,8 +179,8 @@ struct RootShellReducerTests {
       )
     )
 
-    #expect(state.missionControlRecords.map(\.sessionId) == ["direct-working"])
-    #expect(state.recentRecords.prefix(1).map(\.sessionId) == ["passive-recent"])
+    #expect(state.missionControlRecords.map(\.sessionId) == ["passive-recent", "direct-working"])
+    #expect(state.recentRecords.isEmpty)
   }
 }
 

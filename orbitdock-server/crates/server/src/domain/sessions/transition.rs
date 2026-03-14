@@ -20,30 +20,12 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             last_activity_at,
         },
         PersistOp::SessionEnd { id, reason } => PersistCommand::SessionEnd { id, reason },
-        PersistOp::MessageAppend {
-            session_id,
-            message,
-        } => PersistCommand::MessageAppend {
-            session_id,
-            message,
-        },
-        PersistOp::MessageUpdate {
-            session_id,
-            message_id,
-            content,
-            tool_output,
-            duration_ms,
-            is_error,
-            is_in_progress,
-        } => PersistCommand::MessageUpdate {
-            session_id,
-            message_id,
-            content,
-            tool_output,
-            duration_ms,
-            is_error,
-            is_in_progress,
-        },
+        PersistOp::RowAppend { session_id, entry } => {
+            PersistCommand::RowAppend { session_id, entry }
+        }
+        PersistOp::RowUpsert { session_id, entry } => {
+            PersistCommand::RowUpsert { session_id, entry }
+        }
         PersistOp::TokensUpdate {
             session_id,
             usage,
@@ -162,6 +144,8 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             personality: None,
             service_tier: None,
             developer_instructions: None,
+            model: None,
+            effort: None,
         },
     }
 }

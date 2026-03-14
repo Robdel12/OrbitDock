@@ -23,6 +23,8 @@ pub(crate) struct SessionConfigUpdate {
     pub personality: Option<String>,
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
 }
 
 impl SessionMutationError {
@@ -91,6 +93,8 @@ pub(crate) async fn update_session_config(
         personality,
         service_tier,
         developer_instructions,
+        model,
+        effort,
     } = update;
     let actor = state
         .get_session(session_id)
@@ -107,6 +111,8 @@ pub(crate) async fn update_session_config(
                 personality: Some(personality.clone()),
                 service_tier: Some(service_tier.clone()),
                 developer_instructions: Some(developer_instructions.clone()),
+                model: Some(model.clone()),
+                effort: Some(effort.clone()),
                 ..Default::default()
             },
             persist_op: Some(PersistOp::SetSessionConfig {
@@ -119,6 +125,8 @@ pub(crate) async fn update_session_config(
                 personality: personality.clone(),
                 service_tier: service_tier.clone(),
                 developer_instructions: developer_instructions.clone(),
+                model: model.clone(),
+                effort: effort.clone(),
             }),
         })
         .await;
@@ -148,6 +156,8 @@ pub(crate) async fn update_session_config(
                 personality,
                 service_tier,
                 developer_instructions,
+                model,
+                effort,
             })
             .await;
     }

@@ -237,13 +237,18 @@ struct StatusBarStats {
 
   static func from(
     sessions: [RootSessionNode],
-    costCalculator _: TokenCostCalculator
+    costCalculator: TokenCostCalculator
   ) -> StatusBarStats {
     var costByModel: [String: Double] = [:]
+    var totalCost = 0.0
+    var totalTokens = 0
 
     for session in sessions {
+      totalTokens += session.totalTokens
+      let sessionCost = resolvedCost(for: session, costCalculator: costCalculator)
+      totalCost += sessionCost
       guard let model = normalizeModelName(session.model) else { continue }
-      costByModel[model, default: 0] += session.totalCostUSD
+      costByModel[model, default: 0] += sessionCost
     }
 
     let sortedCosts = costByModel.sorted { $0.value > $1.value }.map {
@@ -252,9 +257,21 @@ struct StatusBarStats {
 
     return StatusBarStats(
       sessionCount: sessions.count,
-      cost: sessions.reduce(0) { $0 + $1.totalCostUSD },
-      tokens: sessions.reduce(0) { $0 + $1.totalTokens },
+      cost: totalCost,
+      tokens: totalTokens,
       costByModel: sortedCosts
+    )
+  }
+
+  private static func resolvedCost(for session: RootSessionNode, costCalculator: TokenCostCalculator) -> Double {
+    if session.totalCostUSD > 0 {
+      return session.totalCostUSD
+    }
+    guard session.totalTokens > 0 else { return 0 }
+    return costCalculator.calculateCost(
+      model: session.model,
+      inputTokens: session.totalTokens,
+      outputTokens: 0
     )
   }
 

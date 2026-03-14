@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
@@ -14,6 +15,7 @@ use orbitdock_protocol::{
 use serde::{Deserialize, Serialize};
 
 use crate::connectors::codex_session::CodexAction;
+use crate::runtime::session_queries::load_full_session_state;
 use crate::runtime::session_registry::SessionRegistry;
 
 use super::connector_actions::{
@@ -43,6 +45,23 @@ pub struct McpToolsResponse {
     pub resources: HashMap<String, Vec<McpResource>>,
     pub resource_templates: HashMap<String, Vec<McpResourceTemplate>>,
     pub auth_statuses: HashMap<String, McpAuthStatus>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionInstructionsResponse {
+    pub session_id: String,
+    pub provider: orbitdock_protocol::Provider,
+    pub instructions: SessionInstructionsPayload,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct SessionInstructionsPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_md: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub developer_instructions: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,6 +101,67 @@ pub struct SkillsQuery {
     pub cwd: Vec<String>,
     #[serde(default)]
     pub force_reload: Option<bool>,
+}
+
+async fn read_optional_markdown(path: PathBuf) -> Option<String> {
+    tokio::fs::read_to_string(path)
+        .await
+        .ok()
+        .filter(|contents| !contents.trim().is_empty())
+}
+
+pub async fn get_session_instructions(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<SessionInstructionsResponse> {
+    let session = load_full_session_state(&state, &session_id, false)
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ApiErrorResponse {
+                    code: "not_found",
+                    error: format!("Session {} not found", session_id),
+                }),
+            )
+        })?;
+
+    let instructions = match session.provider {
+        orbitdock_protocol::Provider::Claude => {
+            let home = std::env::var("HOME").ok().map(PathBuf::from);
+            let global_path = home.map(|path| path.join(".claude/CLAUDE.md"));
+            let project_path = PathBuf::from(&session.project_path).join("CLAUDE.md");
+
+            let global = match global_path {
+                Some(path) => read_optional_markdown(path).await,
+                None => None,
+            };
+            let project = read_optional_markdown(project_path).await;
+            let claude_md = match (global, project) {
+                (Some(global), Some(project)) => Some(format!("{global}\n\n{project}")),
+                (Some(global), None) => Some(global),
+                (None, Some(project)) => Some(project),
+                (None, None) => None,
+            };
+
+            SessionInstructionsPayload {
+                claude_md,
+                system_prompt: None,
+                developer_instructions: session.developer_instructions.clone(),
+            }
+        }
+        orbitdock_protocol::Provider::Codex => SessionInstructionsPayload {
+            claude_md: None,
+            system_prompt: None,
+            developer_instructions: session.developer_instructions.clone(),
+        },
+    };
+
+    Ok(Json(SessionInstructionsResponse {
+        session_id,
+        provider: session.provider,
+        instructions,
+    }))
 }
 
 pub async fn list_skills_endpoint(
@@ -304,7 +384,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use crate::connectors::codex_session::CodexAction;
-    use crate::domain::sessions::session::SessionHandle;
+    use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
     use crate::runtime::session_commands::SessionCommand;
     use crate::transport::http::test_support::new_test_state;
 
@@ -604,5 +684,33 @@ mod tests {
                 assert_eq!(body.code, "session_not_found");
             }
         }
+    }
+
+    #[tokio::test]
+    async fn instructions_endpoint_returns_codex_developer_instructions() {
+        let state = new_test_state(true);
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let mut handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/orbitdock-instructions-test".to_string(),
+        );
+        handle.set_config(SessionConfigPatch {
+            developer_instructions: Some("Stay focused and verify outputs".to_string()),
+            ..Default::default()
+        });
+        state.add_session(handle);
+
+        let response = get_session_instructions(Path(session_id.clone()), State(state))
+            .await
+            .expect("instructions endpoint should succeed");
+
+        assert_eq!(response.0.session_id, session_id);
+        assert_eq!(response.0.provider, Provider::Codex);
+        assert_eq!(
+            response.0.instructions.developer_instructions.as_deref(),
+            Some("Stay focused and verify outputs")
+        );
+        assert!(response.0.instructions.claude_md.is_none());
     }
 }

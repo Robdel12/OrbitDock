@@ -3,34 +3,32 @@ import SwiftUI
 struct OrbitDockWindowRoot: View {
   @Environment(\.scenePhase) private var scenePhase
   let appRuntime: OrbitDockAppRuntime
+  let sharedRootShellStore: RootShellStore
+  let sharedRootShellRuntime: RootShellRuntime
   @State private var attentionService: AttentionService
   @State private var router: AppRouter
   @State private var toastManager: ToastManager
   @State private var rootSessionActions: RootSessionActions
-  @State private var rootShellStore: RootShellStore
-  @State private var rootShellRuntime: RootShellRuntime
   @State private var rootShellEffectsCoordinator: RootShellEffectsCoordinator
   @State private var rootSelectionBridge: RootSelectionBridge
   @State private var windowID = UUID()
 
-  init(appRuntime: OrbitDockAppRuntime) {
+  init(
+    appRuntime: OrbitDockAppRuntime,
+    rootShellStore: RootShellStore,
+    rootShellRuntime: RootShellRuntime
+  ) {
     self.appRuntime = appRuntime
+    self.sharedRootShellStore = rootShellStore
+    self.sharedRootShellRuntime = rootShellRuntime
 
     let attentionService = AttentionService()
     let router = AppRouter()
     let toastManager = ToastManager()
-    let rootShellStore = RootShellStore()
     _attentionService = State(initialValue: attentionService)
     _router = State(initialValue: router)
     _toastManager = State(initialValue: toastManager)
     _rootSessionActions = State(initialValue: RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
-    _rootShellStore = State(initialValue: rootShellStore)
-    _rootShellRuntime = State(
-      initialValue: RootShellRuntime(
-        runtimeRegistry: appRuntime.runtimeRegistry,
-        rootShellStore: rootShellStore
-      )
-    )
     _rootShellEffectsCoordinator = State(
       initialValue: RootShellEffectsCoordinator(
         rootShellStore: rootShellStore,
@@ -60,11 +58,11 @@ struct OrbitDockWindowRoot: View {
       .environment(router)
       .environment(toastManager)
       .environment(\.rootSessionActions, rootSessionActions)
-      .environment(rootShellStore)
+      .environment(sharedRootShellStore)
       .focusedSceneValue(\.orbitDockRouter, router)
       .preferredColorScheme(.dark)
       .task {
-        for await update in rootShellRuntime.updates {
+        for await update in sharedRootShellRuntime.updates {
           rootShellEffectsCoordinator.applyRootChange(update: update)
         }
       }
@@ -73,8 +71,8 @@ struct OrbitDockWindowRoot: View {
           handleExternalCommand(command)
         }
         rootShellEffectsCoordinator.setCurrentSelection(router.selectedScopedID)
-        rootShellRuntime.start()
-        rootShellRuntime.selectedSessionDidChange(to: router.selectedScopedID)
+        sharedRootShellRuntime.start()
+        sharedRootShellRuntime.selectedSessionDidChange(to: router.selectedScopedID)
         rootSelectionBridge.start()
         updateWindowFocus(for: scenePhase)
       }
@@ -89,14 +87,14 @@ struct OrbitDockWindowRoot: View {
       }
       .onChange(of: router.selectedScopedID, initial: true) { _, newId in
         rootShellEffectsCoordinator.setCurrentSelection(newId)
-        rootShellRuntime.selectedSessionDidChange(to: newId)
+        sharedRootShellRuntime.selectedSessionDidChange(to: newId)
       }
       .onChange(of: appRuntime.runtimeRegistry.connectionStatusByEndpointId) { _, _ in
-        rootShellRuntime.runtimeGraphDidChange()
+        sharedRootShellRuntime.runtimeGraphDidChange()
         rootSelectionBridge.runtimeGraphDidChange()
       }
       .onChange(of: appRuntime.runtimeRegistry.runtimesByEndpointId.count) { _, _ in
-        rootShellRuntime.runtimeGraphDidChange()
+        sharedRootShellRuntime.runtimeGraphDidChange()
         rootSelectionBridge.runtimeGraphDidChange()
       }
   }
@@ -120,7 +118,7 @@ struct OrbitDockWindowRoot: View {
         router.handleExternalNavigation(
           sessionID: selection.sessionID,
           endpointId: selection.endpointID,
-          store: rootShellStore,
+          store: sharedRootShellStore,
           fallbackEndpointId: appRuntime.runtimeRegistry.primaryEndpointId ?? appRuntime.runtimeRegistry.activeEndpointId
         )
       }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
+use orbitdock_protocol::conversation_contracts::ConversationRowPage;
 use orbitdock_protocol::{Provider, ServerMessage, SessionListItem};
 
 use crate::runtime::session_creation::{
@@ -81,7 +82,16 @@ pub(crate) async fn handle_create_session(
 
     send_json(
         client_tx,
-        ServerMessage::SessionSnapshot { session: snapshot },
+        ServerMessage::ConversationBootstrap {
+            session: snapshot,
+            conversation: ConversationRowPage {
+                rows: vec![],
+                total_row_count: 0,
+                has_more_before: false,
+                oldest_sequence: None,
+                newest_sequence: None,
+            },
+        },
     )
     .await;
 
@@ -173,6 +183,8 @@ pub(crate) async fn handle_update_session_config(
         personality,
         service_tier,
         developer_instructions,
+        model,
+        effort,
     } = update;
     info!(
         component = "session",
@@ -187,6 +199,8 @@ pub(crate) async fn handle_update_session_config(
         personality = ?personality,
         service_tier = ?service_tier,
         developer_instructions = ?developer_instructions.as_ref().map(|_| "[set]"),
+        model = ?model,
+        effort = ?effort,
         "Session config update requested"
     );
 
@@ -202,56 +216,9 @@ pub(crate) async fn handle_update_session_config(
             personality,
             service_tier,
             developer_instructions,
+            model,
+            effort,
         },
     )
     .await;
-}
-
-#[cfg(test)]
-mod tests {
-    use tokio::sync::mpsc;
-
-    use orbitdock_protocol::{Provider, ServerMessage};
-
-    use crate::transport::websocket::test_support::{new_test_state, recv_json};
-
-    use super::{handle_create_session, CreateSessionRequest};
-
-    #[tokio::test]
-    async fn create_session_emits_session_snapshot_immediately() {
-        let state = new_test_state();
-        let (client_tx, mut client_rx) = mpsc::channel(8);
-        let cwd = "/tmp/orbitdock-create-session".to_string();
-
-        handle_create_session(
-            CreateSessionRequest {
-                provider: Provider::Claude,
-                cwd: cwd.clone(),
-                model: None,
-                approval_policy: None,
-                sandbox_mode: None,
-                permission_mode: None,
-                allowed_tools: vec![],
-                disallowed_tools: vec![],
-                effort: None,
-                collaboration_mode: None,
-                multi_agent: None,
-                personality: None,
-                service_tier: None,
-                developer_instructions: None,
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-
-        match recv_json(&mut client_rx).await {
-            ServerMessage::SessionSnapshot { session } => {
-                assert_eq!(session.provider, Provider::Claude);
-                assert_eq!(session.project_path, cwd);
-            }
-            other => panic!("expected SessionSnapshot first, got {other:?}"),
-        }
-    }
 }

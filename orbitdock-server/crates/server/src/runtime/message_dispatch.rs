@@ -6,12 +6,12 @@ use tokio::sync::oneshot;
 use tracing::{debug, warn};
 
 use orbitdock_protocol::PermissionGrantScope;
-use orbitdock_protocol::{ImageInput, MentionInput, MessageType, SkillInput, WorkStatus};
+use orbitdock_protocol::{ImageInput, MentionInput, SkillInput, WorkStatus};
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::infrastructure::persistence::PersistCommand;
-use crate::runtime::message_dispatch_policy::{build_session_message, plan_send_message};
+use crate::runtime::message_dispatch_policy::{build_user_row_entry, plan_send_message};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::mark_session_working_after_send;
@@ -43,7 +43,8 @@ pub(crate) struct DispatchSendMessage {
 pub(crate) async fn dispatch_send_message(
     state: &Arc<SessionRegistry>,
     request: DispatchSendMessage,
-) -> Result<orbitdock_protocol::Message, DispatchMessageError> {
+) -> Result<orbitdock_protocol::conversation_contracts::ConversationRowEntry, DispatchMessageError>
+{
     let DispatchSendMessage {
         session_id,
         content,
@@ -157,10 +158,9 @@ pub(crate) async fn dispatch_send_message(
         crate::infrastructure::images::materialize_images_for_message(&session_id, &images);
     let connector_images =
         crate::infrastructure::images::resolve_images_for_connector(&session_id, &persisted_images);
-    let user_msg = build_session_message(
+    let user_entry = build_user_row_entry(
         &session_id,
         message_id,
-        MessageType::User,
         content.clone(),
         ts_millis,
         persisted_images.clone(),
@@ -168,14 +168,14 @@ pub(crate) async fn dispatch_send_message(
 
     let _ = state
         .persist()
-        .send(PersistCommand::MessageAppend {
+        .send(PersistCommand::RowAppend {
             session_id: session_id.clone(),
-            message: user_msg.clone(),
+            entry: user_entry.clone(),
         })
         .await;
     actor
-        .send(SessionCommand::AddMessageAndBroadcast {
-            message: user_msg.clone(),
+        .send(SessionCommand::AddRowAndBroadcast {
+            entry: user_entry.clone(),
         })
         .await;
 
@@ -225,7 +225,7 @@ pub(crate) async fn dispatch_send_message(
         }
     }
 
-    Ok(user_msg)
+    Ok(user_entry)
 }
 
 pub(crate) async fn dispatch_steer_turn(
@@ -254,10 +254,9 @@ pub(crate) async fn dispatch_steer_turn(
         crate::infrastructure::images::materialize_images_for_message(&session_id, &images);
     let connector_images =
         crate::infrastructure::images::resolve_images_for_connector(&session_id, &persisted_images);
-    let steer_msg = build_session_message(
+    let steer_entry = build_user_row_entry(
         &session_id,
         message_id.clone(),
-        MessageType::Steer,
         content.clone(),
         ts_millis,
         persisted_images.clone(),
@@ -265,13 +264,13 @@ pub(crate) async fn dispatch_steer_turn(
 
     let _ = state
         .persist()
-        .send(PersistCommand::MessageAppend {
+        .send(PersistCommand::RowAppend {
             session_id: session_id.clone(),
-            message: steer_msg.clone(),
+            entry: steer_entry.clone(),
         })
         .await;
     actor
-        .send(SessionCommand::AddMessageAndBroadcast { message: steer_msg })
+        .send(SessionCommand::AddRowAndBroadcast { entry: steer_entry })
         .await;
 
     if let Some(tx) = codex_tx {

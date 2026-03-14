@@ -100,6 +100,56 @@ pub(crate) fn build_inflight_codex_subagent(
     })
 }
 
+pub(crate) fn build_running_codex_subagent(
+    id: String,
+    agent_role: Option<String>,
+    agent_nickname: Option<String>,
+    task_summary: Option<String>,
+    parent_subagent_id: Option<String>,
+) -> SubagentInfo {
+    build_inflight_codex_subagent(
+        id,
+        agent_role,
+        agent_nickname,
+        task_summary,
+        parent_subagent_id,
+        &AgentStatus::Running,
+    )
+    .expect("running subagent should always build")
+}
+
+pub(crate) fn build_codex_subagent_for_status(
+    id: String,
+    agent_role: Option<String>,
+    agent_nickname: Option<String>,
+    task_summary: Option<String>,
+    parent_subagent_id: Option<String>,
+    status: &AgentStatus,
+) -> SubagentInfo {
+    match status {
+        AgentStatus::PendingInit | AgentStatus::Running => build_inflight_codex_subagent(
+            id,
+            agent_role,
+            agent_nickname,
+            task_summary,
+            parent_subagent_id,
+            status,
+        )
+        .expect("non-terminal subagent should always build"),
+        AgentStatus::Completed(_)
+        | AgentStatus::Errored(_)
+        | AgentStatus::Shutdown
+        | AgentStatus::NotFound => build_authoritative_codex_subagent(
+            id,
+            agent_role,
+            agent_nickname,
+            task_summary,
+            parent_subagent_id,
+            status,
+        ),
+    }
+}
+
 fn map_agent_status(
     status: &AgentStatus,
     now: &str,

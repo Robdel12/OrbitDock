@@ -55,6 +55,7 @@ pub(crate) async fn flush_next_persist_command(
     flush_batch_for_test(db_path, vec![command]).expect("flush persisted command");
 }
 
+#[allow(dead_code)]
 pub(crate) async fn upload_test_attachment(
     state: Arc<SessionRegistry>,
     session_id: &str,

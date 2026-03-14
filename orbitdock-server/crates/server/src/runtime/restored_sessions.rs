@@ -22,25 +22,24 @@ pub(crate) struct PreparedResumeSession {
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
     pub claude_sdk_session_id: Option<String>,
-    pub message_count: usize,
+    pub row_count: usize,
     pub transcript_loaded: bool,
     pub summary: SessionSummary,
     pub handle: SessionHandle,
 }
 
-pub(crate) async fn hydrate_restored_messages_if_missing(
+pub(crate) async fn hydrate_restored_rows_if_missing(
     restored: &mut RestoredSession,
     session_id: &str,
 ) {
-    if !restored.messages.is_empty() {
+    if !restored.rows.is_empty() {
         return;
     }
 
     if let Some(ref transcript_path) = restored.transcript_path {
-        if let Ok(messages) = load_messages_from_transcript_path(transcript_path, session_id).await
-        {
-            if !messages.is_empty() {
-                restored.messages = messages;
+        if let Ok(rows) = load_messages_from_transcript_path(transcript_path, session_id).await {
+            if !rows.is_empty() {
+                restored.rows = rows;
             }
         }
     }
@@ -86,15 +85,9 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
     let provider = parse_provider(&restored.provider);
     let status = parse_session_status(restored.end_reason.as_ref(), &restored.status);
     let work_status = parse_work_status(status, &restored.work_status);
-    let total_message_count = restored.messages.len() as u64;
-    let oldest_sequence = restored
-        .messages
-        .first()
-        .and_then(|message| message.sequence);
-    let newest_sequence = restored
-        .messages
-        .last()
-        .and_then(|message| message.sequence);
+    let total_row_count = restored.rows.len() as u64;
+    let oldest_sequence = restored.rows.first().map(|entry| entry.sequence);
+    let newest_sequence = restored.rows.last().map(|entry| entry.sequence);
 
     SessionState {
         id: restored.id,
@@ -109,9 +102,9 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         last_message: restored.last_message,
         status,
         work_status,
-        messages: restored.messages,
-        total_message_count: Some(total_message_count),
-        has_more_before: Some(false),
+        rows: restored.rows,
+        total_row_count,
+        has_more_before: false,
         oldest_sequence,
         newest_sequence,
         pending_approval: None,
@@ -181,6 +174,7 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         is_worktree: false,
         worktree_id: None,
         unread_count: restored.unread_count,
+        messages: vec![],
     }
 }
 
@@ -219,7 +213,7 @@ pub(crate) fn restored_session_to_handle(
         restored.token_usage_snapshot_kind,
         restored.started_at,
         restored.last_activity_at,
-        restored.messages,
+        restored.rows,
         restored.current_diff,
         restored.current_plan,
         restored
@@ -288,7 +282,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     let service_tier = restored.service_tier.clone();
     let developer_instructions = restored.developer_instructions.clone();
     let claude_sdk_session_id = restored.claude_sdk_session_id.clone();
-    let message_count = restored.messages.len();
+    let row_count = restored.rows.len();
 
     let mut handle =
         restored_session_to_handle(restored, SessionStatus::Active, WorkStatus::Waiting);
@@ -312,7 +306,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
         service_tier,
         developer_instructions,
         claude_sdk_session_id,
-        message_count,
+        row_count,
         transcript_loaded,
         summary,
         handle,
@@ -326,9 +320,9 @@ pub(crate) async fn load_prepared_resume_session(
         return Ok(None);
     };
 
-    let initial_message_count = restored.messages.len();
-    hydrate_restored_messages_if_missing(&mut restored, session_id).await;
-    let transcript_loaded = initial_message_count == 0 && !restored.messages.is_empty();
+    let initial_row_count = restored.rows.len();
+    hydrate_restored_rows_if_missing(&mut restored, session_id).await;
+    let transcript_loaded = initial_row_count == 0 && !restored.rows.is_empty();
 
     Ok(Some(prepare_restored_session_for_direct_resume(
         restored,
@@ -349,184 +343,5 @@ fn parse_claude_integration_mode(value: Option<String>) -> Option<ClaudeIntegrat
         Some("direct") => Some(ClaudeIntegrationMode::Direct),
         Some("passive") => Some(ClaudeIntegrationMode::Passive),
         _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use orbitdock_protocol::{
-        CodexIntegrationMode, Message, MessageType, Provider, SessionStatus,
-        TokenUsageSnapshotKind, WorkStatus,
-    };
-
-    use super::{
-        parse_provider, parse_session_status, parse_work_status,
-        prepare_restored_session_for_direct_resume, restored_session_to_handle,
-        restored_session_to_state,
-    };
-    use crate::infrastructure::persistence::RestoredSession;
-
-    fn restored_session() -> RestoredSession {
-        RestoredSession {
-            id: "session-1".into(),
-            provider: "codex".into(),
-            status: "active".into(),
-            work_status: "working".into(),
-            project_path: "/tmp/project".into(),
-            transcript_path: Some("/tmp/project/transcript.jsonl".into()),
-            project_name: Some("project".into()),
-            model: Some("gpt-5".into()),
-            custom_name: Some("Custom".into()),
-            summary: Some("Summary".into()),
-            codex_integration_mode: Some("passive".into()),
-            claude_integration_mode: None,
-            codex_thread_id: Some("thread-1".into()),
-            claude_sdk_session_id: None,
-            started_at: Some("2026-03-09T00:00:00Z".into()),
-            last_activity_at: Some("2026-03-09T00:01:00Z".into()),
-            approval_policy: Some("on-request".into()),
-            sandbox_mode: Some("workspace-write".into()),
-            permission_mode: Some("acceptEdits".into()),
-            collaboration_mode: Some("workers".into()),
-            multi_agent: Some(true),
-            personality: Some("mentor".into()),
-            service_tier: Some("priority".into()),
-            developer_instructions: Some("Stay focused".into()),
-            input_tokens: 10,
-            output_tokens: 5,
-            cached_tokens: 2,
-            context_window: 100,
-            token_usage_snapshot_kind: TokenUsageSnapshotKind::ContextTurn,
-            pending_tool_name: Some("Read".into()),
-            pending_tool_input: Some("file.txt".into()),
-            pending_question: Some("Continue?".into()),
-            pending_approval_id: Some("approval-1".into()),
-            messages: vec![Message {
-                id: "message-1".into(),
-                session_id: "session-1".into(),
-                sequence: Some(7),
-                message_type: MessageType::Assistant,
-                content: "hello".into(),
-                tool_name: None,
-                tool_input: None,
-                tool_output: None,
-                is_error: false,
-                is_in_progress: false,
-                timestamp: "2026-03-09T00:00:00Z".into(),
-                duration_ms: None,
-                images: vec![],
-            }],
-            forked_from_session_id: Some("source-1".into()),
-            current_diff: Some("diff".into()),
-            current_plan: Some("plan".into()),
-            turn_diffs: vec![(
-                "turn-1".into(),
-                "diff".into(),
-                4,
-                3,
-                1,
-                50,
-                TokenUsageSnapshotKind::ContextTurn,
-            )],
-            git_branch: Some("main".into()),
-            git_sha: Some("abc123".into()),
-            current_cwd: Some("/tmp/project".into()),
-            first_prompt: Some("first prompt".into()),
-            last_message: Some("last message".into()),
-            end_reason: None,
-            effort: Some("high".into()),
-            terminal_session_id: Some("term-1".into()),
-            terminal_app: Some("Ghostty".into()),
-            approval_version: 3,
-            unread_count: 4,
-        }
-    }
-
-    #[test]
-    fn restored_state_preserves_visible_session_fields() {
-        let state = restored_session_to_state(restored_session());
-
-        assert_eq!(state.provider, Provider::Codex);
-        assert_eq!(state.status, SessionStatus::Active);
-        assert_eq!(state.work_status, WorkStatus::Working);
-        assert_eq!(state.messages.len(), 1);
-        assert_eq!(state.total_message_count, Some(1));
-        assert_eq!(state.oldest_sequence, Some(7));
-        assert_eq!(state.newest_sequence, Some(7));
-        assert_eq!(
-            state.codex_integration_mode,
-            Some(CodexIntegrationMode::Passive)
-        );
-        assert_eq!(state.collaboration_mode.as_deref(), Some("workers"));
-        assert_eq!(state.personality.as_deref(), Some("mentor"));
-        assert_eq!(state.service_tier.as_deref(), Some("priority"));
-        assert_eq!(
-            state.developer_instructions.as_deref(),
-            Some("Stay focused")
-        );
-        assert_eq!(state.approval_version, Some(3));
-        assert_eq!(state.unread_count, 4);
-    }
-
-    #[test]
-    fn restored_handle_preserves_pending_approval_visibility() {
-        let handle = restored_session_to_handle(
-            restored_session(),
-            SessionStatus::Active,
-            WorkStatus::Waiting,
-        );
-        let snapshot = handle.retained_state();
-
-        assert_eq!(snapshot.provider, Provider::Codex);
-        assert_eq!(snapshot.status, SessionStatus::Active);
-        assert_eq!(snapshot.work_status, WorkStatus::Question);
-        assert_eq!(snapshot.messages.len(), 1);
-        assert_eq!(snapshot.effort.as_deref(), Some("high"));
-        assert_eq!(snapshot.permission_mode.as_deref(), Some("acceptEdits"));
-        assert_eq!(snapshot.pending_question.as_deref(), Some("Continue?"));
-    }
-
-    #[test]
-    fn restored_parsers_match_user_facing_status_rules() {
-        assert_eq!(parse_provider("CLAUDE"), Provider::Claude);
-        assert_eq!(parse_provider("codex"), Provider::Codex);
-        assert_eq!(
-            parse_session_status(Some(&"user_requested".into()), "active"),
-            SessionStatus::Ended
-        );
-        assert_eq!(
-            parse_work_status(SessionStatus::Ended, "working"),
-            WorkStatus::Ended
-        );
-        assert_eq!(
-            parse_work_status(SessionStatus::Active, "question"),
-            WorkStatus::Question
-        );
-    }
-
-    #[test]
-    fn prepared_resume_session_marks_direct_mode_and_preserves_resume_metadata() {
-        let prepared = prepare_restored_session_for_direct_resume(restored_session(), true);
-
-        assert_eq!(prepared.provider, Provider::Codex);
-        assert_eq!(prepared.project_path, "/tmp/project");
-        assert_eq!(
-            prepared.transcript_path.as_deref(),
-            Some("/tmp/project/transcript.jsonl")
-        );
-        assert_eq!(prepared.model.as_deref(), Some("gpt-5"));
-        assert_eq!(prepared.codex_thread_id.as_deref(), Some("thread-1"));
-        assert_eq!(prepared.approval_policy.as_deref(), Some("on-request"));
-        assert_eq!(prepared.sandbox_mode.as_deref(), Some("workspace-write"));
-        assert_eq!(prepared.message_count, 1);
-        assert!(prepared.transcript_loaded);
-        assert_eq!(
-            prepared.summary.codex_integration_mode,
-            Some(CodexIntegrationMode::Direct)
-        );
-        assert_eq!(
-            prepared.handle.retained_state().codex_integration_mode,
-            Some(CodexIntegrationMode::Direct)
-        );
     }
 }

@@ -20,6 +20,7 @@ enum ExpandedToolLayout {
   static let sectionPadding: CGFloat = 10
   static let contentTopPad: CGFloat = 6
   static let bottomPadding: CGFloat = 10
+  static let maxVisibleContentHeight: CGFloat = 540
 
   static let diffContentTrailingPad: CGFloat = 10
   static let diffNumberLeadingInset: CGFloat = 6
@@ -378,7 +379,13 @@ enum ExpandedToolLayout {
     let cardWidth = width - laneHorizontalInset * 2
     let header = headerHeight(for: model, cardWidth: cardWidth)
     let content = contentHeight(for: model, cardWidth: cardWidth)
-    return header + content + (content > 0 ? bottomPadding : 0)
+    let visible = visibleContentHeight(for: content)
+    return header + visible + (visible > 0 ? bottomPadding : 0)
+  }
+
+  static func visibleContentHeight(for contentHeight: CGFloat) -> CGFloat {
+    guard contentHeight > 0 else { return 0 }
+    return min(contentHeight, maxVisibleContentHeight)
   }
 
   static func textOutputHeight(output: String?, cardWidth: CGFloat = 0) -> CGFloat {

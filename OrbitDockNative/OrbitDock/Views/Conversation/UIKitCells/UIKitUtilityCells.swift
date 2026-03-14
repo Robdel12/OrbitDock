@@ -12,232 +12,49 @@
   import SwiftUI
   import UIKit
 
-  // MARK: - Turn Header Cell (36pt)
+  private enum UIKitActivitySummaryLayout {
+    static func requiredHeight(
+      for model: ConversationUtilityRowModels.ActivitySummaryModel?,
+      availableWidth: CGFloat
+    ) -> CGFloat {
+      let cardWidth = max(0, availableWidth - ConversationLayout.laneHorizontalInset * 2)
+      let contentWidth = max(0, cardWidth - CGFloat(Spacing.sm) - EdgeBar.width - CGFloat(Spacing.md) - 26 - CGFloat(Spacing.md) - CGFloat(Spacing.md))
+      let textWidth = max(120, contentWidth - 56)
+      let verticalPadding = CGFloat(Spacing.sm) * 2 + 4
 
-  final class UIKitTurnHeaderCell: UICollectionViewCell {
-    static let reuseIdentifier = "UIKitTurnHeaderCell"
-
-    private let leftHairline = UIView()
-    private let rightHairline = UIView()
-    private let turnLabel = UILabel()
-    private let toolsLabel = UILabel()
-
-    override init(frame: CGRect) {
-      super.init(frame: frame)
-      setup()
-    }
-
-    required init?(coder: NSCoder) {
-      super.init(coder: coder)
-      setup()
-    }
-
-    private func setup() {
-      backgroundColor = .clear
-      contentView.backgroundColor = .clear
-
-      let inset = ConversationLayout.laneHorizontalInset
-      let hairlineColor = UIColor(Color.textQuaternary).withAlphaComponent(0.15)
-
-      leftHairline.backgroundColor = hairlineColor
-      leftHairline.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(leftHairline)
-
-      rightHairline.backgroundColor = hairlineColor
-      rightHairline.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(rightHairline)
-
-      turnLabel.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
-      turnLabel.textColor = UIColor(Color.textQuaternary)
-      turnLabel.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(turnLabel)
-
-      toolsLabel.font = UIFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .medium)
-      toolsLabel.textColor = UIColor(Color.textQuaternary)
-      toolsLabel.textAlignment = .right
-      toolsLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-      toolsLabel.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(toolsLabel)
-
-      NSLayoutConstraint.activate([
-        leftHairline.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
-        leftHairline.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-        leftHairline.trailingAnchor.constraint(equalTo: turnLabel.leadingAnchor, constant: -Spacing.sm),
-        leftHairline.heightAnchor.constraint(equalToConstant: 0.5),
-
-        turnLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-        turnLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
-        rightHairline.leadingAnchor.constraint(equalTo: turnLabel.trailingAnchor, constant: Spacing.sm),
-        rightHairline.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-        rightHairline.trailingAnchor.constraint(equalTo: toolsLabel.leadingAnchor, constant: -Spacing.sm),
-        rightHairline.heightAnchor.constraint(equalToConstant: 0.5),
-
-        toolsLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -inset),
-        toolsLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-      ])
-    }
-
-    func configure(model: ConversationUtilityRowModels.TurnHeaderModel) {
-      let isHidden = model.isHidden
-      leftHairline.isHidden = isHidden
-      rightHairline.isHidden = isHidden
-      turnLabel.isHidden = isHidden
-      toolsLabel.isHidden = isHidden || model.toolsText == nil
-
-      guard let labelText = model.labelText else { return }
-
-      turnLabel.attributedText = NSAttributedString(
-        string: labelText,
-        attributes: [
-          .font: UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold),
-          .foregroundColor: UIColor(Color.textQuaternary),
-          .kern: 1.5,
-        ]
+      let eyebrowHeight = UIFont.systemFont(ofSize: TypeScale.mini, weight: .semibold).lineHeight
+      let titleHeight = (model?.titleText ?? "Tool activity").boundingHeight(
+        width: textWidth,
+        font: .systemFont(ofSize: TypeScale.body, weight: .semibold),
+        maxLines: 2
       )
-      toolsLabel.text = model.toolsText
-    }
+      let subtitleHeight = (model?.subtitleText ?? "Grouped activity in this turn").boundingHeight(
+        width: textWidth,
+        font: .systemFont(ofSize: TypeScale.meta, weight: .medium),
+        maxLines: 2
+      )
 
-    override func prepareForReuse() {
-      super.prepareForReuse()
-      leftHairline.isHidden = false
-      rightHairline.isHidden = false
-      turnLabel.isHidden = false
-      toolsLabel.isHidden = false
-      turnLabel.attributedText = nil
-      toolsLabel.text = nil
+      return max(92, verticalPadding + eyebrowHeight + titleHeight + subtitleHeight + 12)
     }
   }
 
-  // MARK: - Rollup Summary Cell (36pt)
-
-  final class UIKitRollupSummaryCell: UICollectionViewCell {
-    static let reuseIdentifier = "UIKitRollupSummaryCell"
-
-    private let cardBg = CellCardBackground()
-    private let capsuleBackground = UIView()
-    private let iconImage = UIImageView()
-    private let summaryLabel = UILabel()
-    private let durationLabel = UILabel()
-    private let chevronImage = UIImageView()
-    var onToggle: (() -> Void)?
-
-    override init(frame: CGRect) {
-      super.init(frame: frame)
-      setup()
-    }
-
-    required init?(coder: NSCoder) {
-      super.init(coder: coder)
-      setup()
-    }
-
-    private func setup() {
-      backgroundColor = .clear
-      contentView.backgroundColor = .clear
-
-      cardBg.install(in: contentView)
-
-      let inset = ConversationLayout.laneHorizontalInset
-
-      capsuleBackground.layer.cornerRadius = ConversationLayout.capsuleCornerRadius
-      capsuleBackground.layer.masksToBounds = true
-      capsuleBackground.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(capsuleBackground)
-
-      iconImage.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
-      iconImage.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(iconImage)
-
-      summaryLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
-      summaryLabel.textColor = UIColor(Color.textSecondary)
-      summaryLabel.lineBreakMode = .byTruncatingTail
-      summaryLabel.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(summaryLabel)
-
-      durationLabel.font = UIFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .medium)
-      durationLabel.textColor = UIColor(Color.textTertiary)
-      durationLabel.textAlignment = .right
-      durationLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-      durationLabel.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(durationLabel)
-
-      chevronImage.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 9, weight: .medium)
-      chevronImage.tintColor = UIColor(Color.textQuaternary)
-      chevronImage.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(chevronImage)
-
-      NSLayoutConstraint.activate([
-        capsuleBackground.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
-        capsuleBackground.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -inset),
-        capsuleBackground.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2),
-        capsuleBackground.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
-
-        iconImage.leadingAnchor.constraint(equalTo: capsuleBackground.leadingAnchor, constant: Spacing.sm),
-        iconImage.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-        iconImage.widthAnchor.constraint(equalToConstant: 14),
-
-        summaryLabel.leadingAnchor.constraint(equalTo: iconImage.trailingAnchor, constant: Spacing.sm_),
-        summaryLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
-        durationLabel.leadingAnchor.constraint(greaterThanOrEqualTo: summaryLabel.trailingAnchor, constant: Spacing.sm),
-        durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
-        chevronImage.leadingAnchor.constraint(equalTo: durationLabel.trailingAnchor, constant: Spacing.sm_),
-        chevronImage.trailingAnchor.constraint(equalTo: capsuleBackground.trailingAnchor, constant: -Spacing.sm),
-        chevronImage.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-        chevronImage.widthAnchor.constraint(equalToConstant: 10),
-      ])
-
-      let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
-      contentView.addGestureRecognizer(tap)
-    }
-
-    @objc private func handleTap() {
-      onToggle?()
-    }
-
-    override func layoutSubviews() {
-      super.layoutSubviews()
-      cardBg.layoutInBounds(contentView.bounds)
-    }
-
-    func configureCardPosition(_ position: CardPosition, topInset: CGFloat, bottomInset: CGFloat) {
-      cardBg.configure(position: position, topInset: topInset, bottomInset: bottomInset)
-    }
-
-    func configure(model: ConversationUtilityRowModels.RollupSummaryModel) {
-      let accentColor = UIColor(ConversationUtilityRowModels.color(for: model.colorKey))
-      iconImage.image = UIImage(systemName: model.symbolName)
-      iconImage.tintColor = accentColor
-      summaryLabel.text = model.summaryText
-      summaryLabel.textColor = model.isExpanded ? UIColor(Color.textTertiary) : UIColor(Color.textSecondary)
-      durationLabel.text = model.durationText
-      durationLabel.isHidden = model.durationText == nil
-      chevronImage.image = UIImage(systemName: model.chevronName)
-      capsuleBackground.backgroundColor = accentColor.withAlphaComponent(model.isExpanded ? 0.06 : 0.08)
-    }
-
-    override func prepareForReuse() {
-      super.prepareForReuse()
-      cardBg.reset()
-      onToggle = nil
-      summaryLabel.text = nil
-      durationLabel.text = nil
-      durationLabel.isHidden = false
-      chevronImage.image = nil
-      iconImage.image = nil
+  private extension String {
+    func boundingHeight(width: CGFloat, font: UIFont, maxLines: Int) -> CGFloat {
+      let rect = (self as NSString).boundingRect(
+        with: CGSize(width: width, height: .greatestFiniteMagnitude),
+        options: [.usesLineFragmentOrigin, .usesFontLeading],
+        attributes: [.font: font],
+        context: nil
+      )
+      let lineHeight = font.lineHeight
+      return min(ceil(rect.height), lineHeight * CGFloat(maxLines))
     }
   }
 
   final class UIKitWorkerOrchestrationCell: UICollectionViewCell {
     static let reuseIdentifier = "UIKitWorkerOrchestrationCell"
 
-    private let cardBg = CellCardBackground()
-    private let capsuleBackground = UIView()
-    private let titleLabel = UILabel()
-    private let subtitleLabel = UILabel()
-    private let spotlightLabel = UILabel()
+    private let card = UIKitConversationUtilityCardView()
     private let chipsStack = UIStackView()
     private var chipWorkerIDs: [String] = []
     var onSelectWorker: ((String) -> Void)?
@@ -255,76 +72,47 @@
     private func setup() {
       backgroundColor = .clear
       contentView.backgroundColor = .clear
-      cardBg.install(in: contentView)
-
-      let inset = ConversationLayout.laneHorizontalInset
-      capsuleBackground.translatesAutoresizingMaskIntoConstraints = false
-      capsuleBackground.layer.cornerRadius = ConversationLayout.cardCornerRadius
-      capsuleBackground.layer.masksToBounds = true
-      capsuleBackground.layer.borderWidth = 1
-      capsuleBackground.backgroundColor = UIColor(Color.backgroundTertiary).withAlphaComponent(0.92)
-      capsuleBackground.layer.borderColor = UIColor(Color.textQuaternary).withAlphaComponent(0.12).cgColor
-      contentView.addSubview(capsuleBackground)
-
-      titleLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
-      titleLabel.textColor = UIColor(Color.textPrimary)
-      titleLabel.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(titleLabel)
-
-      subtitleLabel.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-      subtitleLabel.textColor = UIColor(Color.textTertiary)
-      subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(subtitleLabel)
-
-      spotlightLabel.font = UIFont.systemFont(ofSize: TypeScale.meta, weight: .medium)
-      spotlightLabel.textColor = UIColor(Color.textSecondary)
-      spotlightLabel.numberOfLines = 2
-      spotlightLabel.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(spotlightLabel)
+      card.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(card)
 
       chipsStack.axis = .horizontal
       chipsStack.spacing = Spacing.xs
       chipsStack.alignment = .fill
       chipsStack.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(chipsStack)
+      card.footerStack.addArrangedSubview(chipsStack)
 
       NSLayoutConstraint.activate([
-        capsuleBackground.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
-        capsuleBackground.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -inset),
-        capsuleBackground.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2),
-        capsuleBackground.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -2),
-
-        titleLabel.leadingAnchor.constraint(equalTo: capsuleBackground.leadingAnchor, constant: Spacing.md),
-        titleLabel.topAnchor.constraint(equalTo: capsuleBackground.topAnchor, constant: Spacing.sm),
-
-        subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-        subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-
-        chipsStack.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-        chipsStack.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: Spacing.sm_),
-        chipsStack.trailingAnchor.constraint(lessThanOrEqualTo: capsuleBackground.trailingAnchor, constant: -Spacing.md),
-
-        spotlightLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-        spotlightLabel.topAnchor.constraint(equalTo: chipsStack.bottomAnchor, constant: Spacing.xs),
-        spotlightLabel.trailingAnchor.constraint(lessThanOrEqualTo: capsuleBackground.trailingAnchor, constant: -Spacing.md),
+        card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+        card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+        card.topAnchor.constraint(equalTo: contentView.topAnchor),
+        card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
       ])
     }
 
-    override func layoutSubviews() {
-      super.layoutSubviews()
-      cardBg.layoutInBounds(contentView.bounds)
-    }
-
-    func configureCardPosition(_ position: CardPosition, topInset: CGFloat, bottomInset: CGFloat) {
-      cardBg.configure(position: position, topInset: topInset, bottomInset: bottomInset)
-    }
-
     func configure(model: ConversationUtilityRowModels.WorkerOrchestrationModel) {
-      titleLabel.text = model.titleText
-      subtitleLabel.text = model.subtitleText
-      spotlightLabel.text = model.spotlightText
-      spotlightLabel.isHidden = (model.spotlightText ?? "").isEmpty
       chipWorkerIDs = model.workers.map(\.id)
+      let activeCount = model.workers.reduce(into: 0) { count, worker in
+        if worker.isActive { count += 1 }
+      }
+      let accentColorKey = model.workers.first(where: \.isActive)?.statusColorKey ?? model.workers.first?.statusColorKey ?? .accent
+      let accent = UIColor(ConversationUtilityRowModels.color(for: accentColorKey))
+      let badge: String? = if activeCount > 0 {
+        activeCount == 1 ? "1 active" : "\(activeCount) active"
+      } else if !model.workers.isEmpty {
+        "Finished"
+      } else {
+        nil
+      }
+      card.configureChrome(
+        accentColor: accent,
+        iconName: "person.2.fill",
+        eyebrow: "Workers",
+        title: model.titleText,
+        subtitle: model.subtitleText,
+        spotlight: model.spotlightText,
+        badge: badge
+      )
+      card.footerStack.isHidden = model.workers.isEmpty
       chipsStack.arrangedSubviews.forEach {
         chipsStack.removeArrangedSubview($0)
         $0.removeFromSuperview()
@@ -333,20 +121,19 @@
       for (index, worker) in model.workers.enumerated() {
         let button = UIButton(type: .system)
         button.tag = index
-        button.setTitle(worker.title, for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
-        button.setTitleColor(UIColor(Color.textSecondary), for: .normal)
-        button.setImage(
-          UIImage(systemName: worker.isActive ? "dot.radiowaves.left.and.right" : "circle.fill"),
-          for: .normal
-        )
-        button.tintColor = UIColor(ConversationUtilityRowModels.color(for: worker.statusColorKey))
-        button.backgroundColor = UIColor(
+        var config = UIButton.Configuration.plain()
+        config.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10)
+        config.image = UIImage(systemName: worker.isActive ? "dot.radiowaves.left.and.right" : "circle.fill")
+        config.imagePadding = 6
+        config.title = worker.title
+        config.baseForegroundColor = UIColor(Color.textPrimary)
+        config.background.backgroundColor = UIColor(
           ConversationUtilityRowModels.color(for: worker.statusColorKey)
-        ).withAlphaComponent(worker.isActive ? 0.14 : 0.07)
+        ).withAlphaComponent(worker.isActive ? 0.16 : 0.08)
+        button.configuration = config
+        button.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
+        button.tintColor = UIColor(ConversationUtilityRowModels.color(for: worker.statusColorKey))
         button.layer.cornerRadius = ConversationLayout.capsuleCornerRadius
-        button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
-        button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 0)
         button.accessibilityLabel = "\(worker.title), \(worker.statusText)"
         button.addTarget(self, action: #selector(handleChipTap(_:)), for: .touchUpInside)
         chipsStack.addArrangedSubview(button)
@@ -355,18 +142,93 @@
 
     override func prepareForReuse() {
       super.prepareForReuse()
-      cardBg.reset()
       chipWorkerIDs = []
       onSelectWorker = nil
+      card.footerStack.isHidden = true
       chipsStack.arrangedSubviews.forEach {
         chipsStack.removeArrangedSubview($0)
         $0.removeFromSuperview()
       }
     }
 
+    func configureCardPosition(_ position: CardPosition, topInset: CGFloat, bottomInset: CGFloat) {
+    }
+
     @objc private func handleChipTap(_ sender: UIButton) {
       guard sender.tag >= 0, sender.tag < chipWorkerIDs.count else { return }
       onSelectWorker?(chipWorkerIDs[sender.tag])
+    }
+  }
+
+  final class UIKitActivitySummaryCell: UICollectionViewCell {
+    static let reuseIdentifier = "UIKitActivitySummaryCell"
+
+    private let card = UIKitConversationUtilityCardView()
+    var onTap: (() -> Void)?
+
+    override init(frame: CGRect) {
+      super.init(frame: frame)
+      setup()
+    }
+
+    required init?(coder: NSCoder) {
+      super.init(coder: coder)
+      setup()
+    }
+
+    private func setup() {
+      backgroundColor = .clear
+      contentView.backgroundColor = .clear
+      card.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(card)
+
+      NSLayoutConstraint.activate([
+        card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+        card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+        card.topAnchor.constraint(equalTo: contentView.topAnchor),
+        card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+      ])
+
+      let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+      contentView.addGestureRecognizer(tap)
+    }
+
+    func configure(model: ConversationUtilityRowModels.ActivitySummaryModel) {
+      let accent = UIColor(ConversationUtilityRowModels.color(for: model.accentColorKey))
+      card.clearFooter()
+      card.configureChrome(
+        accentColor: accent,
+        iconName: model.iconName,
+        eyebrow: "Activity",
+        title: model.titleText,
+        subtitle: model.subtitleText,
+        spotlight: model.isExpanded
+          ? "Showing \(model.childCount) tool step\(model.childCount == 1 ? "" : "s")"
+          : "Tap to inspect \(model.childCount) tool step\(model.childCount == 1 ? "" : "s")",
+        badge: model.badgeText
+      )
+      card.titleLabel.numberOfLines = 2
+      card.subtitleLabel.numberOfLines = 2
+    }
+
+    override func prepareForReuse() {
+      super.prepareForReuse()
+      card.clearFooter()
+      onTap = nil
+    }
+
+    func configureCardPosition(_ position: CardPosition, topInset: CGFloat, bottomInset: CGFloat) {
+    }
+
+    static func requiredHeight(
+      for model: ConversationUtilityRowModels.ActivitySummaryModel?,
+      availableWidth: CGFloat
+    ) -> CGFloat {
+      UIKitActivitySummaryLayout.requiredHeight(for: model, availableWidth: availableWidth)
+    }
+
+    @objc private func handleTap() {
+      onTap?()
     }
   }
 
@@ -418,44 +280,6 @@
     }
   }
 
-  // MARK: - Message Count Cell (24pt)
-
-  final class UIKitMessageCountCell: UICollectionViewCell {
-    static let reuseIdentifier = "UIKitMessageCountCell"
-
-    private let label = UILabel()
-
-    override init(frame: CGRect) {
-      super.init(frame: frame)
-      setup()
-    }
-
-    required init?(coder: NSCoder) {
-      super.init(coder: coder)
-      setup()
-    }
-
-    private func setup() {
-      backgroundColor = .clear
-      contentView.backgroundColor = .clear
-
-      label.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-      label.textColor = UIColor(Color.textTertiary)
-      label.textAlignment = .center
-      label.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(label)
-
-      NSLayoutConstraint.activate([
-        label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
-        label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-      ])
-    }
-
-    func configure(displayedCount: Int, totalCount: Int) {
-      label.text = "Showing \(displayedCount) of \(totalCount) messages"
-    }
-  }
-
   // MARK: - Spacer Cell (32pt)
 
   final class UIKitSpacerCell: UICollectionViewCell {
@@ -479,16 +303,10 @@
   final class UIKitLiveIndicatorCell: UICollectionViewCell {
     static let reuseIdentifier = "UIKitLiveIndicatorCell"
     static let cellHeight: CGFloat = ConversationLayout.liveIndicatorHeight
-    private static let labelSpacing = Spacing.sm
+    private let card = UIKitConversationUtilityCardView()
 
     private let orbitalHost = UIView()
     private var orbitalLayer: OrbitalAnimationLayer?
-    private let iconView = UIImageView()
-    private let primaryLabel = UILabel()
-    private let detailLabel = UILabel()
-    private var primaryLeadingConstraint: NSLayoutConstraint?
-
-    private static let hInset = ConversationLayout.laneHorizontalInset
 
     override init(frame: CGRect) {
       super.init(frame: frame)
@@ -503,42 +321,23 @@
     }
 
     private func setupSubviews() {
+      card.translatesAutoresizingMaskIntoConstraints = false
+      contentView.addSubview(card)
+
       orbitalHost.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(orbitalHost)
-
-      iconView.contentMode = .center
-      iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-      iconView.isHidden = true
-      iconView.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(iconView)
-
-      primaryLabel.font = .systemFont(ofSize: TypeScale.body, weight: .medium)
-      primaryLabel.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(primaryLabel)
-
-      detailLabel.font = .monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-      detailLabel.textColor = UIColor(Color.textTertiary)
-      detailLabel.lineBreakMode = .byTruncatingTail
-      detailLabel.translatesAutoresizingMaskIntoConstraints = false
-      contentView.addSubview(detailLabel)
-
-      let orbitalSize: CGFloat = 20
+      orbitalHost.isHidden = true
+      card.iconWell.addSubview(orbitalHost)
 
       NSLayoutConstraint.activate([
-        orbitalHost.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.hInset),
-        orbitalHost.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-        orbitalHost.widthAnchor.constraint(equalToConstant: orbitalSize),
-        orbitalHost.heightAnchor.constraint(equalToConstant: orbitalSize),
+        card.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+        card.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+        card.topAnchor.constraint(equalTo: contentView.topAnchor),
+        card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
 
-        iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: Self.hInset),
-        iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-        iconView.widthAnchor.constraint(equalToConstant: 16),
-
-        primaryLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-
-        detailLabel.leadingAnchor.constraint(equalTo: primaryLabel.trailingAnchor, constant: Spacing.xs),
-        detailLabel.centerYAnchor.constraint(equalTo: primaryLabel.centerYAnchor),
-        detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -Self.hInset),
+        orbitalHost.leadingAnchor.constraint(equalTo: card.iconWell.leadingAnchor),
+        orbitalHost.trailingAnchor.constraint(equalTo: card.iconWell.trailingAnchor),
+        orbitalHost.topAnchor.constraint(equalTo: card.iconWell.topAnchor),
+        orbitalHost.bottomAnchor.constraint(equalTo: card.iconWell.bottomAnchor),
       ])
     }
 
@@ -548,16 +347,57 @@
     }
 
     func configure(model: ConversationUtilityRowModels.LiveIndicatorModel) {
-      iconView.isHidden = true
+      card.clearFooter()
+      card.iconView.isHidden = true
       orbitalHost.isHidden = true
-      detailLabel.isHidden = true
-      primaryLabel.text = nil
-      detailLabel.text = nil
+
+      let accentColor: UIColor = {
+        switch model.primaryColorKey {
+          case .permission: return UIColor(Color.statusPermission)
+          case .reply: return UIColor(Color.statusReply)
+          case .working: return UIColor(Color.statusWorking)
+          default: return UIColor(Color.accent)
+        }
+      }()
+      let badge: String? = {
+        switch model.barStyle {
+          case .orbiting: return "Active"
+          case .holding: return "Needs input"
+          case .parked: return "Ready"
+          case .none: return nil
+        }
+      }()
+      let eyebrow: String? = {
+        switch model.barStyle {
+          case .orbiting: return "Live"
+          case .holding: return "Blocked"
+          case .parked: return "Session"
+          case .none: return "Session"
+        }
+      }()
+      card.configureChrome(
+        accentColor: accentColor,
+        iconName: model.iconName ?? "circle.fill",
+        eyebrow: eyebrow,
+        title: model.primaryText,
+        subtitle: model.detailText,
+        spotlight: nil,
+        badge: badge
+      )
+      switch model.detailStyle {
+        case .none, .regular:
+          card.subtitleLabel.font = .systemFont(ofSize: TypeScale.meta, weight: .medium)
+        case .monospaced:
+          card.subtitleLabel.font = .monospacedSystemFont(ofSize: TypeScale.meta, weight: .medium)
+        case .emphasis:
+          card.subtitleLabel.font = .systemFont(ofSize: TypeScale.meta, weight: .semibold)
+      }
 
       let hasOrbital: Bool
       switch model.barStyle {
         case let .orbiting(colorKey, secondary):
           orbitalHost.isHidden = false
+          card.iconView.isHidden = true
           ensureOrbitalLayer()
           let color = UIColor(ConversationUtilityRowModels.color(for: colorKey)).cgColor
           let secondaryColor = secondary.map { UIColor(ConversationUtilityRowModels.color(for: $0)).cgColor }
@@ -566,6 +406,7 @@
 
         case let .holding(colorKey):
           orbitalHost.isHidden = false
+          card.iconView.isHidden = true
           ensureOrbitalLayer()
           let color = UIColor(ConversationUtilityRowModels.color(for: colorKey)).cgColor
           orbitalLayer?.configure(state: .holding, color: color)
@@ -573,6 +414,7 @@
 
         case let .parked(colorKey):
           orbitalHost.isHidden = false
+          card.iconView.isHidden = true
           ensureOrbitalLayer()
           let color = UIColor(ConversationUtilityRowModels.color(for: colorKey)).cgColor
           orbitalLayer?.configure(state: .parked, color: color)
@@ -584,32 +426,14 @@
       }
 
       if let iconName = model.iconName {
-        iconView.isHidden = false
-        iconView.image = UIImage(systemName: iconName)
+        card.iconView.isHidden = false
+        card.iconView.image = UIImage(systemName: iconName)
         if let colorKey = model.iconColorKey {
-          iconView.tintColor = UIColor(ConversationUtilityRowModels.color(for: colorKey))
+          card.iconView.tintColor = UIColor(ConversationUtilityRowModels.color(for: colorKey))
         }
       }
-
-      primaryLabel.text = model.primaryText
-      primaryLabel.textColor = UIColor(ConversationUtilityRowModels.color(for: model.primaryColorKey))
-        .withAlphaComponent(0.8)
-      updateLabelLeadingConstraint(hasIcon: model.iconName != nil, hasOrbital: hasOrbital)
-
-      if let detailText = model.detailText, !detailText.isEmpty {
-        detailLabel.isHidden = false
-        detailLabel.text = detailText
-        detailLabel.textColor = UIColor(ConversationUtilityRowModels.color(for: model.detailColorKey))
-        switch model.detailStyle {
-          case .none:
-            detailLabel.font = .systemFont(ofSize: TypeScale.body, weight: .regular)
-          case .regular:
-            detailLabel.font = .systemFont(ofSize: TypeScale.body, weight: .regular)
-          case .monospaced:
-            detailLabel.font = .monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-          case .emphasis:
-            detailLabel.font = .systemFont(ofSize: TypeScale.body, weight: .bold)
-        }
+      if !hasOrbital {
+        orbitalLayer?.configure(state: .hidden, color: CGColor(gray: 0, alpha: 0))
       }
     }
 
@@ -618,30 +442,8 @@
       orbitalLayer?.removeAllOrbitalAnimations()
       orbitalLayer?.removeFromSuperlayer()
       orbitalLayer = nil
-      iconView.image = nil
-      primaryLabel.text = nil
-      detailLabel.text = nil
-    }
-
-    private func updateLabelLeadingConstraint(hasIcon: Bool, hasOrbital: Bool) {
-      primaryLeadingConstraint?.isActive = false
-      if hasIcon {
-        primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
-          equalTo: iconView.trailingAnchor,
-          constant: Self.labelSpacing
-        )
-      } else if hasOrbital {
-        primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
-          equalTo: orbitalHost.trailingAnchor,
-          constant: Self.labelSpacing
-        )
-      } else {
-        primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
-          equalTo: contentView.leadingAnchor,
-          constant: Self.hInset
-        )
-      }
-      primaryLeadingConstraint?.isActive = true
+      card.clearFooter()
+      card.iconView.image = nil
     }
 
     private func ensureOrbitalLayer() {

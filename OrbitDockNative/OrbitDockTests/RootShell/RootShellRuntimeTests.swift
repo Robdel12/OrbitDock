@@ -62,19 +62,12 @@ struct RootShellRuntimeTests {
     registry.configureFromSettings(startEnabled: false)
 
     let runtime = RootShellRuntime(runtimeRegistry: registry)
-    let firstUpdate = Task { () -> RootShellRuntimeUpdate? in
-      for await update in runtime.updates {
-        return update
-      }
-      return nil
+    let update = try await RootShellRuntimeTestSupport.firstUpdate(from: runtime) {
+      runtime.start()
     }
-
-    runtime.start()
-
-    let update = try #require(await firstUpdate.value)
     #expect(update.upsertedSessions.map(\.sessionId) == ["session-1"])
     #expect(update.removedScopedIDs.isEmpty)
     #expect(runtime.rootShellStore.records().map(\.sessionId) == ["session-1"])
-    #expect(runtime.rootShellStore.records().first?.showsInMissionControl == false)
+    #expect(runtime.rootShellStore.records().first?.showsInMissionControl == true)
   }
 }

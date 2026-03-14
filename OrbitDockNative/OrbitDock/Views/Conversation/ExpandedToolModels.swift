@@ -93,5 +93,6 @@ struct NativeExpandedToolModel {
   let canCancel: Bool
   let duration: String?
   let linkedWorkerID: String?
+  let family: ToolFamily
   let content: NativeToolContent
 }

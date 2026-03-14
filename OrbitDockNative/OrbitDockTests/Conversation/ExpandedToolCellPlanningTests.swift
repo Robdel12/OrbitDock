@@ -14,6 +14,7 @@ struct ExpandedToolCellPlanningTests {
       canCancel: true,
       duration: "1.2s",
       linkedWorkerID: nil,
+      family: .agent,
       content: .task(agentLabel: "Build", agentColor: accent, description: "Running", output: nil, isComplete: false)
     )
 
@@ -23,7 +24,8 @@ struct ExpandedToolCellPlanningTests {
     #expect(plan.cancelFrame != nil)
     #expect(plan.chevronFrame == nil)
     #expect(plan.durationFrame == nil)
-    #expect(plan.contentContainerFrame.minY == plan.headerHeight)
+    #expect(plan.contentScrollFrame.minY == plan.headerHeight + 1)
+    #expect(plan.contentContainerFrame.minY == 0)
   }
 
   @Test func payloadLabelPlanKeepsQuestionDetailIndented() {

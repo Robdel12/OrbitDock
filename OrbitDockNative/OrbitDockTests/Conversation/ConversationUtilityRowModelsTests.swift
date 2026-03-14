@@ -45,7 +45,7 @@ struct ConversationUtilityRowModelsTests {
       subagentsByID: [completed.id: completed]
     )
 
-    #expect(model.titleText == "Worker in play")
+    #expect(model.titleText == "Worker activity")
     #expect(model.subtitleText == "1 finished in this turn")
     #expect(model.spotlightText == "Finisher reported back: Confirmed the worker result returned cleanly.")
     #expect(model.workers.first?.isActive == false)

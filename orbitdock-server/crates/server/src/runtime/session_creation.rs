@@ -103,6 +103,8 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
             personality: input.personality,
             service_tier: input.service_tier,
             developer_instructions: input.developer_instructions,
+            model: input.model,
+            effort: input.effort,
         });
     } else if input.provider == Provider::Claude {
         handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));

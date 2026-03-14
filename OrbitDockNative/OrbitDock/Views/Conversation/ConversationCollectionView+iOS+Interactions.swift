@@ -44,8 +44,12 @@
     }
 
     func toggleToolExpansion(messageID: String) {
-      let wasExpanded = uiState.expandedToolCards.contains(messageID)
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleToolCard(messageID))
+      let wasExpanded = expandedToolCardIDs.contains(messageID)
+      if wasExpanded {
+        expandedToolCardIDs.remove(messageID)
+      } else {
+        expandedToolCardIDs.insert(messageID)
+      }
       logger.debug("toggleToolExpansion[\(messageID.prefix(8))] \(wasExpanded ? "collapse" : "expand")")
       Platform.services.playHaptic(.expansion)
 
@@ -71,15 +75,20 @@
     }
 
     func toggleRollup(id: String) {
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleRollup(id))
+      if expandedActivityGroupIDs.contains(id) {
+        expandedActivityGroupIDs.remove(id)
+      } else {
+        expandedActivityGroupIDs.insert(id)
+      }
       Platform.services.playHaptic(.expansion)
-      applyProjectionUpdate()
+      heightCache.removeAll()
+      rebuildSnapshot(animated: false)
+      collectionView.collectionViewLayout.invalidateLayout()
+      collectionView.layoutIfNeeded()
     }
 
     func toggleTurnExpansion(turnID: String) {
-      ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleTurnExpansion(turnID))
       Platform.services.playHaptic(.expansion)
-      applyProjectionUpdate()
     }
 
     func cancelShellCommand(requestID: String) {

@@ -43,6 +43,14 @@ fn session_read_routes() -> Router<Arc<SessionRegistry>> {
             get(super::get_conversation_history),
         )
         .route(
+            "/api/sessions/{session_id}/search",
+            get(super::search_conversation_rows),
+        )
+        .route(
+            "/api/sessions/{session_id}/stats",
+            get(super::get_session_stats),
+        )
+        .route(
             "/api/sessions/{session_id}/mark-read",
             post(super::mark_session_read),
         )
@@ -200,6 +208,10 @@ fn session_capability_routes() -> Router<Arc<SessionRegistry>> {
         .route(
             "/api/sessions/{session_id}/flags",
             post(super::apply_flag_settings),
+        )
+        .route(
+            "/api/sessions/{session_id}/instructions",
+            get(super::get_session_instructions),
         )
         .route(
             "/api/sessions/{session_id}/permissions",

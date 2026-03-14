@@ -13,6 +13,7 @@ struct ExpandedToolHeaderPlanningTests {
       canCancel: false,
       duration: nil,
       linkedWorkerID: nil,
+      family: .file,
       content: .edit(
         filename: "Notes.md",
         path: "/tmp/project/docs/Notes.md",
@@ -59,6 +60,7 @@ struct ExpandedToolHeaderPlanningTests {
       canCancel: false,
       duration: nil,
       linkedWorkerID: nil,
+      family: .plan,
       content: .todo(title: "Todos", subtitle: "Current pass", items: items, output: nil)
     )
 
@@ -91,6 +93,7 @@ struct ExpandedToolHeaderPlanningTests {
       canCancel: true,
       duration: nil,
       linkedWorkerID: nil,
+      family: .shell,
       content: .bash(command: "git status", input: nil, output: nil)
     )
 

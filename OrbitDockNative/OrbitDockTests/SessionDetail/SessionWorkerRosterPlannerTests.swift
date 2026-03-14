@@ -291,7 +291,7 @@ struct SessionWorkerRosterPlannerTests {
 
     #expect(presentation?.assignmentPreview == "Inspect the auth layer")
     #expect(presentation?.conversationEvents.count == 2)
-    #expect(presentation?.conversationEvents.first?.title == "Task")
+    #expect(presentation?.conversationEvents.first?.title == "Agent")
     #expect(presentation?.conversationEvents.last?.summary == "Worker found the auth entrypoints and is reporting back.")
   }
 

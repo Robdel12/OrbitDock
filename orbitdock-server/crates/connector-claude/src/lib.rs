@@ -20,6 +20,94 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{debug, error, info, warn};
 
 use orbitdock_connector_core::{ApprovalType, ConnectorError, ConnectorEvent};
+use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
+};
+use orbitdock_protocol::domain_events::{
+    GenericInvocationPayload, GenericResultPayload, ToolFamily, ToolInvocationPayload, ToolKind,
+    ToolResultPayload, ToolStatus,
+};
+
+// ---------------------------------------------------------------------------
+// Tool classification
+// ---------------------------------------------------------------------------
+
+/// Classify a raw tool name from the Claude CLI into (ToolFamily, ToolKind).
+fn classify_tool(name: &str) -> (ToolFamily, ToolKind) {
+    match name {
+        "Bash" | "bash" => (ToolFamily::Shell, ToolKind::Bash),
+        "Read" | "read" | "FileRead" => (ToolFamily::FileRead, ToolKind::Read),
+        "Edit" | "edit" | "FileEdit" | "MultiEdit" => (ToolFamily::FileChange, ToolKind::Edit),
+        "Write" | "write" | "FileWrite" => (ToolFamily::FileChange, ToolKind::Write),
+        "NotebookEdit" => (ToolFamily::FileChange, ToolKind::NotebookEdit),
+        "Glob" | "glob" => (ToolFamily::Search, ToolKind::Glob),
+        "Grep" | "grep" => (ToolFamily::Search, ToolKind::Grep),
+        "ToolSearch" => (ToolFamily::Search, ToolKind::ToolSearch),
+        "WebSearch" | "websearch" => (ToolFamily::Web, ToolKind::WebSearch),
+        "WebFetch" | "webfetch" => (ToolFamily::Web, ToolKind::WebFetch),
+        "Agent" | "agent" => (ToolFamily::Agent, ToolKind::SpawnAgent),
+        "AskUserQuestion" => (ToolFamily::Question, ToolKind::AskUserQuestion),
+        "EnterPlanMode" => (ToolFamily::Plan, ToolKind::EnterPlanMode),
+        "ExitPlanMode" => (ToolFamily::Plan, ToolKind::ExitPlanMode),
+        "TodoWrite" => (ToolFamily::Todo, ToolKind::TodoWrite),
+        "CompactContext" => (ToolFamily::Context, ToolKind::CompactContext),
+        "task" => (ToolFamily::Agent, ToolKind::SpawnAgent),
+        n if n.starts_with("mcp__") => (ToolFamily::Mcp, ToolKind::McpToolCall),
+        _ => (ToolFamily::Generic, ToolKind::Generic),
+    }
+}
+
+/// Build a ToolInvocationPayload from a tool name and optional raw JSON input.
+fn build_invocation(tool_name: &str, raw_input: Option<&Value>) -> ToolInvocationPayload {
+    ToolInvocationPayload::Generic(GenericInvocationPayload {
+        tool_name: tool_name.to_string(),
+        raw_input: raw_input.cloned(),
+    })
+}
+
+/// Build a tool title from the tool name (human-friendly).
+fn tool_title(tool_name: &str) -> String {
+    tool_name.to_string()
+}
+
+/// Construct a ToolRow for a newly-created tool use.
+fn make_tool_row(
+    id: String,
+    tool_name: &str,
+    raw_input: Option<&Value>,
+    status: ToolStatus,
+) -> ToolRow {
+    let (family, kind) = classify_tool(tool_name);
+    ToolRow {
+        id,
+        provider: orbitdock_protocol::Provider::Claude,
+        family,
+        kind,
+        status,
+        title: tool_title(tool_name),
+        subtitle: None,
+        summary: None,
+        preview: None,
+        started_at: Some(now_iso()),
+        ended_at: None,
+        duration_ms: None,
+        grouping_key: None,
+        invocation: build_invocation(tool_name, raw_input),
+        result: None,
+        render_hints: RenderHints::default(),
+    }
+}
+
+/// Wrap a ConversationRow in a ConversationRowEntry.
+fn make_entry(session_id: &str, seq: u64, row: ConversationRow) -> ConversationRowEntry {
+    ConversationRowEntry {
+        session_id: session_id.to_string(),
+        sequence: seq,
+        turn_id: None,
+        row,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Stdin messages (Rust → CLI)
@@ -938,6 +1026,9 @@ impl ClaudeConnector {
         // Tracks the in-progress "Compacting context…" message ID so
         // compact_boundary can finalize it.
         let mut compacting_msg_id: Option<String> = None;
+        // Tracks live ToolRow state so we can reconstruct full
+        // ConversationRowEntry on updates.
+        let mut tool_rows: HashMap<String, ToolRow> = HashMap::new();
 
         let mut line_count: u64 = 0;
 
@@ -992,6 +1083,7 @@ impl ClaudeConnector {
                         &stdin_tx,
                         &mut task_tool_use_map,
                         &mut compacting_msg_id,
+                        &mut tool_rows,
                     )
                     .await;
 
@@ -1057,6 +1149,7 @@ impl ClaudeConnector {
         stdin_tx: &mpsc::Sender<String>,
         task_tool_use_map: &mut HashMap<String, String>,
         compacting_msg_id: &mut Option<String>,
+        tool_rows: &mut HashMap<String, ToolRow>,
     ) -> Vec<ConnectorEvent> {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
@@ -1097,6 +1190,8 @@ impl ClaudeConnector {
                     models,
                     task_tool_use_map,
                     compacting_msg_id,
+                    msg_counter,
+                    tool_rows,
                 )
                 .await
             }
@@ -1111,9 +1206,16 @@ impl ClaudeConnector {
                 last_turn_input,
                 cumulative_output,
                 last_context_window,
+                tool_rows,
             ),
 
-            "user" => Self::handle_user_message(raw, &session_id, msg_counter, task_tool_use_map),
+            "user" => Self::handle_user_message(
+                raw,
+                &session_id,
+                msg_counter,
+                task_tool_use_map,
+                tool_rows,
+            ),
 
             "stream_event" => Self::handle_stream_event(
                 raw,
@@ -1122,6 +1224,8 @@ impl ClaudeConnector {
                 streaming_content,
                 streaming_msg_id,
             ),
+
+            "tool_progress" => Self::handle_tool_progress(raw, &session_id, msg_counter, tool_rows),
 
             "result" => {
                 *in_turn = false;
@@ -1133,6 +1237,8 @@ impl ClaudeConnector {
                     last_turn_input,
                     cumulative_output,
                     last_context_window,
+                    &session_id,
+                    msg_counter,
                 )
             }
 
@@ -1162,8 +1268,6 @@ impl ClaudeConnector {
                 vec![]
             }
 
-            "tool_progress" => Self::handle_tool_progress(raw),
-
             "status" => {
                 // SDK status messages carry permission_mode changes and compacting state.
                 // May arrive as top-level type="status" or as system subtype="status".
@@ -1192,27 +1296,21 @@ impl ClaudeConnector {
                 if summary.is_empty() {
                     vec![]
                 } else {
-                    let id = format!(
-                        "claude-summary-{}",
-                        msg_counter.fetch_add(1, Ordering::Relaxed)
-                    );
-                    vec![ConnectorEvent::MessageCreated(
-                        orbitdock_protocol::Message {
-                            id,
-                            session_id: session_id.clone(),
-                            sequence: None,
-                            message_type: orbitdock_protocol::MessageType::Assistant,
-                            content: summary.to_string(),
-                            tool_name: None,
-                            tool_input: None,
-                            tool_output: None,
-                            is_error: false,
-                            is_in_progress: false,
-                            timestamp: now_iso(),
-                            duration_ms: None,
-                            images: vec![],
-                        },
-                    )]
+                    let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+                    let id = format!("claude-summary-{}", seq);
+                    let row = ConversationRow::Assistant(MessageRowContent {
+                        id,
+                        content: summary.to_string(),
+                        turn_id: None,
+                        timestamp: Some(now_iso()),
+                        is_streaming: false,
+                        images: vec![],
+                    });
+                    vec![ConnectorEvent::ConversationRowCreated(make_entry(
+                        &session_id,
+                        seq,
+                        row,
+                    ))]
                 }
             }
 
@@ -1331,6 +1429,8 @@ impl ClaudeConnector {
         _models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
         task_tool_use_map: &mut HashMap<String, String>,
         compacting_msg_id: &mut Option<String>,
+        msg_counter: &Arc<AtomicU64>,
+        tool_rows: &mut HashMap<String, ToolRow>,
     ) -> Vec<ConnectorEvent> {
         let subtype = raw.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -1436,16 +1536,23 @@ impl ClaudeConnector {
             }
             "compact_boundary" => {
                 let mut events = vec![];
+                let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
                 // Finalize the in-progress "Compacting context…" indicator if present.
-                if let Some(msg_id) = compacting_msg_id.take() {
-                    events.push(ConnectorEvent::MessageUpdated {
-                        message_id: msg_id,
-                        content: None,
-                        tool_output: Some("Done".to_string()),
-                        is_error: None,
-                        is_in_progress: Some(false),
-                        duration_ms: None,
-                    });
+                if let Some(row_id) = compacting_msg_id.take() {
+                    if let Some(mut tr) = tool_rows.remove(&row_id) {
+                        tr.status = ToolStatus::Completed;
+                        tr.ended_at = Some(now_iso());
+                        tr.result = Some(ToolResultPayload::Generic(GenericResultPayload {
+                            tool_name: "CompactContext".to_string(),
+                            raw_output: None,
+                            summary: Some("Done".to_string()),
+                        }));
+                        let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+                        events.push(ConnectorEvent::ConversationRowUpdated {
+                            row_id: row_id.clone(),
+                            entry: make_entry(&session_id, seq, ConversationRow::Tool(tr)),
+                        });
+                    }
                 }
                 events.push(ConnectorEvent::ContextCompacted);
                 events
@@ -1468,8 +1575,7 @@ impl ClaudeConnector {
                 }
             }
             "task_started" => {
-                // Background task/subagent spawned. Create a tool message card
-                // using task_id as the message ID so progress/notification can update it.
+                // Background task/subagent spawned.
                 let task_id = raw
                     .get("task_id")
                     .and_then(Value::as_str)
@@ -1481,8 +1587,6 @@ impl ClaudeConnector {
                     .unwrap_or("Agent");
                 let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
 
-                // Store tool_use_id → task_id mapping so we can finalize the task
-                // card when the tool_result arrives (CLI never emits task_notification).
                 if let Some(tool_use_id) = raw.get("tool_use_id").and_then(Value::as_str) {
                     task_tool_use_map.insert(tool_use_id.to_string(), task_id.to_string());
                 }
@@ -1496,32 +1600,30 @@ impl ClaudeConnector {
                     "Background task started"
                 );
 
-                vec![ConnectorEvent::MessageCreated(
-                    orbitdock_protocol::Message {
-                        id: task_id.to_string(),
-                        session_id,
-                        sequence: None,
-                        message_type: orbitdock_protocol::MessageType::Tool,
-                        content: String::new(),
-                        tool_name: Some("task".to_string()),
-                        tool_input: Some(
-                            serde_json::json!({
-                                "subagent_type": task_type,
-                                "description": description
-                            })
-                            .to_string(),
-                        ),
-                        tool_output: None,
-                        is_error: false,
-                        is_in_progress: true,
-                        timestamp: now_iso(),
-                        duration_ms: None,
-                        images: vec![],
-                    },
-                )]
+                let raw_input = Some(serde_json::json!({
+                    "subagent_type": task_type,
+                    "description": description
+                }));
+                let mut tr = make_tool_row(
+                    task_id.to_string(),
+                    "task",
+                    raw_input.as_ref(),
+                    ToolStatus::Running,
+                );
+                tr.subtitle = if description.is_empty() {
+                    None
+                } else {
+                    Some(description.to_string())
+                };
+                let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+                tool_rows.insert(task_id.to_string(), tr.clone());
+                vec![ConnectorEvent::ConversationRowCreated(make_entry(
+                    &session_id,
+                    seq,
+                    ConversationRow::Tool(tr),
+                ))]
             }
             "task_progress" => {
-                // Background task progress update — update the existing tool card.
                 let task_id = raw
                     .get("task_id")
                     .and_then(Value::as_str)
@@ -1549,45 +1651,62 @@ impl ClaudeConnector {
                     progress.push_str(&format!("\n{description}"));
                 }
 
-                vec![ConnectorEvent::MessageUpdated {
-                    message_id: task_id.to_string(),
-                    content: None,
-                    tool_output: Some(progress),
-                    is_error: None,
-                    is_in_progress: Some(true),
-                    duration_ms: Some(duration_ms),
-                }]
+                let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
+                if let Some(tr) = tool_rows.get_mut(task_id) {
+                    tr.summary = Some(progress);
+                    tr.duration_ms = Some(duration_ms);
+                    let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+                    vec![ConnectorEvent::ConversationRowUpdated {
+                        row_id: task_id.to_string(),
+                        entry: make_entry(&session_id, seq, ConversationRow::Tool(tr.clone())),
+                    }]
+                } else {
+                    vec![]
+                }
             }
             "task_notification" => {
-                // Background task completed/failed/stopped — finalize the tool card.
                 let task_id = raw
                     .get("task_id")
                     .and_then(Value::as_str)
                     .unwrap_or("unknown-task");
-                let status = raw
+                let status_str = raw
                     .get("status")
                     .and_then(Value::as_str)
                     .unwrap_or("completed");
                 let summary = raw.get("summary").and_then(Value::as_str).unwrap_or("");
                 let duration_ms = raw.pointer("/usage/duration_ms").and_then(Value::as_u64);
-                let is_error = status == "failed";
 
                 info!(
                     component = "claude_connector",
                     event = "claude.task_notification",
                     task_id = %task_id,
-                    status = %status,
+                    status = %status_str,
                     "Background task completed"
                 );
 
-                vec![ConnectorEvent::MessageUpdated {
-                    message_id: task_id.to_string(),
-                    content: None,
-                    tool_output: Some(summary.to_string()),
-                    is_error: Some(is_error),
-                    is_in_progress: Some(false),
-                    duration_ms,
-                }]
+                let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
+                if let Some(mut tr) = tool_rows.remove(task_id) {
+                    tr.status = if status_str == "failed" {
+                        ToolStatus::Failed
+                    } else {
+                        ToolStatus::Completed
+                    };
+                    tr.ended_at = Some(now_iso());
+                    tr.summary = Some(summary.to_string());
+                    tr.duration_ms = duration_ms;
+                    tr.result = Some(ToolResultPayload::Generic(GenericResultPayload {
+                        tool_name: "task".to_string(),
+                        raw_output: None,
+                        summary: Some(summary.to_string()),
+                    }));
+                    let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+                    vec![ConnectorEvent::ConversationRowUpdated {
+                        row_id: task_id.to_string(),
+                        entry: make_entry(&session_id, seq, ConversationRow::Tool(tr)),
+                    }]
+                } else {
+                    vec![]
+                }
             }
             "status" => {
                 // SDK status messages carry permission_mode and compacting state.
@@ -1626,26 +1745,21 @@ impl ClaudeConnector {
                             "Context compaction in progress — showing indicator"
                         );
 
-                        events.push(ConnectorEvent::MessageCreated(
-                            orbitdock_protocol::Message {
-                                id: msg_id,
-                                session_id,
-                                sequence: None,
-                                message_type: orbitdock_protocol::MessageType::Tool,
-                                content: String::new(),
-                                tool_name: Some("CompactContext".to_string()),
-                                tool_input: Some(
-                                    "Compacting context to keep session within model context window…"
-                                        .to_string(),
-                                ),
-                                tool_output: None,
-                                is_error: false,
-                                is_in_progress: true,
-                                timestamp: now_iso(),
-                                duration_ms: None,
-                                images: vec![],
-                            },
-                        ));
+                        let tr = make_tool_row(
+                            msg_id.clone(),
+                            "CompactContext",
+                            Some(&serde_json::json!(
+                                "Compacting context to keep session within model context window…"
+                            )),
+                            ToolStatus::Running,
+                        );
+                        let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+                        tool_rows.insert(msg_id.clone(), tr.clone());
+                        events.push(ConnectorEvent::ConversationRowCreated(make_entry(
+                            &session_id,
+                            seq,
+                            ConversationRow::Tool(tr),
+                        )));
                     }
                 }
 
@@ -1729,6 +1843,7 @@ impl ClaudeConnector {
         last_turn_input: &mut Option<(u64, u64)>,
         cumulative_output: &mut u64,
         last_context_window: &mut u64,
+        tool_rows: &mut HashMap<String, ToolRow>,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
 
@@ -1738,7 +1853,13 @@ impl ClaudeConnector {
         let had_streaming = streaming_msg_id.is_some();
 
         // Flush any pending streaming content
-        flush_streaming(&mut events, streaming_content, streaming_msg_id);
+        flush_streaming(
+            &mut events,
+            streaming_content,
+            streaming_msg_id,
+            session_id,
+            msg_counter,
+        );
 
         let message = match raw.get("message") {
             Some(m) => m,
@@ -1779,10 +1900,11 @@ impl ClaudeConnector {
 
         for block in content_blocks {
             let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
             let id = format!(
                 "claude-msg-{}-{}",
                 &session_id[..8.min(session_id.len())],
-                msg_counter.fetch_add(1, Ordering::Relaxed)
+                seq
             );
 
             match block_type {
@@ -1790,23 +1912,17 @@ impl ClaudeConnector {
                 "text" if had_streaming => continue,
                 "text" => {
                     let text = block.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                    events.push(ConnectorEvent::MessageCreated(
-                        orbitdock_protocol::Message {
-                            id,
-                            session_id: session_id.to_string(),
-                            sequence: None,
-                            message_type: orbitdock_protocol::MessageType::Assistant,
-                            content: text.to_string(),
-                            tool_name: None,
-                            tool_input: None,
-                            tool_output: None,
-                            is_error: false,
-                            is_in_progress: false,
-                            timestamp: now_iso(),
-                            duration_ms: None,
-                            images: vec![],
-                        },
-                    ));
+                    let row = ConversationRow::Assistant(MessageRowContent {
+                        id,
+                        content: text.to_string(),
+                        turn_id: None,
+                        timestamp: Some(now_iso()),
+                        is_streaming: false,
+                        images: vec![],
+                    });
+                    events.push(ConnectorEvent::ConversationRowCreated(make_entry(
+                        session_id, seq, row,
+                    )));
                 }
                 "tool_use" => {
                     let tool_name = block
@@ -1814,26 +1930,21 @@ impl ClaudeConnector {
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
                     let input_value = block.get("input");
-                    let input = input_value.map(|v| v.to_string());
                     let tool_use_id = block.get("id").and_then(|v| v.as_str());
                     let message_id = tool_use_id.map(str::to_string).unwrap_or(id);
-                    events.push(ConnectorEvent::MessageCreated(
-                        orbitdock_protocol::Message {
-                            id: message_id,
-                            session_id: session_id.to_string(),
-                            sequence: None,
-                            message_type: orbitdock_protocol::MessageType::Tool,
-                            content: String::new(),
-                            tool_name: Some(tool_name.to_string()),
-                            tool_input: input,
-                            tool_output: None,
-                            is_error: false,
-                            is_in_progress: true,
-                            timestamp: now_iso(),
-                            duration_ms: None,
-                            images: vec![],
-                        },
-                    ));
+
+                    let tr = make_tool_row(
+                        message_id.clone(),
+                        tool_name,
+                        input_value,
+                        ToolStatus::Running,
+                    );
+                    tool_rows.insert(message_id.clone(), tr.clone());
+                    events.push(ConnectorEvent::ConversationRowCreated(make_entry(
+                        session_id,
+                        seq,
+                        ConversationRow::Tool(tr),
+                    )));
 
                     // Build an aggregated per-turn patch diff stream from direct edit/write tools.
                     if let Some(payload) = input_value {
@@ -1846,30 +1957,23 @@ impl ClaudeConnector {
                 }
                 "thinking" => {
                     let thinking = block.get("thinking").and_then(|v| v.as_str()).unwrap_or("");
-                    events.push(ConnectorEvent::MessageCreated(
-                        orbitdock_protocol::Message {
-                            id,
-                            session_id: session_id.to_string(),
-                            sequence: None,
-                            message_type: orbitdock_protocol::MessageType::Thinking,
-                            content: thinking.to_string(),
-                            tool_name: None,
-                            tool_input: None,
-                            tool_output: None,
-                            is_error: false,
-                            is_in_progress: false,
-                            timestamp: now_iso(),
-                            duration_ms: None,
-                            images: vec![],
-                        },
-                    ));
+                    let row = ConversationRow::Thinking(MessageRowContent {
+                        id,
+                        content: thinking.to_string(),
+                        turn_id: None,
+                        timestamp: Some(now_iso()),
+                        is_streaming: false,
+                        images: vec![],
+                    });
+                    events.push(ConnectorEvent::ConversationRowCreated(make_entry(
+                        session_id, seq, row,
+                    )));
                 }
                 _ => {}
             }
         }
 
         // Capture per-call usage from the assistant message for accurate context fill.
-        // message.usage contains per-call values (not cumulative session totals).
         if let Some(usage) = message.get("usage").and_then(Value::as_object) {
             let input = value_to_u64(usage.get("input_tokens"));
             let cached = value_to_u64(usage.get("cache_read_input_tokens"))
@@ -1877,8 +1981,6 @@ impl ClaudeConnector {
             *last_turn_input = Some((input, cached));
             *cumulative_output += value_to_u64(usage.get("output_tokens"));
 
-            // Emit live token progress during turns (not just on final `result`).
-            // Claude tool/thinking blocks are nested inside assistant messages.
             let live_usage = orbitdock_protocol::TokenUsage {
                 input_tokens: input,
                 output_tokens: *cumulative_output,
@@ -1911,15 +2013,12 @@ impl ClaudeConnector {
     }
 
     /// Handle echoed `user` messages — extract tool results.
-    ///
-    /// The CLI emits user messages on stdout when `--replay-user-messages` is set.
-    /// Tool result messages have `isSynthetic: false` (they're not meta/transcript-only),
-    /// so we identify them by checking for `tool_result` content blocks instead.
     fn handle_user_message(
         raw: &Value,
         session_id: &str,
-        _msg_counter: &Arc<AtomicU64>,
+        msg_counter: &Arc<AtomicU64>,
         task_tool_use_map: &mut HashMap<String, String>,
+        tool_rows: &mut HashMap<String, ToolRow>,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
         let message = match raw.get("message") {
@@ -1932,7 +2031,6 @@ impl ClaudeConnector {
             None => return events,
         };
 
-        // Check if this message contains any tool_result blocks
         let has_tool_results = content_blocks
             .iter()
             .any(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result"));
@@ -1951,70 +2049,91 @@ impl ClaudeConnector {
 
         for block in content_blocks {
             let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            if block_type == "tool_result" {
-                let content = block
-                    .get("content")
-                    .map(|v| {
-                        if let Some(s) = v.as_str() {
-                            s.to_string()
-                        } else {
-                            v.to_string()
-                        }
-                    })
-                    .unwrap_or_default();
-                let is_error = block
-                    .get("is_error")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+            if block_type != "tool_result" {
+                continue;
+            }
 
-                if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
-                    // Check if this tool_use_id belongs to a background task/subagent.
-                    // If so, finalize the task card (which uses task_id as its message ID)
-                    // because the CLI never emits task_notification.
-                    let task_id = task_tool_use_map.remove(tool_use_id);
-
-                    info!(
-                        component = "claude_connector",
-                        event = "claude.tool_result.extracted",
-                        session_id = %session_id,
-                        tool_use_id = %tool_use_id,
-                        task_id = ?task_id,
-                        output_chars = content.len(),
-                        is_error = is_error,
-                        "Extracted tool result → MessageUpdated"
-                    );
-
-                    if let Some(tid) = task_id {
-                        // This tool_use_id belongs to a background task — only finalize
-                        // the task card (keyed by task_id). Skip the tool_use_id update
-                        // to prevent a duplicate card.
-                        events.push(ConnectorEvent::MessageUpdated {
-                            message_id: tid,
-                            content: None,
-                            tool_output: Some(content.clone()),
-                            is_error: Some(is_error),
-                            is_in_progress: Some(false),
-                            duration_ms: None,
-                        });
+            let content = block
+                .get("content")
+                .map(|v| {
+                    if let Some(s) = v.as_str() {
+                        s.to_string()
                     } else {
-                        // Regular tool result — update the tool card keyed by tool_use_id.
-                        events.push(ConnectorEvent::MessageUpdated {
-                            message_id: tool_use_id.to_string(),
-                            content: None,
-                            tool_output: Some(content.clone()),
-                            is_error: Some(is_error),
-                            is_in_progress: Some(false),
-                            duration_ms: None,
-                        });
+                        v.to_string()
                     }
+                })
+                .unwrap_or_default();
+            let is_error = block
+                .get("is_error")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+                let task_id = task_tool_use_map.remove(tool_use_id);
+
+                info!(
+                    component = "claude_connector",
+                    event = "claude.tool_result.extracted",
+                    session_id = %session_id,
+                    tool_use_id = %tool_use_id,
+                    task_id = ?task_id,
+                    output_chars = content.len(),
+                    is_error = is_error,
+                    "Extracted tool result → ConversationRowUpdated"
+                );
+
+                // Determine the row_id: either the task_id (for background tasks)
+                // or the tool_use_id (for regular tools).
+                let row_id = task_id.unwrap_or_else(|| tool_use_id.to_string());
+
+                if let Some(mut tr) = tool_rows.remove(&row_id) {
+                    tr.status = if is_error {
+                        ToolStatus::Failed
+                    } else {
+                        ToolStatus::Completed
+                    };
+                    tr.ended_at = Some(now_iso());
+                    tr.result = Some(ToolResultPayload::Generic(GenericResultPayload {
+                        tool_name: tr.title.clone(),
+                        raw_output: Some(Value::String(content.clone())),
+                        summary: None,
+                    }));
+                    let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+                    events.push(ConnectorEvent::ConversationRowUpdated {
+                        row_id: row_id.clone(),
+                        entry: make_entry(session_id, seq, ConversationRow::Tool(tr)),
+                    });
                 } else {
-                    warn!(
-                        component = "claude_connector",
-                        event = "claude.tool_result.no_tool_use_id",
-                        session_id = %session_id,
-                        "tool_result block missing tool_use_id"
+                    // No tracked row — create a minimal completed tool row.
+                    let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+                    let mut tr = make_tool_row(
+                        row_id.clone(),
+                        "unknown",
+                        None,
+                        if is_error {
+                            ToolStatus::Failed
+                        } else {
+                            ToolStatus::Completed
+                        },
                     );
+                    tr.ended_at = Some(now_iso());
+                    tr.result = Some(ToolResultPayload::Generic(GenericResultPayload {
+                        tool_name: "unknown".to_string(),
+                        raw_output: Some(Value::String(content.clone())),
+                        summary: None,
+                    }));
+                    events.push(ConnectorEvent::ConversationRowUpdated {
+                        row_id,
+                        entry: make_entry(session_id, seq, ConversationRow::Tool(tr)),
+                    });
                 }
+            } else {
+                warn!(
+                    component = "claude_connector",
+                    event = "claude.tool_result.no_tool_use_id",
+                    session_id = %session_id,
+                    "tool_result block missing tool_use_id"
+                );
             }
         }
 
@@ -2050,37 +2169,38 @@ impl ClaudeConnector {
                     streaming_content.push_str(text);
 
                     if streaming_msg_id.is_none() {
+                        let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                         let msg_id = format!(
                             "claude-msg-{}-{}",
                             &session_id[..8.min(session_id.len())],
-                            msg_counter.fetch_add(1, Ordering::Relaxed)
+                            seq
                         );
-                        events.push(ConnectorEvent::MessageCreated(
-                            orbitdock_protocol::Message {
-                                id: msg_id.clone(),
-                                session_id: session_id.to_string(),
-                                sequence: None,
-                                message_type: orbitdock_protocol::MessageType::Assistant,
-                                content: streaming_content.clone(),
-                                tool_name: None,
-                                tool_input: None,
-                                tool_output: None,
-                                is_error: false,
-                                is_in_progress: true,
-                                timestamp: now_iso(),
-                                duration_ms: None,
-                                images: vec![],
-                            },
-                        ));
+                        let row = ConversationRow::Assistant(MessageRowContent {
+                            id: msg_id.clone(),
+                            content: streaming_content.clone(),
+                            turn_id: None,
+                            timestamp: Some(now_iso()),
+                            is_streaming: true,
+                            images: vec![],
+                        });
+                        events.push(ConnectorEvent::ConversationRowCreated(make_entry(
+                            session_id, seq, row,
+                        )));
                         *streaming_msg_id = Some(msg_id);
                     } else {
-                        events.push(ConnectorEvent::MessageUpdated {
-                            message_id: streaming_msg_id.clone().unwrap(),
-                            content: Some(streaming_content.clone()),
-                            tool_output: None,
-                            is_error: None,
-                            is_in_progress: Some(true),
-                            duration_ms: None,
+                        let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+                        let msg_id = streaming_msg_id.clone().unwrap();
+                        let row = ConversationRow::Assistant(MessageRowContent {
+                            id: msg_id.clone(),
+                            content: streaming_content.clone(),
+                            turn_id: None,
+                            timestamp: Some(now_iso()),
+                            is_streaming: true,
+                            images: vec![],
+                        });
+                        events.push(ConnectorEvent::ConversationRowUpdated {
+                            row_id: msg_id,
+                            entry: make_entry(session_id, seq, row),
                         });
                     }
                 }
@@ -2091,7 +2211,12 @@ impl ClaudeConnector {
     }
 
     /// Handle `tool_progress` updates for long-running tool executions.
-    fn handle_tool_progress(raw: &Value) -> Vec<ConnectorEvent> {
+    fn handle_tool_progress(
+        raw: &Value,
+        session_id: &str,
+        msg_counter: &Arc<AtomicU64>,
+        tool_rows: &mut HashMap<String, ToolRow>,
+    ) -> Vec<ConnectorEvent> {
         let Some(tool_use_id) = raw.get("tool_use_id").and_then(|v| v.as_str()) else {
             return vec![];
         };
@@ -2105,17 +2230,21 @@ impl ClaudeConnector {
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
 
-        vec![ConnectorEvent::MessageUpdated {
-            message_id: tool_use_id.to_string(),
-            content: None,
-            tool_output: Some(format!("{} running ({}s)", tool_name, elapsed)),
-            is_error: None,
-            is_in_progress: Some(true),
-            duration_ms: None,
-        }]
+        if let Some(tr) = tool_rows.get_mut(tool_use_id) {
+            tr.summary = Some(format!("{} running ({}s)", tool_name, elapsed));
+            tr.duration_ms = Some(elapsed * 1000);
+            let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+            vec![ConnectorEvent::ConversationRowUpdated {
+                row_id: tool_use_id.to_string(),
+                entry: make_entry(session_id, seq, ConversationRow::Tool(tr.clone())),
+            }]
+        } else {
+            vec![]
+        }
     }
 
     /// Handle `result` messages — turn completed/aborted with usage.
+    #[allow(clippy::too_many_arguments)]
     fn handle_result_message(
         raw: &Value,
         streaming_content: &mut String,
@@ -2123,11 +2252,19 @@ impl ClaudeConnector {
         last_turn_input: &mut Option<(u64, u64)>,
         cumulative_output: &mut u64,
         last_context_window: &mut u64,
+        session_id: &str,
+        msg_counter: &Arc<AtomicU64>,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
 
         // Flush streaming content
-        flush_streaming(&mut events, streaming_content, streaming_msg_id);
+        flush_streaming(
+            &mut events,
+            streaming_content,
+            streaming_msg_id,
+            session_id,
+            msg_counter,
+        );
 
         // Build token usage. Prefer per-call input/cached from the last assistant
         // message (accurate for context fill) with cumulative output tokens.
@@ -2516,21 +2653,28 @@ fn now_iso() -> String {
     format!("{}Z", ms / 1000)
 }
 
-/// Flush accumulated streaming content into a final MessageUpdated.
+/// Flush accumulated streaming content into a final ConversationRowUpdated.
 fn flush_streaming(
     events: &mut Vec<ConnectorEvent>,
     streaming_content: &mut String,
     streaming_msg_id: &mut Option<String>,
+    session_id: &str,
+    msg_counter: &Arc<AtomicU64>,
 ) {
     if let Some(mid) = streaming_msg_id.take() {
         if !streaming_content.is_empty() {
-            events.push(ConnectorEvent::MessageUpdated {
-                message_id: mid,
-                content: Some(std::mem::take(streaming_content)),
-                tool_output: None,
-                is_error: None,
-                is_in_progress: Some(false),
-                duration_ms: None,
+            let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+            let row = ConversationRow::Assistant(MessageRowContent {
+                id: mid.clone(),
+                content: std::mem::take(streaming_content),
+                turn_id: None,
+                timestamp: Some(now_iso()),
+                is_streaming: false,
+                images: vec![],
+            });
+            events.push(ConnectorEvent::ConversationRowUpdated {
+                row_id: mid,
+                entry: make_entry(session_id, seq, row),
             });
         }
     }
@@ -2916,6 +3060,7 @@ mod tests {
         let mut cumulative_output = 0;
         let mut last_context_window = 200_000;
         let msg_counter = Arc::new(AtomicU64::new(1));
+        let mut tool_rows = HashMap::new();
 
         let events = ClaudeConnector::handle_assistant_message(
             &raw,
@@ -2927,6 +3072,7 @@ mod tests {
             &mut last_turn_input,
             &mut cumulative_output,
             &mut last_context_window,
+            &mut tool_rows,
         );
 
         let has_diff = events.iter().any(|event| {
@@ -2985,6 +3131,7 @@ mod tests {
         let mut cumulative_output = 0;
         let mut last_context_window = 200_000;
         let msg_counter = Arc::new(AtomicU64::new(1));
+        let mut tool_rows = HashMap::new();
 
         let _ = ClaudeConnector::handle_assistant_message(
             &raw_edit,
@@ -2996,6 +3143,7 @@ mod tests {
             &mut last_turn_input,
             &mut cumulative_output,
             &mut last_context_window,
+            &mut tool_rows,
         );
 
         let second_events = ClaudeConnector::handle_assistant_message(
@@ -3008,6 +3156,7 @@ mod tests {
             &mut last_turn_input,
             &mut cumulative_output,
             &mut last_context_window,
+            &mut tool_rows,
         );
 
         let aggregated = second_events.iter().find_map(|event| {

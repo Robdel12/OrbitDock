@@ -1,3 +1,4 @@
+use crate::runtime::row_entry;
 use crate::workers::iso_now;
 use codex_protocol::protocol::{
     GetHistoryEntryResponseEvent, ListCustomPromptsResponseEvent, ListRemoteSkillsResponseEvent,
@@ -5,6 +6,7 @@ use codex_protocol::protocol::{
     McpStartupUpdateEvent, RemoteSkillDownloadedEvent,
 };
 use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -105,21 +107,15 @@ pub(crate) fn handle_list_custom_prompts_response(
         lines.push(format!("... {} more", event.custom_prompts.len() - 20));
     }
 
-    vec![ConnectorEvent::MessageCreated(orbitdock_protocol::Message {
+    let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
         id: format!("custom-prompts-{}-{}", event_id, seq),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Assistant,
         content: lines.join("\n"),
-        tool_name: None,
-        tool_input: None,
-        tool_output: None,
-        is_error: false,
-        is_in_progress: false,
-        timestamp: iso_now(),
-        duration_ms: None,
+        turn_id: None,
+        timestamp: Some(iso_now()),
+        is_streaming: false,
         images: vec![],
-    })]
+    }));
+    vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
 
 pub(crate) fn handle_get_history_entry_response(
@@ -140,21 +136,15 @@ pub(crate) fn handle_get_history_entry_response(
         )
     };
 
-    vec![ConnectorEvent::MessageCreated(orbitdock_protocol::Message {
+    let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
         id: format!("history-entry-{}-{}", event_id, seq),
-        session_id: String::new(),
-        sequence: None,
-        message_type: orbitdock_protocol::MessageType::Assistant,
         content,
-        tool_name: None,
-        tool_input: None,
-        tool_output: None,
-        is_error: false,
-        is_in_progress: false,
-        timestamp: iso_now(),
-        duration_ms: None,
+        turn_id: None,
+        timestamp: Some(iso_now()),
+        is_streaming: false,
         images: vec![],
-    })]
+    }));
+    vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
 
 pub(crate) fn handle_mcp_list_tools_response(
@@ -259,9 +249,7 @@ pub(crate) fn handle_mcp_startup_update(event: McpStartupUpdateEvent) -> Vec<Con
     }]
 }
 
-pub(crate) fn handle_mcp_startup_complete(
-    event: McpStartupCompleteEvent,
-) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_mcp_startup_complete(event: McpStartupCompleteEvent) -> Vec<ConnectorEvent> {
     let failed = event
         .failed
         .into_iter()

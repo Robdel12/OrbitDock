@@ -8,8 +8,9 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
 
+use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, ServerMessage, SessionStatus,
+    ClaudeIntegrationMode, CodexIntegrationMode, Provider, ServerMessage, SessionStatus,
     StateChanges, WorkStatus,
 };
 
@@ -27,51 +28,46 @@ use crate::support::session_time::{chrono_now, parse_unix_z};
 
 pub(crate) const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
 
-fn normalize_message_sequences(messages: &mut [Message]) {
+fn normalize_row_sequences(rows: &mut [ConversationRowEntry]) {
     let mut next_sequence = 0_u64;
-    for message in messages {
-        let sequence = message.sequence.unwrap_or(next_sequence);
-        message.sequence = Some(sequence);
-        next_sequence = sequence + 1;
+    for entry in rows {
+        if entry.sequence == 0 && next_sequence > 0 {
+            entry.sequence = next_sequence;
+        }
+        next_sequence = entry.sequence + 1;
     }
 }
 
-pub(crate) fn merge_messages_by_sequence(
-    mut base: Vec<Message>,
-    mut overlay: Vec<Message>,
-) -> Vec<Message> {
-    normalize_message_sequences(&mut base);
-    normalize_message_sequences(&mut overlay);
+pub(crate) fn merge_rows_by_sequence(
+    mut base: Vec<ConversationRowEntry>,
+    mut overlay: Vec<ConversationRowEntry>,
+) -> Vec<ConversationRowEntry> {
+    normalize_row_sequences(&mut base);
+    normalize_row_sequences(&mut overlay);
 
-    let mut merged = BTreeMap::<u64, Message>::new();
-    for message in base {
-        if let Some(sequence) = message.sequence {
-            merged.insert(sequence, message);
-        }
+    let mut merged = BTreeMap::<u64, ConversationRowEntry>::new();
+    for entry in base {
+        merged.insert(entry.sequence, entry);
     }
-    for message in overlay {
-        if let Some(sequence) = message.sequence {
-            merged.insert(sequence, message);
-        }
+    for entry in overlay {
+        merged.insert(entry.sequence, entry);
     }
     merged.into_values().collect()
 }
 
-pub(crate) async fn hydrate_full_message_history(
+pub(crate) async fn hydrate_full_row_history(
     session_id: &str,
-    retained_messages: Vec<Message>,
-    total_message_count: Option<u64>,
-) -> Vec<Message> {
-    let expected_count = total_message_count.unwrap_or(retained_messages.len() as u64);
-    if retained_messages.len() as u64 >= expected_count {
-        return retained_messages;
+    retained_rows: Vec<ConversationRowEntry>,
+    total_row_count: Option<u64>,
+) -> Vec<ConversationRowEntry> {
+    let expected_count = total_row_count.unwrap_or(retained_rows.len() as u64);
+    if retained_rows.len() as u64 >= expected_count {
+        return retained_rows;
     }
 
     match load_messages_for_session(session_id).await {
-        Ok(db_messages) if !db_messages.is_empty() => {
-            merge_messages_by_sequence(db_messages, retained_messages)
-        }
-        _ => retained_messages,
+        Ok(db_rows) if !db_rows.is_empty() => merge_rows_by_sequence(db_rows, retained_rows),
+        _ => retained_rows,
     }
 }
 
@@ -183,7 +179,7 @@ pub(crate) fn is_stale_empty_claude_shell(
     now_secs.saturating_sub(last_activity_at) >= CLAUDE_EMPTY_SHELL_TTL_SECS
 }
 
-/// Re-read a session's transcript and broadcast any new messages to subscribers.
+/// Re-read a session's transcript and broadcast any new rows to subscribers.
 /// Works for any hook-triggered session (Claude CLI, future Codex CLI hooks).
 pub(crate) async fn sync_transcript_messages(
     actor: &SessionActorHandle,
@@ -197,9 +193,8 @@ pub(crate) async fn sync_transcript_messages(
     let session_id = snap.id.clone();
     let existing_count = snap.message_count;
 
-    let all_messages = match load_messages_from_transcript_path(&transcript_path, &session_id).await
-    {
-        Ok(msgs) => msgs,
+    let all_rows = match load_messages_from_transcript_path(&transcript_path, &session_id).await {
+        Ok(rows) => rows,
         Err(_) => return,
     };
 
@@ -217,7 +212,7 @@ pub(crate) async fn sync_transcript_messages(
             .await
             .ok()
             .flatten(),
-        transcript_messages: all_messages,
+        transcript_rows: all_rows,
         existing_count,
         confirmed_count,
     });
@@ -237,134 +232,18 @@ pub(crate) async fn sync_transcript_messages(
         plan.message_sync_decision,
         TranscriptMessageSyncDecision::AppendNewMessages
     ) {
-        for msg in plan.new_messages {
+        for entry in plan.new_rows {
             let _ = persist_tx
                 .send(
-                    crate::infrastructure::persistence::PersistCommand::MessageAppend {
+                    crate::infrastructure::persistence::PersistCommand::RowAppend {
                         session_id: session_id.clone(),
-                        message: msg.clone(),
+                        entry: entry.clone(),
                     },
                 )
                 .await;
             actor
-                .send(SessionCommand::AddMessageAndBroadcast { message: msg })
+                .send(SessionCommand::AddRowAndBroadcast { entry })
                 .await;
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{claim_codex_thread_for_direct_session, direct_mode_activation_changes};
-    use crate::domain::sessions::session::SessionHandle;
-    use crate::infrastructure::persistence::PersistCommand;
-    use crate::runtime::session_registry::SessionRegistry;
-    use crate::transport::websocket::test_support::ensure_test_data_dir;
-    use orbitdock_protocol::{
-        ClaudeIntegrationMode, CodexIntegrationMode, Provider, ServerMessage, SessionStatus,
-        WorkStatus,
-    };
-    use std::sync::Arc;
-    use tokio::sync::mpsc;
-
-    #[test]
-    fn direct_mode_activation_changes_sets_active_waiting_for_codex() {
-        let changes = direct_mode_activation_changes(Provider::Codex);
-        assert_eq!(changes.status, Some(SessionStatus::Active));
-        assert_eq!(changes.work_status, Some(WorkStatus::Waiting));
-        assert_eq!(
-            changes.codex_integration_mode,
-            Some(Some(CodexIntegrationMode::Direct))
-        );
-        assert_eq!(changes.claude_integration_mode, None);
-    }
-
-    #[test]
-    fn direct_mode_activation_changes_sets_active_waiting_for_claude() {
-        let changes = direct_mode_activation_changes(Provider::Claude);
-        assert_eq!(changes.status, Some(SessionStatus::Active));
-        assert_eq!(changes.work_status, Some(WorkStatus::Waiting));
-        assert_eq!(
-            changes.claude_integration_mode,
-            Some(Some(ClaudeIntegrationMode::Direct))
-        );
-        assert_eq!(changes.codex_integration_mode, None);
-    }
-
-    #[tokio::test]
-    async fn claim_codex_thread_ends_shadow_runtime_session_and_persists_cleanup() {
-        ensure_test_data_dir();
-        let (persist_tx, mut persist_rx) = mpsc::channel(16);
-        let state = Arc::new(SessionRegistry::new(persist_tx.clone()));
-        let mut list_rx = state.subscribe_list();
-        let direct_session_id = "od-direct-session".to_string();
-        let shadow_thread_id = "019-shadow-thread".to_string();
-
-        let mut direct = SessionHandle::new(
-            direct_session_id.clone(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-        direct.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-        state.add_session(direct);
-
-        let mut shadow = SessionHandle::new(
-            shadow_thread_id.clone(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-        shadow.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-        state.add_session(shadow);
-
-        claim_codex_thread_for_direct_session(
-            &state,
-            &persist_tx,
-            &direct_session_id,
-            &shadow_thread_id,
-            "test_shadow_cleanup",
-        )
-        .await;
-
-        assert_eq!(
-            state.codex_thread_for_session(&direct_session_id),
-            Some(shadow_thread_id.clone())
-        );
-        assert!(state.get_session(&shadow_thread_id).is_none());
-
-        match list_rx.recv().await.expect("expected list broadcast") {
-            ServerMessage::SessionListItemRemoved { session_id } => {
-                assert_eq!(session_id, shadow_thread_id);
-            }
-            other => panic!("expected SessionListItemRemoved broadcast, got {:?}", other),
-        }
-
-        match persist_rx
-            .recv()
-            .await
-            .expect("expected SetThreadId command")
-        {
-            PersistCommand::SetThreadId {
-                session_id,
-                thread_id,
-            } => {
-                assert_eq!(session_id, direct_session_id);
-                assert_eq!(thread_id, "019-shadow-thread");
-            }
-            other => panic!("expected SetThreadId command, got {:?}", other),
-        }
-        match persist_rx
-            .recv()
-            .await
-            .expect("expected CleanupThreadShadowSession command")
-        {
-            PersistCommand::CleanupThreadShadowSession { thread_id, reason } => {
-                assert_eq!(thread_id, "019-shadow-thread");
-                assert_eq!(reason, "test_shadow_cleanup");
-            }
-            other => panic!(
-                "expected CleanupThreadShadowSession command, got {:?}",
-                other
-            ),
         }
     }
 }

@@ -241,7 +241,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     pending_tool_input,
                     pending_question,
                     pending_approval_id,
-                    messages,
+                    rows,
                     forked_from_session_id,
                     current_diff,
                     current_plan,
@@ -258,7 +258,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     approval_version,
                     unread_count,
                 } = rs;
-                let msg_count = messages.len();
+                let msg_count = rows.len();
 
                 if msg_count == 0 && provider == "claude" {
                     if let Some(ref transcript_path) = transcript_path {
@@ -309,7 +309,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     token_usage_snapshot_kind,
                     started_at,
                     last_activity_at,
-                    messages,
+                    rows,
                     current_diff,
                     current_plan,
                     restored_turn_diffs
@@ -432,13 +432,13 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                         )
                         .await
                         {
-                            Ok(messages) if !messages.is_empty() => {
-                                let count = messages.len();
-                                for message in &messages {
+                            Ok(rows) if !rows.is_empty() => {
+                                let count = rows.len();
+                                for entry in &rows {
                                     let _ = backfill_persist_tx
-                                        .send(crate::infrastructure::persistence::PersistCommand::MessageAppend {
+                                        .send(crate::infrastructure::persistence::PersistCommand::RowAppend {
                                             session_id: session_id.clone(),
-                                            message: message.clone(),
+                                            entry: entry.clone(),
                                         })
                                         .await;
                                 }
@@ -446,8 +446,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                                 if let Some(actor) = backfill_state.get_session(&session_id) {
                                     actor
                                         .send(
-                                            crate::runtime::session_commands::SessionCommand::ReplaceMessages {
-                                                messages,
+                                            crate::runtime::session_commands::SessionCommand::ReplaceRows {
+                                                rows,
                                             },
                                         )
                                         .await;
@@ -458,7 +458,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                                     event = "restore.backfill.session_done",
                                     session_id = %session_id,
                                     messages = count,
-                                    "Backfilled messages from transcript"
+                                    "Backfilled rows from transcript"
                                 );
                             }
                             Ok(_) => {}

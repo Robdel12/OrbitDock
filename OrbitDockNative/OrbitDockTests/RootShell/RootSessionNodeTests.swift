@@ -97,4 +97,57 @@ struct RootSessionNodeTests {
     #expect(node.listStatus == RootSessionListStatus.working)
     #expect(node.isWorktree == true)
   }
+
+  @Test func listItemAdapterParsesUnixZLastActivityForRecentOrdering() throws {
+    let endpointId = try #require(UUID(uuidString: "33333333-3333-3333-3333-333333333333"))
+
+    let item = ServerSessionListItem(
+      id: "session-3",
+      provider: .codex,
+      projectPath: "/tmp/orbitdock",
+      projectName: "OrbitDock",
+      gitBranch: "main",
+      model: "gpt-5.4",
+      status: .active,
+      workStatus: .waiting,
+      codexIntegrationMode: .direct,
+      claudeIntegrationMode: nil,
+      startedAt: "2026-03-11T01:00:00Z",
+      lastActivityAt: "1773346859Z",
+      unreadCount: 26,
+      hasTurnDiff: false,
+      pendingToolName: nil,
+      repositoryRoot: "/tmp/orbitdock",
+      isWorktree: false,
+      worktreeId: nil,
+      totalTokens: 0,
+      totalCostUSD: 0,
+      displayTitle: "OrbitDock agent spawn testing",
+      displayTitleSortKey: "orbitdock agent spawn testing",
+      displaySearchText: "orbitdock agent spawn testing main",
+      contextLine: "Latest worker state fix",
+      listStatus: .reply,
+      effort: nil
+    )
+
+    let node = RootSessionNode(
+      session: item,
+      endpointId: endpointId,
+      endpointName: "Local",
+      connectionStatus: .connected
+    )
+
+    #expect(node.lastActivityAt != nil)
+    #expect(node.hasUnreadMessages == true)
+    #expect(node.isReady == true)
+  }
+
+  @Test func parseTimestampAcceptsInternetDateTimeWithoutFractionalSeconds() {
+    let timestamp = " 2026-03-11T02:00:00Z "
+
+    let parsedDate = RootSessionNode.parseTimestamp(timestamp)
+
+    #expect(parsedDate != nil)
+    #expect(parsedDate?.timeIntervalSince1970 == 1_773_194_400)
+  }
 }

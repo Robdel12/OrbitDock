@@ -6,7 +6,7 @@ use crate::infrastructure::persistence::{
     load_messages_for_session, load_session_by_id, load_subagents_for_session,
 };
 use crate::runtime::restored_sessions::{
-    hydrate_restored_messages_if_missing, restored_session_to_state,
+    hydrate_restored_rows_if_missing, restored_session_to_state,
 };
 use crate::runtime::session_actor::SessionActorHandle;
 
@@ -15,7 +15,7 @@ pub(crate) async fn load_persisted_subscribe_state(
 ) -> Result<Option<SessionState>, String> {
     match load_session_by_id(session_id).await {
         Ok(Some(mut restored)) => {
-            hydrate_restored_messages_if_missing(&mut restored, session_id).await;
+            hydrate_restored_rows_if_missing(&mut restored, session_id).await;
             let mut state = restored_session_to_state(restored);
             hydrate_subagents(&mut state, session_id, "session.subscribe").await;
             Ok(Some(state))
@@ -31,7 +31,7 @@ pub(crate) async fn hydrate_runtime_subscribe_snapshot(
     session_id: &str,
 ) -> SessionState {
     loop {
-        if !state.messages.is_empty() {
+        if !state.rows.is_empty() {
             break;
         }
 
@@ -50,18 +50,18 @@ pub(crate) async fn hydrate_runtime_subscribe_snapshot(
         }
     }
 
-    if state.messages.is_empty() {
-        if let Ok(messages) = load_messages_for_session(session_id).await {
-            if !messages.is_empty() {
-                state.messages = messages;
+    if state.rows.is_empty() {
+        if let Ok(rows) = load_messages_for_session(session_id).await {
+            if !rows.is_empty() {
+                state.rows = rows;
             }
         }
     }
 
-    state.total_message_count = Some(state.messages.len() as u64);
-    state.has_more_before = Some(false);
-    state.oldest_sequence = state.messages.first().and_then(|message| message.sequence);
-    state.newest_sequence = state.messages.last().and_then(|message| message.sequence);
+    state.total_row_count = state.rows.len() as u64;
+    state.has_more_before = false;
+    state.oldest_sequence = state.rows.first().map(|entry| entry.sequence);
+    state.newest_sequence = state.rows.last().map(|entry| entry.sequence);
 
     hydrate_subagents(&mut state, session_id, "session.subscribe").await;
     state

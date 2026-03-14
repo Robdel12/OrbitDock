@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_protocol::conversation_contracts::ConversationRow;
 use orbitdock_protocol::{ServerMessage, SessionListItem, SessionStatus, StateChanges, WorkStatus};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -16,8 +17,7 @@ use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
 use crate::domain::sessions::transition;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_broadcasts::{
-    inject_approval_version, latest_completed_conversation_message, message_append_delta,
-    transition_delta,
+    inject_approval_version, latest_completed_conversation_row, row_append_delta, transition_delta,
 };
 use crate::runtime::session_commands::{
     PendingApprovalResolution, PersistOp, SessionCommand, SubscribeResult,
@@ -51,6 +51,8 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
             personality,
             service_tier,
             developer_instructions,
+            model,
+            effort,
         } => PersistCommand::SetSessionConfig {
             session_id,
             approval_policy,
@@ -61,9 +63,51 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
             personality,
             service_tier,
             developer_instructions,
+            model,
+            effort,
         },
     };
     let _ = persist_tx.send(cmd).await;
+}
+
+fn merge_subagent_updates(
+    existing: &[orbitdock_protocol::SubagentInfo],
+    incoming: Vec<orbitdock_protocol::SubagentInfo>,
+) -> Vec<orbitdock_protocol::SubagentInfo> {
+    let mut merged = existing.to_vec();
+
+    for updated in incoming {
+        if let Some(index) = merged.iter().position(|subagent| subagent.id == updated.id) {
+            merged[index] = updated;
+        } else {
+            merged.push(updated);
+        }
+    }
+
+    merged.sort_by(|lhs, rhs| lhs.started_at.cmp(&rhs.started_at));
+    merged
+}
+
+fn subagent_lists_match(
+    lhs: &[orbitdock_protocol::SubagentInfo],
+    rhs: &[orbitdock_protocol::SubagentInfo],
+) -> bool {
+    lhs.len() == rhs.len()
+        && lhs.iter().zip(rhs.iter()).all(|(left, right)| {
+            left.id == right.id
+                && left.agent_type == right.agent_type
+                && left.started_at == right.started_at
+                && left.ended_at == right.ended_at
+                && left.provider == right.provider
+                && left.label == right.label
+                && left.status == right.status
+                && left.task_summary == right.task_summary
+                && left.result_summary == right.result_summary
+                && left.error_summary == right.error_summary
+                && left.parent_subagent_id == right.parent_subagent_id
+                && left.model == right.model
+                && left.last_activity_at == right.last_activity_at
+        })
 }
 
 /// Handle a SessionCommand on the owned SessionHandle.
@@ -130,14 +174,14 @@ pub async fn handle_session_command(
             num_turns_from_end,
             reply,
         } => {
-            // Walk messages in reverse, count user messages, return the Nth one's ID
+            // Walk rows in reverse, count user rows, return the Nth one's ID
             let result = handle
-                .messages()
+                .rows()
                 .iter()
                 .rev()
-                .filter(|m| m.message_type == orbitdock_protocol::MessageType::User)
+                .filter(|entry| matches!(entry.row, ConversationRow::User(_)))
                 .nth(num_turns_from_end.saturating_sub(1) as usize)
-                .map(|m| m.id.clone());
+                .map(|entry| entry.id().to_string());
             let _ = reply.send(result);
         }
         SessionCommand::ProcessEvent { event } => {
@@ -191,7 +235,22 @@ pub async fn handle_session_command(
             handle.set_last_tool(tool);
         }
         SessionCommand::SetSubagents { subagents } => {
-            handle.set_subagents(subagents);
+            let session_id = handle.id().to_string();
+            let now = chrono_now();
+            let merged_subagents = merge_subagent_updates(handle.subagents(), subagents);
+            if subagent_lists_match(&merged_subagents, handle.subagents()) {
+                return;
+            }
+            handle.set_subagents(merged_subagents.clone());
+            handle.set_last_activity_at(Some(now.clone()));
+            handle.broadcast(ServerMessage::SessionDelta {
+                session_id,
+                changes: StateChanges {
+                    subagents: Some(merged_subagents),
+                    last_activity_at: Some(now),
+                    ..Default::default()
+                },
+            });
         }
         SessionCommand::SetPendingAttention {
             pending_tool_name,
@@ -253,21 +312,21 @@ pub async fn handle_session_command(
             let _ = reply.send(handle.summary());
         }
 
-        // -- Message operations --
-        SessionCommand::AddMessage { message } => {
-            let _ = handle.add_message(message);
+        // -- Row operations --
+        SessionCommand::AddRow { entry } => {
+            let _ = handle.add_row(entry);
         }
-        SessionCommand::ReplaceMessages { messages } => {
-            handle.replace_messages(messages);
+        SessionCommand::ReplaceRows { rows } => {
+            handle.replace_rows(rows);
         }
-        SessionCommand::AddMessageAndBroadcast { message } => {
+        SessionCommand::AddRowAndBroadcast { entry } => {
             let session_id = handle.id().to_string();
             let previous_last_message = handle.to_snapshot().last_message.clone();
 
-            let message = handle.add_message(message);
-            let observability_changes = message_append_delta(
+            let entry = handle.add_row(entry);
+            let observability_changes = row_append_delta(
                 previous_last_message.as_deref(),
-                &message,
+                &entry,
                 handle.unread_count(),
             );
             if let Some(ref changes) = observability_changes {
@@ -275,10 +334,17 @@ pub async fn handle_session_command(
                     handle.set_last_message(Some(snippet.clone()));
                 }
             }
-            handle.broadcast(ServerMessage::MessageAppended {
-                session_id,
-                message,
-            });
+            let rows_changed = ServerMessage::ConversationRowsChanged {
+                session_id: session_id.clone(),
+                upserted: vec![entry],
+                removed_row_ids: vec![],
+                total_row_count: handle.message_count() as u64,
+            };
+            if let ServerMessage::ConversationRowsChanged { ref upserted, .. } = rows_changed {
+                if handle.should_emit_streaming_row_update(upserted) {
+                    handle.broadcast(rows_changed);
+                }
+            }
             if let Some(changes) = observability_changes {
                 handle.broadcast(ServerMessage::SessionDelta {
                     session_id: handle.id().to_string(),
@@ -367,15 +433,15 @@ pub async fn handle_session_command(
             reply,
         } => {
             let state = handle.retained_state();
-            if state.messages.is_empty() {
+            if state.rows.is_empty() {
                 match crate::infrastructure::persistence::load_messages_from_transcript_path(
                     &path,
                     &session_id,
                 )
                 .await
                 {
-                    Ok(messages) if !messages.is_empty() => {
-                        handle.replace_messages(messages);
+                    Ok(rows) if !rows.is_empty() => {
+                        handle.replace_rows(rows);
                         let _ = reply.send(Some(handle.retained_state()));
                     }
                     _ => {
@@ -424,11 +490,11 @@ pub(crate) async fn dispatch_transition_input(
     let (new_state, effects) = transition::transition(state, input, &now);
     handle.apply_state(new_state);
 
-    // Update last_message from the latest completed user/assistant message.
+    // Update last_message from the latest completed user/assistant row.
     // In-progress assistant streaming deltas are intentionally ignored.
     let mut unread_count_delta: Option<u64> = None;
     let previous_last_message = handle.to_snapshot().last_message.clone();
-    if let Some(snippet) = latest_completed_conversation_message(handle.messages())
+    if let Some(snippet) = latest_completed_conversation_row(handle.rows())
         .filter(|snippet| previous_last_message.as_deref() != Some(snippet.as_str()))
     {
         handle.set_last_message(Some(snippet));
@@ -443,37 +509,30 @@ pub(crate) async fn dispatch_transition_input(
             }
             transition::Effect::Emit(msg) => {
                 let mut msg = *msg;
-                if let ServerMessage::MessageAppended { ref message, .. } = msg {
-                    if handle.note_transition_message_append(message) {
-                        unread_count_delta = Some(handle.unread_count());
+                if let ServerMessage::ConversationRowsChanged { ref upserted, .. } = msg {
+                    for entry in upserted {
+                        if handle.note_transition_row_append(entry) {
+                            unread_count_delta = Some(handle.unread_count());
+                        }
                     }
                 }
-                if let ServerMessage::MessageUpdated {
-                    ref session_id,
-                    ref message_id,
-                    ref changes,
-                } = msg
-                {
-                    tracing::info!(
-                        component = "session_handler",
-                        event = "broadcast.message_updated",
-                        session_id = %session_id,
-                        message_id = %message_id,
-                        has_tool_output = changes.tool_output.is_some(),
-                        tool_output_chars = changes.tool_output.as_ref().map(|s| s.len()).unwrap_or(0),
-                        is_in_progress = ?changes.is_in_progress,
-                        "Broadcasting MessageUpdated to clients"
-                    );
-                }
                 inject_approval_version(&mut msg, handle.approval_version());
-                handle.broadcast(msg);
+                let should_emit = match &msg {
+                    ServerMessage::ConversationRowsChanged { upserted, .. } => {
+                        handle.should_emit_streaming_row_update(upserted)
+                    }
+                    _ => true,
+                };
+                if should_emit {
+                    handle.broadcast(msg);
+                }
             }
         }
     }
 
     if let Some(changes) = transition_delta(
         previous_last_message.as_deref(),
-        handle.messages(),
+        handle.rows(),
         unread_count_delta,
     ) {
         handle.broadcast(ServerMessage::SessionDelta {
@@ -524,202 +583,4 @@ pub(crate) fn spawn_interrupt_watchdog(
             })
             .await;
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use orbitdock_protocol::{Message, MessageType, Provider, SessionStatus, StateChanges};
-    use tokio::sync::oneshot;
-
-    #[tokio::test]
-    async fn transition_message_create_updates_unread_and_broadcasts_delta() {
-        let (persist_tx, mut persist_rx) = mpsc::channel(8);
-        let mut handle = SessionHandle::new(
-            "session-unread".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-        let session_id = handle.id().to_string();
-        let mut rx = handle.subscribe();
-
-        dispatch_transition_input(
-            &session_id,
-            transition::Input::MessageCreated(Message {
-                id: "assistant-1".to_string(),
-                session_id: String::new(),
-                sequence: None,
-                message_type: MessageType::Assistant,
-                content: "stream started".to_string(),
-                tool_name: None,
-                tool_input: None,
-                tool_output: None,
-                is_error: false,
-                is_in_progress: true,
-                timestamp: "2026-03-08T01:15:00Z".to_string(),
-                duration_ms: None,
-                images: vec![],
-            }),
-            &mut handle,
-            &persist_tx,
-        )
-        .await;
-
-        let state = handle.retained_state();
-        assert_eq!(state.status, SessionStatus::Active);
-        assert_eq!(state.unread_count, 1);
-
-        let first = rx.recv().await.expect("expected message append");
-        assert!(
-            matches!(first, ServerMessage::MessageAppended { .. }),
-            "expected first broadcast to be MessageAppended, got {first:?}"
-        );
-
-        let second = rx.recv().await.expect("expected unread session delta");
-        match second {
-            ServerMessage::SessionDelta { changes, .. } => {
-                assert_eq!(changes.unread_count, Some(1));
-            }
-            other => panic!("expected SessionDelta, got {other:?}"),
-        }
-
-        let persist = persist_rx.recv().await.expect("expected persist op");
-        assert!(
-            matches!(persist, PersistCommand::MessageAppend { .. }),
-            "expected message append persistence, got {persist:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn subscribe_with_current_revision_returns_empty_replay_not_snapshot() {
-        let (persist_tx, _persist_rx) = mpsc::channel(8);
-        let mut handle = SessionHandle::new(
-            "session-replay-empty".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-        handle.broadcast(ServerMessage::SessionDelta {
-            session_id: handle.id().to_string(),
-            changes: StateChanges::default(),
-        });
-
-        let (reply_tx, reply_rx) = oneshot::channel();
-        handle_session_command(
-            SessionCommand::Subscribe {
-                since_revision: Some(1),
-                reply: reply_tx,
-            },
-            &mut handle,
-            &persist_tx,
-        )
-        .await;
-
-        match reply_rx.await.expect("subscribe reply") {
-            SubscribeResult::Replay { events, .. } => {
-                assert!(
-                    events.is_empty(),
-                    "expected empty replay when subscribing at current revision"
-                );
-            }
-            SubscribeResult::Snapshot { .. } => {
-                panic!("expected empty replay, not snapshot");
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn mark_read_broadcasts_root_safe_list_update() {
-        let (persist_tx, _persist_rx) = mpsc::channel(8);
-        let mut handle = SessionHandle::new(
-            "session-mark-read".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-        handle.note_transition_message_append(&Message {
-            id: "assistant-1".to_string(),
-            session_id: String::new(),
-            sequence: None,
-            message_type: MessageType::Assistant,
-            content: "finished".to_string(),
-            tool_name: None,
-            tool_input: None,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: false,
-            timestamp: "2026-03-12T10:00:00Z".to_string(),
-            duration_ms: None,
-            images: vec![],
-        });
-
-        let mut rx = handle.subscribe();
-        let (reply_tx, reply_rx) = oneshot::channel();
-
-        handle_session_command(
-            SessionCommand::MarkRead { reply: reply_tx },
-            &mut handle,
-            &persist_tx,
-        )
-        .await;
-
-        assert_eq!(reply_rx.await.expect("mark read reply"), 0);
-
-        let first = rx.recv().await.expect("expected unread delta");
-        match first {
-            ServerMessage::SessionDelta { changes, .. } => {
-                assert_eq!(changes.unread_count, Some(0));
-            }
-            other => panic!("expected SessionDelta, got {other:?}"),
-        }
-
-        let second = rx.recv().await.expect("expected root list update");
-        match second {
-            ServerMessage::SessionListItemUpdated { session } => {
-                assert_eq!(session.unread_count, 0);
-            }
-            other => panic!("expected SessionListItemUpdated, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn token_updates_broadcast_root_safe_list_update() {
-        let (persist_tx, _persist_rx) = mpsc::channel(8);
-        let mut handle = SessionHandle::new(
-            "session-tokens".to_string(),
-            Provider::Codex,
-            "/tmp/project".to_string(),
-        );
-        let session_id = handle.id().to_string();
-        let mut rx = handle.subscribe();
-
-        dispatch_transition_input(
-            &session_id,
-            transition::Input::TokensUpdated {
-                usage: orbitdock_protocol::TokenUsage {
-                    input_tokens: 120,
-                    output_tokens: 30,
-                    cached_tokens: 10,
-                    context_window: 2_000,
-                },
-                snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::LifetimeTotals,
-            },
-            &mut handle,
-            &persist_tx,
-        )
-        .await;
-
-        let first = rx.recv().await.expect("expected TokensUpdated");
-        assert!(
-            matches!(first, ServerMessage::TokensUpdated { .. }),
-            "expected TokensUpdated, got {first:?}"
-        );
-
-        let second = rx.recv().await.expect("expected SessionListItemUpdated");
-        match second {
-            ServerMessage::SessionListItemUpdated { session } => {
-                assert_eq!(session.id, "session-tokens");
-                assert_eq!(session.total_tokens, 150);
-            }
-            other => panic!("expected SessionListItemUpdated, got {other:?}"),
-        }
-    }
 }

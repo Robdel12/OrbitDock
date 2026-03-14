@@ -3,7 +3,9 @@
 //! Uses `spawn_blocking` for async-safe SQLite access.
 //! Batches writes for better performance under high event volume.
 
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::Path;
 use std::path::PathBuf;
 
 mod approvals;
@@ -23,9 +25,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use tracing::{info, warn};
 
+use orbitdock_connector_codex::rollout_parser::PersistedFileState;
+use orbitdock_protocol::conversation_contracts::ConversationRow;
 use orbitdock_protocol::{
-    ApprovalHistoryItem, ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Message,
-    MessageType, Provider, SessionStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    ApprovalHistoryItem, ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Provider,
+    SessionStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
 };
 
 pub(crate) use approvals::{delete_approval, list_approvals};
@@ -57,9 +61,121 @@ pub(crate) use worktrees::WorktreeRow;
 pub(crate) use worktrees::{
     load_removed_worktree_paths, load_worktree_by_id, load_worktrees_by_repo,
 };
-pub(crate) use writer::{create_persistence_channel, PersistenceWriter};
 #[cfg(test)]
-pub(crate) use writer::{flush_batch, flush_batch_for_test};
+pub(crate) use writer::flush_batch_for_test;
+pub(crate) use writer::{create_persistence_channel, PersistenceWriter};
+
+fn persist_subagent_upsert(
+    conn: &Connection,
+    session_id: &str,
+    info: &orbitdock_protocol::SubagentInfo,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO subagents (
+            id,
+            session_id,
+            agent_type,
+            transcript_path,
+            started_at,
+            ended_at,
+            provider,
+            label,
+            status,
+            task_summary,
+            result_summary,
+            error_summary,
+            parent_subagent_id,
+            model,
+            last_activity_at
+         )
+         VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+         ON CONFLICT(id) DO UPDATE SET
+            session_id = excluded.session_id,
+            agent_type = excluded.agent_type,
+            ended_at = CASE
+                WHEN subagents.status = 'completed'
+                     AND excluded.status != 'completed'
+                    THEN subagents.ended_at
+                WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
+                     AND excluded.status IN ('pending', 'running')
+                    THEN subagents.ended_at
+                WHEN subagents.status IN ('failed', 'cancelled', 'not_found')
+                     AND excluded.status = 'shutdown'
+                    THEN subagents.ended_at
+                ELSE COALESCE(excluded.ended_at, subagents.ended_at)
+            END,
+            provider = COALESCE(excluded.provider, subagents.provider),
+            label = COALESCE(excluded.label, subagents.label),
+            status = CASE
+                WHEN subagents.status = 'completed'
+                     AND excluded.status != 'completed'
+                    THEN subagents.status
+                WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
+                     AND excluded.status IN ('pending', 'running')
+                    THEN subagents.status
+                WHEN subagents.status IN ('completed', 'failed', 'cancelled', 'not_found')
+                     AND excluded.status = 'shutdown'
+                    THEN subagents.status
+                ELSE excluded.status
+            END,
+            task_summary = COALESCE(excluded.task_summary, subagents.task_summary),
+            result_summary = CASE
+                WHEN subagents.status = 'completed'
+                     AND excluded.status != 'completed'
+                    THEN subagents.result_summary
+                WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
+                     AND excluded.status IN ('pending', 'running')
+                    THEN subagents.result_summary
+                WHEN subagents.status IN ('completed', 'failed', 'cancelled', 'not_found')
+                     AND excluded.status = 'shutdown'
+                    THEN subagents.result_summary
+                ELSE COALESCE(excluded.result_summary, subagents.result_summary)
+            END,
+            error_summary = CASE
+                WHEN subagents.status = 'completed'
+                     AND excluded.status != 'completed'
+                    THEN subagents.error_summary
+                WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
+                     AND excluded.status IN ('pending', 'running')
+                    THEN subagents.error_summary
+                WHEN subagents.status IN ('completed', 'failed', 'cancelled', 'not_found')
+                     AND excluded.status = 'shutdown'
+                    THEN subagents.error_summary
+                ELSE COALESCE(excluded.error_summary, subagents.error_summary)
+            END,
+            parent_subagent_id = COALESCE(excluded.parent_subagent_id, subagents.parent_subagent_id),
+            model = COALESCE(excluded.model, subagents.model),
+            last_activity_at = excluded.last_activity_at",
+        params![
+            info.id,
+            session_id,
+            info.agent_type,
+            info.started_at,
+            info.ended_at,
+            info.provider.map(|provider| match provider {
+                Provider::Claude => "claude",
+                Provider::Codex => "codex",
+            }),
+            info.label,
+            match info.status {
+                orbitdock_protocol::SubagentStatus::Pending => "pending",
+                orbitdock_protocol::SubagentStatus::Running => "running",
+                orbitdock_protocol::SubagentStatus::Completed => "completed",
+                orbitdock_protocol::SubagentStatus::Failed => "failed",
+                orbitdock_protocol::SubagentStatus::Cancelled => "cancelled",
+                orbitdock_protocol::SubagentStatus::Shutdown => "shutdown",
+                orbitdock_protocol::SubagentStatus::NotFound => "not_found",
+            },
+            info.task_summary,
+            info.result_summary,
+            info.error_summary,
+            info.parent_subagent_id,
+            info.model,
+            info.last_activity_at,
+        ],
+    )?;
+    Ok(())
+}
 
 /// Execute a single persist command
 pub(super) fn execute_command(
@@ -203,74 +319,46 @@ pub(super) fn execute_command(
             )?;
         }
 
-        PersistCommand::MessageAppend {
-            session_id,
-            message,
-        } => {
-            let type_str = match message.message_type {
-                MessageType::User => "user",
-                MessageType::Assistant => "assistant",
-                MessageType::Thinking => "thinking",
-                MessageType::Tool => "tool",
-                MessageType::ToolResult => "tool_result",
-                MessageType::Steer => "steer",
-                MessageType::Shell => "shell",
-            };
+        PersistCommand::RowAppend { session_id, entry } => {
+            let row_id = entry.id().to_string();
+            let row_type = row_type_str(&entry.row);
+            let seq = entry.sequence as i64;
+            let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
 
-            let seq: i64 = match message
-                .sequence
-                .and_then(|sequence| i64::try_from(sequence).ok())
-            {
-                Some(sequence) => sequence,
-                None => conn.query_row(
-                    "SELECT COALESCE(MAX(sequence), -1) + 1 FROM messages WHERE session_id = ?",
-                    params![session_id],
-                    |row| row.get(0),
-                )?,
-            };
-
-            let images_json: Option<String> = if message.images.is_empty() {
-                None
-            } else {
-                serde_json::to_string(&message.images).ok()
-            };
+            // Extract content for last_message updates
+            let content_text = extract_row_content(&entry.row);
+            let is_user = matches!(&entry.row, ConversationRow::User(_));
 
             conn.execute(
-                "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, tool_name, tool_input, tool_output, tool_duration, is_error, is_in_progress, images_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, row_data)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
-                    message.id,
+                    row_id,
                     session_id,
-                    type_str,
-                    message.content,
-                    message.timestamp,
+                    row_type,
+                    content_text.as_deref().unwrap_or(""),
+                    chrono_now(),
                     seq,
-                    message.tool_name,
-                    message.tool_input,
-                    message.tool_output,
-                    message.duration_ms.map(|d| d as f64 / 1000.0),
-                    if message.is_error { 1 } else { 0 },
-                    if message.is_in_progress { 1 } else { 0 },
-                    images_json,
+                    row_data,
                 ],
             )?;
 
-            // Update last_message on the session for dashboard context lines.
-            // Ignore in-progress assistant deltas to avoid single-token summaries.
+            // Update last_message for dashboard context lines (user + assistant only)
             if matches!(
-                message.message_type,
-                MessageType::User | MessageType::Assistant
-            ) && !message.is_in_progress
-            {
-                let truncated: String = message.content.chars().take(200).collect();
-                let _ = conn.execute(
-                    "UPDATE sessions SET last_message = ?1 WHERE id = ?2",
-                    params![truncated, session_id],
-                );
+                &entry.row,
+                ConversationRow::User(_) | ConversationRow::Assistant(_)
+            ) {
+                if let Some(content) = &content_text {
+                    let truncated: String = content.chars().take(200).collect();
+                    let _ = conn.execute(
+                        "UPDATE sessions SET last_message = ?1 WHERE id = ?2",
+                        params![truncated, session_id],
+                    );
+                }
             }
 
-            // Increment cached unread count for non-user, non-steer messages
-            if !matches!(message.message_type, MessageType::User | MessageType::Steer) {
+            // Increment cached unread count for non-user rows
+            if !is_user {
                 let _ = conn.execute(
                     "UPDATE sessions SET unread_count = unread_count + 1 WHERE id = ?1",
                     params![session_id],
@@ -278,80 +366,42 @@ pub(super) fn execute_command(
             }
         }
 
-        PersistCommand::MessageUpdate {
-            session_id,
-            message_id,
-            content,
-            tool_output,
-            duration_ms,
-            is_error,
-            is_in_progress,
-        } => {
-            let mut updates = Vec::new();
-            let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        PersistCommand::RowUpsert { session_id, entry } => {
+            let row_id = entry.id().to_string();
+            let row_type = row_type_str(&entry.row);
+            let seq = entry.sequence as i64;
+            let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
+            let content_text = extract_row_content(&entry.row);
 
-            if let Some(c) = content {
-                updates.push("content = ?");
-                params_vec.push(Box::new(c));
-            }
-            if let Some(o) = tool_output {
-                updates.push("tool_output = ?");
-                params_vec.push(Box::new(o));
-            }
-            if let Some(d) = duration_ms {
-                updates.push("tool_duration = ?");
-                params_vec.push(Box::new(d as f64 / 1000.0));
-            }
-            if let Some(e) = is_error {
-                updates.push("is_error = ?");
-                params_vec.push(Box::new(if e { 1 } else { 0 }));
-            }
-            if let Some(in_progress) = is_in_progress {
-                updates.push("is_in_progress = ?");
-                params_vec.push(Box::new(if in_progress { 1 } else { 0 }));
-            }
+            conn.execute(
+                "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, row_data)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(id) DO UPDATE SET
+                   content = excluded.content,
+                   row_data = excluded.row_data",
+                params![
+                    row_id,
+                    session_id,
+                    row_type,
+                    content_text.as_deref().unwrap_or(""),
+                    chrono_now(),
+                    seq,
+                    row_data,
+                ],
+            )?;
 
-            if !updates.is_empty() {
-                let sql = format!(
-                    "UPDATE messages SET {} WHERE id = ? AND session_id = ?",
-                    updates.join(", ")
-                );
-                params_vec.push(Box::new(message_id.clone()));
-                params_vec.push(Box::new(session_id.clone()));
-
-                let params_refs: Vec<&dyn rusqlite::ToSql> =
-                    params_vec.iter().map(|b| b.as_ref()).collect();
-                conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
-            }
-
-            // Keep sessions.last_message aligned to completed conversation messages.
-            // We intentionally skip in-progress assistant deltas to avoid noisy one-char lines.
-            let candidate: Option<String> = conn
-                .query_row(
-                    "SELECT type, content, is_in_progress FROM messages WHERE id = ?1 AND session_id = ?2",
-                    params![message_id, session_id],
-                    |row| {
-                        let message_type: String = row.get(0)?;
-                        let content: Option<String> = row.get(1)?;
-                        let is_in_progress: i64 = row.get(2)?;
-                        Ok((message_type, content, is_in_progress))
-                    },
-                )
-                .optional()?
-                .and_then(|(message_type, content, is_in_progress)| {
-                    if (message_type == "user" || message_type == "assistant") && is_in_progress == 0 {
-                        content
-                    } else {
-                        None
-                    }
-                });
-
-            if let Some(content) = candidate {
-                let truncated: String = content.chars().take(200).collect();
-                let _ = conn.execute(
-                    "UPDATE sessions SET last_message = ?1 WHERE id = ?2",
-                    params![truncated, session_id],
-                );
+            // Update last_message for completed user/assistant rows
+            if matches!(
+                &entry.row,
+                ConversationRow::User(_) | ConversationRow::Assistant(_)
+            ) {
+                if let Some(content) = &content_text {
+                    let truncated: String = content.chars().take(200).collect();
+                    let _ = conn.execute(
+                        "UPDATE sessions SET last_message = ?1 WHERE id = ?2",
+                        params![truncated, session_id],
+                    );
+                }
             }
         }
 
@@ -527,6 +577,8 @@ pub(super) fn execute_command(
             personality,
             service_tier,
             developer_instructions,
+            model,
+            effort,
         } => {
             conn.execute(
                 "UPDATE sessions
@@ -542,8 +594,14 @@ pub(super) fn execute_command(
                          WHEN trim(?8) = '' THEN NULL
                          ELSE ?8
                      END,
-                     last_activity_at = ?9
-                 WHERE id = ?10",
+                     model = COALESCE(?9, model),
+                     effort = CASE
+                         WHEN ?10 IS NULL THEN effort
+                         WHEN trim(?10) = '' THEN NULL
+                         ELSE ?10
+                     END,
+                     last_activity_at = ?11
+                 WHERE id = ?12",
                 params![
                     approval_policy,
                     sandbox_mode,
@@ -553,6 +611,8 @@ pub(super) fn execute_command(
                     personality,
                     service_tier,
                     developer_instructions,
+                    model,
+                    effort,
                     chrono_now(),
                     session_id
                 ],
@@ -898,110 +958,13 @@ pub(super) fn execute_command(
         }
 
         PersistCommand::UpsertSubagent { session_id, info } => {
-            conn.execute(
-                "INSERT INTO subagents (
-                    id,
-                    session_id,
-                    agent_type,
-                    transcript_path,
-                    started_at,
-                    ended_at,
-                    provider,
-                    label,
-                    status,
-                    task_summary,
-                    result_summary,
-                    error_summary,
-                    parent_subagent_id,
-                    model,
-                    last_activity_at
-                 )
-                 VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
-                 ON CONFLICT(id) DO UPDATE SET
-                    session_id = excluded.session_id,
-                    agent_type = excluded.agent_type,
-                    ended_at = CASE
-                        WHEN subagents.status = 'completed'
-                             AND excluded.status != 'completed'
-                            THEN subagents.ended_at
-                        WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
-                             AND excluded.status IN ('pending', 'running')
-                            THEN subagents.ended_at
-                        WHEN subagents.status IN ('failed', 'cancelled', 'not_found')
-                             AND excluded.status = 'shutdown'
-                            THEN subagents.ended_at
-                        ELSE COALESCE(excluded.ended_at, subagents.ended_at)
-                    END,
-                    provider = COALESCE(excluded.provider, subagents.provider),
-                    label = COALESCE(excluded.label, subagents.label),
-                    status = CASE
-                        WHEN subagents.status = 'completed'
-                             AND excluded.status != 'completed'
-                            THEN subagents.status
-                        WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
-                             AND excluded.status IN ('pending', 'running')
-                            THEN subagents.status
-                        WHEN subagents.status IN ('completed', 'failed', 'cancelled', 'not_found')
-                             AND excluded.status = 'shutdown'
-                            THEN subagents.status
-                        ELSE excluded.status
-                    END,
-                    task_summary = COALESCE(excluded.task_summary, subagents.task_summary),
-                    result_summary = CASE
-                        WHEN subagents.status = 'completed'
-                             AND excluded.status != 'completed'
-                            THEN subagents.result_summary
-                        WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
-                             AND excluded.status IN ('pending', 'running')
-                            THEN subagents.result_summary
-                        WHEN subagents.status IN ('completed', 'failed', 'cancelled', 'not_found')
-                             AND excluded.status = 'shutdown'
-                            THEN subagents.result_summary
-                        ELSE COALESCE(excluded.result_summary, subagents.result_summary)
-                    END,
-                    error_summary = CASE
-                        WHEN subagents.status = 'completed'
-                             AND excluded.status != 'completed'
-                            THEN subagents.error_summary
-                        WHEN subagents.status IN ('failed', 'cancelled', 'shutdown', 'not_found')
-                             AND excluded.status IN ('pending', 'running')
-                            THEN subagents.error_summary
-                        WHEN subagents.status IN ('completed', 'failed', 'cancelled', 'not_found')
-                             AND excluded.status = 'shutdown'
-                            THEN subagents.error_summary
-                        ELSE COALESCE(excluded.error_summary, subagents.error_summary)
-                    END,
-                    parent_subagent_id = COALESCE(excluded.parent_subagent_id, subagents.parent_subagent_id),
-                    model = COALESCE(excluded.model, subagents.model),
-                    last_activity_at = excluded.last_activity_at",
-                params![
-                    info.id,
-                    session_id,
-                    info.agent_type,
-                    info.started_at,
-                    info.ended_at,
-                    info.provider.map(|provider| match provider {
-                        Provider::Claude => "claude",
-                        Provider::Codex => "codex",
-                    }),
-                    info.label,
-                    match info.status {
-                        orbitdock_protocol::SubagentStatus::Pending => "pending",
-                        orbitdock_protocol::SubagentStatus::Running => "running",
-                        orbitdock_protocol::SubagentStatus::Completed => "completed",
-                        orbitdock_protocol::SubagentStatus::Failed => "failed",
-                        orbitdock_protocol::SubagentStatus::Cancelled => "cancelled",
-                        orbitdock_protocol::SubagentStatus::Shutdown => "shutdown",
-                        orbitdock_protocol::SubagentStatus::NotFound => "not_found",
-                    },
-                    info.task_summary,
-                    info.result_summary,
-                    info.error_summary,
-                    info.parent_subagent_id,
-                    info.model,
-                    info.last_activity_at,
-                ],
-            )?;
+            persist_subagent_upsert(conn, &session_id, &info)?;
+        }
+
+        PersistCommand::UpsertSubagents { session_id, infos } => {
+            for info in &infos {
+                persist_subagent_upsert(conn, &session_id, info)?;
+            }
         }
 
         PersistCommand::RolloutSessionUpsert {
@@ -1231,6 +1194,51 @@ pub(super) fn execute_command(
                      last_activity_at = ?1
                  WHERE id = ?2",
                 params![chrono_now(), id],
+            )?;
+        }
+
+        PersistCommand::UpsertRolloutCheckpoint {
+            path,
+            offset,
+            session_id,
+            project_path,
+            model_provider,
+            ignore_existing,
+        } => {
+            let now = chrono_now();
+            conn.execute(
+                "INSERT INTO rollout_checkpoints (
+                    path,
+                    offset,
+                    session_id,
+                    project_path,
+                    model_provider,
+                    ignore_existing,
+                    updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(path) DO UPDATE SET
+                    offset = excluded.offset,
+                    session_id = excluded.session_id,
+                    project_path = excluded.project_path,
+                    model_provider = excluded.model_provider,
+                    ignore_existing = excluded.ignore_existing,
+                    updated_at = excluded.updated_at",
+                params![
+                    path,
+                    offset as i64,
+                    session_id,
+                    project_path,
+                    model_provider,
+                    ignore_existing as i32,
+                    now,
+                ],
+            )?;
+        }
+
+        PersistCommand::DeleteRolloutCheckpoint { path } => {
+            conn.execute(
+                "DELETE FROM rollout_checkpoints WHERE path = ?1",
+                params![path],
             )?;
         }
 
@@ -1528,7 +1536,87 @@ pub async fn is_direct_thread_owned_async(thread_id: &str) -> Result<bool, anyho
     .await?
 }
 
+pub fn load_rollout_checkpoints(
+    db_path: &Path,
+) -> anyhow::Result<HashMap<String, PersistedFileState>> {
+    if !db_path.exists() {
+        return Ok(HashMap::new());
+    }
+
+    let conn = Connection::open(db_path)?;
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA busy_timeout = 5000;",
+    )?;
+
+    let mut stmt = conn.prepare(
+        "SELECT path, offset, session_id, project_path, model_provider, ignore_existing
+         FROM rollout_checkpoints",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let path: String = row.get(0)?;
+        let offset: i64 = row.get(1)?;
+        let session_id: Option<String> = row.get(2)?;
+        let project_path: Option<String> = row.get(3)?;
+        let model_provider: Option<String> = row.get(4)?;
+        let ignore_existing: i64 = row.get(5)?;
+
+        Ok((
+            path,
+            PersistedFileState {
+                offset: offset.max(0) as u64,
+                session_id,
+                project_path,
+                model_provider,
+                ignore_existing: Some(ignore_existing != 0),
+            },
+        ))
+    })?;
+
+    let mut checkpoints = HashMap::new();
+    for row in rows {
+        let (path, state) = row?;
+        checkpoints.insert(path, state);
+    }
+
+    Ok(checkpoints)
+}
+
 /// Get current time as ISO 8601 string
+fn row_type_str(row: &ConversationRow) -> &'static str {
+    match row {
+        ConversationRow::User(_) => "user",
+        ConversationRow::Assistant(_) => "assistant",
+        ConversationRow::Thinking(_) => "thinking",
+        ConversationRow::Tool(_) => "tool",
+        ConversationRow::ActivityGroup(_) => "activity_group",
+        ConversationRow::Question(_) => "question",
+        ConversationRow::Approval(_) => "approval",
+        ConversationRow::Worker(_) => "worker",
+        ConversationRow::Plan(_) => "plan",
+        ConversationRow::Hook(_) => "hook",
+        ConversationRow::Handoff(_) => "handoff",
+        ConversationRow::System(_) => "system",
+    }
+}
+
+fn extract_row_content(row: &ConversationRow) -> Option<String> {
+    match row {
+        ConversationRow::User(m)
+        | ConversationRow::Assistant(m)
+        | ConversationRow::Thinking(m)
+        | ConversationRow::System(m) => Some(m.content.clone()),
+        ConversationRow::Tool(t) => Some(t.title.clone()),
+        ConversationRow::Plan(p) => Some(p.title.clone()),
+        ConversationRow::Hook(h) => Some(h.title.clone()),
+        ConversationRow::Handoff(h) => Some(h.title.clone()),
+        ConversationRow::Worker(w) => Some(w.title.clone()),
+        ConversationRow::Approval(a) => Some(a.id.clone()),
+        ConversationRow::Question(q) => Some(q.id.clone()),
+        ConversationRow::ActivityGroup(g) => Some(g.title.clone()),
+    }
+}
+
 fn chrono_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1585,6 +1673,91 @@ fn time_to_iso8601(secs: u64) -> String {
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         year, month, day, hours, minutes, seconds
     )
+}
+
+#[cfg(test)]
+mod rollout_checkpoint_tests {
+    use super::{execute_command, load_rollout_checkpoints};
+    use crate::infrastructure::migration_runner::run_migrations;
+    use crate::infrastructure::persistence::PersistCommand;
+    use rusqlite::Connection;
+
+    #[test]
+    fn rollout_checkpoint_upsert_and_load_round_trip() {
+        let db_path = std::env::temp_dir().join(format!(
+            "orbitdock-rollout-checkpoint-test-{}-a.db",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&db_path);
+        let mut conn = Connection::open(&db_path).expect("open db");
+        run_migrations(&mut conn).expect("run migrations");
+
+        execute_command(
+            &conn,
+            PersistCommand::UpsertRolloutCheckpoint {
+                path: "/tmp/rollout-a.jsonl".to_string(),
+                offset: 42,
+                session_id: Some("session-1".to_string()),
+                project_path: Some("/tmp/project".to_string()),
+                model_provider: Some("codex".to_string()),
+                ignore_existing: true,
+            },
+        )
+        .expect("persist checkpoint");
+
+        let checkpoints = load_rollout_checkpoints(&db_path).expect("load checkpoints");
+        let checkpoint = checkpoints
+            .get("/tmp/rollout-a.jsonl")
+            .expect("checkpoint stored");
+        assert_eq!(checkpoint.offset, 42);
+        assert_eq!(checkpoint.session_id.as_deref(), Some("session-1"));
+        assert_eq!(checkpoint.project_path.as_deref(), Some("/tmp/project"));
+        assert_eq!(checkpoint.model_provider.as_deref(), Some("codex"));
+        assert_eq!(checkpoint.ignore_existing, Some(true));
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn rollout_checkpoint_delete_removes_row() {
+        let db_path = std::env::temp_dir().join(format!(
+            "orbitdock-rollout-checkpoint-test-{}-b.db",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&db_path);
+        let mut conn = Connection::open(&db_path).expect("open db");
+        run_migrations(&mut conn).expect("run migrations");
+
+        execute_command(
+            &conn,
+            PersistCommand::UpsertRolloutCheckpoint {
+                path: "/tmp/rollout-b.jsonl".to_string(),
+                offset: 7,
+                session_id: None,
+                project_path: None,
+                model_provider: None,
+                ignore_existing: false,
+            },
+        )
+        .expect("persist checkpoint");
+
+        execute_command(
+            &conn,
+            PersistCommand::DeleteRolloutCheckpoint {
+                path: "/tmp/rollout-b.jsonl".to_string(),
+            },
+        )
+        .expect("delete checkpoint");
+
+        let remaining: i64 = conn
+            .query_row("SELECT COUNT(*) FROM rollout_checkpoints", [], |row| {
+                row.get(0)
+            })
+            .expect("count checkpoints");
+        assert_eq!(remaining, 0);
+
+        let _ = std::fs::remove_file(db_path);
+    }
 }
 
 fn is_leap_year(year: i64) -> bool {

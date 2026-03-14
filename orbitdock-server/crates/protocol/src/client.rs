@@ -102,6 +102,10 @@ pub enum ClientMessage {
         service_tier: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         developer_instructions: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
     },
 
     // Session naming
@@ -1405,6 +1409,34 @@ mod tests {
         for payload in missing_request_id_payloads {
             let result = serde_json::from_str::<ClientMessage>(payload);
             assert!(result.is_err(), "payload should fail: {payload}");
+        }
+    }
+
+    #[test]
+    fn update_session_config_round_trips_model_and_effort() {
+        let message = ClientMessage::UpdateSessionConfig {
+            session_id: "sess-1".to_string(),
+            approval_policy: Some("on-request".to_string()),
+            sandbox_mode: Some("workspace-write".to_string()),
+            permission_mode: Some("default".to_string()),
+            collaboration_mode: Some("default".to_string()),
+            multi_agent: Some(true),
+            personality: Some("balanced".to_string()),
+            service_tier: Some("priority".to_string()),
+            developer_instructions: Some("Stay concise".to_string()),
+            model: Some("gpt-5-codex".to_string()),
+            effort: Some("high".to_string()),
+        };
+
+        let json = serde_json::to_string(&message).expect("serialize update_session_config");
+        match serde_json::from_str::<ClientMessage>(&json)
+            .expect("deserialize update_session_config")
+        {
+            ClientMessage::UpdateSessionConfig { model, effort, .. } => {
+                assert_eq!(model.as_deref(), Some("gpt-5-codex"));
+                assert_eq!(effort.as_deref(), Some("high"));
+            }
+            other => panic!("unexpected variant for update_session_config: {:?}", other),
         }
     }
 }

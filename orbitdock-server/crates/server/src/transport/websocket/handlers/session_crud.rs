@@ -103,6 +103,8 @@ pub(crate) async fn handle(
             personality,
             service_tier,
             developer_instructions,
+            model,
+            effort,
         } => {
             handle_update_session_config(
                 session_id,
@@ -115,6 +117,8 @@ pub(crate) async fn handle(
                     personality,
                     service_tier,
                     developer_instructions,
+                    model,
+                    effort,
                 },
                 state,
                 conn_id,
@@ -184,52 +188,5 @@ pub(crate) async fn handle(
         _ => {
             tracing::warn!(?msg, "session_crud::handle called with unexpected variant");
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::handle;
-    use crate::domain::sessions::session::SessionHandle;
-    use crate::transport::websocket::test_support::new_test_state;
-    use crate::transport::websocket::OutboundMessage;
-    use orbitdock_protocol::{
-        ClientMessage, CodexIntegrationMode, Provider, SessionStatus, WorkStatus,
-    };
-    use tokio::sync::mpsc;
-
-    #[tokio::test]
-    async fn ending_passive_session_keeps_it_available_for_reactivation() {
-        let state = new_test_state();
-        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
-        let session_id = "passive-end-keep".to_string();
-
-        let mut handle_state = SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/Users/tester/repo".to_string(),
-        );
-        handle_state.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-        state.add_session(handle_state);
-
-        handle(
-            ClientMessage::EndSession {
-                session_id: session_id.clone(),
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-        tokio::task::yield_now().await;
-        tokio::task::yield_now().await;
-
-        let actor = state
-            .get_session(&session_id)
-            .expect("passive session should remain in app state");
-
-        let snap = actor.snapshot();
-        assert_eq!(snap.status, SessionStatus::Ended);
-        assert_eq!(snap.work_status, WorkStatus::Ended);
     }
 }

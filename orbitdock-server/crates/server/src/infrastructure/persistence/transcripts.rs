@@ -2,21 +2,59 @@ use super::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-struct ParsedItem {
-    message_type: MessageType,
-    content: String,
-    tool_name: Option<String>,
-    tool_input: Option<String>,
-    tool_output: Option<String>,
-    tool_use_id: Option<String>,
-    images: Vec<orbitdock_protocol::ImageInput>,
+use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
+};
+use orbitdock_protocol::domain_events::{
+    GenericInvocationPayload, GenericResultPayload, ToolFamily, ToolInvocationPayload, ToolKind,
+    ToolResultPayload, ToolStatus,
+};
+
+enum ParsedItem {
+    Message {
+        role: ParsedRole,
+        content: String,
+    },
+    Tool {
+        tool_name: String,
+        tool_input: Option<serde_json::Value>,
+        tool_use_id: Option<String>,
+    },
+    ToolResult {
+        tool_use_id: Option<String>,
+        tool_output: String,
+    },
 }
 
-fn role_to_message_type(role: &str) -> MessageType {
+#[derive(Clone, Copy)]
+enum ParsedRole {
+    User,
+    Assistant,
+    Thinking,
+}
+
+fn role_from_str(role: &str) -> ParsedRole {
     if role == "user" {
-        MessageType::User
+        ParsedRole::User
     } else {
-        MessageType::Assistant
+        ParsedRole::Assistant
+    }
+}
+
+fn classify_tool(name: &str) -> (ToolFamily, ToolKind) {
+    match name {
+        "Bash" | "bash" => (ToolFamily::Shell, ToolKind::Bash),
+        "Read" | "read" | "FileRead" => (ToolFamily::FileRead, ToolKind::Read),
+        "Edit" | "edit" | "FileEdit" => (ToolFamily::FileChange, ToolKind::Edit),
+        "Write" | "write" | "FileWrite" => (ToolFamily::FileChange, ToolKind::Write),
+        "Glob" | "glob" => (ToolFamily::Search, ToolKind::Glob),
+        "Grep" | "grep" => (ToolFamily::Search, ToolKind::Grep),
+        "WebSearch" | "websearch" => (ToolFamily::Web, ToolKind::WebSearch),
+        "WebFetch" | "webfetch" => (ToolFamily::Web, ToolKind::WebFetch),
+        "Agent" | "agent" => (ToolFamily::Agent, ToolKind::SpawnAgent),
+        n if n.starts_with("mcp__") => (ToolFamily::Mcp, ToolKind::McpToolCall),
+        _ => (ToolFamily::Generic, ToolKind::Generic),
     }
 }
 
@@ -24,14 +62,9 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
     if let Some(text) = content.as_str() {
         let trimmed = text.trim();
         if !trimmed.is_empty() {
-            return vec![ParsedItem {
-                message_type: role_to_message_type(role),
+            return vec![ParsedItem::Message {
+                role: role_from_str(role),
                 content: trimmed.to_string(),
-                tool_name: None,
-                tool_input: None,
-                tool_output: None,
-                tool_use_id: None,
-                images: vec![],
             }];
         }
         return vec![];
@@ -43,7 +76,6 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
 
     let mut parsed_items = Vec::new();
     let mut text_parts = Vec::new();
-    let mut images = Vec::new();
 
     for item in items_array {
         let kind = item.get("type").and_then(Value::as_str).unwrap_or_default();
@@ -56,109 +88,59 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                     }
                 }
             }
-            "image" => {
-                if let Some(source) = item.get("source") {
-                    let source_type = source
-                        .get("type")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default();
-                    if source_type == "base64" {
-                        let media_type = source
-                            .get("media_type")
-                            .and_then(Value::as_str)
-                            .unwrap_or("image/png");
-                        if let Some(data) = source.get("data").and_then(Value::as_str) {
-                            images.push(orbitdock_protocol::ImageInput {
-                                input_type: "url".to_string(),
-                                value: format!("data:{media_type};base64,{data}"),
-                                ..Default::default()
-                            });
-                        }
-                    } else if source_type == "url" {
-                        if let Some(url) = source.get("url").and_then(Value::as_str) {
-                            images.push(orbitdock_protocol::ImageInput {
-                                input_type: "url".to_string(),
-                                value: url.to_string(),
-                                ..Default::default()
-                            });
-                        }
-                    }
-                }
-            }
-            "input_image" => {
-                if let Some(url) = item.get("image_url").and_then(Value::as_str) {
-                    images.push(orbitdock_protocol::ImageInput {
-                        input_type: "url".to_string(),
-                        value: url.to_string(),
-                        ..Default::default()
-                    });
-                }
-            }
+            // Images are not modelled in ConversationRow message content;
+            // skip them for now (they were only used for the old Message.images field).
+            "image" | "input_image" => {}
             "thinking" => {
                 if let Some(text) = item.get("thinking").and_then(Value::as_str) {
                     let trimmed = text.trim();
                     if !trimmed.is_empty() {
-                        parsed_items.push(ParsedItem {
-                            message_type: MessageType::Thinking,
+                        parsed_items.push(ParsedItem::Message {
+                            role: ParsedRole::Thinking,
                             content: trimmed.to_string(),
-                            tool_name: None,
-                            tool_input: None,
-                            tool_output: None,
-                            tool_use_id: None,
-                            images: vec![],
                         });
                     }
                 }
             }
             "tool_use" => {
-                parsed_items.push(ParsedItem {
-                    message_type: MessageType::Tool,
-                    content: String::new(),
-                    tool_name: item
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                        .or_else(|| Some("unknown".to_string())),
-                    tool_input: item.get("input").map(|value| value.to_string()),
-                    tool_output: None,
-                    tool_use_id: item.get("id").and_then(Value::as_str).map(str::to_string),
-                    images: vec![],
+                let tool_name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+                    .to_string();
+                let tool_input = item.get("input").cloned();
+                let tool_use_id = item.get("id").and_then(Value::as_str).map(str::to_string);
+                parsed_items.push(ParsedItem::Tool {
+                    tool_name,
+                    tool_input,
+                    tool_use_id,
                 });
             }
             "tool_result" => {
-                parsed_items.push(ParsedItem {
-                    message_type: MessageType::Tool,
-                    content: String::new(),
-                    tool_name: None,
-                    tool_input: None,
-                    tool_output: Some(
-                        item.get("content")
-                            .and_then(Value::as_str)
-                            .unwrap_or("")
-                            .to_string(),
-                    ),
-                    tool_use_id: item
-                        .get("tool_use_id")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                    images: vec![],
+                let tool_output = item
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let tool_use_id = item
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                parsed_items.push(ParsedItem::ToolResult {
+                    tool_use_id,
+                    tool_output,
                 });
             }
             _ => {}
         }
     }
 
-    if !text_parts.is_empty() || !images.is_empty() {
+    if !text_parts.is_empty() {
         parsed_items.insert(
             0,
-            ParsedItem {
-                message_type: role_to_message_type(role),
+            ParsedItem::Message {
+                role: role_from_str(role),
                 content: text_parts.join("\n\n"),
-                tool_name: None,
-                tool_input: None,
-                tool_output: None,
-                tool_use_id: None,
-                images,
             },
         );
     }
@@ -216,15 +198,15 @@ fn extract_entry_messages(entry: &Value) -> Vec<ParsedItem> {
 pub(crate) fn load_messages_from_transcript(
     transcript_path: &str,
     session_id: &str,
-) -> Result<Vec<Message>, anyhow::Error> {
+) -> Result<Vec<ConversationRowEntry>, anyhow::Error> {
     let file = match File::open(transcript_path) {
         Ok(file) => file,
         Err(_) => return Ok(Vec::new()),
     };
     let reader = BufReader::new(file);
 
-    let mut messages: Vec<Message> = Vec::new();
-    let mut message_counter: usize = 0;
+    let mut rows: Vec<ConversationRowEntry> = Vec::new();
+    let mut sequence: u64 = 0;
     let mut tool_use_index: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
 
@@ -251,46 +233,141 @@ pub(crate) fn load_messages_from_transcript(
         let timestamp = value
             .get("timestamp")
             .and_then(Value::as_str)
-            .unwrap_or("0")
-            .to_string();
+            .map(str::to_string);
 
         for item in items {
-            if item.tool_output.is_some() && item.tool_name.is_none() {
-                if let Some(tool_use_id) = &item.tool_use_id {
-                    if let Some(&index) = tool_use_index.get(tool_use_id) {
-                        messages[index].tool_output = item.tool_output;
-                        continue;
+            match item {
+                ParsedItem::ToolResult {
+                    tool_use_id,
+                    tool_output,
+                } => {
+                    // Try to attach the result to the matching tool row.
+                    if let Some(id) = &tool_use_id {
+                        if let Some(&index) = tool_use_index.get(id) {
+                            if let ConversationRow::Tool(ref mut tool_row) = rows[index].row {
+                                let tool_name = match &tool_row.invocation {
+                                    ToolInvocationPayload::Generic(g) => g.tool_name.clone(),
+                                    _ => tool_row.title.clone(),
+                                };
+                                tool_row.result =
+                                    Some(ToolResultPayload::Generic(GenericResultPayload {
+                                        tool_name,
+                                        raw_output: Some(Value::String(tool_output)),
+                                        summary: None,
+                                    }));
+                                continue;
+                            }
+                        }
                     }
+                    // No matching tool_use found — create a standalone tool row.
+                    let row_id = tool_use_id
+                        .clone()
+                        .unwrap_or_else(|| format!("{session_id}:transcript:{sequence}"));
+                    let row_index = rows.len();
+                    if let Some(id) = &tool_use_id {
+                        tool_use_index.insert(id.clone(), row_index);
+                    }
+                    rows.push(ConversationRowEntry {
+                        session_id: String::new(),
+                        sequence,
+                        turn_id: None,
+                        row: ConversationRow::Tool(ToolRow {
+                            id: row_id,
+                            provider: Provider::Claude,
+                            family: ToolFamily::Generic,
+                            kind: ToolKind::Generic,
+                            status: ToolStatus::Completed,
+                            title: "unknown".to_string(),
+                            subtitle: None,
+                            summary: None,
+                            preview: None,
+                            started_at: None,
+                            ended_at: None,
+                            duration_ms: None,
+                            grouping_key: None,
+                            invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
+                                tool_name: "unknown".to_string(),
+                                raw_input: None,
+                            }),
+                            result: Some(ToolResultPayload::Generic(GenericResultPayload {
+                                tool_name: "unknown".to_string(),
+                                raw_output: Some(Value::String(tool_output)),
+                                summary: None,
+                            })),
+                            render_hints: RenderHints::default(),
+                        }),
+                    });
+                    sequence += 1;
+                }
+                ParsedItem::Tool {
+                    tool_name,
+                    tool_input,
+                    tool_use_id,
+                } => {
+                    let (family, kind) = classify_tool(&tool_name);
+                    let row_id = tool_use_id
+                        .clone()
+                        .unwrap_or_else(|| format!("{session_id}:transcript:{sequence}"));
+                    let row_index = rows.len();
+                    if let Some(id) = &tool_use_id {
+                        tool_use_index.insert(id.clone(), row_index);
+                    }
+                    rows.push(ConversationRowEntry {
+                        session_id: String::new(),
+                        sequence,
+                        turn_id: None,
+                        row: ConversationRow::Tool(ToolRow {
+                            id: row_id,
+                            provider: Provider::Claude,
+                            family,
+                            kind,
+                            status: ToolStatus::Completed,
+                            title: tool_name.clone(),
+                            subtitle: None,
+                            summary: None,
+                            preview: None,
+                            started_at: None,
+                            ended_at: None,
+                            duration_ms: None,
+                            grouping_key: None,
+                            invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
+                                tool_name,
+                                raw_input: tool_input,
+                            }),
+                            result: None,
+                            render_hints: RenderHints::default(),
+                        }),
+                    });
+                    sequence += 1;
+                }
+                ParsedItem::Message { role, content } => {
+                    let row_id = format!("{session_id}:transcript:{sequence}");
+                    let msg = MessageRowContent {
+                        id: row_id,
+                        content,
+                        turn_id: None,
+                        timestamp: timestamp.clone(),
+                        is_streaming: false,
+                        images: vec![],
+                    };
+                    let conversation_row = match role {
+                        ParsedRole::User => ConversationRow::User(msg),
+                        ParsedRole::Assistant => ConversationRow::Assistant(msg),
+                        ParsedRole::Thinking => ConversationRow::Thinking(msg),
+                    };
+                    rows.push(ConversationRowEntry {
+                        session_id: String::new(),
+                        sequence,
+                        turn_id: None,
+                        row: conversation_row,
+                    });
+                    sequence += 1;
                 }
             }
-
-            let message_index = messages.len();
-            if item.tool_name.is_some() {
-                if let Some(tool_use_id) = &item.tool_use_id {
-                    tool_use_index.insert(tool_use_id.clone(), message_index);
-                }
-            }
-
-            messages.push(Message {
-                id: format!("{session_id}:transcript:{message_counter}"),
-                session_id: session_id.to_string(),
-                sequence: Some(message_counter as u64),
-                message_type: item.message_type,
-                content: item.content,
-                timestamp: timestamp.clone(),
-                tool_name: item.tool_name,
-                tool_input: item.tool_input,
-                tool_output: item.tool_output,
-                duration_ms: None,
-                is_error: false,
-                is_in_progress: false,
-                images: item.images,
-            });
-            message_counter += 1;
         }
     }
 
-    Ok(messages)
+    Ok(rows)
 }
 
 pub(crate) fn extract_summary_from_transcript(transcript_path: &str) -> Option<String> {
@@ -510,7 +587,7 @@ fn load_latest_codex_turn_context_settings_from_transcript(
 pub async fn load_messages_from_transcript_path(
     transcript_path: &str,
     session_id: &str,
-) -> Result<Vec<Message>, anyhow::Error> {
+) -> Result<Vec<ConversationRowEntry>, anyhow::Error> {
     let transcript_path = transcript_path.to_string();
     let session_id = session_id.to_string();
     tokio::task::spawn_blocking(move || {

@@ -51,7 +51,6 @@ final class SessionStore {
 
   @ObservationIgnored var lastRevision: [String: UInt64] = [:]
   @ObservationIgnored var controlStates: [String: SessionControlState] = [:]
-  @ObservationIgnored var sessionSnapshotRefreshesInFlight: Set<String> = []
   @ObservationIgnored var subscribedSessions: Set<String> = []
   @ObservationIgnored var hotDetailSessions: Set<String> = []
   @ObservationIgnored var autoMarkReadSessions: Set<String> = []
@@ -277,21 +276,6 @@ final class SessionStore {
         codexAccountStatus = status
       } catch {
         codexAuthError = error.localizedDescription
-      }
-    }
-  }
-
-  func refreshSessionSnapshot(_ sessionId: String) {
-    guard !sessionSnapshotRefreshesInFlight.contains(sessionId) else { return }
-
-    sessionSnapshotRefreshesInFlight.insert(sessionId)
-    Task {
-      defer { sessionSnapshotRefreshesInFlight.remove(sessionId) }
-      do {
-        let snapshot = try await clients.sessions.fetchSessionSnapshot(sessionId)
-        handleSessionSnapshot(snapshot)
-      } catch {
-        netLog(.warning, cat: .store, "Refresh session snapshot failed", sid: sessionId, data: ["error": error.localizedDescription])
       }
     }
   }

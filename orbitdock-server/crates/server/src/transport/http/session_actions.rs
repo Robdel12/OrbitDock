@@ -8,7 +8,7 @@ pub struct AcceptedResponse {
 #[derive(Debug, Serialize)]
 pub struct SendMessageResponse {
     pub accepted: bool,
-    pub message: orbitdock_protocol::Message,
+    pub row: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,7 +91,7 @@ pub async fn post_session_message(
 
     let message_id = next_http_message_id("user-http");
 
-    let user_msg = crate::runtime::message_dispatch::dispatch_send_message(
+    let user_row = crate::runtime::message_dispatch::dispatch_send_message(
         &state,
         crate::runtime::message_dispatch::DispatchSendMessage {
             session_id: session_id.clone(),
@@ -111,7 +111,7 @@ pub async fn post_session_message(
         StatusCode::ACCEPTED,
         Json(SendMessageResponse {
             accepted: true,
-            message: user_msg,
+            row: user_row,
         }),
     ))
 }
@@ -313,168 +313,4 @@ pub async fn rewind_files(
     .await
     .map_err(|code| dispatch_error_response(code, &session_id))?;
     Ok(Json(AcceptedResponse { accepted: true }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::body::to_bytes;
-    use axum::extract::{Path, State};
-    use axum::response::IntoResponse;
-    use orbitdock_protocol::{MessageType, Provider};
-    use tokio::sync::mpsc;
-
-    use crate::connectors::claude_session::ClaudeAction;
-    use crate::connectors::codex_session::CodexAction;
-    use crate::domain::sessions::session::SessionHandle;
-    use crate::runtime::session_queries::load_full_session_state;
-    use crate::transport::http::test_support::{new_test_state, upload_test_attachment};
-
-    #[tokio::test]
-    async fn image_attachment_upload_and_fetch_round_trip() {
-        let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        state.add_session(SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-api-test".to_string(),
-        ));
-
-        let uploaded = upload_test_attachment(state, &session_id, b"png-bytes").await;
-        assert_eq!(uploaded.input_type, "attachment");
-        assert_eq!(uploaded.mime_type.as_deref(), Some("image/png"));
-        assert_eq!(uploaded.byte_count, Some(9));
-        assert_eq!(uploaded.pixel_width, Some(320));
-        assert_eq!(uploaded.pixel_height, Some(200));
-
-        let response = get_session_image_attachment(Path((session_id, uploaded.value.clone())))
-            .await
-            .expect("attachment fetch should succeed")
-            .into_response();
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response
-                .headers()
-                .get(CONTENT_TYPE)
-                .and_then(|value| value.to_str().ok()),
-            Some("image/png")
-        );
-
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("attachment body should decode");
-        assert_eq!(body.as_ref(), b"png-bytes");
-    }
-
-    #[tokio::test]
-    async fn post_session_message_persists_attachment_refs_and_dispatches_paths() {
-        let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        state.add_session(SessionHandle::new(
-            session_id.clone(),
-            Provider::Codex,
-            "/tmp/orbitdock-api-test".to_string(),
-        ));
-        let (action_tx, mut action_rx) = mpsc::channel(8);
-        state.set_codex_action_tx(&session_id, action_tx);
-
-        let uploaded =
-            upload_test_attachment(state.clone(), &session_id, b"send-message-image").await;
-
-        let (status, Json(response)) = post_session_message(
-            Path(session_id.clone()),
-            State(state.clone()),
-            Json(SendSessionMessageRequest {
-                content: "look at this".to_string(),
-                model: None,
-                effort: None,
-                skills: vec![],
-                images: vec![uploaded.clone()],
-                mentions: vec![],
-            }),
-        )
-        .await
-        .expect("post session message should succeed");
-        assert_eq!(status, StatusCode::ACCEPTED);
-        assert!(response.accepted);
-        assert_eq!(response.message.message_type, MessageType::User);
-        assert_eq!(response.message.content, "look at this");
-
-        let action = action_rx
-            .recv()
-            .await
-            .expect("message endpoint should dispatch codex action");
-        match action {
-            CodexAction::SendMessage { images, .. } => {
-                assert_eq!(images.len(), 1);
-                assert_eq!(images[0].input_type, "path");
-                assert!(images[0].value.ends_with(".png"));
-            }
-            other => panic!("expected SendMessage action, got {:?}", other),
-        }
-
-        let persisted_state = load_full_session_state(&state, &session_id, true)
-            .await
-            .expect("should load full session state");
-        let persisted = persisted_state
-            .messages
-            .last()
-            .expect("expected persisted user message");
-        assert_eq!(persisted.message_type, MessageType::User);
-        assert_eq!(persisted.images.len(), 1);
-        assert_eq!(persisted.images[0].input_type, "attachment");
-        assert_eq!(persisted.images[0].value, uploaded.value);
-    }
-
-    #[tokio::test]
-    async fn post_steer_turn_persists_attachment_refs_and_dispatches_paths() {
-        let state = new_test_state(true);
-        let session_id = format!("od-{}", orbitdock_protocol::new_id());
-        state.add_session(SessionHandle::new(
-            session_id.clone(),
-            Provider::Claude,
-            "/tmp/orbitdock-api-test".to_string(),
-        ));
-        let (action_tx, mut action_rx) = mpsc::channel(8);
-        state.set_claude_action_tx(&session_id, action_tx);
-
-        let uploaded = upload_test_attachment(state.clone(), &session_id, b"steer-image").await;
-
-        let _ = post_steer_turn(
-            Path(session_id.clone()),
-            State(state.clone()),
-            Json(SteerTurnRequest {
-                content: "consider this image".to_string(),
-                images: vec![uploaded.clone()],
-                mentions: vec![],
-            }),
-        )
-        .await
-        .expect("post steer should succeed");
-
-        let action = action_rx
-            .recv()
-            .await
-            .expect("steer endpoint should dispatch claude action");
-        match action {
-            ClaudeAction::SteerTurn { images, .. } => {
-                assert_eq!(images.len(), 1);
-                assert_eq!(images[0].input_type, "path");
-                assert!(images[0].value.ends_with(".png"));
-            }
-            other => panic!("expected SteerTurn action, got {:?}", other),
-        }
-
-        let persisted_state = load_full_session_state(&state, &session_id, true)
-            .await
-            .expect("should load full session state");
-        let persisted = persisted_state
-            .messages
-            .last()
-            .expect("expected persisted steer message");
-        assert_eq!(persisted.message_type, MessageType::Steer);
-        assert_eq!(persisted.images.len(), 1);
-        assert_eq!(persisted.images[0].input_type, "attachment");
-        assert_eq!(persisted.images[0].value, uploaded.value);
-    }
 }

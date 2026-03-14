@@ -8,12 +8,20 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::ConnectorEvent;
+#[cfg(test)]
+use orbitdock_protocol::conversation_contracts::ToolRow;
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRow, ConversationRowEntry, MessageRowContent,
+};
+use orbitdock_protocol::domain_events::ToolStatus;
+#[cfg(test)]
+use orbitdock_protocol::domain_events::{ToolFamily, ToolKind};
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalPreviewSegment, ApprovalPreviewType, ApprovalQuestionOption,
     ApprovalQuestionPrompt, ApprovalRequest, ApprovalRiskLevel, ApprovalType, McpAuthStatus,
-    McpResource, McpResourceTemplate, McpStartupFailure, McpStartupStatus, McpTool, Message,
-    MessageChanges, MessageType, RemoteSkillSummary, ServerMessage, SessionStatus, SkillErrorInfo,
-    SkillsListEntry, StateChanges, TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
+    McpResource, McpResourceTemplate, McpStartupFailure, McpStartupStatus, McpTool, Provider,
+    RemoteSkillSummary, ServerMessage, SessionStatus, SkillErrorInfo, SkillsListEntry,
+    StateChanges, TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
@@ -57,10 +65,11 @@ impl WorkPhase {
 #[allow(dead_code)]
 pub struct TransitionState {
     pub id: String,
+    pub provider: Provider,
     pub revision: u64,
     pub phase: WorkPhase,
-    pub messages: Vec<Message>,
-    pub total_message_count: u64,
+    pub rows: Vec<ConversationRowEntry>,
+    pub total_row_count: u64,
     pub token_usage: TokenUsage,
     pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
     pub current_diff: Option<String>,
@@ -91,14 +100,10 @@ pub enum Input {
     TurnAborted {
         reason: String,
     },
-    MessageCreated(Message),
-    MessageUpdated {
-        message_id: String,
-        content: Option<String>,
-        tool_output: Option<String>,
-        is_error: Option<bool>,
-        is_in_progress: Option<bool>,
-        duration_ms: Option<u64>,
+    RowCreated(ConversationRowEntry),
+    RowUpdated {
+        row_id: String,
+        entry: ConversationRowEntry,
     },
     ApprovalRequested {
         request_id: String,
@@ -201,22 +206,10 @@ impl From<ConnectorEvent> for Input {
             ConnectorEvent::TurnStarted => Input::TurnStarted,
             ConnectorEvent::TurnCompleted => Input::TurnCompleted,
             ConnectorEvent::TurnAborted { reason } => Input::TurnAborted { reason },
-            ConnectorEvent::MessageCreated(msg) => Input::MessageCreated(msg),
-            ConnectorEvent::MessageUpdated {
-                message_id,
-                content,
-                tool_output,
-                is_error,
-                is_in_progress,
-                duration_ms,
-            } => Input::MessageUpdated {
-                message_id,
-                content,
-                tool_output,
-                is_error,
-                is_in_progress,
-                duration_ms,
-            },
+            ConnectorEvent::ConversationRowCreated(entry) => Input::RowCreated(entry),
+            ConnectorEvent::ConversationRowUpdated { row_id, entry } => {
+                Input::RowUpdated { row_id, entry }
+            }
             ConnectorEvent::ApprovalRequested {
                 request_id,
                 approval_type,
@@ -353,18 +346,13 @@ pub enum PersistOp {
         id: String,
         reason: String,
     },
-    MessageAppend {
+    RowAppend {
         session_id: String,
-        message: Message,
+        entry: ConversationRowEntry,
     },
-    MessageUpdate {
+    RowUpsert {
         session_id: String,
-        message_id: String,
-        content: Option<String>,
-        tool_output: Option<String>,
-        duration_ms: Option<u64>,
-        is_error: Option<bool>,
-        is_in_progress: Option<bool>,
+        entry: ConversationRowEntry,
     },
     TokensUpdate {
         session_id: String,
@@ -438,33 +426,50 @@ pub enum PersistOp {
 // finalize_in_progress_messages — cleanup helper
 // ---------------------------------------------------------------------------
 
-/// Scans messages for any with `is_in_progress == true`, flips them to `false`,
-/// and returns Persist + Emit effects for each. Called on TurnCompleted,
-/// TurnAborted, and SessionEnded to prevent tool messages stuck at "running...".
-fn finalize_in_progress_messages(sid: &str, messages: &mut [Message]) -> Vec<Effect> {
+/// Scans rows for any tool rows with `ToolStatus::Running`, flips them to
+/// `Completed`, and returns Persist + Emit effects for each. Called on
+/// TurnCompleted, TurnAborted, and SessionEnded to prevent tool rows stuck
+/// at "running...".
+fn finalize_in_progress_rows(sid: &str, rows: &mut [ConversationRowEntry]) -> Vec<Effect> {
     let mut effects = Vec::new();
-    for msg in messages.iter_mut().filter(|m| m.is_in_progress) {
-        msg.is_in_progress = false;
-        effects.push(Effect::Persist(Box::new(PersistOp::MessageUpdate {
-            session_id: sid.to_string(),
-            message_id: msg.id.clone(),
-            content: None,
-            tool_output: None,
-            duration_ms: None,
-            is_error: None,
-            is_in_progress: Some(false),
-        })));
-        effects.push(Effect::Emit(Box::new(ServerMessage::MessageUpdated {
-            session_id: sid.to_string(),
-            message_id: msg.id.clone(),
-            changes: MessageChanges {
-                content: None,
-                tool_output: None,
-                is_error: None,
-                is_in_progress: Some(false),
-                duration_ms: None,
+    let mut upserted = Vec::new();
+    for entry in rows.iter_mut() {
+        match &mut entry.row {
+            ConversationRow::Tool(ref mut tool) => {
+                if tool.status == ToolStatus::Running {
+                    tool.status = ToolStatus::Completed;
+                    upserted.push(entry.clone());
+                    effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
+                        session_id: sid.to_string(),
+                        entry: entry.clone(),
+                    })));
+                }
+            }
+            ConversationRow::Assistant(ref mut msg)
+            | ConversationRow::Thinking(ref mut msg)
+            | ConversationRow::System(ref mut msg) => {
+                if msg.is_streaming {
+                    msg.is_streaming = false;
+                    upserted.push(entry.clone());
+                    effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
+                        session_id: sid.to_string(),
+                        entry: entry.clone(),
+                    })));
+                }
+            }
+            _ => {}
+        }
+    }
+    if !upserted.is_empty() {
+        let total = rows.len() as u64;
+        effects.push(Effect::Emit(Box::new(
+            ServerMessage::ConversationRowsChanged {
+                session_id: sid.to_string(),
+                upserted,
+                removed_row_ids: vec![],
+                total_row_count: total,
             },
-        })));
+        )));
     }
     effects
 }
@@ -549,7 +554,7 @@ pub fn transition(
             }
 
             // Finalize any tool messages stuck at is_in_progress before status change
-            effects.extend(finalize_in_progress_messages(&sid, &mut state.messages));
+            effects.extend(finalize_in_progress_rows(&sid, &mut state.rows));
 
             // Only transition if we're actually working
             if matches!(state.phase, WorkPhase::Working) {
@@ -580,7 +585,7 @@ pub fn transition(
             // A second TurnAborted (e.g. from watchdog after provider already aborted) is a no-op.
             if !matches!(state.phase, WorkPhase::Idle | WorkPhase::Ended { .. }) {
                 // Finalize any tool messages stuck at is_in_progress before status change
-                effects.extend(finalize_in_progress_messages(&sid, &mut state.messages));
+                effects.extend(finalize_in_progress_rows(&sid, &mut state.rows));
 
                 state.phase = WorkPhase::Idle;
                 state.last_activity_at = Some(now.to_string());
@@ -608,33 +613,36 @@ pub fn transition(
             state.phase = WorkPhase::Idle;
             state.last_activity_at = Some(now.to_string());
 
-            // Create an error message so the user sees what happened
-            let error_msg = Message {
-                id: format!("error-{}", uuid::Uuid::new_v4()),
+            // Create an error row so the user sees what happened
+            let seq = state.total_row_count.saturating_add(1);
+            let entry = ConversationRowEntry {
                 session_id: sid.clone(),
-                sequence: None,
-                message_type: MessageType::Assistant,
-                content: msg,
-                tool_name: None,
-                tool_input: None,
-                tool_output: None,
-                is_error: true,
-                is_in_progress: false,
-                timestamp: now.to_string(),
-                duration_ms: None,
-                images: vec![],
+                sequence: seq,
+                turn_id: state.current_turn_id.clone(),
+                row: ConversationRow::System(MessageRowContent {
+                    id: format!("error-{}", uuid::Uuid::new_v4()),
+                    content: msg,
+                    turn_id: state.current_turn_id.clone(),
+                    timestamp: Some(now.to_string()),
+                    is_streaming: false,
+                    images: vec![],
+                }),
             };
-            state.messages.push(error_msg.clone());
-            state.total_message_count = state.total_message_count.saturating_add(1);
+            state.rows.push(entry.clone());
+            state.total_row_count = seq;
 
-            effects.push(Effect::Persist(Box::new(PersistOp::MessageAppend {
+            effects.push(Effect::Persist(Box::new(PersistOp::RowAppend {
                 session_id: sid.clone(),
-                message: error_msg.clone(),
+                entry: entry.clone(),
             })));
-            effects.push(Effect::Emit(Box::new(ServerMessage::MessageAppended {
-                session_id: sid.clone(),
-                message: error_msg,
-            })));
+            effects.push(Effect::Emit(Box::new(
+                ServerMessage::ConversationRowsChanged {
+                    session_id: sid.clone(),
+                    upserted: vec![entry],
+                    removed_row_ids: vec![],
+                    total_row_count: state.total_row_count,
+                },
+            )));
             effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
                 id: sid.clone(),
                 status: None,
@@ -651,106 +659,80 @@ pub fn transition(
             })));
         }
 
-        // -- Messages ---------------------------------------------------------
-        Input::MessageCreated(mut message) => {
-            message.session_id = sid.clone();
+        // -- Conversation rows ------------------------------------------------
+        Input::RowCreated(mut entry) => {
+            entry.session_id = sid.clone();
 
-            // Dedup: skip echoed user messages from the connector
-            let is_dup =
-                message.message_type == MessageType::User
-                    && state.messages.iter().rev().take(5).any(|m| {
-                        m.message_type == MessageType::User && m.content == message.content
-                    });
+            // Dedup: skip echoed user rows from the connector
+            let is_dup = matches!(&entry.row, ConversationRow::User(u) if {
+                state.rows.iter().rev().take(5).any(|existing| {
+                    matches!(&existing.row, ConversationRow::User(eu) if eu.content == u.content)
+                })
+            });
 
             if !is_dup {
-                state.messages.push(message.clone());
-                state.total_message_count = state.total_message_count.saturating_add(1);
+                // Assign sequence if not set
+                if entry.sequence == 0 {
+                    state.total_row_count = state.total_row_count.saturating_add(1);
+                    entry.sequence = state.total_row_count;
+                }
+                state.rows.push(entry.clone());
                 state.last_activity_at = Some(now.to_string());
 
-                effects.push(Effect::Persist(Box::new(PersistOp::MessageAppend {
+                effects.push(Effect::Persist(Box::new(PersistOp::RowAppend {
                     session_id: sid.clone(),
-                    message: message.clone(),
+                    entry: entry.clone(),
                 })));
 
-                // Increment tool_count for tool messages
-                if message.message_type == MessageType::Tool {
+                // Increment tool_count for tool rows
+                if matches!(&entry.row, ConversationRow::Tool(_)) {
                     effects.push(Effect::Persist(Box::new(PersistOp::ToolCountIncrement {
                         session_id: sid.clone(),
                     })));
                 }
 
-                effects.push(Effect::Emit(Box::new(ServerMessage::MessageAppended {
-                    session_id: sid,
-                    message,
-                })));
+                effects.push(Effect::Emit(Box::new(
+                    ServerMessage::ConversationRowsChanged {
+                        session_id: sid,
+                        upserted: vec![entry],
+                        removed_row_ids: vec![],
+                        total_row_count: state.total_row_count,
+                    },
+                )));
             }
         }
 
-        Input::MessageUpdated {
-            message_id,
-            content,
-            tool_output,
-            is_error,
-            is_in_progress,
-            duration_ms,
-        } => {
+        Input::RowUpdated { row_id, entry } => {
             let found = state
-                .messages
+                .rows
                 .iter()
-                .any(|message| message.id.as_str() == message_id.as_str());
+                .any(|existing| existing.id() == row_id.as_str());
             tracing::info!(
                 component = "transition",
-                event = "transition.message_updated",
+                event = "transition.row_updated",
                 session_id = %sid,
-                message_id = %message_id,
-                has_tool_output = tool_output.is_some(),
-                tool_output_chars = tool_output.as_ref().map(|s| s.len()).unwrap_or(0),
-                is_in_progress = ?is_in_progress,
-                message_found_in_state = found,
-                "Processing MessageUpdated input"
+                row_id = %row_id,
+                row_found_in_state = found,
+                "Processing RowUpdated input"
             );
-            if let Some(existing) = state
-                .messages
-                .iter_mut()
-                .find(|message| message.id.as_str() == message_id.as_str())
-            {
-                if let Some(content) = content.as_ref() {
-                    existing.content = content.clone();
-                }
-                if let Some(tool_output) = tool_output.as_ref() {
-                    existing.tool_output = Some(tool_output.clone());
-                }
-                if let Some(is_error) = is_error {
-                    existing.is_error = is_error;
-                }
-                if let Some(duration_ms) = duration_ms {
-                    existing.duration_ms = Some(duration_ms);
-                }
-                if let Some(is_in_progress) = is_in_progress {
-                    existing.is_in_progress = is_in_progress;
-                }
+
+            // Replace the existing row in state if found
+            if let Some(existing) = state.rows.iter_mut().find(|e| e.id() == row_id.as_str()) {
+                *existing = entry.clone();
             }
 
-            effects.push(Effect::Persist(Box::new(PersistOp::MessageUpdate {
+            effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
                 session_id: sid.clone(),
-                message_id: message_id.clone(),
-                content: content.clone(),
-                tool_output: tool_output.clone(),
-                duration_ms,
-                is_error,
-                is_in_progress,
+                entry: entry.clone(),
             })));
-            effects.push(Effect::Emit(Box::new(ServerMessage::MessageUpdated {
-                session_id: sid,
-                message_id,
-                changes: MessageChanges {
-                    content,
-                    tool_output,
-                    is_error,
-                    is_in_progress,
-                    duration_ms,
+            effects.push(Effect::Emit(Box::new(
+                ServerMessage::ConversationRowsChanged {
+                    session_id: sid,
+                    upserted: vec![entry],
+                    removed_row_ids: vec![],
+                    total_row_count: state.total_row_count,
                 },
-            })));
+            )));
         }
 
         // -- Approval ---------------------------------------------------------
@@ -969,7 +951,7 @@ pub fn transition(
         // -- Lifecycle --------------------------------------------------------
         Input::SessionEnded { reason } => {
             // Finalize any tool messages stuck at is_in_progress before ending
-            effects.extend(finalize_in_progress_messages(&sid, &mut state.messages));
+            effects.extend(finalize_in_progress_rows(&sid, &mut state.rows));
 
             state.phase = WorkPhase::Ended {
                 reason: reason.clone(),
@@ -1179,33 +1161,36 @@ pub fn transition(
 
             // Record compaction as a first-class transcript event so it is visible
             // in chat history and persisted in SQLite for reloads.
-            let compact_msg = Message {
-                id: format!("context-compacted-{}", uuid::Uuid::new_v4()),
+            state.total_row_count = state.total_row_count.saturating_add(1);
+            let compact_entry = ConversationRowEntry {
                 session_id: sid.clone(),
-                sequence: None,
-                message_type: MessageType::Assistant,
-                content: "Context compacted to keep this session within the model context window."
-                    .to_string(),
-                tool_name: None,
-                tool_input: None,
-                tool_output: None,
-                is_error: false,
-                is_in_progress: false,
-                timestamp: now.to_string(),
-                duration_ms: None,
-                images: vec![],
+                sequence: state.total_row_count,
+                turn_id: state.current_turn_id.clone(),
+                row: ConversationRow::System(MessageRowContent {
+                    id: format!("context-compacted-{}", uuid::Uuid::new_v4()),
+                    content:
+                        "Context compacted to keep this session within the model context window."
+                            .to_string(),
+                    turn_id: state.current_turn_id.clone(),
+                    timestamp: Some(now.to_string()),
+                    is_streaming: false,
+                    images: vec![],
+                }),
             };
-            state.messages.push(compact_msg.clone());
-            state.total_message_count = state.total_message_count.saturating_add(1);
+            state.rows.push(compact_entry.clone());
 
-            effects.push(Effect::Persist(Box::new(PersistOp::MessageAppend {
+            effects.push(Effect::Persist(Box::new(PersistOp::RowAppend {
                 session_id: sid.clone(),
-                message: compact_msg.clone(),
+                entry: compact_entry.clone(),
             })));
-            effects.push(Effect::Emit(Box::new(ServerMessage::MessageAppended {
-                session_id: sid.clone(),
-                message: compact_msg,
-            })));
+            effects.push(Effect::Emit(Box::new(
+                ServerMessage::ConversationRowsChanged {
+                    session_id: sid.clone(),
+                    upserted: vec![compact_entry],
+                    removed_row_ids: vec![],
+                    total_row_count: state.total_row_count,
+                },
+            )));
             effects.push(Effect::Emit(Box::new(ServerMessage::ContextCompacted {
                 session_id: sid,
             })));
@@ -2481,17 +2466,18 @@ fn shell_segments_for_preview(command: &str) -> Vec<ApprovalPreviewSegment> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbitdock_protocol::{
-        ApprovalPreviewType, ApprovalRiskLevel, Message, MessageType, TokenUsage,
-    };
+    use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
+    use orbitdock_protocol::domain_events::{GenericInvocationPayload, ToolInvocationPayload};
+    use orbitdock_protocol::{ApprovalPreviewType, ApprovalRiskLevel, TokenUsage};
 
     fn test_state() -> TransitionState {
         TransitionState {
             id: "test-session".to_string(),
+            provider: Provider::Claude,
             revision: 0,
             phase: WorkPhase::Idle,
-            messages: Vec::new(),
-            total_message_count: 0,
+            rows: Vec::new(),
+            total_row_count: 0,
             token_usage: TokenUsage::default(),
             token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
             current_diff: None,
@@ -2511,21 +2497,64 @@ mod tests {
         }
     }
 
-    fn test_message(msg_type: MessageType, content: &str) -> Message {
-        Message {
-            id: format!("msg-{}", content.len()),
+    fn test_user_row(content: &str) -> ConversationRowEntry {
+        ConversationRowEntry {
             session_id: String::new(),
-            sequence: None,
-            message_type: msg_type,
-            content: content.to_string(),
-            tool_name: None,
-            tool_input: None,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: false,
-            timestamp: "0Z".to_string(),
-            duration_ms: None,
-            images: vec![],
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::User(MessageRowContent {
+                id: format!("msg-{}", content.len()),
+                content: content.to_string(),
+                turn_id: None,
+                timestamp: Some("0Z".to_string()),
+                is_streaming: false,
+                images: vec![],
+            }),
+        }
+    }
+
+    fn test_assistant_row(content: &str) -> ConversationRowEntry {
+        ConversationRowEntry {
+            session_id: String::new(),
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::Assistant(MessageRowContent {
+                id: format!("msg-{}", content.len()),
+                content: content.to_string(),
+                turn_id: None,
+                timestamp: Some("0Z".to_string()),
+                is_streaming: false,
+                images: vec![],
+            }),
+        }
+    }
+
+    fn test_tool_row(id: &str, status: ToolStatus) -> ConversationRowEntry {
+        ConversationRowEntry {
+            session_id: String::new(),
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::Tool(ToolRow {
+                id: id.to_string(),
+                provider: Provider::Claude,
+                family: ToolFamily::Generic,
+                kind: ToolKind::Generic,
+                status,
+                title: id.to_string(),
+                subtitle: None,
+                summary: None,
+                preview: None,
+                started_at: None,
+                ended_at: None,
+                duration_ms: None,
+                grouping_key: None,
+                invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
+                    tool_name: "test".to_string(),
+                    raw_input: None,
+                }),
+                result: None,
+                render_hints: RenderHints::default(),
+            }),
         }
     }
 
@@ -2965,63 +2994,71 @@ mod tests {
     }
 
     #[test]
-    fn message_created_appends_to_state() {
+    fn row_created_appends_to_state() {
         let state = test_state();
-        let msg = test_message(MessageType::Assistant, "Hello world");
+        let entry = test_assistant_row("Hello world");
 
-        let (new_state, effects) = transition(state, Input::MessageCreated(msg), NOW);
+        let (new_state, effects) = transition(state, Input::RowCreated(entry), NOW);
 
-        assert_eq!(new_state.messages.len(), 1);
-        assert_eq!(new_state.messages[0].content, "Hello world");
+        assert_eq!(new_state.rows.len(), 1);
+        if let ConversationRow::Assistant(ref msg) = new_state.rows[0].row {
+            assert_eq!(msg.content, "Hello world");
+        } else {
+            panic!("expected Assistant row");
+        }
         assert_eq!(effects.len(), 2); // Persist + Emit
     }
 
     #[test]
-    fn message_updated_mutates_existing_state_message() {
+    fn row_updated_mutates_existing_state_row() {
         let mut state = test_state();
-        let mut msg = test_message(MessageType::Assistant, "I");
-        msg.id = "msg-stream".to_string();
-        msg.tool_output = Some("old output".to_string());
-        state.messages.push(msg);
+        let mut entry = test_assistant_row("I");
+        // Give it a known id
+        if let ConversationRow::Assistant(ref mut msg) = entry.row {
+            msg.id = "msg-stream".to_string();
+        }
+        entry.sequence = 1;
+        state.rows.push(entry.clone());
+        state.total_row_count = 1;
+
+        // Build the updated entry
+        let mut updated_entry = entry.clone();
+        if let ConversationRow::Assistant(ref mut msg) = updated_entry.row {
+            msg.content = "I'm now cross-checking the highest-risk claims".to_string();
+        }
 
         let (new_state, effects) = transition(
             state,
-            Input::MessageUpdated {
-                message_id: "msg-stream".to_string(),
-                content: Some("I'm now cross-checking the highest-risk claims".to_string()),
-                tool_output: Some("new output".to_string()),
-                is_error: Some(false),
-                is_in_progress: Some(false),
-                duration_ms: Some(420),
+            Input::RowUpdated {
+                row_id: "msg-stream".to_string(),
+                entry: updated_entry,
             },
             NOW,
         );
 
-        assert_eq!(new_state.messages.len(), 1);
-        let updated = &new_state.messages[0];
-        assert_eq!(updated.id, "msg-stream");
-        assert_eq!(
-            updated.content,
-            "I'm now cross-checking the highest-risk claims"
-        );
-        assert_eq!(updated.tool_output.as_deref(), Some("new output"));
-        assert!(!updated.is_error);
-        assert_eq!(updated.duration_ms, Some(420));
+        assert_eq!(new_state.rows.len(), 1);
+        if let ConversationRow::Assistant(ref msg) = new_state.rows[0].row {
+            assert_eq!(msg.id, "msg-stream");
+            assert_eq!(
+                msg.content,
+                "I'm now cross-checking the highest-risk claims"
+            );
+        } else {
+            panic!("expected Assistant row");
+        }
         assert_eq!(effects.len(), 2); // Persist + Emit
     }
 
     #[test]
-    fn user_message_dedup_skips_echo() {
+    fn user_row_dedup_skips_echo() {
         let mut state = test_state();
-        state
-            .messages
-            .push(test_message(MessageType::User, "do something"));
+        state.rows.push(test_user_row("do something"));
 
-        let echo = test_message(MessageType::User, "do something");
-        let (new_state, effects) = transition(state, Input::MessageCreated(echo), NOW);
+        let echo = test_user_row("do something");
+        let (new_state, effects) = transition(state, Input::RowCreated(echo), NOW);
 
         // Should NOT add duplicate
-        assert_eq!(new_state.messages.len(), 1);
+        assert_eq!(new_state.rows.len(), 1);
         assert!(effects.is_empty());
     }
 
@@ -3114,15 +3151,15 @@ mod tests {
                 other => panic!("expected tokens_updated effect, got {:?}", other),
             }
         }
-        let last_msg = new_state
-            .messages
-            .last()
-            .expect("expected compaction message");
-        assert_eq!(last_msg.message_type, MessageType::Assistant);
-        assert_eq!(
-            last_msg.content,
-            "Context compacted to keep this session within the model context window."
-        );
+        let last_row = new_state.rows.last().expect("expected compaction row");
+        if let ConversationRow::System(ref msg) = last_row.row {
+            assert_eq!(
+                msg.content,
+                "Context compacted to keep this session within the model context window."
+            );
+        } else {
+            panic!("expected System row for compaction");
+        }
     }
 
     #[test]
@@ -3145,12 +3182,14 @@ mod tests {
         assert_eq!(new_state.phase, WorkPhase::Idle);
         // 4 effects: message persist, message emit, session update, session delta
         assert_eq!(effects.len(), 4);
-        // Verify the error message was added to state
-        let last_msg = new_state.messages.last().unwrap();
-        assert!(last_msg.id.starts_with("error-"));
-        assert_eq!(last_msg.content, "something broke");
-        assert!(last_msg.is_error);
-        assert_eq!(last_msg.message_type, MessageType::Assistant);
+        // Verify the error row was added to state
+        let last_row = new_state.rows.last().unwrap();
+        if let ConversationRow::System(ref msg) = last_row.row {
+            assert!(msg.id.starts_with("error-"));
+            assert_eq!(msg.content, "something broke");
+        } else {
+            panic!("expected System row for error");
+        }
     }
 
     #[test]
@@ -3331,48 +3370,50 @@ mod tests {
         assert!(new_state.current_turn_id.is_none());
     }
 
-    // -- finalize_in_progress_messages tests ---------------------------------
-
-    fn tool_message(id: &str, in_progress: bool) -> Message {
-        Message {
-            id: id.to_string(),
-            session_id: String::new(),
-            sequence: None,
-            message_type: MessageType::Tool,
-            content: String::new(),
-            tool_name: Some("Bash".to_string()),
-            tool_input: None,
-            tool_output: None,
-            is_error: false,
-            is_in_progress: in_progress,
-            timestamp: "0Z".to_string(),
-            duration_ms: None,
-            images: vec![],
-        }
-    }
+    // -- finalize_in_progress_rows tests --------------------------------------
 
     #[test]
-    fn turn_completed_finalizes_in_progress_tool_messages() {
+    fn turn_completed_finalizes_in_progress_tool_rows() {
         let mut state = test_state();
         state.phase = WorkPhase::Working;
-        state.messages.push(tool_message("tool-1", true));
-        state.messages.push(tool_message("tool-2", false));
+        state
+            .rows
+            .push(test_tool_row("tool-1", ToolStatus::Running));
+        state
+            .rows
+            .push(test_tool_row("tool-2", ToolStatus::Completed));
 
         let (new_state, effects) = transition(state, Input::TurnCompleted, NOW);
 
-        // The in-progress message should now be false
-        assert!(!new_state.messages[0].is_in_progress);
-        // The already-completed one stays false
-        assert!(!new_state.messages[1].is_in_progress);
+        // The running tool should now be Completed
+        if let ConversationRow::Tool(ref t) = new_state.rows[0].row {
+            assert_eq!(
+                t.status,
+                ToolStatus::Completed,
+                "tool-1 should be finalized"
+            );
+        } else {
+            panic!("expected Tool row");
+        }
+        // The already-completed one stays Completed
+        if let ConversationRow::Tool(ref t) = new_state.rows[1].row {
+            assert_eq!(
+                t.status,
+                ToolStatus::Completed,
+                "tool-2 should stay completed"
+            );
+        } else {
+            panic!("expected Tool row");
+        }
 
-        // Should have finalize effects (Persist + Emit) for tool-1 only
+        // Should have finalize effects: RowUpsert for tool-1 + ConversationRowsChanged
         let finalize_persists: Vec<_> = effects
             .iter()
             .filter(|e| {
                 matches!(e, Effect::Persist(op) if matches!(
                     op.as_ref(),
-                    PersistOp::MessageUpdate { message_id, is_in_progress: Some(false), .. }
-                        if message_id == "tool-1"
+                    PersistOp::RowUpsert { ref entry, .. }
+                        if entry.id() == "tool-1"
                 ))
             })
             .collect();
@@ -3383,8 +3424,8 @@ mod tests {
             .filter(|e| {
                 matches!(e, Effect::Emit(msg) if matches!(
                     msg.as_ref(),
-                    ServerMessage::MessageUpdated { message_id, .. }
-                        if message_id == "tool-1"
+                    ServerMessage::ConversationRowsChanged { ref upserted, .. }
+                        if upserted.iter().any(|u| u.id() == "tool-1")
                 ))
             })
             .collect();
@@ -3392,10 +3433,12 @@ mod tests {
     }
 
     #[test]
-    fn turn_aborted_finalizes_in_progress_tool_messages() {
+    fn turn_aborted_finalizes_in_progress_tool_rows() {
         let mut state = test_state();
         state.phase = WorkPhase::Working;
-        state.messages.push(tool_message("tool-1", true));
+        state
+            .rows
+            .push(test_tool_row("tool-1", ToolStatus::Running));
 
         let (new_state, effects) = transition(
             state,
@@ -3405,14 +3448,22 @@ mod tests {
             NOW,
         );
 
-        assert!(!new_state.messages[0].is_in_progress);
+        if let ConversationRow::Tool(ref t) = new_state.rows[0].row {
+            assert_eq!(
+                t.status,
+                ToolStatus::Completed,
+                "tool-1 should be finalized"
+            );
+        } else {
+            panic!("expected Tool row");
+        }
 
         let has_finalize = effects.iter().any(|e| {
             matches!(
                 e, Effect::Persist(op) if matches!(
                     op.as_ref(),
-                    PersistOp::MessageUpdate { message_id, is_in_progress: Some(false), .. }
-                        if message_id == "tool-1"
+                    PersistOp::RowUpsert { ref entry, .. }
+                        if entry.id() == "tool-1"
                 )
             )
         });
@@ -3423,10 +3474,12 @@ mod tests {
     }
 
     #[test]
-    fn session_ended_finalizes_in_progress_tool_messages() {
+    fn session_ended_finalizes_in_progress_tool_rows() {
         let mut state = test_state();
         state.phase = WorkPhase::Working;
-        state.messages.push(tool_message("tool-1", true));
+        state
+            .rows
+            .push(test_tool_row("tool-1", ToolStatus::Running));
 
         let (new_state, effects) = transition(
             state,
@@ -3436,14 +3489,22 @@ mod tests {
             NOW,
         );
 
-        assert!(!new_state.messages[0].is_in_progress);
+        if let ConversationRow::Tool(ref t) = new_state.rows[0].row {
+            assert_eq!(
+                t.status,
+                ToolStatus::Completed,
+                "tool-1 should be finalized"
+            );
+        } else {
+            panic!("expected Tool row");
+        }
 
         let has_finalize = effects.iter().any(|e| {
             matches!(
                 e, Effect::Persist(op) if matches!(
                     op.as_ref(),
-                    PersistOp::MessageUpdate { message_id, is_in_progress: Some(false), .. }
-                        if message_id == "tool-1"
+                    PersistOp::RowUpsert { ref entry, .. }
+                        if entry.id() == "tool-1"
                 )
             )
         });
@@ -3454,22 +3515,26 @@ mod tests {
     }
 
     #[test]
-    fn no_cleanup_effects_when_no_in_progress_messages() {
+    fn no_cleanup_effects_when_no_in_progress_rows() {
         let mut state = test_state();
         state.phase = WorkPhase::Working;
-        state.messages.push(tool_message("tool-1", false));
-        state.messages.push(tool_message("tool-2", false));
+        state
+            .rows
+            .push(test_tool_row("tool-1", ToolStatus::Completed));
+        state
+            .rows
+            .push(test_tool_row("tool-2", ToolStatus::Completed));
 
         let (_, effects) = transition(state, Input::TurnCompleted, NOW);
 
-        // Only session status effects (Persist + Emit), no MessageUpdate effects
-        let msg_updates: Vec<_> = effects
+        // Only session status effects (Persist + Emit), no RowUpsert effects for finalization
+        let row_upserts: Vec<_> = effects
             .iter()
-            .filter(|e| matches!(e, Effect::Persist(op) if matches!(op.as_ref(), PersistOp::MessageUpdate { .. })))
+            .filter(|e| matches!(e, Effect::Persist(op) if matches!(op.as_ref(), PersistOp::RowUpsert { .. })))
             .collect();
         assert!(
-            msg_updates.is_empty(),
-            "no MessageUpdate effects when nothing to finalize"
+            row_upserts.is_empty(),
+            "no RowUpsert effects when nothing to finalize"
         );
     }
 
@@ -3534,35 +3599,47 @@ mod tests {
     }
 
     #[test]
-    fn multiple_in_progress_messages_all_finalized() {
+    fn multiple_in_progress_rows_all_finalized() {
         let mut state = test_state();
         state.phase = WorkPhase::Working;
-        state.messages.push(tool_message("tool-1", true));
-        state.messages.push(tool_message("tool-2", true));
-        state.messages.push(tool_message("tool-3", true));
+        state
+            .rows
+            .push(test_tool_row("tool-1", ToolStatus::Running));
+        state
+            .rows
+            .push(test_tool_row("tool-2", ToolStatus::Running));
+        state
+            .rows
+            .push(test_tool_row("tool-3", ToolStatus::Running));
 
         let (new_state, effects) = transition(state, Input::TurnCompleted, NOW);
 
         // All three should be finalized
-        for msg in &new_state.messages {
-            assert!(
-                !msg.is_in_progress,
-                "message {} should be finalized",
-                msg.id
-            );
+        for entry in &new_state.rows {
+            if let ConversationRow::Tool(ref t) = entry.row {
+                assert_eq!(
+                    t.status,
+                    ToolStatus::Completed,
+                    "tool {} should be finalized",
+                    t.id
+                );
+            } else {
+                panic!("expected Tool row");
+            }
         }
 
-        // Should have 3 persist + 3 emit = 6 finalize effects
-        let msg_updates: Vec<_> = effects
+        // Should have 3 RowUpsert persist effects + 1 ConversationRowsChanged emit
+        let row_upserts: Vec<_> = effects
             .iter()
-            .filter(|e| matches!(e, Effect::Persist(op) if matches!(op.as_ref(), PersistOp::MessageUpdate { .. })))
+            .filter(|e| matches!(e, Effect::Persist(op) if matches!(op.as_ref(), PersistOp::RowUpsert { .. })))
             .collect();
-        assert_eq!(msg_updates.len(), 3);
+        assert_eq!(row_upserts.len(), 3);
 
-        let msg_emits: Vec<_> = effects
+        // finalize_in_progress_rows emits a single ConversationRowsChanged with all upserted
+        let row_changed_emits: Vec<_> = effects
             .iter()
-            .filter(|e| matches!(e, Effect::Emit(msg) if matches!(msg.as_ref(), ServerMessage::MessageUpdated { .. })))
+            .filter(|e| matches!(e, Effect::Emit(msg) if matches!(msg.as_ref(), ServerMessage::ConversationRowsChanged { .. })))
             .collect();
-        assert_eq!(msg_emits.len(), 3);
+        assert_eq!(row_changed_emits.len(), 1);
     }
 }

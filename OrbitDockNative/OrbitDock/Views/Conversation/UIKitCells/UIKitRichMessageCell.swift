@@ -263,6 +263,96 @@
       )
     }
 
+    @discardableResult
+    func applyStreamingUpdate(model: NativeRichMessageRowModel, width: CGFloat) -> Bool {
+      guard let existingModel = currentModel,
+            existingModel.messageID == model.messageID,
+            existingModel.usesStreamingTextRenderer,
+            model.usesStreamingTextRenderer,
+            !existingModel.hasImages,
+            !model.hasImages
+      else {
+        return false
+      }
+
+      let updateState = RichMessageRenderPlanning.streamingUpdateState(
+        for: width,
+        model: model
+      ) { availableWidth in
+        Self.imageBlockHeight(for: model.images, availableWidth: availableWidth)
+      }
+      guard let updateState else {
+        return false
+      }
+      let presentation = updateState.presentation
+
+      configureHeader(model: model, presentation: presentation, width: width)
+      currentModel = model
+      currentBlocks = []
+      bodyContainer.frame = CGRect(
+        x: 0,
+        y: presentation.bodyOriginY,
+        width: contentView.bounds.width,
+        height: updateState.bodyHeight
+      )
+
+      switch (model.messageType, updateState.layoutPlan) {
+        case let (.assistant, .assistant(contentFrame, _)):
+          configureStreamingTextView(updateState.attributedText, frame: contentFrame)
+          if streamingTextView.superview == nil {
+            bodyContainer.addSubview(streamingTextView)
+          }
+          return true
+
+        case let (.thinking, .thinking(backgroundFrame, contentFrame, footerFrame, isCollapsed, fadeHeight)):
+          thinkingBackground.frame = backgroundFrame
+          thinkingBackground.isHidden = false
+          if thinkingBackground.superview == nil {
+            bodyContainer.addSubview(thinkingBackground)
+          }
+
+          configureStreamingTextView(updateState.attributedText, frame: contentFrame)
+          if streamingTextView.superview == nil {
+            bodyContainer.addSubview(streamingTextView)
+          }
+
+          if isCollapsed {
+            let maskLayer = CAGradientLayer()
+            maskLayer.frame = streamingTextView.bounds
+            let renderedHeight = max(contentFrame.height, 1)
+            let fadeStart = max(0, 1.0 - Double(fadeHeight) / Double(renderedHeight))
+            maskLayer.colors = [
+              UIColor.white.cgColor,
+              UIColor.white.cgColor,
+              UIColor.clear.cgColor,
+            ]
+            maskLayer.locations = [0, NSNumber(value: fadeStart), 1.0]
+            streamingTextView.layer.mask = maskLayer
+          } else {
+            streamingTextView.layer.mask = nil
+          }
+
+          thinkingFadeOverlay.isHidden = true
+          thinkingSeparator.isHidden = true
+
+          if let buttonTitle = presentation.thinkingButtonTitle, let footerFrame {
+            thinkingShowMoreButton.setTitle(buttonTitle, for: .normal)
+            thinkingShowMoreButton.frame = footerFrame
+            thinkingShowMoreButton.isHidden = false
+            if thinkingShowMoreButton.superview == nil {
+              bodyContainer.addSubview(thinkingShowMoreButton)
+            }
+          } else {
+            thinkingShowMoreButton.isHidden = true
+          }
+
+          return true
+
+        default:
+          return false
+      }
+    }
+
     private func configureHeader(
       model: NativeRichMessageRowModel,
       presentation: RichMessagePresentation,
