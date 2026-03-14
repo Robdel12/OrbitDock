@@ -220,7 +220,7 @@ extension ServerMessage {
 
     let duration: TimeInterval? = durationMs.map { Double($0) / 1_000.0 }
 
-    let messageImages = images.enumerated().compactMap { index, image in
+    let messageImages = (images ?? []).enumerated().compactMap { index, image in
       convertServerImage(
         image,
         index: index,
@@ -315,7 +315,7 @@ private extension ServerConversationMessageRow {
     turnId: String?,
     endpointId: UUID?
   ) -> TranscriptMessage {
-    let messageImages = images.enumerated().compactMap { index, image in
+    let messageImages = (images ?? []).enumerated().compactMap { index, image in
       convertServerImage(image, index: index, endpointId: endpointId, sessionId: sessionId)
     }
     var message = TranscriptMessage(

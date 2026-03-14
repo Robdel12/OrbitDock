@@ -34,7 +34,7 @@ struct ServerMessage: Codable, Identifiable {
   let isInProgress: Bool
   let timestamp: String
   let durationMs: UInt64?
-  let images: [ServerImageInput]
+  let images: [ServerImageInput]?
   let toolFamily: String?
   let toolDisplay: ServerToolDisplay?
 
@@ -125,7 +125,7 @@ struct ServerMessage: Codable, Identifiable {
     }
     try container.encode(timestamp, forKey: .timestamp)
     try container.encodeIfPresent(durationMs, forKey: .durationMs)
-    if !images.isEmpty {
+    if let images, !images.isEmpty {
       try container.encode(images, forKey: .images)
     }
     try container.encodeIfPresent(toolFamily, forKey: .toolFamily)
@@ -275,7 +275,7 @@ struct ServerConversationMessageRow: Codable {
   let turnId: String?
   let timestamp: String?
   let isStreaming: Bool
-  let images: [ServerImageInput]
+  let images: [ServerImageInput]?
 
   enum CodingKeys: String, CodingKey {
     case id

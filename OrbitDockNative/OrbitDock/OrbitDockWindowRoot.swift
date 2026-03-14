@@ -189,6 +189,21 @@ struct SessionConversationView: View {
 
       isLoading = false
       NSLog("[OrbitDock] Loaded %d messages for session %@", messages.count, sessionRef.sessionId)
+    } catch let decodingError as DecodingError {
+      let detail: String
+      switch decodingError {
+      case let .keyNotFound(key, context):
+        detail = "Missing key '\(key.stringValue)' at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+      case let .typeMismatch(type, context):
+        detail = "Type mismatch for \(type) at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+      case let .valueNotFound(type, context):
+        detail = "Null value for \(type) at \(context.codingPath.map(\.stringValue).joined(separator: "."))"
+      default:
+        detail = decodingError.localizedDescription
+      }
+      self.error = detail
+      isLoading = false
+      NSLog("[OrbitDock] Decode error: %@", detail)
     } catch {
       self.error = error.localizedDescription
       isLoading = false
