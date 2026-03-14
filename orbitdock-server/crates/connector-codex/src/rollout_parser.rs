@@ -6,13 +6,11 @@
 //! pure parsing + file state tracking.
 
 use std::collections::HashMap;
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::SystemTime;
 
-use anyhow::Context;
 use codex_protocol::models::{ContentItem, ResponseItem};
 use codex_protocol::protocol::{
     EventMsg, RolloutItem, RolloutLine, SessionMetaLine, TurnContextItem,
@@ -138,16 +136,13 @@ pub enum RolloutEvent {
     },
 }
 
-// ── File state types ─────────────────────────────────────────────────────────
+// ── Parser state types ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-pub struct FileState {
-    pub offset: u64,
-    pub tail: String,
+pub struct ParseState {
     pub session_id: Option<String>,
     pub project_path: Option<String>,
     pub model_provider: Option<String>,
-    pub ignore_existing: bool,
     pub pending_tool_calls: HashMap<String, String>,
     pub next_message_seq: u64,
     pub saw_user_event: bool,
@@ -184,166 +179,27 @@ pub struct PersistedFileState {
 
 /// Pure parser + file state tracker. No server deps (PersistCommand, SessionHandle, etc).
 pub struct RolloutFileProcessor {
-    pub watcher_started_at: SystemTime,
-    pub file_states: HashMap<String, FileState>,
+    pub parse_states: HashMap<String, ParseState>,
     checkpoint_seeds: HashMap<String, PersistedFileState>,
 }
 
 impl RolloutFileProcessor {
     pub fn new(checkpoint_seeds: HashMap<String, PersistedFileState>) -> Self {
         Self {
-            watcher_started_at: SystemTime::now(),
-            file_states: HashMap::new(),
+            parse_states: HashMap::new(),
             checkpoint_seeds,
         }
     }
 
-    // ── File processing ──────────────────────────────────────────────────
-
-    /// Process a single rollout file, returning events for all new lines.
-    pub async fn process_file(&mut self, path: &Path) -> anyhow::Result<Vec<RolloutEvent>> {
-        if !path.exists() {
-            return Ok(vec![]);
-        }
-
-        let path_string = path.to_string_lossy().to_string();
-
-        // Guard stale path→session bindings
-        if let Some(hinted_session_id) = rollout_session_id_hint(path) {
-            let mapped_session_id = self
-                .file_states
-                .get(&path_string)
-                .and_then(|state| state.session_id.clone());
-            if let Some(ref mapped_session_id) = mapped_session_id {
-                if *mapped_session_id != hinted_session_id {
-                    self.reset_session_binding(&path_string);
-                }
-            }
-        }
-
-        let metadata = fs::metadata(path)?;
-        let size = metadata.len();
-        let created_at = metadata.created().ok();
-        self.ensure_file_state(&path_string, size, created_at);
-
-        // Handle ignore_existing flag
-        let ignore_existing = self
-            .file_states
-            .get(&path_string)
-            .map(|s| s.ignore_existing)
-            .unwrap_or(false);
-        if ignore_existing {
-            let offset = self
-                .file_states
-                .get(&path_string)
-                .map(|s| s.offset)
-                .unwrap_or(0);
-            if size > offset {
-                if let Some(state) = self.file_states.get_mut(&path_string) {
-                    state.ignore_existing = false;
-                }
-                // Need session meta before processing new content
-                let mut events = self.ensure_session_meta(&path_string).await?;
-                let more = self.read_and_parse_lines(&path_string, path, size).await?;
-                events.extend(more);
-                return Ok(events);
-            } else {
-                if let Some(state) = self.file_states.get_mut(&path_string) {
-                    state.offset = size;
-                }
-                return Ok(vec![]);
-            }
-        }
-
-        // Handle file truncation
-        if let Some(state) = self.file_states.get_mut(&path_string) {
-            if size < state.offset {
-                state.offset = 0;
-                state.tail.clear();
-            }
-        }
-
-        let offset = self
-            .file_states
-            .get(&path_string)
-            .map(|s| s.offset)
-            .unwrap_or(0);
-        if size == offset {
-            return Ok(vec![]);
-        }
-
-        let events = self.read_and_parse_lines(&path_string, path, size).await?;
-        Ok(events)
-    }
-
-    /// Read new bytes from offset→size, split into lines, parse each.
-    async fn read_and_parse_lines(
+    pub async fn ensure_session_meta_line(
         &mut self,
-        path_string: &str,
-        path: &Path,
-        size: u64,
+        path: &str,
+        line: Option<&str>,
     ) -> anyhow::Result<Vec<RolloutEvent>> {
-        let offset = self
-            .file_states
-            .get(path_string)
-            .map(|s| s.offset)
-            .unwrap_or(0);
-
-        let chunk = read_file_chunk(path, offset)?;
-        if let Some(state) = self.file_states.get_mut(path_string) {
-            state.offset = size;
-        }
-
-        if chunk.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let chunk = String::from_utf8_lossy(&chunk).to_string();
-        if chunk.is_empty() {
-            return Ok(vec![]);
-        }
-
-        let old_tail = self
-            .file_states
-            .get(path_string)
-            .map(|s| s.tail.clone())
-            .unwrap_or_default();
-        let combined = format!("{old_tail}{chunk}");
-        let mut parts: Vec<&str> = combined.split('\n').collect();
-        let next_tail = parts.pop().unwrap_or_default().to_string();
-
-        if let Some(state) = self.file_states.get_mut(path_string) {
-            state.tail = next_tail;
-        }
-
-        let mut events = Vec::new();
-        for part in parts {
-            let line = part.trim();
-            if line.is_empty() {
-                continue;
-            }
-            events.extend(self.parse_line(line, path_string).await);
-        }
-
-        if !events.is_empty() {
-            debug!(
-                component = "rollout_watcher",
-                event = "rollout_watcher.lines_processed",
-                path = %path_string,
-                "Processed rollout lines"
-            );
-        }
-
-        Ok(events)
-    }
-
-    /// Read the first line of a file and parse session_meta if present.
-    pub async fn ensure_session_meta(&mut self, path: &str) -> anyhow::Result<Vec<RolloutEvent>> {
-        let Some(line) = read_first_line(Path::new(path))? else {
+        let Some(line) = line else {
             return Ok(vec![]);
         };
-        // Try typed deserialization of the full RolloutLine
-        let Ok(rollout_line) = serde_json::from_str::<RolloutLine>(&line) else {
+        let Ok(rollout_line) = serde_json::from_str::<RolloutLine>(line) else {
             return Ok(vec![]);
         };
         if let RolloutItem::SessionMeta(meta) = rollout_line.item {
@@ -353,11 +209,50 @@ impl RolloutFileProcessor {
     }
 
     pub fn reset_session_binding(&mut self, path: &str) {
-        if let Some(state) = self.file_states.get_mut(path) {
+        if let Some(state) = self.parse_states.get_mut(path) {
             state.session_id = None;
             state.project_path = None;
             state.model_provider = None;
         }
+    }
+
+    pub fn remove_path(&mut self, path: &str) {
+        self.parse_states.remove(path);
+    }
+
+    pub fn binding_snapshot(&self, path: &str) -> Option<PersistedFileState> {
+        self.parse_states.get(path).map(|state| PersistedFileState {
+            offset: 0,
+            session_id: state.session_id.clone(),
+            project_path: state.project_path.clone(),
+            model_provider: state.model_provider.clone(),
+            ignore_existing: None,
+        })
+    }
+
+    pub async fn parse_lines(
+        &mut self,
+        path: &str,
+        lines: &[String],
+    ) -> anyhow::Result<Vec<RolloutEvent>> {
+        self.ensure_parse_state(path);
+
+        let mut events = Vec::new();
+        for line in lines {
+            events.extend(self.parse_line(line, path).await);
+        }
+
+        if !events.is_empty() {
+            debug!(
+                component = "rollout_watcher",
+                event = "rollout_watcher.lines_processed",
+                path = %path,
+                line_count = lines.len(),
+                "Processed rollout lines"
+            );
+        }
+
+        Ok(events)
     }
 
     // ── Line parsing (typed) ─────────────────────────────────────────────
@@ -396,7 +291,8 @@ impl RolloutFileProcessor {
         let (resolved_branch, _project_name) = resolve_git_info(&cwd).await;
         let branch = branch.or(resolved_branch);
 
-        if let Some(state) = self.file_states.get_mut(path) {
+        self.ensure_parse_state(path);
+        if let Some(state) = self.parse_states.get_mut(path) {
             state.session_id = Some(session_id.clone());
             state.project_path = Some(cwd.clone());
             state.model_provider = model_provider.clone();
@@ -422,13 +318,13 @@ impl RolloutFileProcessor {
         let project_path = {
             let cwd_str = ctx.cwd.to_string_lossy().to_string();
             let changed = self
-                .file_states
+                .parse_states
                 .get(path)
                 .and_then(|s| s.project_path.as_deref())
                 .map(|existing| existing != cwd_str)
                 .unwrap_or(true);
             if changed {
-                if let Some(state) = self.file_states.get_mut(path) {
+                if let Some(state) = self.parse_states.get_mut(path) {
                     state.project_path = Some(cwd_str.clone());
                 }
                 Some(cwd_str)
@@ -466,7 +362,7 @@ impl RolloutFileProcessor {
     }
 
     fn next_rollout_event_id(&mut self, path: &str, prefix: &str) -> String {
-        let seq = if let Some(state) = self.file_states.get_mut(path) {
+        let seq = if let Some(state) = self.parse_states.get_mut(path) {
             let seq = state.next_message_seq;
             state.next_message_seq = state.next_message_seq.saturating_add(1);
             seq
@@ -504,7 +400,7 @@ impl RolloutFileProcessor {
 
         match event {
             EventMsg::TurnStarted(_) => {
-                if let Some(state) = self.file_states.get_mut(path) {
+                if let Some(state) = self.parse_states.get_mut(path) {
                     state.saw_agent_event = false;
                     state.saw_user_event = false;
                 }
@@ -523,7 +419,7 @@ impl RolloutFileProcessor {
                 ]
             }
             EventMsg::TurnComplete(_) | EventMsg::TurnAborted(_) => {
-                if let Some(state) = self.file_states.get_mut(path) {
+                if let Some(state) = self.parse_states.get_mut(path) {
                     state.saw_agent_event = true;
                 }
                 vec![RolloutEvent::WorkStateChange {
@@ -538,7 +434,7 @@ impl RolloutFileProcessor {
                 }]
             }
             EventMsg::UserMessage(e) => {
-                if let Some(state) = self.file_states.get_mut(path) {
+                if let Some(state) = self.parse_states.get_mut(path) {
                     state.saw_user_event = true;
                     state.saw_agent_event = false;
                 }
@@ -548,7 +444,7 @@ impl RolloutFileProcessor {
                 }]
             }
             EventMsg::AgentMessage(_) => {
-                if let Some(state) = self.file_states.get_mut(path) {
+                if let Some(state) = self.parse_states.get_mut(path) {
                     state.saw_agent_event = true;
                 }
                 vec![RolloutEvent::WorkStateChange {
@@ -1354,7 +1250,7 @@ impl RolloutFileProcessor {
         match item {
             ResponseItem::Message { role, content, .. } => {
                 if role == "user" {
-                    if let Some(state) = self.file_states.get_mut(path) {
+                    if let Some(state) = self.parse_states.get_mut(path) {
                         state.saw_user_event = true;
                         state.saw_agent_event = false;
                     }
@@ -1378,7 +1274,7 @@ impl RolloutFileProcessor {
                     });
                     events
                 } else if role == "assistant" {
-                    if let Some(state) = self.file_states.get_mut(path) {
+                    if let Some(state) = self.parse_states.get_mut(path) {
                         state.saw_agent_event = true;
                     }
                     let mut events = Vec::new();
@@ -1414,7 +1310,7 @@ impl RolloutFileProcessor {
                 }
                 let tool = tool_label(Some(&name));
                 if let Some(ref tool) = tool {
-                    if let Some(state) = self.file_states.get_mut(path) {
+                    if let Some(state) = self.parse_states.get_mut(path) {
                         state.pending_tool_calls.insert(call_id, tool.clone());
                     }
                 }
@@ -1437,7 +1333,7 @@ impl RolloutFileProcessor {
                 if self.saw_agent_event(path) {
                     return vec![];
                 }
-                let tool_name = if let Some(state) = self.file_states.get_mut(path) {
+                let tool_name = if let Some(state) = self.parse_states.get_mut(path) {
                     state.pending_tool_calls.remove(&call_id)
                 } else {
                     None
@@ -1458,101 +1354,48 @@ impl RolloutFileProcessor {
     // ── File state helpers ───────────────────────────────────────────────
 
     pub fn file_session_id(&self, path: &str) -> Option<String> {
-        self.file_states
+        self.parse_states
             .get(path)
             .and_then(|s| s.session_id.clone())
     }
 
     pub fn mark_session_id(&mut self, path: &str, session_id: &str) {
-        if let Some(state) = self.file_states.get_mut(path) {
+        self.ensure_parse_state(path);
+        if let Some(state) = self.parse_states.get_mut(path) {
             state.session_id = Some(session_id.to_string());
         }
     }
 
     fn saw_agent_event(&self, path: &str) -> bool {
-        self.file_states
+        self.parse_states
             .get(path)
             .map(|s| s.saw_agent_event)
             .unwrap_or(false)
     }
 
-    pub fn ensure_file_state(&mut self, path: &str, size: u64, created_at: Option<SystemTime>) {
-        if self.file_states.contains_key(path) {
+    fn ensure_parse_state(&mut self, path: &str) {
+        if self.parse_states.contains_key(path) {
             return;
         }
 
-        if let Some(persisted) = self.checkpoint_seeds.get(path) {
-            self.file_states.insert(
-                path.to_string(),
-                FileState {
-                    offset: persisted.offset,
-                    tail: String::new(),
-                    session_id: persisted.session_id.clone(),
-                    project_path: persisted.project_path.clone(),
-                    model_provider: persisted.model_provider.clone(),
-                    ignore_existing: persisted.ignore_existing.unwrap_or(false),
-                    pending_tool_calls: HashMap::new(),
-                    next_message_seq: 0,
-                    saw_user_event: false,
-                    saw_agent_event: false,
-                },
-            );
-            return;
-        }
+        let seeded = self
+            .checkpoint_seeds
+            .get(path)
+            .cloned()
+            .unwrap_or_default();
 
-        let mut ignore_existing = false;
-        let mut offset = 0;
-
-        if let Some(created_at) = created_at {
-            if created_at < self.watcher_started_at {
-                ignore_existing = true;
-                offset = size;
-            }
-        }
-
-        self.file_states.insert(
+        self.parse_states.insert(
             path.to_string(),
-            FileState {
-                offset,
-                tail: String::new(),
-                session_id: None,
-                project_path: None,
-                model_provider: None,
-                ignore_existing,
+            ParseState {
+                session_id: seeded.session_id,
+                project_path: seeded.project_path,
+                model_provider: seeded.model_provider,
                 pending_tool_calls: HashMap::new(),
                 next_message_seq: 0,
                 saw_user_event: false,
                 saw_agent_event: false,
             },
         );
-    }
-
-    pub fn checkpoint_snapshot(&self, path: &str) -> Option<PersistedFileState> {
-        self.file_states.get(path).map(|state| PersistedFileState {
-            offset: state.offset,
-            session_id: state.session_id.clone(),
-            project_path: state.project_path.clone(),
-            model_provider: state.model_provider.clone(),
-            ignore_existing: Some(state.ignore_existing),
-        })
-    }
-
-    /// Return file paths that have new bytes since last process.
-    pub fn sweep_candidates(&self) -> Vec<PathBuf> {
-        let mut candidates = Vec::new();
-        for (path, state) in &self.file_states {
-            let path_buf = PathBuf::from(path);
-            if !path_buf.exists() {
-                continue;
-            }
-            let Ok(metadata) = fs::metadata(&path_buf) else {
-                continue;
-            };
-            if metadata.len() != state.offset {
-                candidates.push(path_buf);
-            }
-        }
-        candidates
     }
 }
 
@@ -1872,32 +1715,6 @@ pub fn is_recent_file(path: &Path, within_secs: u64) -> bool {
     age.as_secs() <= within_secs
 }
 
-fn read_first_line(path: &Path) -> anyhow::Result<Option<String>> {
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(err.into()),
-    };
-    let mut reader = BufReader::new(file);
-    let mut line = String::new();
-    let read = reader.read_line(&mut line)?;
-    if read == 0 {
-        return Ok(None);
-    }
-    Ok(Some(line.trim_end_matches(['\r', '\n']).to_string()))
-}
-
-fn read_file_chunk(path: &Path, offset: u64) -> anyhow::Result<Vec<u8>> {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
-    file.seek(SeekFrom::Start(offset))?;
-    let mut buf = Vec::new();
-    file.read_to_end(&mut buf)?;
-    Ok(buf)
-}
-
 pub fn is_jsonl_path(path: &Path) -> bool {
     path.extension().and_then(|s| s.to_str()) == Some("jsonl")
 }
@@ -1974,18 +1791,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn checkpoint_snapshot_reflects_current_file_state() {
+    fn binding_snapshot_reflects_current_parse_state() {
         let path = "/tmp/rollout.jsonl";
         let mut processor = RolloutFileProcessor::new(HashMap::new());
-        processor.file_states.insert(
+        processor.parse_states.insert(
             path.to_string(),
-            FileState {
-                offset: 42,
-                tail: "partial".to_string(),
+            ParseState {
                 session_id: Some("session-1".to_string()),
                 project_path: Some("/tmp/repo".to_string()),
                 model_provider: Some("gpt-5".to_string()),
-                ignore_existing: true,
                 pending_tool_calls: HashMap::new(),
                 next_message_seq: 7,
                 saw_user_event: true,
@@ -1994,18 +1808,18 @@ mod tests {
         );
 
         let snapshot = processor
-            .checkpoint_snapshot(path)
-            .expect("checkpoint snapshot");
+            .binding_snapshot(path)
+            .expect("binding snapshot");
 
-        assert_eq!(snapshot.offset, 42);
+        assert_eq!(snapshot.offset, 0);
         assert_eq!(snapshot.session_id.as_deref(), Some("session-1"));
         assert_eq!(snapshot.project_path.as_deref(), Some("/tmp/repo"));
         assert_eq!(snapshot.model_provider.as_deref(), Some("gpt-5"));
-        assert_eq!(snapshot.ignore_existing, Some(true));
+        assert_eq!(snapshot.ignore_existing, None);
     }
 
     #[test]
-    fn ensure_file_state_uses_seeded_checkpoint_metadata() {
+    fn mark_session_id_initializes_seeded_parse_state() {
         let path = "/tmp/rollout.jsonl";
         let mut processor = RolloutFileProcessor::new(HashMap::from([(
             path.to_string(),
@@ -2018,14 +1832,11 @@ mod tests {
             },
         )]));
 
-        processor.ensure_file_state(path, 256, None);
+        processor.mark_session_id(path, "session-3");
 
-        let state = processor.file_states.get(path).expect("file state");
-        assert_eq!(state.offset, 128);
-        assert_eq!(state.session_id.as_deref(), Some("session-2"));
+        let state = processor.parse_states.get(path).expect("parse state");
+        assert_eq!(state.session_id.as_deref(), Some("session-3"));
         assert_eq!(state.project_path.as_deref(), Some("/tmp/project"));
         assert_eq!(state.model_provider.as_deref(), Some("codex"));
-        assert!(!state.ignore_existing);
-        assert!(state.tail.is_empty());
     }
 }

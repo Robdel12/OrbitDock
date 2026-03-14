@@ -523,13 +523,10 @@ struct NewSessionSheet: View {
         return response.sessionId
       },
       sendBootstrapPrompt: { sessionId, prompt in
-        let message = try await store.clients.conversation.sendMessage(
+        try await store.clients.conversation.sendMessage(
           sessionId,
           request: ConversationClient.SendMessageRequest(content: prompt)
         )
-        await MainActor.run {
-          store.handleMessageAppended(sessionId, message)
-        }
       }
     )
   }

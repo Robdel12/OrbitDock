@@ -12,10 +12,14 @@ extension ServerToClientMessage {
     case type
     case sessions
     case session
+    case conversation
     case sessionId = "session_id"
     case changes
     case message
     case messageId = "message_id"
+    case upserted
+    case removedRowIds = "removed_row_ids"
+    case totalRowCount = "total_row_count"
     case request
     case usage
     case reason

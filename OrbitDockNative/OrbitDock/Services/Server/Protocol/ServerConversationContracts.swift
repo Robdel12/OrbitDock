@@ -7,7 +7,7 @@
 
 import Foundation
 
-// MARK: - Message Types
+// MARK: - Legacy Subagent Message Types
 
 enum ServerMessageType: String, Codable {
   case user
@@ -19,7 +19,7 @@ enum ServerMessageType: String, Codable {
   case shell
 }
 
-// MARK: - Core Types
+// MARK: - Legacy Subagent Message Types
 
 struct ServerMessage: Codable, Identifiable {
   let id: String
@@ -144,6 +144,452 @@ struct ServerMessage: Codable, Identifiable {
   }
 }
 
+// MARK: - Conversation Rows
+
+enum ServerConversationRowType: String, Codable {
+  case user
+  case assistant
+  case thinking
+  case tool
+  case activityGroup = "activity_group"
+  case question
+  case approval
+  case worker
+  case plan
+  case hook
+  case handoff
+  case system
+}
+
+enum ServerConversationToolFamily: String, Codable {
+  case shell
+  case fileRead = "file_read"
+  case fileChange = "file_change"
+  case search
+  case web
+  case image
+  case agent
+  case question
+  case approval
+  case permissionRequest = "permission_request"
+  case plan
+  case todo
+  case config
+  case mcp
+  case hook
+  case handoff
+  case context
+  case generic
+}
+
+enum ServerConversationToolKind: String, Codable {
+  case bash
+  case read
+  case edit
+  case write
+  case notebookEdit = "notebook_edit"
+  case glob
+  case grep
+  case toolSearch = "tool_search"
+  case webSearch = "web_search"
+  case webFetch = "web_fetch"
+  case mcpToolCall = "mcp_tool_call"
+  case readMcpResource = "read_mcp_resource"
+  case listMcpResources = "list_mcp_resources"
+  case subscribeMcpResource = "subscribe_mcp_resource"
+  case unsubscribeMcpResource = "unsubscribe_mcp_resource"
+  case subscribePolling = "subscribe_polling"
+  case unsubscribePolling = "unsubscribe_polling"
+  case dynamicToolCall = "dynamic_tool_call"
+  case spawnAgent = "spawn_agent"
+  case sendAgentInput = "send_agent_input"
+  case resumeAgent = "resume_agent"
+  case waitAgent = "wait_agent"
+  case closeAgent = "close_agent"
+  case taskOutput = "task_output"
+  case taskStop = "task_stop"
+  case askUserQuestion = "ask_user_question"
+  case enterPlanMode = "enter_plan_mode"
+  case exitPlanMode = "exit_plan_mode"
+  case updatePlan = "update_plan"
+  case todoWrite = "todo_write"
+  case config
+  case enterWorktree = "enter_worktree"
+  case hookNotification = "hook_notification"
+  case handoffRequested = "handoff_requested"
+  case compactContext = "compact_context"
+  case viewImage = "view_image"
+  case imageGeneration = "image_generation"
+  case generic
+}
+
+enum ServerConversationToolStatus: String, Codable {
+  case pending
+  case running
+  case completed
+  case failed
+  case cancelled
+  case blocked
+  case needsInput = "needs_input"
+}
+
+enum ServerConversationActivityGroupKind: String, Codable {
+  case toolBlock = "tool_block"
+  case workerBlock = "worker_block"
+  case mixedBlock = "mixed_block"
+}
+
+struct ServerConversationRenderHints: Codable, Equatable {
+  let canExpand: Bool
+  let defaultExpanded: Bool
+  let emphasized: Bool
+  let monospaceSummary: Bool
+  let accentTone: String?
+
+  enum CodingKeys: String, CodingKey {
+    case canExpand = "can_expand"
+    case defaultExpanded = "default_expanded"
+    case emphasized
+    case monospaceSummary = "monospace_summary"
+    case accentTone = "accent_tone"
+  }
+
+  init(
+    canExpand: Bool = false,
+    defaultExpanded: Bool = false,
+    emphasized: Bool = false,
+    monospaceSummary: Bool = false,
+    accentTone: String? = nil
+  ) {
+    self.canExpand = canExpand
+    self.defaultExpanded = defaultExpanded
+    self.emphasized = emphasized
+    self.monospaceSummary = monospaceSummary
+    self.accentTone = accentTone
+  }
+}
+
+struct ServerConversationMessageRow: Codable {
+  let id: String
+  let content: String
+  let turnId: String?
+  let timestamp: String?
+  let isStreaming: Bool
+  let images: [ServerImageInput]
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case content
+    case turnId = "turn_id"
+    case timestamp
+    case isStreaming = "is_streaming"
+    case images
+  }
+}
+
+struct ServerConversationToolRow: Codable {
+  let id: String
+  let provider: ServerProvider
+  let family: ServerConversationToolFamily
+  let kind: ServerConversationToolKind
+  let status: ServerConversationToolStatus
+  let title: String
+  let subtitle: String?
+  let summary: String?
+  let preview: AnyCodable?
+  let startedAt: String?
+  let endedAt: String?
+  let durationMs: UInt64?
+  let groupingKey: AnyCodable?
+  let invocation: AnyCodable
+  let result: AnyCodable?
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case provider
+    case family
+    case kind
+    case status
+    case title
+    case subtitle
+    case summary
+    case preview
+    case startedAt = "started_at"
+    case endedAt = "ended_at"
+    case durationMs = "duration_ms"
+    case groupingKey = "grouping_key"
+    case invocation
+    case result
+    case renderHints = "render_hints"
+  }
+}
+
+struct ServerConversationActivityGroupRow: Codable {
+  let id: String
+  let groupKind: ServerConversationActivityGroupKind
+  let title: String
+  let subtitle: String?
+  let summary: String?
+  let childCount: Int
+  let children: [ServerConversationToolRow]
+  let turnId: String?
+  let groupingKey: String?
+  let status: ServerConversationToolStatus
+  let family: ServerConversationToolFamily?
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case groupKind = "group_kind"
+    case title
+    case subtitle
+    case summary
+    case childCount = "child_count"
+    case children
+    case turnId = "turn_id"
+    case groupingKey = "grouping_key"
+    case status
+    case family
+    case renderHints = "render_hints"
+  }
+}
+
+struct ServerConversationQuestionRow: Codable {
+  let id: String
+  let title: String
+  let subtitle: String?
+  let summary: String?
+  let prompts: [ServerApprovalQuestionPrompt]
+  let response: AnyCodable?
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case title
+    case subtitle
+    case summary
+    case prompts
+    case response
+    case renderHints = "render_hints"
+  }
+}
+
+struct ServerConversationApprovalRow: Codable {
+  let id: String
+  let title: String
+  let subtitle: String?
+  let summary: String?
+  let request: AnyCodable
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case title
+    case subtitle
+    case summary
+    case request
+    case renderHints = "render_hints"
+  }
+}
+
+struct ServerConversationWorkerRow: Codable {
+  let id: String
+  let title: String
+  let subtitle: String?
+  let summary: String?
+  let worker: AnyCodable
+  let operation: String?
+  let renderHints: ServerConversationRenderHints
+}
+
+struct ServerConversationPlanRow: Codable {
+  let id: String
+  let title: String
+  let subtitle: String?
+  let summary: String?
+  let payload: AnyCodable
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case title
+    case subtitle
+    case summary
+    case payload
+    case renderHints = "render_hints"
+  }
+}
+
+struct ServerConversationHookRow: Codable {
+  let id: String
+  let title: String
+  let subtitle: String?
+  let summary: String?
+  let payload: AnyCodable
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case title
+    case subtitle
+    case summary
+    case payload
+    case renderHints = "render_hints"
+  }
+}
+
+struct ServerConversationHandoffRow: Codable {
+  let id: String
+  let title: String
+  let subtitle: String?
+  let summary: String?
+  let payload: AnyCodable
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case title
+    case subtitle
+    case summary
+    case payload
+    case renderHints = "render_hints"
+  }
+}
+
+enum ServerConversationRow: Codable {
+  case user(ServerConversationMessageRow)
+  case assistant(ServerConversationMessageRow)
+  case thinking(ServerConversationMessageRow)
+  case tool(ServerConversationToolRow)
+  case activityGroup(ServerConversationActivityGroupRow)
+  case question(ServerConversationQuestionRow)
+  case approval(ServerConversationApprovalRow)
+  case worker(ServerConversationWorkerRow)
+  case plan(ServerConversationPlanRow)
+  case hook(ServerConversationHookRow)
+  case handoff(ServerConversationHandoffRow)
+  case system(ServerConversationMessageRow)
+
+  enum CodingKeys: String, CodingKey {
+    case rowType = "row_type"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let rowType = try container.decode(ServerConversationRowType.self, forKey: .rowType)
+    switch rowType {
+      case .user:
+        self = .user(try ServerConversationMessageRow(from: decoder))
+      case .assistant:
+        self = .assistant(try ServerConversationMessageRow(from: decoder))
+      case .thinking:
+        self = .thinking(try ServerConversationMessageRow(from: decoder))
+      case .tool:
+        self = .tool(try ServerConversationToolRow(from: decoder))
+      case .activityGroup:
+        self = .activityGroup(try ServerConversationActivityGroupRow(from: decoder))
+      case .question:
+        self = .question(try ServerConversationQuestionRow(from: decoder))
+      case .approval:
+        self = .approval(try ServerConversationApprovalRow(from: decoder))
+      case .worker:
+        self = .worker(try ServerConversationWorkerRow(from: decoder))
+      case .plan:
+        self = .plan(try ServerConversationPlanRow(from: decoder))
+      case .hook:
+        self = .hook(try ServerConversationHookRow(from: decoder))
+      case .handoff:
+        self = .handoff(try ServerConversationHandoffRow(from: decoder))
+      case .system:
+        self = .system(try ServerConversationMessageRow(from: decoder))
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    switch self {
+      case .user(let row):
+        try row.encode(to: encoder)
+      case .assistant(let row):
+        try row.encode(to: encoder)
+      case .thinking(let row):
+        try row.encode(to: encoder)
+      case .tool(let row):
+        try row.encode(to: encoder)
+      case .activityGroup(let row):
+        try row.encode(to: encoder)
+      case .question(let row):
+        try row.encode(to: encoder)
+      case .approval(let row):
+        try row.encode(to: encoder)
+      case .worker(let row):
+        try row.encode(to: encoder)
+      case .plan(let row):
+        try row.encode(to: encoder)
+      case .hook(let row):
+        try row.encode(to: encoder)
+      case .handoff(let row):
+        try row.encode(to: encoder)
+      case .system(let row):
+        try row.encode(to: encoder)
+    }
+  }
+}
+
+struct ServerConversationRowEntry: Codable, Identifiable {
+  let sessionId: String
+  let sequence: UInt64
+  let turnId: String?
+  let row: ServerConversationRow
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case sequence
+    case turnId = "turn_id"
+    case row
+  }
+
+  var id: String {
+    switch row {
+      case .user(let message),
+           .assistant(let message),
+           .thinking(let message),
+           .system(let message):
+        message.id
+      case .tool(let tool):
+        tool.id
+      case .activityGroup(let group):
+        group.id
+      case .question(let question):
+        question.id
+      case .approval(let approval):
+        approval.id
+      case .worker(let worker):
+        worker.id
+      case .plan(let plan):
+        plan.id
+      case .hook(let hook):
+        hook.id
+      case .handoff(let handoff):
+        handoff.id
+    }
+  }
+}
+
+struct ServerConversationRowsChanged: Codable {
+  let sessionId: String
+  let upserted: [ServerConversationRowEntry]
+  let removedRowIds: [String]
+  let totalRowCount: UInt64?
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case upserted
+    case removedRowIds = "removed_row_ids"
+    case totalRowCount = "total_row_count"
+  }
+}
+
 // MARK: - Review Comments
 
 enum ServerReviewCommentTag: String, Codable {
@@ -188,14 +634,16 @@ struct ServerReviewComment: Codable, Identifiable {
 
 struct ServerConversationBootstrap: Codable {
   let session: ServerSessionState
-  let totalMessageCount: UInt64
+  let rows: [ServerConversationRowEntry]
+  let totalRowCount: UInt64
   let hasMoreBefore: Bool
   let oldestSequence: UInt64?
   let newestSequence: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case session
-    case totalMessageCount = "total_message_count"
+    case rows
+    case totalRowCount = "total_row_count"
     case hasMoreBefore = "has_more_before"
     case oldestSequence = "oldest_sequence"
     case newestSequence = "newest_sequence"
@@ -203,17 +651,15 @@ struct ServerConversationBootstrap: Codable {
 }
 
 struct ServerConversationHistoryPage: Codable {
-  let sessionId: String
-  let messages: [ServerMessage]
-  let totalMessageCount: UInt64
+  let rows: [ServerConversationRowEntry]
+  let totalRowCount: UInt64
   let hasMoreBefore: Bool
   let oldestSequence: UInt64?
   let newestSequence: UInt64?
 
   enum CodingKeys: String, CodingKey {
-    case sessionId = "session_id"
-    case messages
-    case totalMessageCount = "total_message_count"
+    case rows
+    case totalRowCount = "total_row_count"
     case hasMoreBefore = "has_more_before"
     case oldestSequence = "oldest_sequence"
     case newestSequence = "newest_sequence"

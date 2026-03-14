@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use orbitdock_connector_codex::rollout_parser::{
     self, current_time_rfc3339, current_time_unix_z, rollout_session_id_hint, RolloutEvent,
@@ -24,6 +24,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info};
 
+use crate::connectors::jsonl_tailer::JsonlTailer;
 use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::session_naming::name_from_first_prompt;
 use crate::infrastructure::persistence::{is_direct_thread_owned_async, PersistCommand};
@@ -42,11 +43,11 @@ pub(crate) struct WatcherRuntime {
     pub(crate) app_state: Arc<SessionRegistry>,
     pub(crate) persist_tx: mpsc::Sender<PersistCommand>,
     pub(crate) tx: mpsc::UnboundedSender<WatcherMessage>,
+    pub(crate) tailer: JsonlTailer,
     pub(crate) processor: RolloutFileProcessor,
     pub(crate) debounce_tasks: HashMap<String, JoinHandle<()>>,
     pub(crate) session_timeouts: HashMap<String, JoinHandle<()>>,
     pub(crate) subagent_cache: HashMap<String, HashMap<String, orbitdock_protocol::SubagentInfo>>,
-    pub(crate) active_paths: HashMap<String, SystemTime>,
 }
 
 struct AppendChatMessageArgs {
@@ -81,28 +82,7 @@ struct PendingTokenCount {
 
 impl WatcherRuntime {
     pub(crate) async fn sweep_files(&mut self) -> anyhow::Result<()> {
-        let now = SystemTime::now();
-        self.active_paths.retain(|path, last_seen_at| {
-            let is_recent = now
-                .duration_since(*last_seen_at)
-                .unwrap_or_default()
-                .as_secs()
-                <= STARTUP_SEED_RECENT_SECS;
-            is_recent && Path::new(path).exists()
-        });
-
-        let candidates: Vec<PathBuf> = self
-            .active_paths
-            .keys()
-            .filter_map(|path| {
-                let state = self.processor.file_states.get(path)?;
-                let path_buf = PathBuf::from(path);
-                let metadata = std::fs::metadata(&path_buf).ok()?;
-                (metadata.len() != state.offset).then_some(path_buf)
-            })
-            .collect();
-
-        for path in candidates {
+        for path in self.tailer.active_candidates(STARTUP_SEED_RECENT_SECS) {
             self.process_file(path).await?;
         }
         Ok(())
@@ -110,7 +90,7 @@ impl WatcherRuntime {
 
     pub(crate) fn schedule_file(&mut self, path: PathBuf) {
         let path_string = path.to_string_lossy().to_string();
-        self.track_active_path(&path_string);
+        self.tailer.mark_active(&path_string);
         if let Some(handle) = self.debounce_tasks.remove(&path_string) {
             handle.abort();
         }
@@ -126,10 +106,8 @@ impl WatcherRuntime {
 
     pub(crate) async fn process_file(&mut self, path: PathBuf) -> anyhow::Result<()> {
         if !path.exists() {
-            self.active_paths.remove(path.to_string_lossy().as_ref());
-            self.processor
-                .file_states
-                .remove(path.to_string_lossy().as_ref());
+            self.tailer.remove_path(path.to_string_lossy().as_ref());
+            self.processor.remove_path(path.to_string_lossy().as_ref());
             let _ = self
                 .persist_tx
                 .send(PersistCommand::DeleteRolloutCheckpoint {
@@ -140,21 +118,23 @@ impl WatcherRuntime {
         }
 
         let path_string = path.to_string_lossy().to_string();
-        self.track_active_path(&path_string);
+        self.tailer.mark_active(&path_string);
         self.debounce_tasks.remove(&path_string);
 
         // Guard stale path->session bindings
         if let Some(hinted_session_id) = rollout_session_id_hint(&path) {
-            let mapped_session_id = self
-                .processor
-                .file_states
-                .get(&path_string)
-                .and_then(|state| state.session_id.clone());
+            let mapped_session_id = self.tailer.binding_session_id(&path_string);
             if let Some(mapped_session_id) = mapped_session_id {
                 if mapped_session_id != hinted_session_id {
                     self.processor.reset_session_binding(&path_string);
-                    let events = self.processor.ensure_session_meta(&path_string).await?;
+                    self.tailer.reset_binding(&path_string);
+                    let first_line = self.tailer.read_first_line(&path)?;
+                    let events = self
+                        .processor
+                        .ensure_session_meta_line(&path_string, first_line.as_deref())
+                        .await?;
                     self.handle_rollout_events(events).await?;
+                    self.sync_tailer_binding(&path_string);
                     self.persist_checkpoint(&path_string).await?;
                 }
             }
@@ -163,39 +143,42 @@ impl WatcherRuntime {
         let metadata = std::fs::metadata(&path)?;
         let size = metadata.len();
         let created_at = metadata.created().ok();
-        self.processor
-            .ensure_file_state(&path_string, size, created_at);
+        self.tailer.ensure_file(&path_string, size, created_at);
 
         // Check if we need a runtime session
-        let existing_session_id = self
-            .processor
-            .file_states
-            .get(&path_string)
-            .and_then(|state| state.session_id.clone());
+        let existing_session_id = self.tailer.binding_session_id(&path_string);
         let has_runtime_session = if let Some(session_id) = existing_session_id {
             self.app_state.get_session(&session_id).is_some()
         } else {
             false
         };
         if !has_runtime_session {
-            let events = self.processor.ensure_session_meta(&path_string).await?;
+            let first_line = self.tailer.read_first_line(&path)?;
+            let events = self
+                .processor
+                .ensure_session_meta_line(&path_string, first_line.as_deref())
+                .await?;
             self.handle_rollout_events(events).await?;
+            self.sync_tailer_binding(&path_string);
             self.persist_checkpoint(&path_string).await?;
         }
 
-        let events = self.processor.process_file(&path).await?;
+        let lines = self.tailer.read_appended_lines(&path)?;
+        let events = self.processor.parse_lines(&path_string, &lines).await?;
         self.handle_rollout_events(events).await?;
+        self.sync_tailer_binding(&path_string);
         self.persist_checkpoint(&path_string).await?;
         Ok(())
     }
 
-    pub(crate) fn track_active_path(&mut self, path: &str) {
-        self.active_paths
-            .insert(path.to_string(), SystemTime::now());
+    pub(crate) fn sync_tailer_binding(&mut self, path: &str) {
+        if let Some(binding) = self.processor.binding_snapshot(path) {
+            self.tailer.apply_binding(path, &binding);
+        }
     }
 
     pub(crate) async fn persist_checkpoint(&self, path: &str) -> anyhow::Result<()> {
-        let Some(checkpoint) = self.processor.checkpoint_snapshot(path) else {
+        let Some(checkpoint) = self.tailer.checkpoint_snapshot(path) else {
             return Ok(());
         };
 
@@ -671,10 +654,10 @@ impl WatcherRuntime {
     async fn append_chat_message(&mut self, args: AppendChatMessageArgs) {
         let AppendChatMessageArgs { session_id, row } = args;
 
-        // Allocate next sequence number from processor's file state
+        // Allocate next sequence number from parser state
         let next_seq = {
             let mut seq = 0u64;
-            for state in self.processor.file_states.values_mut() {
+            for state in self.processor.parse_states.values_mut() {
                 if state.session_id.as_deref() == Some(session_id.as_str()) {
                     seq = state.next_message_seq;
                     state.next_message_seq = state.next_message_seq.saturating_add(1);
@@ -2292,8 +2275,9 @@ fn subagent_maps_match(
 #[cfg(test)]
 mod rollout_watcher_tests {
     use super::*;
+    use crate::connectors::jsonl_tailer::JsonlTailer;
     use crate::support::test_support::ensure_server_test_data_dir;
-    use orbitdock_connector_codex::rollout_parser::{FileState, PersistedFileState};
+    use orbitdock_connector_codex::rollout_parser::{ParseState, PersistedFileState};
     use std::io::Write;
     use tokio::time::timeout;
 
@@ -2306,22 +2290,19 @@ mod rollout_watcher_tests {
             app_state,
             persist_tx,
             tx: watcher_tx,
+            tailer: JsonlTailer::new(HashMap::new()),
             processor: RolloutFileProcessor::new(HashMap::new()),
             debounce_tasks: HashMap::new(),
             session_timeouts: HashMap::new(),
             subagent_cache: HashMap::new(),
-            active_paths: HashMap::new(),
         }
     }
 
-    fn default_file_state(session_id: Option<String>, offset: u64) -> FileState {
-        FileState {
-            offset,
-            tail: String::new(),
+    fn default_parse_state(session_id: Option<String>) -> ParseState {
+        ParseState {
             session_id,
             project_path: Some("/tmp/repo".to_string()),
             model_provider: Some("codex".to_string()),
-            ignore_existing: false,
             pending_tool_calls: HashMap::new(),
             next_message_seq: 0,
             saw_user_event: false,
@@ -2396,15 +2377,43 @@ mod rollout_watcher_tests {
 
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
         let mut runtime = make_test_runtime(app_state.clone(), persist_tx, watcher_tx);
-        runtime.processor.file_states.insert(
+        runtime.processor.parse_states.insert(
             active_path.to_string_lossy().to_string(),
-            default_file_state(Some(active_session_id.clone()), active_size),
+            default_parse_state(Some(active_session_id.clone())),
         );
-        runtime.processor.file_states.insert(
+        runtime.processor.parse_states.insert(
             cold_path.to_string_lossy().to_string(),
-            default_file_state(Some(cold_session_id.clone()), cold_size),
+            default_parse_state(Some(cold_session_id.clone())),
         );
-        runtime.track_active_path(active_path.to_string_lossy().as_ref());
+        runtime.tailer = JsonlTailer::new(HashMap::from([
+            (
+                active_path.to_string_lossy().to_string(),
+                PersistedFileState {
+                    offset: active_size,
+                    session_id: Some(active_session_id.clone()),
+                    project_path: Some("/tmp/repo".to_string()),
+                    model_provider: Some("codex".to_string()),
+                    ignore_existing: Some(false),
+                },
+            ),
+            (
+                cold_path.to_string_lossy().to_string(),
+                PersistedFileState {
+                    offset: cold_size,
+                    session_id: Some(cold_session_id.clone()),
+                    project_path: Some("/tmp/repo".to_string()),
+                    model_provider: Some("codex".to_string()),
+                    ignore_existing: Some(false),
+                },
+            ),
+        ]));
+        runtime.tailer.mark_active(active_path.to_string_lossy().as_ref());
+        runtime
+            .tailer
+            .ensure_file(active_path.to_string_lossy().as_ref(), active_size, None);
+        runtime
+            .tailer
+            .ensure_file(cold_path.to_string_lossy().as_ref(), cold_size, None);
 
         append_user_message(&active_path);
         append_user_message(&cold_path);
@@ -2449,6 +2458,16 @@ mod rollout_watcher_tests {
         let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
         let mut runtime = make_test_runtime(app_state, persist_tx, watcher_tx);
+        runtime.tailer = JsonlTailer::new(HashMap::from([(
+            rollout_path.to_string_lossy().to_string(),
+            PersistedFileState {
+                offset: 0,
+                session_id: Some(session_id.clone()),
+                project_path: Some("/tmp/repo".to_string()),
+                model_provider: Some("codex".to_string()),
+                ignore_existing: Some(false),
+            },
+        )]));
         runtime.processor = RolloutFileProcessor::new(HashMap::from([(
             rollout_path.to_string_lossy().to_string(),
             PersistedFileState {

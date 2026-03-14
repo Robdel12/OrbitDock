@@ -85,6 +85,9 @@ struct ServerSessionListItem: Codable, Identifiable {
   let listStatus: ServerSessionListStatus?
   let summaryRevision: UInt64?
   let effort: String?
+  let activeWorkerCount: UInt64?
+  let pendingToolFamily: String?
+  let forkedFromSessionId: String?
 
   init(
     id: String,
@@ -113,7 +116,10 @@ struct ServerSessionListItem: Codable, Identifiable {
     contextLine: String?,
     listStatus: ServerSessionListStatus?,
     summaryRevision: UInt64? = nil,
-    effort: String?
+    effort: String?,
+    activeWorkerCount: UInt64? = nil,
+    pendingToolFamily: String? = nil,
+    forkedFromSessionId: String? = nil
   ) {
     self.id = id
     self.provider = provider
@@ -142,6 +148,9 @@ struct ServerSessionListItem: Codable, Identifiable {
     self.listStatus = listStatus
     self.summaryRevision = summaryRevision
     self.effort = effort
+    self.activeWorkerCount = activeWorkerCount
+    self.pendingToolFamily = pendingToolFamily
+    self.forkedFromSessionId = forkedFromSessionId
   }
 
   enum CodingKeys: String, CodingKey {
@@ -172,6 +181,9 @@ struct ServerSessionListItem: Codable, Identifiable {
     case listStatus = "list_status"
     case summaryRevision = "summary_revision"
     case effort
+    case activeWorkerCount = "active_worker_count"
+    case pendingToolFamily = "pending_tool_family"
+    case forkedFromSessionId = "forked_from_session_id"
   }
 }
 
@@ -442,8 +454,8 @@ struct ServerSessionState: Codable, Identifiable {
   let summary: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
-  let messages: [ServerMessage]
-  let totalMessageCount: UInt64?
+  let rows: [ServerConversationRowEntry]
+  let totalRowCount: UInt64?
   let hasMoreBefore: Bool?
   let oldestSequence: UInt64?
   let newestSequence: UInt64?
@@ -499,8 +511,8 @@ struct ServerSessionState: Codable, Identifiable {
     case summary
     case status
     case workStatus = "work_status"
-    case messages
-    case totalMessageCount = "total_message_count"
+    case rows
+    case totalRowCount = "total_row_count"
     case hasMoreBefore = "has_more_before"
     case oldestSequence = "oldest_sequence"
     case newestSequence = "newest_sequence"
@@ -558,8 +570,8 @@ struct ServerSessionState: Codable, Identifiable {
     summary = try container.decodeIfPresent(String.self, forKey: .summary)
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
-    messages = try container.decode([ServerMessage].self, forKey: .messages)
-    totalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
+    rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? []
+    totalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
     hasMoreBefore = try container.decodeIfPresent(Bool.self, forKey: .hasMoreBefore)
     oldestSequence = try container.decodeIfPresent(UInt64.self, forKey: .oldestSequence)
     newestSequence = try container.decodeIfPresent(UInt64.self, forKey: .newestSequence)

@@ -10,25 +10,27 @@ extension ServerToClientMessage {
         let sessions = try container.decode([ServerSessionListItem].self, forKey: .sessions)
         self = .sessionsList(sessions: sessions)
 
-      case "session_snapshot":
+      case "conversation_bootstrap":
         let session = try container.decode(ServerSessionState.self, forKey: .session)
-        self = .sessionSnapshot(session: session)
+        let conversation = try container.decode(ServerConversationHistoryPage.self, forKey: .conversation)
+        self = .conversationBootstrap(session: session, conversation: conversation)
 
       case "session_delta":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let changes = try container.decode(ServerStateChanges.self, forKey: .changes)
         self = .sessionDelta(sessionId: sessionId, changes: changes)
 
-      case "message_appended":
+      case "conversation_rows_changed":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
-        let message = try container.decode(ServerMessage.self, forKey: .message)
-        self = .messageAppended(sessionId: sessionId, message: message)
-
-      case "message_updated":
-        let sessionId = try container.decode(String.self, forKey: .sessionId)
-        let messageId = try container.decode(String.self, forKey: .messageId)
-        let changes = try container.decode(ServerMessageChanges.self, forKey: .changes)
-        self = .messageUpdated(sessionId: sessionId, messageId: messageId, changes: changes)
+        let upserted = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .upserted) ?? []
+        let removedRowIds = try container.decodeIfPresent([String].self, forKey: .removedRowIds) ?? []
+        let totalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
+        self = .conversationRowsChanged(
+          sessionId: sessionId,
+          upserted: upserted,
+          removedRowIds: removedRowIds,
+          totalRowCount: totalRowCount
+        )
 
       case "approval_requested":
         let sessionId = try container.decode(String.self, forKey: .sessionId)

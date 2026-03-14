@@ -48,17 +48,11 @@ struct ConversationClient: Sendable {
     )
   }
 
-  struct SendMessageResponse: Decodable {
-    let accepted: Bool
-    let message: ServerMessage
-  }
-
-  func sendMessage(_ sessionId: String, request: SendMessageRequest) async throws -> ServerMessage {
-    let response: SendMessageResponse = try await http.post(
+  func sendMessage(_ sessionId: String, request: SendMessageRequest) async throws {
+    let _: ServerAcceptedResponse = try await http.post(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/messages",
       body: request
     )
-    return response.message
   }
 
   func steerTurn(_ sessionId: String, request: SteerTurnRequest) async throws {
@@ -145,11 +139,18 @@ struct ConversationClient: Sendable {
   func executeShell(sessionId: String, command: String, timeoutSecs: UInt64 = 120) async throws {
     struct Body: Encodable {
       let command: String
+      let cwd: String?
       let timeoutSecs: UInt64
+
+      enum CodingKeys: String, CodingKey {
+        case command
+        case cwd
+        case timeoutSecs = "timeout_secs"
+      }
     }
     let _: ServerAcceptedResponse = try await http.post(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/shell/exec",
-      body: Body(command: command, timeoutSecs: timeoutSecs)
+      body: Body(command: command, cwd: nil, timeoutSecs: timeoutSecs)
     )
   }
 

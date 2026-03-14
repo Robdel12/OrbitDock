@@ -15,6 +15,7 @@ use tracing::{info, warn};
 use crate::infrastructure::persistence::{load_rollout_checkpoints, PersistCommand};
 use crate::runtime::session_registry::SessionRegistry;
 
+use super::super::jsonl_tailer::JsonlTailer;
 use super::runtime::{WatcherMessage, WatcherRuntime};
 
 pub async fn start_rollout_watcher(
@@ -105,17 +106,18 @@ pub async fn start_rollout_watcher(
         "Rollout watcher started"
     );
 
-    let processor = RolloutFileProcessor::new(checkpoint_seeds);
+    let processor = RolloutFileProcessor::new(checkpoint_seeds.clone());
+    let tailer = JsonlTailer::new(checkpoint_seeds);
 
     let mut runtime = WatcherRuntime {
         app_state,
         persist_tx,
         tx,
+        tailer,
         processor,
         debounce_tasks: HashMap::new(),
         session_timeouts: HashMap::new(),
         subagent_cache: HashMap::new(),
-        active_paths: HashMap::new(),
     };
 
     let existing_files = collect_jsonl_files(&sessions_dir);
@@ -126,16 +128,21 @@ pub async fn start_rollout_watcher(
         .collect();
     let mut seeded = 0usize;
     for path in &recent_files {
-        runtime.track_active_path(path.to_string_lossy().as_ref());
+        runtime.tailer.mark_active(path.to_string_lossy().as_ref());
         if let Ok(metadata) = std::fs::metadata(path) {
-            runtime.processor.ensure_file_state(
+            runtime.tailer.ensure_file(
                 path.to_string_lossy().as_ref(),
                 metadata.len(),
                 metadata.created().ok(),
             );
         }
         let path_string = path.to_string_lossy().to_string();
-        match runtime.processor.ensure_session_meta(&path_string).await {
+        let first_line = runtime.tailer.read_first_line(path)?;
+        match runtime
+            .processor
+            .ensure_session_meta_line(&path_string, first_line.as_deref())
+            .await
+        {
             Ok(events) => {
                 if let Err(err) = runtime.handle_rollout_events(events).await {
                     warn!(
@@ -146,6 +153,7 @@ pub async fn start_rollout_watcher(
                         "Startup seed event handling failed"
                     );
                 }
+                runtime.sync_tailer_binding(&path_string);
                 if let Err(err) = runtime.persist_checkpoint(&path_string).await {
                     warn!(
                         component = "rollout_watcher",

@@ -200,6 +200,254 @@ extension ServerMessage {
   }
 }
 
+extension ServerConversationRowEntry {
+  func toTranscriptMessage(endpointId: UUID? = nil) -> TranscriptMessage {
+    switch row {
+      case .user(let message):
+        return message.toTranscriptMessage(
+          type: .user,
+          sessionId: sessionId,
+          sequence: sequence,
+          turnId: turnId,
+          endpointId: endpointId
+        )
+      case .assistant(let message):
+        return message.toTranscriptMessage(
+          type: .assistant,
+          sessionId: sessionId,
+          sequence: sequence,
+          turnId: turnId,
+          endpointId: endpointId
+        )
+      case .thinking(let message):
+        return message.toTranscriptMessage(
+          type: .thinking,
+          sessionId: sessionId,
+          sequence: sequence,
+          turnId: turnId,
+          endpointId: endpointId
+        )
+      case .system(let message):
+        return message.toTranscriptMessage(
+          type: .system,
+          sessionId: sessionId,
+          sequence: sequence,
+          turnId: turnId,
+          endpointId: endpointId
+        )
+      case .tool(let tool):
+        return tool.toTranscriptMessage(sequence: sequence, timestamp: parseServerTimestamp(tool.startedAt) ?? Date())
+      case .activityGroup(let group):
+        return group.toTranscriptMessage(sequence: sequence)
+      case .approval(let approval):
+        return approval.toTranscriptMessage(sequence: sequence)
+      case .question(let question):
+        return question.toTranscriptMessage(sequence: sequence)
+      case .worker(let worker):
+        return worker.toTranscriptMessage(sequence: sequence)
+      case .plan(let plan):
+        return plan.toTranscriptMessage(sequence: sequence)
+      case .hook(let hook):
+        return hook.toTranscriptMessage(sequence: sequence)
+      case .handoff(let handoff):
+        return handoff.toTranscriptMessage(sequence: sequence)
+    }
+  }
+}
+
+private extension ServerConversationMessageRow {
+  func toTranscriptMessage(
+    type: TranscriptMessage.MessageType,
+    sessionId: String,
+    sequence: UInt64,
+    turnId: String?,
+    endpointId: UUID?
+  ) -> TranscriptMessage {
+    let messageImages = images.enumerated().compactMap { index, image in
+      convertServerImage(image, index: index, endpointId: endpointId, sessionId: sessionId)
+    }
+    var message = TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: type,
+      content: content,
+      timestamp: parseServerTimestamp(timestamp) ?? Date(),
+      isInProgress: isStreaming,
+      images: messageImages
+    )
+    if type == .thinking {
+      message.thinking = content
+    }
+    return message
+  }
+}
+
+private extension ServerConversationToolRow {
+  func toTranscriptMessage(sequence: UInt64, timestamp: Date) -> TranscriptMessage {
+    let toolInput = anyJSONObject(from: invocation.value)
+    let rawToolInput = prettyJSONString(from: invocation.value)
+    let rawToolOutput = result.flatMap { prettyJSONString(from: $0.value) }
+    return TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .tool,
+      content: summary ?? subtitle ?? title,
+      timestamp: timestamp,
+      toolName: kind.rawValue,
+      toolInput: toolInput,
+      rawToolInput: rawToolInput,
+      toolOutput: rawToolOutput,
+      toolDuration: durationMs.map { Double($0) / 1_000.0 },
+      isError: status == .failed,
+      isInProgress: status == .running || status == .pending || status == .needsInput,
+      serverToolFamily: family.rawValue
+    )
+  }
+}
+
+private extension ServerConversationActivityGroupRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    let childPayloads = children.map { child in
+      [
+        "id": child.id,
+        "title": child.title,
+        "kind": child.kind.rawValue,
+        "status": child.status.rawValue,
+      ]
+    }
+    return TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .tool,
+      content: summary ?? title,
+      timestamp: Date(),
+      toolName: "activity_group",
+      toolInput: [
+        "group_kind": groupKind.rawValue,
+        "child_count": childCount,
+        "children": childPayloads,
+      ],
+      rawToolInput: prettyJSONString(from: [
+        "group_kind": groupKind.rawValue,
+        "child_count": childCount,
+        "children": childPayloads,
+      ]),
+      toolDuration: nil,
+      isError: status == .failed,
+      isInProgress: status == .running,
+      serverToolFamily: family?.rawValue ?? "generic"
+    )
+  }
+}
+
+private extension ServerConversationApprovalRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .system,
+      content: summary ?? title,
+      timestamp: Date(),
+      toolName: "approval",
+      rawToolInput: prettyJSONString(from: request.value),
+      isInProgress: true,
+      serverToolFamily: "approval"
+    )
+  }
+}
+
+private extension ServerConversationQuestionRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .system,
+      content: summary ?? title,
+      timestamp: Date(),
+      toolName: "question",
+      rawToolInput: prettyJSONString(from: [
+        "prompts": prompts.map { ["id": $0.id, "question": $0.question] },
+      ]),
+      isInProgress: response == nil,
+      serverToolFamily: "question"
+    )
+  }
+}
+
+private extension ServerConversationWorkerRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .tool,
+      content: summary ?? title,
+      timestamp: Date(),
+      toolName: "task",
+      rawToolInput: prettyJSONString(from: worker.value),
+      serverToolFamily: "agent"
+    )
+  }
+}
+
+private extension ServerConversationPlanRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .system,
+      content: summary ?? title,
+      timestamp: Date(),
+      toolName: "plan",
+      rawToolInput: prettyJSONString(from: payload.value),
+      serverToolFamily: "plan"
+    )
+  }
+}
+
+private extension ServerConversationHookRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .tool,
+      content: summary ?? title,
+      timestamp: Date(),
+      toolName: "hook",
+      rawToolInput: prettyJSONString(from: payload.value),
+      serverToolFamily: "hook"
+    )
+  }
+}
+
+private extension ServerConversationHandoffRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .tool,
+      content: summary ?? title,
+      timestamp: Date(),
+      toolName: "handoff",
+      rawToolInput: prettyJSONString(from: payload.value),
+      serverToolFamily: "handoff"
+    )
+  }
+}
+
+private func anyJSONObject(from value: Any) -> [String: Any]? {
+  value as? [String: Any]
+}
+
+private func prettyJSONString(from value: Any) -> String? {
+  guard JSONSerialization.isValidJSONObject(value),
+        let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .prettyPrinted]),
+        let text = String(data: data, encoding: .utf8)
+  else {
+    return nil
+  }
+  return text
+}
+
 // MARK: - Image Conversion (Lazy — no Data loaded at decode time)
 
 private func convertServerImage(

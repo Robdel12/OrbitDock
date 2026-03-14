@@ -9,14 +9,12 @@ extension SessionStore {
       break
     case .sessionEnded(let sessionId, let reason):
       handleSessionEnded(sessionId, reason)
-    case .sessionSnapshot(let state):
-      handleSessionSnapshot(state)
+    case .conversationBootstrap(let state, let conversation):
+      handleConversationBootstrap(state, conversation)
     case .sessionDelta(let sessionId, let changes):
       handleSessionDelta(sessionId, changes)
-    case .messageAppended(let sessionId, let message):
-      handleMessageAppended(sessionId, message)
-    case .messageUpdated(let sessionId, let messageId, let changes):
-      handleMessageUpdated(sessionId, messageId, changes)
+    case .conversationRowsChanged(let sessionId, let upserted, let removedRowIds, let totalRowCount):
+      handleConversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount)
     case .approvalRequested(let sessionId, let request, let version):
       handleApprovalRequested(sessionId, request, version)
     case .approvalDecisionResult(let sessionId, let requestId, let outcome, let activeId, let version):
@@ -169,10 +167,10 @@ extension SessionStore {
     case .sessionListItemUpdated(let s): "sessionListItemUpdated(\(s.id))"
     case .sessionListItemRemoved(let sid): "sessionListItemRemoved(\(sid))"
     case .sessionEnded(let sid, _): "sessionEnded(\(sid))"
-    case .sessionSnapshot(let s): "sessionSnapshot(\(s.id))"
+    case .conversationBootstrap(let s, let conversation): "conversationBootstrap(\(s.id), \(conversation.rows.count))"
     case .sessionDelta(let sid, _): "sessionDelta(\(sid))"
-    case .messageAppended(let sid, let msg): "messageAppended(\(sid), \(msg.id))"
-    case .messageUpdated(let sid, let mid, _): "messageUpdated(\(sid), \(mid))"
+    case .conversationRowsChanged(let sid, let upserted, let removed, _):
+      "conversationRowsChanged(\(sid), +\(upserted.count), -\(removed.count))"
     case .approvalRequested(let sid, _, _): "approvalRequested(\(sid))"
     case .approvalDecisionResult(let sid, let rid, let outcome, _, _): "approvalResult(\(sid), \(rid), \(outcome))"
     case .connectionStatusChanged(let status): "connectionStatus(\(status))"
@@ -192,14 +190,16 @@ extension SessionStore {
     controlStates.removeValue(forKey: sessionId)
   }
 
-  func handleSessionSnapshot(_ state: ServerSessionState) {
-    netLog(.info, cat: .store, "Received snapshot", sid: state.id, data: ["messageCount": state.messages.count])
+  func handleConversationBootstrap(_ state: ServerSessionState, _ conversation: ServerConversationHistoryPage) {
+    netLog(.info, cat: .store, "Received bootstrap", sid: state.id, data: ["rowCount": conversation.rows.count])
 
     if let rev = state.revision {
       lastRevision[state.id] = rev
     }
 
     subscribedSessions.insert(state.id)
+
+    self.conversation(state.id).handleConversationBootstrap(session: state, conversation: conversation)
 
     let obs = self.session(state.id)
     obs.applySnapshotProjection(state.toDetailSnapshotProjection())
@@ -228,16 +228,20 @@ extension SessionStore {
     applyControlTransition(transition, sessionId: sessionId, observable: obs)
   }
 
-  func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
-    netLog(.debug, cat: .store, "Message appended", sid: sessionId, data: ["messageId": message.id])
-    conversation(sessionId).handleMessageAppended(message)
-    if autoMarkReadSessions.contains(sessionId) {
+  func handleConversationRowsChanged(
+    _ sessionId: String,
+    _ upserted: [ServerConversationRowEntry],
+    _ removedRowIds: [String],
+    _ totalRowCount: UInt64?
+  ) {
+    conversation(sessionId).handleConversationRowsChanged(
+      upserted: upserted,
+      removedRowIds: removedRowIds,
+      totalRowCount: totalRowCount
+    )
+    if autoMarkReadSessions.contains(sessionId), !upserted.isEmpty {
       markSessionAsRead(sessionId)
     }
-  }
-
-  func handleMessageUpdated(_ sessionId: String, _ messageId: String, _ changes: ServerMessageChanges) {
-    conversation(sessionId).handleMessageUpdated(messageId: messageId, changes: changes)
   }
 
   func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest, _ version: UInt64?) {

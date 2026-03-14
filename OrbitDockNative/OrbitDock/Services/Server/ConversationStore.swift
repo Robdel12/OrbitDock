@@ -213,97 +213,58 @@ final class ConversationStore {
 
   // MARK: - Live event handlers (called by SessionStore)
 
-  func handleMessageAppended(_ serverMessage: ServerMessage) {
-    let incoming = serverMessage.toTranscriptMessage(endpointId: endpointId)
-    let normalized = normalizeMessage(incoming)
-
-    if let existingIdx = messages.firstIndex(where: { $0.id == normalized.id }) {
-      // Merge: update existing message
-      messages[existingIdx] = mergeMessage(messages[existingIdx], with: normalized)
-      totalMessageCount = max(totalMessageCount, messages.count)
-      netLog(.debug, cat: .conv, "Message merged", sid: self.sessionId, data: ["messageId": normalized.id])
-    } else {
-      // Append
-      messages.append(normalized)
-      totalMessageCount = max(totalMessageCount + 1, messages.count)
-      netLog(.debug, cat: .conv, "Message appended", sid: self.sessionId, data: ["messageId": normalized.id, "total": self.messages.count])
+  func handleConversationBootstrap(session: ServerSessionState, conversation: ServerConversationHistoryPage) {
+    applyRowsPage(conversation.rows, totalRowCount: conversation.totalRowCount, hasMoreBefore: conversation.hasMoreBefore, oldestSequence: conversation.oldestSequence, newestSequence: conversation.newestSequence, goal: lastHydrationGoal, preserveOlderMessages: true)
+    hasReceivedInitialData = true
+    if session.rows.isEmpty == false {
+      newestLoadedSequence = max(newestLoadedSequence ?? 0, session.rows.last?.sequence ?? 0)
     }
-
-    updateSequenceCursors(for: normalized)
-    bumpRevision()
   }
 
-  func handleMessageUpdated(messageId: String, changes: ServerMessageChanges) {
-    guard let idx = messages.firstIndex(where: { $0.id == messageId }) else {
-      // Upsert fallback: if we have content, create a synthetic message
-      netLog(.warning, cat: .conv, "Upsert fallback — creating synthetic", sid: self.sessionId, data: ["messageId": messageId])
-      if let content = changes.content {
-        let synthetic = TranscriptMessage(
-          id: messageId,
-          sequence: nil,
-          type: .assistant,
-          content: content,
-          timestamp: Date(),
-          toolName: nil,
-          toolInput: nil,
-          rawToolInput: nil,
-          toolOutput: nil,
-          toolDuration: nil,
-          inputTokens: nil,
-          outputTokens: nil,
-          isError: false,
-          isInProgress: changes.isInProgress ?? false,
-          images: [],
-          thinking: nil
-        )
-        messages.append(synthetic)
-        totalMessageCount = max(totalMessageCount + 1, messages.count)
-        bumpRevision()
+  func handleConversationRowsChanged(
+    upserted: [ServerConversationRowEntry],
+    removedRowIds: [String],
+    totalRowCount: UInt64?
+  ) {
+    guard !upserted.isEmpty || !removedRowIds.isEmpty || totalRowCount != nil else { return }
+
+    var nextMessages = messages
+    let messageIDs = Dictionary(uniqueKeysWithValues: nextMessages.enumerated().map { ($1.id, $0) })
+
+    for row in upserted {
+      let normalized = normalizeMessage(row.toTranscriptMessage(endpointId: endpointId))
+      if let existingIndex = messageIDs[normalized.id] {
+        nextMessages[existingIndex] = mergeMessage(nextMessages[existingIndex], with: normalized)
+      } else {
+        nextMessages.append(normalized)
       }
-      return
     }
 
-    var msg = messages[idx]
-
-    if let content = changes.content {
-      msg = TranscriptMessage(
-        id: msg.id,
-        sequence: msg.sequence,
-        type: msg.type,
-        content: content,
-        timestamp: msg.timestamp,
-        toolName: msg.toolName,
-        toolInput: msg.toolInput,
-        rawToolInput: msg.rawToolInput,
-        toolOutput: changes.toolOutput ?? msg.toolOutput,
-        toolDuration: changes.durationMs.map { Double($0) / 1_000.0 } ?? msg.toolDuration,
-        inputTokens: msg.inputTokens,
-        outputTokens: msg.outputTokens,
-        isError: changes.isError ?? msg.isError,
-        isInProgress: changes.isInProgress ?? msg.isInProgress,
-        images: msg.images,
-        thinking: msg.thinking,
-        toolDisplay: changes.toolDisplay ?? msg.toolDisplay
-      )
-    } else {
-      if let toolOutput = changes.toolOutput { msg.toolOutput = toolOutput }
-      if let durationMs = changes.durationMs { msg.toolDuration = Double(durationMs) / 1_000.0 }
-      if let isError = changes.isError { msg.isError = isError }
-      if let isInProgress = changes.isInProgress { msg.isInProgress = isInProgress }
-      if let toolDisplay = changes.toolDisplay { msg.toolDisplay = toolDisplay }
+    if !removedRowIds.isEmpty {
+      let removed = Set(removedRowIds)
+      nextMessages.removeAll { removed.contains($0.id) }
     }
 
-    let updateRoute = StreamingMessageRegistry.classify(
-      existing: messages[idx],
-      changes: changes,
-      messageId: messageId
-    )
-    messages[idx] = msg
-    if case .streamingPatch = updateRoute {
-      scheduleStreamingPatch(messageId: messageId)
-    } else {
-      bumpRevision()
+    nextMessages.sort { lhs, rhs in
+      switch (lhs.sequence, rhs.sequence) {
+        case let (l?, r?):
+          return l < r
+        case (.some, .none):
+          return true
+        case (.none, .some):
+          return false
+        case (.none, .none):
+          return lhs.timestamp < rhs.timestamp
+      }
     }
+
+    messages = nextMessages
+    self.totalMessageCount = totalRowCount.map(Int.init) ?? max(self.totalMessageCount, messages.count)
+    oldestLoadedSequence = messages.compactMap(\.sequence).min()
+    newestLoadedSequence = messages.compactMap(\.sequence).max()
+    hasReceivedInitialData = true
+    hydrationState = shouldContinueRecovering(for: lastHydrationGoal) ? .readyPartial : .readyComplete
+    bumpRevision()
   }
 
   /// Re-fetch the full conversation from HTTP after a lagged/overflow event.
@@ -339,56 +300,29 @@ final class ConversationStore {
   // MARK: - Private
 
   private func applyBootstrap(_ bootstrap: ServerConversationBootstrap, goal: ConversationRecoveryGoal) {
-    let incoming = bootstrap.session.messages.map { $0.toTranscriptMessage(endpointId: endpointId) }
-    let normalized = normalizeMessages(incoming)
-
-    // If we already have messages, check if the bootstrap supersedes them
-    let existingOldest = oldestLoadedSequence
-    let bootstrapOldest = bootstrap.oldestSequence
-
-    // Preserve any older messages we already have that the bootstrap doesn't cover
-    var preserved: [TranscriptMessage] = []
-    if let bOldest = bootstrapOldest, let eOldest = existingOldest, eOldest < bOldest {
-      preserved = messages.filter { msg in
-        guard let seq = msg.sequence else { return false }
-        return seq < bOldest
-      }
-    }
-
-    messages = preserved + normalized
-    totalMessageCount = max(Int(bootstrap.totalMessageCount), messages.count)
-    oldestLoadedSequence = preserved.first?.sequence ?? bootstrap.oldestSequence
-    newestLoadedSequence = bootstrap.newestSequence
-    hasMoreHistoryBefore = preserved.isEmpty ? bootstrap.hasMoreBefore : true
-    hasReceivedInitialData = true
-    hydrationState = shouldContinueRecovering(for: goal) ? .readyPartial : .readyComplete
-    bumpRevision()
-    scheduleBackfillIfNeeded()
+    applyRowsPage(
+      bootstrap.rows,
+      totalRowCount: bootstrap.totalRowCount,
+      hasMoreBefore: bootstrap.hasMoreBefore,
+      oldestSequence: bootstrap.oldestSequence,
+      newestSequence: bootstrap.newestSequence,
+      goal: goal,
+      preserveOlderMessages: true
+    )
   }
 
   private func applyHistoryPage(_ page: ServerConversationHistoryPage) {
-    let incoming = page.messages.map { $0.toTranscriptMessage(endpointId: endpointId) }
-    let normalized = normalizeMessages(incoming)
-    guard !normalized.isEmpty else { return }
-
-    // Prepend older messages, deduplicating by ID
-    let existingIDs = Set(messages.map(\.id))
-    let newMessages = normalized.filter { !existingIDs.contains($0.id) }
-    messages = newMessages + messages
-
-    totalMessageCount = max(Int(page.totalMessageCount), messages.count)
-    oldestLoadedSequence = page.oldestSequence ?? oldestLoadedSequence
-    if let pageNewest = page.newestSequence {
-      if let currentNewest = newestLoadedSequence {
-        newestLoadedSequence = max(currentNewest, pageNewest)
-      } else {
-        newestLoadedSequence = pageNewest
-      }
-    }
-    hasMoreHistoryBefore = page.hasMoreBefore
-    hydrationState = shouldContinueRecovering(for: lastHydrationGoal) ? .readyPartial : .readyComplete
-    bumpRevision()
-    netLog(.debug, cat: .conv, "Applied history page", sid: self.sessionId, data: ["added": newMessages.count, "total": self.messages.count])
+    let beforeCount = messages.count
+    applyRowsPage(
+      page.rows,
+      totalRowCount: page.totalRowCount,
+      hasMoreBefore: page.hasMoreBefore,
+      oldestSequence: page.oldestSequence,
+      newestSequence: page.newestSequence,
+      goal: lastHydrationGoal,
+      preserveOlderMessages: false
+    )
+    netLog(.debug, cat: .conv, "Applied history page", sid: self.sessionId, data: ["added": messages.count - beforeCount, "total": self.messages.count])
   }
 
   private func scheduleBackfillIfNeeded() {
@@ -435,47 +369,12 @@ final class ConversationStore {
     }
   }
 
-  private func updateSequenceCursors(for message: TranscriptMessage) {
-    if let seq = message.sequence {
-      if let current = newestLoadedSequence {
-        newestLoadedSequence = max(current, seq)
-      } else {
-        newestLoadedSequence = seq
-      }
-      if oldestLoadedSequence == nil {
-        oldestLoadedSequence = seq
-      }
-    }
-  }
-
   private func bumpRevision() {
     streamingRegistry.resetForStructuralChange()
     pendingStreamingPatchFlushTask?.cancel()
     pendingStreamingPatchFlushTask = nil
     latestStreamingPatch = streamingRegistry.latestPatch
     messagesRevision += 1
-  }
-
-  private func scheduleStreamingPatch(messageId: String) {
-    let shouldSchedule = streamingRegistry.enqueuePatch(messageId: messageId)
-    guard shouldSchedule, pendingStreamingPatchFlushTask == nil else { return }
-    pendingStreamingPatchFlushTask = Task { @MainActor [weak self] in
-      await Task.yield()
-      self?.flushPendingStreamingPatches()
-    }
-  }
-
-  private func flushPendingStreamingPatches() {
-    pendingStreamingPatchFlushTask = nil
-    switch streamingRegistry.flushPendingPatches() {
-      case .none:
-        return
-      case let .patch(patch, revision):
-        latestStreamingPatch = patch
-        streamingPatchRevision = revision
-      case .structuralReset:
-        bumpRevision()
-    }
   }
 
   // MARK: - Normalization
@@ -500,6 +399,54 @@ final class ConversationStore {
       }
     }
     return result
+  }
+
+  private func applyRowsPage(
+    _ rows: [ServerConversationRowEntry],
+    totalRowCount: UInt64,
+    hasMoreBefore: Bool,
+    oldestSequence: UInt64?,
+    newestSequence: UInt64?,
+    goal: ConversationRecoveryGoal,
+    preserveOlderMessages: Bool
+  ) {
+    let incoming = normalizeMessages(rows.map { $0.toTranscriptMessage(endpointId: endpointId) })
+
+    var preserved: [TranscriptMessage] = []
+    if preserveOlderMessages,
+       let bootstrapOldest = oldestSequence,
+       let existingOldest = oldestLoadedSequence,
+       existingOldest < bootstrapOldest
+    {
+      preserved = messages.filter { msg in
+        guard let seq = msg.sequence else { return false }
+        return seq < bootstrapOldest
+      }
+    }
+
+    let merged = normalizeMessages(preserved + incoming + (preserveOlderMessages ? [] : messages))
+      .sorted { lhs, rhs in
+        switch (lhs.sequence, rhs.sequence) {
+          case let (l?, r?):
+            return l < r
+          case (.some, .none):
+            return true
+          case (.none, .some):
+            return false
+          case (.none, .none):
+            return lhs.timestamp < rhs.timestamp
+        }
+      }
+
+    messages = merged
+    totalMessageCount = max(Int(totalRowCount), messages.count)
+    self.oldestLoadedSequence = oldestSequence ?? messages.compactMap(\.sequence).min()
+    self.newestLoadedSequence = newestSequence ?? messages.compactMap(\.sequence).max()
+    hasMoreHistoryBefore = preserveOlderMessages ? (preserved.isEmpty ? hasMoreBefore : true) : hasMoreBefore
+    hasReceivedInitialData = true
+    hydrationState = shouldContinueRecovering(for: goal) ? .readyPartial : .readyComplete
+    bumpRevision()
+    scheduleBackfillIfNeeded()
   }
 
   private func normalizeMessage(_ msg: TranscriptMessage) -> TranscriptMessage {

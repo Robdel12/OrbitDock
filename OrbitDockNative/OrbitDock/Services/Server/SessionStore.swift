@@ -181,7 +181,16 @@ final class SessionStore {
         Task {
           let bootstrap = await conv.bootstrapSnapshot(goal: recoveryGoal)
           if let state = bootstrap?.session {
-            handleSessionSnapshot(state)
+            handleConversationBootstrap(
+              state,
+              ServerConversationHistoryPage(
+                rows: bootstrap?.rows ?? [],
+                totalRowCount: bootstrap?.totalRowCount ?? 0,
+                hasMoreBefore: bootstrap?.hasMoreBefore ?? false,
+                oldestSequence: bootstrap?.oldestSequence,
+                newestSequence: bootstrap?.newestSequence
+              )
+            )
           }
           eventStream.subscribeSession(
             sessionId,

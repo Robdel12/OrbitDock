@@ -11,10 +11,14 @@ enum ServerToClientMessage: Codable {
   // MARK: Session lifecycle and conversation
 
   case sessionsList(sessions: [ServerSessionListItem])
-  case sessionSnapshot(session: ServerSessionState)
+  case conversationBootstrap(session: ServerSessionState, conversation: ServerConversationHistoryPage)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
-  case messageAppended(sessionId: String, message: ServerMessage)
-  case messageUpdated(sessionId: String, messageId: String, changes: ServerMessageChanges)
+  case conversationRowsChanged(
+    sessionId: String,
+    upserted: [ServerConversationRowEntry],
+    removedRowIds: [String],
+    totalRowCount: UInt64?
+  )
   case tokensUpdated(sessionId: String, usage: ServerTokenUsage, snapshotKind: ServerTokenUsageSnapshotKind)
   case sessionCreated(session: ServerSessionListItem)
   case sessionListItemUpdated(session: ServerSessionListItem)

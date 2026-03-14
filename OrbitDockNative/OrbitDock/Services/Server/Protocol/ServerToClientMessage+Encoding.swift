@@ -9,25 +9,22 @@ extension ServerToClientMessage {
         try container.encode("sessions_list", forKey: .type)
         try container.encode(sessions, forKey: .sessions)
 
-      case let .sessionSnapshot(session):
-        try container.encode("session_snapshot", forKey: .type)
+      case let .conversationBootstrap(session, conversation):
+        try container.encode("conversation_bootstrap", forKey: .type)
         try container.encode(session, forKey: .session)
+        try container.encode(conversation, forKey: .conversation)
 
       case let .sessionDelta(sessionId, changes):
         try container.encode("session_delta", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(changes, forKey: .changes)
 
-      case let .messageAppended(sessionId, message):
-        try container.encode("message_appended", forKey: .type)
+      case let .conversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount):
+        try container.encode("conversation_rows_changed", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(message, forKey: .message)
-
-      case let .messageUpdated(sessionId, messageId, changes):
-        try container.encode("message_updated", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(messageId, forKey: .messageId)
-        try container.encode(changes, forKey: .changes)
+        try container.encode(upserted, forKey: .upserted)
+        try container.encode(removedRowIds, forKey: .removedRowIds)
+        try container.encodeIfPresent(totalRowCount, forKey: .totalRowCount)
 
       case let .approvalRequested(sessionId, request, approvalVersion):
         try container.encode("approval_requested", forKey: .type)

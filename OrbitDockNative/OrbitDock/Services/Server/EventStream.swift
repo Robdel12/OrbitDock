@@ -21,12 +21,16 @@ enum ServerEvent: Sendable {
   case sessionEnded(sessionId: String, reason: String)
 
   // Session state
-  case sessionSnapshot(ServerSessionState)
+  case conversationBootstrap(session: ServerSessionState, conversation: ServerConversationHistoryPage)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
 
   // Messages
-  case messageAppended(sessionId: String, message: ServerMessage)
-  case messageUpdated(sessionId: String, messageId: String, changes: ServerMessageChanges)
+  case conversationRowsChanged(
+    sessionId: String,
+    upserted: [ServerConversationRowEntry],
+    removedRowIds: [String],
+    totalRowCount: UInt64?
+  )
 
   // Approvals
   case approvalRequested(sessionId: String, request: ServerApprovalRequest, approvalVersion: UInt64?)
@@ -477,14 +481,17 @@ final class EventStream {
     switch message {
     case let .sessionsList(sessions):
       emit(.sessionsList(sessions))
-    case let .sessionSnapshot(session):
-      emit(.sessionSnapshot(session))
+    case let .conversationBootstrap(session, conversation):
+      emit(.conversationBootstrap(session: session, conversation: conversation))
     case let .sessionDelta(sessionId, changes):
       emit(.sessionDelta(sessionId: sessionId, changes: changes))
-    case let .messageAppended(sessionId, message):
-      emit(.messageAppended(sessionId: sessionId, message: message))
-    case let .messageUpdated(sessionId, messageId, changes):
-      emit(.messageUpdated(sessionId: sessionId, messageId: messageId, changes: changes))
+    case let .conversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount):
+      emit(.conversationRowsChanged(
+        sessionId: sessionId,
+        upserted: upserted,
+        removedRowIds: removedRowIds,
+        totalRowCount: totalRowCount
+      ))
     case let .approvalRequested(sessionId, request, approvalVersion):
       emit(.approvalRequested(
         sessionId: sessionId, request: request, approvalVersion: approvalVersion))
