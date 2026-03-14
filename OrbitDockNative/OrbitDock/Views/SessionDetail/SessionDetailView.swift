@@ -16,7 +16,8 @@ struct SessionDetailView: View {
   let endpointId: UUID
 
   var scopedServerState: SessionStore {
-    runtimeRegistry.sessionStore(for: endpointId, fallback: serverState)
+    let _ = print("[OrbitDock][SessionDetailView] BODY EVALUATED session=\(sessionId) endpoint=\(endpointId)")
+    return runtimeRegistry.sessionStore(for: endpointId, fallback: serverState)
   }
 
   var obs: SessionObservable {

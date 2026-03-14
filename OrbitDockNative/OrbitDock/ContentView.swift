@@ -103,10 +103,7 @@ struct ContentView: View {
       case .setup:
         ServerSetupView()
           .onAppear {
-            let message =
-              "rendering setup destination route=\(String(describing: router.route)) router=\(String(describing: ObjectIdentifier(router)))"
-            print("[OrbitDock][ContentView] \(message)")
-            NSLog("[OrbitDock][ContentView] %@", message)
+            
           }
       case let .session(ref):
         SessionDetailView(
@@ -115,19 +112,12 @@ struct ContentView: View {
         )
         .environment(detailSessionStore(for: ref.endpointId))
         .onAppear {
-          let message =
-            "rendering session destination scopedID=\(ref.scopedID) endpoint=\(ref.endpointId.uuidString) session=\(ref.sessionId) route=\(String(describing: router.route)) router=\(String(describing: ObjectIdentifier(router)))"
-          print("[OrbitDock][ContentView] \(message)")
-          NSLog("[OrbitDock][ContentView] %@", message)
+          print("HI")
         }
         .id(ref.scopedID)
       case .dashboard:
         dashboardView
           .onAppear {
-            let message =
-              "rendering dashboard destination tab=\(router.dashboardTab) route=\(String(describing: router.route)) router=\(String(describing: ObjectIdentifier(router)))"
-            print("[OrbitDock][ContentView] \(message)")
-            NSLog("[OrbitDock][ContentView] %@", message)
           }
       }
     }

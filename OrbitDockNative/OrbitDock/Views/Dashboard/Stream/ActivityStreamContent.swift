@@ -139,7 +139,10 @@ struct ActivityStreamContent: View {
         let globalIndex = stream.attention.count + stream.working.count + index
         CompactSessionRow(
           session: session,
-          onSelect: { selectSession(session) },
+          onSelect: {
+            print("The fuck")
+            selectSession(session)
+          },
           isSelected: selectedIndex == globalIndex
         )
         .id(DashboardScrollIDs.session(session.scopedID))
@@ -197,12 +200,10 @@ struct ActivityStreamContent: View {
   // MARK: - Navigation
 
   private func selectSession(_ session: RootSessionNode) {
-    let message =
-      "dashboard tap scopedID=\(session.scopedID) endpoint=\(session.sessionRef.endpointId.uuidString)"
-    print("[OrbitDock][Dashboard] \(message)")
-    NSLog("[OrbitDock][Dashboard] %@", message)
-    withAnimation(Motion.standard) {
-      router.selectSession(session.sessionRef)
-    }
+    print("this doing anything?")
+
+//    withAnimation(Motion.standard) {
+//      router.selectSession(session.sessionRef)
+//    }
   }
 }
