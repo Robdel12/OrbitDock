@@ -109,13 +109,14 @@ final class SessionStore {
     guard eventProcessingTask == nil else { return }
     eventProcessingStartCount += 1
     netLog(.info, cat: .store, "Started event processing", data: ["endpointId": self.endpointId.uuidString])
-    eventStream.onEvent = { [weak self] event in
+    eventStream.addListener { [weak self] event in
       self?.routeEvent(event)
     }
+    // Mark as started so we don't add duplicate listeners
+    eventProcessingTask = Task {}
   }
 
   func stopProcessingEvents() {
-    eventStream.onEvent = nil
     eventProcessingTask?.cancel()
     eventProcessingTask = nil
     netLog(.info, cat: .store, "Stopped event processing", data: ["endpointId": self.endpointId.uuidString])

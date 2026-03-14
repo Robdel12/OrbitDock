@@ -478,11 +478,34 @@ final class ServerRuntimeRegistry {
     }
   }
 
+  @ObservationIgnored private var runtimeObservationTasks: [UUID: Task<Void, Never>] = [:]
+
   private func bindRuntimeState(_ runtime: ServerRuntime) {
     let endpointId = runtime.endpoint.id
     connectionStatusByEndpointId[endpointId] = runtime.eventStream.connectionStatus
     readinessByEndpointId[endpointId] = runtime.readiness
-    // TODO: Re-wire status/readiness observation once EventStream exposes AsyncStream APIs
+
+    // Cancel any existing observation for this endpoint
+    runtimeObservationTasks[endpointId]?.cancel()
+
+    // Observe connection status changes from the EventStream
+    runtime.eventStream.addListener { [weak self, weak runtime] event in
+      guard let self, let runtime else { return }
+      if case let .connectionStatusChanged(status) = event {
+        self.connectionStatusByEndpointId[endpointId] = status
+        self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
+          connectionStatus: status,
+          hasReceivedInitialRootList: runtime.eventStream.hasReceivedInitialSessionsList
+        )
+      }
+      // Track when we receive the initial session list
+      if case .sessionsList = event {
+        self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
+          connectionStatus: runtime.eventStream.connectionStatus,
+          hasReceivedInitialRootList: true
+        )
+      }
+    }
   }
 
   private func enabledControlPlanePorts() -> [ServerControlPlanePort] {

@@ -133,8 +133,13 @@ final class EventStream {
   private(set) var latestSessionListItems: [ServerSessionListItem] = []
   private(set) var hasReceivedInitialSessionsList = false
 
-  /// Callback for all events. Set by the consumer (ServerConnection).
+  /// Event listeners. Multiple consumers can register.
   var onEvent: ((ServerEvent) -> Void)?
+  private var additionalListeners: [(ServerEvent) -> Void] = []
+
+  func addListener(_ listener: @escaping (ServerEvent) -> Void) {
+    additionalListeners.append(listener)
+  }
 
   private let authToken: String?
   private var serverURL: URL?
@@ -485,6 +490,9 @@ final class EventStream {
   private func emit(_ event: ServerEvent) {
     updateRootState(for: event)
     onEvent?(event)
+    for listener in additionalListeners {
+      listener(event)
+    }
   }
 
   private func setStatus(_ status: ConnectionStatus) {
