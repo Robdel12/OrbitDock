@@ -13,7 +13,6 @@ struct ThinkingRowView: View {
   let isExpanded: Bool
   let availableWidth: CGFloat
   var onToggle: (() -> Void)?
-  var onCodeBlockToggle: (() -> Void)?
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -38,8 +37,7 @@ struct ThinkingRowView: View {
       .onTapGesture { onToggle?() }
 
       if isExpanded, !content.isEmpty {
-        MarkdownContentRepresentable(content: content, style: .thinking, availableWidth: availableWidth,
-                                     onCodeBlockToggle: onCodeBlockToggle)
+        MarkdownContentRepresentable(content: content, style: .thinking, availableWidth: availableWidth)
           .opacity(0.7)
       }
     }

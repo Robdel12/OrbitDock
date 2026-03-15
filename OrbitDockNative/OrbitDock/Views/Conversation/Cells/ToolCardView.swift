@@ -18,7 +18,6 @@ struct ToolCardView: View {
   let clients: ServerClients?
   var fetchedContent: ServerRowContent?
   var isLoadingContent: Bool = false
-  var onContentLoaded: (() -> Void)?
   var onToggle: (() -> Void)?
 
   private var display: ServerToolDisplay? { toolRow.toolDisplay }

@@ -4,11 +4,13 @@
 //
 //  Centralizes per-row mutable state: expansion, fetched content, loading state.
 //  Cells read from this store and are pure functions of their inputs.
-//  State survives cell reuse — the store outlives any individual cell.
+//  @Observable so SwiftUI re-renders when expansion or fetched content changes.
 //
 
 import Foundation
+import Observation
 
+@Observable
 @MainActor
 final class TimelineRowStateStore {
   // MARK: - Expansion
@@ -46,10 +48,10 @@ final class TimelineRowStateStore {
   }
 
   /// Fetch expanded content if not already cached or in-flight.
-  /// Calls `onFetched` on completion so the controller can invalidate heights.
+  /// @Observable triggers re-renders automatically when fetchedContent mutates.
   func fetchContentIfNeeded(
     rowId: String, sessionId: String,
-    clients: ServerClients, onFetched: @escaping () -> Void
+    clients: ServerClients
   ) {
     guard fetchedContent[rowId] == nil, !fetchInFlight.contains(rowId) else { return }
     fetchInFlight.insert(rowId)
@@ -61,28 +63,7 @@ final class TimelineRowStateStore {
         fetchedContent[rowId] = content
       } catch {}
       fetchInFlight.remove(rowId)
-      onFetched()
     }
-  }
-
-  // MARK: - Height Cache
-
-  private var heightCache: [String: CGFloat] = [:]
-
-  func cachedHeight(_ rowId: String) -> CGFloat? {
-    heightCache[rowId]
-  }
-
-  func cacheHeight(_ rowId: String, _ height: CGFloat) {
-    heightCache[rowId] = height
-  }
-
-  func invalidateHeight(_ rowId: String) {
-    heightCache.removeValue(forKey: rowId)
-  }
-
-  func invalidateAllHeights() {
-    heightCache.removeAll()
   }
 
   // MARK: - Session Lifecycle
@@ -91,6 +72,5 @@ final class TimelineRowStateStore {
     expandedIDs.removeAll()
     fetchedContent.removeAll()
     fetchInFlight.removeAll()
-    heightCache.removeAll()
   }
 }

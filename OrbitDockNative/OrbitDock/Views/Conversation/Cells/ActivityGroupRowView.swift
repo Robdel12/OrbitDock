@@ -14,7 +14,6 @@ struct ActivityGroupRowView: View {
   let isExpanded: Bool
   var sessionId: String = ""
   var clients: ServerClients?
-  var onContentLoaded: (() -> Void)?
   var onToggle: ((String) -> Void)?
   var isItemExpanded: ((String) -> Bool)?
   var contentForChild: ((String) -> ServerRowContent?)?
@@ -40,7 +39,6 @@ struct ActivityGroupRowView: View {
               clients: clients,
               fetchedContent: contentForChild?(child.id),
               isLoadingContent: isChildLoading?(child.id) ?? false,
-              onContentLoaded: onContentLoaded,
               onToggle: { onToggle?(child.id) }
             )
           }

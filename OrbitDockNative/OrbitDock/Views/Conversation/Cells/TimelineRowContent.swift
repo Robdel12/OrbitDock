@@ -19,12 +19,10 @@ struct TimelineRowContent: View {
   var clients: ServerClients?
   var fetchedContent: ServerRowContent?
   var isLoadingContent: Bool = false
-  var onContentLoaded: (() -> Void)?
   var onToggle: ((String) -> Void)?
   var isItemExpanded: ((String) -> Bool)?
   var contentForChild: ((String) -> ServerRowContent?)?
   var isChildLoading: ((String) -> Bool)?
-  var onCodeBlockToggle: (() -> Void)?
 
   /// Width available to cell content after horizontal padding.
   private var contentWidth: CGFloat {
@@ -55,8 +53,7 @@ struct TimelineRowContent: View {
         role: .user, content: msg.content,
         images: convertImages(msg.images),
         isStreaming: msg.isStreaming, availableWidth: contentWidth,
-        imageLoader: imageLoader,
-        onCodeBlockToggle: onCodeBlockToggle
+        imageLoader: imageLoader
       )
 
     case let .assistant(msg):
@@ -64,8 +61,7 @@ struct TimelineRowContent: View {
         role: .assistant, content: msg.content,
         images: convertImages(msg.images),
         isStreaming: msg.isStreaming, availableWidth: contentWidth,
-        imageLoader: imageLoader,
-        onCodeBlockToggle: onCodeBlockToggle
+        imageLoader: imageLoader
       )
 
     case let .system(msg):
@@ -73,16 +69,14 @@ struct TimelineRowContent: View {
         role: .system, content: msg.content,
         images: convertImages(msg.images),
         isStreaming: msg.isStreaming, availableWidth: contentWidth,
-        imageLoader: imageLoader,
-        onCodeBlockToggle: onCodeBlockToggle
+        imageLoader: imageLoader
       )
 
     case let .thinking(msg):
       ThinkingRowView(
         content: msg.content, isStreaming: msg.isStreaming,
         isExpanded: isExpanded, availableWidth: contentWidth,
-        onToggle: { onToggle?(msg.id) },
-        onCodeBlockToggle: onCodeBlockToggle
+        onToggle: { onToggle?(msg.id) }
       )
 
     case let .tool(toolRow):
@@ -91,7 +85,6 @@ struct TimelineRowContent: View {
         sessionId: sessionId, clients: clients,
         fetchedContent: fetchedContent,
         isLoadingContent: isLoadingContent,
-        onContentLoaded: onContentLoaded,
         onToggle: { onToggle?(toolRow.id) }
       )
 
@@ -99,7 +92,6 @@ struct TimelineRowContent: View {
       ActivityGroupRowView(
         group: group, isExpanded: isExpanded,
         sessionId: sessionId, clients: clients,
-        onContentLoaded: onContentLoaded,
         onToggle: onToggle, isItemExpanded: isItemExpanded,
         contentForChild: contentForChild,
         isChildLoading: isChildLoading

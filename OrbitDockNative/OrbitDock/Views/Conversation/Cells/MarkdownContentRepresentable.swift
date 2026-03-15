@@ -12,7 +12,10 @@ struct MarkdownContentRepresentable: View {
   let content: String
   let style: ContentStyle
   let availableWidth: CGFloat
-  var onCodeBlockToggle: (() -> Void)?
+
+  /// Incremented when a code block expands/collapses inside the native view,
+  /// forcing SwiftUI to recreate the bridge and re-measure height.
+  @State private var codeBlockRevision = 0
 
   private var blocks: [MarkdownBlock] {
     MarkdownSystemParser.parse(content, style: style)
@@ -23,8 +26,11 @@ struct MarkdownContentRepresentable: View {
   }
 
   var body: some View {
-    MarkdownBridge(content: content, style: style, width: availableWidth, onCodeBlockToggle: onCodeBlockToggle)
-      .frame(height: max(1, measuredHeight))
+    MarkdownBridge(content: content, style: style, width: availableWidth, onCodeBlockToggle: {
+      codeBlockRevision += 1
+    })
+    .id(codeBlockRevision)
+    .frame(height: max(1, measuredHeight))
   }
 }
 

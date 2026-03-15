@@ -248,7 +248,6 @@ All server paths are resolved via `infrastructure/paths.rs` from a single data d
 - **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
 - **Codex Watcher State**: `<data_dir>/codex-rollout-state.json` (offset tracking)
 - **Hook Event Spool**: `<data_dir>/spool/` (queued hook events when server is offline, drained on startup)
-- **Timeline Logs**: `<data_dir>/logs/timeline.log` (macOS) / `timeline-ios.log` (iOS) — conversation view height calculations and overflow detection
 - **Claude Agent SDK**: `orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/` — local installed SDK source (currently `0.2.62`)
 
 ### Claude Agent SDK Source of Truth (Required)
@@ -376,42 +375,6 @@ Core event fields are stable for filtering:
 - `crates/server/src/transport/websocket/` - WebSocket messages, routing, subscriptions
 - `crates/server/src/infrastructure/persistence/` - SQLite writes, batching, read/write helpers
 - `crates/server/src/connectors/codex_session.rs` - Codex event handling and approval flow
-
-## Debugging Conversation Timeline
-
-Both platforms log height calculations and overflow detection to a plain-text file via `TimelineFileLogger`. The file truncates on each app launch.
-
-### Log Location
-- macOS: `~/.orbitdock/logs/timeline.log`
-- iOS: `~/.orbitdock/logs/timeline-ios.log`
-
-### Viewing Logs
-```bash
-# Watch live
-tail -f ~/.orbitdock/logs/timeline.log
-
-# Check for height overflow (content exceeds calculated bounds — causes clipping)
-grep "OVERFLOW" ~/.orbitdock/logs/timeline.log
-
-# Filter by message ID
-grep "e84dd5b4" ~/.orbitdock/logs/timeline.log
-
-# Filter by cell type
-grep "tool-cell" ~/.orbitdock/logs/timeline.log
-grep "rich\[" ~/.orbitdock/logs/timeline.log
-```
-
-### What Gets Logged
-- **`requiredHeight`**: Height calculation breakdown (header, content, total, width) for every expanded tool card and rich message cell
-- **`tool-cell`** / **`rich`**: Configure-time frame values and max subview bottom position
-- **`⚠️ OVERFLOW`**: Content exceeds calculated height — the root cause of visual clipping. Includes the exact overflow amount, cell type, message ID, and all dimensions
-
-### Key Files
-- `TimelineFileLogger.swift` — `TimelineFileLogger` singleton (shared by both platforms)
-- `ConversationCollectionView+macOS.swift` — macOS `heightOfRow`, `viewFor` logging
-- `ConversationCollectionView+iOS.swift` — iOS `sizeForItemAt` logging
-- `ExpandedToolCellView.swift` — Expanded tool card height calc + overflow detection
-- `Markdown/NativeRichMessageCellView.swift` — Rich message height calc + overflow detection
 
 ## OrbitDockCore Package
 
