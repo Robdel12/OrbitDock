@@ -134,6 +134,7 @@ import SwiftUI
       tableView.selectionHighlightStyle = .none
       tableView.focusRingType = .none
       tableView.allowsEmptySelection = true
+      // Column auto-resizes with scroll view
       tableView.delegate = self
       tableView.dataSource = self
       scrollView.documentView = tableView

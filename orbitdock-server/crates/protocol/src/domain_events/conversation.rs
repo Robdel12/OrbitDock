@@ -16,6 +16,8 @@ pub struct UserMessageEvent {
     pub turn_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<crate::ImageInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -2,13 +2,13 @@
 //  TimelineRowContent.swift
 //  OrbitDock
 //
-//  ALL layout decisions live here — alignment, max-width, padding.
-//  Individual cell views render content only, no outer layout.
+//  ALL layout lives here: padding, alignment, clipping.
+//  Cells render content only — zero outer layout.
 //
 
 import SwiftUI
 
-private let timelineInset: CGFloat = Spacing.xl
+private let horizontalPad: CGFloat = Spacing.lg
 private let userBubbleMaxWidth: CGFloat = 640
 
 struct TimelineRowContent: View {
@@ -19,8 +19,9 @@ struct TimelineRowContent: View {
   var clients: ServerClients?
   var onContentLoaded: (() -> Void)?
 
-  private var innerWidth: CGFloat {
-    max(100, availableWidth - timelineInset * 2)
+  /// Width available to cell content after horizontal padding.
+  private var contentWidth: CGFloat {
+    max(100, availableWidth - horizontalPad * 2)
   }
 
   private var isUserRow: Bool {
@@ -35,7 +36,8 @@ struct TimelineRowContent: View {
   var body: some View {
     cellContent
       .frame(maxWidth: .infinity, alignment: isUserRow ? .trailing : .leading)
-      .padding(.horizontal, timelineInset)
+      .padding(.horizontal, horizontalPad)
+      .clipped()
   }
 
   @ViewBuilder
@@ -45,7 +47,7 @@ struct TimelineRowContent: View {
       MessageRowView(
         role: .user, content: msg.content,
         images: convertImages(msg.images),
-        isStreaming: msg.isStreaming, availableWidth: innerWidth,
+        isStreaming: msg.isStreaming, availableWidth: contentWidth,
         imageLoader: imageLoader
       )
 
@@ -53,7 +55,7 @@ struct TimelineRowContent: View {
       MessageRowView(
         role: .assistant, content: msg.content,
         images: convertImages(msg.images),
-        isStreaming: msg.isStreaming, availableWidth: innerWidth,
+        isStreaming: msg.isStreaming, availableWidth: contentWidth,
         imageLoader: imageLoader
       )
 
@@ -61,12 +63,12 @@ struct TimelineRowContent: View {
       MessageRowView(
         role: .system, content: msg.content,
         images: convertImages(msg.images),
-        isStreaming: msg.isStreaming, availableWidth: innerWidth,
+        isStreaming: msg.isStreaming, availableWidth: contentWidth,
         imageLoader: imageLoader
       )
 
     case let .thinking(msg):
-      ThinkingRowView(content: msg.content, isStreaming: msg.isStreaming, isExpanded: isExpanded, availableWidth: innerWidth)
+      ThinkingRowView(content: msg.content, isStreaming: msg.isStreaming, isExpanded: isExpanded, availableWidth: contentWidth)
 
     case let .tool(toolRow):
       ToolCardView(toolRow: toolRow, isExpanded: isExpanded, sessionId: sessionId, clients: clients, onContentLoaded: onContentLoaded)
@@ -94,14 +96,10 @@ struct TimelineRowContent: View {
     }
   }
 
-  // MARK: - Image Conversion Boundary
-
   private func convertImages(_ serverImages: [ServerImageInput]?) -> [MessageImage] {
     guard let serverImages, !serverImages.isEmpty else { return [] }
-    let result = serverImages.enumerated().compactMap { index, input in
+    return serverImages.enumerated().compactMap { index, input in
       input.toMessageImage(index: index, sessionId: sessionId)
     }
-    print("[OrbitDock][Images] convertImages: \(serverImages.count) server inputs → \(result.count) MessageImages (types: \(serverImages.map(\.inputType)))")
-    return result
   }
 }

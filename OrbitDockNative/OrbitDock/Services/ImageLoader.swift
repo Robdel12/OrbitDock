@@ -55,7 +55,7 @@ final class ImageLoader: Sendable {
   // MARK: - Source Resolution
 
   private func resolve(_ image: MessageImage) async -> PlatformImage? {
-    let result: PlatformImage? = switch image.source {
+    switch image.source {
     case let .filePath(path):
       loadFromFile(path)
     case let .dataURI(uri):
@@ -65,8 +65,6 @@ final class ImageLoader: Sendable {
     case let .serverAttachment(ref):
       await downloadAttachment(ref)
     }
-    print("[OrbitDock][ImageLoader] resolve id=\(image.id) source=\(image.source) → \(result != nil ? "loaded" : "FAILED")")
-    return result
   }
 
   private func loadFromFile(_ path: String) -> PlatformImage? {

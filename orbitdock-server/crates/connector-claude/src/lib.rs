@@ -128,6 +128,54 @@ fn extract_subtitle(tool_name: &str, raw_input: Option<&Value>) -> Option<String
     result.filter(|s| !s.trim().is_empty())
 }
 
+/// Extract an ImageInput from an Anthropic image content block.
+///
+/// Claude Code JSONL user messages contain image blocks in the Anthropic API
+/// format:
+/// ```json
+/// {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "..."}}
+/// {"type": "image", "source": {"type": "url", "url": "https://..."}}
+/// ```
+fn extract_image_input(block: &Value) -> Option<orbitdock_protocol::ImageInput> {
+    let source = block.get("source")?;
+    let source_type = source.get("type").and_then(|v| v.as_str())?;
+
+    match source_type {
+        "base64" => {
+            let media_type = source
+                .get("media_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("image/png");
+            let data = source.get("data").and_then(|v| v.as_str())?;
+            // Construct a data URI for the client to decode
+            let data_uri = format!("data:{};base64,{}", media_type, data);
+            let byte_count = (data.len() * 3 / 4) as u64;
+            Some(orbitdock_protocol::ImageInput {
+                input_type: "url".to_string(),
+                value: data_uri,
+                mime_type: Some(media_type.to_string()),
+                byte_count: Some(byte_count),
+                display_name: None,
+                pixel_width: None,
+                pixel_height: None,
+            })
+        }
+        "url" => {
+            let url = source.get("url").and_then(|v| v.as_str())?;
+            Some(orbitdock_protocol::ImageInput {
+                input_type: "url".to_string(),
+                value: url.to_string(),
+                mime_type: None,
+                byte_count: None,
+                display_name: None,
+                pixel_width: None,
+                pixel_height: None,
+            })
+        }
+        _ => None,
+    }
+}
+
 /// Compute a summary from tool result output.
 fn extract_result_summary(tool_name: &str, output: &str) -> Option<String> {
     if output.is_empty() {
@@ -2182,6 +2230,64 @@ impl ClaudeConnector {
             None => return events,
         };
 
+        // Extract user-facing content: text and images
+        let mut text_parts: Vec<String> = Vec::new();
+        let mut images: Vec<orbitdock_protocol::ImageInput> = Vec::new();
+
+        for block in content_blocks {
+            let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            match block_type {
+                "text" => {
+                    if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                        if !text.is_empty() {
+                            text_parts.push(text.to_string());
+                        }
+                    }
+                }
+                "image" => {
+                    if let Some(img) = extract_image_input(block) {
+                        images.push(img);
+                    }
+                }
+                _ => {} // tool_result handled below
+            }
+        }
+
+        // Emit a User row if there's any text or images
+        let user_text = text_parts.join("\n");
+        if !user_text.is_empty() || !images.is_empty() {
+            let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
+            let msg_id = raw
+                .get("message")
+                .and_then(|m| m.get("id"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .unwrap_or_else(|| format!("claude-user-{}", seq));
+
+            info!(
+                component = "claude_connector",
+                event = "claude.user_message.row_created",
+                session_id = %session_id,
+                text_len = user_text.len(),
+                image_count = images.len(),
+                "Creating User conversation row"
+            );
+
+            events.push(ConnectorEvent::ConversationRowCreated(make_entry(
+                session_id,
+                seq,
+                ConversationRow::User(MessageRowContent {
+                    id: msg_id,
+                    content: user_text,
+                    turn_id: None,
+                    timestamp: Some(now_iso()),
+                    is_streaming: false,
+                    images,
+                }),
+            )));
+        }
+
+        // Process tool_result blocks
         let has_tool_results = content_blocks
             .iter()
             .any(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result"));
