@@ -92,20 +92,4 @@ nonisolated enum ToolFamily: String, Hashable, Sendable, CaseIterable {
     self = ToolFamily(rawValue: value) ?? .generic
   }
 
-  /// Map to the legacy `CompactToolType` for backwards compatibility.
-  var compactToolType: CompactToolType {
-    switch self {
-      case .shell: .bash
-      case .file: .edit // file family covers read/edit/write — .edit is the legacy bucket
-      case .search: .grep // search family covers glob/grep/toolSearch
-      case .agent: .task
-      case .question: .question
-      case .plan: .plan
-      case .mcp: .mcp
-      case .hook: .hook
-      case .web: .web
-      case .skill: .skill
-      case .generic: .generic
-    }
-  }
 }

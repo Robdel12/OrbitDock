@@ -6,17 +6,42 @@ use codex_protocol::protocol::{
 };
 use codex_protocol::request_permissions::RequestPermissionsEvent;
 use orbitdock_connector_core::{ApprovalType, ConnectorEvent};
-use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry, ToolRow};
-use orbitdock_protocol::domain_events::{
-    GenericInvocationPayload, QuestionToolPayload, ToolFamily, ToolInvocationPayload, ToolKind,
-    ToolStatus,
+use orbitdock_protocol::conversation_contracts::{
+    compute_tool_display, ConversationRow, ConversationRowEntry, ToolRow,
 };
+use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
+    let row = with_display(row);
     row_entry(ConversationRow::Tool(row))
+}
+
+fn with_display(mut row: ToolRow) -> ToolRow {
+    let invocation_ref = if row.invocation.is_object() {
+        Some(&row.invocation)
+    } else {
+        None
+    };
+    let result_str = row
+        .result
+        .as_ref()
+        .and_then(|v| v.get("output").and_then(|o| o.as_str()))
+        .map(String::from);
+    row.tool_display = Some(compute_tool_display(
+        row.kind,
+        row.family,
+        row.status,
+        &row.title,
+        row.subtitle.as_deref(),
+        row.summary.as_deref(),
+        row.duration_ms,
+        invocation_ref,
+        result_str.as_deref(),
+    ));
+    row
 }
 
 pub(crate) fn handle_exec_approval_request(event: ExecApprovalRequestEvent) -> Vec<ConnectorEvent> {
@@ -139,13 +164,12 @@ pub(crate) fn handle_request_user_input(
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::Question(QuestionToolPayload {
-            question_id: None,
-            prompt: question_text.clone(),
-            response: None,
+        invocation: json!({
+            "prompt": question_text.clone(),
         }),
         result: None,
         render_hints: Default::default(),
+        tool_display: None,
     };
 
     vec![
@@ -219,12 +243,13 @@ pub(crate) fn handle_elicitation_request(
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
-            tool_name: "mcp_approval".to_string(),
-            raw_input: serde_json::to_value(&event).ok(),
+        invocation: json!({
+            "tool_name": "mcp_approval",
+            "raw_input": serde_json::to_value(&event).ok(),
         }),
         result: None,
         render_hints: Default::default(),
+        tool_display: None,
     };
 
     vec![

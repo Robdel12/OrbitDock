@@ -7,6 +7,7 @@ pub mod activity_groups;
 pub mod approvals;
 pub mod render_hints;
 pub mod rows;
+pub mod tool_display;
 pub mod tool_payloads;
 pub mod workers;
 
@@ -18,5 +19,6 @@ pub use rows::{
     ConversationRowPage, HandoffRow, HookRow, MessageRowContent, PlanRow, SystemRow, ThinkingRow,
     ToolRow, UserRow,
 };
+pub use tool_display::{compute_tool_display, ToolDiffPreview, ToolDisplay, ToolTodoItem};
 pub use tool_payloads::{ToolInvocationPayloadContract, ToolPreview, ToolResultPayloadContract};
 pub use workers::WorkerRow;

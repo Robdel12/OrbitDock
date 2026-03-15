@@ -79,11 +79,16 @@ final class ConversationDetailRuntime {
   ) {
     applyStructure(.bootstrap(
       rows: messages.map { message in
-        ConversationRowRecord(
+        let (kind, payload): (ConversationRowKind, ConversationRowPayload) = if message.isToolLike {
+          (.tool, .tool(messageID: message.id))
+        } else {
+          (.message, .message(.from(message, model: renderStore.metadata.model)))
+        }
+        return ConversationRowRecord(
           id: message.id,
           session: session,
-          kind: .message,
-          payload: .message(.from(message, model: renderStore.metadata.model)),
+          kind: kind,
+          payload: payload,
           sequence: message.sequence,
           revision: UInt64(bitPattern: Int64(message.contentSignature)),
           isStreaming: message.isInProgress

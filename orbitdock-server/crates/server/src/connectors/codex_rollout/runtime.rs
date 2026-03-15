@@ -8,14 +8,10 @@ use orbitdock_connector_codex::rollout_parser::{
     RolloutFileProcessor, SessionSource, DEBOUNCE_MS, SESSION_TIMEOUT_SECS,
     STARTUP_SEED_RECENT_SECS,
 };
-use orbitdock_protocol::conversation_contracts::{
-    ConversationRowPage, ToolInvocationPayloadContract,
-};
+use orbitdock_protocol::conversation_contracts::ConversationRowPage;
 use orbitdock_protocol::{
     conversation_contracts::{ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow},
-    domain_events::{
-        CommandExecutionPayload, GenericInvocationPayload, ToolFamily, ToolKind, ToolStatus,
-    },
+    domain_events::{ToolFamily, ToolKind, ToolStatus},
     provider_normalization::shared::ProviderEventEnvelope,
     CodexIntegrationMode, Provider, ServerMessage, SessionListItem, SessionStatus, StateChanges,
     TokenUsageSnapshotKind, WorkStatus,
@@ -312,14 +308,13 @@ impl WatcherRuntime {
                             ended_at: Some(current_time_rfc3339()),
                             duration_ms: None,
                             grouping_key: None,
-                            invocation: ToolInvocationPayloadContract::Generic(
-                                GenericInvocationPayload {
-                                    tool_name: tool_name.unwrap_or_else(|| "tool".to_string()),
-                                    raw_input: tool_input.map(serde_json::Value::String),
-                                },
-                            ),
+                            invocation: serde_json::json!({
+                                "tool_name": tool_name.unwrap_or_else(|| "tool".to_string()),
+                                "raw_input": tool_input,
+                            }),
                             result: None,
                             render_hints: Default::default(),
+            tool_display: None,
                         }),
                         _ => ConversationRow::System(MessageRowContent {
                             id: msg_id,
@@ -776,19 +771,16 @@ impl WatcherRuntime {
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayloadContract::Shell(CommandExecutionPayload {
-                command: if command.trim().is_empty() {
+            invocation: serde_json::json!({
+                "command": if command.trim().is_empty() {
                     "Shell".to_string()
                 } else {
                     command
                 },
-                cwd: None,
-                input: None,
-                output: None,
-                exit_code: None,
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         };
 
         let entry = ConversationRowEntry {
@@ -846,15 +838,13 @@ impl WatcherRuntime {
             ended_at: Some(current_time_rfc3339()),
             duration_ms,
             grouping_key: None,
-            invocation: ToolInvocationPayloadContract::Shell(CommandExecutionPayload {
-                command: String::new(),
-                cwd: None,
-                input: None,
-                output,
-                exit_code: None,
+            invocation: serde_json::json!({
+                "command": "",
+                "output": output,
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         };
 
         let entry = ConversationRowEntry {

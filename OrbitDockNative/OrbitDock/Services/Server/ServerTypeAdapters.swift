@@ -189,7 +189,8 @@ extension ServerMessage {
             groupingKey: nil,
             invocation: AnyCodable(toolInputDict ?? [:]),
             result: toolOutput.map { AnyCodable(["output": $0]) },
-            renderHints: ServerConversationRenderHints()
+            renderHints: ServerConversationRenderHints(),
+            toolDisplay: toolDisplay
           )
         )
     }
@@ -352,7 +353,8 @@ private extension ServerConversationToolRow {
       toolDuration: durationMs.map { Double($0) / 1_000.0 },
       isError: status == .failed,
       isInProgress: status == .running || status == .pending || status == .needsInput,
-      serverToolFamily: family.rawValue
+      serverToolFamily: family.rawValue,
+      toolDisplay: toolDisplay
     )
   }
 }

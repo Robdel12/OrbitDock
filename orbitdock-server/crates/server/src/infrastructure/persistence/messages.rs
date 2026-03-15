@@ -1,55 +1,29 @@
-use orbitdock_protocol::conversation_contracts::{
-    ConversationRow, ConversationRowEntry, MessageRowContent,
-};
+use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry};
 use rusqlite::{params, Connection, OptionalExtension};
 
 /// Deserialize a ConversationRowEntry from a database row.
-/// Prefers the `row_data` JSON column when present; falls back to
-/// constructing a basic row from legacy flat columns.
+/// Requires `row_data` JSON column — rows without it are skipped.
 fn row_entry_from_db(
     row: &rusqlite::Row<'_>,
     session_id: &str,
-) -> Result<ConversationRowEntry, rusqlite::Error> {
-    let id: String = row.get(0)?;
-    let type_str: String = row.get(1)?;
-    let content: String = row.get::<_, Option<String>>(2)?.unwrap_or_default();
+) -> Result<Option<ConversationRowEntry>, rusqlite::Error> {
     let sequence: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
     let row_data: Option<String> = row.get(5)?;
 
-    let conversation_row = if let Some(json) = row_data {
-        serde_json::from_str::<ConversationRow>(&json)
-            .unwrap_or_else(|_| fallback_row(&id, &type_str, &content))
-    } else {
-        fallback_row(&id, &type_str, &content)
+    let Some(json) = row_data else {
+        return Ok(None);
     };
 
-    Ok(ConversationRowEntry {
+    let Ok(conversation_row) = serde_json::from_str::<ConversationRow>(&json) else {
+        return Ok(None);
+    };
+
+    Ok(Some(ConversationRowEntry {
         session_id: session_id.to_string(),
         sequence: sequence.max(0) as u64,
         turn_id: None,
         row: conversation_row,
-    })
-}
-
-/// Build a basic ConversationRow from legacy flat columns.
-fn fallback_row(id: &str, type_str: &str, content: &str) -> ConversationRow {
-    let msg = MessageRowContent {
-        id: id.to_string(),
-        content: content.to_string(),
-        turn_id: None,
-        timestamp: None,
-        is_streaming: false,
-        images: vec![],
-    };
-    match type_str {
-        "user" => ConversationRow::User(msg),
-        "assistant" => ConversationRow::Assistant(msg),
-        "thinking" => ConversationRow::Thinking(msg),
-        "system" | "steer" => ConversationRow::System(msg),
-        // Tool, tool_result, shell, and everything else become System for now.
-        // Real tool rows will have row_data set by the new pipeline.
-        _ => ConversationRow::System(msg),
-    }
+    }))
 }
 
 pub(super) fn load_messages_from_db(
@@ -67,7 +41,7 @@ pub(super) fn load_messages_from_db(
         .query_map(params![session_id], |row| {
             row_entry_from_db(row, session_id)
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| r.ok().flatten())
         .collect();
 
     Ok(rows)
@@ -122,13 +96,13 @@ pub(super) fn load_message_page_from_db(
         stmt.query_map(params![session_id, before_seq, limit], |row| {
             row_entry_from_db(row, session_id)
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| r.ok().flatten())
         .collect()
     } else {
         stmt.query_map(params![session_id, limit], |row| {
             row_entry_from_db(row, session_id)
         })?
-        .filter_map(|r| r.ok())
+        .filter_map(|r| r.ok().flatten())
         .collect()
     };
     rows.reverse();

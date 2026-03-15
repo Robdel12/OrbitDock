@@ -9,15 +9,41 @@ use codex_protocol::protocol::{
     CollabResumeEndEvent, CollabWaitingBeginEvent, CollabWaitingEndEvent,
 };
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry, ToolRow};
-use orbitdock_protocol::domain_events::{
-    ToolFamily, ToolInvocationPayload, ToolKind, ToolResultPayload, ToolStatus,
-    WorkerInvocationPayload, WorkerResultPayload,
+use orbitdock_protocol::conversation_contracts::{
+    compute_tool_display, ConversationRow, ConversationRowEntry, ToolRow,
 };
+use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
+use serde_json::json;
 
 fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
+    let row = with_display(row);
     row_entry(ConversationRow::Tool(row))
+}
+
+fn with_display(mut row: ToolRow) -> ToolRow {
+    let invocation_ref = if row.invocation.is_object() {
+        Some(&row.invocation)
+    } else {
+        None
+    };
+    let result_str = row
+        .result
+        .as_ref()
+        .and_then(|v| v.get("output").and_then(|o| o.as_str()))
+        .map(String::from);
+    row.tool_display = Some(compute_tool_display(
+        row.kind,
+        row.family,
+        row.status,
+        &row.title,
+        row.subtitle.as_deref(),
+        row.summary.as_deref(),
+        row.duration_ms,
+        invocation_ref,
+        result_str.as_deref(),
+    ));
+    row
 }
 
 pub(crate) fn handle_collab_agent_spawn_begin(
@@ -44,15 +70,13 @@ pub(crate) fn handle_collab_agent_spawn_begin(
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::Worker(WorkerInvocationPayload {
-                worker_id: None,
-                label: None,
-                agent_type: Some("spawn_agent".to_string()),
-                task_summary: Some(event.prompt),
-                input: None,
+            invocation: json!({
+                "agent_type": "spawn_agent",
+                "task_summary": event.prompt,
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         },
     ))]
 }
@@ -95,19 +119,15 @@ pub(crate) fn handle_collab_agent_spawn_end(
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::Worker(WorkerInvocationPayload {
-            worker_id: None,
-            label: None,
-            agent_type: Some("spawn_agent".to_string()),
-            task_summary: None,
-            input: None,
+        invocation: json!({
+            "agent_type": "spawn_agent",
         }),
-        result: Some(ToolResultPayload::Worker(WorkerResultPayload {
-            worker_id: Some(receiver.clone()),
-            summary: Some(output),
-            output: None,
+        result: Some(json!({
+            "worker_id": receiver.clone(),
+            "summary": output,
         })),
         render_hints: Default::default(),
+        tool_display: None,
     });
 
     let mut connector_events = vec![ConnectorEvent::ConversationRowUpdated {
@@ -147,15 +167,14 @@ pub(crate) fn handle_collab_agent_interaction_begin(
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::Worker(WorkerInvocationPayload {
-                worker_id: Some(event.receiver_thread_id.to_string()),
-                label: None,
-                agent_type: Some("agent".to_string()),
-                task_summary: Some(event.prompt.clone()),
-                input: None,
+            invocation: json!({
+                "worker_id": event.receiver_thread_id.to_string(),
+                "agent_type": "agent",
+                "task_summary": event.prompt.clone(),
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         })),
         ConnectorEvent::SubagentsUpdated {
             subagents: vec![build_running_codex_subagent(
@@ -203,19 +222,15 @@ pub(crate) fn handle_collab_agent_interaction_end(
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::Worker(WorkerInvocationPayload {
-            worker_id: Some(event.receiver_thread_id.to_string()),
-            label: None,
-            agent_type: None,
-            task_summary: None,
-            input: None,
+        invocation: json!({
+            "worker_id": event.receiver_thread_id.to_string(),
         }),
-        result: Some(ToolResultPayload::Worker(WorkerResultPayload {
-            worker_id: Some(event.receiver_thread_id.to_string()),
-            summary: Some(output),
-            output: None,
+        result: Some(json!({
+            "worker_id": event.receiver_thread_id.to_string(),
+            "summary": output,
         })),
         render_hints: Default::default(),
+        tool_display: None,
     });
 
     let mut connector_events = vec![ConnectorEvent::ConversationRowUpdated {
@@ -287,15 +302,13 @@ pub(crate) fn handle_collab_waiting_begin(event: CollabWaitingBeginEvent) -> Vec
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::Worker(WorkerInvocationPayload {
-                worker_id: None,
-                label: None,
-                agent_type: Some("wait".to_string()),
-                task_summary: Some(format!("Waiting for {} agent(s)", receiver_ids.len())),
-                input: None,
+            invocation: json!({
+                "agent_type": "wait",
+                "task_summary": format!("Waiting for {} agent(s)", receiver_ids.len()),
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         })),
         ConnectorEvent::SubagentsUpdated { subagents },
     ]
@@ -366,19 +379,14 @@ pub(crate) fn handle_collab_waiting_end(event: CollabWaitingEndEvent) -> Vec<Con
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::Worker(WorkerInvocationPayload {
-            worker_id: None,
-            label: None,
-            agent_type: Some("wait".to_string()),
-            task_summary: None,
-            input: None,
+        invocation: json!({
+            "agent_type": "wait",
         }),
-        result: Some(ToolResultPayload::Worker(WorkerResultPayload {
-            worker_id: None,
-            summary: Some(output),
-            output: None,
+        result: Some(json!({
+            "summary": output,
         })),
         render_hints: Default::default(),
+        tool_display: None,
     });
 
     let mut connector_events = vec![ConnectorEvent::ConversationRowUpdated {
@@ -407,15 +415,14 @@ pub(crate) fn handle_collab_close_begin(event: CollabCloseBeginEvent) -> Vec<Con
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::Worker(WorkerInvocationPayload {
-                worker_id: Some(event.receiver_thread_id.to_string()),
-                label: None,
-                agent_type: Some("close".to_string()),
-                task_summary: Some("Closing agent".to_string()),
-                input: None,
+            invocation: json!({
+                "worker_id": event.receiver_thread_id.to_string(),
+                "agent_type": "close",
+                "task_summary": "Closing agent",
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         },
     ))]
 }
@@ -452,19 +459,16 @@ pub(crate) fn handle_collab_close_end(event: CollabCloseEndEvent) -> Vec<Connect
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::Worker(WorkerInvocationPayload {
-            worker_id: Some(event.receiver_thread_id.to_string()),
-            label: None,
-            agent_type: Some("close".to_string()),
-            task_summary: None,
-            input: None,
+        invocation: json!({
+            "worker_id": event.receiver_thread_id.to_string(),
+            "agent_type": "close",
         }),
-        result: Some(ToolResultPayload::Worker(WorkerResultPayload {
-            worker_id: Some(event.receiver_thread_id.to_string()),
-            summary: Some(output),
-            output: None,
+        result: Some(json!({
+            "worker_id": event.receiver_thread_id.to_string(),
+            "summary": output,
         })),
         render_hints: Default::default(),
+        tool_display: None,
     });
 
     vec![
@@ -501,15 +505,14 @@ pub(crate) fn handle_collab_resume_begin(event: CollabResumeBeginEvent) -> Vec<C
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::Worker(WorkerInvocationPayload {
-                worker_id: Some(event.receiver_thread_id.to_string()),
-                label: None,
-                agent_type: Some("resume".to_string()),
-                task_summary: Some("Resuming agent".to_string()),
-                input: None,
+            invocation: json!({
+                "worker_id": event.receiver_thread_id.to_string(),
+                "agent_type": "resume",
+                "task_summary": "Resuming agent",
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         })),
         ConnectorEvent::SubagentsUpdated {
             subagents: vec![build_running_codex_subagent(
@@ -555,19 +558,16 @@ pub(crate) fn handle_collab_resume_end(event: CollabResumeEndEvent) -> Vec<Conne
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::Worker(WorkerInvocationPayload {
-            worker_id: Some(event.receiver_thread_id.to_string()),
-            label: None,
-            agent_type: Some("resume".to_string()),
-            task_summary: None,
-            input: None,
+        invocation: json!({
+            "worker_id": event.receiver_thread_id.to_string(),
+            "agent_type": "resume",
         }),
-        result: Some(ToolResultPayload::Worker(WorkerResultPayload {
-            worker_id: Some(event.receiver_thread_id.to_string()),
-            summary: Some(output),
-            output: None,
+        result: Some(json!({
+            "worker_id": event.receiver_thread_id.to_string(),
+            "summary": output,
         })),
         render_hints: Default::default(),
+        tool_display: None,
     });
 
     vec![

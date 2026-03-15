@@ -13,19 +13,46 @@ use codex_protocol::protocol::{
 };
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::{
-    ConversationRow, ConversationRowEntry, HandoffRow, HookRow, MessageRowContent, ToolRow,
+    compute_tool_display, ConversationRow, ConversationRowEntry, HandoffRow, HookRow,
+    MessageRowContent, ToolRow,
 };
 use orbitdock_protocol::domain_events::{
-    HandoffPayload, HookPayload, PlanModePayload, PlanStepPayload, PlanStepStatus, ToolFamily,
-    ToolInvocationPayload, ToolKind, ToolStatus,
+    HandoffPayload, HookPayload, PlanStepPayload, PlanStepStatus, ToolFamily, ToolKind, ToolStatus,
 };
 use orbitdock_protocol::Provider;
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
+    let row = with_display(row);
     row_entry(ConversationRow::Tool(row))
+}
+
+fn with_display(mut row: ToolRow) -> ToolRow {
+    let invocation_ref = if row.invocation.is_object() {
+        Some(&row.invocation)
+    } else {
+        None
+    };
+    let result_str = row
+        .result
+        .as_ref()
+        .and_then(|v| v.get("output").and_then(|o| o.as_str()))
+        .map(String::from);
+    row.tool_display = Some(compute_tool_display(
+        row.kind,
+        row.family,
+        row.status,
+        &row.title,
+        row.subtitle.as_deref(),
+        row.summary.as_deref(),
+        row.duration_ms,
+        invocation_ref,
+        result_str.as_deref(),
+    ));
+    row
 }
 
 pub(crate) fn handle_token_count(event: TokenCountEvent) -> Vec<ConnectorEvent> {
@@ -75,6 +102,11 @@ pub(crate) fn handle_plan_update(
         })
         .collect();
 
+    let steps_json: Vec<serde_json::Value> = steps
+        .iter()
+        .map(|step| serde_json::to_value(step).unwrap_or_default())
+        .collect();
+
     let row = ToolRow {
         id: format!("update-plan-{}-{}", event_id, seq),
         provider: Provider::Codex,
@@ -89,15 +121,15 @@ pub(crate) fn handle_plan_update(
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::PlanMode(PlanModePayload {
-            mode: Some("plan".to_string()),
-            summary: event.explanation.clone(),
-            steps,
-            review_mode: None,
-            explanation: event.explanation,
+        invocation: json!({
+            "mode": "plan",
+            "summary": event.explanation,
+            "steps": steps_json,
+            "explanation": event.explanation,
         }),
         result: None,
         render_hints: Default::default(),
+        tool_display: None,
     };
     vec![
         ConnectorEvent::PlanUpdated(plan),

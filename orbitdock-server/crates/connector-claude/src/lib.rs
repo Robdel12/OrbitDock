@@ -24,10 +24,7 @@ use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::{
     ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
 };
-use orbitdock_protocol::domain_events::{
-    GenericInvocationPayload, GenericResultPayload, ToolFamily, ToolInvocationPayload, ToolKind,
-    ToolResultPayload, ToolStatus,
-};
+use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 
 // ---------------------------------------------------------------------------
 // Tool classification
@@ -58,17 +55,157 @@ fn classify_tool(name: &str) -> (ToolFamily, ToolKind) {
     }
 }
 
-/// Build a ToolInvocationPayload from a tool name and optional raw JSON input.
-fn build_invocation(tool_name: &str, raw_input: Option<&Value>) -> ToolInvocationPayload {
-    ToolInvocationPayload::Generic(GenericInvocationPayload {
-        tool_name: tool_name.to_string(),
-        raw_input: raw_input.cloned(),
-    })
+/// Build a flat JSON invocation value from a tool name and optional raw JSON input.
+/// For Claude tools, the raw_input IS the flat invocation (e.g. {"command": "ls"}).
+fn build_invocation(tool_name: &str, raw_input: Option<&Value>) -> Value {
+    match raw_input {
+        Some(input) if input.is_object() => input.clone(),
+        Some(input) => serde_json::json!({ "tool_name": tool_name, "input": input }),
+        None => serde_json::json!({ "tool_name": tool_name }),
+    }
 }
 
 /// Build a tool title from the tool name (human-friendly).
 fn tool_title(tool_name: &str) -> String {
     tool_name.to_string()
+}
+
+/// Extract a subtitle from the tool input based on tool kind.
+fn extract_subtitle(tool_name: &str, raw_input: Option<&Value>) -> Option<String> {
+    let input = raw_input?;
+    let result = match tool_name {
+        "Bash" | "bash" => {
+            let cmd = input.get("command").and_then(Value::as_str).unwrap_or("");
+            if cmd.is_empty() {
+                return input.get("description").and_then(Value::as_str).map(String::from);
+            }
+            let truncated = if cmd.len() > 120 {
+                format!("{}…", &cmd[..120])
+            } else {
+                cmd.to_string()
+            };
+            Some(truncated)
+        }
+        "Read" | "read" | "FileRead" | "Edit" | "edit" | "FileEdit" | "MultiEdit" | "Write"
+        | "write" | "FileWrite" | "NotebookEdit" => input
+            .get("file_path")
+            .and_then(Value::as_str)
+            .map(String::from),
+        "Glob" | "glob" => input
+            .get("pattern")
+            .and_then(Value::as_str)
+            .map(String::from),
+        "Grep" | "grep" => input
+            .get("pattern")
+            .and_then(Value::as_str)
+            .map(String::from),
+        "WebSearch" | "websearch" => input
+            .get("query")
+            .and_then(Value::as_str)
+            .map(String::from),
+        "WebFetch" | "webfetch" => input.get("url").and_then(Value::as_str).map(String::from),
+        "Agent" | "agent" => {
+            let desc = input.get("description").and_then(Value::as_str);
+            let agent_type = input.get("subagent_type").and_then(Value::as_str);
+            match (agent_type, desc) {
+                (Some(t), Some(d)) => Some(format!("{t} — {d}")),
+                (Some(t), None) => Some(t.to_string()),
+                (None, Some(d)) => Some(d.to_string()),
+                _ => None,
+            }
+        }
+        n if n.starts_with("mcp__") => {
+            // mcp__server__tool → "server · tool"
+            let parts: Vec<&str> = n.strip_prefix("mcp__").unwrap_or(n).splitn(2, "__").collect();
+            match parts.as_slice() {
+                [server, tool] => Some(format!("{server} · {tool}")),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    // Ensure we don't return empty strings
+    result.filter(|s| !s.trim().is_empty())
+}
+
+/// Compute a summary from tool result output.
+fn extract_result_summary(tool_name: &str, output: &str) -> Option<String> {
+    if output.is_empty() {
+        return None;
+    }
+    let summary = match tool_name {
+        "Bash" | "bash" => {
+            let first_line = output.lines().next().unwrap_or("");
+            if first_line.len() > 200 {
+                format!("{}…", &first_line[..200])
+            } else {
+                first_line.to_string()
+            }
+        }
+        "Read" | "read" | "FileRead" => {
+            let line_count = output.lines().count();
+            format!("{line_count} lines")
+        }
+        "Edit" | "edit" | "FileEdit" | "MultiEdit" => {
+            let has_diff = output.contains("@@") || output.contains("+") || output.contains("-");
+            if has_diff {
+                let additions = output.lines().filter(|l| l.starts_with('+')).count();
+                let deletions = output.lines().filter(|l| l.starts_with('-')).count();
+                format!("+{additions} -{deletions}")
+            } else {
+                "Applied".to_string()
+            }
+        }
+        "Write" | "write" | "FileWrite" => "Created file".to_string(),
+        "Glob" | "glob" => {
+            let count = output.lines().filter(|l| !l.trim().is_empty()).count();
+            format!("{count} files matched")
+        }
+        "Grep" | "grep" => {
+            let non_empty: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
+            let file_count = non_empty
+                .iter()
+                .filter_map(|l| l.split(':').next())
+                .collect::<std::collections::HashSet<_>>()
+                .len();
+            format!("{} matches in {} files", non_empty.len(), file_count)
+        }
+        _ => {
+            let first_line = output.lines().next().unwrap_or("");
+            if first_line.len() > 200 {
+                format!("{}…", &first_line[..200])
+            } else {
+                first_line.to_string()
+            }
+        }
+    };
+    if summary.trim().is_empty() {
+        None
+    } else {
+        Some(summary)
+    }
+}
+
+/// Compute render hints based on tool kind.
+fn tool_render_hints(kind: ToolKind) -> RenderHints {
+    match kind {
+        ToolKind::Bash => RenderHints {
+            can_expand: true,
+            monospace_summary: true,
+            ..Default::default()
+        },
+        ToolKind::Read | ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit => {
+            RenderHints {
+                can_expand: true,
+                ..Default::default()
+            }
+        }
+        ToolKind::Grep | ToolKind::Glob => RenderHints {
+            can_expand: true,
+            ..Default::default()
+        },
+        _ => RenderHints::default(),
+    }
 }
 
 /// Construct a ToolRow for a newly-created tool use.
@@ -79,6 +216,19 @@ fn make_tool_row(
     status: ToolStatus,
 ) -> ToolRow {
     let (family, kind) = classify_tool(tool_name);
+    let subtitle = extract_subtitle(tool_name, raw_input);
+    let render_hints = tool_render_hints(kind);
+    let tool_display = Some(orbitdock_protocol::conversation_contracts::compute_tool_display(
+        kind,
+        family,
+        status,
+        tool_name,
+        subtitle.as_deref(),
+        None,
+        None,
+        raw_input,
+        None,
+    ));
     ToolRow {
         id,
         provider: orbitdock_protocol::Provider::Claude,
@@ -86,7 +236,7 @@ fn make_tool_row(
         kind,
         status,
         title: tool_title(tool_name),
-        subtitle: None,
+        subtitle,
         summary: None,
         preview: None,
         started_at: Some(now_iso()),
@@ -95,7 +245,8 @@ fn make_tool_row(
         grouping_key: None,
         invocation: build_invocation(tool_name, raw_input),
         result: None,
-        render_hints: RenderHints::default(),
+        render_hints,
+        tool_display,
     }
 }
 
@@ -1542,10 +1693,10 @@ impl ClaudeConnector {
                     if let Some(mut tr) = tool_rows.remove(&row_id) {
                         tr.status = ToolStatus::Completed;
                         tr.ended_at = Some(now_iso());
-                        tr.result = Some(ToolResultPayload::Generic(GenericResultPayload {
-                            tool_name: "CompactContext".to_string(),
-                            raw_output: None,
-                            summary: Some("Done".to_string()),
+                        tr.result = Some(serde_json::json!({
+                            "tool_name": "CompactContext",
+                            
+                            "summary": "Done",
                         }));
                         let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                         events.push(ConnectorEvent::ConversationRowUpdated {
@@ -1694,10 +1845,10 @@ impl ClaudeConnector {
                     tr.ended_at = Some(now_iso());
                     tr.summary = Some(summary.to_string());
                     tr.duration_ms = duration_ms;
-                    tr.result = Some(ToolResultPayload::Generic(GenericResultPayload {
-                        tool_name: "task".to_string(),
-                        raw_output: None,
-                        summary: Some(summary.to_string()),
+                    tr.result = Some(serde_json::json!({
+                        "tool_name": "task",
+                        
+                        "summary": summary,
                     }));
                     let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                     vec![ConnectorEvent::ConversationRowUpdated {
@@ -2092,12 +2243,54 @@ impl ClaudeConnector {
                     } else {
                         ToolStatus::Completed
                     };
-                    tr.ended_at = Some(now_iso());
-                    tr.result = Some(ToolResultPayload::Generic(GenericResultPayload {
-                        tool_name: tr.title.clone(),
-                        raw_output: Some(Value::String(content.clone())),
-                        summary: None,
+                    let ended = now_iso();
+                    // Compute duration from started_at → ended_at
+                    if tr.duration_ms.is_none() {
+                        if let Some(ref started) = tr.started_at {
+                            if let (Some(s), Some(e)) =
+                                (parse_epoch_ms(started), parse_epoch_ms(&ended))
+                            {
+                                if e > s {
+                                    tr.duration_ms = Some(e - s);
+                                }
+                            }
+                        }
+                    }
+                    tr.ended_at = Some(ended);
+                    // Compute summary from tool output
+                    if tr.summary.is_none() {
+                        tr.summary = if is_error {
+                            Some("Error".to_string())
+                        } else {
+                            extract_result_summary(&tr.title, &content)
+                        };
+                    }
+                    let result_summary = tr.summary.clone();
+                    tr.result = Some(serde_json::json!({
+                        "tool_name": tr.title.clone(),
+                        "output": content.clone(),
+                        "summary": result_summary.as_deref().unwrap_or(""),
                     }));
+                    // Recompute tool_display with result data
+                    // invocation is now a flat serde_json::Value
+                    let raw_input = if tr.invocation.is_object() {
+                        Some(&tr.invocation)
+                    } else {
+                        None
+                    };
+                    tr.tool_display = Some(
+                        orbitdock_protocol::conversation_contracts::compute_tool_display(
+                            tr.kind,
+                            tr.family,
+                            tr.status,
+                            &tr.title,
+                            tr.subtitle.as_deref(),
+                            tr.summary.as_deref(),
+                            tr.duration_ms,
+                            raw_input,
+                            Some(&content),
+                        ),
+                    );
                     let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                     events.push(ConnectorEvent::ConversationRowUpdated {
                         row_id: row_id.clone(),
@@ -2117,10 +2310,9 @@ impl ClaudeConnector {
                         },
                     );
                     tr.ended_at = Some(now_iso());
-                    tr.result = Some(ToolResultPayload::Generic(GenericResultPayload {
-                        tool_name: "unknown".to_string(),
-                        raw_output: Some(Value::String(content.clone())),
-                        summary: None,
+                    tr.result = Some(serde_json::json!({
+                        "tool_name": "unknown",
+                        "output": content.clone(),
                     }));
                     events.push(ConnectorEvent::ConversationRowUpdated {
                         row_id,
@@ -2650,7 +2842,20 @@ fn now_iso() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    format!("{}Z", ms / 1000)
+    format!("{}.{:03}Z", ms / 1000, ms % 1000)
+}
+
+/// Parse an epoch-based timestamp ("1234567890Z" or "1234567890.123Z") to epoch milliseconds.
+fn parse_epoch_ms(s: &str) -> Option<u64> {
+    let stripped = s.strip_suffix('Z')?;
+    if let Some((secs_str, ms_str)) = stripped.split_once('.') {
+        let secs: u64 = secs_str.parse().ok()?;
+        let ms: u64 = ms_str.parse().ok()?;
+        Some(secs * 1000 + ms)
+    } else {
+        let secs: u64 = stripped.parse().ok()?;
+        Some(secs * 1000)
+    }
 }
 
 /// Flush accumulated streaming content into a final ConversationRowUpdated.

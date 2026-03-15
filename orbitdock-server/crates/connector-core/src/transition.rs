@@ -2467,7 +2467,7 @@ fn shell_segments_for_preview(command: &str) -> Vec<ApprovalPreviewSegment> {
 mod tests {
     use super::*;
     use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
-    use orbitdock_protocol::domain_events::{GenericInvocationPayload, ToolInvocationPayload};
+    use serde_json::json;
     use orbitdock_protocol::{ApprovalPreviewType, ApprovalRiskLevel, TokenUsage};
 
     fn test_state() -> TransitionState {
@@ -2548,12 +2548,12 @@ mod tests {
                 ended_at: None,
                 duration_ms: None,
                 grouping_key: None,
-                invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
-                    tool_name: "test".to_string(),
-                    raw_input: None,
+                invocation: json!({
+                    "tool_name": "test",
                 }),
                 result: None,
                 render_hints: RenderHints::default(),
+                tool_display: None,
             }),
         }
     }

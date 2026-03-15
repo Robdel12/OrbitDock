@@ -425,10 +425,7 @@ mod tests {
     use orbitdock_protocol::conversation_contracts::{
         ConversationRow, ConversationRowEntry, ToolRow,
     };
-    use orbitdock_protocol::domain_events::{
-        GenericInvocationPayload, GenericResultPayload, ToolFamily, ToolInvocationPayload,
-        ToolKind, ToolResultPayload, ToolStatus,
-    };
+    use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
     use orbitdock_protocol::Provider;
 
     use crate::domain::sessions::session::SessionHandle;
@@ -461,16 +458,16 @@ mod tests {
                 ended_at: None,
                 duration_ms,
                 grouping_key: None,
-                invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
-                    tool_name: "bash".to_string(),
-                    raw_input: Some(serde_json::Value::String("echo hi".to_string())),
+                invocation: serde_json::json!({
+                    "tool_name": "bash",
+                    "raw_input": "echo hi",
                 }),
-                result: Some(ToolResultPayload::Generic(GenericResultPayload {
-                    tool_name: "bash".to_string(),
-                    raw_output: Some(serde_json::Value::String("done".to_string())),
-                    summary: None,
+                result: Some(serde_json::json!({
+                    "tool_name": "bash",
+                    "raw_output": "done",
                 })),
                 render_hints: RenderHints::default(),
+                tool_display: None,
             }),
         }
     }

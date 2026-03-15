@@ -45,14 +45,26 @@ struct OrbitDockWindowRoot: View {
       appStore.start()
     }
     .onChange(of: router.route) { _, newRoute in
-      // Sync router state → NavigationStack path
       switch newRoute {
       case let .session(ref):
-        // Always navigate — replace entire path
         navigationPath = NavigationPath([ref])
       case .dashboard:
         navigationPath = NavigationPath()
       }
+    }
+    .sheet(isPresented: Binding(
+      get: { router.showNewSessionSheet },
+      set: { if !$0 { router.closeNewSessionSheet() } }
+    )) {
+      NewSessionSheet(
+        provider: router.newSessionProvider,
+        continuation: router.newSessionContinuation
+      )
+      .environment(appStore)
+      #if os(iOS)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+      #endif
     }
   }
 

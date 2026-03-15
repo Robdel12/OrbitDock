@@ -6,10 +6,7 @@ use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::{
     ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
 };
-use orbitdock_protocol::domain_events::{
-    GenericInvocationPayload, GenericResultPayload, ToolFamily, ToolInvocationPayload, ToolKind,
-    ToolResultPayload, ToolStatus,
-};
+use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 
 enum ParsedItem {
     Message {
@@ -245,15 +242,15 @@ pub(crate) fn load_messages_from_transcript(
                     if let Some(id) = &tool_use_id {
                         if let Some(&index) = tool_use_index.get(id) {
                             if let ConversationRow::Tool(ref mut tool_row) = rows[index].row {
-                                let tool_name = match &tool_row.invocation {
-                                    ToolInvocationPayload::Generic(g) => g.tool_name.clone(),
-                                    _ => tool_row.title.clone(),
-                                };
+                                let tool_name = tool_row.invocation
+                                    .get("tool_name")
+                                    .and_then(|v| v.as_str())
+                                    .map(str::to_string)
+                                    .unwrap_or_else(|| tool_row.title.clone());
                                 tool_row.result =
-                                    Some(ToolResultPayload::Generic(GenericResultPayload {
-                                        tool_name,
-                                        raw_output: Some(Value::String(tool_output)),
-                                        summary: None,
+                                    Some(serde_json::json!({
+                                        "tool_name": tool_name,
+                                        "raw_output": tool_output,
                                     }));
                                 continue;
                             }
@@ -285,16 +282,15 @@ pub(crate) fn load_messages_from_transcript(
                             ended_at: None,
                             duration_ms: None,
                             grouping_key: None,
-                            invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
-                                tool_name: "unknown".to_string(),
-                                raw_input: None,
+                            invocation: serde_json::json!({
+                                "tool_name": "unknown",
                             }),
-                            result: Some(ToolResultPayload::Generic(GenericResultPayload {
-                                tool_name: "unknown".to_string(),
-                                raw_output: Some(Value::String(tool_output)),
-                                summary: None,
+                            result: Some(serde_json::json!({
+                                "tool_name": "unknown",
+                                "raw_output": tool_output,
                             })),
                             render_hints: RenderHints::default(),
+                tool_display: None,
                         }),
                     });
                     sequence += 1;
@@ -330,12 +326,13 @@ pub(crate) fn load_messages_from_transcript(
                             ended_at: None,
                             duration_ms: None,
                             grouping_key: None,
-                            invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
-                                tool_name,
-                                raw_input: tool_input,
+                            invocation: serde_json::json!({
+                                "tool_name": tool_name,
+                                "raw_input": tool_input,
                             }),
                             result: None,
                             render_hints: RenderHints::default(),
+                tool_display: None,
                         }),
                     });
                     sequence += 1;

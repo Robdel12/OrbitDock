@@ -47,11 +47,13 @@ final class ConversationStore {
   // MARK: - Observable state
 
   private(set) var messages: [TranscriptMessage] = []
+  private(set) var rowEntries: [ServerConversationRowEntry] = []
   private(set) var totalMessageCount: Int = 0
   private(set) var hasMoreHistoryBefore: Bool = false
   private(set) var isLoadingOlderMessages: Bool = false
   private(set) var state: State = .idle
   private(set) var messagesRevision: Int = 0
+  private(set) var rowEntriesRevision: Int = 0
   private(set) var streamingPatchRevision: Int = 0
   var latestStreamingPatch: ConversationStreamingPatch?
 
@@ -163,6 +165,9 @@ final class ConversationStore {
   ) {
     guard !upserted.isEmpty || !removedRowIds.isEmpty || totalRowCount != nil else { return }
 
+    // Maintain raw row entries for the new timeline
+    applyRowEntries(upserted: upserted, removedRowIds: removedRowIds)
+
     var nextMessages = messages
     let messageIDs = Dictionary(uniqueKeysWithValues: nextMessages.enumerated().map { ($1.id, $0) })
 
@@ -203,6 +208,7 @@ final class ConversationStore {
   /// Clear all message data (e.g. on unsubscribe).
   func clear() {
     messages = []
+    rowEntries = []
     totalMessageCount = 0
     oldestLoadedSequence = nil
     newestLoadedSequence = nil
@@ -245,6 +251,9 @@ final class ConversationStore {
     oldestSequence: UInt64?,
     newestSequence: UInt64?
   ) {
+    // Maintain raw row entries for the new timeline
+    applyRowEntries(upserted: upserted, removedRowIds: removedRowIds)
+
     let incoming = normalizeMessages(upserted.map { $0.toTranscriptMessage(endpointId: endpointId) })
 
     var merged = messages
@@ -289,6 +298,35 @@ final class ConversationStore {
     }
     self.hasMoreHistoryBefore = hasMoreBefore
     state = .ready
+  }
+
+  // MARK: - Row Entries
+
+  private func applyRowEntries(upserted: [ServerConversationRowEntry], removedRowIds: [String]) {
+    guard !upserted.isEmpty || !removedRowIds.isEmpty else { return }
+
+    var merged = rowEntries
+    let existingIDs = Dictionary(uniqueKeysWithValues: merged.enumerated().map { ($1.id, $0) })
+
+    for entry in upserted {
+      if let existingIdx = existingIDs[entry.id] {
+        merged[existingIdx] = entry
+      } else {
+        merged.append(entry)
+      }
+    }
+
+    if !removedRowIds.isEmpty {
+      let removed = Set(removedRowIds)
+      merged.removeAll { removed.contains($0.id) }
+    }
+
+    merged.sort { lhs, rhs in
+      lhs.sequence < rhs.sequence
+    }
+
+    rowEntries = merged
+    rowEntriesRevision += 1
   }
 
   // MARK: - Normalization
@@ -340,7 +378,9 @@ final class ConversationStore {
       isError: msg.isError,
       isInProgress: msg.isInProgress,
       images: msg.images,
-      thinking: msg.thinking
+      thinking: msg.thinking,
+      serverToolFamily: msg.serverToolFamily,
+      toolDisplay: msg.toolDisplay
     )
   }
 
@@ -363,7 +403,9 @@ final class ConversationStore {
       isError: incoming.isError,
       isInProgress: incoming.isInProgress,
       images: incoming.images.isEmpty ? existing.images : incoming.images,
-      thinking: incoming.thinking ?? existing.thinking
+      thinking: incoming.thinking ?? existing.thinking,
+      serverToolFamily: incoming.serverToolFamily ?? existing.serverToolFamily,
+      toolDisplay: incoming.toolDisplay ?? existing.toolDisplay
     )
   }
 }

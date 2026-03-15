@@ -304,6 +304,7 @@ struct ServerConversationToolRow: Codable {
   let invocation: AnyCodable
   let result: AnyCodable?
   let renderHints: ServerConversationRenderHints
+  let toolDisplay: ServerToolDisplay?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -322,6 +323,7 @@ struct ServerConversationToolRow: Codable {
     case invocation
     case result
     case renderHints = "render_hints"
+    case toolDisplay = "tool_display"
   }
 }
 
@@ -768,6 +770,11 @@ struct ServerToolDisplay: Codable {
   let summaryFont: String
   let displayTier: String
 
+  // Expanded rendering fields
+  let inputDisplay: String?
+  let outputDisplay: String?
+  let diffDisplay: String?
+
   enum CodingKeys: String, CodingKey {
     case summary
     case subtitle
@@ -783,6 +790,9 @@ struct ServerToolDisplay: Codable {
     case toolType = "tool_type"
     case summaryFont = "summary_font"
     case displayTier = "display_tier"
+    case inputDisplay = "input_display"
+    case outputDisplay = "output_display"
+    case diffDisplay = "diff_display"
   }
 
   init(from decoder: Decoder) throws {
@@ -801,6 +811,9 @@ struct ServerToolDisplay: Codable {
     toolType = try container.decode(String.self, forKey: .toolType)
     summaryFont = try container.decodeIfPresent(String.self, forKey: .summaryFont) ?? "system"
     displayTier = try container.decodeIfPresent(String.self, forKey: .displayTier) ?? "standard"
+    inputDisplay = try container.decodeIfPresent(String.self, forKey: .inputDisplay)
+    outputDisplay = try container.decodeIfPresent(String.self, forKey: .outputDisplay)
+    diffDisplay = try container.decodeIfPresent(String.self, forKey: .diffDisplay)
   }
 }
 

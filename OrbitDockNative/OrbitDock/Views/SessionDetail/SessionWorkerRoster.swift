@@ -366,7 +366,7 @@ enum SessionWorkerRosterPlanner {
       iconName = "brain.head.profile"
       tint = .textSecondary
     case .tool, .toolResult:
-      title = message.toolName.map(CompactToolHelpers.displayName(for:)) ?? "Tool activity"
+      title = message.toolName.map(Self.toolDisplayName) ?? "Tool activity"
       iconName = ToolCardStyle.icon(for: message.toolName ?? "tool")
       tint = ToolCardStyle.color(for: message.toolName ?? "tool")
     case .steer:
@@ -519,7 +519,7 @@ enum SessionWorkerRosterPlanner {
   }
 
   private static func matchesWorker(_ message: TranscriptMessage, workerID: String) -> Bool {
-    if SharedModelBuilders.linkedWorkerID(for: message) == workerID {
+    if Self.linkedWorkerID(for: message) == workerID {
       return true
     }
 
@@ -534,7 +534,7 @@ enum SessionWorkerRosterPlanner {
 
   private static func workerEventTitle(for message: TranscriptMessage) -> String {
     if let toolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-      return CompactToolHelpers.displayName(for: toolName)
+      return Self.toolDisplayName(toolName)
     }
 
     switch message.type {
@@ -572,6 +572,36 @@ enum SessionWorkerRosterPlanner {
 
     let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
     return content.nilIfEmpty
+  }
+
+  private static func toolDisplayName(_ toolName: String) -> String {
+    let normalized = toolName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    switch normalized {
+    case "bash": return "Bash"
+    case "read": return "Read"
+    case "edit": return "Edit"
+    case "write": return "Write"
+    case "glob": return "Glob"
+    case "grep": return "Grep"
+    case "task", "agent", "spawn_agent": return "Agent"
+    case "webfetch": return "Fetch"
+    case "websearch": return "Search"
+    default: return toolName
+    }
+  }
+
+  private static func linkedWorkerID(for message: TranscriptMessage) -> String? {
+    if let subagentID = message.toolInput?["subagent_id"] as? String,
+       !subagentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return subagentID
+    }
+    if let receiverThreadID = message.toolInput?["receiver_thread_id"] as? String,
+       !receiverThreadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return receiverThreadID
+    }
+    return nil
   }
 
   private static func workerEventIcon(for message: TranscriptMessage) -> String {

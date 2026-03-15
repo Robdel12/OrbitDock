@@ -10,17 +10,41 @@ use codex_protocol::protocol::{
     TerminalInteractionEvent, ViewImageToolCallEvent, WebSearchBeginEvent, WebSearchEndEvent,
 };
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry, ToolRow};
-use orbitdock_protocol::domain_events::{
-    CommandExecutionPayload, FileChangePayload, GenericInvocationPayload, GenericResultPayload,
-    ImageViewPayload, McpToolPayload, ToolFamily, ToolInvocationPayload, ToolKind,
-    ToolResultPayload, ToolStatus, WebSearchPayload,
+use orbitdock_protocol::conversation_contracts::{
+    compute_tool_display, ConversationRow, ConversationRowEntry, ToolRow,
 };
+use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
 use serde_json::json;
 
 fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
-    row_entry(ConversationRow::Tool(row))
+    row_entry(ConversationRow::Tool(with_display(row)))
+}
+
+/// Compute and attach tool_display to a ToolRow from its own fields.
+fn with_display(mut row: ToolRow) -> ToolRow {
+    let invocation_ref = if row.invocation.is_object() {
+        Some(&row.invocation)
+    } else {
+        None
+    };
+    let result_str = row
+        .result
+        .as_ref()
+        .and_then(|v| v.get("output").and_then(|o| o.as_str()))
+        .map(String::from);
+    row.tool_display = Some(compute_tool_display(
+        row.kind,
+        row.family,
+        row.status,
+        &row.title,
+        row.subtitle.as_deref(),
+        row.summary.as_deref(),
+        row.duration_ms,
+        invocation_ref,
+        result_str.as_deref(),
+    ));
+    row
 }
 
 pub(crate) async fn handle_exec_command_begin(
@@ -75,15 +99,13 @@ pub(crate) async fn handle_exec_command_begin(
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::Shell(CommandExecutionPayload {
-                command: command_str,
-                cwd: Some(event.cwd.display().to_string()),
-                input: None,
-                output: None,
-                exit_code: None,
+            invocation: json!({
+                "command": command_str,
+                "cwd": event.cwd.display().to_string(),
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         },
     )));
 
@@ -122,15 +144,13 @@ pub(crate) async fn handle_exec_command_output_delta(
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::Shell(CommandExecutionPayload {
-                command: String::new(),
-                cwd: None,
-                input: None,
-                output: Some(accumulated),
-                exit_code: None,
+            invocation: json!({
+                "command": "",
+                "output": accumulated,
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         });
         vec![ConnectorEvent::ConversationRowUpdated {
             row_id: event.call_id,
@@ -178,21 +198,16 @@ pub(crate) async fn handle_exec_command_end(
         ended_at: Some(iso_now()),
         duration_ms,
         grouping_key: None,
-        invocation: ToolInvocationPayload::Shell(CommandExecutionPayload {
-            command: String::new(),
-            cwd: None,
-            input: None,
-            output: None,
-            exit_code: Some(event.exit_code),
+        invocation: json!({
+            "command": "",
+            "exit_code": event.exit_code,
         }),
-        result: Some(ToolResultPayload::Shell(CommandExecutionPayload {
-            command: String::new(),
-            cwd: None,
-            input: None,
-            output: Some(output_str),
-            exit_code: Some(event.exit_code),
+        result: Some(json!({
+            "output": output_str,
+            "exit_code": event.exit_code,
         })),
         render_hints: Default::default(),
+        tool_display: None,
     });
     vec![ConnectorEvent::ConversationRowUpdated {
         row_id: event.call_id,
@@ -261,15 +276,13 @@ pub(crate) fn handle_patch_apply_begin(event: PatchApplyBeginEvent) -> Vec<Conne
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::FileChange(FileChangePayload {
-                path: Some(first_file),
-                diff: Some(unified_diff),
-                summary: None,
-                additions: None,
-                deletions: None,
+            invocation: json!({
+                "path": first_file,
+                "diff": unified_diff,
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         },
     ))]
 }
@@ -314,19 +327,15 @@ pub(crate) fn handle_patch_apply_end(event: PatchApplyEndEvent) -> Vec<Connector
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::FileChange(FileChangePayload {
-            path: None,
-            diff: None,
-            summary: Some(output.clone()),
-            additions: None,
-            deletions: None,
+        invocation: json!({
+            "summary": output.clone(),
         }),
-        result: Some(ToolResultPayload::Generic(GenericResultPayload {
-            tool_name: "Edit".to_string(),
-            raw_output: Some(json!(output)),
-            summary: None,
+        result: Some(json!({
+            "tool_name": "Edit",
+            "output": output,
         })),
         render_hints: Default::default(),
+        tool_display: None,
     });
     vec![ConnectorEvent::ConversationRowUpdated {
         row_id: event.call_id,
@@ -354,18 +363,18 @@ pub(crate) fn handle_mcp_tool_call_begin(event: McpToolCallBeginEvent) -> Vec<Co
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::McpTool(McpToolPayload {
-                server,
-                tool_name: tool,
-                input: event
+            invocation: json!({
+                "server": server,
+                "tool_name": tool,
+                "input": event
                     .invocation
                     .arguments
                     .as_ref()
                     .and_then(|args| serde_json::to_value(args).ok()),
-                output: None,
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         },
     ))]
 }
@@ -396,18 +405,17 @@ pub(crate) fn handle_mcp_tool_call_end(event: McpToolCallEndEvent) -> Vec<Connec
         ended_at: Some(iso_now()),
         duration_ms: Some(event.duration.as_millis() as u64),
         grouping_key: None,
-        invocation: ToolInvocationPayload::McpTool(McpToolPayload {
-            server: event.invocation.server.clone(),
-            tool_name: event.invocation.tool.clone(),
-            input: None,
-            output: output_value.clone(),
+        invocation: json!({
+            "server": event.invocation.server,
+            "tool_name": event.invocation.tool,
+            "output": output_value.clone(),
         }),
-        result: Some(ToolResultPayload::McpTool(GenericResultPayload {
-            tool_name: event.invocation.tool.clone(),
-            raw_output: output_value,
-            summary: None,
+        result: Some(json!({
+            "tool_name": event.invocation.tool,
+            "raw_output": output_value,
         })),
         render_hints: Default::default(),
+        tool_display: None,
     });
     vec![ConnectorEvent::ConversationRowUpdated {
         row_id: event.call_id,
@@ -431,12 +439,13 @@ pub(crate) fn handle_web_search_begin(event: WebSearchBeginEvent) -> Vec<Connect
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::WebSearch(WebSearchPayload {
-                query: String::new(),
-                results: vec![],
+            invocation: json!({
+                "query": "",
+                "results": [],
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         },
     ))]
 }
@@ -459,16 +468,16 @@ pub(crate) fn handle_web_search_end(event: WebSearchEndEvent) -> Vec<ConnectorEv
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::WebSearch(WebSearchPayload {
-            query: event.query,
-            results: vec![],
+        invocation: json!({
+            "query": event.query,
+            "results": [],
         }),
-        result: Some(ToolResultPayload::Generic(GenericResultPayload {
-            tool_name: "websearch".to_string(),
-            raw_output: Some(json!(output)),
-            summary: None,
+        result: Some(json!({
+            "tool_name": "websearch",
+            "output": output,
         })),
         render_hints: Default::default(),
+        tool_display: None,
     });
     vec![ConnectorEvent::ConversationRowUpdated {
         row_id: event.call_id,
@@ -493,15 +502,15 @@ pub(crate) fn handle_view_image_tool_call(event: ViewImageToolCallEvent) -> Vec<
             ended_at: Some(iso_now()),
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::ImageView(ImageViewPayload {
-                image_paths: vec![path],
-                caption: None,
+            invocation: json!({
+                "image_paths": [&path],
             }),
-            result: Some(ToolResultPayload::ImageView(ImageViewPayload {
-                image_paths: vec![event.path.to_string_lossy().to_string()],
-                caption: Some("Image loaded".to_string()),
+            result: Some(json!({
+                "image_paths": [event.path.to_string_lossy().to_string()],
+                "caption": "Image loaded",
             })),
             render_hints: Default::default(),
+            tool_display: None,
         },
     ))]
 }
@@ -526,12 +535,13 @@ pub(crate) fn handle_dynamic_tool_call_request(
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
-                tool_name: tool,
-                raw_input: Some(event.arguments),
+            invocation: json!({
+                "tool_name": tool,
+                "raw_input": event.arguments,
             }),
             result: None,
             render_hints: Default::default(),
+            tool_display: None,
         },
     ))]
 }
@@ -560,16 +570,16 @@ pub(crate) fn handle_dynamic_tool_call_response(
         ended_at: Some(iso_now()),
         duration_ms: Some(event.duration.as_millis() as u64),
         grouping_key: None,
-        invocation: ToolInvocationPayload::Generic(GenericInvocationPayload {
-            tool_name: String::new(),
-            raw_input: None,
+        invocation: json!({
+            "tool_name": "",
         }),
-        result: Some(ToolResultPayload::Generic(GenericResultPayload {
-            tool_name: String::new(),
-            raw_output: output.as_ref().map(|o| json!(o)),
-            summary: output,
+        result: Some(json!({
+            "tool_name": "",
+            "raw_output": output.as_ref().map(|o| json!(o)),
+            "summary": output,
         })),
         render_hints: Default::default(),
+        tool_display: None,
     });
     vec![ConnectorEvent::ConversationRowUpdated {
         row_id: event.call_id,
@@ -603,15 +613,14 @@ pub(crate) async fn handle_terminal_interaction(
         ended_at: None,
         duration_ms: None,
         grouping_key: None,
-        invocation: ToolInvocationPayload::Shell(CommandExecutionPayload {
-            command: String::new(),
-            cwd: None,
-            input: Some(event.stdin),
-            output: Some(next_output),
-            exit_code: None,
+        invocation: json!({
+            "command": "",
+            "input": event.stdin,
+            "output": next_output,
         }),
         result: None,
         render_hints: Default::default(),
+        tool_display: None,
     });
     vec![ConnectorEvent::ConversationRowUpdated {
         row_id: event.call_id,

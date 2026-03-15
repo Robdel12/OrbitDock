@@ -9,14 +9,22 @@ struct OrbitDockApp: App {
   #if os(macOS)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   #endif
-  @State private var appRuntime = OrbitDockAppRuntime()
+  @State private var appRuntime: OrbitDockAppRuntime
+  #if os(macOS)
+    @State private var menuBarAppStore: AppStore
+  #endif
   private let modelPricingService: ModelPricingService
 
   init() {
+    let appRuntime = OrbitDockAppRuntime()
     let modelPricingService = ModelPricingService.live()
+    _appRuntime = State(initialValue: appRuntime)
     self.modelPricingService = modelPricingService
     #if os(macOS)
-      appDelegate.configure(appRuntime: _appRuntime.wrappedValue, modelPricingService: modelPricingService)
+      _menuBarAppStore = State(
+        initialValue: AppStore(connection: appRuntime.runtimeRegistry.primaryConnection)
+      )
+      appDelegate.configure(appRuntime: appRuntime, modelPricingService: modelPricingService)
     #endif
   }
 
@@ -35,6 +43,33 @@ struct OrbitDockApp: App {
       .commands {
         OrbitDockWindowCommands()
       }
+
+      Settings {
+        SettingsView()
+          .environment(\.serverManager, appRuntime.serverManager)
+          .environment(appRuntime.runtimeRegistry.activeSessionStore)
+          .environment(\.modelPricingService, modelPricingService)
+          .environment(appRuntime.runtimeRegistry)
+          .environment(appRuntime.notificationManager)
+          .preferredColorScheme(.dark)
+      }
+
+      MenuBarExtra {
+        MenuBarView()
+          .environment(\.modelPricingService, modelPricingService)
+          .environment(appRuntime.runtimeRegistry)
+          .environment(appRuntime.usageServiceRegistry)
+          .environment(menuBarAppStore)
+          .environment(\.colorScheme, .dark)
+          .preferredColorScheme(.dark)
+          .task {
+            menuBarAppStore.start()
+          }
+      } label: {
+        Image(systemName: "terminal.fill")
+          .symbolRenderingMode(.monochrome)
+      }
+      .menuBarExtraStyle(.window)
     #else
       WindowGroup {
         OrbitDockWindowRoot(appRuntime: appRuntime)
