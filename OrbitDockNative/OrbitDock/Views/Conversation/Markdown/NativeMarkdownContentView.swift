@@ -52,6 +52,10 @@ final class NativeMarkdownContentView: PlatformView {
   private var blocks: [MarkdownBlock] = []
   private var contentStyle: ContentStyle = .standard
 
+  /// Called when any child code block toggles expand/collapse.
+  /// Allows the timeline controller to invalidate the row height.
+  var onCodeBlockToggle: (() -> Void)?
+
   // MARK: - Init
 
   override init(frame: CGRect) {
@@ -117,6 +121,9 @@ final class NativeMarkdownContentView: PlatformView {
             )
           ))
           codeView.configure(language: language, code: code)
+          codeView.onExpandToggle = { [weak self] in
+            self?.onCodeBlockToggle?()
+          }
           addSubview(codeView)
           yOffset += codeView.frame.height
           yOffset += blockMargin

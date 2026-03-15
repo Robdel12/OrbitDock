@@ -69,9 +69,15 @@ extension DirectSessionComposer {
             case .permission:
               pendingPermissionInlineContent(model)
             case .question:
-              pendingQuestionInlineContent(model)
+              if model.elicitationMode != nil {
+                pendingElicitationInlineContent(model)
+              } else {
+                pendingQuestionInlineContent(model)
+              }
             case .takeover:
               pendingTakeOverInlineContent(model)
+            case .passiveBlocked:
+              pendingPassiveBlockedInlineContent(model)
             case .none:
               EmptyView()
           }
@@ -98,6 +104,7 @@ extension DirectSessionComposer {
     switch model.mode {
       case .permission, .takeover: model.risk.tintColor
       case .question: Color.statusQuestion
+      case .passiveBlocked: Color.feedbackCaution
       case .none: Color.textTertiary
     }
   }
@@ -207,6 +214,16 @@ extension DirectSessionComposer {
         .background(
           RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
             .fill(Color.feedbackCaution.opacity(OpacityTier.tint))
+        )
+      }
+
+      // ━━━ Network approval context ━━━
+      if let host = model.networkHost, !host.isEmpty {
+        let proto = model.networkProtocol ?? "unknown"
+        PendingInfoHintRow(
+          iconName: "network",
+          iconColor: Color.feedbackCaution,
+          text: "Network: \(host) (\(proto))"
         )
       }
 
@@ -395,6 +412,65 @@ extension DirectSessionComposer {
       .fixedSize(horizontal: false, vertical: true)
   }
 
+  // MARK: - Passive Blocked Inline Content
+
+  @ViewBuilder
+  func pendingPassiveBlockedInlineContent(_ model: ApprovalCardModel) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      Text("This session requires approval. Respond in your terminal, or take over to approve here.")
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      if let toolName = model.toolName, !toolName.isEmpty {
+        PendingInfoHintRow(
+          iconName: ToolCardStyle.icon(for: toolName),
+          iconColor: Color.feedbackCaution,
+          text: toolName
+        )
+      }
+    }
+  }
+
+  // MARK: - MCP Elicitation Inline Content
+
+  @ViewBuilder
+  func pendingElicitationInlineContent(_ model: ApprovalCardModel) -> some View {
+    let modeColor = pendingPanelModeColor(model)
+
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      if let serverName = model.mcpServerName, !serverName.isEmpty {
+        HStack(spacing: Spacing.xs) {
+          Image(systemName: "server.rack")
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(modeColor)
+          Text(serverName)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+        }
+      }
+
+      if let message = model.elicitationMessage, !message.isEmpty {
+        Text(message)
+          .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.caption, weight: .medium))
+          .foregroundStyle(Color.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      if model.elicitationMode == "url", let url = model.elicitationUrl, !url.isEmpty {
+        PendingInfoHintRow(
+          iconName: "safari",
+          iconColor: modeColor,
+          text: "Open in browser to complete authentication"
+        )
+      } else {
+        // Form mode — fall through to standard question UI for now
+        // Schema-driven form rendering can be added when codex-protocol exposes requested_schema
+        pendingQuestionInlineContent(model)
+      }
+    }
+  }
+
   // MARK: - Footer Actions (rendered in composer footer right side)
 
   @ViewBuilder
@@ -408,6 +484,8 @@ extension DirectSessionComposer {
         questionFooterActions(model)
       case .takeover:
         takeoverFooterActions(model)
+      case .passiveBlocked:
+        passiveBlockedFooterActions(model)
       case .none:
         HStack(spacing: Spacing.sm_) {
           footerFollowControls
@@ -566,6 +644,30 @@ extension DirectSessionComposer {
         Task { try? await serverState.takeoverSession(model.sessionId) }
       }
     )
+  }
+
+  // MARK: Passive Blocked Footer
+
+  @ViewBuilder
+  private func passiveBlockedFooterActions(_ model: ApprovalCardModel) -> some View {
+    HStack(spacing: Spacing.sm_) {
+      Spacer()
+      Button {
+        Platform.services.playHaptic(.success)
+        Task { try? await serverState.takeoverSession(model.sessionId) }
+      } label: {
+        Text("Take Over")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+          .padding(.horizontal, Spacing.md_)
+          .padding(.vertical, Spacing.sm_)
+          .background(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .fill(Color.feedbackCaution.opacity(0.2))
+          )
+      }
+      .buttonStyle(.plain)
+    }
   }
 
   // MARK: - State Management Helpers

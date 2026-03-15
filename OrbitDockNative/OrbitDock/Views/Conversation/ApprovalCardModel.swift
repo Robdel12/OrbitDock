@@ -160,6 +160,53 @@ struct ApprovalCardModel: Hashable, Sendable {
   let projectPath: String
   let approvalId: String?
   let sessionId: String
+  // MCP elicitation fields
+  let elicitationMode: String?
+  let elicitationSchema: Any?
+  let elicitationUrl: String?
+  let elicitationMessage: String?
+  let mcpServerName: String?
+  // Network approval context
+  let networkHost: String?
+  let networkProtocol: String?
+
+  // Custom Hashable conformance since `elicitationSchema` is `Any?`
+  func hash(into hasher: inout Hasher) {
+    hasher.combine(mode)
+    hasher.combine(approvalId)
+    hasher.combine(sessionId)
+    hasher.combine(elicitationMode)
+    hasher.combine(mcpServerName)
+    hasher.combine(networkHost)
+  }
+
+  static func == (lhs: ApprovalCardModel, rhs: ApprovalCardModel) -> Bool {
+    lhs.mode == rhs.mode
+      && lhs.toolName == rhs.toolName
+      && lhs.previewType == rhs.previewType
+      && lhs.shellSegments == rhs.shellSegments
+      && lhs.serverManifest == rhs.serverManifest
+      && lhs.decisionScope == rhs.decisionScope
+      && lhs.command == rhs.command
+      && lhs.filePath == rhs.filePath
+      && lhs.risk == rhs.risk
+      && lhs.riskFindings == rhs.riskFindings
+      && lhs.diff == rhs.diff
+      && lhs.questions == rhs.questions
+      && lhs.permissionRequest == rhs.permissionRequest
+      && lhs.hasAmendment == rhs.hasAmendment
+      && lhs.amendmentDetail == rhs.amendmentDetail
+      && lhs.approvalType == rhs.approvalType
+      && lhs.projectPath == rhs.projectPath
+      && lhs.approvalId == rhs.approvalId
+      && lhs.sessionId == rhs.sessionId
+      && lhs.elicitationMode == rhs.elicitationMode
+      && lhs.elicitationUrl == rhs.elicitationUrl
+      && lhs.elicitationMessage == rhs.elicitationMessage
+      && lhs.mcpServerName == rhs.mcpServerName
+      && lhs.networkHost == rhs.networkHost
+      && lhs.networkProtocol == rhs.networkProtocol
+  }
 }
 
 enum ApprovalCardModeResolver {
@@ -179,7 +226,8 @@ enum ApprovalCardModeResolver {
       }
       return .permission
     }
-    return .none
+    // Session has a pending approval but can't act on it (passive, not takeover-capable)
+    return .passiveBlocked
   }
 }
 
@@ -226,7 +274,14 @@ enum ApprovalCardModelBuilder {
       requestedPermissions: historyItem.requestedPermissions,
       grantedPermissions: historyItem.grantedPermissions,
       proposedAmendment: historyItem.proposedAmendment,
-      permissionSuggestions: historyItem.permissionSuggestions
+      permissionSuggestions: historyItem.permissionSuggestions,
+      elicitationMode: historyItem.elicitationMode,
+      elicitationSchema: historyItem.elicitationSchema,
+      elicitationUrl: historyItem.elicitationUrl,
+      elicitationMessage: historyItem.elicitationMessage,
+      mcpServerName: historyItem.mcpServerName,
+      networkHost: historyItem.networkHost,
+      networkProtocol: historyItem.networkProtocol
     )
   }
 
@@ -282,7 +337,14 @@ enum ApprovalCardModelBuilder {
       requestedPermissions: mergedRequestedPermissions,
       grantedPermissions: mergedGrantedPermissions,
       proposedAmendment: mergedProposedAmendment,
-      permissionSuggestions: mergedPermissionSuggestions
+      permissionSuggestions: mergedPermissionSuggestions,
+      elicitationMode: request.elicitationMode ?? historyItem.elicitationMode,
+      elicitationSchema: request.elicitationSchema ?? historyItem.elicitationSchema,
+      elicitationUrl: request.elicitationUrl ?? historyItem.elicitationUrl,
+      elicitationMessage: request.elicitationMessage ?? historyItem.elicitationMessage,
+      mcpServerName: request.mcpServerName ?? historyItem.mcpServerName,
+      networkHost: request.networkHost ?? historyItem.networkHost,
+      networkProtocol: request.networkProtocol ?? historyItem.networkProtocol
     )
   }
 
@@ -498,8 +560,39 @@ enum ApprovalCardModelBuilder {
       approvalType: approvalType
     )
     guard mode != .none else { return nil }
-    if mode == .permission || mode == .question, approvalId == nil {
+    if (mode == .permission || mode == .question), approvalId == nil {
       return nil
+    }
+    // passiveBlocked doesn't require approvalId — it's informational
+    if mode == .passiveBlocked, approvalId == nil {
+      return ApprovalCardModel(
+        mode: mode,
+        toolName: session.pendingToolName,
+        previewType: .action,
+        shellSegments: [],
+        serverManifest: nil,
+        decisionScope: nil,
+        command: nil,
+        filePath: nil,
+        risk: .normal,
+        riskFindings: [],
+        diff: nil,
+        questions: [],
+        permissionRequest: nil,
+        hasAmendment: false,
+        amendmentDetail: nil,
+        approvalType: approvalType,
+        projectPath: session.projectPath,
+        approvalId: nil,
+        sessionId: session.id,
+        elicitationMode: nil,
+        elicitationSchema: nil,
+        elicitationUrl: nil,
+        elicitationMessage: nil,
+        mcpServerName: nil,
+        networkHost: nil,
+        networkProtocol: nil
+      )
     }
 
     let resolvedApprovalTypeForRisk = activePendingApproval?.type ?? approvalType
@@ -625,6 +718,10 @@ enum ApprovalCardModelBuilder {
       reason: activePendingApproval?.permissionReason
     )
 
+    let amendmentDetail: String? = activePendingApproval?.proposedAmendment.map { parts in
+      "Allow: " + parts.joined(separator: " ")
+    }
+
     return ApprovalCardModel(
       mode: mode,
       toolName: toolName,
@@ -640,13 +737,18 @@ enum ApprovalCardModelBuilder {
       questions: prompts,
       permissionRequest: permissionRequest,
       hasAmendment: activePendingApproval?.proposedAmendment != nil,
-      amendmentDetail: activePendingApproval?.proposedAmendment.map { parts in
-        parts.joined(separator: " ")
-      },
+      amendmentDetail: amendmentDetail,
       approvalType: approvalType,
       projectPath: session.projectPath,
       approvalId: approvalId,
-      sessionId: session.id
+      sessionId: session.id,
+      elicitationMode: activePendingApproval?.elicitationMode,
+      elicitationSchema: activePendingApproval?.elicitationSchema?.value,
+      elicitationUrl: activePendingApproval?.elicitationUrl,
+      elicitationMessage: activePendingApproval?.elicitationMessage,
+      mcpServerName: activePendingApproval?.mcpServerName,
+      networkHost: activePendingApproval?.networkHost,
+      networkProtocol: activePendingApproval?.networkProtocol
     )
   }
 }

@@ -2813,6 +2813,13 @@ impl ClaudeConnector {
             requested_permissions: None,
             proposed_amendment: None,
             permission_suggestions: suggestions_for_event,
+            elicitation_mode: None,
+            elicitation_schema: None,
+            elicitation_url: None,
+            elicitation_message: None,
+            mcp_server_name: None,
+            network_host: None,
+            network_protocol: None,
         });
         events
     }

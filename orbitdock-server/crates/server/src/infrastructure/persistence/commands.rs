@@ -297,6 +297,13 @@ pub enum PersistCommand {
         cwd: Option<String>,
         proposed_amendment: Option<Vec<String>>,
         permission_suggestions: Option<Value>,
+        elicitation_mode: Option<String>,
+        elicitation_schema: Option<Value>,
+        elicitation_url: Option<String>,
+        elicitation_message: Option<String>,
+        mcp_server_name: Option<String>,
+        network_host: Option<String>,
+        network_protocol: Option<String>,
     },
 
     /// Persist the user decision for an approval request

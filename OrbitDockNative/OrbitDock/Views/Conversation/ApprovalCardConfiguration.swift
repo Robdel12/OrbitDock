@@ -44,6 +44,14 @@ enum ApprovalCardConfiguration {
         )
       case .takeover:
         takeoverHeaderConfig(for: model)
+      case .passiveBlocked:
+        ApprovalHeaderConfig(
+          iconName: "exclamationmark.triangle.fill",
+          iconTint: Color.feedbackCaution,
+          label: "Approval Pending in Terminal",
+          approveTitle: "",
+          denyTitle: ""
+        )
       case .none:
         ApprovalHeaderConfig(
           iconName: "questionmark.circle",
@@ -142,6 +150,8 @@ enum ApprovalCardConfiguration {
         "Question"
       case .takeover:
         model.toolName ?? "Takeover"
+      case .passiveBlocked:
+        "Approval Pending"
       case .none:
         ""
     }
@@ -159,6 +169,8 @@ enum ApprovalCardConfiguration {
         return model.questions.count > 1 ? "\(model.questions.count) questions waiting" : "Awaiting your response"
       case .takeover:
         return "Manual takeover required"
+      case .passiveBlocked:
+        return "Respond in your terminal or take over"
       case .none:
         return ""
     }

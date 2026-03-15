@@ -16,10 +16,10 @@ struct ToolCardView: View {
   let isExpanded: Bool
   let sessionId: String
   let clients: ServerClients?
+  var fetchedContent: ServerRowContent?
+  var isLoadingContent: Bool = false
   var onContentLoaded: (() -> Void)?
-
-  @State private var expandedContent: ServerRowContent?
-  @State private var isLoadingContent = false
+  var onToggle: (() -> Void)?
 
   private var display: ServerToolDisplay? { toolRow.toolDisplay }
   private var glyphSymbol: String { display?.glyphSymbol ?? "gearshape" }
@@ -48,12 +48,7 @@ struct ToolCardView: View {
     //  horizontal padding handled by TimelineRowContent
     .padding(.vertical, Spacing.xxs)
     .contentShape(Rectangle())
-    .onChange(of: isExpanded) { _, expanded in
-      if expanded, expandedContent == nil { fetchContent() }
-    }
-    .onAppear {
-      if isExpanded, expandedContent == nil { fetchContent() }
-    }
+    .onTapGesture { onToggle?() }
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -242,9 +237,9 @@ struct ToolCardView: View {
     VStack(alignment: .leading, spacing: 0) {
       divider
 
-      if isLoadingContent, expandedContent == nil {
+      if isLoadingContent, fetchedContent == nil {
         loadingIndicator
-      } else if let content = expandedContent {
+      } else if let content = fetchedContent {
         expandedBody(content)
       } else {
         fallbackBody
@@ -395,23 +390,8 @@ struct ToolCardView: View {
       .background(Color.backgroundSecondary, in: Capsule())
   }
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: - Fetch
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  private func fetchContent() {
-    guard let clients, !isLoadingContent else { return }
-    isLoadingContent = true
-    Task {
-      do {
-        expandedContent = try await clients.conversation.fetchRowContent(
-          sessionId: sessionId, rowId: toolRow.id
-        )
-      } catch {}
-      isLoadingContent = false
-      onContentLoaded?()
-    }
-  }
+  // Fetch is now handled by TimelineRowStateStore.
+  // ToolCardView is a pure function of its inputs.
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: - Color Resolution

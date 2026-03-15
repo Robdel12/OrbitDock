@@ -17,7 +17,14 @@ struct TimelineRowContent: View {
   var availableWidth: CGFloat = 600
   var sessionId: String = ""
   var clients: ServerClients?
+  var fetchedContent: ServerRowContent?
+  var isLoadingContent: Bool = false
   var onContentLoaded: (() -> Void)?
+  var onToggle: ((String) -> Void)?
+  var isItemExpanded: ((String) -> Bool)?
+  var contentForChild: ((String) -> ServerRowContent?)?
+  var isChildLoading: ((String) -> Bool)?
+  var onCodeBlockToggle: (() -> Void)?
 
   /// Width available to cell content after horizontal padding.
   private var contentWidth: CGFloat {
@@ -48,7 +55,8 @@ struct TimelineRowContent: View {
         role: .user, content: msg.content,
         images: convertImages(msg.images),
         isStreaming: msg.isStreaming, availableWidth: contentWidth,
-        imageLoader: imageLoader
+        imageLoader: imageLoader,
+        onCodeBlockToggle: onCodeBlockToggle
       )
 
     case let .assistant(msg):
@@ -56,7 +64,8 @@ struct TimelineRowContent: View {
         role: .assistant, content: msg.content,
         images: convertImages(msg.images),
         isStreaming: msg.isStreaming, availableWidth: contentWidth,
-        imageLoader: imageLoader
+        imageLoader: imageLoader,
+        onCodeBlockToggle: onCodeBlockToggle
       )
 
     case let .system(msg):
@@ -64,17 +73,37 @@ struct TimelineRowContent: View {
         role: .system, content: msg.content,
         images: convertImages(msg.images),
         isStreaming: msg.isStreaming, availableWidth: contentWidth,
-        imageLoader: imageLoader
+        imageLoader: imageLoader,
+        onCodeBlockToggle: onCodeBlockToggle
       )
 
     case let .thinking(msg):
-      ThinkingRowView(content: msg.content, isStreaming: msg.isStreaming, isExpanded: isExpanded, availableWidth: contentWidth)
+      ThinkingRowView(
+        content: msg.content, isStreaming: msg.isStreaming,
+        isExpanded: isExpanded, availableWidth: contentWidth,
+        onToggle: { onToggle?(msg.id) },
+        onCodeBlockToggle: onCodeBlockToggle
+      )
 
     case let .tool(toolRow):
-      ToolCardView(toolRow: toolRow, isExpanded: isExpanded, sessionId: sessionId, clients: clients, onContentLoaded: onContentLoaded)
+      ToolCardView(
+        toolRow: toolRow, isExpanded: isExpanded,
+        sessionId: sessionId, clients: clients,
+        fetchedContent: fetchedContent,
+        isLoadingContent: isLoadingContent,
+        onContentLoaded: onContentLoaded,
+        onToggle: { onToggle?(toolRow.id) }
+      )
 
     case let .activityGroup(group):
-      ActivityGroupRowView(group: group, isExpanded: isExpanded, sessionId: sessionId, clients: clients)
+      ActivityGroupRowView(
+        group: group, isExpanded: isExpanded,
+        sessionId: sessionId, clients: clients,
+        onContentLoaded: onContentLoaded,
+        onToggle: onToggle, isItemExpanded: isItemExpanded,
+        contentForChild: contentForChild,
+        isChildLoading: isChildLoading
+      )
 
     case let .approval(approval):
       ApprovalRowView(title: approval.title, subtitle: approval.subtitle, summary: approval.summary, isQuestion: false)

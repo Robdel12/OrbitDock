@@ -14,6 +14,11 @@ struct ActivityGroupRowView: View {
   let isExpanded: Bool
   var sessionId: String = ""
   var clients: ServerClients?
+  var onContentLoaded: (() -> Void)?
+  var onToggle: ((String) -> Void)?
+  var isItemExpanded: ((String) -> Bool)?
+  var contentForChild: ((String) -> ServerRowContent?)?
+  var isChildLoading: ((String) -> Bool)?
 
   private var statusColor: Color {
     group.status == .completed ? .feedbackPositive : .accent
@@ -23,11 +28,21 @@ struct ActivityGroupRowView: View {
     VStack(alignment: .leading, spacing: 0) {
       groupHeader
         .contentShape(Rectangle())
+        .onTapGesture { onToggle?(group.id) }
 
       if isExpanded {
         VStack(spacing: Spacing.xxs) {
           ForEach(group.children, id: \.id) { child in
-            ToolCardView(toolRow: child, isExpanded: false, sessionId: sessionId, clients: clients)
+            ToolCardView(
+              toolRow: child,
+              isExpanded: isItemExpanded?(child.id) ?? false,
+              sessionId: sessionId,
+              clients: clients,
+              fetchedContent: contentForChild?(child.id),
+              isLoadingContent: isChildLoading?(child.id) ?? false,
+              onContentLoaded: onContentLoaded,
+              onToggle: { onToggle?(child.id) }
+            )
           }
         }
         .padding(.top, Spacing.xs)

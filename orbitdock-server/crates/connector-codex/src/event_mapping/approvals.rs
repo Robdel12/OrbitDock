@@ -66,6 +66,13 @@ pub(crate) fn handle_exec_approval_request(event: ExecApprovalRequestEvent) -> V
         requested_permissions: None,
         proposed_amendment: amendment,
         permission_suggestions: None,
+        elicitation_mode: None,
+        elicitation_schema: None,
+        elicitation_url: None,
+        elicitation_message: None,
+        mcp_server_name: None,
+        network_host: None,
+        network_protocol: None,
     }]
 }
 
@@ -130,6 +137,13 @@ pub(crate) fn handle_apply_patch_approval_request(
         requested_permissions: None,
         proposed_amendment: None,
         permission_suggestions: None,
+        elicitation_mode: None,
+        elicitation_schema: None,
+        elicitation_url: None,
+        elicitation_message: None,
+        mcp_server_name: None,
+        network_host: None,
+        network_protocol: None,
     }]
 }
 
@@ -187,6 +201,13 @@ pub(crate) fn handle_request_user_input(
             requested_permissions: None,
             proposed_amendment: None,
             permission_suggestions: None,
+            elicitation_mode: None,
+            elicitation_schema: None,
+            elicitation_url: None,
+            elicitation_message: None,
+            mcp_server_name: None,
+            network_host: None,
+            network_protocol: None,
         },
     ]
 }
@@ -211,6 +232,13 @@ pub(crate) fn handle_request_permissions(event: RequestPermissionsEvent) -> Vec<
         requested_permissions,
         proposed_amendment: None,
         permission_suggestions: None,
+        elicitation_mode: None,
+        elicitation_schema: None,
+        elicitation_url: None,
+        elicitation_message: None,
+        mcp_server_name: None,
+        network_host: None,
+        network_protocol: None,
     }]
 }
 
@@ -252,6 +280,12 @@ pub(crate) fn handle_elicitation_request(
         tool_display: None,
     };
 
+    let elicitation_message = if event.request.message().is_empty() {
+        None
+    } else {
+        Some(event.request.message().to_string())
+    };
+
     vec![
         ConnectorEvent::ConversationRowCreated(tool_row_entry(row)),
         ConnectorEvent::ApprovalRequested {
@@ -271,6 +305,14 @@ pub(crate) fn handle_elicitation_request(
             requested_permissions: None,
             proposed_amendment: None,
             permission_suggestions: None,
+            // Codex elicitation: populate structured fields from event
+            elicitation_mode: Some("form".to_string()),
+            elicitation_schema: None, // codex-protocol doesn't expose requested_schema yet
+            elicitation_url: None,
+            elicitation_message,
+            mcp_server_name: Some(event.server_name),
+            network_host: None,
+            network_protocol: None,
         },
     ]
 }

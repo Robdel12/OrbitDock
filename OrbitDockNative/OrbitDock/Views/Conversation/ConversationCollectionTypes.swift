@@ -16,5 +16,6 @@ nonisolated enum ApprovalCardMode: Hashable, Sendable {
   case permission
   case question
   case takeover
+  case passiveBlocked
   case none
 }

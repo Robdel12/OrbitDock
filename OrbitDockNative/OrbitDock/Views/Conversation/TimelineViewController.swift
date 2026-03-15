@@ -4,6 +4,7 @@
 //
 //  NSTableView (macOS) / UICollectionView (iOS) host for the conversation timeline.
 //  Cell content is SwiftUI via NSHostingView/UIHostingConfiguration.
+//  Expand/collapse is handled in SwiftUI via onToggle callbacks — shared across platforms.
 //
 
 import SwiftUI
@@ -23,12 +24,13 @@ import SwiftUI
     let onLoadMore: (() -> Void)?
 
     func makeNSViewController(context: Context) -> TimelineViewController {
+      NSLog("🟢 TimelineRepresentable: makeNSViewController entries=%d", entries.count)
       let controller = TimelineViewController()
       controller.onLoadMore = onLoadMore
       controller.sessionId = sessionId
       controller.clients = clients
       controller.viewMode = viewMode
-      controller.onPinnedStateChanged = { [self] pinned in
+      controller.viewport.onPinnedStateChanged = { [self] pinned in
         self.isPinned = pinned
       }
       controller.apply(entries: entries, isPinned: isPinned)
@@ -40,7 +42,7 @@ import SwiftUI
       controller.sessionId = sessionId
       controller.clients = clients
       controller.viewMode = viewMode
-      controller.onPinnedStateChanged = { [self] pinned in
+      controller.viewport.onPinnedStateChanged = { [self] pinned in
         self.isPinned = pinned
       }
       controller.apply(entries: entries, isPinned: isPinned)
@@ -79,12 +81,47 @@ import SwiftUI
   }
 #endif
 
-// MARK: - macOS: NSTableView + NSHostingView Cells
+// MARK: - macOS: NSTableView Cell Container
 
 #if os(macOS)
+
+  /// Wraps NSHostingView with Auto Layout constraints that pin it to the column width.
+  /// This prevents horizontal overflow (NSHostingView expanding beyond the column)
+  /// while letting the content height drive the row height via `usesAutomaticRowHeights`.
+  private final class TimelineCellView: NSView {
+    private let hostingView: NSHostingView<TimelineRowContent>
+
+    init(rootView: TimelineRowContent) {
+      hostingView = NSHostingView(rootView: rootView)
+      super.init(frame: .zero)
+
+      // Only report intrinsic content size (for height). Remove .minSize so the
+      // hosting view can be compressed to the column width for wide content.
+      hostingView.sizingOptions = [.intrinsicContentSize]
+      hostingView.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(hostingView)
+
+      // Pin all four edges — width is forced by the column, height flows from content.
+      NSLayoutConstraint.activate([
+        hostingView.topAnchor.constraint(equalTo: topAnchor),
+        hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+        hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        hostingView.bottomAnchor.constraint(equalTo: bottomAnchor),
+      ])
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    var rootView: TimelineRowContent {
+      get { hostingView.rootView }
+      set { hostingView.rootView = newValue }
+    }
+  }
+
+  // MARK: - macOS: NSTableView + TimelineCellView
+
   final class TimelineViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     var onLoadMore: (() -> Void)?
-    var onPinnedStateChanged: ((Bool) -> Void)?
     var sessionId: String = ""
     var clients: ServerClients?
     var viewMode: ChatViewMode = .focused
@@ -94,28 +131,13 @@ import SwiftUI
     private let tableColumn = NSTableColumn(identifier: .init("timeline"))
 
     let dataSource = TimelineDataSource()
-    private var expandedIDs: Set<String> = []
-    private var expandedThinkingIDs: Set<String> = []
-    private var expandedActivityIDs: Set<String> = []
+    let rowState = TimelineRowStateStore()
+    let viewport = TimelineViewportController()
     private var lastMeasuredWidth: CGFloat = 0
-    private var isPinnedToBottom = true
-    private var userHasScrolledAway = false
-
-    // Measurement host — reused for height calculations
-    private let measurementController = NSHostingController(
-      rootView: TimelineRowContent(
-        entry: ServerConversationRowEntry(
-          sessionId: "", sequence: 0, turnId: nil,
-          row: .system(ServerConversationMessageRow(
-            id: "", content: "", turnId: nil, timestamp: nil, isStreaming: false, images: nil
-          ))
-        ),
-        isExpanded: false
-      )
-    )
 
     override func loadView() {
       view = NSView()
+      print("this even???")
       view.wantsLayer = true
       view.layer?.backgroundColor = NSColor(Color.backgroundPrimary).cgColor
 
@@ -123,10 +145,10 @@ import SwiftUI
       scrollView.drawsBackground = false
       scrollView.hasVerticalScroller = true
       scrollView.hasHorizontalScroller = false
+      scrollView.horizontalScrollElasticity = .none
       scrollView.autohidesScrollers = true
       view.addSubview(scrollView)
 
-      tableView.translatesAutoresizingMaskIntoConstraints = false
       tableView.addTableColumn(tableColumn)
       tableView.headerView = nil
       tableView.backgroundColor = .clear
@@ -134,7 +156,7 @@ import SwiftUI
       tableView.selectionHighlightStyle = .none
       tableView.focusRingType = .none
       tableView.allowsEmptySelection = true
-      // Column auto-resizes with scroll view
+      tableView.usesAutomaticRowHeights = false
       tableView.delegate = self
       tableView.dataSource = self
       scrollView.documentView = tableView
@@ -150,28 +172,39 @@ import SwiftUI
         self, selector: #selector(userDidScroll(_:)),
         name: NSScrollView.willStartLiveScrollNotification, object: scrollView
       )
+
+      NSLog("🔧 TIMELINE INIT hasHScroller=\(scrollView.hasHorizontalScroller) hElasticity=\(scrollView.horizontalScrollElasticity.rawValue) autoRowH=\(tableView.usesAutomaticRowHeights)")
     }
 
     // MARK: - Data
 
     func apply(entries: [ServerConversationRowEntry], isPinned: Bool) {
-      if isPinned, !userHasScrolledAway {
-        isPinnedToBottom = true
-      }
+      let entryIDs = entries.map(\.id)
+      viewport.prepareForUpdate(
+        scrollView: scrollView, tableView: tableView,
+        entryIDs: entryIDs, externalPinned: isPinned
+      )
 
       let diff = dataSource.apply(entries, viewMode: viewMode)
 
       if diff.isFullReload {
         tableView.reloadData()
-        refreshGeometry(keepBottomPinned: isPinnedToBottom)
       } else if !diff.updatedIndexes.isEmpty {
-        NSAnimationContext.runAnimationGroup { ctx in
-          ctx.duration = 0
-          tableView.noteHeightOfRows(withIndexesChanged: diff.updatedIndexes)
+        // Invalidate height cache for changed rows
+        for idx in diff.updatedIndexes {
+          if let entry = dataSource.entry(at: idx) {
+            rowState.invalidateHeight(entry.id)
+          }
         }
         tableView.reloadData(forRowIndexes: diff.updatedIndexes, columnIndexes: IndexSet(integer: 0))
-        refreshGeometry(keepBottomPinned: isPinnedToBottom)
+        invalidateHeights(diff.updatedIndexes)
       }
+
+      updateColumnWidth()
+      viewport.finalizeUpdate(
+        scrollView: scrollView, tableView: tableView,
+        entryIDs: dataSource.entries.map(\.id)
+      )
     }
 
     // MARK: - NSTableViewDataSource
@@ -182,148 +215,206 @@ import SwiftUI
 
     // MARK: - NSTableViewDelegate
 
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-      guard let entry = dataSource.entry(at: row) else { return 0 }
-      let width = max(320, tableColumn.width)
-      let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), availableWidth: width, sessionId: sessionId, clients: clients)
-      measurementController.rootView = content
-      let measured = measurementController.sizeThatFits(in: CGSize(width: width, height: 10_000)).height
-      // Guard against infinity/NaN from unconstrained SwiftUI layout
-      if measured.isInfinite || measured.isNaN || measured > 10_000 {
-        return 44
-      }
-      return max(1, min(measured, 10_000))
-    }
-
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
       guard let entry = dataSource.entry(at: row) else { return nil }
 
       let reuseID = NSUserInterfaceItemIdentifier("HostingCell")
       let width = max(320, self.tableColumn.width)
       let rowIndex = row
-      let content = TimelineRowContent(
-        entry: entry, isExpanded: isRowExpanded(entry), availableWidth: width,
-        sessionId: sessionId, clients: clients,
-        onContentLoaded: { [weak self] in
-          guard let self else { return }
-          // Invalidate height after async content loads
-          let indexes = IndexSet(integer: rowIndex)
-          NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0
-            self.tableView.noteHeightOfRows(withIndexesChanged: indexes)
-          }
-          self.tableView.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integer: 0))
-        }
-      )
+      let content = makeRowContent(entry: entry, rowIndex: rowIndex, width: width)
 
-      if let existing = tableView.makeView(withIdentifier: reuseID, owner: self) as? NSHostingView<TimelineRowContent> {
+      let cellView: TimelineCellView
+      if let existing = tableView.makeView(withIdentifier: reuseID, owner: self) as? TimelineCellView {
         existing.rootView = content
-        return existing
+        cellView = existing
+      } else {
+        cellView = TimelineCellView(rootView: content)
+        cellView.identifier = reuseID
       }
 
-      let hostingView = NSHostingView(rootView: content)
-      hostingView.identifier = reuseID
-      return hostingView
+      // DEBUG: Log after layout to detect width overflow
+      DispatchQueue.main.async { [weak cellView, weak self] in
+        guard let cellView, let self else { return }
+        let cellWidth = cellView.frame.width
+        let intrinsicWidth = cellView.fittingSize.width
+        let colWidth = self.tableColumn.width
+        if intrinsicWidth > colWidth + 1 {
+          let rowType = Self.rowTypeName(entry.row)
+          NSLog("⚠️ WIDTH OVERFLOW row=\(row) type=\(rowType) intrinsic=\(Int(intrinsicWidth)) col=\(Int(colWidth)) cell=\(Int(cellWidth))")
+        }
+      }
+
+      return cellView
     }
 
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-      guard let entry = dataSource.entry(at: row) else { return false }
-      // Defer toggle to avoid exclusive access violation — shouldSelectRow is on the
-      // same call stack as heightOfRow, and both access expandedIDs.
-      let rowIndex = row
-      DispatchQueue.main.async { [weak self] in
-        guard let self else { return }
-        switch entry.row {
-        case let .tool(toolRow):
-          self.toggleExpansion(toolRow.id, in: \.expandedIDs, row: rowIndex)
-        case let .thinking(msg):
-          self.toggleExpansion(msg.id, in: \.expandedThinkingIDs, row: rowIndex)
-        case let .activityGroup(group):
-          self.toggleExpansion(group.id, in: \.expandedActivityIDs, row: rowIndex)
-        default:
-          break
-        }
+      false
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+      guard let entry = dataSource.entry(at: row) else { return 44 }
+      let rowId = entry.id
+      let width = max(320, tableColumn.width)
+
+      // Skip cache for streaming rows (content changes every push)
+      let isStreaming: Bool
+      switch entry.row {
+      case let .assistant(msg): isStreaming = msg.isStreaming
+      case let .thinking(msg): isStreaming = msg.isStreaming
+      default: isStreaming = false
       }
-      return false
+
+      if !isStreaming, let cached = rowState.cachedHeight(rowId) {
+        return cached
+      }
+
+      let height = TimelineRowMeasurement.height(for: entry, rowState: rowState, width: width)
+      let rowType = Self.rowTypeName(entry.row)
+      let prevCached = rowState.cachedHeight(rowId)
+      if prevCached == nil || abs((prevCached ?? 0) - height) > 1 {
+        NSLog("📏 HEIGHT row=\(row) type=\(rowType) h=\(Int(height)) w=\(Int(width)) streaming=\(isStreaming) prev=\(prevCached.map { Int($0) }.map(String.init) ?? "nil")")
+      }
+
+      if !isStreaming {
+        rowState.cacheHeight(rowId, height)
+      }
+      return height
     }
 
     // MARK: - Layout
 
     override func viewDidLayout() {
       super.viewDidLayout()
+      updateColumnWidth()
       let width = tableColumn.width
       guard abs(width - lastMeasuredWidth) > 1 else { return }
       lastMeasuredWidth = width
       guard dataSource.count > 0 else { return }
-      tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0 ..< dataSource.count))
-      refreshGeometry(keepBottomPinned: isPinnedToBottom)
+      rowState.invalidateAllHeights()
+      invalidateHeights(IndexSet(integersIn: 0 ..< dataSource.count))
+      viewport.handleWidthChange(scrollView: scrollView)
     }
 
     // MARK: - Scroll
 
     @objc private func userDidScroll(_ notification: Notification) {
-      guard let documentView = scrollView.documentView else { return }
-      let clipView = scrollView.contentView
-      let maxY = max(0, documentView.bounds.height - clipView.bounds.height)
-      let isAtBottom = clipView.bounds.origin.y >= max(0, maxY - 8)
-      isPinnedToBottom = isAtBottom
-      userHasScrolledAway = !isAtBottom
-      onPinnedStateChanged?(isAtBottom)
+      viewport.userDidScroll(scrollView: scrollView)
     }
 
     // MARK: - Helpers
 
     private func isRowExpanded(_ entry: ServerConversationRowEntry) -> Bool {
       switch entry.row {
-      case let .tool(toolRow): expandedIDs.contains(toolRow.id)
-      case let .thinking(msg): expandedThinkingIDs.contains(msg.id)
-      case let .activityGroup(group): expandedActivityIDs.contains(group.id)
+      case let .tool(toolRow): rowState.isExpanded(toolRow.id)
+      case let .thinking(msg): rowState.isExpanded(msg.id)
+      case let .activityGroup(group): rowState.isExpanded(group.id)
       default: false
       }
     }
 
-    private func toggleExpansion(_ id: String, in keyPath: ReferenceWritableKeyPath<TimelineViewController, Set<String>>, row: Int) {
-      if self[keyPath: keyPath].contains(id) {
-        self[keyPath: keyPath].remove(id)
-      } else {
-        self[keyPath: keyPath].insert(id)
+    private func makeRowContent(entry: ServerConversationRowEntry, rowIndex: Int, width: CGFloat) -> TimelineRowContent {
+      let rowId = Self.rowId(for: entry)
+      let expanded = isRowExpanded(entry)
+
+      // Trigger fetch if expanded and content not yet cached
+      let entryId = entry.id
+      if expanded, let clients {
+        if let rowId {
+          rowState.fetchContentIfNeeded(rowId: rowId, sessionId: sessionId, clients: clients) { [weak self] in
+            guard let self else { return }
+            self.rowState.invalidateHeight(entryId)
+            let indexes = IndexSet(integer: rowIndex)
+            self.tableView.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integer: 0))
+            self.invalidateHeights(indexes)
+          }
+        }
+        // For activity groups, also fetch expanded children
+        if case let .activityGroup(group) = entry.row {
+          for child in group.children where rowState.isExpanded(child.id) {
+            rowState.fetchContentIfNeeded(rowId: child.id, sessionId: sessionId, clients: clients) { [weak self] in
+              guard let self else { return }
+              self.rowState.invalidateHeight(entryId)
+              let indexes = IndexSet(integer: rowIndex)
+              self.tableView.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integer: 0))
+              self.invalidateHeights(indexes)
+            }
+          }
+        }
       }
-      let indexes = IndexSet(integer: row)
-      NSAnimationContext.runAnimationGroup { ctx in
-        ctx.duration = 0
-        tableView.noteHeightOfRows(withIndexesChanged: indexes)
-      }
-      tableView.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integer: 0))
+
+      return TimelineRowContent(
+        entry: entry, isExpanded: expanded, availableWidth: width,
+        sessionId: sessionId, clients: clients,
+        fetchedContent: rowId.flatMap { rowState.content(for: $0) },
+        isLoadingContent: rowId.map { rowState.isFetching($0) } ?? false,
+        onContentLoaded: { [weak self] in
+          guard let self else { return }
+          self.rowState.invalidateHeight(entryId)
+          self.invalidateHeights(IndexSet(integer: rowIndex))
+        },
+        onToggle: { [weak self] id in
+          guard let self else { return }
+          self.rowState.toggleExpanded(id)
+          self.rowState.invalidateHeight(entryId)
+          let indexes = IndexSet(integer: rowIndex)
+          self.tableView.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integer: 0))
+          self.invalidateHeights(indexes)
+        },
+        isItemExpanded: { [weak self] id in
+          self?.rowState.isExpanded(id) ?? false
+        },
+        contentForChild: { [weak self] childId in
+          self?.rowState.content(for: childId)
+        },
+        isChildLoading: { [weak self] childId in
+          self?.rowState.isFetching(childId) ?? false
+        },
+        onCodeBlockToggle: { [weak self] in
+          guard let self else { return }
+          self.rowState.invalidateHeight(entryId)
+          let indexes = IndexSet(integer: rowIndex)
+          self.tableView.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integer: 0))
+          self.invalidateHeights(indexes)
+        }
+      )
     }
 
-    private func refreshGeometry(keepBottomPinned: Bool) {
-      updateColumnWidth()
-      tableView.layoutSubtreeIfNeeded()
-
-      let contentHeight: CGFloat = tableView.numberOfRows > 0
-        ? tableView.rect(ofRow: tableView.numberOfRows - 1).maxY
-        : 0
-
-      let targetFrame = NSRect(x: 0, y: 0, width: tableColumn.width, height: contentHeight)
-      if !tableView.frame.equalTo(targetFrame) {
-        tableView.frame = targetFrame
+    private static func rowId(for entry: ServerConversationRowEntry) -> String? {
+      switch entry.row {
+      case let .tool(toolRow): toolRow.id
+      case let .activityGroup(group): group.id
+      default: nil
       }
+    }
 
+    /// Force layout to settle, then tell NSTableView that row heights changed.
+    private func invalidateHeights(_ indexes: IndexSet) {
       tableView.layoutSubtreeIfNeeded()
-      scrollView.documentView?.layoutSubtreeIfNeeded()
-      scrollView.reflectScrolledClipView(scrollView.contentView)
-
-      guard keepBottomPinned else { return }
-      DispatchQueue.main.async { [weak self] in
-        guard let self else { return }
-        TimelineScrollAnchor.scrollToBottom(scrollView: self.scrollView)
-      }
+      tableView.noteHeightOfRows(withIndexesChanged: indexes)
     }
 
     private func updateColumnWidth() {
       let targetWidth = max(320, scrollView.contentSize.width)
       guard abs(tableColumn.width - targetWidth) > 1 else { return }
+      NSLog("📐 COL WIDTH \(Int(tableColumn.width)) -> \(Int(targetWidth)) scrollContent=\(Int(scrollView.contentSize.width)) viewBounds=\(Int(view.bounds.width))")
       tableColumn.width = targetWidth
+    }
+
+    private static func rowTypeName(_ row: ServerConversationRow) -> String {
+      switch row {
+      case .user: "user"
+      case .assistant: "assistant"
+      case .system: "system"
+      case .thinking: "thinking"
+      case .tool: "tool"
+      case .activityGroup: "group"
+      case .approval: "approval"
+      case .question: "question"
+      case .worker: "worker"
+      case .plan: "plan"
+      case .hook: "hook"
+      case .handoff: "handoff"
+      }
     }
   }
 
@@ -332,7 +423,7 @@ import SwiftUI
   // MARK: - iOS: UICollectionView + UIHostingConfiguration Cells
 
   final class TimelineCollectionViewController: UIViewController, UICollectionViewDataSource,
-    UICollectionViewDelegateFlowLayout
+    UICollectionViewDelegate
   {
     var onLoadMore: (() -> Void)?
     var sessionId: String = ""
@@ -341,31 +432,28 @@ import SwiftUI
 
     private var collectionView: UICollectionView!
     let dataSource = TimelineDataSource()
-    private var expandedIDs: Set<String> = []
-    private var expandedThinkingIDs: Set<String> = []
-    private var expandedActivityIDs: Set<String> = []
-    private var isPinnedToBottom = true
-
-    private let measurementController = UIHostingController(
-      rootView: TimelineRowContent(
-        entry: ServerConversationRowEntry(
-          sessionId: "", sequence: 0, turnId: nil,
-          row: .system(ServerConversationMessageRow(
-            id: "", content: "", turnId: nil, timestamp: nil, isStreaming: false, images: nil
-          ))
-        ),
-        isExpanded: false
-      )
-    )
+    let rowState = TimelineRowStateStore()
+    let viewport = TimelineViewportController()
 
     override func viewDidLoad() {
       super.viewDidLoad()
       view.backgroundColor = UIColor(Color.backgroundPrimary)
 
-      let layout = UICollectionViewFlowLayout()
-      layout.scrollDirection = .vertical
-      layout.minimumLineSpacing = 0
-      layout.minimumInteritemSpacing = 0
+      let layout = UICollectionViewCompositionalLayout { _, _ in
+        let itemSize = NSCollectionLayoutSize(
+          widthDimension: .fractionalWidth(1.0),
+          heightDimension: .estimated(44)
+        )
+        let item = NSCollectionLayoutItem(layoutSize: itemSize)
+        let groupSize = NSCollectionLayoutSize(
+          widthDimension: .fractionalWidth(1.0),
+          heightDimension: .estimated(44)
+        )
+        let group = NSCollectionLayoutGroup.vertical(layoutSize: groupSize, subitems: [item])
+        let section = NSCollectionLayoutSection(group: group)
+        section.interGroupSpacing = 0
+        return section
+      }
 
       collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
       collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -378,7 +466,8 @@ import SwiftUI
     }
 
     func apply(entries: [ServerConversationRowEntry], isPinned: Bool) {
-      isPinnedToBottom = isPinned
+      viewport.prepareForUpdate(externalPinned: isPinned)
+
       let diff = dataSource.apply(entries, viewMode: viewMode)
 
       if diff.isFullReload {
@@ -388,10 +477,7 @@ import SwiftUI
         collectionView.reloadItems(at: indexPaths)
       }
 
-      if isPinned, dataSource.count > 0 {
-        let lastIndex = IndexPath(item: dataSource.count - 1, section: 0)
-        collectionView.scrollToItem(at: lastIndex, at: .bottom, animated: false)
-      }
+      viewport.finalizeUpdate(collectionView: collectionView, itemCount: dataSource.count)
     }
 
     // MARK: - UICollectionViewDataSource
@@ -404,63 +490,84 @@ import SwiftUI
       let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "HostingCell", for: indexPath)
       guard let entry = dataSource.entry(at: indexPath.item) else { return cell }
 
+      let itemIndex = indexPath.item
+      let rowId = Self.rowId(for: entry)
+      let expanded = isRowExpanded(entry)
+
+      // Trigger fetch if expanded and content not yet cached
+      if expanded, let clients {
+        if let rowId {
+          rowState.fetchContentIfNeeded(rowId: rowId, sessionId: sessionId, clients: clients) { [weak self] in
+            guard let self else { return }
+            self.collectionView.reloadItems(at: [IndexPath(item: itemIndex, section: 0)])
+          }
+        }
+        // For activity groups, also fetch expanded children
+        if case let .activityGroup(group) = entry.row {
+          for child in group.children where rowState.isExpanded(child.id) {
+            rowState.fetchContentIfNeeded(rowId: child.id, sessionId: sessionId, clients: clients) { [weak self] in
+              guard let self else { return }
+              self.collectionView.reloadItems(at: [IndexPath(item: itemIndex, section: 0)])
+            }
+          }
+        }
+      }
+
       cell.contentConfiguration = UIHostingConfiguration {
-        TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), sessionId: sessionId, clients: clients)
+        TimelineRowContent(
+          entry: entry, isExpanded: expanded,
+          availableWidth: collectionView.bounds.width,
+          sessionId: sessionId, clients: clients,
+          fetchedContent: rowId.flatMap { rowState.content(for: $0) },
+          isLoadingContent: rowId.map { rowState.isFetching($0) } ?? false,
+          onContentLoaded: { [weak self] in
+            guard let self else { return }
+            self.collectionView.reloadItems(at: [IndexPath(item: itemIndex, section: 0)])
+          },
+          onToggle: { [weak self] id in
+            guard let self else { return }
+            self.rowState.toggleExpanded(id)
+            self.collectionView.reloadItems(at: [IndexPath(item: itemIndex, section: 0)])
+          },
+          isItemExpanded: { [weak self] id in
+            self?.rowState.isExpanded(id) ?? false
+          },
+          contentForChild: { [weak self] childId in
+            self?.rowState.content(for: childId)
+          },
+          isChildLoading: { [weak self] childId in
+            self?.rowState.isFetching(childId) ?? false
+          }
+        )
       }
       .margins(.all, 0)
 
       return cell
     }
 
-    // MARK: - UICollectionViewDelegateFlowLayout
-
-    func collectionView(_ collectionView: UICollectionView, layout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-      guard let entry = dataSource.entry(at: indexPath.item) else {
-        return CGSize(width: collectionView.bounds.width, height: 0)
-      }
-      let width = collectionView.bounds.width
-      let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), sessionId: sessionId, clients: clients)
-      measurementController.rootView = content
-      let size = measurementController.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
-      return CGSize(width: width, height: size.height)
-    }
-
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-      collectionView.deselectItem(at: indexPath, animated: false)
-      guard let entry = dataSource.entry(at: indexPath.item) else { return }
-      switch entry.row {
-      case let .tool(toolRow):
-        toggle(&expandedIDs, id: toolRow.id, at: indexPath)
-      case let .thinking(msg):
-        toggle(&expandedThinkingIDs, id: msg.id, at: indexPath)
-      case let .activityGroup(group):
-        toggle(&expandedActivityIDs, id: group.id, at: indexPath)
-      default:
-        break
-      }
-    }
-
     // MARK: - Scroll
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-      let maxOffset = scrollView.contentSize.height - scrollView.bounds.height
-      isPinnedToBottom = scrollView.contentOffset.y >= max(0, maxOffset - 8)
+      viewport.userDidScroll(scrollView: scrollView)
     }
 
     // MARK: - Helpers
 
     private func isRowExpanded(_ entry: ServerConversationRowEntry) -> Bool {
       switch entry.row {
-      case let .tool(toolRow): expandedIDs.contains(toolRow.id)
-      case let .thinking(msg): expandedThinkingIDs.contains(msg.id)
-      case let .activityGroup(group): expandedActivityIDs.contains(group.id)
+      case let .tool(toolRow): rowState.isExpanded(toolRow.id)
+      case let .thinking(msg): rowState.isExpanded(msg.id)
+      case let .activityGroup(group): rowState.isExpanded(group.id)
       default: false
       }
     }
 
-    private func toggle(_ set: inout Set<String>, id: String, at indexPath: IndexPath) {
-      if set.contains(id) { set.remove(id) } else { set.insert(id) }
-      collectionView.reloadItems(at: [indexPath])
+    private static func rowId(for entry: ServerConversationRowEntry) -> String? {
+      switch entry.row {
+      case let .tool(toolRow): toolRow.id
+      case let .activityGroup(group): group.id
+      default: nil
+      }
     }
   }
 #endif

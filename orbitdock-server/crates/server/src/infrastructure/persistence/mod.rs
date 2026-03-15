@@ -1262,6 +1262,13 @@ pub(super) fn execute_command(
             cwd,
             proposed_amendment,
             permission_suggestions,
+            elicitation_mode,
+            elicitation_schema,
+            elicitation_url,
+            elicitation_message,
+            mcp_server_name,
+            network_host,
+            network_protocol,
         } => approvals::persist_approval_requested(
             conn,
             approvals::ApprovalRequestedRecord {
@@ -1282,6 +1289,13 @@ pub(super) fn execute_command(
                 cwd,
                 proposed_amendment,
                 permission_suggestions,
+                elicitation_mode,
+                elicitation_schema,
+                elicitation_url,
+                elicitation_message,
+                mcp_server_name,
+                network_host,
+                network_protocol,
             },
         )?,
 

@@ -12,6 +12,7 @@ struct MarkdownContentRepresentable: View {
   let content: String
   let style: ContentStyle
   let availableWidth: CGFloat
+  var onCodeBlockToggle: (() -> Void)?
 
   private var blocks: [MarkdownBlock] {
     MarkdownSystemParser.parse(content, style: style)
@@ -22,7 +23,7 @@ struct MarkdownContentRepresentable: View {
   }
 
   var body: some View {
-    MarkdownBridge(content: content, style: style, width: availableWidth)
+    MarkdownBridge(content: content, style: style, width: availableWidth, onCodeBlockToggle: onCodeBlockToggle)
       .frame(height: max(1, measuredHeight))
   }
 }
@@ -32,12 +33,16 @@ struct MarkdownContentRepresentable: View {
     let content: String
     let style: ContentStyle
     let width: CGFloat
+    var onCodeBlockToggle: (() -> Void)?
 
     func makeNSView(context: Context) -> NativeMarkdownContentView {
-      NativeMarkdownContentView(frame: .zero)
+      let view = NativeMarkdownContentView(frame: .zero)
+      view.onCodeBlockToggle = onCodeBlockToggle
+      return view
     }
 
     func updateNSView(_ view: NativeMarkdownContentView, context: Context) {
+      view.onCodeBlockToggle = onCodeBlockToggle
       let blocks = MarkdownSystemParser.parse(content, style: style)
       let height = NativeMarkdownContentView.requiredHeight(for: blocks, width: width, style: style)
       view.frame = CGRect(x: 0, y: 0, width: width, height: height)
@@ -49,12 +54,16 @@ struct MarkdownContentRepresentable: View {
     let content: String
     let style: ContentStyle
     let width: CGFloat
+    var onCodeBlockToggle: (() -> Void)?
 
     func makeUIView(context: Context) -> NativeMarkdownContentView {
-      NativeMarkdownContentView(frame: .zero)
+      let view = NativeMarkdownContentView(frame: .zero)
+      view.onCodeBlockToggle = onCodeBlockToggle
+      return view
     }
 
     func updateUIView(_ view: NativeMarkdownContentView, context: Context) {
+      view.onCodeBlockToggle = onCodeBlockToggle
       let blocks = MarkdownSystemParser.parse(content, style: style)
       let height = NativeMarkdownContentView.requiredHeight(for: blocks, width: width, style: style)
       view.frame = CGRect(x: 0, y: 0, width: width, height: height)

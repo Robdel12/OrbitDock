@@ -26,6 +26,8 @@ enum DirectSessionComposerPendingPlanner {
         "Question"
       case .takeover:
         model.toolName ?? "Takeover"
+      case .passiveBlocked:
+        "Approval Pending"
       case .none:
         ""
     }
@@ -39,6 +41,8 @@ enum DirectSessionComposerPendingPlanner {
         "QUESTION"
       case .takeover:
         "TAKEOVER"
+      case .passiveBlocked:
+        "BLOCKED"
       case .none:
         ""
     }
@@ -58,6 +62,8 @@ enum DirectSessionComposerPendingPlanner {
       case .question:
         152
       case .takeover:
+        72
+      case .passiveBlocked:
         72
       case .none:
         44

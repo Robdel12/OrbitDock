@@ -1552,6 +1552,13 @@ impl SessionHandle {
                     granted_permissions: None,
                     proposed_amendment: None,
                     permission_suggestions: None,
+                    elicitation_mode: None,
+                    elicitation_schema: None,
+                    elicitation_url: None,
+                    elicitation_message: None,
+                    mcp_server_name: None,
+                    network_host: None,
+                    network_protocol: None,
                 };
                 self.queue_pending_approval(approval, approval_type, None);
                 self.promote_queue_front();
@@ -1600,6 +1607,13 @@ impl SessionHandle {
             granted_permissions: None,
             proposed_amendment: proposed_amendment.clone(),
             permission_suggestions: None,
+            elicitation_mode: None,
+            elicitation_schema: None,
+            elicitation_url: None,
+            elicitation_message: None,
+            mcp_server_name: None,
+            network_host: None,
+            network_protocol: None,
         };
         self.queue_pending_approval(request, approval_type, proposed_amendment);
         self.promote_queue_front();

@@ -18,6 +18,13 @@ pub(super) struct ApprovalRequestedRecord {
     pub cwd: Option<String>,
     pub proposed_amendment: Option<Vec<String>>,
     pub permission_suggestions: Option<Value>,
+    pub elicitation_mode: Option<String>,
+    pub elicitation_schema: Option<Value>,
+    pub elicitation_url: Option<String>,
+    pub elicitation_message: Option<String>,
+    pub mcp_server_name: Option<String>,
+    pub network_host: Option<String>,
+    pub network_protocol: Option<String>,
 }
 
 pub(super) fn persist_approval_requested(
@@ -42,6 +49,13 @@ pub(super) fn persist_approval_requested(
         cwd,
         proposed_amendment,
         permission_suggestions,
+        elicitation_mode,
+        elicitation_schema,
+        elicitation_url,
+        elicitation_message,
+        mcp_server_name,
+        network_host,
+        network_protocol,
     } = record;
     let approval_type_str = match approval_type {
         ApprovalType::Exec => "exec",
@@ -63,6 +77,8 @@ pub(super) fn persist_approval_requested(
         granted_permissions.and_then(|value| serde_json::to_string(&value).ok());
     let permission_suggestions_json =
         permission_suggestions.and_then(|value| serde_json::to_string(&value).ok());
+    let elicitation_schema_json =
+        elicitation_schema.and_then(|value| serde_json::to_string(&value).ok());
     let now = chrono_now();
     let updated = conn.execute(
         "UPDATE approval_history
@@ -80,9 +96,16 @@ pub(super) fn persist_approval_requested(
              granted_permissions = ?12,
              cwd = ?13,
              proposed_amendment = ?14,
-             permission_suggestions = ?15
-         WHERE session_id = ?16
-           AND request_id = ?17
+             permission_suggestions = ?15,
+             elicitation_mode = ?16,
+             elicitation_schema = ?17,
+             elicitation_url = ?18,
+             elicitation_message = ?19,
+             mcp_server_name = ?20,
+             network_host = ?21,
+             network_protocol = ?22
+         WHERE session_id = ?23
+           AND request_id = ?24
            AND decision IS NULL",
         params![
             approval_type_str,
@@ -100,6 +123,13 @@ pub(super) fn persist_approval_requested(
             cwd.as_deref(),
             proposed_amendment_json.as_deref(),
             permission_suggestions_json.as_deref(),
+            elicitation_mode.as_deref(),
+            elicitation_schema_json.as_deref(),
+            elicitation_url.as_deref(),
+            elicitation_message.as_deref(),
+            mcp_server_name.as_deref(),
+            network_host.as_deref(),
+            network_protocol.as_deref(),
             &session_id,
             &request_id
         ],
@@ -111,8 +141,10 @@ pub(super) fn persist_approval_requested(
                 session_id, request_id, approval_type, tool_name, tool_input, command,
                 file_path, diff, question, question_prompts, preview, permission_reason,
                 requested_permissions, granted_permissions, cwd, proposed_amendment,
-                permission_suggestions, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+                permission_suggestions, elicitation_mode, elicitation_schema,
+                elicitation_url, elicitation_message, mcp_server_name,
+                network_host, network_protocol, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
             params![
                 &session_id,
                 &request_id,
@@ -131,6 +163,13 @@ pub(super) fn persist_approval_requested(
                 cwd.as_deref(),
                 proposed_amendment_json.as_deref(),
                 permission_suggestions_json.as_deref(),
+                elicitation_mode.as_deref(),
+                elicitation_schema_json.as_deref(),
+                elicitation_url.as_deref(),
+                elicitation_message.as_deref(),
+                mcp_server_name.as_deref(),
+                network_host.as_deref(),
+                network_protocol.as_deref(),
                 now
             ],
         )?;
@@ -192,7 +231,11 @@ pub async fn list_approvals(
                 "SELECT id, session_id, request_id, approval_type, tool_name, tool_input, command,
                             file_path, diff, question, question_prompts, preview, permission_reason,
                             requested_permissions, granted_permissions, cwd, decision,
-                            proposed_amendment, permission_suggestions, created_at, decided_at
+                            proposed_amendment, permission_suggestions,
+                            elicitation_mode, elicitation_schema, elicitation_url,
+                            elicitation_message, mcp_server_name,
+                            network_host, network_protocol,
+                            created_at, decided_at
                      FROM approval_history
                      WHERE session_id = ?1
                      ORDER BY id DESC
@@ -208,7 +251,11 @@ pub async fn list_approvals(
                 "SELECT id, session_id, request_id, approval_type, tool_name, tool_input, command,
                             file_path, diff, question, question_prompts, preview, permission_reason,
                             requested_permissions, granted_permissions, cwd, decision,
-                            proposed_amendment, permission_suggestions, created_at, decided_at
+                            proposed_amendment, permission_suggestions,
+                            elicitation_mode, elicitation_schema, elicitation_url,
+                            elicitation_message, mcp_server_name,
+                            network_host, network_protocol,
+                            created_at, decided_at
                      FROM approval_history
                      ORDER BY id DESC
                      LIMIT ?1",
@@ -320,6 +367,11 @@ fn decode_approval_history_item_row(
         .as_deref()
         .and_then(|value| serde_json::from_str::<Value>(value).ok());
 
+    let elicitation_schema_json: Option<String> = row.get(20)?;
+    let elicitation_schema = elicitation_schema_json
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<Value>(value).ok());
+
     Ok(ApprovalHistoryItem {
         id: row.get(0)?,
         session_id: row.get(1)?,
@@ -340,7 +392,14 @@ fn decode_approval_history_item_row(
         decision: row.get(16)?,
         proposed_amendment,
         permission_suggestions,
-        created_at: row.get(19)?,
-        decided_at: row.get(20)?,
+        elicitation_mode: row.get(19)?,
+        elicitation_schema,
+        elicitation_url: row.get(21)?,
+        elicitation_message: row.get(22)?,
+        mcp_server_name: row.get(23)?,
+        network_host: row.get(24)?,
+        network_protocol: row.get(25)?,
+        created_at: row.get(26)?,
+        decided_at: row.get(27)?,
     })
 }

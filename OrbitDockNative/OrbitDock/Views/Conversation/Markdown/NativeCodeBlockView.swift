@@ -42,6 +42,10 @@ final class NativeCodeBlockView: PlatformView {
   private var code: String = ""
   private var lines: [String] = []
   private var isExpanded = false
+
+  /// Called when the user toggles expand/collapse, so the parent can
+  /// invalidate row height through the state store.
+  var onExpandToggle: (() -> Void)?
   private var codeScrollHeightConstraint: NSLayoutConstraint?
   private var expandButtonHeightConstraint: NSLayoutConstraint?
 
@@ -421,6 +425,7 @@ final class NativeCodeBlockView: PlatformView {
     #else
       superview?.setNeedsLayout()
     #endif
+    onExpandToggle?()
   }
 
   private func updateExpandButtonTitle() {

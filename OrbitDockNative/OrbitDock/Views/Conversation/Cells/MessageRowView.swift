@@ -15,6 +15,7 @@ struct MessageRowView: View {
   let isStreaming: Bool
   let availableWidth: CGFloat
   let imageLoader: ImageLoader?
+  var onCodeBlockToggle: (() -> Void)?
 
   enum Role: String {
     case user, assistant, system
@@ -66,7 +67,8 @@ struct MessageRowView: View {
       if !content.isEmpty {
         MarkdownContentRepresentable(
           content: content, style: .standard,
-          availableWidth: bubbleContentWidth
+          availableWidth: bubbleContentWidth,
+          onCodeBlockToggle: onCodeBlockToggle
         )
       }
     }
@@ -103,7 +105,8 @@ struct MessageRowView: View {
       if !content.isEmpty {
         MarkdownContentRepresentable(
           content: content, style: .standard,
-          availableWidth: availableWidth
+          availableWidth: availableWidth,
+          onCodeBlockToggle: onCodeBlockToggle
         )
       }
 

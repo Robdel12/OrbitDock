@@ -164,6 +164,27 @@ pub struct ApprovalRequest {
     /// Opaque JSON passed through for client display.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_suggestions: Option<serde_json::Value>,
+    /// MCP elicitation mode: "form" or "url"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elicitation_mode: Option<String>,
+    /// JSON Schema for form-mode MCP elicitation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elicitation_schema: Option<serde_json::Value>,
+    /// URL for browser-auth-mode MCP elicitation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elicitation_url: Option<String>,
+    /// Human-readable message from the MCP server
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elicitation_message: Option<String>,
+    /// Which MCP server initiated the elicitation
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_server_name: Option<String>,
+    /// Network approval context: target host
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_host: Option<String>,
+    /// Network approval context: protocol (e.g. "https")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_protocol: Option<String>,
 }
 
 /// Structured question option metadata for question approvals.
@@ -295,6 +316,20 @@ pub struct ApprovalHistoryItem {
     pub proposed_amendment: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_suggestions: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elicitation_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elicitation_schema: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elicitation_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elicitation_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_server_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network_protocol: Option<String>,
     pub created_at: String,
     pub decided_at: Option<String>,
 }

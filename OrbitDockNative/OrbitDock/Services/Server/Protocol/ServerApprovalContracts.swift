@@ -165,6 +165,13 @@ struct ServerApprovalRequest: Codable, Identifiable {
   let grantedPermissions: AnyCodable?
   let proposedAmendment: [String]?
   let permissionSuggestions: AnyCodable?
+  let elicitationMode: String?
+  let elicitationSchema: AnyCodable?
+  let elicitationUrl: String?
+  let elicitationMessage: String?
+  let mcpServerName: String?
+  let networkHost: String?
+  let networkProtocol: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -183,6 +190,13 @@ struct ServerApprovalRequest: Codable, Identifiable {
     case grantedPermissions = "granted_permissions"
     case proposedAmendment = "proposed_amendment"
     case permissionSuggestions = "permission_suggestions"
+    case elicitationMode = "elicitation_mode"
+    case elicitationSchema = "elicitation_schema"
+    case elicitationUrl = "elicitation_url"
+    case elicitationMessage = "elicitation_message"
+    case mcpServerName = "mcp_server_name"
+    case networkHost = "network_host"
+    case networkProtocol = "network_protocol"
   }
 
   init(
@@ -201,7 +215,14 @@ struct ServerApprovalRequest: Codable, Identifiable {
     requestedPermissions: AnyCodable? = nil,
     grantedPermissions: AnyCodable? = nil,
     proposedAmendment: [String]? = nil,
-    permissionSuggestions: AnyCodable? = nil
+    permissionSuggestions: AnyCodable? = nil,
+    elicitationMode: String? = nil,
+    elicitationSchema: AnyCodable? = nil,
+    elicitationUrl: String? = nil,
+    elicitationMessage: String? = nil,
+    mcpServerName: String? = nil,
+    networkHost: String? = nil,
+    networkProtocol: String? = nil
   ) {
     self.id = id
     self.sessionId = sessionId
@@ -219,6 +240,13 @@ struct ServerApprovalRequest: Codable, Identifiable {
     self.grantedPermissions = grantedPermissions
     self.proposedAmendment = proposedAmendment
     self.permissionSuggestions = permissionSuggestions
+    self.elicitationMode = elicitationMode
+    self.elicitationSchema = elicitationSchema
+    self.elicitationUrl = elicitationUrl
+    self.elicitationMessage = elicitationMessage
+    self.mcpServerName = mcpServerName
+    self.networkHost = networkHost
+    self.networkProtocol = networkProtocol
   }
 
   init(from decoder: Decoder) throws {
@@ -240,6 +268,13 @@ struct ServerApprovalRequest: Codable, Identifiable {
     grantedPermissions = try container.decodeIfPresent(AnyCodable.self, forKey: .grantedPermissions)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
     permissionSuggestions = try container.decodeIfPresent(AnyCodable.self, forKey: .permissionSuggestions)
+    elicitationMode = try container.decodeIfPresent(String.self, forKey: .elicitationMode)
+    elicitationSchema = try container.decodeIfPresent(AnyCodable.self, forKey: .elicitationSchema)
+    elicitationUrl = try container.decodeIfPresent(String.self, forKey: .elicitationUrl)
+    elicitationMessage = try container.decodeIfPresent(String.self, forKey: .elicitationMessage)
+    mcpServerName = try container.decodeIfPresent(String.self, forKey: .mcpServerName)
+    networkHost = try container.decodeIfPresent(String.self, forKey: .networkHost)
+    networkProtocol = try container.decodeIfPresent(String.self, forKey: .networkProtocol)
   }
 
   func encode(to encoder: Encoder) throws {
@@ -262,6 +297,13 @@ struct ServerApprovalRequest: Codable, Identifiable {
     try container.encodeIfPresent(grantedPermissions, forKey: .grantedPermissions)
     try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
     try container.encodeIfPresent(permissionSuggestions, forKey: .permissionSuggestions)
+    try container.encodeIfPresent(elicitationMode, forKey: .elicitationMode)
+    try container.encodeIfPresent(elicitationSchema, forKey: .elicitationSchema)
+    try container.encodeIfPresent(elicitationUrl, forKey: .elicitationUrl)
+    try container.encodeIfPresent(elicitationMessage, forKey: .elicitationMessage)
+    try container.encodeIfPresent(mcpServerName, forKey: .mcpServerName)
+    try container.encodeIfPresent(networkHost, forKey: .networkHost)
+    try container.encodeIfPresent(networkProtocol, forKey: .networkProtocol)
   }
 }
 
@@ -306,6 +348,13 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
   let decision: String?
   let proposedAmendment: [String]?
   let permissionSuggestions: AnyCodable?
+  let elicitationMode: String?
+  let elicitationSchema: AnyCodable?
+  let elicitationUrl: String?
+  let elicitationMessage: String?
+  let mcpServerName: String?
+  let networkHost: String?
+  let networkProtocol: String?
   let createdAt: String
   let decidedAt: String?
 
@@ -329,6 +378,13 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     case decision
     case proposedAmendment = "proposed_amendment"
     case permissionSuggestions = "permission_suggestions"
+    case elicitationMode = "elicitation_mode"
+    case elicitationSchema = "elicitation_schema"
+    case elicitationUrl = "elicitation_url"
+    case elicitationMessage = "elicitation_message"
+    case mcpServerName = "mcp_server_name"
+    case networkHost = "network_host"
+    case networkProtocol = "network_protocol"
     case createdAt = "created_at"
     case decidedAt = "decided_at"
   }
@@ -353,6 +409,13 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     decision: String? = nil,
     proposedAmendment: [String]? = nil,
     permissionSuggestions: AnyCodable? = nil,
+    elicitationMode: String? = nil,
+    elicitationSchema: AnyCodable? = nil,
+    elicitationUrl: String? = nil,
+    elicitationMessage: String? = nil,
+    mcpServerName: String? = nil,
+    networkHost: String? = nil,
+    networkProtocol: String? = nil,
     createdAt: String,
     decidedAt: String? = nil
   ) {
@@ -375,6 +438,13 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     self.decision = decision
     self.proposedAmendment = proposedAmendment
     self.permissionSuggestions = permissionSuggestions
+    self.elicitationMode = elicitationMode
+    self.elicitationSchema = elicitationSchema
+    self.elicitationUrl = elicitationUrl
+    self.elicitationMessage = elicitationMessage
+    self.mcpServerName = mcpServerName
+    self.networkHost = networkHost
+    self.networkProtocol = networkProtocol
     self.createdAt = createdAt
     self.decidedAt = decidedAt
   }
@@ -401,6 +471,13 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     decision = try container.decodeIfPresent(String.self, forKey: .decision)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
     permissionSuggestions = try container.decodeIfPresent(AnyCodable.self, forKey: .permissionSuggestions)
+    elicitationMode = try container.decodeIfPresent(String.self, forKey: .elicitationMode)
+    elicitationSchema = try container.decodeIfPresent(AnyCodable.self, forKey: .elicitationSchema)
+    elicitationUrl = try container.decodeIfPresent(String.self, forKey: .elicitationUrl)
+    elicitationMessage = try container.decodeIfPresent(String.self, forKey: .elicitationMessage)
+    mcpServerName = try container.decodeIfPresent(String.self, forKey: .mcpServerName)
+    networkHost = try container.decodeIfPresent(String.self, forKey: .networkHost)
+    networkProtocol = try container.decodeIfPresent(String.self, forKey: .networkProtocol)
     createdAt = try container.decode(String.self, forKey: .createdAt)
     decidedAt = try container.decodeIfPresent(String.self, forKey: .decidedAt)
   }
@@ -428,6 +505,13 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     try container.encodeIfPresent(decision, forKey: .decision)
     try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
     try container.encodeIfPresent(permissionSuggestions, forKey: .permissionSuggestions)
+    try container.encodeIfPresent(elicitationMode, forKey: .elicitationMode)
+    try container.encodeIfPresent(elicitationSchema, forKey: .elicitationSchema)
+    try container.encodeIfPresent(elicitationUrl, forKey: .elicitationUrl)
+    try container.encodeIfPresent(elicitationMessage, forKey: .elicitationMessage)
+    try container.encodeIfPresent(mcpServerName, forKey: .mcpServerName)
+    try container.encodeIfPresent(networkHost, forKey: .networkHost)
+    try container.encodeIfPresent(networkProtocol, forKey: .networkProtocol)
     try container.encode(createdAt, forKey: .createdAt)
     try container.encodeIfPresent(decidedAt, forKey: .decidedAt)
   }

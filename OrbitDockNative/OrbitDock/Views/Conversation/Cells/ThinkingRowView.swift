@@ -12,6 +12,8 @@ struct ThinkingRowView: View {
   let isStreaming: Bool
   let isExpanded: Bool
   let availableWidth: CGFloat
+  var onToggle: (() -> Void)?
+  var onCodeBlockToggle: (() -> Void)?
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -33,9 +35,11 @@ struct ThinkingRowView: View {
         Spacer()
       }
       .contentShape(Rectangle())
+      .onTapGesture { onToggle?() }
 
       if isExpanded, !content.isEmpty {
-        MarkdownContentRepresentable(content: content, style: .thinking, availableWidth: availableWidth)
+        MarkdownContentRepresentable(content: content, style: .thinking, availableWidth: availableWidth,
+                                     onCodeBlockToggle: onCodeBlockToggle)
           .opacity(0.7)
       }
     }

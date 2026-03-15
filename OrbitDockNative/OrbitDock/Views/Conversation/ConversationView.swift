@@ -75,6 +75,9 @@ struct ConversationView: View {
       }
     }
     .animation(Motion.fade, value: loadState == .loading)
+    .onAppear {
+      print("no way")
+    }
   }
 
   // MARK: - Timeline
@@ -82,6 +85,7 @@ struct ConversationView: View {
   @ViewBuilder
   private var conversationTimeline: some View {
     if let conversationStore, let sessionId {
+      let _ = NSLog("🟢 ConversationView: rendering TimelineRepresentable sessionId=%@ entries=%d", sessionId, conversationStore.rowEntries.count)
       TimelineRepresentable(
         entries: conversationStore.rowEntries,
         revision: conversationStore.rowEntriesRevision,

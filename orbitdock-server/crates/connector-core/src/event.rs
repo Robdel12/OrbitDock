@@ -42,6 +42,20 @@ pub enum ConnectorEvent {
         proposed_amendment: Option<Vec<String>>,
         /// Raw permission suggestions from Claude SDK (PermissionUpdate[])
         permission_suggestions: Option<serde_json::Value>,
+        /// MCP elicitation mode: "form" or "url"
+        elicitation_mode: Option<String>,
+        /// JSON Schema for form-mode elicitation
+        elicitation_schema: Option<serde_json::Value>,
+        /// URL for browser-auth-mode elicitation
+        elicitation_url: Option<String>,
+        /// Human-readable message from the MCP server
+        elicitation_message: Option<String>,
+        /// Which MCP server initiated the elicitation
+        mcp_server_name: Option<String>,
+        /// Network approval context: target host
+        network_host: Option<String>,
+        /// Network approval context: protocol (e.g. "https")
+        network_protocol: Option<String>,
     },
 
     /// Approval cancelled by the CLI (e.g. user interrupted, agent moved on)
