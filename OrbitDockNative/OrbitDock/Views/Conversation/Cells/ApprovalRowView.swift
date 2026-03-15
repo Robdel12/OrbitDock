@@ -59,7 +59,7 @@ struct ApprovalRowView: View {
         .frame(width: EdgeBar.width)
         .padding(.vertical, Spacing.xs)
     }
-    .padding(.horizontal, Spacing.xl)
+    //  horizontal padding handled by TimelineRowContent
     .padding(.vertical, Spacing.xs)
   }
 }

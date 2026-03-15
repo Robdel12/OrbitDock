@@ -3,8 +3,9 @@
 //  OrbitDock
 //
 //  User messages: right-aligned bubble with accent tint.
-//  Assistant messages: left-aligned, full-width prose.
-//  System messages: centered, muted.
+//  Assistant messages: left-aligned prose.
+//  System messages: muted.
+//  NO horizontal padding — the parent TimelineRowContent handles outer inset.
 //
 
 import SwiftUI
@@ -51,7 +52,7 @@ struct MessageRowView: View {
 
   private var userMessage: some View {
     HStack {
-      Spacer(minLength: availableWidth * 0.2)
+      Spacer(minLength: availableWidth * 0.15)
 
       VStack(alignment: .trailing, spacing: Spacing.xs) {
         Text(role.label)
@@ -61,7 +62,7 @@ struct MessageRowView: View {
         if !content.isEmpty {
           MarkdownContentRepresentable(
             content: content, style: .standard,
-            availableWidth: min(availableWidth * 0.75, availableWidth - Spacing.xl * 2)
+            availableWidth: min(availableWidth * 0.8, availableWidth)
           )
         }
       }
@@ -73,14 +74,13 @@ struct MessageRowView: View {
       )
       .overlay(
         RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-          .stroke(Color.accent.opacity(0.08), lineWidth: 1)
+          .stroke(Color.accent.opacity(0.06), lineWidth: 1)
       )
     }
-    .padding(.horizontal, Spacing.xl)
     .padding(.vertical, Spacing.sm)
   }
 
-  // MARK: - Assistant Message (left-aligned, full prose)
+  // MARK: - Assistant Message
 
   private var assistantMessage: some View {
     VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -99,15 +99,14 @@ struct MessageRowView: View {
         streamingIndicator
       }
     }
-    .padding(.horizontal, Spacing.xl)
     .padding(.vertical, Spacing.md)
     .frame(maxWidth: .infinity, alignment: .leading)
   }
 
-  // MARK: - System Message (centered, muted)
+  // MARK: - System Message
 
   private var systemMessage: some View {
-    VStack(alignment: .leading, spacing: Spacing.xs) {
+    Group {
       if !content.isEmpty {
         Text(content)
           .font(.system(size: TypeScale.caption))
@@ -115,7 +114,6 @@ struct MessageRowView: View {
           .fixedSize(horizontal: false, vertical: true)
       }
     }
-    .padding(.horizontal, Spacing.xl)
     .padding(.vertical, Spacing.xs)
     .frame(maxWidth: .infinity, alignment: .leading)
   }
@@ -124,7 +122,7 @@ struct MessageRowView: View {
 
   private var streamingIndicator: some View {
     HStack(spacing: Spacing.xs) {
-      ForEach(0 ..< 3, id: \.self) { i in
+      ForEach(0 ..< 3, id: \.self) { _ in
         Circle()
           .fill(Color.accent.opacity(0.5))
           .frame(width: 4, height: 4)

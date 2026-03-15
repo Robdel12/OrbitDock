@@ -2,11 +2,14 @@
 //  TimelineRowContent.swift
 //  OrbitDock
 //
-//  Unified SwiftUI view that dispatches to the correct cell view
-//  based on the ServerConversationRow type.
+//  Single wrapper that dispatches to the correct cell view.
+//  Outer horizontal margin applied HERE — cells don't add their own.
 //
 
 import SwiftUI
+
+/// Outer horizontal inset for all timeline content.
+private let timelineInset: CGFloat = Spacing.xl
 
 struct TimelineRowContent: View {
   let entry: ServerConversationRowEntry
@@ -16,24 +19,30 @@ struct TimelineRowContent: View {
   var clients: ServerClients?
   var onContentLoaded: (() -> Void)?
 
-  /// Content width after horizontal padding
-  private var contentWidth: CGFloat {
-    max(100, availableWidth - Spacing.lg * 2)
+  /// Width available to cell content after the outer inset.
+  private var innerWidth: CGFloat {
+    max(100, availableWidth - timelineInset * 2)
   }
 
   var body: some View {
+    cellContent
+      .padding(.horizontal, timelineInset)
+  }
+
+  @ViewBuilder
+  private var cellContent: some View {
     switch entry.row {
     case let .user(msg):
-      MessageRowView(role: .user, content: msg.content, images: msg.images, isStreaming: msg.isStreaming, availableWidth: contentWidth)
+      MessageRowView(role: .user, content: msg.content, images: msg.images, isStreaming: msg.isStreaming, availableWidth: innerWidth)
 
     case let .assistant(msg):
-      MessageRowView(role: .assistant, content: msg.content, images: msg.images, isStreaming: msg.isStreaming, availableWidth: contentWidth)
+      MessageRowView(role: .assistant, content: msg.content, images: msg.images, isStreaming: msg.isStreaming, availableWidth: innerWidth)
 
     case let .system(msg):
-      MessageRowView(role: .system, content: msg.content, images: msg.images, isStreaming: msg.isStreaming, availableWidth: contentWidth)
+      MessageRowView(role: .system, content: msg.content, images: msg.images, isStreaming: msg.isStreaming, availableWidth: innerWidth)
 
     case let .thinking(msg):
-      ThinkingRowView(content: msg.content, isStreaming: msg.isStreaming, isExpanded: isExpanded, availableWidth: contentWidth)
+      ThinkingRowView(content: msg.content, isStreaming: msg.isStreaming, isExpanded: isExpanded, availableWidth: innerWidth)
 
     case let .tool(toolRow):
       ToolCardView(toolRow: toolRow, isExpanded: isExpanded, sessionId: sessionId, clients: clients, onContentLoaded: onContentLoaded)

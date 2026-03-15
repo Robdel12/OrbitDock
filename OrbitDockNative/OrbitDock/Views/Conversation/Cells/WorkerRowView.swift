@@ -34,7 +34,7 @@ struct WorkerRowView: View {
 
       Spacer()
     }
-    .padding(.horizontal, Spacing.xl)
+    //  horizontal padding handled by TimelineRowContent
     .padding(.vertical, Spacing.sm)
   }
 }

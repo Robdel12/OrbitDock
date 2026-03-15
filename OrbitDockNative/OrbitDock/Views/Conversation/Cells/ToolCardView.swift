@@ -46,7 +46,7 @@ struct ToolCardView: View {
     }
     .background(cardBackground)
     .overlay(alignment: .leading) { accentEdge }
-    .padding(.horizontal, Spacing.xl)
+    //  horizontal padding handled by TimelineRowContent
     .padding(.vertical, Spacing.xxs)
     .contentShape(Rectangle())
     .onChange(of: isExpanded) { _, expanded in

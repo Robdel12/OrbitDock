@@ -39,7 +39,7 @@ struct ThinkingRowView: View {
           .opacity(0.7)
       }
     }
-    .padding(.horizontal, Spacing.xl)
+    //  horizontal padding handled by TimelineRowContent
     .padding(.vertical, Spacing.md)
     .frame(maxWidth: .infinity, alignment: .leading)
   }

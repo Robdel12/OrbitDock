@@ -35,7 +35,7 @@ struct ActivityGroupRowView: View {
           .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
           .foregroundStyle(statusColor)
       }
-      .padding(.horizontal, Spacing.xl)
+      //  horizontal padding handled by TimelineRowContent
       .padding(.vertical, Spacing.sm)
       .contentShape(Rectangle())
 
