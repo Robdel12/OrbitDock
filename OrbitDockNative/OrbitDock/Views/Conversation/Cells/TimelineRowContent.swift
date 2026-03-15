@@ -14,6 +14,7 @@ struct TimelineRowContent: View {
   var availableWidth: CGFloat = 600
   var sessionId: String = ""
   var clients: ServerClients?
+  var onContentLoaded: (() -> Void)?
 
   /// Content width after horizontal padding
   private var contentWidth: CGFloat {
@@ -35,7 +36,7 @@ struct TimelineRowContent: View {
       ThinkingRowView(content: msg.content, isStreaming: msg.isStreaming, isExpanded: isExpanded, availableWidth: contentWidth)
 
     case let .tool(toolRow):
-      ToolCardView(toolRow: toolRow, isExpanded: isExpanded, sessionId: sessionId, clients: clients)
+      ToolCardView(toolRow: toolRow, isExpanded: isExpanded, sessionId: sessionId, clients: clients, onContentLoaded: onContentLoaded)
 
     case let .activityGroup(group):
       ActivityGroupRowView(group: group, isExpanded: isExpanded, sessionId: sessionId, clients: clients)

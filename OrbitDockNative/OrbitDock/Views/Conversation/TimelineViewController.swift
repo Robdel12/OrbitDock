@@ -19,6 +19,7 @@ import SwiftUI
     @Binding var isPinned: Bool
     let sessionId: String
     let clients: ServerClients
+    var viewMode: ChatViewMode = .focused
     let onLoadMore: (() -> Void)?
 
     func makeNSViewController(context: Context) -> TimelineViewController {
@@ -26,6 +27,7 @@ import SwiftUI
       controller.onLoadMore = onLoadMore
       controller.sessionId = sessionId
       controller.clients = clients
+      controller.viewMode = viewMode
       controller.onPinnedStateChanged = { [self] pinned in
         self.isPinned = pinned
       }
@@ -37,6 +39,7 @@ import SwiftUI
       controller.onLoadMore = onLoadMore
       controller.sessionId = sessionId
       controller.clients = clients
+      controller.viewMode = viewMode
       controller.onPinnedStateChanged = { [self] pinned in
         self.isPinned = pinned
       }
@@ -53,6 +56,7 @@ import SwiftUI
     @Binding var isPinned: Bool
     let sessionId: String
     let clients: ServerClients
+    var viewMode: ChatViewMode = .focused
     let onLoadMore: (() -> Void)?
 
     func makeUIViewController(context: Context) -> TimelineCollectionViewController {
@@ -60,6 +64,7 @@ import SwiftUI
       controller.onLoadMore = onLoadMore
       controller.sessionId = sessionId
       controller.clients = clients
+      controller.viewMode = viewMode
       controller.apply(entries: entries, isPinned: isPinned)
       return controller
     }
@@ -68,6 +73,7 @@ import SwiftUI
       controller.onLoadMore = onLoadMore
       controller.sessionId = sessionId
       controller.clients = clients
+      controller.viewMode = viewMode
       controller.apply(entries: entries, isPinned: isPinned)
     }
   }
@@ -81,6 +87,7 @@ import SwiftUI
     var onPinnedStateChanged: ((Bool) -> Void)?
     var sessionId: String = ""
     var clients: ServerClients?
+    var viewMode: ChatViewMode = .focused
 
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
@@ -146,13 +153,11 @@ import SwiftUI
     // MARK: - Data
 
     func apply(entries: [ServerConversationRowEntry], isPinned: Bool) {
-      // Only re-pin if the parent explicitly requests it AND we haven't scrolled away.
-      // Once the user scrolls up, isPinnedToBottom stays false until they scroll back down.
       if isPinned, !userHasScrolledAway {
         isPinnedToBottom = true
       }
 
-      let diff = dataSource.apply(entries)
+      let diff = dataSource.apply(entries, viewMode: viewMode)
 
       if diff.isFullReload {
         tableView.reloadData()
@@ -188,7 +193,21 @@ import SwiftUI
 
       let reuseID = NSUserInterfaceItemIdentifier("HostingCell")
       let width = max(320, self.tableColumn.width)
-      let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), availableWidth: width, sessionId: sessionId, clients: clients)
+      let rowIndex = row
+      let content = TimelineRowContent(
+        entry: entry, isExpanded: isRowExpanded(entry), availableWidth: width,
+        sessionId: sessionId, clients: clients,
+        onContentLoaded: { [weak self] in
+          guard let self else { return }
+          // Invalidate height after async content loads
+          let indexes = IndexSet(integer: rowIndex)
+          NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0
+            self.tableView.noteHeightOfRows(withIndexesChanged: indexes)
+          }
+          self.tableView.reloadData(forRowIndexes: indexes, columnIndexes: IndexSet(integer: 0))
+        }
+      )
 
       if let existing = tableView.makeView(withIdentifier: reuseID, owner: self) as? NSHostingView<TimelineRowContent> {
         existing.rootView = content
@@ -311,6 +330,7 @@ import SwiftUI
     var onLoadMore: (() -> Void)?
     var sessionId: String = ""
     var clients: ServerClients?
+    var viewMode: ChatViewMode = .focused
 
     private var collectionView: UICollectionView!
     let dataSource = TimelineDataSource()
@@ -352,7 +372,7 @@ import SwiftUI
 
     func apply(entries: [ServerConversationRowEntry], isPinned: Bool) {
       isPinnedToBottom = isPinned
-      let diff = dataSource.apply(entries)
+      let diff = dataSource.apply(entries, viewMode: viewMode)
 
       if diff.isFullReload {
         collectionView.reloadData()

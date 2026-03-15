@@ -3,45 +3,35 @@
 //  OrbitDock
 //
 //  Manages the flat array of ServerConversationRowEntry for the timeline.
-//  Maps each row to a cell type, computes diffs for incremental updates.
+//  In focused mode, groups consecutive tool rows into activity groups.
 //
 
 import Foundation
 
 enum TimelineCellType {
-  case message    // user, assistant, system
-  case thinking   // reasoning trace
-  case toolCard   // tool call with ServerToolDisplay
-  case activityGroup // collapsible group of tools
-  case approval   // permission/approval request
-  case question   // question prompt
-  case worker     // worker/subagent status
-  case plan       // plan entry
-  case hook       // hook notification
-  case handoff    // handoff request
+  case message
+  case thinking
+  case toolCard
+  case activityGroup
+  case approval
+  case question
+  case worker
+  case plan
+  case hook
+  case handoff
 
   static func from(_ row: ServerConversationRow) -> TimelineCellType {
     switch row {
-    case .user, .assistant, .system:
-      return .message
-    case .thinking:
-      return .thinking
-    case .tool:
-      return .toolCard
-    case .activityGroup:
-      return .activityGroup
-    case .approval:
-      return .approval
-    case .question:
-      return .question
-    case .worker:
-      return .worker
-    case .plan:
-      return .plan
-    case .hook:
-      return .hook
-    case .handoff:
-      return .handoff
+    case .user, .assistant, .system: .message
+    case .thinking: .thinking
+    case .tool: .toolCard
+    case .activityGroup: .activityGroup
+    case .approval: .approval
+    case .question: .question
+    case .worker: .worker
+    case .plan: .plan
+    case .hook: .hook
+    case .handoff: .handoff
     }
   }
 }
@@ -54,11 +44,8 @@ struct TimelineDiff {
   let isFullReload: Bool
 
   static let fullReload = TimelineDiff(
-    insertedIndexes: IndexSet(),
-    removedIndexes: IndexSet(),
-    updatedIndexes: IndexSet(),
-    movedPairs: [],
-    isFullReload: true
+    insertedIndexes: IndexSet(), removedIndexes: IndexSet(),
+    updatedIndexes: IndexSet(), movedPairs: [], isFullReload: true
   )
 }
 
@@ -79,41 +66,118 @@ final class TimelineDataSource {
     return TimelineCellType.from(entry.row)
   }
 
-  /// Apply new entries from ConversationStore, returning a diff for incremental updates.
-  func apply(_ newEntries: [ServerConversationRowEntry]) -> TimelineDiff {
-    let oldIDs = entries.map(\.id)
-    let newIDs = newEntries.map(\.id)
+  /// Apply new entries, optionally grouping tools in focused mode.
+  func apply(_ newEntries: [ServerConversationRowEntry], viewMode: ChatViewMode = .verbose) -> TimelineDiff {
+    let processed = viewMode == .focused
+      ? groupToolRuns(newEntries)
+      : newEntries
 
-    // Fast path: if IDs haven't changed, check for content updates
+    let oldIDs = entries.map(\.id)
+    let newIDs = processed.map(\.id)
+
     if oldIDs == newIDs {
       var updatedIndexes = IndexSet()
-      for (index, newEntry) in newEntries.enumerated() {
-        let oldEntry = entries[index]
-        if !rowsEqual(oldEntry.row, newEntry.row) {
+      for (index, newEntry) in processed.enumerated() {
+        if !rowsEqual(entries[index].row, newEntry.row) {
           updatedIndexes.insert(index)
         }
       }
-      entries = newEntries
+      entries = processed
       rebuildIndex()
       if updatedIndexes.isEmpty {
-        return TimelineDiff(insertedIndexes: IndexSet(), removedIndexes: IndexSet(), updatedIndexes: IndexSet(), movedPairs: [], isFullReload: false)
+        return TimelineDiff(insertedIndexes: IndexSet(), removedIndexes: IndexSet(),
+                            updatedIndexes: IndexSet(), movedPairs: [], isFullReload: false)
       }
-      return TimelineDiff(insertedIndexes: IndexSet(), removedIndexes: IndexSet(), updatedIndexes: updatedIndexes, movedPairs: [], isFullReload: false)
+      return TimelineDiff(insertedIndexes: IndexSet(), removedIndexes: IndexSet(),
+                          updatedIndexes: updatedIndexes, movedPairs: [], isFullReload: false)
     }
 
-    // Structural change — full reload for simplicity
-    entries = newEntries
+    entries = processed
     rebuildIndex()
     return .fullReload
   }
+
+  // MARK: - Tool Grouping
+
+  /// In focused mode, consecutive tool/worker/plan/hook rows between message rows
+  /// collapse into synthetic activityGroup entries.
+  private func groupToolRuns(_ rawEntries: [ServerConversationRowEntry]) -> [ServerConversationRowEntry] {
+    var result: [ServerConversationRowEntry] = []
+    var toolBuffer: [ServerConversationToolRow] = []
+    var bufferSessionId = ""
+    var bufferStartSequence: UInt64 = 0
+
+    func flushBuffer() {
+      guard !toolBuffer.isEmpty else { return }
+      if toolBuffer.count == 1 {
+        // Single tool — show as individual card
+        let tool = toolBuffer[0]
+        result.append(ServerConversationRowEntry(
+          sessionId: bufferSessionId,
+          sequence: bufferStartSequence,
+          turnId: nil,
+          row: .tool(tool)
+        ))
+      } else {
+        // Multiple tools — wrap in activity group
+        let allCompleted = toolBuffer.allSatisfy { $0.status == .completed }
+        let groupStatus: ServerConversationToolStatus = allCompleted ? .completed : .running
+        let group = ServerConversationActivityGroupRow(
+          id: "group:\(toolBuffer.first!.id)",
+          groupKind: .toolBlock,
+          title: "\(toolBuffer.count) tools",
+          subtitle: nil,
+          summary: toolBuffer.map(\.title).joined(separator: ", "),
+          childCount: toolBuffer.count,
+          children: toolBuffer,
+          turnId: nil,
+          groupingKey: nil,
+          status: groupStatus,
+          family: nil,
+          renderHints: ServerConversationRenderHints()
+        )
+        result.append(ServerConversationRowEntry(
+          sessionId: bufferSessionId,
+          sequence: bufferStartSequence,
+          turnId: nil,
+          row: .activityGroup(group)
+        ))
+      }
+      toolBuffer.removeAll()
+    }
+
+    for entry in rawEntries {
+      switch entry.row {
+      case let .tool(toolRow):
+        if toolBuffer.isEmpty {
+          bufferSessionId = entry.sessionId
+          bufferStartSequence = entry.sequence
+        }
+        toolBuffer.append(toolRow)
+
+      case .worker, .plan, .hook, .handoff:
+        // These are lightweight — keep them individual but flush any tool buffer first
+        flushBuffer()
+        result.append(entry)
+
+      default:
+        // Message, thinking, approval, question, system — flush tool buffer
+        flushBuffer()
+        result.append(entry)
+      }
+    }
+
+    flushBuffer()
+    return result
+  }
+
+  // MARK: - Private
 
   private func rebuildIndex() {
     entryIDToIndex = Dictionary(uniqueKeysWithValues: entries.enumerated().map { ($1.id, $0) })
   }
 
   private func rowsEqual(_ lhs: ServerConversationRow, _ rhs: ServerConversationRow) -> Bool {
-    // Compare by encoding to JSON — not ideal for performance but correct.
-    // For hot paths, we rely on the revision counter to avoid unnecessary calls.
     switch (lhs, rhs) {
     case let (.assistant(l), .assistant(r)),
          let (.user(l), .user(r)),

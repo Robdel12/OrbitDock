@@ -17,6 +17,7 @@ struct ToolCardView: View {
   let isExpanded: Bool
   let sessionId: String
   let clients: ServerClients?
+  var onContentLoaded: (() -> Void)?
 
   @State private var expandedContent: ServerRowContent?
   @State private var isLoadingContent = false
@@ -851,6 +852,7 @@ struct ToolCardView: View {
         )
       } catch {}
       isLoadingContent = false
+      onContentLoaded?()
     }
   }
 
