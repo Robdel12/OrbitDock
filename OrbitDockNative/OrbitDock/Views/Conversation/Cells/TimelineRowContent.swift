@@ -2,14 +2,14 @@
 //  TimelineRowContent.swift
 //  OrbitDock
 //
-//  Single wrapper that dispatches to the correct cell view.
-//  Outer horizontal margin applied HERE — cells don't add their own.
+//  ALL layout decisions live here — alignment, max-width, padding.
+//  Individual cell views render content only, no outer layout.
 //
 
 import SwiftUI
 
-/// Outer horizontal inset for all timeline content.
 private let timelineInset: CGFloat = Spacing.xl
+private let userBubbleMaxWidth: CGFloat = 640
 
 struct TimelineRowContent: View {
   let entry: ServerConversationRowEntry
@@ -19,13 +19,18 @@ struct TimelineRowContent: View {
   var clients: ServerClients?
   var onContentLoaded: (() -> Void)?
 
-  /// Width available to cell content after the outer inset.
   private var innerWidth: CGFloat {
     max(100, availableWidth - timelineInset * 2)
   }
 
+  private var isUserRow: Bool {
+    if case .user = entry.row { return true }
+    return false
+  }
+
   var body: some View {
     cellContent
+      .frame(maxWidth: .infinity, alignment: isUserRow ? .trailing : .leading)
       .padding(.horizontal, timelineInset)
   }
 
