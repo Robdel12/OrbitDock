@@ -59,7 +59,7 @@ struct ApprovalRowView: View {
         .frame(width: EdgeBar.width)
         .padding(.vertical, Spacing.xs)
     }
-    .padding(.horizontal, Spacing.lg)
+    .padding(.horizontal, Spacing.xl)
     .padding(.vertical, Spacing.xs)
   }
 }

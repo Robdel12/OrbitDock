@@ -35,7 +35,7 @@ struct ActivityGroupRowView: View {
           .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
           .foregroundStyle(statusColor)
       }
-      .padding(.horizontal, Spacing.lg)
+      .padding(.horizontal, Spacing.xl)
       .padding(.vertical, Spacing.sm)
       .contentShape(Rectangle())
 

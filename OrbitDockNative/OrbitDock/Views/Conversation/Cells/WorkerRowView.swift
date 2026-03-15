@@ -34,7 +34,7 @@ struct WorkerRowView: View {
 
       Spacer()
     }
-    .padding(.horizontal, Spacing.lg)
+    .padding(.horizontal, Spacing.xl)
     .padding(.vertical, Spacing.sm)
   }
 }

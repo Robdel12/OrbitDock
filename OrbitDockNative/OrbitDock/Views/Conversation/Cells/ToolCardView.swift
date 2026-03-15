@@ -46,7 +46,7 @@ struct ToolCardView: View {
     }
     .background(cardBackground)
     .overlay(alignment: .leading) { accentEdge }
-    .padding(.horizontal, Spacing.lg)
+    .padding(.horizontal, Spacing.xl)
     .padding(.vertical, Spacing.xxs)
     .contentShape(Rectangle())
     .onChange(of: isExpanded) { _, expanded in
