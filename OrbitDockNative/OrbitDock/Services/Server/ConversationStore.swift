@@ -91,23 +91,31 @@ final class ConversationStore {
 
   // MARK: - Bootstrap (initial load from HTTP)
 
-  /// Load the newest conversation page from the server and return the full
-  /// bootstrap payload so callers can hydrate session-level state.
-  func bootstrap() async -> ServerConversationBootstrap? {
-    netLog(.info, cat: .conv, "Bootstrapping", sid: self.sessionId)
+  /// Fetch the bootstrap payload from the server without applying it.
+  /// Use this when the caller will handle applying via a separate path
+  /// (e.g. `SessionStore.handleConversationBootstrap`).
+  func fetchBootstrap() async -> ServerConversationBootstrap? {
+    netLog(.info, cat: .conv, "Fetching bootstrap", sid: self.sessionId)
     if state != .ready {
       state = .loading
     }
     do {
       let result = try await clients.conversation.fetchConversationBootstrap(sessionId, limit: kPageSize)
-      applyBootstrap(result)
-      netLog(.info, cat: .conv, "Bootstrap complete", sid: self.sessionId, data: ["messages": self.messages.count])
+      netLog(.info, cat: .conv, "Bootstrap fetched", sid: self.sessionId, data: ["rows": result.rows.count])
       return result
     } catch {
       state = messages.isEmpty ? .failed : .ready
-      netLog(.error, cat: .conv, "Bootstrap failed", sid: self.sessionId, data: ["error": error.localizedDescription])
+      netLog(.error, cat: .conv, "Bootstrap fetch failed", sid: self.sessionId, data: ["error": error.localizedDescription])
       return nil
     }
+  }
+
+  /// Fetch and apply the bootstrap in one step. Used by `bootstrapFresh()`
+  /// where there is no separate session-level apply path.
+  func bootstrap() async -> ServerConversationBootstrap? {
+    let result = await fetchBootstrap()
+    if let result { applyBootstrap(result) }
+    return result
   }
 
   /// Cancel any in-flight work and re-bootstrap, awaitable by the caller.
@@ -306,7 +314,7 @@ final class ConversationStore {
     guard !upserted.isEmpty || !removedRowIds.isEmpty else { return }
 
     var merged = rowEntries
-    let existingIDs = Dictionary(uniqueKeysWithValues: merged.enumerated().map { ($1.id, $0) })
+    let existingIDs = Dictionary(merged.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { _, last in last })
 
     for entry in upserted {
       if let existingIdx = existingIDs[entry.id] {

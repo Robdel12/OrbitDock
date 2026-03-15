@@ -10,6 +10,7 @@ struct ConversationView: View {
   var endpointId: UUID?
   var isSessionActive: Bool = false
   var workStatus: Session.WorkStatus = .unknown
+  var displayStatus: SessionDisplayStatus = .ended
   var currentTool: String?
   var pendingToolName: String?
   var pendingPermissionDetail: String?
@@ -70,6 +71,13 @@ struct ConversationView: View {
           }
 
           conversationTimeline
+
+          if isSessionActive || displayStatus == .ended {
+            OrbitStatusIndicator(
+              displayStatus: displayStatus,
+              currentTool: currentTool
+            )
+          }
         }
         .transition(.opacity)
       }
@@ -115,6 +123,7 @@ enum ConversationLoadState: Equatable {
     sessionId: nil,
     isSessionActive: true,
     workStatus: .working,
+    displayStatus: .working,
     currentTool: "Edit",
     provider: .claude,
     model: "claude-opus-4-6",

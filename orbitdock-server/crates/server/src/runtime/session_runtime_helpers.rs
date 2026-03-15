@@ -232,6 +232,23 @@ pub(crate) async fn sync_transcript_messages(
         plan.message_sync_decision,
         TranscriptMessageSyncDecision::AppendNewMessages
     ) {
+        // Upsert existing rows that got results attached by the transcript parser.
+        // Without this, tool rows persisted before their result arrived would
+        // permanently lack output data for the REST content endpoint.
+        for entry in plan.updated_rows {
+            let _ = persist_tx
+                .send(
+                    crate::infrastructure::persistence::PersistCommand::RowUpsert {
+                        session_id: session_id.clone(),
+                        entry: entry.clone(),
+                    },
+                )
+                .await;
+            actor
+                .send(SessionCommand::AddRowAndBroadcast { entry })
+                .await;
+        }
+
         for entry in plan.new_rows {
             let _ = persist_tx
                 .send(

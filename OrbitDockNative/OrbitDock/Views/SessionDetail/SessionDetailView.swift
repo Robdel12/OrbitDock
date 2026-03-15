@@ -69,7 +69,8 @@ struct SessionDetailView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      // Compact header
+      #if os(macOS)
+      // Custom header on macOS (no native nav bar)
       HeaderView(
         sessionId: sessionId,
         endpointId: endpointId,
@@ -93,6 +94,13 @@ struct SessionDetailView: View {
 
       Divider()
         .foregroundStyle(Color.panelBorder)
+      #else
+      // iOS: status strip only (native nav bar handles title + back)
+      iOSStatusStrip
+
+      Divider()
+        .foregroundStyle(Color.panelBorder)
+      #endif
 
       // Diff-available banner
       if showDiffBanner, layoutConfig == .conversationOnly {
@@ -130,6 +138,18 @@ struct SessionDetailView: View {
       }
     }
     .background(Color.backgroundPrimary)
+    #if os(iOS)
+    .navigationTitle(obs.displayName)
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        Button { router.openQuickSwitcher() } label: {
+          Image(systemName: "magnifyingglass")
+        }
+        iOSOverflowMenu
+      }
+    }
+    #endif
     .environment(scopedServerState)
     .onAppear(perform: handleOnAppear)
     .onDisappear(perform: handleOnDisappear)
@@ -173,6 +193,101 @@ struct SessionDetailView: View {
       isCleaningUp: isCleaningUpWorktree
     )
   }
+
+  // MARK: - iOS Native Nav Bar
+
+  #if os(iOS)
+  private var iOSStatusStrip: some View {
+    HStack(spacing: Spacing.sm) {
+      HeaderCompactStatusBadge(
+        presentation: HeaderCompactPresentation.build(
+          workStatus: obs.workStatus,
+          provider: obs.provider,
+          model: obs.model,
+          effort: obs.effort
+        )
+      )
+      .layoutPriority(1)
+
+      Spacer(minLength: 0)
+
+      ConversationViewModeToggle(
+        chatViewMode: $chatViewMode,
+        showsContainerChrome: false
+      )
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(Color.backgroundSecondary)
+  }
+
+  private var iOSOverflowMenu: some View {
+    Menu {
+      // Session info
+      if let endpointName = obs.endpointName {
+        Text("Endpoint: \(endpointName)")
+      }
+      ForEach(SessionCapability.capabilities(for: obs)) { cap in
+        if let icon = cap.icon {
+          Label(cap.label, systemImage: icon)
+        } else {
+          Text(cap.label)
+        }
+      }
+
+      Divider()
+
+      // Layout (only for direct sessions)
+      if obs.isDirect {
+        Section("Layout") {
+          ForEach(LayoutConfiguration.allCases, id: \.self) { config in
+            Button {
+              withAnimation(Motion.gentle) {
+                layoutConfig = config
+              }
+            } label: {
+              Label(config.label, systemImage: config.icon)
+            }
+          }
+        }
+      }
+
+      HeaderContinuationMenuSection(
+        continuation: SessionContinuation(
+          endpointId: endpointId,
+          sessionId: sessionId,
+          provider: obs.provider,
+          displayName: obs.displayName,
+          projectPath: obs.projectPath,
+          model: obs.model,
+          hasGitRepository: obs.branch != nil || obs.repositoryRoot != nil || obs.isWorktree
+        )
+      )
+
+      Divider()
+
+      HeaderDebugContextMenu(
+        sessionId: sessionId,
+        threadId: obs.codexThreadId,
+        projectPath: obs.projectPath,
+        provider: obs.provider,
+        codexIntegrationMode: obs.codexIntegrationMode.map { String(describing: $0) },
+        claudeIntegrationMode: obs.claudeIntegrationMode.map { String(describing: $0) }
+      )
+
+      if obs.isDirect, obs.isActive {
+        Divider()
+        Button(role: .destructive) {
+          endDirectSession()
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
+    } label: {
+      Image(systemName: "ellipsis.circle")
+    }
+  }
+  #endif
 
   // MARK: - Action Bar
 

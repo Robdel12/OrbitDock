@@ -73,7 +73,7 @@ struct TodoExpandedView: View {
             : Color.textQuaternary
         )
 
-      Text(item.status)
+      Text(item.content ?? item.status)
         .font(.system(size: TypeScale.body))
         .foregroundStyle(isCompleted ? Color.textTertiary : Color.textSecondary)
     }

@@ -96,6 +96,7 @@ extension SessionDetailView {
       endpointId: endpointId,
       isSessionActive: obs.isActive,
       workStatus: obs.workStatus,
+      displayStatus: obs.displayStatus,
       currentTool: currentTool,
       pendingToolName: obs.pendingToolName,
       pendingPermissionDetail: obs.pendingPermissionDetail,

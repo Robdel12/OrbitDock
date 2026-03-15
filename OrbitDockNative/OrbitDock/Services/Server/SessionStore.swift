@@ -125,7 +125,10 @@ final class SessionStore {
   // MARK: - Session subscription
 
   func subscribeToSession(_ sessionId: String) {
-    subscribedSessions.insert(sessionId)
+    guard subscribedSessions.insert(sessionId).inserted else {
+      netLog(.debug, cat: .store, "Already subscribed, skipping", sid: sessionId)
+      return
+    }
     netLog(.info, cat: .store, "Subscribe: HTTP bootstrap + WS", sid: sessionId)
 
     Task {
@@ -151,7 +154,7 @@ final class SessionStore {
   func hydrateSessionFromHTTPBootstrap(
     sessionId: String
   ) async -> ServerConversationBootstrap? {
-    let bootstrap = await conversation(sessionId).bootstrap()
+    let bootstrap = await conversation(sessionId).fetchBootstrap()
     guard let bootstrap else {
       return nil
     }

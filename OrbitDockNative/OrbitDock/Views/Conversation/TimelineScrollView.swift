@@ -45,9 +45,11 @@ struct TimelineScrollView: View {
             timelineRow(entry, width: geometry.size.width)
               .id(entry.id)
           }
+
         }
         .scrollTargetLayout()
       }
+      .scrollDismissesKeyboard(.interactively)
       .defaultScrollAnchor(.bottom)
       .scrollPosition(id: $scrollPosition, anchor: .bottom)
       .onChange(of: scrollPosition) { _, newPosition in
@@ -77,7 +79,11 @@ struct TimelineScrollView: View {
       fetchedContent: fetchId.flatMap { rowState.content(for: $0) },
       isLoadingContent: fetchId.map { rowState.isFetching($0) } ?? false,
       onToggle: { id in
-        rowState.toggleExpanded(id)
+        let nowExpanded = rowState.toggleExpanded(id)
+        // Fetch content for newly expanded children (activity group child tools)
+        if nowExpanded {
+          rowState.fetchContentIfNeeded(rowId: id, sessionId: sessionId, clients: clients)
+        }
       },
       isItemExpanded: { id in
         rowState.isExpanded(id)

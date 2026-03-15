@@ -1,4 +1,4 @@
-use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
+use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry};
 use orbitdock_protocol::{Provider, TokenUsage, TokenUsageSnapshotKind};
 
 #[derive(Debug, Clone)]
@@ -19,6 +19,9 @@ pub(crate) struct TranscriptSyncPlan {
     pub usage_update: Option<TranscriptUsageUpdate>,
     pub message_sync_decision: TranscriptMessageSyncDecision,
     pub new_rows: Vec<ConversationRowEntry>,
+    /// Existing tool rows that received results from later transcript entries.
+    /// These need RowUpsert to update the DB with the result data.
+    pub updated_rows: Vec<ConversationRowEntry>,
 }
 
 pub(crate) struct TranscriptSyncInputs {
@@ -81,17 +84,27 @@ pub(crate) fn plan_transcript_sync(input: TranscriptSyncInputs) -> TranscriptSyn
         input.confirmed_count,
     );
 
-    let new_rows = match message_sync_decision {
+    let (new_rows, updated_rows) = match message_sync_decision {
         TranscriptMessageSyncDecision::AppendNewMessages => {
-            input.transcript_rows[input.existing_count..].to_vec()
+            let new = input.transcript_rows[input.existing_count..].to_vec();
+            // Find existing tool rows that got results attached by the transcript
+            // parser (tool_result entries matched back to earlier tool_use rows).
+            let updated: Vec<ConversationRowEntry> = input.transcript_rows
+                [..input.existing_count]
+                .iter()
+                .filter(|entry| matches!(&entry.row, ConversationRow::Tool(t) if t.result.is_some()))
+                .cloned()
+                .collect();
+            (new, updated)
         }
         TranscriptMessageSyncDecision::SkipNoNewMessages
-        | TranscriptMessageSyncDecision::SkipRuntimeCountChanged => vec![],
+        | TranscriptMessageSyncDecision::SkipRuntimeCountChanged => (vec![], vec![]),
     };
 
     TranscriptSyncPlan {
         usage_update,
         message_sync_decision,
         new_rows,
+        updated_rows,
     }
 }

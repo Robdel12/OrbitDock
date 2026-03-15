@@ -837,4 +837,5 @@ struct ServerToolDiffPreview: Codable {
 
 struct ServerToolTodoItem: Codable {
   let status: String
+  let content: String?
 }

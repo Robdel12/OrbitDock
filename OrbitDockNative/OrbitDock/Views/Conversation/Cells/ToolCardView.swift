@@ -29,6 +29,7 @@ struct ToolCardView: View {
   private var isRunning: Bool { toolRow.status == .running || toolRow.status == .pending }
   private var isFailed: Bool { toolRow.status == .failed }
   private var toolType: String { display?.toolType ?? "generic" }
+  private var displayTier: String { display?.displayTier ?? "standard" }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -77,9 +78,17 @@ struct ToolCardView: View {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   private var compactRow: some View {
-    HStack(spacing: Spacing.sm) {
+    let isMinimal = displayTier == "minimal"
+    let isProminent = displayTier == "prominent"
+    let iconSize = isMinimal ? IconScale.sm : IconScale.md
+    let summaryColor = isFailed ? Color.feedbackNegative
+      : isProminent ? Color.textPrimary
+      : Color.textSecondary
+    let subtitleColor = isMinimal ? Color.textQuaternary : Color.textTertiary
+
+    return HStack(spacing: Spacing.sm) {
       Image(systemName: glyphSymbol)
-        .font(.system(size: IconScale.md))
+        .font(.system(size: iconSize))
         .foregroundStyle(glyphColor)
         .frame(width: 16, height: 16)
 
@@ -89,19 +98,19 @@ struct ToolCardView: View {
             .font(display?.summaryFont == "monospace"
               ? .system(size: TypeScale.body, design: .monospaced)
               : .system(size: TypeScale.body, weight: .medium))
-            .foregroundStyle(isFailed ? Color.feedbackNegative : Color.textSecondary)
+            .foregroundStyle(summaryColor)
 
           if let subtitle, !subtitle.isEmpty, display?.subtitleAbsorbsMeta == true {
             Text(subtitle)
               .font(.system(size: TypeScale.caption))
-              .foregroundStyle(Color.textTertiary)
+              .foregroundStyle(subtitleColor)
           }
         }
 
         if let subtitle, !subtitle.isEmpty, display?.subtitleAbsorbsMeta != true {
           Text(subtitle)
             .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
+            .foregroundStyle(subtitleColor)
         }
       }
 
@@ -136,7 +145,12 @@ struct ToolCardView: View {
     }
     .padding(.leading, Spacing.md + EdgeBar.width)
     .padding(.trailing, Spacing.md)
-    .padding(.vertical, Spacing.sm_)
+    .padding(.vertical, isMinimal ? Spacing.xs : Spacing.sm_)
+    .background(
+      isProminent
+        ? AnyShapeStyle(glyphColor.opacity(OpacityTier.tint))
+        : AnyShapeStyle(Color.clear)
+    )
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -297,6 +311,14 @@ struct ToolCardView: View {
         HookExpandedView(content: content, toolRow: toolRow)
       case "handoff":
         HandoffExpandedView(content: content, toolRow: toolRow)
+      case "image":
+        ImageExpandedView(content: content)
+      case "compactContext":
+        CompactContextExpandedView(content: content)
+      case "config":
+        ConfigExpandedView(content: content)
+      case "worktree":
+        WorktreeExpandedView(content: content)
       default:
         GenericExpandedView(content: content)
       }

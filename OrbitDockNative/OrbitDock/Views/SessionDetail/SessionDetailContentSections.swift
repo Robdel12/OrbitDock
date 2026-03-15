@@ -5,6 +5,7 @@ struct SessionDetailConversationSection: View {
   let endpointId: UUID
   let isSessionActive: Bool
   let workStatus: Session.WorkStatus
+  let displayStatus: SessionDisplayStatus
   let currentTool: String?
   let pendingToolName: String?
   let pendingPermissionDetail: String?
@@ -27,6 +28,7 @@ struct SessionDetailConversationSection: View {
       endpointId: endpointId,
       isSessionActive: isSessionActive,
       workStatus: workStatus,
+      displayStatus: displayStatus,
       currentTool: currentTool,
       pendingToolName: pendingToolName,
       pendingPermissionDetail: pendingPermissionDetail,

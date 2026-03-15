@@ -96,6 +96,8 @@ pub struct ToolDiffPreview {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolTodoItem {
     pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 
 fn default_summary_font() -> String {
@@ -186,6 +188,9 @@ pub fn compute_tool_display(
     let output_display = None;
     let diff_display = None;
 
+    // Extract todo items from invocation input
+    let todo_items = extract_todo_items(kind, invocation_input);
+
     ToolDisplay {
         summary: display_summary,
         subtitle: computed_subtitle,
@@ -197,7 +202,7 @@ pub fn compute_tool_display(
         diff_preview,
         output_preview,
         live_output_preview: None,
-        todo_items: vec![],
+        todo_items,
         tool_type,
         summary_font,
         display_tier,
@@ -310,6 +315,7 @@ fn tool_type_string(kind: ToolKind, _family: ToolFamily) -> String {
         | ToolKind::WaitAgent
         | ToolKind::CloseAgent => "task",
         ToolKind::McpToolCall | ToolKind::DynamicToolCall => "mcp",
+        ToolKind::ReadMcpResource | ToolKind::ListMcpResources => "mcp",
         ToolKind::WebSearch | ToolKind::WebFetch => "web",
         ToolKind::EnterPlanMode | ToolKind::ExitPlanMode | ToolKind::UpdatePlan => "plan",
         ToolKind::TodoWrite => "todo",
@@ -317,6 +323,10 @@ fn tool_type_string(kind: ToolKind, _family: ToolFamily) -> String {
         ToolKind::ToolSearch => "toolSearch",
         ToolKind::HookNotification => "hook",
         ToolKind::HandoffRequested => "handoff",
+        ToolKind::ViewImage | ToolKind::ImageGeneration => "image",
+        ToolKind::CompactContext => "compactContext",
+        ToolKind::Config => "config",
+        ToolKind::EnterWorktree => "worktree",
         _ => "generic",
     }
     .to_string()
@@ -417,6 +427,11 @@ fn extract_subtitle_from_input(
                 .and_then(|v| v.as_str())
                 .map(String::from)
         }
+        ToolKind::ViewImage => file_name_from_input(input),
+        ToolKind::Config => input
+            .get("key")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         _ => None,
     };
     result.filter(|s| !s.trim().is_empty())
@@ -518,6 +533,24 @@ fn compute_output_preview(kind: ToolKind, result_output: Option<&str>) -> Option
                 let first_three = lines[..3].join("\n");
                 Some(format!("{}\n… and {} more", first_three, lines.len() - 3))
             }
+        }
+        // Read: first 2 non-empty lines for file content preview
+        ToolKind::Read => {
+            let lines: Vec<&str> = output
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .take(2)
+                .collect();
+            if lines.is_empty() {
+                None
+            } else {
+                Some(truncate(&lines.join("\n"), 200))
+            }
+        }
+        // Question: first line of the question prompt
+        ToolKind::AskUserQuestion => {
+            let first = output.lines().find(|l| !l.trim().is_empty())?;
+            Some(truncate(first, 120))
         }
         // Most tools: no preview in compact mode
         _ => None,
@@ -732,4 +765,38 @@ pub fn compute_diff_display(kind: ToolKind, input: Option<&serde_json::Value>) -
         }
         _ => None,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Todo item extraction
+// ---------------------------------------------------------------------------
+
+fn extract_todo_items(kind: ToolKind, input: Option<&serde_json::Value>) -> Vec<ToolTodoItem> {
+    if kind != ToolKind::TodoWrite {
+        return vec![];
+    }
+    let input = match input {
+        Some(v) => v,
+        None => return vec![],
+    };
+    // TodoWrite input shape: {"tasks": [{"content": "...", "status": "completed"}, ...]}
+    let items = match input.get("tasks").and_then(|v| v.as_array()) {
+        Some(arr) => arr,
+        None => return vec![],
+    };
+    items
+        .iter()
+        .filter_map(|item| {
+            let status = item
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("pending")
+                .to_string();
+            let content = item
+                .get("content")
+                .and_then(|v| v.as_str())
+                .map(|s| truncate(s, 200));
+            Some(ToolTodoItem { status, content })
+        })
+        .collect()
 }
