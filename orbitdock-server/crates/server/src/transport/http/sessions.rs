@@ -1,6 +1,8 @@
 use super::*;
+use crate::infrastructure::persistence::load_row_by_id_async;
 use crate::support::session_time::parse_unix_z;
 use orbitdock_protocol::conversation_contracts::{
+    compute_diff_display, compute_expanded_output, compute_input_display, detect_language,
     extract_row_content_str, ConversationRow, ConversationRowPage,
 };
 use orbitdock_protocol::domain_events::ToolStatus;
@@ -415,6 +417,92 @@ pub async fn get_session_stats(
             session.last_activity_at.as_deref(),
         ),
     }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct RowContentResponse {
+    pub row_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_display: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_display: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff_display: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+}
+
+pub async fn get_row_content(
+    Path((session_id, row_id)): Path<(String, String)>,
+    State(_state): State<Arc<SessionRegistry>>,
+) -> ApiResult<RowContentResponse> {
+    let entry = load_row_by_id_async(&session_id, &row_id)
+        .await
+        .map_err(|err| {
+            error!(
+                component = "api",
+                event = "api.get_row_content.db_error",
+                session_id = %session_id,
+                row_id = %row_id,
+                error = %err,
+                "Failed to load row from database"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ApiErrorResponse {
+                    code: "db_error",
+                    error: err.to_string(),
+                }),
+            )
+        })?;
+
+    let entry = entry.ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ApiErrorResponse {
+                code: "not_found",
+                error: format!("Row {} not found in session {}", row_id, session_id),
+            }),
+        )
+    })?;
+
+    match &entry.row {
+        ConversationRow::Tool(tool) => {
+            // Unwrap raw_input wrapper, same logic as compute_tool_display
+            let unwrapped = tool.invocation.get("raw_input")
+                .filter(|ri| ri.is_object())
+                .or(Some(&tool.invocation));
+
+            let result_output = tool
+                .result
+                .as_ref()
+                .and_then(|r| {
+                    r.get("output")
+                        .and_then(|o| o.as_str())
+                        .or_else(|| r.get("raw_output").and_then(|o| o.as_str()))
+                });
+
+            let input_display = compute_input_display(tool.kind, unwrapped);
+            let output_display = compute_expanded_output(tool.kind, result_output);
+            let diff_display = compute_diff_display(tool.kind, unwrapped);
+            let language = detect_language(tool.kind, unwrapped);
+
+            Ok(Json(RowContentResponse {
+                row_id,
+                input_display,
+                output_display,
+                diff_display,
+                language,
+            }))
+        }
+        _ => Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(ApiErrorResponse {
+                code: "not_a_tool_row",
+                error: format!("Row {} is not a tool row", row_id),
+            }),
+        )),
+    }
 }
 
 #[cfg(test)]

@@ -38,7 +38,9 @@ pub(crate) use config::{
     backfill_claude_models_from_sessions, display_name_from_model_string,
     load_cached_claude_models, load_config_value,
 };
-pub(crate) use messages::{load_message_page_for_session, load_messages_for_session};
+pub(crate) use messages::{
+    load_message_page_for_session, load_messages_for_session, load_row_by_id_async,
+};
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
 pub(crate) use session_reads::{
     load_session_by_id, load_session_permission_mode, load_sessions_for_startup, RestoredSession,

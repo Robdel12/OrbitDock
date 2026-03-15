@@ -107,6 +107,20 @@ fn default_display_tier() -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Safe string truncation (never panics on multi-byte UTF-8)
+// ---------------------------------------------------------------------------
+
+/// Truncate a string to at most `max_chars` characters, appending "…" if truncated.
+/// Safe for any UTF-8 content — never slices at byte boundaries.
+fn truncate(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let t: String = s.chars().take(max_chars).collect();
+    format!("{t}…")
+}
+
+// ---------------------------------------------------------------------------
 // Display computation
 // ---------------------------------------------------------------------------
 
@@ -125,6 +139,14 @@ pub fn compute_tool_display(
     invocation_input: Option<&serde_json::Value>,
     result_output: Option<&str>,
 ) -> ToolDisplay {
+    // Unwrap the raw_input wrapper if present — hook data wraps input as
+    // {"raw_input": {"command": "..."}, "tool_name": "Bash"} but extract
+    // functions expect the flat {"command": "..."} shape.
+    let unwrapped = invocation_input.and_then(|v| {
+        v.get("raw_input").filter(|ri| ri.is_object()).or(Some(v))
+    });
+    let invocation_input = unwrapped;
+
     let (glyph_symbol, glyph_color) = glyph_for_kind(kind, family);
     let tool_type = tool_type_string(kind, family);
     let display_tier = display_tier_string(kind, family, status);
@@ -159,10 +181,10 @@ pub fn compute_tool_display(
         .map(String::from)
         .unwrap_or(display_name);
 
-    // --- Expanded rendering fields ---
-    let input_display = compute_input_display(kind, invocation_input);
-    let output_display = compute_expanded_output(kind, result_output);
-    let diff_display = compute_diff_display(kind, invocation_input);
+    // --- Expanded rendering fields (fetched on demand via REST) ---
+    let input_display = None;
+    let output_display = None;
+    let diff_display = None;
 
     ToolDisplay {
         summary: display_summary,
@@ -360,11 +382,7 @@ fn extract_subtitle_from_input(
                     .and_then(|v| v.as_str())
                     .map(String::from);
             }
-            let truncated = if cmd.len() > 120 {
-                format!("{}…", &cmd[..120])
-            } else {
-                cmd.to_string()
-            };
+            let truncated = truncate(cmd, 120);
             Some(truncated)
         }
         ToolKind::Read | ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit => {
@@ -487,10 +505,8 @@ fn compute_output_preview(kind: ToolKind, result_output: Option<&str>) -> Option
                 .join("\n");
             if preview.is_empty() {
                 None
-            } else if preview.len() > 300 {
-                Some(format!("{}…", &preview[..300]))
             } else {
-                Some(preview)
+                Some(truncate(&preview, 300))
             }
         }
         // Search: summary line
@@ -512,7 +528,7 @@ fn compute_output_preview(kind: ToolKind, result_output: Option<&str>) -> Option
 // Language detection
 // ---------------------------------------------------------------------------
 
-fn detect_language(kind: ToolKind, input: Option<&serde_json::Value>) -> Option<String> {
+pub fn detect_language(kind: ToolKind, input: Option<&serde_json::Value>) -> Option<String> {
     if !matches!(
         kind,
         ToolKind::Read | ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit
@@ -579,11 +595,7 @@ fn compute_diff_preview(
             let prefix = if is_addition { "+" } else { "-" };
             Some(ToolDiffPreview {
                 context_line: None,
-                snippet_text: if snippet.len() > 80 {
-                    format!("{}…", &snippet[..80])
-                } else {
-                    snippet
-                },
+                snippet_text: truncate(&snippet, 80),
                 snippet_prefix: prefix.to_string(),
                 is_addition,
                 additions,
@@ -597,11 +609,7 @@ fn compute_diff_preview(
             let first_line = content.lines().next().unwrap_or("").to_string();
             Some(ToolDiffPreview {
                 context_line: None,
-                snippet_text: if first_line.len() > 80 {
-                    format!("{}…", &first_line[..80])
-                } else {
-                    first_line
-                },
+                snippet_text: truncate(&first_line, 80),
                 snippet_prefix: "+".to_string(),
                 is_addition: true,
                 additions: lines,
@@ -617,7 +625,7 @@ fn compute_diff_preview(
 // ---------------------------------------------------------------------------
 
 /// Pre-formatted input for the expanded tool card.
-fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) -> Option<String> {
+pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) -> Option<String> {
     let input = input?;
     match kind {
         ToolKind::Bash => {
@@ -673,24 +681,14 @@ fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) -> O
 // Expanded rendering: output_display
 // ---------------------------------------------------------------------------
 
-const MAX_OUTPUT_DISPLAY: usize = 50_000;
-
 /// Pre-formatted output for the expanded tool card.
-fn compute_expanded_output(kind: ToolKind, result_output: Option<&str>) -> Option<String> {
+pub fn compute_expanded_output(kind: ToolKind, result_output: Option<&str>) -> Option<String> {
     let output = result_output?;
     if output.is_empty() {
         return None;
     }
     _ = kind;
-    if output.len() > MAX_OUTPUT_DISPLAY {
-        Some(format!(
-            "{}…\n\n(truncated — {} total chars)",
-            &output[..MAX_OUTPUT_DISPLAY],
-            output.len()
-        ))
-    } else {
-        Some(output.to_string())
-    }
+    Some(output.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -698,7 +696,7 @@ fn compute_expanded_output(kind: ToolKind, result_output: Option<&str>) -> Optio
 // ---------------------------------------------------------------------------
 
 /// Unified diff for edit/write tools in the expanded view.
-fn compute_diff_display(kind: ToolKind, input: Option<&serde_json::Value>) -> Option<String> {
+pub fn compute_diff_display(kind: ToolKind, input: Option<&serde_json::Value>) -> Option<String> {
     if !matches!(
         kind,
         ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit

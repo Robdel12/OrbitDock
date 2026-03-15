@@ -17,17 +17,23 @@ import SwiftUI
     let entries: [ServerConversationRowEntry]
     let revision: Int
     let isPinned: Bool
+    let sessionId: String
+    let clients: ServerClients
     let onLoadMore: (() -> Void)?
 
     func makeNSViewController(context: Context) -> TimelineViewController {
       let controller = TimelineViewController()
       controller.onLoadMore = onLoadMore
+      controller.sessionId = sessionId
+      controller.clients = clients
       controller.apply(entries: entries, isPinned: isPinned)
       return controller
     }
 
     func updateNSViewController(_ controller: TimelineViewController, context: Context) {
       controller.onLoadMore = onLoadMore
+      controller.sessionId = sessionId
+      controller.clients = clients
       controller.apply(entries: entries, isPinned: isPinned)
     }
   }
@@ -39,17 +45,23 @@ import SwiftUI
     let entries: [ServerConversationRowEntry]
     let revision: Int
     let isPinned: Bool
+    let sessionId: String
+    let clients: ServerClients
     let onLoadMore: (() -> Void)?
 
     func makeUIViewController(context: Context) -> TimelineCollectionViewController {
       let controller = TimelineCollectionViewController()
       controller.onLoadMore = onLoadMore
+      controller.sessionId = sessionId
+      controller.clients = clients
       controller.apply(entries: entries, isPinned: isPinned)
       return controller
     }
 
     func updateUIViewController(_ controller: TimelineCollectionViewController, context: Context) {
       controller.onLoadMore = onLoadMore
+      controller.sessionId = sessionId
+      controller.clients = clients
       controller.apply(entries: entries, isPinned: isPinned)
     }
   }
@@ -60,6 +72,8 @@ import SwiftUI
 #if os(macOS)
   final class TimelineViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     var onLoadMore: (() -> Void)?
+    var sessionId: String = ""
+    var clients: ServerClients?
 
     private let scrollView = NSScrollView()
     private let tableView = NSTableView()
@@ -71,6 +85,7 @@ import SwiftUI
     private var expandedActivityIDs: Set<String> = []
     private var lastMeasuredWidth: CGFloat = 0
     private var isPinnedToBottom = true
+    private var userHasScrolledAway = false
 
     // Measurement host — reused for height calculations
     private let measurementController = NSHostingController(
@@ -124,19 +139,24 @@ import SwiftUI
     // MARK: - Data
 
     func apply(entries: [ServerConversationRowEntry], isPinned: Bool) {
-      isPinnedToBottom = isPinned
+      // Only re-pin if the parent explicitly requests it AND we haven't scrolled away.
+      // Once the user scrolls up, isPinnedToBottom stays false until they scroll back down.
+      if isPinned, !userHasScrolledAway {
+        isPinnedToBottom = true
+      }
+
       let diff = dataSource.apply(entries)
 
       if diff.isFullReload {
         tableView.reloadData()
-        refreshGeometry(keepBottomPinned: isPinned)
+        refreshGeometry(keepBottomPinned: isPinnedToBottom)
       } else if !diff.updatedIndexes.isEmpty {
         NSAnimationContext.runAnimationGroup { ctx in
           ctx.duration = 0
           tableView.noteHeightOfRows(withIndexesChanged: diff.updatedIndexes)
         }
         tableView.reloadData(forRowIndexes: diff.updatedIndexes, columnIndexes: IndexSet(integer: 0))
-        refreshGeometry(keepBottomPinned: isPinned)
+        refreshGeometry(keepBottomPinned: isPinnedToBottom)
       }
     }
 
@@ -151,7 +171,7 @@ import SwiftUI
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
       guard let entry = dataSource.entry(at: row) else { return 0 }
       let width = max(320, tableColumn.width)
-      let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), availableWidth: width)
+      let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), availableWidth: width, sessionId: sessionId, clients: clients)
       measurementController.rootView = content
       return measurementController.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
     }
@@ -161,7 +181,7 @@ import SwiftUI
 
       let reuseID = NSUserInterfaceItemIdentifier("HostingCell")
       let width = max(320, self.tableColumn.width)
-      let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), availableWidth: width)
+      let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), availableWidth: width, sessionId: sessionId, clients: clients)
 
       if let existing = tableView.makeView(withIdentifier: reuseID, owner: self) as? NSHostingView<TimelineRowContent> {
         existing.rootView = content
@@ -212,7 +232,9 @@ import SwiftUI
       guard let documentView = scrollView.documentView else { return }
       let clipView = scrollView.contentView
       let maxY = max(0, documentView.bounds.height - clipView.bounds.height)
-      isPinnedToBottom = clipView.bounds.origin.y >= max(0, maxY - 8)
+      let isAtBottom = clipView.bounds.origin.y >= max(0, maxY - 8)
+      isPinnedToBottom = isAtBottom
+      userHasScrolledAway = !isAtBottom
     }
 
     // MARK: - Helpers
@@ -279,6 +301,8 @@ import SwiftUI
     UICollectionViewDelegateFlowLayout
   {
     var onLoadMore: (() -> Void)?
+    var sessionId: String = ""
+    var clients: ServerClients?
 
     private var collectionView: UICollectionView!
     let dataSource = TimelineDataSource()
@@ -346,7 +370,7 @@ import SwiftUI
       guard let entry = dataSource.entry(at: indexPath.item) else { return cell }
 
       cell.contentConfiguration = UIHostingConfiguration {
-        TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry))
+        TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), sessionId: sessionId, clients: clients)
       }
       .margins(.all, 0)
 
@@ -360,7 +384,7 @@ import SwiftUI
         return CGSize(width: collectionView.bounds.width, height: 0)
       }
       let width = collectionView.bounds.width
-      let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry))
+      let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), sessionId: sessionId, clients: clients)
       measurementController.rootView = content
       let size = measurementController.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude))
       return CGSize(width: width, height: size.height)

@@ -181,6 +181,14 @@ struct ConversationClient: Sendable {
     )
   }
 
+  /// Fetch full expanded content for a tool row (input, output, diff).
+  /// Content is computed on demand — not inlined in the row payload.
+  func fetchRowContent(sessionId: String, rowId: String) async throws -> ServerRowContent {
+    try await http.get(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/rows/\(requestBuilder.encodePathComponent(rowId))/content"
+    )
+  }
+
   func executeShell(sessionId: String, command: String, timeoutSecs: UInt64 = 120) async throws {
     struct Body: Encodable {
       let command: String

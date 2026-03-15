@@ -43,6 +43,7 @@ struct StatsPopoverContent: View {
       .padding(Spacing.lg)
     }
     .frame(minWidth: layoutMode.isPhoneCompact ? nil : 300)
+    .task { await registry.refreshAll() }
   }
 
   // MARK: - Usage Section

@@ -86,6 +86,8 @@ struct ConversationView: View {
         entries: conversationStore.rowEntries,
         revision: conversationStore.rowEntriesRevision,
         isPinned: isPinned,
+        sessionId: sessionId,
+        clients: conversationStore.serverClients,
         onLoadMore: {
           serverState.loadOlderMessages(sessionId: sessionId, limit: pageSize)
         }

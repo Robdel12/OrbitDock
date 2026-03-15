@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
+use orbitdock_protocol::conversation_contracts::tool_display::compute_tool_display;
 use orbitdock_protocol::conversation_contracts::{
     ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
 };
@@ -252,6 +253,13 @@ pub(crate) fn load_messages_from_transcript(
                                         "tool_name": tool_name,
                                         "raw_output": tool_output,
                                     }));
+                                // Recompute tool_display with result data
+                                let input = tool_row.invocation.get("raw_input");
+                                tool_row.tool_display = Some(compute_tool_display(
+                                    tool_row.kind, tool_row.family, ToolStatus::Completed,
+                                    &tool_row.title, None, None, None,
+                                    input, Some(&tool_output),
+                                ));
                                 continue;
                             }
                         }
@@ -264,6 +272,10 @@ pub(crate) fn load_messages_from_transcript(
                     if let Some(id) = &tool_use_id {
                         tool_use_index.insert(id.clone(), row_index);
                     }
+                    let td = Some(compute_tool_display(
+                        ToolKind::Generic, ToolFamily::Generic, ToolStatus::Completed, "Tool",
+                        None, None, None, None, Some(&tool_output),
+                    ));
                     rows.push(ConversationRowEntry {
                         session_id: String::new(),
                         sequence,
@@ -290,7 +302,7 @@ pub(crate) fn load_messages_from_transcript(
                                 "raw_output": tool_output,
                             })),
                             render_hints: RenderHints::default(),
-                tool_display: None,
+                            tool_display: td,
                         }),
                     });
                     sequence += 1;
@@ -308,6 +320,10 @@ pub(crate) fn load_messages_from_transcript(
                     if let Some(id) = &tool_use_id {
                         tool_use_index.insert(id.clone(), row_index);
                     }
+                    let td = Some(compute_tool_display(
+                        kind, family, ToolStatus::Completed, &tool_name,
+                        None, None, None, tool_input.as_ref(), None,
+                    ));
                     rows.push(ConversationRowEntry {
                         session_id: String::new(),
                         sequence,
@@ -332,7 +348,7 @@ pub(crate) fn load_messages_from_transcript(
                             }),
                             result: None,
                             render_hints: RenderHints::default(),
-                tool_display: None,
+                            tool_display: td,
                         }),
                     });
                     sequence += 1;

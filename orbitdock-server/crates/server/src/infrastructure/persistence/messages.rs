@@ -133,6 +133,54 @@ pub(super) fn load_latest_completed_conversation_message_from_db(
     Ok(latest.map(|content| content.chars().take(200).collect()))
 }
 
+/// Load a single row by its id and session_id from the database.
+pub fn load_row_by_id(
+    conn: &Connection,
+    session_id: &str,
+    row_id: &str,
+) -> Result<Option<ConversationRowEntry>, anyhow::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, type, content, timestamp, sequence, row_data
+         FROM messages
+         WHERE session_id = ?1 AND id = ?2
+         LIMIT 1",
+    )?;
+
+    let entry = stmt
+        .query_map(params![session_id, row_id], |row| {
+            row_entry_from_db(row, session_id)
+        })?
+        .filter_map(|r| r.ok().flatten())
+        .next();
+
+    Ok(entry)
+}
+
+/// Load a single row by id asynchronously.
+pub async fn load_row_by_id_async(
+    session_id: &str,
+    row_id: &str,
+) -> Result<Option<ConversationRowEntry>, anyhow::Error> {
+    let db_path = crate::infrastructure::paths::db_path();
+    let session_id_owned = session_id.to_string();
+    let row_id_owned = row_id.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        if !db_path.exists() {
+            return Ok(None);
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        load_row_by_id(&conn, &session_id_owned, &row_id_owned)
+    })
+    .await?
+}
+
 /// Load rows for a session directly from the database.
 pub async fn load_messages_for_session(
     session_id: &str,

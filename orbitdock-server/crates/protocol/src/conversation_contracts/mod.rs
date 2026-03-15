@@ -19,6 +19,9 @@ pub use rows::{
     ConversationRowPage, HandoffRow, HookRow, MessageRowContent, PlanRow, SystemRow, ThinkingRow,
     ToolRow, UserRow,
 };
-pub use tool_display::{compute_tool_display, ToolDiffPreview, ToolDisplay, ToolTodoItem};
+pub use tool_display::{
+    compute_diff_display, compute_expanded_output, compute_input_display, compute_tool_display,
+    detect_language, ToolDiffPreview, ToolDisplay, ToolTodoItem,
+};
 pub use tool_payloads::{ToolInvocationPayloadContract, ToolPreview, ToolResultPayloadContract};
 pub use workers::WorkerRow;

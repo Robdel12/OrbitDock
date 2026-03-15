@@ -51,6 +51,10 @@ fn session_read_routes() -> Router<Arc<SessionRegistry>> {
             get(super::get_session_stats),
         )
         .route(
+            "/api/sessions/{session_id}/rows/{row_id}/content",
+            get(super::get_row_content),
+        )
+        .route(
             "/api/sessions/{session_id}/mark-read",
             post(super::mark_session_read),
         )

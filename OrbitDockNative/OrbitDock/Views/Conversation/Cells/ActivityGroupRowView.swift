@@ -10,6 +10,8 @@ import SwiftUI
 struct ActivityGroupRowView: View {
   let group: ServerConversationActivityGroupRow
   let isExpanded: Bool
+  var sessionId: String = ""
+  var clients: ServerClients?
 
   private var statusColor: Color {
     group.status == .completed ? .feedbackPositive : .accent
@@ -41,7 +43,7 @@ struct ActivityGroupRowView: View {
       if isExpanded {
         VStack(spacing: 0) {
           ForEach(group.children, id: \.id) { child in
-            ToolCardView(toolRow: child, isExpanded: false)
+            ToolCardView(toolRow: child, isExpanded: false, sessionId: sessionId, clients: clients)
           }
         }
         .padding(.leading, Spacing.lg)

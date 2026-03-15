@@ -81,8 +81,8 @@ pub use session_lifecycle::{
     update_session_config,
 };
 pub use sessions::{
-    get_conversation_bootstrap, get_conversation_history, get_session, get_session_stats,
-    list_sessions, mark_session_read, search_conversation_rows,
+    get_conversation_bootstrap, get_conversation_history, get_row_content, get_session,
+    get_session_stats, list_sessions, mark_session_read, search_conversation_rows,
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
 pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};

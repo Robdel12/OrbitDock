@@ -260,6 +260,7 @@ private struct SidebarUsageSection: View {
       .padding(.horizontal, Spacing.md)
       .padding(.bottom, Spacing.md)
     }
+    .task { await registry.refreshAll() }
   }
 
   private func sidebarProviderGauge(

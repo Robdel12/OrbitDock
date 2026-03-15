@@ -12,6 +12,8 @@ struct TimelineRowContent: View {
   let entry: ServerConversationRowEntry
   let isExpanded: Bool
   var availableWidth: CGFloat = 600
+  var sessionId: String = ""
+  var clients: ServerClients?
 
   /// Content width after horizontal padding
   private var contentWidth: CGFloat {
@@ -33,10 +35,10 @@ struct TimelineRowContent: View {
       ThinkingRowView(content: msg.content, isStreaming: msg.isStreaming, isExpanded: isExpanded, availableWidth: contentWidth)
 
     case let .tool(toolRow):
-      ToolCardView(toolRow: toolRow, isExpanded: isExpanded)
+      ToolCardView(toolRow: toolRow, isExpanded: isExpanded, sessionId: sessionId, clients: clients)
 
     case let .activityGroup(group):
-      ActivityGroupRowView(group: group, isExpanded: isExpanded)
+      ActivityGroupRowView(group: group, isExpanded: isExpanded, sessionId: sessionId, clients: clients)
 
     case let .approval(approval):
       ApprovalRowView(title: approval.title, subtitle: approval.subtitle, summary: approval.summary, isQuestion: false)

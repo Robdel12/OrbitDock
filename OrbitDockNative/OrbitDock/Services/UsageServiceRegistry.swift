@@ -12,8 +12,6 @@ final class UsageServiceRegistry {
   private(set) var claudeError: (any LocalizedError)?
   private(set) var codexError: (any LocalizedError)?
 
-  @ObservationIgnored private var refreshTask: Task<Void, Never>?
-
   init(runtimeRegistry: ServerRuntimeRegistry) {
     self.runtimeRegistry = runtimeRegistry
   }
@@ -60,8 +58,12 @@ final class UsageServiceRegistry {
       let response = try await clients.usage.fetchClaudeUsage()
       if let usage = response.usage {
         claudeWindows = claudeUsageToWindows(usage)
+        claudeError = nil
+      } else if let errorInfo = response.errorInfo {
+        claudeError = UsageFetchError(message: errorInfo.message)
+      } else {
+        claudeError = nil
       }
-      claudeError = nil
     } catch {
       claudeError = UsageFetchError(message: error.localizedDescription)
     }
@@ -73,29 +75,16 @@ final class UsageServiceRegistry {
       let response = try await clients.usage.fetchCodexUsage()
       if let usage = response.usage {
         codexWindows = codexUsageToWindows(usage)
+        codexError = nil
+      } else if let errorInfo = response.errorInfo {
+        codexError = UsageFetchError(message: errorInfo.message)
+      } else {
+        codexError = nil
       }
-      codexError = nil
     } catch {
       codexError = UsageFetchError(message: error.localizedDescription)
     }
     codexLoading = false
-  }
-
-  func start() {
-    refreshTask = Task {
-      await refreshAll()
-      // Refresh every 60 seconds
-      while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(60))
-        guard !Task.isCancelled else { break }
-        await refreshAll()
-      }
-    }
-  }
-
-  func stop() {
-    refreshTask?.cancel()
-    refreshTask = nil
   }
 
   // MARK: - Conversion

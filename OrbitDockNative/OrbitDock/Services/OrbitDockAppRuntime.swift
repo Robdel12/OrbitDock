@@ -56,6 +56,5 @@ final class OrbitDockAppRuntime {
   func startIfNeeded() async {
     notificationManager.startIfNeeded()
     await startupCoordinator.startIfNeeded()
-    usageServiceRegistry.start()
   }
 }
