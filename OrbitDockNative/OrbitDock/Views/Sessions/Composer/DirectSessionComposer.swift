@@ -322,7 +322,7 @@ struct DirectSessionComposer: View {
     }
 
     if hasAttachments {
-      AttachmentBar(images: attachedImagesBinding, mentions: attachedMentionsBinding)
+      AttachmentBar(images: attachedImagesBinding, mentions: attachedMentionsBinding, imageLoader: serverState.clients.imageLoader)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 

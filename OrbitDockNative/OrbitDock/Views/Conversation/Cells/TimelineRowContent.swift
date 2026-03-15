@@ -28,6 +28,10 @@ struct TimelineRowContent: View {
     return false
   }
 
+  private var imageLoader: ImageLoader? {
+    clients?.imageLoader
+  }
+
   var body: some View {
     cellContent
       .frame(maxWidth: .infinity, alignment: isUserRow ? .trailing : .leading)
@@ -38,13 +42,28 @@ struct TimelineRowContent: View {
   private var cellContent: some View {
     switch entry.row {
     case let .user(msg):
-      MessageRowView(role: .user, content: msg.content, images: msg.images, isStreaming: msg.isStreaming, availableWidth: innerWidth)
+      MessageRowView(
+        role: .user, content: msg.content,
+        images: convertImages(msg.images),
+        isStreaming: msg.isStreaming, availableWidth: innerWidth,
+        imageLoader: imageLoader
+      )
 
     case let .assistant(msg):
-      MessageRowView(role: .assistant, content: msg.content, images: msg.images, isStreaming: msg.isStreaming, availableWidth: innerWidth)
+      MessageRowView(
+        role: .assistant, content: msg.content,
+        images: convertImages(msg.images),
+        isStreaming: msg.isStreaming, availableWidth: innerWidth,
+        imageLoader: imageLoader
+      )
 
     case let .system(msg):
-      MessageRowView(role: .system, content: msg.content, images: msg.images, isStreaming: msg.isStreaming, availableWidth: innerWidth)
+      MessageRowView(
+        role: .system, content: msg.content,
+        images: convertImages(msg.images),
+        isStreaming: msg.isStreaming, availableWidth: innerWidth,
+        imageLoader: imageLoader
+      )
 
     case let .thinking(msg):
       ThinkingRowView(content: msg.content, isStreaming: msg.isStreaming, isExpanded: isExpanded, availableWidth: innerWidth)
@@ -73,5 +92,16 @@ struct TimelineRowContent: View {
     case let .handoff(handoff):
       WorkerRowView(icon: "arrow.triangle.branch", iconColor: .accent, title: handoff.title, subtitle: handoff.subtitle)
     }
+  }
+
+  // MARK: - Image Conversion Boundary
+
+  private func convertImages(_ serverImages: [ServerImageInput]?) -> [MessageImage] {
+    guard let serverImages, !serverImages.isEmpty else { return [] }
+    let result = serverImages.enumerated().compactMap { index, input in
+      input.toMessageImage(index: index, sessionId: sessionId)
+    }
+    print("[OrbitDock][Images] convertImages: \(serverImages.count) server inputs → \(result.count) MessageImages (types: \(serverImages.map(\.inputType)))")
+    return result
   }
 }

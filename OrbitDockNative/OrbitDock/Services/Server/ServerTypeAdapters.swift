@@ -504,28 +504,34 @@ private func prettyJSONString(from value: Any) -> String? {
 
 // MARK: - Image Conversion (Lazy — no Data loaded at decode time)
 
-private func convertServerImage(
-  _ input: ServerImageInput,
-  index: Int,
-  endpointId: UUID?,
-  sessionId: String
-) -> MessageImage? {
-  let imageId = "\(input.inputType):\(input.value):\(index)"
-  return switch input.inputType {
+extension ServerImageInput {
+  func toMessageImage(index: Int, endpointId: UUID? = nil, sessionId: String) -> MessageImage? {
+    let imageId = "\(inputType):\(value):\(index)"
+    return switch inputType {
     case "url":
-      messageImageFromDataURI(input, imageId: imageId)
+      messageImageFromDataURI(self, imageId: imageId)
     case "path":
-      messageImageFromPath(input, imageId: imageId)
+      messageImageFromPath(self, imageId: imageId)
     case "attachment":
       messageImageFromAttachment(
-        input,
+        self,
         imageId: imageId,
         endpointId: endpointId,
         sessionId: sessionId
       )
     default:
       nil
+    }
   }
+}
+
+private func convertServerImage(
+  _ input: ServerImageInput,
+  index: Int,
+  endpointId: UUID?,
+  sessionId: String
+) -> MessageImage? {
+  input.toMessageImage(index: index, endpointId: endpointId, sessionId: sessionId)
 }
 
 private func messageImageFromPath(_ input: ServerImageInput, imageId: String) -> MessageImage? {

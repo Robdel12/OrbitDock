@@ -185,7 +185,12 @@ import SwiftUI
       let width = max(320, tableColumn.width)
       let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), availableWidth: width, sessionId: sessionId, clients: clients)
       measurementController.rootView = content
-      return measurementController.sizeThatFits(in: CGSize(width: width, height: .greatestFiniteMagnitude)).height
+      let measured = measurementController.sizeThatFits(in: CGSize(width: width, height: 100_000)).height
+      // Guard against infinity/NaN from unconstrained SwiftUI layout
+      if measured.isInfinite || measured.isNaN || measured > 50_000 {
+        return 44 // fallback minimum
+      }
+      return max(1, measured)
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -244,6 +249,7 @@ import SwiftUI
 
     override func viewDidLayout() {
       super.viewDidLayout()
+      print("[Timeline viewDidLayout] view=\(view.bounds.width) scrollView=\(scrollView.bounds.width) contentSize=\(scrollView.contentSize.width) column=\(tableColumn.width)")
       let width = tableColumn.width
       guard abs(width - lastMeasuredWidth) > 1 else { return }
       lastMeasuredWidth = width
@@ -314,7 +320,11 @@ import SwiftUI
     }
 
     private func updateColumnWidth() {
-      let targetWidth = max(320, scrollView.contentSize.width)
+      let boundsW = scrollView.bounds.width
+      let contentW = scrollView.contentSize.width
+      let clipW = scrollView.contentView.bounds.width
+      print("[Timeline] scrollView.bounds=\(boundsW) contentSize=\(contentW) clipView=\(clipW) column=\(tableColumn.width) diff=\(boundsW - contentW)")
+      let targetWidth = max(320, contentW)
       guard abs(tableColumn.width - targetWidth) > 1 else { return }
       tableColumn.width = targetWidth
     }

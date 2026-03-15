@@ -17,6 +17,7 @@ final class ServerClients: Sendable {
   let conversation: ConversationClient
   let approvals: ApprovalsClient
   let worktrees: WorktreesClient
+  let imageLoader: ImageLoader
 
   convenience init(serverURL: URL, authToken: String?) {
     let baseURL = ServerURLResolver.httpBaseURL(from: serverURL)
@@ -66,6 +67,7 @@ final class ServerClients: Sendable {
     self.conversation = ConversationClient(http: http, requestBuilder: requestBuilder)
     self.approvals = ApprovalsClient(http: http, requestBuilder: requestBuilder)
     self.worktrees = WorktreesClient(http: http, requestBuilder: requestBuilder)
+    self.imageLoader = ImageLoader(conversationClient: self.conversation)
     netLog(.info, cat: .api, "Initialized", data: ["baseURL": self.baseURL.absoluteString])
   }
 }

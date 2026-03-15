@@ -136,8 +136,8 @@ struct ToolCardView: View {
         .font(.system(size: 8, weight: .bold))
         .foregroundStyle(Color.textQuaternary)
     }
-    .padding(.leading, Spacing.md)
-    .padding(.trailing, Spacing.sm)
+    .padding(.leading, Spacing.md + EdgeBar.width)
+    .padding(.trailing, Spacing.md)
     .padding(.vertical, Spacing.sm_)
   }
 
@@ -319,7 +319,7 @@ struct ToolCardView: View {
         Text(input.hasPrefix("$ ") ? String(input.dropFirst(2)) : input)
           .font(.system(size: TypeScale.code, design: .monospaced))
           .foregroundStyle(Color.textPrimary)
-          .fixedSize(horizontal: false, vertical: true)
+          // text wraps naturally — no fixedSize (causes infinity height in NSHostingController.sizeThatFits)
       }
       .padding(Spacing.sm)
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -341,7 +341,7 @@ struct ToolCardView: View {
         Text(output)
           .font(.system(size: TypeScale.code, design: .monospaced))
           .foregroundStyle(isFailed ? Color.feedbackNegative.opacity(0.8) : Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
+          // text wraps naturally — no fixedSize (causes infinity height in NSHostingController.sizeThatFits)
           .padding(Spacing.sm)
           .frame(maxWidth: .infinity, alignment: .leading)
           .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
@@ -563,7 +563,7 @@ struct ToolCardView: View {
         Text(input)
           .font(.system(size: TypeScale.body))
           .foregroundStyle(Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
+          // text wraps naturally — no fixedSize (causes infinity height in NSHostingController.sizeThatFits)
           .padding(Spacing.sm)
           .frame(maxWidth: .infinity, alignment: .leading)
           .background(Color.toolTask.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.sm))
@@ -628,7 +628,7 @@ struct ToolCardView: View {
         Text(input)
           .font(.system(size: TypeScale.body))
           .foregroundStyle(Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
+          // text wraps naturally — no fixedSize (causes infinity height in NSHostingController.sizeThatFits)
           .padding(Spacing.sm)
           .frame(maxWidth: .infinity, alignment: .leading)
           .background(Color.toolPlan.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.sm))
@@ -688,7 +688,7 @@ struct ToolCardView: View {
         Text(input)
           .font(.system(size: TypeScale.body))
           .foregroundStyle(Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
+          // text wraps naturally — no fixedSize (causes infinity height in NSHostingController.sizeThatFits)
           .padding(Spacing.sm)
           .frame(maxWidth: .infinity, alignment: .leading)
           .background(Color.toolQuestion.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.sm))
@@ -747,7 +747,7 @@ struct ToolCardView: View {
         Text(input)
           .font(.system(size: TypeScale.body))
           .foregroundStyle(Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
+          // text wraps naturally — no fixedSize (causes infinity height in NSHostingController.sizeThatFits)
       }
     }
     if let output = c.outputDisplay, !output.isEmpty {
@@ -802,7 +802,7 @@ struct ToolCardView: View {
       Text(text)
         .font(.system(size: TypeScale.code, design: .monospaced))
         .foregroundStyle(Color.textSecondary)
-        .fixedSize(horizontal: false, vertical: true)
+        // text wraps naturally — no fixedSize (causes infinity height in NSHostingController.sizeThatFits)
         .padding(Spacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))

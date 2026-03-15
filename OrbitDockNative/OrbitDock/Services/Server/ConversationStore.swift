@@ -402,7 +402,7 @@ final class ConversationStore {
       outputTokens: incoming.outputTokens ?? existing.outputTokens,
       isError: incoming.isError,
       isInProgress: incoming.isInProgress,
-      images: incoming.images.isEmpty ? existing.images : incoming.images,
+      images: incoming.images,
       thinking: incoming.thinking ?? existing.thinking,
       serverToolFamily: incoming.serverToolFamily ?? existing.serverToolFamily,
       toolDisplay: incoming.toolDisplay ?? existing.toolDisplay

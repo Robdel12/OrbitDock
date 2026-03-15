@@ -11,11 +11,10 @@ import SwiftUI
 struct MessageRowView: View {
   let role: Role
   let content: String
-  let images: [ServerImageInput]?
+  let images: [MessageImage]
   let isStreaming: Bool
   let availableWidth: CGFloat
-
-  @State private var fullscreenImageIndex: Int?
+  let imageLoader: ImageLoader?
 
   enum Role: String {
     case user, assistant, system
@@ -56,7 +55,13 @@ struct MessageRowView: View {
         .font(.system(size: TypeScale.chatLabel, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
 
-      imageGrid(maxWidth: bubbleContentWidth)
+      if let imageLoader, !images.isEmpty {
+        MessageImageView(
+          images: images,
+          imageLoader: imageLoader,
+          maxWidth: bubbleContentWidth
+        )
+      }
 
       if !content.isEmpty {
         MarkdownContentRepresentable(
@@ -87,7 +92,13 @@ struct MessageRowView: View {
         .font(.system(size: TypeScale.chatLabel, weight: .semibold))
         .foregroundStyle(Color.accent)
 
-      imageGrid(maxWidth: availableWidth)
+      if let imageLoader, !images.isEmpty {
+        MessageImageView(
+          images: images,
+          imageLoader: imageLoader,
+          maxWidth: availableWidth
+        )
+      }
 
       if !content.isEmpty {
         MarkdownContentRepresentable(
@@ -116,123 +127,9 @@ struct MessageRowView: View {
         Text(content)
           .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.textQuaternary)
-          .fixedSize(horizontal: false, vertical: true)
       }
     }
     .padding(.vertical, Spacing.xs)
     .frame(maxWidth: .infinity, alignment: .leading)
   }
-
-  // MARK: - Image Grid
-
-  @ViewBuilder
-  private func imageGrid(maxWidth: CGFloat) -> some View {
-    let resolved = resolvedImages
-    if !resolved.isEmpty {
-      let columns = resolved.count == 1
-        ? [GridItem(.flexible())]
-        : [GridItem(.flexible()), GridItem(.flexible())]
-
-      LazyVGrid(columns: columns, spacing: Spacing.sm) {
-        ForEach(Array(resolved.enumerated()), id: \.offset) { index, entry in
-          MessageImageThumbnail(image: entry.image)
-            .onTapGesture { fullscreenImageIndex = index }
-        }
-      }
-      .frame(maxWidth: maxWidth)
-      .sheet(item: $fullscreenImageIndex) { index in
-        ImageFullscreen(
-          images: resolved.map { toMessageImage($0) },
-          currentIndex: index
-        )
-      }
-    }
-  }
-
-  private struct ResolvedImage {
-    let input: ServerImageInput
-    let platformImage: PlatformImage
-
-    var image: PlatformImage { platformImage }
-  }
-
-  private var resolvedImages: [ResolvedImage] {
-    guard let images, !images.isEmpty else { return [] }
-    return images.compactMap { input in
-      guard let img = loadPlatformImage(from: input) else { return nil }
-      return ResolvedImage(input: input, platformImage: img)
-    }
-  }
-
-  private func toMessageImage(_ resolved: ResolvedImage) -> MessageImage {
-    let input = resolved.input
-    let source: MessageImage.Source = switch input.inputType {
-    case "path": .filePath(input.value)
-    case "url": .dataURI(input.value)
-    default: .filePath(input.value)
-    }
-    return MessageImage(
-      source: source,
-      mimeType: input.mimeType ?? "image/png",
-      byteCount: input.byteCount ?? 0,
-      pixelWidth: input.pixelWidth,
-      pixelHeight: input.pixelHeight
-    )
-  }
-}
-
-// MARK: - Thumbnail View
-
-private struct MessageImageThumbnail: View {
-  let image: PlatformImage
-
-  private let maxHeight: CGFloat = 240
-
-  var body: some View {
-    #if os(macOS)
-      let img = Image(nsImage: image)
-    #else
-      let img = Image(uiImage: image)
-    #endif
-
-    img
-      .resizable()
-      .aspectRatio(contentMode: .fit)
-      .frame(maxHeight: maxHeight)
-      .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-          .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-      )
-      .contentShape(Rectangle())
-  }
-}
-
-// MARK: - Image Loading
-
-private func loadPlatformImage(from input: ServerImageInput) -> PlatformImage? {
-  switch input.inputType {
-  case "path":
-    #if os(macOS)
-      return NSImage(contentsOfFile: input.value)
-    #else
-      return UIImage(contentsOfFile: input.value)
-    #endif
-  case "url":
-    guard input.value.hasPrefix("data:"),
-          let commaIndex = input.value.firstIndex(of: ","),
-          let data = Data(base64Encoded: String(input.value[input.value.index(after: commaIndex)...]))
-    else { return nil }
-    #if os(macOS)
-      return NSImage(data: data)
-    #else
-      return UIImage(data: data)
-    #endif
-  default:
-    return nil
-  }
-}
-
-extension Int: @retroactive Identifiable {
-  public var id: Int { self }
 }

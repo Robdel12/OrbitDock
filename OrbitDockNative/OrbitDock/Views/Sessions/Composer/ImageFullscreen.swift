@@ -2,15 +2,18 @@
 //  ImageFullscreen.swift
 //  OrbitDock
 //
-//  Fullscreen image viewer for attachment previews.
+//  Fullscreen image viewer — uses ImageLoader for all source types.
 //
 
 import SwiftUI
 
 struct ImageFullscreen: View {
   let images: [MessageImage]
+  let imageLoader: ImageLoader
   @State var currentIndex: Int
   @Environment(\.dismiss) private var dismiss
+
+  @State private var loadedImages: [String: PlatformImage] = [:]
 
   private var currentImage: MessageImage {
     images[currentIndex]
@@ -20,13 +23,8 @@ struct ImageFullscreen: View {
     ZStack {
       Color.black.ignoresSafeArea()
 
-      if let platformImage = loadImage(currentImage) {
-        #if os(macOS)
-          let img = Image(nsImage: platformImage)
-        #else
-          let img = Image(uiImage: platformImage)
-        #endif
-        img
+      if let platformImage = loadedImages[currentImage.id] {
+        platformImageView(platformImage)
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -95,34 +93,24 @@ struct ImageFullscreen: View {
       }
     }
     .frame(minWidth: 400, minHeight: 300)
+    .task(id: currentImage.id) {
+      await loadCurrent()
+    }
   }
 
-  private func loadImage(_ image: MessageImage) -> PlatformImage? {
-    switch image.source {
-    case let .filePath(path):
-      #if os(macOS)
-        return NSImage(contentsOfFile: path)
-      #else
-        return UIImage(contentsOfFile: path)
-      #endif
-    case let .inlineData(data):
-      #if os(macOS)
-        return NSImage(data: data)
-      #else
-        return UIImage(data: data)
-      #endif
-    case let .dataURI(uri):
-      guard let commaIndex = uri.firstIndex(of: ","),
-            let data = Data(base64Encoded: String(uri[uri.index(after: commaIndex)...]))
-      else { return nil }
-      #if os(macOS)
-        return NSImage(data: data)
-      #else
-        return UIImage(data: data)
-      #endif
-    case .serverAttachment:
-      // TODO: Load via Kingfisher when added
-      return nil
+  private func loadCurrent() async {
+    let image = currentImage
+    guard loadedImages[image.id] == nil else { return }
+    if let loaded = await imageLoader.load(image) {
+      loadedImages[image.id] = loaded
     }
+  }
+
+  private func platformImageView(_ image: PlatformImage) -> Image {
+    #if os(macOS)
+      Image(nsImage: image)
+    #else
+      Image(uiImage: image)
+    #endif
   }
 }

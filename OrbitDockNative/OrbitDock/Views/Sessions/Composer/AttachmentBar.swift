@@ -30,6 +30,7 @@ struct AttachedMention: Identifiable, Equatable {
 struct AttachmentBar: View {
   @Binding var images: [AttachedImage]
   @Binding var mentions: [AttachedMention]
+  let imageLoader: ImageLoader
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var previewSelection: AttachmentPreviewSelection?
 
@@ -97,6 +98,7 @@ struct AttachmentBar: View {
     .sheet(item: $previewSelection) { selection in
       ImageFullscreen(
         images: previewImages,
+        imageLoader: imageLoader,
         currentIndex: selection.index
       )
     }
