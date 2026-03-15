@@ -122,6 +122,7 @@ import SwiftUI
       scrollView.translatesAutoresizingMaskIntoConstraints = false
       scrollView.drawsBackground = false
       scrollView.hasVerticalScroller = true
+      scrollView.hasHorizontalScroller = false
       scrollView.autohidesScrollers = true
       view.addSubview(scrollView)
 
@@ -185,12 +186,12 @@ import SwiftUI
       let width = max(320, tableColumn.width)
       let content = TimelineRowContent(entry: entry, isExpanded: isRowExpanded(entry), availableWidth: width, sessionId: sessionId, clients: clients)
       measurementController.rootView = content
-      let measured = measurementController.sizeThatFits(in: CGSize(width: width, height: 100_000)).height
+      let measured = measurementController.sizeThatFits(in: CGSize(width: width, height: 10_000)).height
       // Guard against infinity/NaN from unconstrained SwiftUI layout
-      if measured.isInfinite || measured.isNaN || measured > 50_000 {
-        return 44 // fallback minimum
+      if measured.isInfinite || measured.isNaN || measured > 10_000 {
+        return 44
       }
-      return max(1, measured)
+      return max(1, min(measured, 10_000))
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
@@ -249,7 +250,6 @@ import SwiftUI
 
     override func viewDidLayout() {
       super.viewDidLayout()
-      print("[Timeline viewDidLayout] view=\(view.bounds.width) scrollView=\(scrollView.bounds.width) contentSize=\(scrollView.contentSize.width) column=\(tableColumn.width)")
       let width = tableColumn.width
       guard abs(width - lastMeasuredWidth) > 1 else { return }
       lastMeasuredWidth = width
@@ -320,11 +320,7 @@ import SwiftUI
     }
 
     private func updateColumnWidth() {
-      let boundsW = scrollView.bounds.width
-      let contentW = scrollView.contentSize.width
-      let clipW = scrollView.contentView.bounds.width
-      print("[Timeline] scrollView.bounds=\(boundsW) contentSize=\(contentW) clipView=\(clipW) column=\(tableColumn.width) diff=\(boundsW - contentW)")
-      let targetWidth = max(320, contentW)
+      let targetWidth = max(320, scrollView.contentSize.width)
       guard abs(tableColumn.width - targetWidth) > 1 else { return }
       tableColumn.width = targetWidth
     }
