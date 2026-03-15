@@ -95,9 +95,11 @@ import SwiftUI
       hostingView = NSHostingView(rootView: rootView)
       super.init(frame: .zero)
 
-      // Only report intrinsic content size (for height). Remove .minSize so the
-      // hosting view can be compressed to the column width for wide content.
-      hostingView.sizingOptions = [.intrinsicContentSize]
+      // No intrinsic content size — width comes from the column, height from
+      // manual heightOfRow. Without this, NSHostingView reports its ideal width
+      // as intrinsic content size, which pushes the column wider than the scroll view.
+      hostingView.sizingOptions = []
+      hostingView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
       hostingView.translatesAutoresizingMaskIntoConstraints = false
       addSubview(hostingView)
 
@@ -149,7 +151,9 @@ import SwiftUI
       scrollView.autohidesScrollers = true
       view.addSubview(scrollView)
 
+      tableColumn.resizingMask = [] // Prevent user and auto resize
       tableView.addTableColumn(tableColumn)
+      tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
       tableView.headerView = nil
       tableView.backgroundColor = .clear
       tableView.intercellSpacing = .zero
@@ -171,6 +175,10 @@ import SwiftUI
       NotificationCenter.default.addObserver(
         self, selector: #selector(userDidScroll(_:)),
         name: NSScrollView.willStartLiveScrollNotification, object: scrollView
+      )
+      NotificationCenter.default.addObserver(
+        self, selector: #selector(userDidEndScroll(_:)),
+        name: NSScrollView.didEndLiveScrollNotification, object: scrollView
       )
 
       NSLog("🔧 TIMELINE INIT hasHScroller=\(scrollView.hasHorizontalScroller) hElasticity=\(scrollView.horizontalScrollElasticity.rawValue) autoRowH=\(tableView.usesAutomaticRowHeights)")
@@ -256,6 +264,11 @@ import SwiftUI
       let rowId = entry.id
       let width = max(320, tableColumn.width)
 
+      // During init, scrollView.contentSize.width is 0 so width clamps to 320.
+      // All heights at 320px will be wrong. Return a placeholder —
+      // viewDidLayout will re-measure at the correct width.
+      guard width > 321 else { return 44 }
+
       // Skip cache for streaming rows (content changes every push)
       let isStreaming: Bool
       switch entry.row {
@@ -299,6 +312,13 @@ import SwiftUI
 
     @objc private func userDidScroll(_ notification: Notification) {
       viewport.userDidScroll(scrollView: scrollView)
+    }
+
+    @objc private func userDidEndScroll(_ notification: Notification) {
+      // Trigger pagination when user scrolls near the top
+      let visibleRange = tableView.rows(in: scrollView.contentView.documentVisibleRect)
+      guard visibleRange.location <= 3, let onLoadMore else { return }
+      onLoadMore()
     }
 
     // MARK: - Helpers
@@ -398,6 +418,8 @@ import SwiftUI
       guard abs(tableColumn.width - targetWidth) > 1 else { return }
       NSLog("📐 COL WIDTH \(Int(tableColumn.width)) -> \(Int(targetWidth)) scrollContent=\(Int(scrollView.contentSize.width)) viewBounds=\(Int(view.bounds.width))")
       tableColumn.width = targetWidth
+      tableColumn.maxWidth = targetWidth
+      tableView.sizeLastColumnToFit()
     }
 
     private static func rowTypeName(_ row: ServerConversationRow) -> String {

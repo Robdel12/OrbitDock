@@ -205,8 +205,8 @@ enum TimelineRowMeasurement {
 
     if rowState.isExpanded(group.id) {
       total += Spacing.xs // .padding(.top, Spacing.xs)
-      for child in group.children {
-        total += Spacing.xxs // VStack spacing
+      for (index, child) in group.children.enumerated() {
+        if index > 0 { total += Spacing.xxs } // VStack spacing: N-1 gaps, not N
         total += toolCardHeight(child, isExpanded: rowState.isExpanded(child.id),
                                 fetchedContent: rowState.content(for: child.id))
       }

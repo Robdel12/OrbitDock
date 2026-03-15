@@ -60,12 +60,22 @@ struct OrbitDockWindowRoot: View {
         provider: router.newSessionProvider,
         continuation: router.newSessionContinuation
       )
+      .environment(creationStore())
+      .environment(appRuntime.runtimeRegistry)
+      .environment(router)
       .environment(appStore)
       #if os(iOS)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
       #endif
     }
+  }
+
+  private func creationStore() -> SessionStore {
+    let fallback = appRuntime.runtimeRegistry.activeSessionStore
+    let preferredEndpointId = router.selectedEndpointId ?? router.selectedSessionRef?.endpointId
+    let primaryStore = appRuntime.runtimeRegistry.primarySessionStore(fallback: fallback)
+    return appRuntime.runtimeRegistry.sessionStore(for: preferredEndpointId, fallback: primaryStore)
   }
 
   private func detailSessionStore(for endpointId: UUID) -> SessionStore {
