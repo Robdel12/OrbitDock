@@ -85,7 +85,7 @@ struct ConversationView: View {
       TimelineRepresentable(
         entries: conversationStore.rowEntries,
         revision: conversationStore.rowEntriesRevision,
-        isPinned: isPinned,
+        isPinned: $isPinned,
         sessionId: sessionId,
         clients: conversationStore.serverClients,
         onLoadMore: {

@@ -16,7 +16,7 @@ import SwiftUI
   struct TimelineRepresentable: NSViewControllerRepresentable {
     let entries: [ServerConversationRowEntry]
     let revision: Int
-    let isPinned: Bool
+    @Binding var isPinned: Bool
     let sessionId: String
     let clients: ServerClients
     let onLoadMore: (() -> Void)?
@@ -26,6 +26,9 @@ import SwiftUI
       controller.onLoadMore = onLoadMore
       controller.sessionId = sessionId
       controller.clients = clients
+      controller.onPinnedStateChanged = { [self] pinned in
+        self.isPinned = pinned
+      }
       controller.apply(entries: entries, isPinned: isPinned)
       return controller
     }
@@ -34,6 +37,9 @@ import SwiftUI
       controller.onLoadMore = onLoadMore
       controller.sessionId = sessionId
       controller.clients = clients
+      controller.onPinnedStateChanged = { [self] pinned in
+        self.isPinned = pinned
+      }
       controller.apply(entries: entries, isPinned: isPinned)
     }
   }
@@ -44,7 +50,7 @@ import SwiftUI
   struct TimelineRepresentable: UIViewControllerRepresentable {
     let entries: [ServerConversationRowEntry]
     let revision: Int
-    let isPinned: Bool
+    @Binding var isPinned: Bool
     let sessionId: String
     let clients: ServerClients
     let onLoadMore: (() -> Void)?
@@ -72,6 +78,7 @@ import SwiftUI
 #if os(macOS)
   final class TimelineViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     var onLoadMore: (() -> Void)?
+    var onPinnedStateChanged: ((Bool) -> Void)?
     var sessionId: String = ""
     var clients: ServerClients?
 
@@ -235,6 +242,7 @@ import SwiftUI
       let isAtBottom = clipView.bounds.origin.y >= max(0, maxY - 8)
       isPinnedToBottom = isAtBottom
       userHasScrolledAway = !isAtBottom
+      onPinnedStateChanged?(isAtBottom)
     }
 
     // MARK: - Helpers
