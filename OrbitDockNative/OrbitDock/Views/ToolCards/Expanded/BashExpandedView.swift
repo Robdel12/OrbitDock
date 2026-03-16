@@ -3,7 +3,7 @@
 //  OrbitDock
 //
 //  Terminal emulator feel for bash tool output.
-//  Features: slim terminal chrome header, ANSI color parsing, output truncation, exit status.
+//  Features: slim terminal chrome, ANSI color parsing, scrollable capped output, exit status.
 //
 
 import SwiftUI
@@ -12,12 +12,12 @@ struct BashExpandedView: View {
   let content: ServerRowContent
   let isFailed: Bool
 
-  @State private var showAllOutput = false
+  @State private var isFullyExpanded = false
 
-  /// Max lines shown before truncation
-  private let truncationThreshold = 50
-  /// Lines shown when truncated
-  private let truncatedLineCount = 30
+  /// Height cap for the output viewport
+  private let maxOutputHeight: CGFloat = 350
+  /// Line count threshold — outputs shorter than this render inline
+  private let inlineThreshold = 25
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -44,15 +44,12 @@ struct BashExpandedView: View {
       }
 
       if let output = content.outputDisplay, !output.isEmpty {
-        let allLines = output.components(separatedBy: "\n")
-        let lineCount = allLines.count
-        let shouldTruncate = lineCount > truncationThreshold && !showAllOutput
-        let displayOutput = shouldTruncate
-          ? allLines.prefix(truncatedLineCount).joined(separator: "\n")
-          : output
+        let lineCount = output.components(separatedBy: "\n").count
+        let parsed = ANSIColorParser.parse(output)
+        let useViewport = lineCount > inlineThreshold && !isFullyExpanded
 
         VStack(alignment: .leading, spacing: Spacing.xs) {
-          // Output header: label + line count badge + exit code pill
+          // Output header
           HStack(spacing: Spacing.sm) {
             Text("Output")
               .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -60,7 +57,6 @@ struct BashExpandedView: View {
 
             Spacer()
 
-            // Line count badge
             Text("\(lineCount) lines")
               .font(.system(size: TypeScale.mini, design: .monospaced))
               .foregroundStyle(Color.textQuaternary)
@@ -72,39 +68,108 @@ struct BashExpandedView: View {
           }
           .padding(.top, Spacing.sm)
 
-          // ANSI-parsed output
-          VStack(alignment: .leading, spacing: 0) {
-            let parsed = ANSIColorParser.parse(displayOutput)
-            Text(parsed)
-              .padding(Spacing.sm)
-              .frame(maxWidth: .infinity, alignment: .leading)
-
-            // "Show all N lines" button when truncated
-            if shouldTruncate {
-              Button {
-                withAnimation(Motion.standard) {
-                  showAllOutput = true
-                }
-              } label: {
-                Text("Show all \(lineCount) lines")
-                  .font(.system(size: TypeScale.caption))
-                  .foregroundStyle(Color.accent)
+          // Output content — viewport or inline
+          if useViewport {
+            // Scrollable capped viewport
+            VStack(spacing: 0) {
+              ScrollView(.vertical, showsIndicators: false) {
+                Text(parsed)
+                  .padding(Spacing.sm)
+                  .frame(maxWidth: .infinity, alignment: .leading)
               }
-              .buttonStyle(.plain)
+              .frame(maxHeight: maxOutputHeight)
+              .mask(edgeFadeMask)
+
+              // Footer
+              HStack {
+                Text("\(lineCount) lines")
+                  .font(.system(size: TypeScale.mini, design: .monospaced))
+                  .foregroundStyle(Color.textQuaternary)
+                Spacer()
+                Button {
+                  withAnimation(Motion.standard) {
+                    isFullyExpanded = true
+                  }
+                } label: {
+                  HStack(spacing: Spacing.xs) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                      .font(.system(size: 8))
+                    Text("Expand to full")
+                      .font(.system(size: TypeScale.mini, weight: .medium))
+                  }
+                  .foregroundStyle(Color.toolBash)
+                }
+                .buttonStyle(.plain)
+              }
               .padding(.horizontal, Spacing.sm)
-              .padding(.bottom, Spacing.sm)
+              .padding(.vertical, Spacing.sm_)
+              .overlay(alignment: .top) {
+                Rectangle()
+                  .fill(Color.textQuaternary.opacity(0.06))
+                  .frame(height: 1)
+              }
             }
+            .background(
+              isFailed
+                ? Color.feedbackNegative.opacity(OpacityTier.tint)
+                : Color.backgroundCode,
+              in: RoundedRectangle(cornerRadius: Radius.sm)
+            )
+          } else {
+            // Inline (small output or fully expanded)
+            VStack(alignment: .leading, spacing: 0) {
+              Text(parsed)
+                .padding(Spacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+              if lineCount > inlineThreshold {
+                // Collapse button
+                HStack {
+                  Spacer()
+                  Button {
+                    withAnimation(Motion.standard) {
+                      isFullyExpanded = false
+                    }
+                  } label: {
+                    HStack(spacing: Spacing.xs) {
+                      Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 8))
+                      Text("Collapse to viewport")
+                        .font(.system(size: TypeScale.mini, weight: .medium))
+                    }
+                    .foregroundStyle(Color.toolBash)
+                  }
+                  .buttonStyle(.plain)
+                }
+                .padding(.horizontal, Spacing.sm)
+                .padding(.bottom, Spacing.sm)
+              }
+            }
+            .background(
+              isFailed
+                ? Color.feedbackNegative.opacity(OpacityTier.tint)
+                : Color.backgroundCode,
+              in: RoundedRectangle(cornerRadius: Radius.sm)
+            )
           }
-          .background(
-            isFailed
-              ? Color.feedbackNegative.opacity(OpacityTier.tint)
-              : Color.backgroundCode,
-            in: RoundedRectangle(cornerRadius: Radius.sm)
-          )
         }
       }
     }
   }
+
+  // MARK: - Edge Fade Mask
+
+  private var edgeFadeMask: some View {
+    VStack(spacing: 0) {
+      LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+        .frame(height: 10)
+      Color.black
+      LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+        .frame(height: 10)
+    }
+  }
+
+  // MARK: - Exit Code
 
   private func exitCodePill(code: Int) -> some View {
     let color: Color = code == 0 ? .feedbackPositive : .feedbackNegative

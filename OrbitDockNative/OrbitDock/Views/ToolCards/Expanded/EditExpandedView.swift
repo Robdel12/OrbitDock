@@ -110,7 +110,7 @@ struct EditExpandedView: View {
       }
 
       if let output = content.outputDisplay, !output.isEmpty {
-        codeBlock(label: "Result", text: output)
+        resultIndicator(output)
       }
     }
   }
@@ -130,20 +130,12 @@ struct EditExpandedView: View {
     let gutter = gutterWidth(for: maxLine)
 
     VStack(alignment: .leading, spacing: Spacing.xs) {
-      // Header: Changes label + language badge + stats bar
+      // Header: Changes label + stats bar (language already in FileTabHeader)
       HStack {
         Text("Changes")
           .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.textTertiary)
         Spacer()
-        if let lang, !lang.isEmpty {
-          Text(lang)
-            .font(.system(size: TypeScale.mini, weight: .semibold))
-            .foregroundStyle(Color.textQuaternary)
-            .padding(.horizontal, Spacing.sm_)
-            .padding(.vertical, Spacing.xxs)
-            .background(Color.backgroundSecondary, in: Capsule())
-        }
         DiffStatsBar(additions: adds, deletions: dels)
       }
 
@@ -263,20 +255,27 @@ struct EditExpandedView: View {
     }
   }
 
-  // MARK: - Code Block
+  // MARK: - Result Indicator
 
-  private func codeBlock(label: String, text: String) -> some View {
-    VStack(alignment: .leading, spacing: Spacing.xs) {
-      Text(label)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-        .foregroundStyle(Color.textTertiary)
-      Text(text)
-        .font(.system(size: TypeScale.code, design: .monospaced))
-        .foregroundStyle(Color.textSecondary)
-        .padding(Spacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
+  /// Compact success/error indicator instead of a full code block.
+  /// "The file X has been updated successfully." → compact green checkmark strip.
+  @ViewBuilder
+  private func resultIndicator(_ text: String) -> some View {
+    let isError = text.lowercased().contains("error")
+      || text.lowercased().contains("failed")
+      || text.lowercased().contains("not found")
+
+    HStack(spacing: Spacing.sm_) {
+      Image(systemName: isError ? "xmark.circle.fill" : "checkmark.circle.fill")
+        .font(.system(size: IconScale.sm))
+        .foregroundStyle(isError ? Color.feedbackNegative : Color.feedbackPositive)
+
+      Text(isError ? text : "File updated")
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(isError ? Color.feedbackNegative : Color.textQuaternary)
+        .lineLimit(isError ? 3 : 1)
     }
+    .padding(.vertical, Spacing.xs)
   }
 
   // MARK: - Style Helpers
