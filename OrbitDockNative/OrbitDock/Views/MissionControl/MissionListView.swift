@@ -167,6 +167,7 @@ private struct MissionRowView: View {
   let onRefresh: () async -> Void
 
   @State private var isHovering = false
+  @State private var showDeleteConfirmation = false
 
   private var statusColor: Color {
     if mission.paused { return Color.feedbackCaution }
@@ -236,8 +237,7 @@ private struct MissionRowView: View {
         Text(mission.repoRoot)
           .font(.system(size: TypeScale.micro, design: .monospaced))
           .foregroundStyle(Color.textQuaternary)
-          .lineLimit(1)
-          .truncationMode(.middle)
+          .fixedSize(horizontal: false, vertical: true)
 
         // Bottom row: contextual status
         if needsSetup {
@@ -387,7 +387,7 @@ private struct MissionRowView: View {
       Divider()
 
       Button(role: .destructive) {
-        Task { await deleteMission() }
+        showDeleteConfirmation = true
       } label: {
         Label("Delete", systemImage: "trash")
       }
@@ -403,6 +403,14 @@ private struct MissionRowView: View {
     }
     .menuStyle(.borderlessButton)
     .fixedSize()
+    .alert("Delete Mission?", isPresented: $showDeleteConfirmation) {
+      Button("Delete", role: .destructive) {
+        Task { await deleteMission() }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Are you sure you want to delete the mission for \(repoName)? This cannot be undone.")
+    }
   }
 
   // MARK: - Helpers

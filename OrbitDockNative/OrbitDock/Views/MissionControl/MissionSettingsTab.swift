@@ -11,6 +11,7 @@ struct MissionSettingsTab: View {
   @State private var isSaving = false
   @State private var saveError: String?
   @State private var showSaveConfirmation = false
+  @State private var confirmationTask: Task<Void, Never>?
 
   // Trigger
   @State private var triggerKind = "polling"
@@ -174,6 +175,10 @@ struct MissionSettingsTab: View {
 
           compactField("Labels", placeholder: "bug, agent-ready", text: $editLabels)
           compactField("States", placeholder: "Todo, In Progress", text: $editStates)
+
+          Text("Common states: Todo, In Progress, Done, Canceled")
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textQuaternary)
         }
       }
     }
@@ -306,6 +311,21 @@ struct MissionSettingsTab: View {
                   .font(.system(size: TypeScale.caption, weight: .medium))
               }
               .foregroundStyle(Color.accent)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+              let path = repoRoot.hasSuffix("/") ? repoRoot + "WORKFLOW.md" : repoRoot + "/WORKFLOW.md"
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(path, forType: .string)
+            } label: {
+              HStack(spacing: Spacing.sm_) {
+                Image(systemName: "doc.on.clipboard")
+                  .font(.system(size: 11, weight: .semibold))
+                Text("Copy Path")
+                  .font(.system(size: TypeScale.caption, weight: .medium))
+              }
+              .foregroundStyle(Color.textSecondary)
             }
             .buttonStyle(.plain)
           #endif
@@ -802,6 +822,13 @@ struct MissionSettingsTab: View {
         body: body
       )
       showSaveConfirmation = true
+      confirmationTask?.cancel()
+      confirmationTask = Task {
+        try? await Task.sleep(for: .seconds(3))
+        if !Task.isCancelled {
+          showSaveConfirmation = false
+        }
+      }
       await onUpdated()
     } catch {
       saveError = "Save failed: \(error.localizedDescription)"

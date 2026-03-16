@@ -21,7 +21,7 @@ struct NewMissionSheet: View {
   }
 
   private var canCreate: Bool {
-    !selectedPath.isEmpty && !isCreating
+    !selectedPath.isEmpty && selectedPathIsGit && !isCreating
   }
 
   var body: some View {
@@ -66,6 +66,17 @@ struct NewMissionSheet: View {
     NewSessionFormShell {
       VStack(alignment: .leading, spacing: Spacing.lg) {
         directorySection
+
+        if !selectedPath.isEmpty, !selectedPathIsGit {
+          HStack(spacing: Spacing.sm_) {
+            Image(systemName: "exclamationmark.triangle")
+              .font(.system(size: IconScale.sm))
+              .foregroundStyle(Color.feedbackCaution)
+            Text("Selected directory is not a git repository")
+              .font(.system(size: TypeScale.caption))
+              .foregroundStyle(Color.feedbackCaution)
+          }
+        }
 
         providerSection
 

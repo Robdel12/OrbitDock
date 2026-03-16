@@ -9,6 +9,8 @@ struct MissionOverviewTab: View {
   let isCompact: Bool
   let onRefresh: () async -> Void
 
+  @State private var isStartingOrchestrator = false
+
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xl) {
       if mission.orchestratorStatus == "no_api_key" {
@@ -18,6 +20,10 @@ struct MissionOverviewTab: View {
         ) {
           await onRefresh()
         }
+      }
+
+      if mission.orchestratorStatus == "idle" {
+        startOrchestratorCard
       }
 
       telemetryStrip
@@ -231,7 +237,7 @@ struct MissionOverviewTab: View {
 
   @ViewBuilder
   private var signalIndicator: some View {
-    let isPolling = mission.orchestratorStatus == "polling" || mission.orchestratorStatus == nil
+    let isPolling = mission.orchestratorStatus == "polling"
     let color: Color = isPolling ? Color.feedbackPositive
       : mission.orchestratorStatus == "paused" ? Color.feedbackCaution
       : mission.orchestratorStatus == "no_api_key" ? Color.feedbackCaution
@@ -380,6 +386,7 @@ struct MissionOverviewTab: View {
       case "config_error": "Configuration error"
       case "paused": "Orchestrator paused"
       case "disabled": "Mission disabled"
+      case "idle": "Ready to start"
       default: "Orchestrator not started"
     }
   }
@@ -396,9 +403,77 @@ struct MissionOverviewTab: View {
         "Resume the orchestrator from the actions menu to continue processing issues."
       case "disabled":
         "Enable the mission from the actions menu to start processing issues."
+      case "idle":
+        "Configuration looks good. Start the orchestrator to begin polling for issues."
       default:
         "Start the orchestrator from the actions menu to begin polling for issues."
     }
+  }
+
+  // MARK: - Start Orchestrator Card
+
+  private var startOrchestratorCard: some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: "play.circle.fill")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(Color.accent)
+        Text("Ready to Start")
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+      }
+
+      Text("Configuration looks good. Start the orchestrator to begin polling for issues.")
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      Button {
+        Task { await startOrchestrator() }
+      } label: {
+        HStack(spacing: Spacing.sm) {
+          if isStartingOrchestrator {
+            ProgressView()
+              .controlSize(.small)
+          } else {
+            Image(systemName: "play.fill")
+              .font(.system(size: 11, weight: .semibold))
+          }
+          Text("Start Orchestrator")
+            .font(.system(size: TypeScale.body, weight: .semibold))
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.md_)
+        .background(Color.accent, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+      }
+      .buttonStyle(.plain)
+      .disabled(isStartingOrchestrator)
+    }
+    .padding(Spacing.lg)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+        .fill(Color.accent.opacity(OpacityTier.light))
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+            .stroke(Color.accent.opacity(OpacityTier.subtle), lineWidth: 1)
+        )
+    )
+  }
+
+  private func startOrchestrator() async {
+    guard let http else { return }
+    isStartingOrchestrator = true
+    do {
+      let _: StartOrchestratorResponse = try await http.post(
+        "/api/missions/\(missionId)/start-orchestrator",
+        body: EmptyStartBody()
+      )
+    } catch {
+      print("[OrbitDock] Failed to start orchestrator: \(error)")
+    }
+    isStartingOrchestrator = false
+    await onRefresh()
   }
 
   // MARK: - Helpers
@@ -415,3 +490,9 @@ struct MissionOverviewTab: View {
     }
   }
 }
+
+private struct StartOrchestratorResponse: Decodable {
+  let ok: Bool?
+}
+
+private struct EmptyStartBody: Encodable {}

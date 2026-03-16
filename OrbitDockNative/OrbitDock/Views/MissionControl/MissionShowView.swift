@@ -18,6 +18,7 @@ struct MissionShowView: View {
   @State private var isLoading = true
   @State private var error: String?
   @State private var selectedTab: MissionTab = .overview
+  @State private var showDeleteConfirmation = false
 
   private var isCompact: Bool {
     #if os(iOS)
@@ -349,7 +350,7 @@ struct MissionShowView: View {
       Divider()
 
       Button(role: .destructive) {
-        Task { await deleteMission() }
+        showDeleteConfirmation = true
       } label: {
         Label("Delete", systemImage: "trash")
       }
@@ -365,6 +366,14 @@ struct MissionShowView: View {
     }
     .menuStyle(.borderlessButton)
     .fixedSize()
+    .alert("Delete Mission?", isPresented: $showDeleteConfirmation) {
+      Button("Delete", role: .destructive) {
+        Task { await deleteMission() }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Are you sure you want to delete this mission? This cannot be undone.")
+    }
   }
 
   // MARK: - Helpers
@@ -383,8 +392,10 @@ struct MissionShowView: View {
             capsuleStatus("Config Error", icon: "exclamationmark.triangle.fill", color: Color.feedbackNegative)
           case "polling":
             capsuleStatus("Polling", icon: "antenna.radiowaves.left.and.right", color: Color.feedbackPositive)
-          default:
+          case "idle":
             capsuleStatus("Idle", icon: "circle", color: Color.textTertiary)
+          default:
+            capsuleStatus("Not Started", icon: "circle", color: Color.textQuaternary)
         }
       }
     }

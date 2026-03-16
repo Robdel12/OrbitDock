@@ -179,8 +179,7 @@ struct MissionSetupCard: View {
           .font(.system(size: TypeScale.micro, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
           .textSelection(.enabled)
-          .lineLimit(1)
-          .truncationMode(.middle)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
   }

@@ -9,69 +9,87 @@ struct MissionIssueRow: View {
   @Environment(AppRouter.self) private var router
 
   var body: some View {
-    HStack(spacing: Spacing.md) {
-      stateIcon
-        .frame(width: 20)
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: Spacing.md) {
+        stateIcon
+          .frame(width: 20)
 
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        HStack(spacing: Spacing.sm_) {
-          Text(issue.identifier)
-            .font(.system(size: TypeScale.caption, weight: .bold))
-            .foregroundStyle(Color.textTertiary)
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          HStack(spacing: Spacing.sm_) {
+            Text(issue.identifier)
+              .font(.system(size: TypeScale.caption, weight: .bold))
+              .foregroundStyle(Color.textTertiary)
 
-          Text(issue.title)
-            .font(.system(size: TypeScale.body))
-            .foregroundStyle(Color.textPrimary)
-        }
-
-        HStack(spacing: Spacing.sm) {
-          Text(issue.trackerState)
-            .font(.system(size: TypeScale.micro))
-            .foregroundStyle(Color.textTertiary)
-
-          if issue.attempt > 1 {
-            Text("Attempt \(issue.attempt)")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.feedbackCaution)
+            Text(issue.title)
+              .font(.system(size: TypeScale.body))
+              .foregroundStyle(Color.textPrimary)
           }
 
-          if let activity = issue.lastActivity {
-            Text(activity)
+          HStack(spacing: Spacing.sm) {
+            Text(issue.trackerState)
               .font(.system(size: TypeScale.micro))
               .foregroundStyle(Color.textTertiary)
+
+            if issue.attempt > 1 {
+              Text("Attempt \(issue.attempt)")
+                .font(.system(size: TypeScale.micro, weight: .medium))
+                .foregroundStyle(Color.feedbackCaution)
+            }
+
+            if let activity = issue.lastActivity {
+              Text(activity)
+                .font(.system(size: TypeScale.micro))
+                .foregroundStyle(Color.textTertiary)
+            }
           }
         }
-      }
 
-      Spacer()
+        Spacer()
 
-      if issue.orchestrationState == .failed {
-        Button {
-          Task { await retryIssue() }
-        } label: {
-          Label("Retry", systemImage: "arrow.clockwise")
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(Color.accent)
+        if issue.orchestrationState == .failed {
+          Button {
+            Task { await retryIssue() }
+          } label: {
+            Label("Retry", systemImage: "arrow.clockwise")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.accent)
+          }
+          .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-      }
 
-      if issue.sessionId != nil {
-        Button {
-          navigateToSession()
-        } label: {
-          Image(systemName: "arrow.right.circle")
-            .font(.system(size: 14))
-            .foregroundStyle(Color.textTertiary)
+        if issue.sessionId != nil {
+          Button {
+            navigateToSession()
+          } label: {
+            Image(systemName: "arrow.right.circle")
+              .font(.system(size: 14))
+              .foregroundStyle(Color.textTertiary)
+          }
+          .buttonStyle(.plain)
+          .help("Go to session")
         }
-        .buttonStyle(.plain)
-        .help("Go to session")
+
+        #if os(macOS)
+          if let error = issue.error {
+            Image(systemName: "exclamationmark.triangle")
+              .foregroundStyle(Color.feedbackNegative)
+              .help(error)
+          }
+        #endif
       }
 
       if let error = issue.error {
-        Image(systemName: "exclamationmark.triangle")
-          .foregroundStyle(Color.feedbackNegative)
-          .help(error)
+        HStack(spacing: Spacing.sm_) {
+          Image(systemName: "exclamationmark.triangle")
+            .font(.system(size: IconScale.xs))
+            .foregroundStyle(Color.feedbackNegative)
+          Text(error)
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.feedbackNegative)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.leading, 20 + Spacing.md)
+        .padding(.top, Spacing.xs)
       }
     }
     .padding(.horizontal, Spacing.md)
