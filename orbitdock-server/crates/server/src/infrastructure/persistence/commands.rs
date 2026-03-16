@@ -381,4 +381,51 @@ pub enum PersistCommand {
         status: String,
         last_session_ended_at: Option<String>,
     },
+
+    /// Create a new mission
+    MissionCreate {
+        id: String,
+        repo_root: String,
+        tracker_kind: String,
+        provider: String,
+        config_json: Option<String>,
+        prompt_template: Option<String>,
+    },
+
+    /// Update mission settings
+    MissionUpdate {
+        id: String,
+        enabled: Option<bool>,
+        paused: Option<bool>,
+        config_json: Option<String>,
+        prompt_template: Option<String>,
+        parse_error: Option<Option<String>>,
+    },
+
+    /// Delete a mission
+    MissionDelete { id: String },
+
+    /// Upsert a mission issue row
+    MissionIssueUpsert {
+        id: String,
+        mission_id: String,
+        issue_id: String,
+        issue_identifier: String,
+        issue_title: Option<String>,
+        issue_state: Option<String>,
+        orchestration_state: String,
+        provider: Option<String>,
+    },
+
+    /// Update mission issue orchestration state
+    MissionIssueUpdateState {
+        id: String,
+        orchestration_state: String,
+        session_id: Option<String>,
+        attempt: Option<u32>,
+        last_error: Option<Option<String>>,
+        retry_due_at: Option<Option<String>>,
+        started_at: Option<Option<String>>,
+        completed_at: Option<Option<String>>,
+    },
 }

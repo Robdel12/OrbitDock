@@ -21,6 +21,7 @@ pub fn build_router() -> Router<Arc<SessionRegistry>> {
         .merge(server_routes())
         .merge(filesystem_routes())
         .merge(worktree_routes())
+        .merge(mission_routes())
 }
 
 fn hook_routes() -> Router<Arc<SessionRegistry>> {
@@ -286,5 +287,23 @@ fn worktree_routes() -> Router<Arc<SessionRegistry>> {
         .route(
             "/api/worktrees/{worktree_id}",
             delete(super::remove_worktree),
+        )
+}
+
+fn mission_routes() -> Router<Arc<SessionRegistry>> {
+    Router::new()
+        .route(
+            "/api/missions",
+            get(super::list_missions).post(super::create_mission),
+        )
+        .route(
+            "/api/missions/{mission_id}",
+            get(super::get_mission)
+                .put(super::update_mission)
+                .delete(super::delete_mission),
+        )
+        .route(
+            "/api/missions/{mission_id}/issues",
+            get(super::list_mission_issues),
         )
 }

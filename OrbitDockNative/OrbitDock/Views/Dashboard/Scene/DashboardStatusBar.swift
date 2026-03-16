@@ -452,6 +452,7 @@ struct DashboardTabSwitcher: View {
   var body: some View {
     HStack(spacing: 0) {
       tabButton(label: "Active", icon: "bolt.fill", tab: .missionControl)
+      tabButton(label: "Missions", icon: "antenna.radiowaves.left.and.right", tab: .missions)
       tabButton(label: "Library", icon: "books.vertical", tab: .library)
     }
     .padding(compact ? Spacing.xxs : Spacing.gap)

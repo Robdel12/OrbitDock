@@ -1013,6 +1013,8 @@ impl SessionHandle {
                 self.pending_question.as_deref(),
             ),
             forked_from_session_id: self.forked_from_session_id.clone(),
+            mission_id: None,
+            issue_identifier: None,
         }
     }
 

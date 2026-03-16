@@ -113,6 +113,8 @@ struct StatusBarStatsTests {
       codexIntegrationMode: .direct,
       claudeIntegrationMode: nil,
       effort: nil,
+      missionId: nil,
+      issueIdentifier: nil,
       totalTokens: totalTokens,
       totalCostUSD: totalCostUSD,
       isActive: true,

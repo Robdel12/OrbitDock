@@ -101,6 +101,17 @@ struct AttentionCard: View {
             metadataDivider
             passiveBadge
           }
+
+          if let issueId = session.issueIdentifier {
+            metadataDivider
+            Text(issueId)
+              .font(.system(size: TypeScale.micro, weight: .bold))
+              .padding(.horizontal, 6)
+              .padding(.vertical, Spacing.xxs)
+              .background(Color.blue.opacity(0.15))
+              .foregroundStyle(.blue)
+              .clipShape(Capsule())
+          }
         }
 
         // Context line
@@ -242,6 +253,19 @@ struct WorkingCard: View {
               .font(.system(size: TypeScale.mini))
               .foregroundStyle(Color.textQuaternary)
             passiveBadge
+          }
+
+          if let issueId = session.issueIdentifier {
+            Text(" \u{2022} ")
+              .font(.system(size: TypeScale.mini))
+              .foregroundStyle(Color.textQuaternary)
+            Text(issueId)
+              .font(.system(size: TypeScale.micro, weight: .bold))
+              .padding(.horizontal, 6)
+              .padding(.vertical, Spacing.xxs)
+              .background(Color.blue.opacity(0.15))
+              .foregroundStyle(.blue)
+              .clipShape(Capsule())
           }
         }
 
@@ -398,6 +422,19 @@ struct CompactSessionRow: View {
               .foregroundStyle(Color.textQuaternary)
             passiveBadge
           }
+
+          if let issueId = session.issueIdentifier {
+            Text(" \u{2022} ")
+              .font(.system(size: TypeScale.mini))
+              .foregroundStyle(Color.textQuaternary)
+            Text(issueId)
+              .font(.system(size: TypeScale.micro, weight: .bold))
+              .padding(.horizontal, 6)
+              .padding(.vertical, Spacing.xxs)
+              .background(Color.blue.opacity(0.15))
+              .foregroundStyle(.blue)
+              .clipShape(Capsule())
+          }
         }
 
         // Line 2: context
@@ -475,6 +512,19 @@ struct CompactSessionRow: View {
               .font(.system(size: TypeScale.mini))
               .foregroundStyle(Color.textQuaternary)
             passiveBadge
+          }
+
+          if let issueId = session.issueIdentifier {
+            Text(" \u{2022} ")
+              .font(.system(size: TypeScale.mini))
+              .foregroundStyle(Color.textQuaternary)
+            Text(issueId)
+              .font(.system(size: TypeScale.micro, weight: .bold))
+              .padding(.horizontal, 6)
+              .padding(.vertical, Spacing.xxs)
+              .background(Color.blue.opacity(0.15))
+              .foregroundStyle(.blue)
+              .clipShape(Capsule())
           }
 
           Spacer(minLength: Spacing.sm)

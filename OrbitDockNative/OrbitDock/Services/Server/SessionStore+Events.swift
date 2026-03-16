@@ -168,6 +168,12 @@ extension SessionStore {
         handleError(code, message, sessionId)
       case let .connectionStatusChanged(status):
         handleConnectionStatusChanged(status)
+      case .missionsList:
+        break // Mission data rendered by MissionListView via REST
+
+      case .missionDelta:
+        break // Mission data rendered by MissionDetailView via REST
+
       case let .revision(sessionId, revision):
         lastRevision[sessionId] = revision
     }
@@ -190,6 +196,8 @@ extension SessionStore {
       case let .connectionStatusChanged(status): "connectionStatus(\(status))"
       case let .revision(sid, rev): "revision(\(sid), \(rev))"
       case let .error(code, msg, sid): "error(\(code), \(msg), \(sid ?? "nil"))"
+      case .missionsList: "missionsList"
+      case .missionDelta: "missionDelta"
       default: String(describing: event).prefix(80).description
     }
   }

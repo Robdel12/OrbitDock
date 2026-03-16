@@ -1,0 +1,199 @@
+use std::collections::HashMap;
+
+use async_trait::async_trait;
+use reqwest::Client;
+use tracing::debug;
+
+use crate::domain::mission_control::tracker::{Tracker, TrackerConfig, TrackerIssue};
+use super::models::{GraphQLResponse, IssueStatesData, IssuesData};
+
+pub struct LinearClient {
+    http: Client,
+    api_key: String,
+}
+
+impl LinearClient {
+    pub fn new(api_key: String) -> Self {
+        Self {
+            http: Client::new(),
+            api_key,
+        }
+    }
+
+    async fn graphql<T: serde::de::DeserializeOwned>(
+        &self,
+        query: &str,
+        variables: serde_json::Value,
+    ) -> anyhow::Result<T> {
+        let body = serde_json::json!({
+            "query": query,
+            "variables": variables,
+        });
+
+        let resp = self
+            .http
+            .post("https://api.linear.app/graphql")
+            .header("Authorization", &self.api_key)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Linear API returned {status}: {text}");
+        }
+
+        let gql: GraphQLResponse<T> = resp.json().await?;
+
+        if let Some(errors) = gql.errors {
+            let msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+            anyhow::bail!("Linear GraphQL errors: {}", msgs.join("; "));
+        }
+
+        gql.data
+            .ok_or_else(|| anyhow::anyhow!("Linear response contained no data"))
+    }
+
+    async fn fetch_page(
+        &self,
+        config: &TrackerConfig,
+        cursor: Option<&str>,
+    ) -> anyhow::Result<IssuesData> {
+        let mut filter_parts = Vec::new();
+
+        if let Some(ref team) = config.team_key {
+            filter_parts.push(format!(r#"team: {{ key: {{ eq: "{team}" }} }}"#));
+        }
+
+        if !config.state_filter.is_empty() {
+            let states: Vec<String> = config
+                .state_filter
+                .iter()
+                .map(|s| format!(r#""{s}""#))
+                .collect();
+            filter_parts.push(format!(
+                r#"state: {{ name: {{ in: [{}] }} }}"#,
+                states.join(", ")
+            ));
+        }
+
+        if !config.label_filter.is_empty() {
+            let labels: Vec<String> = config
+                .label_filter
+                .iter()
+                .map(|l| format!(r#""{l}""#))
+                .collect();
+            filter_parts.push(format!(
+                r#"labels: {{ name: {{ in: [{}] }} }}"#,
+                labels.join(", ")
+            ));
+        }
+
+        let filter = if filter_parts.is_empty() {
+            "{}".to_string()
+        } else {
+            format!("{{ {} }}", filter_parts.join(", "))
+        };
+
+        let after = cursor
+            .map(|c| format!(r#", after: "{c}""#))
+            .unwrap_or_default();
+
+        let query = format!(
+            r#"query {{
+                issues(first: 50, filter: {filter}{after}) {{
+                    nodes {{
+                        id
+                        identifier
+                        title
+                        description
+                        priority
+                        url
+                        createdAt
+                        state {{ name }}
+                        labels {{ nodes {{ name }} }}
+                        relations {{ nodes {{ type relatedIssue {{ id identifier }} }} }}
+                    }}
+                    pageInfo {{
+                        hasNextPage
+                        endCursor
+                    }}
+                }}
+            }}"#
+        );
+
+        self.graphql(&query, serde_json::json!({})).await
+    }
+}
+
+#[async_trait]
+impl Tracker for LinearClient {
+    async fn fetch_candidates(&self, config: &TrackerConfig) -> anyhow::Result<Vec<TrackerIssue>> {
+        let mut all_issues = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let data = self.fetch_page(config, cursor.as_deref()).await?;
+            let has_next = data.issues.page_info.has_next_page;
+            let next_cursor = data.issues.page_info.end_cursor;
+
+            for node in data.issues.nodes {
+                all_issues.push(node.into_tracker_issue());
+            }
+
+            debug!(
+                component = "linear",
+                fetched = all_issues.len(),
+                has_next = has_next,
+                "Fetched issues page"
+            );
+
+            if !has_next {
+                break;
+            }
+            cursor = next_cursor;
+        }
+
+        Ok(all_issues)
+    }
+
+    async fn fetch_issue_states(
+        &self,
+        issue_ids: &[String],
+    ) -> anyhow::Result<HashMap<String, String>> {
+        if issue_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let ids: Vec<String> = issue_ids.iter().map(|id| format!(r#""{id}""#)).collect();
+        let filter = format!(r#"{{ id: {{ in: [{}] }} }}"#, ids.join(", "));
+
+        let query = format!(
+            r#"query {{
+                issues(filter: {filter}) {{
+                    nodes {{
+                        id
+                        state {{ name }}
+                    }}
+                }}
+            }}"#
+        );
+
+        let data: IssueStatesData = self.graphql(&query, serde_json::json!({})).await?;
+
+        let map = data
+            .issues
+            .nodes
+            .into_iter()
+            .map(|node| (node.id, node.state.name))
+            .collect();
+
+        Ok(map)
+    }
+
+    fn kind(&self) -> &str {
+        "linear"
+    }
+}

@@ -88,6 +88,8 @@ struct ServerSessionListItem: Codable, Identifiable {
   let activeWorkerCount: UInt64?
   let pendingToolFamily: String?
   let forkedFromSessionId: String?
+  let missionId: String?
+  let issueIdentifier: String?
 
   init(
     id: String,
@@ -119,7 +121,9 @@ struct ServerSessionListItem: Codable, Identifiable {
     effort: String?,
     activeWorkerCount: UInt64? = nil,
     pendingToolFamily: String? = nil,
-    forkedFromSessionId: String? = nil
+    forkedFromSessionId: String? = nil,
+    missionId: String? = nil,
+    issueIdentifier: String? = nil
   ) {
     self.id = id
     self.provider = provider
@@ -151,6 +155,8 @@ struct ServerSessionListItem: Codable, Identifiable {
     self.activeWorkerCount = activeWorkerCount
     self.pendingToolFamily = pendingToolFamily
     self.forkedFromSessionId = forkedFromSessionId
+    self.missionId = missionId
+    self.issueIdentifier = issueIdentifier
   }
 
   enum CodingKeys: String, CodingKey {
@@ -184,6 +190,8 @@ struct ServerSessionListItem: Codable, Identifiable {
     case activeWorkerCount = "active_worker_count"
     case pendingToolFamily = "pending_tool_family"
     case forkedFromSessionId = "forked_from_session_id"
+    case missionId = "mission_id"
+    case issueIdentifier = "issue_identifier"
   }
 }
 

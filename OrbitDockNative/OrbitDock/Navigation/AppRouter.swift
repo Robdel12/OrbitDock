@@ -2,6 +2,7 @@ import SwiftUI
 
 enum DashboardTab: String, CaseIterable {
   case missionControl
+  case missions
   case library
 }
 

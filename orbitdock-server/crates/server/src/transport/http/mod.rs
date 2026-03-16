@@ -6,6 +6,7 @@ mod codex_auth;
 mod connector_actions;
 mod errors;
 mod files;
+mod mission_control;
 mod permissions;
 mod review_comments;
 mod router;
@@ -85,4 +86,8 @@ pub use sessions::{
     get_session_stats, list_sessions, mark_session_read, search_conversation_rows,
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
+pub use mission_control::{
+    create_mission, delete_mission, get_mission, list_mission_issues, list_missions,
+    update_mission,
+};
 pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};

@@ -1602,6 +1602,8 @@ mod tests {
             active_worker_count: 0,
             pending_tool_family: None,
             forked_from_session_id: None,
+            mission_id: None,
+            issue_identifier: None,
         }
     }
 

@@ -219,6 +219,12 @@ pub enum BinaryCommand {
         action: WorktreeAction,
     },
 
+    /// Mission Control — autonomous issue-driven orchestration
+    Mission {
+        #[command(subcommand)]
+        action: MissionAction,
+    },
+
     /// MCP tools and resources
     Mcp {
         #[command(subcommand)]
@@ -263,6 +269,9 @@ pub fn binary_to_client_command(command: &BinaryCommand) -> Option<Command> {
             action: action.clone(),
         }),
         BinaryCommand::Worktree { action } => Some(Command::Worktree {
+            action: action.clone(),
+        }),
+        BinaryCommand::Mission { action } => Some(Command::Mission {
             action: action.clone(),
         }),
         BinaryCommand::Mcp { action } => Some(Command::Mcp {
@@ -356,6 +365,12 @@ pub enum Command {
     Worktree {
         #[command(subcommand)]
         action: WorktreeAction,
+    },
+
+    /// Mission Control — autonomous issue-driven orchestration
+    Mission {
+        #[command(subcommand)]
+        action: MissionAction,
     },
 
     /// MCP tools and resources
@@ -885,6 +900,53 @@ pub enum WorktreeAction {
         /// Delete remote branch
         #[arg(long)]
         delete_remote_branch: bool,
+    },
+}
+
+// ── Mission ─────────────────────────────────────────────────
+
+#[derive(Clone, Debug, Subcommand)]
+pub enum MissionAction {
+    /// Enable mission control for a repository
+    Enable {
+        /// Repository path (defaults to current directory)
+        #[arg(default_value = ".")]
+        repo_path: String,
+
+        /// Provider (claude or codex)
+        #[arg(long, short = 'p', default_value = "claude")]
+        provider: String,
+
+        /// Tracker kind
+        #[arg(long, default_value = "linear")]
+        tracker: String,
+    },
+
+    /// List configured missions
+    List,
+
+    /// Show mission status
+    Status {
+        /// Mission ID
+        mission_id: String,
+    },
+
+    /// Pause a mission
+    Pause {
+        /// Mission ID
+        mission_id: String,
+    },
+
+    /// Resume a paused mission
+    Resume {
+        /// Mission ID
+        mission_id: String,
+    },
+
+    /// Disable and remove a mission
+    Disable {
+        /// Mission ID
+        mission_id: String,
     },
 }
 

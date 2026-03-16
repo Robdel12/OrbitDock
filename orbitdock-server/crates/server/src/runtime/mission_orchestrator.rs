@@ -1,0 +1,359 @@
+//! Mission Control orchestrator — async poll loop that drives the mission pipeline.
+//!
+//! Spawned as a tokio task at server startup. Each tick:
+//! 1. Load enabled missions from DB
+//! 2. For each mission: parse WORKFLOW.md -> validate -> fetch candidates -> gate -> dispatch
+//! 3. Broadcast MissionDelta on state changes
+
+use std::collections::HashSet;
+use std::path::Path;
+use std::sync::Arc;
+
+use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, Provider};
+use tracing::{debug, error, info, warn};
+
+use crate::domain::mission_control::config::parse_workflow;
+use crate::domain::mission_control::eligibility::{is_eligible, sort_candidates};
+use crate::domain::mission_control::tracker::Tracker;
+use crate::infrastructure::persistence::mission_control::{
+    load_mission_issues, load_missions, MissionIssueRow, MissionRow,
+};
+use crate::infrastructure::persistence::PersistCommand;
+use crate::runtime::session_registry::SessionRegistry;
+
+use super::mission_dispatch::dispatch_issue;
+use super::mission_reconciliation::reconcile_mission;
+
+/// Start the mission orchestrator loop.
+///
+/// Runs until the server shuts down. Safe to call even if no missions
+/// are configured — the loop idles at the poll interval.
+pub async fn start_mission_orchestrator(
+    registry: Arc<SessionRegistry>,
+    tracker: Arc<dyn Tracker>,
+) {
+    info!(
+        component = "mission_control",
+        event = "orchestrator.started",
+        "Mission orchestrator started"
+    );
+
+    // Initial poll interval — overridden per-mission once we parse WORKFLOW.md
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+
+    loop {
+        interval.tick().await;
+
+        if let Err(err) = orchestrator_tick(&registry, &tracker).await {
+            error!(
+                component = "mission_control",
+                event = "orchestrator.tick_error",
+                error = %err,
+                "Orchestrator tick failed"
+            );
+        }
+    }
+}
+
+async fn orchestrator_tick(
+    registry: &Arc<SessionRegistry>,
+    tracker: &Arc<dyn Tracker>,
+) -> anyhow::Result<()> {
+    let db_path = registry.db_path().clone();
+    let missions = {
+        let path = db_path.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = rusqlite::Connection::open(&path)?;
+            load_missions(&conn)
+        })
+        .await??
+    };
+
+    for mission in missions {
+        if !mission.enabled || mission.paused {
+            continue;
+        }
+
+        if let Err(err) = process_mission(registry, tracker, &mission).await {
+            warn!(
+                component = "mission_control",
+                event = "orchestrator.mission_error",
+                mission_id = %mission.id,
+                error = %err,
+                "Failed to process mission"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+async fn process_mission(
+    registry: &Arc<SessionRegistry>,
+    tracker: &Arc<dyn Tracker>,
+    mission: &MissionRow,
+) -> anyhow::Result<()> {
+    // Load and parse WORKFLOW.md
+    let workflow_path = Path::new(&mission.repo_root).join("WORKFLOW.md");
+    let workflow_content = match tokio::fs::read_to_string(&workflow_path).await {
+        Ok(content) => content,
+        Err(err) => {
+            debug!(
+                component = "mission_control",
+                mission_id = %mission.id,
+                error = %err,
+                "WORKFLOW.md not found or unreadable"
+            );
+            return Ok(());
+        }
+    };
+
+    let workflow = match parse_workflow(&workflow_content) {
+        Ok(w) => w,
+        Err(err) => {
+            let _ = registry
+                .persist()
+                .send(PersistCommand::MissionUpdate {
+                    id: mission.id.clone(),
+                    enabled: None,
+                    paused: None,
+                    config_json: None,
+                    prompt_template: None,
+                    parse_error: Some(Some(err.to_string())),
+                })
+                .await;
+            return Ok(());
+        }
+    };
+
+    // Clear parse error on success
+    let _ = registry
+        .persist()
+        .send(PersistCommand::MissionUpdate {
+            id: mission.id.clone(),
+            enabled: None,
+            paused: None,
+            config_json: Some(serde_json::to_string(&workflow.config).unwrap_or_default()),
+            prompt_template: Some(workflow.prompt_template.clone()),
+            parse_error: Some(None),
+        })
+        .await;
+
+    // Fetch candidates from tracker
+    let tracker_config = workflow.config.to_tracker_config();
+    let mut candidates = tracker.fetch_candidates(&tracker_config).await?;
+
+    // Load existing mission issues from DB
+    let db_path = registry.db_path().clone();
+    let mission_id = mission.id.clone();
+    let existing_issues: Vec<MissionIssueRow> = {
+        let path = db_path.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = rusqlite::Connection::open(&path)?;
+            load_mission_issues(&conn, &mission_id)
+        })
+        .await??
+    };
+
+    // Build running/claimed sets
+    let mut running_ids = HashSet::new();
+    let mut claimed_ids = HashSet::new();
+    let mut current_running = 0u32;
+
+    for issue_row in &existing_issues {
+        match issue_row.orchestration_state.as_str() {
+            "running" => {
+                running_ids.insert(issue_row.issue_id.clone());
+                current_running += 1;
+            }
+            "claimed" => {
+                claimed_ids.insert(issue_row.issue_id.clone());
+                current_running += 1;
+            }
+            _ => {}
+        }
+    }
+
+    // Reconcile existing issues (stall detection, tracker state check)
+    reconcile_mission(registry, tracker, mission, &existing_issues, &workflow.config).await;
+
+    // Upsert all tracker candidates into mission_issues
+    for candidate in &candidates {
+        let issue_row_id = orbitdock_protocol::new_id();
+        let _ = registry
+            .persist()
+            .send(PersistCommand::MissionIssueUpsert {
+                id: issue_row_id,
+                mission_id: mission.id.clone(),
+                issue_id: candidate.id.clone(),
+                issue_identifier: candidate.identifier.clone(),
+                issue_title: Some(candidate.title.clone()),
+                issue_state: Some(candidate.state.clone()),
+                orchestration_state: "queued".to_string(),
+                provider: Some(mission.provider.clone()),
+            })
+            .await;
+    }
+
+    // Sort and dispatch eligible candidates
+    sort_candidates(&mut candidates);
+
+    for candidate in &candidates {
+        if !is_eligible(
+            candidate,
+            &running_ids,
+            &claimed_ids,
+            workflow.config.max_concurrent,
+            current_running,
+        ) {
+            continue;
+        }
+
+        // Claim
+        claimed_ids.insert(candidate.id.clone());
+        current_running += 1;
+
+        let registry = registry.clone();
+        let candidate = candidate.clone();
+        let mission_id = mission.id.clone();
+        let provider_str = mission.provider.clone();
+        let repo_root = mission.repo_root.clone();
+        let prompt_template = workflow.prompt_template.clone();
+        let base_branch = workflow.config.base_branch.clone();
+
+        tokio::spawn(async move {
+            if let Err(err) = dispatch_issue(
+                &registry,
+                &mission_id,
+                &candidate,
+                &provider_str,
+                &repo_root,
+                &prompt_template,
+                &base_branch,
+            )
+            .await
+            {
+                error!(
+                    component = "mission_control",
+                    event = "dispatch.failed",
+                    mission_id = %mission_id,
+                    issue_id = %candidate.id,
+                    error = %err,
+                    "Failed to dispatch issue"
+                );
+            }
+        });
+    }
+
+    // Broadcast MissionDelta
+    broadcast_mission_delta(registry, mission).await;
+
+    Ok(())
+}
+
+/// Build and broadcast a MissionDelta message for a mission.
+pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &MissionRow) {
+    let db_path = registry.db_path().clone();
+    let mission_id = mission.id.clone();
+
+    let issues_result: anyhow::Result<Vec<MissionIssueRow>> = {
+        let path = db_path;
+        let mid = mission_id.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = rusqlite::Connection::open(&path)?;
+            load_mission_issues(&conn, &mid)
+        })
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("join error: {e}")))
+    };
+
+    let issue_rows = match issues_result {
+        Ok(rows) => rows,
+        Err(_) => return,
+    };
+
+    let mut active_count = 0u32;
+    let mut queued_count = 0u32;
+    let mut completed_count = 0u32;
+    let mut failed_count = 0u32;
+
+    let issues: Vec<MissionIssueItem> = issue_rows
+        .iter()
+        .map(|row| {
+            let state = match row.orchestration_state.as_str() {
+                "queued" => {
+                    queued_count += 1;
+                    OrchestrationState::Queued
+                }
+                "claimed" => {
+                    active_count += 1;
+                    OrchestrationState::Claimed
+                }
+                "running" => {
+                    active_count += 1;
+                    OrchestrationState::Running
+                }
+                "retry_queued" => {
+                    queued_count += 1;
+                    OrchestrationState::RetryQueued
+                }
+                "completed" => {
+                    completed_count += 1;
+                    OrchestrationState::Completed
+                }
+                "failed" => {
+                    failed_count += 1;
+                    OrchestrationState::Failed
+                }
+                _ => {
+                    queued_count += 1;
+                    OrchestrationState::Queued
+                }
+            };
+
+            MissionIssueItem {
+                issue_id: row.issue_id.clone(),
+                identifier: row.issue_identifier.clone(),
+                title: row.issue_title.clone().unwrap_or_default(),
+                tracker_state: row.issue_state.clone().unwrap_or_default(),
+                orchestration_state: state,
+                session_id: row.session_id.clone(),
+                provider: match row.provider.as_deref() {
+                    Some("codex") => Provider::Codex,
+                    _ => Provider::Claude,
+                },
+                attempt: row.attempt,
+                error: row.last_error.clone(),
+                url: None,
+                last_activity: None,
+            }
+        })
+        .collect();
+
+    let provider = match mission.provider.as_str() {
+        "codex" => Provider::Codex,
+        _ => Provider::Claude,
+    };
+
+    let summary = MissionSummary {
+        id: mission.id.clone(),
+        repo_root: mission.repo_root.clone(),
+        enabled: mission.enabled,
+        paused: mission.paused,
+        tracker_kind: mission.tracker_kind.clone(),
+        provider,
+        active_count,
+        queued_count,
+        completed_count,
+        failed_count,
+        parse_error: mission.parse_error.clone(),
+    };
+
+    let msg = orbitdock_protocol::ServerMessage::MissionDelta {
+        mission_id,
+        issues,
+        summary,
+    };
+
+    let _ = registry.list_tx().send(msg);
+}

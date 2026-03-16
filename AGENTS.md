@@ -188,6 +188,65 @@ The server–client protocol uses strongly-typed Swift structs that mirror Rust 
 - Put small shared pure helpers in `orbitdock-server/crates/server/src/support/`
 - Put server-admin capabilities exposed through the binary in `orbitdock-server/crates/server/src/admin/`
 
+### Mission Control (Autonomous Issue Orchestration)
+
+Mission Control polls issue trackers, creates per-issue git worktrees, and launches coding agent sessions autonomously. A repo-local `WORKFLOW.md` file defines the tracker config and prompt template.
+
+**Architecture:** Server-driven. All orchestration state lives in Rust — the Swift client renders it via REST fetches and WebSocket deltas. No MissionControlStore or intermediate event types.
+
+**WORKFLOW.md format:**
+```markdown
+---
+tracker: linear
+provider: claude
+team_key: TEAM-KEY
+label_filter: [bug, feature]
+state_filter: [Todo, "In Progress"]
+max_concurrent: 3
+base_branch: main
+---
+You are working on issue {{ issue.identifier }}: {{ issue.title }}
+
+{{ issue.description }}
+
+Attempt: {{ attempt }}
+```
+YAML front matter between `---` fences configures the mission. The body is a Liquid template rendered per-issue with `issue.*` and `attempt` variables.
+
+**Server layers:**
+- `domain/mission_control/` — config parsing, eligibility gating, retry backoff, prompt rendering, pluggable `Tracker` trait
+- `infrastructure/linear/` — Linear GraphQL adapter implementing `Tracker`
+- `infrastructure/persistence/mission_control.rs` — read queries for `missions` and `mission_issues` tables
+- `runtime/mission_orchestrator.rs` — async poll loop: load missions → parse WORKFLOW.md → fetch candidates → gate → dispatch
+- `runtime/mission_dispatch.rs` — per-issue: create worktree → create session → send prompt
+- `runtime/mission_reconciliation.rs` — stall detection + tracker state reconciliation
+- `transport/http/mission_control.rs` — REST endpoints for CRUD + pipeline views
+
+**REST endpoints:**
+- `GET /api/missions` — list missions
+- `POST /api/missions` — create mission `{ repo_root, tracker_kind?, provider? }`
+- `GET /api/missions/:id` — mission detail with summary + issues
+- `PUT /api/missions/:id` — update `{ enabled?, paused? }`
+- `DELETE /api/missions/:id` — remove mission
+- `GET /api/missions/:id/issues` — issue pipeline
+
+**WebSocket events:**
+- `MissionsList { missions }` — full mission list (list-lane safe)
+- `MissionDelta { mission_id, issues, summary }` — pushed on orchestration state changes
+
+**Orchestration states:** `Queued → Claimed → Running → Completed | Failed | RetryQueued`
+
+**Swift client:**
+- Models: `MissionSummary`, `MissionIssueItem` (in `Models/MissionControl/`)
+- Views: `MissionListView`, `MissionDetailView`, `MissionIssueRow`, `NewMissionSheet` (in `Views/MissionControl/`)
+- Dashboard: "Missions" tab in `DashboardTabSwitcher`, wired in `DashboardView`
+- Events: `missionsList` and `missionDelta` decoded in `ServerToClientMessage+Decoding.swift`
+- Session badge: `issueIdentifier` field on `RootSessionNode` shown in `ActivityStreamCard`
+
+**Environment gate:** Orchestrator only starts if `LINEAR_API_KEY` env var is set.
+
+**Key migration:** `V025__mission_control.sql` — creates `missions` and `mission_issues` tables, adds `mission_id`/`issue_id`/`issue_identifier` columns to `sessions`.
+
 ### Cosmic Harbor Theme & Design System
 - Design tokens in `Theme.swift`, `DesignTokens.swift`, `ComponentStyles.swift`
 - Use custom colors from Theme.swift - deep space backgrounds with indigo undertones
@@ -468,6 +527,14 @@ orbitdock session rollback <ID> --turns N
 orbitdock session rename <ID> --name "name"
 orbitdock session resume <ID>
 
+# Mission Control
+orbitdock mission enable <repo-path>        # Enable mission for repo with WORKFLOW.md
+orbitdock mission list                      # List configured missions
+orbitdock mission status <id>               # Show mission detail + issue pipeline
+orbitdock mission pause <id>                # Pause orchestration
+orbitdock mission resume <id>               # Resume orchestration
+orbitdock mission disable <id>              # Disable mission
+
 # Supporting
 orbitdock approval list [--session ID]
 orbitdock review list <SESSION_ID>
@@ -545,6 +612,8 @@ Follow the migration steps above. The extra rule here is simple: keep schema cha
 | `approval_history` | Tool approval requests and decisions |
 | `review_comments` | Code review annotations for workbench |
 | `worktrees` | Git worktree lifecycle tracking (status, health, auto-prune). Independent of sessions. |
+| `missions` | Mission Control — configured repo + tracker + provider combos for autonomous orchestration |
+| `mission_issues` | Per-issue orchestration state for each mission (queued → claimed → running → completed/failed) |
 | `config` | Key-value settings (API keys stored encrypted) |
 | `refinery_schema_history` | Active migration tracking (`schema_versions` may remain on upgraded installs as legacy history) |
 

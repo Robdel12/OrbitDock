@@ -204,6 +204,24 @@ Side panel for direct sessions with multiple tabs:
 - **Spring animations** — Smooth transitions throughout the UI
 - **Custom design tokens** — Full color system in Theme.swift
 
+## Mission Control
+
+Autonomous issue-driven agent orchestration. Poll issue trackers, create per-issue git worktrees, and launch coding agents with human-in-the-loop controls.
+
+- **Pluggable tracker** — `Tracker` trait with Linear adapter (GraphQL, paginated). Extensible to GitHub Issues.
+- **WORKFLOW.md config** — Repo-local YAML front matter configures tracker project, labels, concurrency, and prompt template (Liquid)
+- **Orchestration pipeline** — Issues flow through Queued → Claimed → Running → Completed/Failed states
+- **Agent dispatch** — Creates OrbitDock sessions with worktrees, supporting both Claude and Codex providers
+- **Eligibility engine** — Priority + date sorting, concurrency gating, retry queue with exponential backoff
+- **Dashboard tab** — Missions tab in the dashboard shows all configured missions with status capsules (Active/Paused/Disabled)
+- **Mission list** — Per-mission cards with active/queued/completed/failed counts and action menus (Pause/Resume, Enable/Disable, Delete)
+- **Create mission** — Reuses ProjectPicker and provider picker from session creation. Reads WORKFLOW.md from selected repo.
+- **Mission detail** — Pipeline view showing all issues with orchestration state, session links, and error info
+- **Issue badges** — Mission-spawned sessions show issue identifier badges in the activity stream
+- **REST API** — `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`
+- **CLI** — `orbitdock mission enable/list/status/pause/resume/disable`
+- **Cross-platform** — Works on both macOS and iOS
+
 ## Platforms
 
 - **macOS** — Native AppKit-backed conversation timeline with NSTableView for performance

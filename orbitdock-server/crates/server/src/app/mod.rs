@@ -549,6 +549,32 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     let git_state = state.clone();
     tokio::spawn(crate::runtime::background::git_refresh::start_git_refresh_loop(git_state));
 
+    // Mission Control orchestrator
+    if let Ok(linear_api_key) = std::env::var("LINEAR_API_KEY") {
+        let mission_state = state.clone();
+        let tracker: std::sync::Arc<dyn crate::domain::mission_control::tracker::Tracker> =
+            std::sync::Arc::new(crate::infrastructure::linear::client::LinearClient::new(
+                linear_api_key,
+            ));
+        tokio::spawn(
+            crate::runtime::mission_orchestrator::start_mission_orchestrator(
+                mission_state,
+                tracker,
+            ),
+        );
+        info!(
+            component = "mission_control",
+            event = "mission_control.enabled",
+            "Mission Control orchestrator started (LINEAR_API_KEY set)"
+        );
+    } else {
+        info!(
+            component = "mission_control",
+            event = "mission_control.disabled",
+            "Mission Control orchestrator not started (LINEAR_API_KEY not set)"
+        );
+    }
+
     let shutdown_state = state.clone();
     let shutdown_persist = persist_tx.clone();
 

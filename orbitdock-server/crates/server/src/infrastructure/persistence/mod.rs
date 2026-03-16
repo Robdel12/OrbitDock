@@ -12,6 +12,7 @@ mod approvals;
 mod commands;
 mod config;
 mod messages;
+pub(crate) mod mission_control;
 mod review_comments;
 mod session_reads;
 mod startup_cleanup;
@@ -60,6 +61,11 @@ pub(crate) use transcripts::{
 use usage::{persist_usage_event, upsert_usage_session_state, upsert_usage_turn_snapshot};
 #[allow(unused_imports)]
 pub(crate) use worktrees::WorktreeRow;
+#[allow(unused_imports)]
+pub(crate) use mission_control::{
+    load_all_active_mission_issues, load_mission_by_id, load_mission_issues, load_missions,
+    MissionIssueRow, MissionRow,
+};
 pub(crate) use worktrees::{
     load_removed_worktree_paths, load_worktree_by_id, load_worktrees_by_repo,
 };
@@ -1513,6 +1519,135 @@ pub(super) fn execute_command(
                 "UPDATE worktrees SET status = ?1, last_session_ended_at = COALESCE(?2, last_session_ended_at) WHERE id = ?3",
                 params![status, last_session_ended_at, id],
             )?;
+        }
+
+        PersistCommand::MissionCreate {
+            id,
+            repo_root,
+            tracker_kind,
+            provider,
+            config_json,
+            prompt_template,
+        } => {
+            conn.execute(
+                "INSERT INTO missions (id, repo_root, tracker_kind, provider, config_json, prompt_template)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![id, repo_root, tracker_kind, provider, config_json, prompt_template],
+            )?;
+        }
+        PersistCommand::MissionUpdate {
+            id,
+            enabled,
+            paused,
+            config_json,
+            prompt_template,
+            parse_error,
+        } => {
+            if let Some(enabled) = enabled {
+                conn.execute(
+                    "UPDATE missions SET enabled = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![enabled as i64, id],
+                )?;
+            }
+            if let Some(paused) = paused {
+                conn.execute(
+                    "UPDATE missions SET paused = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![paused as i64, id],
+                )?;
+            }
+            if let Some(ref config_json) = config_json {
+                conn.execute(
+                    "UPDATE missions SET config_json = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![config_json, id],
+                )?;
+            }
+            if let Some(ref prompt_template) = prompt_template {
+                conn.execute(
+                    "UPDATE missions SET prompt_template = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![prompt_template, id],
+                )?;
+            }
+            if let Some(ref parse_error) = parse_error {
+                conn.execute(
+                    "UPDATE missions SET parse_error = ?1, last_parsed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![parse_error, id],
+                )?;
+            }
+        }
+        PersistCommand::MissionDelete { id } => {
+            conn.execute("DELETE FROM mission_issues WHERE mission_id = ?1", params![id])?;
+            conn.execute("DELETE FROM missions WHERE id = ?1", params![id])?;
+        }
+        PersistCommand::MissionIssueUpsert {
+            id,
+            mission_id,
+            issue_id,
+            issue_identifier,
+            issue_title,
+            issue_state,
+            orchestration_state,
+            provider,
+        } => {
+            conn.execute(
+                "INSERT INTO mission_issues (id, mission_id, issue_id, issue_identifier, issue_title, issue_state, orchestration_state, provider)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(mission_id, issue_id) DO UPDATE SET
+                   issue_title = excluded.issue_title,
+                   issue_state = excluded.issue_state,
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+                params![id, mission_id, issue_id, issue_identifier, issue_title, issue_state, orchestration_state, provider],
+            )?;
+        }
+        PersistCommand::MissionIssueUpdateState {
+            id,
+            orchestration_state,
+            session_id,
+            attempt,
+            last_error,
+            retry_due_at,
+            started_at,
+            completed_at,
+        } => {
+            conn.execute(
+                "UPDATE mission_issues SET orchestration_state = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                params![orchestration_state, id],
+            )?;
+            if let Some(ref session_id) = session_id {
+                conn.execute(
+                    "UPDATE mission_issues SET session_id = ?1 WHERE id = ?2",
+                    params![session_id, id],
+                )?;
+            }
+            if let Some(attempt) = attempt {
+                conn.execute(
+                    "UPDATE mission_issues SET attempt = ?1 WHERE id = ?2",
+                    params![attempt, id],
+                )?;
+            }
+            if let Some(ref last_error) = last_error {
+                conn.execute(
+                    "UPDATE mission_issues SET last_error = ?1 WHERE id = ?2",
+                    params![last_error, id],
+                )?;
+            }
+            if let Some(ref retry_due_at) = retry_due_at {
+                conn.execute(
+                    "UPDATE mission_issues SET retry_due_at = ?1 WHERE id = ?2",
+                    params![retry_due_at, id],
+                )?;
+            }
+            if let Some(ref started_at) = started_at {
+                conn.execute(
+                    "UPDATE mission_issues SET started_at = ?1 WHERE id = ?2",
+                    params![started_at, id],
+                )?;
+            }
+            if let Some(ref completed_at) = completed_at {
+                conn.execute(
+                    "UPDATE mission_issues SET completed_at = ?1 WHERE id = ?2",
+                    params![completed_at, id],
+                )?;
+            }
         }
     }
 
