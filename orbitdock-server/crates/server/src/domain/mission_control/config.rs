@@ -142,77 +142,131 @@ impl Default for OrchestrationConfig {
     }
 }
 
-// ── Backward-compat: legacy flat config ──────────────────────────────
+// ── Symphony WORKFLOW.md migration ───────────────────────────────────
 
-/// Legacy flat config from the original WORKFLOW.md schema.
-/// Used for backward-compatible parsing only.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-struct LegacyMissionConfig {
-    tracker: String,
-    provider: String,
-    project_key: Option<String>,
-    team_key: Option<String>,
+/// Symphony's WORKFLOW.md tracker config.
+#[derive(Debug, Clone, Deserialize, Default)]
+struct SymphonyTracker {
     #[serde(default)]
-    label_filter: Vec<String>,
+    kind: String,
     #[serde(default)]
-    state_filter: Vec<String>,
-    max_concurrent: u32,
-    poll_interval_secs: u64,
-    max_retries: u32,
-    #[allow(dead_code)]
-    max_backoff_ms: u64,
-    stall_timeout_secs: u64,
-    base_branch: String,
+    project_slug: Option<String>,
+    #[serde(default)]
+    active_states: Vec<String>,
 }
 
-impl Default for LegacyMissionConfig {
-    fn default() -> Self {
-        Self {
-            tracker: "linear".to_string(),
-            provider: "claude".to_string(),
-            project_key: None,
-            team_key: None,
-            label_filter: Vec::new(),
-            state_filter: Vec::new(),
-            max_concurrent: 3,
-            poll_interval_secs: 60,
-            max_retries: 3,
-            max_backoff_ms: 300_000,
-            stall_timeout_secs: 600,
-            base_branch: "main".to_string(),
-        }
-    }
+/// Symphony's WORKFLOW.md polling config.
+#[derive(Debug, Clone, Deserialize, Default)]
+struct SymphonyPolling {
+    #[serde(default)]
+    interval_ms: u64,
 }
 
-impl From<LegacyMissionConfig> for MissionConfig {
-    fn from(legacy: LegacyMissionConfig) -> Self {
-        Self {
-            tracker: legacy.tracker,
-            provider: ProviderConfig {
-                strategy: "single".to_string(),
-                primary: legacy.provider,
-                secondary: None,
-                max_concurrent: legacy.max_concurrent,
-                max_concurrent_primary: None,
-            },
-            trigger: TriggerConfig {
-                kind: "polling".to_string(),
-                interval: legacy.poll_interval_secs,
-                filters: TriggerFilters {
-                    labels: legacy.label_filter,
-                    states: legacy.state_filter,
-                    project: legacy.project_key,
-                    team: legacy.team_key,
-                },
-            },
-            orchestration: OrchestrationConfig {
-                max_retries: legacy.max_retries,
-                stall_timeout: legacy.stall_timeout_secs,
-                base_branch: legacy.base_branch,
-            },
-        }
+/// Symphony's WORKFLOW.md agent config.
+#[derive(Debug, Clone, Deserialize, Default)]
+struct SymphonyAgent {
+    #[serde(default)]
+    max_concurrent_agents: u32,
+}
+
+/// Symphony's WORKFLOW.md codex config.
+#[derive(Debug, Clone, Deserialize, Default)]
+struct SymphonyCodex {
+    #[serde(default)]
+    command: Option<String>,
+}
+
+/// Top-level Symphony WORKFLOW.md schema.
+#[derive(Debug, Clone, Deserialize, Default)]
+struct SymphonyWorkflow {
+    #[serde(default)]
+    tracker: SymphonyTracker,
+    #[serde(default)]
+    polling: SymphonyPolling,
+    #[serde(default)]
+    agent: SymphonyAgent,
+    #[serde(default)]
+    codex: SymphonyCodex,
+}
+
+/// Try to parse a Symphony WORKFLOW.md and convert to MissionConfig.
+/// Returns None if the content doesn't look like a Symphony workflow.
+pub fn try_parse_symphony_workflow(content: &str) -> Option<MissionConfig> {
+    let content = content.trim();
+    if !content.starts_with("---") {
+        return None;
     }
+
+    let after_first = &content[3..];
+    let end_idx = after_first.find("\n---")?;
+    let yaml_block = &after_first[..end_idx];
+
+    // Must have at least one Symphony-specific key
+    if !yaml_block.contains("tracker:")
+        && !yaml_block.contains("polling:")
+        && !yaml_block.contains("agent:")
+        && !yaml_block.contains("codex:")
+    {
+        return None;
+    }
+
+    let symphony: SymphonyWorkflow = serde_yaml::from_str(yaml_block).ok()?;
+
+    // Only convert if there's meaningful config (not all defaults)
+    let has_config = !symphony.tracker.kind.is_empty()
+        || symphony.tracker.project_slug.is_some()
+        || !symphony.tracker.active_states.is_empty()
+        || symphony.polling.interval_ms > 0
+        || symphony.agent.max_concurrent_agents > 0;
+
+    if !has_config {
+        return None;
+    }
+
+    // Detect provider from codex command
+    let primary = if symphony.codex.command.is_some() {
+        "codex".to_string()
+    } else {
+        "claude".to_string()
+    };
+
+    let interval = if symphony.polling.interval_ms > 0 {
+        symphony.polling.interval_ms / 1000
+    } else {
+        60
+    };
+
+    let max_concurrent = if symphony.agent.max_concurrent_agents > 0 {
+        symphony.agent.max_concurrent_agents
+    } else {
+        3
+    };
+
+    Some(MissionConfig {
+        tracker: if symphony.tracker.kind.is_empty() {
+            "linear".to_string()
+        } else {
+            symphony.tracker.kind
+        },
+        provider: ProviderConfig {
+            strategy: "single".to_string(),
+            primary,
+            secondary: None,
+            max_concurrent,
+            max_concurrent_primary: None,
+        },
+        trigger: TriggerConfig {
+            kind: "polling".to_string(),
+            interval,
+            filters: TriggerFilters {
+                labels: Vec::new(),
+                states: symphony.tracker.active_states,
+                project: symphony.tracker.project_slug,
+                team: None,
+            },
+        },
+        orchestration: OrchestrationConfig::default(),
+    })
 }
 
 // ── Public API ───────────────────────────────────────────────────────
@@ -297,27 +351,6 @@ pub fn parse_mission_file(content: &str) -> Result<MissionDefinition> {
         if has_recognized_keys {
             return Ok(MissionDefinition {
                 config,
-                prompt_template,
-            });
-        }
-    }
-
-    // MissionConfig parse failed or returned unrecognized YAML — try legacy flat schema
-    if let Ok(legacy) = serde_yaml::from_str::<LegacyMissionConfig>(yaml_block) {
-        let legacy_defaults = LegacyMissionConfig::default();
-        let has_legacy_config = legacy.tracker != legacy_defaults.tracker
-            || legacy.provider != legacy_defaults.provider
-            || legacy.project_key.is_some()
-            || legacy.team_key.is_some()
-            || !legacy.label_filter.is_empty()
-            || !legacy.state_filter.is_empty()
-            || legacy.max_concurrent != legacy_defaults.max_concurrent
-            || legacy.poll_interval_secs != legacy_defaults.poll_interval_secs
-            || legacy.base_branch != legacy_defaults.base_branch;
-
-        if has_legacy_config {
-            return Ok(MissionDefinition {
-                config: MissionConfig::from(legacy),
                 prompt_template,
             });
         }
@@ -455,33 +488,6 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
     }
 
     #[test]
-    fn parse_legacy_flat_schema() {
-        let content = r#"---
-tracker: linear
-provider: claude
-project_key: PROJ
-max_concurrent: 5
-poll_interval_secs: 30
-label_filter:
-  - bug
-state_filter:
-  - Todo
----
-You are working on issue {{ issue.identifier }}: {{ issue.title }}
-"#;
-        let def = parse_mission_file(content).unwrap();
-        assert_eq!(def.config.tracker, "linear");
-        assert_eq!(def.config.provider.strategy, "single");
-        assert_eq!(def.config.provider.primary, "claude");
-        assert_eq!(def.config.provider.max_concurrent, 5);
-        assert_eq!(def.config.trigger.interval, 30);
-        assert_eq!(def.config.trigger.filters.labels, vec!["bug"]);
-        assert_eq!(def.config.trigger.filters.states, vec!["Todo"]);
-        assert_eq!(def.config.trigger.filters.project.as_deref(), Some("PROJ"));
-        assert!(def.prompt_template.contains("{{ issue.identifier }}"));
-    }
-
-    #[test]
     fn parse_defaults_with_recognized_key() {
         let content = "---\ntracker: linear\n---\nHello";
         let def = parse_mission_file(content).unwrap();
@@ -518,16 +524,6 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
         let content = "---\ntracker: linear\ntrigger:\n  filters:\n    project: PROJ\n---\nHello";
         let def = parse_mission_file(content).unwrap();
         assert_eq!(def.config.trigger.filters.project.as_deref(), Some("PROJ"));
-        assert_eq!(def.prompt_template, "Hello");
-    }
-
-    #[test]
-    fn parse_legacy_with_project_key_succeeds() {
-        // Legacy format with project_key (no new-format keys like provider:/trigger:)
-        let content = "---\nproject_key: PROJ\nmax_concurrent: 5\n---\nHello";
-        let def = parse_mission_file(content).unwrap();
-        assert_eq!(def.config.trigger.filters.project.as_deref(), Some("PROJ"));
-        assert_eq!(def.config.provider.max_concurrent, 5);
         assert_eq!(def.prompt_template, "Hello");
     }
 
@@ -590,6 +586,42 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
         let result = serialize_mission_file_preserving(&config, "Hello", None).unwrap();
         assert!(result.contains("tracker:"));
         assert!(result.contains("Hello"));
+    }
+
+    #[test]
+    fn symphony_migration_extracts_settings() {
+        let content = r#"---
+tracker:
+  kind: linear
+  project_slug: my-project
+  active_states:
+    - Todo
+    - "In Progress"
+polling:
+  interval_ms: 15000
+agent:
+  max_concurrent_agents: 10
+codex:
+  command: codex --model gpt-5
+---
+Some prompt body
+"#;
+        let config = try_parse_symphony_workflow(content).unwrap();
+        assert_eq!(config.tracker, "linear");
+        assert_eq!(
+            config.trigger.filters.project.as_deref(),
+            Some("my-project")
+        );
+        assert_eq!(config.trigger.filters.states, vec!["Todo", "In Progress"]);
+        assert_eq!(config.trigger.interval, 15);
+        assert_eq!(config.provider.max_concurrent, 10);
+        assert_eq!(config.provider.primary, "codex");
+    }
+
+    #[test]
+    fn symphony_migration_rejects_unrelated_yaml() {
+        let content = "---\nname: Not a Symphony workflow\n---\nHello";
+        assert!(try_parse_symphony_workflow(content).is_none());
     }
 
     #[test]

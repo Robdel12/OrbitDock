@@ -6,6 +6,7 @@ struct MissionOverviewTab: View {
   let issues: [MissionIssueItem]
   let missionId: String
   let missionFileExists: Bool
+  let workflowMigrationAvailable: Bool
   let http: ServerHTTPClient?
   let isCompact: Bool
   let onRefresh: () async -> Void
@@ -25,6 +26,10 @@ struct MissionOverviewTab: View {
         ) {
           await onRefresh()
         }
+      }
+
+      if workflowMigrationAvailable {
+        workflowMigrationBanner
       }
 
       if mission.parseError != nil, settings == nil, missionFileExists {
@@ -427,6 +432,76 @@ struct MissionOverviewTab: View {
     }
   }
 
+  // MARK: - Workflow Migration Banner
+
+  @State private var isMigrating = false
+
+  private var workflowMigrationBanner: some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: "arrow.right.arrow.left.circle.fill")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(Color.accent)
+        Text("Migrate from WORKFLOW.md")
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+      }
+
+      Text(
+        "A WORKFLOW.md with compatible settings was found. Import your tracker, polling, and provider settings into a new MISSION.md."
+      )
+      .font(.system(size: TypeScale.caption))
+      .foregroundStyle(Color.textSecondary)
+      .fixedSize(horizontal: false, vertical: true)
+
+      Button {
+        Task { await migrateWorkflow() }
+      } label: {
+        HStack(spacing: Spacing.sm) {
+          if isMigrating {
+            ProgressView()
+              .controlSize(.small)
+          } else {
+            Image(systemName: "arrow.right.doc")
+              .font(.system(size: 11, weight: .semibold))
+          }
+          Text("Import Settings")
+            .font(.system(size: TypeScale.body, weight: .semibold))
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Spacing.md_)
+        .background(Color.accent, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+      }
+      .buttonStyle(.plain)
+      .disabled(isMigrating)
+    }
+    .padding(Spacing.lg)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+        .fill(Color.accent.opacity(OpacityTier.light))
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+            .stroke(Color.accent.opacity(OpacityTier.subtle), lineWidth: 1)
+        )
+    )
+  }
+
+  private func migrateWorkflow() async {
+    guard let http else { return }
+    isMigrating = true
+    do {
+      let _: MigrateResponse = try await http.post(
+        "/api/missions/\(missionId)/migrate-workflow",
+        body: EmptyMigrateBody()
+      )
+    } catch {
+      print("[OrbitDock] Failed to migrate workflow: \(error)")
+    }
+    isMigrating = false
+    await onRefresh()
+  }
+
   // MARK: - Config Needed Banner
 
   private var configNeededBanner: some View {
@@ -652,3 +727,9 @@ private struct StartOrchestratorResponse: Decodable {
 }
 
 private struct EmptyStartBody: Encodable {}
+
+private struct EmptyMigrateBody: Encodable {}
+
+private struct MigrateResponse: Decodable {
+  let summary: MissionSummary
+}

@@ -315,6 +315,10 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
             post(super::scaffold_mission_file),
         )
         .route(
+            "/api/missions/{mission_id}/migrate-workflow",
+            post(super::migrate_workflow_to_mission),
+        )
+        .route(
             "/api/missions/{mission_id}/settings",
             put(super::update_mission_settings),
         )

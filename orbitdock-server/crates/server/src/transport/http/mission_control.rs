@@ -9,7 +9,9 @@ use tracing::info;
 
 use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, Provider};
 
-use crate::domain::mission_control::config::{parse_mission_file, MissionConfig};
+use crate::domain::mission_control::config::{
+    parse_mission_file, try_parse_symphony_workflow, MissionConfig,
+};
 use crate::domain::mission_control::template::default_mission_template;
 use crate::infrastructure::persistence::{
     load_mission_by_id, load_mission_issues, load_missions_with_counts, MissionIssueRow,
@@ -32,6 +34,9 @@ pub struct MissionDetailResponse {
     pub issues: Vec<MissionIssueItem>,
     pub settings: Option<MissionSettingsResponse>,
     pub mission_file_exists: bool,
+    /// True when a WORKFLOW.md with Symphony-compatible settings exists
+    /// and can be migrated to MISSION.md.
+    pub workflow_migration_available: bool,
 }
 
 #[derive(Serialize)]
@@ -247,6 +252,19 @@ pub async fn get_mission(
             .await
             .is_ok();
 
+    // Check if a Symphony WORKFLOW.md exists that can be migrated
+    let workflow_migration_available = if !mission_file_exists {
+        if let Ok(content) =
+            tokio::fs::read_to_string(StdPath::new(&mission.repo_root).join("WORKFLOW.md")).await
+        {
+            try_parse_symphony_workflow(&content).is_some()
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
     let orchestrator_running = registry.is_orchestrator_running();
     let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
     let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
@@ -259,6 +277,7 @@ pub async fn get_mission(
         issues,
         settings,
         mission_file_exists,
+        workflow_migration_available,
     }))
 }
 
@@ -478,6 +497,108 @@ pub async fn scaffold_mission_file(
         issues,
         settings: Some(settings),
         mission_file_exists: true,
+        workflow_migration_available: false,
+    }))
+}
+
+// ── Workflow migration endpoint ──────────────────────────────────────
+
+/// POST /api/missions/:id/migrate-workflow
+///
+/// Reads an existing WORKFLOW.md (Symphony format), extracts settings,
+/// and writes a MISSION.md with the converted config.
+pub async fn migrate_workflow_to_mission(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path(mission_id): Path<String>,
+) -> ApiResult<MissionDetailResponse> {
+    let db_path = registry.db_path().clone();
+    let mid = mission_id.clone();
+    let mission = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path)?;
+        load_mission_by_id(&conn, &mid)
+    })
+    .await
+    .map_err(|e| internal("join_error", format!("join: {e}")))?
+    .map_err(|e| internal("db_error", format!("db: {e}")))?
+    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+
+    let mission_path = StdPath::new(&mission.repo_root).join("MISSION.md");
+    if tokio::fs::metadata(&mission_path).await.is_ok() {
+        return Err(conflict(
+            "mission_file_exists",
+            "MISSION.md already exists in this repository",
+        ));
+    }
+
+    let workflow_path = StdPath::new(&mission.repo_root).join("WORKFLOW.md");
+    let workflow_content = tokio::fs::read_to_string(&workflow_path)
+        .await
+        .map_err(|_| not_found("no_workflow", "No WORKFLOW.md found to migrate"))?;
+
+    let config = try_parse_symphony_workflow(&workflow_content).ok_or_else(|| {
+        bad_request(
+            "no_symphony_config",
+            "WORKFLOW.md does not contain recognized Symphony configuration".to_string(),
+        )
+    })?;
+
+    // Get the default agent instructions template
+    let full_template = default_mission_template(&mission.provider);
+    let prompt_template = parse_mission_file(&full_template)
+        .map(|def| def.prompt_template)
+        .unwrap_or_default();
+
+    let mission_content =
+        crate::domain::mission_control::config::serialize_mission_file(&config, &prompt_template)
+            .map_err(|e| internal("serialize_error", format!("Failed to serialize: {e}")))?;
+
+    tokio::fs::write(&mission_path, &mission_content)
+        .await
+        .map_err(|e| internal("write_error", format!("Failed to write MISSION.md: {e}")))?;
+
+    // Persist config to DB
+    let config_json = serde_json::to_string(&config).unwrap_or_default();
+    let _ = registry
+        .persist()
+        .send(PersistCommand::MissionUpdate {
+            id: mission_id.clone(),
+            enabled: None,
+            paused: None,
+            config_json: Some(config_json),
+            prompt_template: Some(prompt_template.clone()),
+            parse_error: Some(None),
+        })
+        .await;
+
+    info!(
+        component = "mission_control",
+        event = "workflow.migrated",
+        mission_id = %mission_id,
+        "Migrated WORKFLOW.md → MISSION.md"
+    );
+
+    // Return fresh detail
+    let db_path = registry.db_path().clone();
+    let mid2 = mission_id.clone();
+    let issue_rows = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path)?;
+        load_mission_issues(&conn, &mid2)
+    })
+    .await
+    .map_err(|e| internal("join_error", format!("join: {e}")))?
+    .map_err(|e| internal("db_error", format!("db: {e}")))?;
+
+    let orchestrator_running = registry.is_orchestrator_running();
+    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
+    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
+    let settings = config_to_settings_response(&config, &prompt_template);
+
+    Ok(Json(MissionDetailResponse {
+        summary,
+        issues,
+        settings: Some(settings),
+        mission_file_exists: true,
+        workflow_migration_available: false,
     }))
 }
 
@@ -913,6 +1034,7 @@ pub async fn update_mission_settings(
         issues,
         settings: Some(settings),
         mission_file_exists: true,
+        workflow_migration_available: false,
     }))
 }
 

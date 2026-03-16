@@ -15,6 +15,7 @@ struct MissionShowView: View {
   @State private var issues: [MissionIssueItem] = []
   @State private var settings: MissionSettings?
   @State private var missionFileExists = true
+  @State private var workflowMigrationAvailable = false
   @State private var isLoading = true
   @State private var error: String?
   @State private var selectedTab: MissionTab = .overview
@@ -120,6 +121,7 @@ struct MissionShowView: View {
                 issues: issues,
                 missionId: missionId,
                 missionFileExists: missionFileExists,
+                workflowMigrationAvailable: workflowMigrationAvailable,
                 http: http,
                 isCompact: isCompact,
                 onRefresh: { await fetchDetail() },
@@ -351,6 +353,7 @@ struct MissionShowView: View {
       issues = response.issues
       settings = response.settings
       missionFileExists = response.missionFileExists
+      workflowMigrationAvailable = response.workflowMigrationAvailable
       error = nil
     } catch {
       self.error = error.localizedDescription
@@ -419,10 +422,12 @@ private struct MissionDetailResponse: Codable {
   let issues: [MissionIssueItem]
   let settings: MissionSettings?
   let missionFileExists: Bool
+  let workflowMigrationAvailable: Bool
 
   enum CodingKeys: String, CodingKey {
     case summary, issues, settings
     case missionFileExists = "mission_file_exists"
+    case workflowMigrationAvailable = "workflow_migration_available"
   }
 }
 
