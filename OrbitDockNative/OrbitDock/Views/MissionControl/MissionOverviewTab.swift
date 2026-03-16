@@ -476,7 +476,13 @@ struct MissionOverviewTab: View {
   // MARK: - Mission Controls
 
   private var missionControlsSection: some View {
-    VStack(alignment: .leading, spacing: Spacing.md) {
+    let isPolling = mission.orchestratorStatus == "polling"
+    let isIdle = mission.orchestratorStatus == "idle" || mission.orchestratorStatus == nil
+    let canStart = mission.enabled && !mission.paused && isIdle
+    let canPause = mission.enabled && isPolling && !mission.paused
+    let canResume = mission.enabled && mission.paused
+
+    return VStack(alignment: .leading, spacing: Spacing.md) {
       HStack(spacing: Spacing.sm_) {
         signalIndicator
         Text("Mission Controls")
@@ -493,30 +499,35 @@ struct MissionOverviewTab: View {
         : AnyLayout(HStackLayout(spacing: Spacing.sm))
 
       layout {
-        if !mission.enabled {
-          controlButton("Enable Mission", icon: "play.circle", style: .primary) {
-            await onUpdateMission(true, nil)
-          }
-        } else if mission.orchestratorStatus == "idle" || mission.orchestratorStatus == nil {
-          controlButton("Start Orchestrator", icon: "play.fill", style: .primary) {
-            await startOrchestrator()
-          }
-        } else if mission.orchestratorStatus == "polling", !mission.paused {
-          controlButton("Pause", icon: "pause.fill", style: .secondary) {
+        controlButton(
+          "Start",
+          icon: "play.fill",
+          style: .primary,
+          enabled: canStart
+        ) {
+          await startOrchestrator()
+        }
+
+        controlButton(
+          canResume ? "Resume" : "Pause",
+          icon: canResume ? "play.fill" : "pause.fill",
+          style: .secondary,
+          enabled: canPause || canResume
+        ) {
+          if canResume {
+            await onUpdateMission(nil, false)
+          } else {
             await onUpdateMission(nil, true)
           }
         }
 
-        if mission.paused {
-          controlButton("Resume", icon: "play.fill", style: .primary) {
-            await onUpdateMission(nil, false)
-          }
-        }
-
-        if mission.enabled, mission.orchestratorStatus == "polling" || mission.paused {
-          controlButton("Disable", icon: "stop.circle", style: .destructive) {
-            await onUpdateMission(false, nil)
-          }
+        controlButton(
+          mission.enabled ? "Disable" : "Enable",
+          icon: mission.enabled ? "stop.circle" : "play.circle",
+          style: mission.enabled ? .destructive : .primary,
+          enabled: true
+        ) {
+          await onUpdateMission(!mission.enabled, nil)
         }
       }
     }
@@ -560,9 +571,28 @@ struct MissionOverviewTab: View {
     _ title: String,
     icon: String,
     style: ControlButtonStyle,
+    enabled: Bool,
     action: @escaping () async -> Void
   ) -> some View {
-    Button {
+    let fgColor: Color = if !enabled {
+      Color.textQuaternary
+    } else if style == .primary {
+      .white
+    } else if style == .destructive {
+      Color.feedbackNegative
+    } else {
+      Color.textSecondary
+    }
+
+    let bgColor: Color = if !enabled {
+      Color.backgroundTertiary.opacity(0.5)
+    } else if style == .primary {
+      Color.accent
+    } else {
+      Color.backgroundTertiary
+    }
+
+    return Button {
       Task { await action() }
     } label: {
       HStack(spacing: Spacing.sm_) {
@@ -571,19 +601,16 @@ struct MissionOverviewTab: View {
         Text(title)
           .font(.system(size: TypeScale.caption, weight: .semibold))
       }
-      .foregroundStyle(
-        style == .primary ? .white
-          : style == .destructive ? Color.feedbackNegative
-          : Color.textSecondary
-      )
+      .foregroundStyle(fgColor)
       .frame(maxWidth: .infinity)
       .padding(.vertical, Spacing.md_)
       .background(
         RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .fill(style == .primary ? Color.accent : Color.backgroundTertiary)
+          .fill(bgColor)
       )
     }
     .buttonStyle(.plain)
+    .disabled(!enabled)
   }
 
   private func startOrchestrator() async {

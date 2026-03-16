@@ -428,15 +428,21 @@ struct MissionSettingsTab: View {
       }
 
       if showSaveConfirmation {
-        HStack(spacing: Spacing.sm_) {
+        HStack(spacing: Spacing.sm) {
           Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 10))
+            .font(.system(size: 14))
             .foregroundStyle(Color.feedbackPositive)
-          Text("Saved to WORKFLOW.md")
-            .font(.system(size: TypeScale.micro, weight: .medium))
+          Text("Settings saved to WORKFLOW.md")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(Color.feedbackPositive)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Spacing.md)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            .fill(Color.feedbackPositive.opacity(OpacityTier.light))
+        )
+        .transition(.opacity.combined(with: .move(edge: .top)))
       }
 
       HStack(spacing: Spacing.md) {
@@ -821,12 +827,12 @@ struct MissionSettingsTab: View {
         method: "PUT",
         body: body
       )
-      showSaveConfirmation = true
+      withAnimation(Motion.standard) { showSaveConfirmation = true }
       confirmationTask?.cancel()
       confirmationTask = Task {
         try? await Task.sleep(for: .seconds(3))
         if !Task.isCancelled {
-          showSaveConfirmation = false
+          withAnimation(Motion.standard) { showSaveConfirmation = false }
         }
       }
       await onUpdated()
