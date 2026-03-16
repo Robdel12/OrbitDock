@@ -480,6 +480,39 @@ pub async fn scaffold_mission_workflow(
     }))
 }
 
+// ── Default template endpoint ────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct DefaultTemplateResponse {
+    pub template: String,
+}
+
+/// GET /api/missions/:id/default-template
+pub async fn get_default_template(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path(mission_id): Path<String>,
+) -> ApiResult<DefaultTemplateResponse> {
+    let db_path = registry.db_path().clone();
+    let mid = mission_id.clone();
+    let mission = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path)?;
+        load_mission_by_id(&conn, &mid)
+    })
+    .await
+    .map_err(|e| internal("join_error", format!("join: {e}")))?
+    .map_err(|e| internal("db_error", format!("db: {e}")))?
+    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+
+    let full_template = default_workflow_template(&mission.provider);
+    let template_body = parse_workflow(&full_template)
+        .map(|def| def.prompt_template)
+        .unwrap_or_default();
+
+    Ok(Json(DefaultTemplateResponse {
+        template: template_body,
+    }))
+}
+
 // ── Linear API key endpoints ─────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -751,15 +784,15 @@ pub async fn update_mission_settings(
 
     // Read + parse current WORKFLOW.md (or use defaults)
     let workflow_path = StdPath::new(&mission.repo_root).join("WORKFLOW.md");
-    let (mut config, mut prompt_tmpl) =
-        if let Ok(content) = tokio::fs::read_to_string(&workflow_path).await {
-            match parse_workflow(&content) {
-                Ok(w) => (w.config, w.prompt_template),
-                Err(_) => (MissionConfig::default(), String::new()),
-            }
-        } else {
-            (MissionConfig::default(), String::new())
-        };
+    let existing_file_content = tokio::fs::read_to_string(&workflow_path).await.ok();
+    let (mut config, mut prompt_tmpl) = if let Some(ref content) = existing_file_content {
+        match parse_workflow(content) {
+            Ok(w) => (w.config, w.prompt_template),
+            Err(_) => (MissionConfig::default(), String::new()),
+        }
+    } else {
+        (MissionConfig::default(), String::new())
+    };
 
     // Merge request fields — Provider
     if let Some(v) = req.provider_strategy {
@@ -820,15 +853,17 @@ pub async fn update_mission_settings(
     }
 
     // Serialize back to WORKFLOW.md
-    let workflow_content =
-        crate::domain::mission_control::config::serialize_workflow(&config, &prompt_tmpl).map_err(
-            |e| {
-                internal(
-                    "serialize_error",
-                    format!("Failed to serialize config: {e}"),
-                )
-            },
-        )?;
+    let workflow_content = crate::domain::mission_control::config::serialize_workflow_preserving(
+        &config,
+        &prompt_tmpl,
+        existing_file_content.as_deref(),
+    )
+    .map_err(|e| {
+        internal(
+            "serialize_error",
+            format!("Failed to serialize config: {e}"),
+        )
+    })?;
 
     tokio::fs::write(&workflow_path, &workflow_content)
         .await

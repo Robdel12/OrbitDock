@@ -110,51 +110,42 @@ struct MissionShowView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: Spacing.xl) {
           missionHeader(mission)
+          tabBar
 
-          if !workflowExists, settings == nil {
-            // State A: No WORKFLOW.md — show setup card
-            MissionSetupCard(
-              missionId: missionId,
-              repoRoot: mission.repoRoot,
-              http: http
-            ) {
-              await fetchDetail()
-            }
-          } else if let parseError = mission.parseError, settings == nil {
-            // State C: Parse error (only show if no valid settings yet)
-            parseErrorBanner(parseError, repoRoot: mission.repoRoot)
-          } else {
-            // State B/D: Settings exist or orchestrator running — show tabs
-            tabBar
-
-            switch selectedTab {
-              case .overview:
-                MissionOverviewTab(
-                  mission: mission,
-                  settings: settings,
-                  issues: issues,
-                  missionId: missionId,
-                  http: http,
-                  isCompact: isCompact,
-                  onRefresh: { await fetchDetail() }
-                )
-              case .settings:
-                MissionSettingsTab(
-                  settings: settings,
-                  repoRoot: mission.repoRoot,
-                  missionId: missionId,
-                  http: http,
-                  isCompact: isCompact,
-                  onUpdated: { await fetchDetail() }
-                )
-              case .issues:
-                MissionIssuesTab(
-                  issues: issues,
-                  missionId: missionId,
-                  endpointId: endpointId,
-                  http: http
-                )
-            }
+          switch selectedTab {
+            case .overview:
+              MissionOverviewTab(
+                mission: mission,
+                settings: settings,
+                issues: issues,
+                missionId: missionId,
+                workflowExists: workflowExists,
+                http: http,
+                isCompact: isCompact,
+                onRefresh: { await fetchDetail() },
+                onSelectTab: { tab in
+                  withAnimation(Motion.standard) { selectedTab = tab }
+                },
+                onUpdateMission: { enabled, paused in
+                  await updateMission(enabled: enabled, paused: paused)
+                }
+              )
+            case .settings:
+              MissionSettingsTab(
+                settings: settings,
+                repoRoot: mission.repoRoot,
+                missionId: missionId,
+                http: http,
+                isCompact: isCompact,
+                onUpdated: { await fetchDetail() }
+              )
+            case .issues:
+              MissionIssuesTab(
+                issues: issues,
+                missionId: missionId,
+                endpointId: endpointId,
+                http: http
+              )
           }
         }
         .padding(Spacing.section)
@@ -262,97 +253,14 @@ struct MissionShowView: View {
     }
   }
 
-  // MARK: - Parse Error
-
-  private func parseErrorBanner(_ parseError: String, repoRoot: String) -> some View {
-    VStack(alignment: .leading, spacing: Spacing.md) {
-      HStack(spacing: Spacing.sm) {
-        Image(systemName: "exclamationmark.triangle.fill")
-          .foregroundStyle(Color.feedbackNegative)
-        Text("WORKFLOW.md Error")
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.feedbackNegative)
-      }
-
-      Text(parseError)
-        .font(.system(size: TypeScale.caption, design: .monospaced))
-        .foregroundStyle(Color.textSecondary)
-
-      Text("Expected format: YAML front matter between `---` fences, followed by a Liquid prompt template.")
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textTertiary)
-
-      #if os(macOS)
-        Button {
-          let path = repoRoot + "/WORKFLOW.md"
-          NSWorkspace.shared.open(URL(fileURLWithPath: path))
-        } label: {
-          Label("Open WORKFLOW.md", systemImage: "doc.text")
-            .font(.system(size: TypeScale.caption, weight: .medium))
-            .foregroundStyle(Color.accent)
-        }
-        .buttonStyle(.plain)
-      #endif
-    }
-    .padding(Spacing.lg)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-        .fill(Color.feedbackNegative.opacity(OpacityTier.light))
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-            .stroke(Color.feedbackNegative.opacity(OpacityTier.subtle), lineWidth: 1)
-        )
-    )
-  }
-
   // MARK: - Actions
 
   private func missionActions(_ mission: MissionSummary) -> some View {
     Menu {
-      Button {
-        Task { await startOrchestrator() }
-      } label: {
-        Label("Start Orchestrator", systemImage: "play.circle.fill")
-      }
-
-      Divider()
-
-      if mission.paused {
-        Button {
-          Task { await updateMission(paused: false) }
-        } label: {
-          Label("Resume", systemImage: "play.fill")
-        }
-      } else {
-        Button {
-          Task { await updateMission(paused: true) }
-        } label: {
-          Label("Pause", systemImage: "pause.fill")
-        }
-      }
-
-      Divider()
-
-      if mission.enabled {
-        Button {
-          Task { await updateMission(enabled: false) }
-        } label: {
-          Label("Disable", systemImage: "stop.circle")
-        }
-      } else {
-        Button {
-          Task { await updateMission(enabled: true) }
-        } label: {
-          Label("Enable", systemImage: "play.circle")
-        }
-      }
-
-      Divider()
-
       Button(role: .destructive) {
         showDeleteConfirmation = true
       } label: {
-        Label("Delete", systemImage: "trash")
+        Label("Delete Mission", systemImage: "trash")
       }
     } label: {
       Image(systemName: "ellipsis")
@@ -477,18 +385,6 @@ struct MissionShowView: View {
     }
   }
 
-  private func startOrchestrator() async {
-    guard let http else { return }
-    do {
-      let _: MissionOkResponse = try await http.post(
-        "/api/missions/\(missionId)/start-orchestrator",
-        body: EmptyStartBody()
-      )
-      await fetchDetail()
-    } catch {
-      print("[OrbitDock] Failed to start orchestrator: \(error)")
-    }
-  }
 }
 
 // MARK: - Tab Enum
@@ -538,4 +434,3 @@ private struct MissionOkResponse: Decodable {
   let ok: Bool?
 }
 
-private struct EmptyStartBody: Encodable {}

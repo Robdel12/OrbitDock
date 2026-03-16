@@ -319,6 +319,10 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
             put(super::update_mission_settings),
         )
         .route(
+            "/api/missions/{mission_id}/default-template",
+            get(super::get_default_template),
+        )
+        .route(
             "/api/missions/{mission_id}/start-orchestrator",
             post(super::start_mission_orchestrator_endpoint),
         )

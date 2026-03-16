@@ -256,9 +256,9 @@ struct MissionSettingsTab: View {
     let hasContent = !templateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
     return instrumentPanel(
-      title: "Prompt Template",
-      icon: "doc.text",
-      description: "Liquid template rendered per issue at dispatch time"
+      title: "Agent Instructions",
+      icon: "text.bubble",
+      description: "What each agent is told when it picks up an issue"
     ) {
       VStack(alignment: .leading, spacing: Spacing.md) {
         if hasContent {
@@ -350,14 +350,14 @@ struct MissionSettingsTab: View {
             Image(systemName: "doc.text")
               .font(.system(size: 10, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
-            Text("Edit WORKFLOW.md in your editor of choice — it's a file in your repo's source control.")
+            Text("Edit WORKFLOW.md in your editor — agent instructions are stored as a file in your repo.")
               .font(.system(size: TypeScale.micro))
               .foregroundStyle(Color.textTertiary)
               .fixedSize(horizontal: false, vertical: true)
           }
         #else
           Text(
-            "The prompt template lives in WORKFLOW.md and supports Liquid syntax. Edit it in your preferred editor for the best experience."
+            "Agent instructions live in WORKFLOW.md. They include issue context (title, description, URL) and workflow guidance. Supports Liquid syntax for dynamic values."
           )
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textQuaternary)

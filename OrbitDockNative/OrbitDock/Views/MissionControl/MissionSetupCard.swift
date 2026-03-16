@@ -103,8 +103,8 @@ struct MissionSetupCard: View {
       )
       stepRow(
         number: "3",
-        label: "Agent Prompt",
-        detail: "The template each agent receives per issue"
+        label: "Agent Instructions",
+        detail: "What each agent is told when it picks up an issue"
       )
     }
   }

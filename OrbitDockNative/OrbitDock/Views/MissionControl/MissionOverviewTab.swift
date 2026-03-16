@@ -5,14 +5,32 @@ struct MissionOverviewTab: View {
   let settings: MissionSettings?
   let issues: [MissionIssueItem]
   let missionId: String
+  let workflowExists: Bool
   let http: ServerHTTPClient?
   let isCompact: Bool
   let onRefresh: () async -> Void
+  let onSelectTab: (MissionTab) -> Void
+  let onUpdateMission: (Bool?, Bool?) async -> Void
 
   @State private var isStartingOrchestrator = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xl) {
+      // Setup banners (contextual)
+      if !workflowExists, settings == nil {
+        MissionSetupCard(
+          missionId: missionId,
+          repoRoot: mission.repoRoot,
+          http: http
+        ) {
+          await onRefresh()
+        }
+      }
+
+      if mission.parseError != nil, settings == nil, workflowExists {
+        configNeededBanner
+      }
+
       if mission.orchestratorStatus == "no_api_key" {
         MissionApiKeyBanner(
           missionId: missionId,
@@ -22,11 +40,10 @@ struct MissionOverviewTab: View {
         }
       }
 
-      if mission.orchestratorStatus == "idle" {
-        startOrchestratorCard
-      }
-
       telemetryStrip
+
+      // Mission Controls (always visible when configured)
+      missionControlsSection
 
       if let settings {
         configReadout(settings)
@@ -410,36 +427,32 @@ struct MissionOverviewTab: View {
     }
   }
 
-  // MARK: - Start Orchestrator Card
+  // MARK: - Config Needed Banner
 
-  private var startOrchestratorCard: some View {
+  private var configNeededBanner: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       HStack(spacing: Spacing.sm) {
-        Image(systemName: "play.circle.fill")
-          .font(.system(size: 14, weight: .semibold))
-          .foregroundStyle(Color.accent)
-        Text("Ready to Start")
+        Image(systemName: "info.circle.fill")
+          .foregroundStyle(Color.feedbackCaution)
+        Text("Configuration Needed")
           .font(.system(size: TypeScale.body, weight: .semibold))
           .foregroundStyle(Color.textPrimary)
       }
 
-      Text("Configuration looks good. Start the orchestrator to begin polling for issues.")
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textSecondary)
-        .fixedSize(horizontal: false, vertical: true)
+      Text(
+        "Your WORKFLOW.md doesn't contain OrbitDock configuration yet. Open Settings to configure — your existing file content will be preserved."
+      )
+      .font(.system(size: TypeScale.caption))
+      .foregroundStyle(Color.textSecondary)
+      .fixedSize(horizontal: false, vertical: true)
 
       Button {
-        Task { await startOrchestrator() }
+        onSelectTab(.settings)
       } label: {
-        HStack(spacing: Spacing.sm) {
-          if isStartingOrchestrator {
-            ProgressView()
-              .controlSize(.small)
-          } else {
-            Image(systemName: "play.fill")
-              .font(.system(size: 11, weight: .semibold))
-          }
-          Text("Start Orchestrator")
+        HStack(spacing: Spacing.sm_) {
+          Image(systemName: "gearshape")
+            .font(.system(size: 11, weight: .semibold))
+          Text("Open Settings")
             .font(.system(size: TypeScale.body, weight: .semibold))
         }
         .foregroundStyle(.white)
@@ -448,17 +461,129 @@ struct MissionOverviewTab: View {
         .background(Color.accent, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
       }
       .buttonStyle(.plain)
-      .disabled(isStartingOrchestrator)
     }
     .padding(Spacing.lg)
     .background(
       RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-        .fill(Color.accent.opacity(OpacityTier.light))
+        .fill(Color.feedbackCaution.opacity(OpacityTier.light))
         .overlay(
           RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-            .stroke(Color.accent.opacity(OpacityTier.subtle), lineWidth: 1)
+            .stroke(Color.feedbackCaution.opacity(OpacityTier.subtle), lineWidth: 1)
         )
     )
+  }
+
+  // MARK: - Mission Controls
+
+  private var missionControlsSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm_) {
+        signalIndicator
+        Text("Mission Controls")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+        Spacer()
+        Text(missionStatusLabel)
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(missionStatusColor)
+      }
+
+      let layout = isCompact
+        ? AnyLayout(VStackLayout(spacing: Spacing.sm))
+        : AnyLayout(HStackLayout(spacing: Spacing.sm))
+
+      layout {
+        if !mission.enabled {
+          controlButton("Enable Mission", icon: "play.circle", style: .primary) {
+            await onUpdateMission(true, nil)
+          }
+        } else if mission.orchestratorStatus == "idle" || mission.orchestratorStatus == nil {
+          controlButton("Start Orchestrator", icon: "play.fill", style: .primary) {
+            await startOrchestrator()
+          }
+        } else if mission.orchestratorStatus == "polling", !mission.paused {
+          controlButton("Pause", icon: "pause.fill", style: .secondary) {
+            await onUpdateMission(nil, true)
+          }
+        }
+
+        if mission.paused {
+          controlButton("Resume", icon: "play.fill", style: .primary) {
+            await onUpdateMission(nil, false)
+          }
+        }
+
+        if mission.enabled, mission.orchestratorStatus == "polling" || mission.paused {
+          controlButton("Disable", icon: "stop.circle", style: .destructive) {
+            await onUpdateMission(false, nil)
+          }
+        }
+      }
+    }
+    .padding(Spacing.lg)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+        .fill(Color.backgroundSecondary)
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+            .strokeBorder(Color.surfaceBorder, lineWidth: 1)
+        )
+    )
+  }
+
+  private var missionStatusLabel: String {
+    if !mission.enabled { return "Disabled" }
+    if mission.paused { return "Paused" }
+    switch mission.orchestratorStatus {
+      case "polling": return "Polling"
+      case "no_api_key": return "No API Key"
+      case "config_error": return "Config Error"
+      case "idle": return "Idle"
+      default: return "Not Started"
+    }
+  }
+
+  private var missionStatusColor: Color {
+    if !mission.enabled { return Color.textQuaternary }
+    if mission.paused { return Color.feedbackCaution }
+    switch mission.orchestratorStatus {
+      case "polling": return Color.feedbackPositive
+      case "no_api_key": return Color.feedbackCaution
+      case "config_error": return Color.feedbackNegative
+      default: return Color.textTertiary
+    }
+  }
+
+  private enum ControlButtonStyle { case primary, secondary, destructive }
+
+  private func controlButton(
+    _ title: String,
+    icon: String,
+    style: ControlButtonStyle,
+    action: @escaping () async -> Void
+  ) -> some View {
+    Button {
+      Task { await action() }
+    } label: {
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: icon)
+          .font(.system(size: 11, weight: .semibold))
+        Text(title)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+      }
+      .foregroundStyle(
+        style == .primary ? .white
+          : style == .destructive ? Color.feedbackNegative
+          : Color.textSecondary
+      )
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, Spacing.md_)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .fill(style == .primary ? Color.accent : Color.backgroundTertiary)
+      )
+    }
+    .buttonStyle(.plain)
   }
 
   private func startOrchestrator() async {

@@ -60,8 +60,8 @@ pub use files::{
     list_subagent_tools_endpoint,
 };
 pub use mission_control::{
-    check_linear_key, create_mission, delete_linear_key, delete_mission, get_mission,
-    get_mission_defaults, get_tracker_keys, list_mission_issues, list_missions,
+    check_linear_key, create_mission, delete_linear_key, delete_mission, get_default_template,
+    get_mission, get_mission_defaults, get_tracker_keys, list_mission_issues, list_missions,
     retry_mission_issue, scaffold_mission_workflow, set_linear_key,
     start_mission_orchestrator_endpoint, update_mission, update_mission_defaults,
     update_mission_settings,

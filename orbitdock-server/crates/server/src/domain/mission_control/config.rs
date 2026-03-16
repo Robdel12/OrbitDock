@@ -313,6 +313,65 @@ pub fn serialize_workflow(config: &MissionConfig, prompt_template: &str) -> Resu
     Ok(format!("---\n{}---\n\n{}", yaml, prompt_template))
 }
 
+/// Serialize config while preserving non-orbitdock content from an existing WORKFLOW.md.
+///
+/// - If `existing_content` has YAML front matter with non-orbitdock keys, they are preserved.
+/// - If `prompt_template` is empty, the existing body (text after front matter) is kept.
+/// - If `existing_content` has no front matter, the orbitdock config is prepended and
+///   the existing content becomes the prompt body.
+pub fn serialize_workflow_preserving(
+    config: &MissionConfig,
+    prompt_template: &str,
+    existing_content: Option<&str>,
+) -> Result<String> {
+    let Some(existing) = existing_content else {
+        return serialize_workflow(config, prompt_template);
+    };
+
+    let trimmed = existing.trim();
+    if !trimmed.starts_with("---") {
+        // No front matter — prepend orbitdock config
+        let body = if prompt_template.is_empty() {
+            trimmed
+        } else {
+            prompt_template
+        };
+        return serialize_workflow(config, body);
+    }
+
+    // Has front matter — parse existing YAML, inject/replace orbitdock key
+    let after_first = &trimmed[3..];
+    let end_idx = after_first
+        .find("\n---")
+        .context("existing WORKFLOW.md missing closing ---")?;
+    let existing_yaml = &after_first[..end_idx];
+    let existing_body_start = 3 + end_idx + 4;
+    let existing_body = if existing_body_start < trimmed.len() {
+        trimmed[existing_body_start..].trim()
+    } else {
+        ""
+    };
+
+    // Parse existing YAML as generic mapping, inject orbitdock key
+    let mut mapping: serde_yaml::Mapping = serde_yaml::from_str(existing_yaml).unwrap_or_default();
+    let orbitdock_value =
+        serde_yaml::to_value(config).context("serialize orbitdock config to YAML value")?;
+    mapping.insert(
+        serde_yaml::Value::String("orbitdock".to_string()),
+        orbitdock_value,
+    );
+    let yaml = serde_yaml::to_string(&mapping).context("serialize merged YAML")?;
+
+    // Body: use provided prompt_template if non-empty, else preserve existing body
+    let body = if prompt_template.is_empty() {
+        existing_body
+    } else {
+        prompt_template
+    };
+
+    Ok(format!("---\n{}---\n\n{}", yaml, body))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,6 +504,45 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
     fn parse_missing_closing_fence() {
         let result = parse_workflow("---\ntracker: linear\nno closing fence");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn serialize_preserving_keeps_non_orbitdock_yaml() {
+        let existing = "---\nname: My Workflow\nsteps:\n  - build\n  - test\n---\n\nSome existing body content";
+        let config = MissionConfig::default();
+        let result = serialize_workflow_preserving(&config, "", Some(existing)).unwrap();
+        assert!(result.contains("orbitdock:"));
+        assert!(result.contains("name: My Workflow"));
+        assert!(result.contains("Some existing body content"));
+    }
+
+    #[test]
+    fn serialize_preserving_replaces_body_when_template_provided() {
+        let existing = "---\nname: My Workflow\n---\n\nOld body";
+        let config = MissionConfig::default();
+        let result =
+            serialize_workflow_preserving(&config, "New template body", Some(existing)).unwrap();
+        assert!(result.contains("orbitdock:"));
+        assert!(result.contains("name: My Workflow"));
+        assert!(result.contains("New template body"));
+        assert!(!result.contains("Old body"));
+    }
+
+    #[test]
+    fn serialize_preserving_no_frontmatter_prepends_config() {
+        let existing = "Just a regular markdown file\n\nWith some content.";
+        let config = MissionConfig::default();
+        let result = serialize_workflow_preserving(&config, "", Some(existing)).unwrap();
+        assert!(result.contains("orbitdock:"));
+        assert!(result.contains("Just a regular markdown file"));
+    }
+
+    #[test]
+    fn serialize_preserving_none_uses_standard() {
+        let config = MissionConfig::default();
+        let result = serialize_workflow_preserving(&config, "Hello", None).unwrap();
+        assert!(result.contains("orbitdock:"));
+        assert!(result.contains("Hello"));
     }
 
     #[test]
