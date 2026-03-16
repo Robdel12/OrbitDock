@@ -12,8 +12,8 @@ struct FileTabHeader: View {
   let path: String
   let language: String?
   let metric: String?
-  var icon: String? = nil
-  var iconColor: Color? = nil
+  var icon: String?
+  var iconColor: Color?
   var badges: [FileBadge] = []
 
   struct FileBadge {
@@ -73,13 +73,13 @@ struct FileTabHeader: View {
     // On narrow screens, show only the last 2 path segments to preserve the filename
     let displaySegments: [String] = {
       #if os(iOS)
-      if segments.count > 2 {
-        return ["…"] + Array(segments.suffix(2))
-      }
+        if segments.count > 2 {
+          return ["…"] + Array(segments.suffix(2))
+        }
       #else
-      if segments.count > 5 {
-        return ["…"] + Array(segments.suffix(3))
-      }
+        if segments.count > 5 {
+          return ["…"] + Array(segments.suffix(3))
+        }
       #endif
       return segments
     }()
@@ -127,40 +127,40 @@ enum FileLanguageMapping {
   static func icon(for path: String) -> String {
     let ext = path.components(separatedBy: ".").last?.lowercased() ?? ""
     switch ext {
-    case "swift": return "swift"
-    case "rs": return "gearshape"
-    case "ts", "tsx", "js", "jsx": return "chevron.left.forwardslash.chevron.right"
-    case "py": return "chevron.left.forwardslash.chevron.right"
-    case "go": return "chevron.left.forwardslash.chevron.right"
-    case "json": return "doc.text"
-    case "yaml", "yml", "toml": return "doc.text"
-    case "md", "markdown": return "doc.richtext"
-    case "ipynb": return "rectangle.split.3x1"
-    case "png", "jpg", "jpeg", "svg", "gif", "webp": return "photo"
-    default: return "doc.text"
+      case "swift": return "swift"
+      case "rs": return "gearshape"
+      case "ts", "tsx", "js", "jsx": return "chevron.left.forwardslash.chevron.right"
+      case "py": return "chevron.left.forwardslash.chevron.right"
+      case "go": return "chevron.left.forwardslash.chevron.right"
+      case "json": return "doc.text"
+      case "yaml", "yml", "toml": return "doc.text"
+      case "md", "markdown": return "doc.richtext"
+      case "ipynb": return "rectangle.split.3x1"
+      case "png", "jpg", "jpeg", "svg", "gif", "webp": return "photo"
+      default: return "doc.text"
     }
   }
 
   static func color(for path: String) -> Color {
     let ext = path.components(separatedBy: ".").last?.lowercased() ?? ""
     switch ext {
-    case "swift": return .langSwift
-    case "rs": return .langRust
-    case "ts", "tsx": return .langJavaScript
-    case "js", "jsx": return .langJavaScript
-    case "py": return .langPython
-    case "go": return .langGo
-    case "json": return .langJSON
-    case "md", "markdown": return .toolRead
-    case "ipynb": return .toolWrite
-    case "png", "jpg", "jpeg", "svg", "gif", "webp": return .toolRead
-    case "yaml", "yml": return .textTertiary
-    case "toml": return .langRust
-    case "html", "htm": return .langHTML
-    case "css", "scss", "sass", "less": return .langCSS
-    case "rb": return .langRuby
-    case "sh", "bash", "zsh": return .langBash
-    default: return .textTertiary
+      case "swift": return .langSwift
+      case "rs": return .langRust
+      case "ts", "tsx": return .langJavaScript
+      case "js", "jsx": return .langJavaScript
+      case "py": return .langPython
+      case "go": return .langGo
+      case "json": return .langJSON
+      case "md", "markdown": return .toolRead
+      case "ipynb": return .toolWrite
+      case "png", "jpg", "jpeg", "svg", "gif", "webp": return .toolRead
+      case "yaml", "yml": return .textTertiary
+      case "toml": return .langRust
+      case "html", "htm": return .langHTML
+      case "css", "scss", "sass", "less": return .langCSS
+      case "rb": return .langRuby
+      case "sh", "bash", "zsh": return .langBash
+      default: return .textTertiary
     }
   }
 

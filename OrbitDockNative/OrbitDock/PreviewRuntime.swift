@@ -43,7 +43,7 @@ struct PreviewRuntime {
       endpointId: endpoint.id,
       endpointName: endpoint.name
     )
-    Self.previewSessions(endpoint: endpoint).forEach { session in
+    for session in Self.previewSessions(endpoint: endpoint) {
       sessionStore.session(session.id).applySnapshotProjection(SessionDetailSnapshotProjection.from(session))
     }
     sessionStore.codexModels = Self.previewCodexModels()
@@ -109,7 +109,7 @@ struct PreviewRuntime {
   }
 
   @ViewBuilder
-  func inject<Content: View>(_ content: Content) -> some View {
+  func inject(_ content: some View) -> some View {
     content
       .environment(sessionStore)
       .environment(runtimeRegistry)
@@ -120,9 +120,9 @@ struct PreviewRuntime {
       .environment(toastManager)
       .environment(\.rootSessionActions, rootSessionActions)
       .environment(appStore)
-      #if os(macOS)
-        .environment(\.serverManager, serverManager)
-      #endif
+    #if os(macOS)
+      .environment(\.serverManager, serverManager)
+    #endif
   }
 
   private static func previewEndpoint() -> ServerEndpoint {
@@ -233,8 +233,8 @@ struct PreviewRuntime {
         workStatus: serverWorkStatus(for: $0.workStatus, attentionReason: $0.attentionReason),
         codexIntegrationMode: $0.codexIntegrationMode.map(serverCodexMode),
         claudeIntegrationMode: $0.claudeIntegrationMode.map(serverClaudeMode),
-        startedAt: $0.startedAt.map(Self.iso8601Timestamp),
-        lastActivityAt: $0.lastActivityAt.map(Self.iso8601Timestamp),
+        startedAt: $0.startedAt.map(iso8601Timestamp),
+        lastActivityAt: $0.lastActivityAt.map(iso8601Timestamp),
         unreadCount: $0.unreadCount,
         hasTurnDiff: false,
         pendingToolName: $0.pendingToolName,
@@ -259,13 +259,13 @@ struct PreviewRuntime {
   ) -> ServerWorkStatus {
     switch attentionReason {
       case .awaitingPermission:
-        return .permission
+        .permission
       case .awaitingQuestion:
-        return .question
+        .question
       case .awaitingReply:
-        return .reply
+        .reply
       case .none:
-        return workStatus == .working ? .working : .reply
+        workStatus == .working ? .working : .reply
     }
   }
 

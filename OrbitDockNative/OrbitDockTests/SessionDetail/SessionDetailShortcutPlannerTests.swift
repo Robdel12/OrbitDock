@@ -1,6 +1,6 @@
+@testable import OrbitDock
 import SwiftUI
 import Testing
-@testable import OrbitDock
 
 @MainActor
 struct SessionDetailShortcutPlannerTests {

@@ -135,7 +135,7 @@ enum ToolCardStyle {
   static func looksLikeJSON(_ text: String) -> Bool {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     return (trimmed.hasPrefix("{") && trimmed.hasSuffix("}"))
-        || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]"))
+      || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]"))
   }
 
   // MARK: - MCP Server Styling

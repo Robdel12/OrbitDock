@@ -43,7 +43,7 @@ struct ReviewCanvasRoutingTests {
               DiffLine(type: .context, content: "let title = \"Old\"", oldLineNum: 1, newLineNum: 1, prefix: " "),
               DiffLine(type: .added, content: "let title = \"New\"", oldLineNum: nil, newLineNum: 2, prefix: "+"),
             ]
-          )
+          ),
         ]
       ),
       FileDiff(
@@ -62,7 +62,7 @@ struct ReviewCanvasRoutingTests {
             lines: [
               DiffLine(type: .added, content: "print(\"hi\")", oldLineNum: nil, newLineNum: 1, prefix: "+"),
             ]
-          )
+          ),
         ]
       ),
     ])

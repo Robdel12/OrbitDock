@@ -16,7 +16,7 @@ struct ConversationView: View {
   var pendingPermissionDetail: String?
   var provider: Provider = .claude
   var model: String?
-  var selectedWorkerID: String? = nil
+  var selectedWorkerID: String?
   var chatViewMode: ChatViewMode = .focused
   var onNavigateToReviewFile: ((String, Int) -> Void)?
   var onOpenPendingApprovalPanel: (() -> Void)?
@@ -46,9 +46,9 @@ struct ConversationView: View {
     // unsubscribe). Show nothing instead of re-showing the skeleton.
     if hasShownContent { return .empty }
     switch store.state {
-    case .idle, .loading: return .loading
-    case .ready: return .empty
-    case .failed: return .empty
+      case .idle, .loading: return .loading
+      case .ready: return .empty
+      case .failed: return .empty
     }
   }
 
@@ -58,35 +58,35 @@ struct ConversationView: View {
         .ignoresSafeArea()
 
       switch loadState {
-      case .loading:
-        ConversationLoadingView()
-          .transition(.opacity)
-      case .empty:
-        ConversationEmptyStateView()
-          .transition(.opacity)
-      case .ready:
-        VStack(spacing: 0) {
-          if let sid = sessionId, let sourceId = serverState.session(sid).forkedFrom {
-            ConversationForkOriginBanner(
-              sourceSessionId: sourceId,
-              sourceEndpointId: endpointId,
-              sourceName: serverState.session(sourceId).displayName
-            )
-            .padding(.horizontal, Spacing.lg)
-            .padding(.top, Spacing.sm)
-            .padding(.bottom, Spacing.xs)
-          }
+        case .loading:
+          ConversationLoadingView()
+            .transition(.opacity)
+        case .empty:
+          ConversationEmptyStateView()
+            .transition(.opacity)
+        case .ready:
+          VStack(spacing: 0) {
+            if let sid = sessionId, let sourceId = serverState.session(sid).forkedFrom {
+              ConversationForkOriginBanner(
+                sourceSessionId: sourceId,
+                sourceEndpointId: endpointId,
+                sourceName: serverState.session(sourceId).displayName
+              )
+              .padding(.horizontal, Spacing.lg)
+              .padding(.top, Spacing.sm)
+              .padding(.bottom, Spacing.xs)
+            }
 
-          conversationTimeline
+            conversationTimeline
 
-          if isSessionActive || displayStatus == .ended {
-            OrbitStatusIndicator(
-              displayStatus: displayStatus,
-              currentTool: currentTool
-            )
+            if isSessionActive || displayStatus == .ended {
+              OrbitStatusIndicator(
+                displayStatus: displayStatus,
+                currentTool: currentTool
+              )
+            }
           }
-        }
-        .transition(.opacity)
+          .transition(.opacity)
       }
     }
     .animation(Motion.fade, value: loadState == .loading)
@@ -121,7 +121,7 @@ struct ConversationView: View {
   }
 }
 
-// Internal to ConversationView — declared at file scope for Equatable conformance
+/// Internal to ConversationView — declared at file scope for Equatable conformance
 enum ConversationLoadState: Equatable {
   case loading, empty, ready
 }

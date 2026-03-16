@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 @MainActor
 struct SessionWorkerRosterPlannerTests {
@@ -34,7 +34,7 @@ struct SessionWorkerRosterPlannerTests {
     #expect(presentation?.workers.first?.statusLabel == "Running")
   }
 
-  @Test func presentationFallsBackAcrossWorkerTextFields() {
+  @Test func presentationFallsBackAcrossWorkerTextFields() throws {
     let presentation = SessionWorkerRosterPlanner.presentation(
       subagents: [
         makeWorker(
@@ -45,11 +45,11 @@ struct SessionWorkerRosterPlannerTests {
           resultSummary: nil,
           errorSummary: "sandbox denied",
           agentType: "reviewer"
-        )
+        ),
       ]
     )
 
-    let worker = try! #require(presentation?.workers.first)
+    let worker = try #require(presentation?.workers.first)
     #expect(worker.title == "Reviewer")
     #expect(worker.subtitle == "sandbox denied")
     #expect(worker.statusLabel == "Failed")
@@ -134,8 +134,8 @@ struct SessionWorkerRosterPlannerTests {
             summary: "Read the README",
             output: nil,
             isInProgress: true
-          )
-        ]
+          ),
+        ],
       ],
       messagesByWorker: [:],
       timelineMessages: []
@@ -235,7 +235,7 @@ struct SessionWorkerRosterPlannerTests {
             rowType: .assistant,
             content: "The runtime coordinator owns the auth refresh path."
           ),
-        ]
+        ],
       ],
       timelineMessages: []
     )
@@ -243,7 +243,8 @@ struct SessionWorkerRosterPlannerTests {
     #expect(presentation?.threadEntries.count == 2)
     // TranscriptMessage mapped from a .user row uses "Worker prompt" title in threadEntryPresentation
     #expect(presentation?.threadEntries.first?.title == "Worker prompt")
-    #expect(presentation?.threadEntries.last?.body.contains("The runtime coordinator owns the auth refresh path.") == true)
+    #expect(presentation?.threadEntries.last?.body
+      .contains("The runtime coordinator owns the auth refresh path.") == true)
   }
 
   @Test func detailPresentationBuildsConversationTrailFromWorkerLinkedMessages() {
@@ -326,7 +327,8 @@ struct SessionWorkerRosterPlannerTests {
     #expect(presentation?.assignmentPreview == "Inspect the auth layer")
     #expect(presentation?.conversationEvents.count == 2)
     #expect(presentation?.conversationEvents.first?.title == "Agent")
-    #expect(presentation?.conversationEvents.last?.summary == "Worker found the auth entrypoints and is reporting back.")
+    #expect(presentation?.conversationEvents.last?
+      .summary == "Worker found the auth entrypoints and is reporting back.")
   }
 
   @Test func detailPresentationBuildsRelatedWorkerNavigation() {

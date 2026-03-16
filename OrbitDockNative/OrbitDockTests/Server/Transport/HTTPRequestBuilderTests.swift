@@ -4,8 +4,8 @@ import Testing
 
 struct HTTPRequestBuilderTests {
   @Test func buildsAuthenticatedJSONRequestWithNormalizedPathAndQuery() throws {
-    let builder = HTTPRequestBuilder(
-      baseURL: try #require(URL(string: "http://127.0.0.1:4000")),
+    let builder = try HTTPRequestBuilder(
+      baseURL: #require(URL(string: "http://127.0.0.1:4000")),
       authToken: "secret-token"
     )
 
@@ -26,8 +26,8 @@ struct HTTPRequestBuilderTests {
   }
 
   @Test func encodesPathComponentsForSessionRoutes() throws {
-    let builder = HTTPRequestBuilder(
-      baseURL: try #require(URL(string: "http://localhost:4000")),
+    let builder = try HTTPRequestBuilder(
+      baseURL: #require(URL(string: "http://localhost:4000")),
       authToken: nil
     )
 

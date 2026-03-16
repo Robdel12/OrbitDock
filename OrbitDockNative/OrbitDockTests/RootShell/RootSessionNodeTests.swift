@@ -73,7 +73,7 @@ struct RootSessionNodeTests {
       repositoryRoot: "/tmp/project",
       isWorktree: true,
       worktreeId: "wt-1",
-      totalTokens: 2048,
+      totalTokens: 2_048,
       totalCostUSD: nil,
       displayTitle: "Server Title",
       displayTitleSortKey: "server title",

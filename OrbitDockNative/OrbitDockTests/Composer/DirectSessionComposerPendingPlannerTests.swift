@@ -242,7 +242,7 @@ struct DirectSessionComposerPendingPlannerTests {
     #expect(presentation.title == "Question")
     #expect(presentation.statusText == "QUESTION")
     #expect(presentation.promptCountText == "2 prompts")
-    #expect(presentation.commandChainSegments.map { $0.command } == ["echo hi"])
+    #expect(presentation.commandChainSegments.map(\.command) == ["echo hi"])
     #expect(presentation.clampedContentHeight == 152)
   }
 

@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 @MainActor
 struct QuickSwitcherRowPresentationTests {
@@ -94,7 +94,8 @@ struct QuickSwitcherRowPresentationTests {
     #expect(QuickSwitcherRowPresentation.activityText(for: session, status: .permission) == "Edit")
     #expect(QuickSwitcherRowPresentation.activityIcon(for: session, status: .permission) == "lock.fill")
     #expect(QuickSwitcherRowPresentation.activityText(for: session, status: .working) == "Edit")
-    #expect(QuickSwitcherRowPresentation.activityIcon(for: session, status: .working) == ToolCardStyle.icon(for: "Edit"))
+    #expect(QuickSwitcherRowPresentation.activityIcon(for: session, status: .working) == ToolCardStyle
+      .icon(for: "Edit"))
     #expect(QuickSwitcherRowPresentation.activityText(for: session, status: .reply) == "Ready")
     #expect(QuickSwitcherRowPresentation.activityText(for: session, status: .ended) == "Ended")
   }

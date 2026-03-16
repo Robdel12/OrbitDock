@@ -4,9 +4,6 @@ struct ServerPrimaryClaimUpdate: Sendable {
   let endpointId: UUID
   let isPrimary: Bool
 
-  nonisolated static func == (lhs: ServerPrimaryClaimUpdate, rhs: ServerPrimaryClaimUpdate) -> Bool {
-    lhs.endpointId == rhs.endpointId && lhs.isPrimary == rhs.isPrimary
-  }
 }
 
 extension ServerPrimaryClaimUpdate: Equatable {}
@@ -15,9 +12,6 @@ struct ServerControlPlanePlan: Sendable {
   let enabledEndpointIds: [UUID]
   let primaryEndpointId: UUID?
 
-  nonisolated static func == (lhs: ServerControlPlanePlan, rhs: ServerControlPlanePlan) -> Bool {
-    lhs.enabledEndpointIds == rhs.enabledEndpointIds && lhs.primaryEndpointId == rhs.primaryEndpointId
-  }
 }
 
 extension ServerControlPlanePlan: Equatable {}

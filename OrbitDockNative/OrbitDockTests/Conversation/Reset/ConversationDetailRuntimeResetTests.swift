@@ -1,11 +1,15 @@
-import XCTest
 @testable import OrbitDock
+import XCTest
 
 @MainActor
 final class ConversationDetailRuntimeResetTests: XCTestCase {
-  func testRuntimeKeepsStructureMetadataAndStreamingSeparated() {
+  func testRuntimeKeepsStructureMetadataAndStreamingSeparated() throws {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-1")
-    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil, dataLoader: { _ in throw HTTPTransportError.serverUnreachable })
+    let clients = try ServerClients(
+      serverURL: XCTUnwrap(URL(string: "http://127.0.0.1:4000")),
+      authToken: nil,
+      dataLoader: { _ in throw HTTPTransportError.serverUnreachable }
+    )
     let runtime = ConversationDetailRuntime(session: session, clients: clients, provider: .codex, model: "gpt-5.4")
 
     runtime.applyStructure(.bootstrap(
@@ -14,9 +18,16 @@ final class ConversationDetailRuntimeResetTests: XCTestCase {
           id: "message-1",
           session: session,
           kind: .message,
-          payload: .message(.init(messageID: "message-1", role: .assistant, speaker: "Assistant", text: "", timestamp: nil, contentSignature: 1)),
+          payload: .message(.init(
+            messageID: "message-1",
+            role: .assistant,
+            speaker: "Assistant",
+            text: "",
+            timestamp: nil,
+            contentSignature: 1
+          )),
           sequence: 1
-        )
+        ),
       ],
       oldestLoadedSequence: 1,
       newestLoadedSequence: 1,
@@ -41,9 +52,13 @@ final class ConversationDetailRuntimeResetTests: XCTestCase {
     XCTAssertEqual(runtime.renderStore.streamingMessages["message-1"]?.content, "Hello")
   }
 
-  func testRuntimeBuildsWorkerInspectorWithoutTranscriptScanning() {
+  func testRuntimeBuildsWorkerInspectorWithoutTranscriptScanning() throws {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-2")
-    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil, dataLoader: { _ in throw HTTPTransportError.serverUnreachable })
+    let clients = try ServerClients(
+      serverURL: XCTUnwrap(URL(string: "http://127.0.0.1:4000")),
+      authToken: nil,
+      dataLoader: { _ in throw HTTPTransportError.serverUnreachable }
+    )
     let runtime = ConversationDetailRuntime(session: session, clients: clients, provider: .codex, model: "gpt-5.4")
 
     runtime.hydrateMetadata(
@@ -93,8 +108,8 @@ final class ConversationDetailRuntimeResetTests: XCTestCase {
               summary: "Read auth files",
               output: nil,
               isInProgress: true
-            )
-          ]
+            ),
+          ],
         ],
         messagesByWorker: [
           "worker-1": [
@@ -112,8 +127,8 @@ final class ConversationDetailRuntimeResetTests: XCTestCase {
                   images: nil
                 )
               )
-            )
-          ]
+            ),
+          ],
         ],
         provider: .codex,
         model: "gpt-5.4"

@@ -394,29 +394,29 @@ enum ServerConversationRow: Codable {
     let rowType = try container.decode(ServerConversationRowType.self, forKey: .rowType)
     switch rowType {
       case .user:
-        self = .user(try ServerConversationMessageRow(from: decoder))
+        self = try .user(ServerConversationMessageRow(from: decoder))
       case .assistant:
-        self = .assistant(try ServerConversationMessageRow(from: decoder))
+        self = try .assistant(ServerConversationMessageRow(from: decoder))
       case .thinking:
-        self = .thinking(try ServerConversationMessageRow(from: decoder))
+        self = try .thinking(ServerConversationMessageRow(from: decoder))
       case .tool:
-        self = .tool(try ServerConversationToolRow(from: decoder))
+        self = try .tool(ServerConversationToolRow(from: decoder))
       case .activityGroup:
-        self = .activityGroup(try ServerConversationActivityGroupRow(from: decoder))
+        self = try .activityGroup(ServerConversationActivityGroupRow(from: decoder))
       case .question:
-        self = .question(try ServerConversationQuestionRow(from: decoder))
+        self = try .question(ServerConversationQuestionRow(from: decoder))
       case .approval:
-        self = .approval(try ServerConversationApprovalRow(from: decoder))
+        self = try .approval(ServerConversationApprovalRow(from: decoder))
       case .worker:
-        self = .worker(try ServerConversationWorkerRow(from: decoder))
+        self = try .worker(ServerConversationWorkerRow(from: decoder))
       case .plan:
-        self = .plan(try ServerConversationPlanRow(from: decoder))
+        self = try .plan(ServerConversationPlanRow(from: decoder))
       case .hook:
-        self = .hook(try ServerConversationHookRow(from: decoder))
+        self = try .hook(ServerConversationHookRow(from: decoder))
       case .handoff:
-        self = .handoff(try ServerConversationHandoffRow(from: decoder))
+        self = try .handoff(ServerConversationHandoffRow(from: decoder))
       case .system:
-        self = .system(try ServerConversationMessageRow(from: decoder))
+        self = try .system(ServerConversationMessageRow(from: decoder))
       case .unknown:
         // Decode minimal system row for unknown types — id may be present or synthesized
         let id = (try? container.decode(String.self, forKey: .rowType)) ?? UUID().uuidString
@@ -433,29 +433,29 @@ enum ServerConversationRow: Codable {
 
   func encode(to encoder: Encoder) throws {
     switch self {
-      case .user(let row):
+      case let .user(row):
         try row.encode(to: encoder)
-      case .assistant(let row):
+      case let .assistant(row):
         try row.encode(to: encoder)
-      case .thinking(let row):
+      case let .thinking(row):
         try row.encode(to: encoder)
-      case .tool(let row):
+      case let .tool(row):
         try row.encode(to: encoder)
-      case .activityGroup(let row):
+      case let .activityGroup(row):
         try row.encode(to: encoder)
-      case .question(let row):
+      case let .question(row):
         try row.encode(to: encoder)
-      case .approval(let row):
+      case let .approval(row):
         try row.encode(to: encoder)
-      case .worker(let row):
+      case let .worker(row):
         try row.encode(to: encoder)
-      case .plan(let row):
+      case let .plan(row):
         try row.encode(to: encoder)
-      case .hook(let row):
+      case let .hook(row):
         try row.encode(to: encoder)
-      case .handoff(let row):
+      case let .handoff(row):
         try row.encode(to: encoder)
-      case .system(let row):
+      case let .system(row):
         try row.encode(to: encoder)
     }
   }
@@ -476,26 +476,26 @@ struct ServerConversationRowEntry: Codable, Identifiable {
 
   var id: String {
     switch row {
-      case .user(let message),
-           .assistant(let message),
-           .thinking(let message),
-           .system(let message):
+      case let .user(message),
+           let .assistant(message),
+           let .thinking(message),
+           let .system(message):
         message.id
-      case .tool(let tool):
+      case let .tool(tool):
         tool.id
-      case .activityGroup(let group):
+      case let .activityGroup(group):
         group.id
-      case .question(let question):
+      case let .question(question):
         question.id
-      case .approval(let approval):
+      case let .approval(approval):
         approval.id
-      case .worker(let worker):
+      case let .worker(worker):
         worker.id
-      case .plan(let plan):
+      case let .plan(plan):
         plan.id
-      case .hook(let hook):
+      case let .hook(hook):
         hook.id
-      case .handoff(let handoff):
+      case let .handoff(handoff):
         handoff.id
     }
   }

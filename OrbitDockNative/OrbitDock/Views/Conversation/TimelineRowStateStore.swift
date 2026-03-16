@@ -41,7 +41,9 @@ final class TimelineRowStateStore {
     fetchedContent[rowId]
   }
 
-  var isFetchingContent: Set<String> { fetchInFlight }
+  var isFetchingContent: Set<String> {
+    fetchInFlight
+  }
 
   func isFetching(_ rowId: String) -> Bool {
     fetchInFlight.contains(rowId)

@@ -1,5 +1,5 @@
-import XCTest
 @testable import OrbitDock
+import XCTest
 
 final class StreamingMessageRegistryResetTests: XCTestCase {
   func testStreamingRegistryCoalescesAndFinalizesMessage() {

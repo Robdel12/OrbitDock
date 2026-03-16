@@ -165,7 +165,7 @@ extension RemoteProjectPicker {
 
         VStack(alignment: .trailing, spacing: Spacing.xs) {
           ForEach(Array(badges.enumerated()), id: \.offset) { index, badge in
-            if index == badges.count - 1 && badges.count > 1 {
+            if index == badges.count - 1, badges.count > 1 {
               Text(badge)
                 .font(.system(size: TypeScale.caption))
                 .foregroundStyle(Color.textQuaternary)

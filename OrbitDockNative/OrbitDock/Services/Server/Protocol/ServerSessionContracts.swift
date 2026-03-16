@@ -910,13 +910,22 @@ struct ServerStateChanges: Codable {
     workStatus = try container.decodeIfPresent(ServerWorkStatus.self, forKey: .workStatus)
     pendingApproval = try container.decodePatchValue(ServerApprovalRequest.self, forKey: .pendingApproval)
     tokenUsage = try container.decodeIfPresent(ServerTokenUsage.self, forKey: .tokenUsage)
-    tokenUsageSnapshotKind = try container.decodeIfPresent(ServerTokenUsageSnapshotKind.self, forKey: .tokenUsageSnapshotKind)
+    tokenUsageSnapshotKind = try container.decodeIfPresent(
+      ServerTokenUsageSnapshotKind.self,
+      forKey: .tokenUsageSnapshotKind
+    )
     currentDiff = try container.decodePatchValue(String.self, forKey: .currentDiff)
     currentPlan = try container.decodePatchValue(String.self, forKey: .currentPlan)
     customName = try container.decodePatchValue(String.self, forKey: .customName)
     summary = try container.decodePatchValue(String.self, forKey: .summary)
-    codexIntegrationMode = try container.decodePatchValue(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
-    claudeIntegrationMode = try container.decodePatchValue(ServerClaudeIntegrationMode.self, forKey: .claudeIntegrationMode)
+    codexIntegrationMode = try container.decodePatchValue(
+      ServerCodexIntegrationMode.self,
+      forKey: .codexIntegrationMode
+    )
+    claudeIntegrationMode = try container.decodePatchValue(
+      ServerClaudeIntegrationMode.self,
+      forKey: .claudeIntegrationMode
+    )
     approvalPolicy = try container.decodePatchValue(String.self, forKey: .approvalPolicy)
     sandboxMode = try container.decodePatchValue(String.self, forKey: .sandboxMode)
     collaborationMode = try container.decodePatchValue(String.self, forKey: .collaborationMode)
@@ -949,6 +958,6 @@ private extension KeyedDecodingContainer where Key == ServerStateChanges.CodingK
     if try decodeNil(forKey: key) {
       return .some(nil)
     }
-    return .some(try decode(T.self, forKey: key))
+    return try .some(decode(T.self, forKey: key))
   }
 }

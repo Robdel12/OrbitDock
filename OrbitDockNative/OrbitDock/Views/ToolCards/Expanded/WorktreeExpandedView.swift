@@ -14,7 +14,8 @@ struct WorktreeExpandedView: View {
     guard let input = content.inputDisplay else { return (nil, nil) }
     // Try to parse structured input
     if let data = input.data(using: .utf8),
-       let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+       let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    {
       return (
         path: dict["path"] as? String ?? dict["worktree_path"] as? String,
         branch: dict["branch"] as? String ?? dict["branch_name"] as? String

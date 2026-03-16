@@ -46,6 +46,7 @@ enum QuickSwitcherKeyboardActionResolver {
 }
 
 struct KeyboardNavigationModifier: ViewModifier {
+  let isEnabled: Bool
   let onMoveUp: () -> Void
   let onMoveDown: () -> Void
   let onMoveToFirst: () -> Void
@@ -55,6 +56,7 @@ struct KeyboardNavigationModifier: ViewModifier {
   let onShiftSelect: (() -> Void)?
 
   init(
+    isEnabled: Bool = true,
     onMoveUp: @escaping () -> Void,
     onMoveDown: @escaping () -> Void,
     onMoveToFirst: @escaping () -> Void,
@@ -63,6 +65,7 @@ struct KeyboardNavigationModifier: ViewModifier {
     onRename: @escaping () -> Void,
     onShiftSelect: (() -> Void)? = nil
   ) {
+    self.isEnabled = isEnabled
     self.onMoveUp = onMoveUp
     self.onMoveDown = onMoveDown
     self.onMoveToFirst = onMoveToFirst
@@ -75,14 +78,17 @@ struct KeyboardNavigationModifier: ViewModifier {
   func body(content: Content) -> some View {
     content
       .onKeyPress(keys: [.upArrow]) { _ in
+        guard isEnabled else { return .ignored }
         onMoveUp()
         return .handled
       }
       .onKeyPress(keys: [.downArrow]) { _ in
+        guard isEnabled else { return .ignored }
         onMoveDown()
         return .handled
       }
       .onKeyPress(keys: [.return]) { keyPress in
+        guard isEnabled else { return .ignored }
         switch QuickSwitcherKeyboardActionResolver.resolveReturn(
           modifiers: keyPress.modifiers,
           supportsShiftSelect: onShiftSelect != nil
@@ -97,6 +103,7 @@ struct KeyboardNavigationModifier: ViewModifier {
         return .handled
       }
       .onKeyPress { keyPress in
+        guard isEnabled else { return .ignored }
         switch QuickSwitcherKeyboardActionResolver.resolveCharacter(
           keyPress.key,
           modifiers: keyPress.modifiers

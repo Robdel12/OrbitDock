@@ -69,9 +69,17 @@ struct SessionDetailStatusStripState: Equatable {
   let changes: SessionDetailChangesPillState?
   let context: SessionDetailContextPillState?
 
-  var showsPlan: Bool { plan != nil }
-  var showsChanges: Bool { changes != nil }
-  var showsContext: Bool { context != nil }
+  var showsPlan: Bool {
+    plan != nil
+  }
+
+  var showsChanges: Bool {
+    changes != nil
+  }
+
+  var showsContext: Bool {
+    context != nil
+  }
 }
 
 enum SessionDetailStatusStripPlanner {
@@ -292,13 +300,13 @@ enum SessionDetailLayoutPlanner {
   ) -> LayoutConfiguration {
     switch intent {
       case .toggleSplitShortcut:
-        return currentLayout == .conversationOnly ? .split : .conversationOnly
+        currentLayout == .conversationOnly ? .split : .conversationOnly
       case .showReviewOnlyShortcut:
-        return .reviewOnly
+        .reviewOnly
       case .dismissReview:
-        return .conversationOnly
+        .conversationOnly
       case .revealReviewSplit:
-        return currentLayout == .conversationOnly ? .split : currentLayout
+        currentLayout == .conversationOnly ? .split : currentLayout
     }
   }
 

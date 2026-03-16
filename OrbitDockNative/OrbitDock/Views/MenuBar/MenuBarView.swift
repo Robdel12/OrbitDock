@@ -7,14 +7,14 @@ import SwiftUI
 
 #if os(macOS)
 
-struct MenuBarView: View {
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
-  @Environment(\.colorScheme) private var colorScheme
-  @State private var refreshRotation: Double = 0
-  @Environment(AppStore.self) private var appStore
+  struct MenuBarView: View {
+    @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+    @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var refreshRotation: Double = 0
+    @Environment(AppStore.self) private var appStore
 
-  var body: some View {
+    var body: some View {
       let activeSessions = appStore.missionControlRecords()
       let recentSessions = appStore.recentRecords(limit: 5)
       let hasAnySessions = appStore.counts.total > 0
@@ -149,7 +149,7 @@ struct MenuBarView: View {
       }
     }
 
-  private func sectionHeader(_ title: String) -> some View {
+    private func sectionHeader(_ title: String) -> some View {
       Text(title.uppercased())
         .font(.system(size: TypeScale.micro, weight: .semibold, design: .rounded))
         .foregroundStyle(tertiaryTextColor)
@@ -157,7 +157,7 @@ struct MenuBarView: View {
         .padding(.bottom, Spacing.sm_)
     }
 
-  private var emptyView: some View {
+    private var emptyView: some View {
       VStack(spacing: Spacing.md_) {
         ZStack {
           RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
@@ -178,28 +178,28 @@ struct MenuBarView: View {
       .padding(.vertical, Spacing.xxl)
     }
 
-  private var menuDivider: some View {
+    private var menuDivider: some View {
       Rectangle()
         .fill(dividerColor)
         .frame(height: 1)
     }
 
-  private var headerTitleColor: Color {
+    private var headerTitleColor: Color {
       colorScheme == .dark ? Color.white.opacity(0.9) : .primary
     }
 
-  private var secondaryTextColor: Color {
+    private var secondaryTextColor: Color {
       colorScheme == .dark ? Color.white.opacity(0.72) : .primary.opacity(0.78)
     }
 
-  private var tertiaryTextColor: Color {
+    private var tertiaryTextColor: Color {
       colorScheme == .dark ? Color.white.opacity(0.5) : .primary.opacity(0.62)
     }
 
-  private var dividerColor: Color {
+    private var dividerColor: Color {
       colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.1)
     }
-}
+  }
 
   struct MenuBarSessionRow: View {
     let session: RootSessionNode

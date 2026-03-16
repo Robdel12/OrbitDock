@@ -192,7 +192,7 @@ struct SessionStateProjection {
       personality: changes.personality,
       serviceTier: changes.serviceTier,
       developerInstructions: changes.developerInstructions,
-      lastActivityAt: Self.parseLastActivityAt(changes.lastActivityAt),
+      lastActivityAt: parseLastActivityAt(changes.lastActivityAt),
       repositoryRoot: changes.repositoryRoot,
       isWorktree: changes.isWorktree,
       unreadCount: changes.unreadCount

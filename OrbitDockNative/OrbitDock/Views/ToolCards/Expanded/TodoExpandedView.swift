@@ -31,10 +31,10 @@ struct TodoExpandedView: View {
         let sortedItems = display.todoItems.sorted { a, b in
           let order: (String) -> Int = { status in
             switch status {
-            case "in_progress": return 0
-            case "pending": return 1
-            case "completed": return 2
-            default: return 1
+              case "in_progress": 0
+              case "pending": 1
+              case "completed": 2
+              default: 1
             }
           }
           return order(a.status) < order(b.status)

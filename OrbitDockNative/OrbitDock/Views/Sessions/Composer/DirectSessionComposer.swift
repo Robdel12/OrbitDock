@@ -124,6 +124,7 @@ struct DirectSessionComposer: View {
     get { composerState.permissionPanelExpanded }
     nonmutating set { composerState.permissionPanelExpanded = newValue }
   }
+
   // MARK: - Body
 
   var body: some View {
@@ -322,8 +323,12 @@ struct DirectSessionComposer: View {
     }
 
     if hasAttachments {
-      AttachmentBar(images: attachedImagesBinding, mentions: attachedMentionsBinding, imageLoader: serverState.clients.imageLoader)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+      AttachmentBar(
+        images: attachedImagesBinding,
+        mentions: attachedMentionsBinding,
+        imageLoader: serverState.clients.imageLoader
+      )
+      .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     if !obs.promptSuggestions.isEmpty, isSessionActive, !isSessionWorking {

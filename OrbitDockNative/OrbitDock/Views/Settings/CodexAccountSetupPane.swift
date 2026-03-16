@@ -11,7 +11,8 @@ struct CodexAccountSetupPane: View {
             .codexAccountStatus?.account == nil ? "person.crop.circle.badge.exclamationmark" :
             "person.crop.circle.badge.checkmark")
             .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(serverState.codexAccountStatus?.account == nil ? Color.statusPermission : Color.feedbackPositive)
+            .foregroundStyle(serverState.codexAccountStatus?.account == nil ? Color.statusPermission : Color
+              .feedbackPositive)
           Text("Account")
             .font(.system(size: TypeScale.body, weight: .semibold))
           Spacer()

@@ -23,28 +23,36 @@ import SwiftUI
 
       Task<Void, Never> { @MainActor in
         defer {
-        if ProjectPickerPlanner.shouldApplyResponse(
-          requestId: requestId,
-          activeRequestId: recentProjectsRequestId,
-          requestEndpointId: requestEndpointId,
-          activeEndpointId: ProjectPickerDataAccess.filesystemPort(
-            explicitEndpointID: endpointId,
-            endpointSettings: endpointSettings,
-            runtimeRegistry: runtimeRegistry
-          )?.endpointId
-        ) {
-          isLoadingRecent = false
-        }
+          if ProjectPickerPlanner.shouldApplyResponse(
+            requestId: requestId,
+            activeRequestId: recentProjectsRequestId,
+            requestEndpointId: requestEndpointId,
+            activeEndpointId: ProjectPickerDataAccess.filesystemPort(
+              explicitEndpointID: endpointId,
+              endpointSettings: endpointSettings,
+              runtimeRegistry: runtimeRegistry
+            )?.endpointId
+          ) {
+            isLoadingRecent = false
+          }
         }
 
         do {
           let projects = try await resolved.port.listRecentProjects()
-          guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: recentProjectsRequestId)
+          guard shouldApplyResponse(
+            requestId: requestId,
+            requestEndpointId: requestEndpointId,
+            activeRequestId: recentProjectsRequestId
+          )
           else { return }
           recentProjects = projects
         } catch {
           projectPickerLogger.error("Failed to load recent projects: \(error.localizedDescription, privacy: .public)")
-          guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: recentProjectsRequestId)
+          guard shouldApplyResponse(
+            requestId: requestId,
+            requestEndpointId: requestEndpointId,
+            activeRequestId: recentProjectsRequestId
+          )
           else { return }
           recentProjects = []
         }
@@ -71,23 +79,27 @@ import SwiftUI
 
       Task<Void, Never> { @MainActor in
         defer {
-        if ProjectPickerPlanner.shouldApplyResponse(
-          requestId: requestId,
-          activeRequestId: browseRequestId,
-          requestEndpointId: requestEndpointId,
-          activeEndpointId: ProjectPickerDataAccess.filesystemPort(
-            explicitEndpointID: endpointId,
-            endpointSettings: endpointSettings,
-            runtimeRegistry: runtimeRegistry
-          )?.endpointId
-        ) {
-          isLoadingDirectory = false
-        }
+          if ProjectPickerPlanner.shouldApplyResponse(
+            requestId: requestId,
+            activeRequestId: browseRequestId,
+            requestEndpointId: requestEndpointId,
+            activeEndpointId: ProjectPickerDataAccess.filesystemPort(
+              explicitEndpointID: endpointId,
+              endpointSettings: endpointSettings,
+              runtimeRegistry: runtimeRegistry
+            )?.endpointId
+          ) {
+            isLoadingDirectory = false
+          }
         }
 
         do {
           let (browsedPath, entries) = try await resolved.port.browseDirectory(path ?? "")
-          guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: browseRequestId)
+          guard shouldApplyResponse(
+            requestId: requestId,
+            requestEndpointId: requestEndpointId,
+            activeRequestId: browseRequestId
+          )
           else { return }
 
           let projection = ProjectPickerPlanner.applyBrowseResponse(
@@ -100,7 +112,11 @@ import SwiftUI
           applyBrowseProjection(projection)
         } catch {
           projectPickerLogger.error("Failed to browse directory: \(error.localizedDescription, privacy: .public)")
-          guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: browseRequestId)
+          guard shouldApplyResponse(
+            requestId: requestId,
+            requestEndpointId: requestEndpointId,
+            activeRequestId: browseRequestId
+          )
           else { return }
           directoryEntries = []
         }
@@ -127,23 +143,27 @@ import SwiftUI
 
       Task<Void, Never> { @MainActor in
         defer {
-        if ProjectPickerPlanner.shouldApplyResponse(
-          requestId: requestId,
-          activeRequestId: browseRequestId,
-          requestEndpointId: requestEndpointId,
-          activeEndpointId: ProjectPickerDataAccess.filesystemPort(
-            explicitEndpointID: endpointId,
-            endpointSettings: endpointSettings,
-            runtimeRegistry: runtimeRegistry
-          )?.endpointId
-        ) {
-          isLoadingDirectory = false
-        }
+          if ProjectPickerPlanner.shouldApplyResponse(
+            requestId: requestId,
+            activeRequestId: browseRequestId,
+            requestEndpointId: requestEndpointId,
+            activeEndpointId: ProjectPickerDataAccess.filesystemPort(
+              explicitEndpointID: endpointId,
+              endpointSettings: endpointSettings,
+              runtimeRegistry: runtimeRegistry
+            )?.endpointId
+          ) {
+            isLoadingDirectory = false
+          }
         }
 
         do {
           let (browsedPath, entries) = try await resolved.port.browseDirectory(previous.isEmpty ? "" : previous)
-          guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: browseRequestId)
+          guard shouldApplyResponse(
+            requestId: requestId,
+            requestEndpointId: requestEndpointId,
+            activeRequestId: browseRequestId
+          )
           else { return }
           guard let projection = ProjectPickerPlanner.applyNavigateBackResponse(
             browseHistory: browseHistory,
@@ -152,8 +172,13 @@ import SwiftUI
           ) else { return }
           applyBrowseProjection(projection)
         } catch {
-          projectPickerLogger.error("Failed to navigate back in directory browser: \(error.localizedDescription, privacy: .public)")
-          guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: browseRequestId)
+          projectPickerLogger
+            .error("Failed to navigate back in directory browser: \(error.localizedDescription, privacy: .public)")
+          guard shouldApplyResponse(
+            requestId: requestId,
+            requestEndpointId: requestEndpointId,
+            activeRequestId: browseRequestId
+          )
           else { return }
           directoryEntries = []
         }

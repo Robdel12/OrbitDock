@@ -112,7 +112,7 @@ enum FileTreeBuilder {
     for path in paths.dropFirst() {
       let pathComponents = path.split(separator: "/").map(String.init)
       commonCount = min(commonCount, pathComponents.count)
-      for i in 0..<commonCount {
+      for i in 0 ..< commonCount {
         if components[i] != pathComponents[i] {
           commonCount = i
           break

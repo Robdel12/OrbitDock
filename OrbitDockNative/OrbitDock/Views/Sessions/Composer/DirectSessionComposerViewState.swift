@@ -22,7 +22,7 @@ extension DirectSessionComposer {
   }
 
   var pendingApprovalModel: ApprovalCardModel? {
-    return ApprovalCardModelBuilder.build(
+    ApprovalCardModelBuilder.build(
       session: obs.approvalCardContext,
       pendingApproval: obs.pendingApproval,
       approvalHistory: obs.approvalHistory,
@@ -179,7 +179,8 @@ extension DirectSessionComposer {
   }
 
   var currentCodexModelOption: ServerCodexModelOption? {
-    codexModelOptions.first(where: { $0.model == (composerState.selectedModel.isEmpty ? obs.model : composerState.selectedModel) })
+    codexModelOptions
+      .first(where: { $0.model == (composerState.selectedModel.isEmpty ? obs.model : composerState.selectedModel) })
       ?? codexModelOptions.first(where: { $0.model == obs.model })
       ?? codexModelOptions.first(where: \.isDefault)
       ?? codexModelOptions.first

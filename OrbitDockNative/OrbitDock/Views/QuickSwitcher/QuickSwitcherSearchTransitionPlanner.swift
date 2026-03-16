@@ -7,20 +7,6 @@ struct QuickSwitcherSearchTransition: Equatable {
   let mode: QuickSwitcherSearchMode
   let shouldLoadRecentProjects: Bool
 
-  init(
-    targetSession: RootSessionNode?,
-    selectedIndex: Int,
-    hoveredIndex: Int?,
-    mode: QuickSwitcherSearchMode,
-    shouldLoadRecentProjects: Bool
-  ) {
-    self.targetSession = targetSession
-    self.selectedIndex = selectedIndex
-    self.hoveredIndex = hoveredIndex
-    self.mode = mode
-    self.shouldLoadRecentProjects = shouldLoadRecentProjects
-  }
-
 }
 
 enum QuickSwitcherSearchTransitionPlanner {

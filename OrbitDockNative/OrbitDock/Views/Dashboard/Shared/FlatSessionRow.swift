@@ -468,7 +468,8 @@ private func previewRootSession(_ session: Session) -> RootSessionNode {
     status: session.status == .active ? .active : .ended,
     workStatus: previewWorkStatus(for: session),
     codexIntegrationMode: session.codexIntegrationMode == .passive ? .passive : .direct,
-    claudeIntegrationMode: session.provider == .claude ? (session.claudeIntegrationMode == .passive ? .passive : .direct) : nil,
+    claudeIntegrationMode: session
+      .provider == .claude ? (session.claudeIntegrationMode == .passive ? .passive : .direct) : nil,
     startedAt: session.startedAt?.ISO8601Format(),
     lastActivityAt: session.lastActivityAt?.ISO8601Format(),
     unreadCount: session.unreadCount,

@@ -5,7 +5,10 @@ struct DirectSessionComposerPreparedSteerRequest: Equatable {
   let mentions: [ServerMentionInput]
   let localImages: [AttachedImage]
 
-  static func == (lhs: DirectSessionComposerPreparedSteerRequest, rhs: DirectSessionComposerPreparedSteerRequest) -> Bool {
+  static func == (
+    lhs: DirectSessionComposerPreparedSteerRequest,
+    rhs: DirectSessionComposerPreparedSteerRequest
+  ) -> Bool {
     lhs.content == rhs.content
       && mentionsEqual(lhs.mentions, rhs.mentions)
       && lhs.localImages.map(\.id) == rhs.localImages.map(\.id)
@@ -20,7 +23,10 @@ struct DirectSessionComposerPreparedSendRequest: Equatable {
   let mentions: [ServerMentionInput]
   let localImages: [AttachedImage]
 
-  static func == (lhs: DirectSessionComposerPreparedSendRequest, rhs: DirectSessionComposerPreparedSendRequest) -> Bool {
+  static func == (
+    lhs: DirectSessionComposerPreparedSendRequest,
+    rhs: DirectSessionComposerPreparedSendRequest
+  ) -> Bool {
     lhs.content == rhs.content
       && lhs.model == rhs.model
       && lhs.effort == rhs.effort

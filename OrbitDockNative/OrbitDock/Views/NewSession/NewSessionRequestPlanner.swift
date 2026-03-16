@@ -43,7 +43,7 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
   func makeRequest(cwd: String) -> SessionsClient.CreateSessionRequest {
     switch self {
       case let .claude(model, permissionMode, allowedTools, disallowedTools, effort):
-        return SessionsClient.CreateSessionRequest(
+        SessionsClient.CreateSessionRequest(
           provider: "claude",
           cwd: cwd,
           model: model,
@@ -52,8 +52,17 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
           disallowedTools: disallowedTools,
           effort: effort
         )
-      case let .codex(model, approvalPolicy, sandboxMode, collaborationMode, multiAgent, personality, serviceTier, developerInstructions):
-        return SessionsClient.CreateSessionRequest(
+      case let .codex(
+      model,
+      approvalPolicy,
+      sandboxMode,
+      collaborationMode,
+      multiAgent,
+      personality,
+      serviceTier,
+      developerInstructions
+    ):
+        SessionsClient.CreateSessionRequest(
           provider: "codex",
           cwd: cwd,
           model: model,
@@ -91,15 +100,14 @@ enum NewSessionRequestPlanner {
     let normalizedBranch = worktreeBranch.trimmingCharacters(in: .whitespacesAndNewlines)
     let normalizedBaseBranch = normalizeOptionalText(worktreeBaseBranch)
 
-    let target: NewSessionLaunchTarget
-    if useWorktree, !normalizedBranch.isEmpty {
-      target = .worktree(
+    let target: NewSessionLaunchTarget = if useWorktree, !normalizedBranch.isEmpty {
+      .worktree(
         repoPath: normalizedPath,
         branch: normalizedBranch,
         baseBranch: normalizedBaseBranch
       )
     } else {
-      target = .direct(cwd: normalizedPath)
+      .direct(cwd: normalizedPath)
     }
 
     return NewSessionLaunchPlan(

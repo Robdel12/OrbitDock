@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct ProjectPickerPlannerTests {
   @Test func groupedRecentProjectsGroupsReposAndWorktreesDeterministically() {
@@ -24,18 +24,18 @@ struct ProjectPickerPlannerTests {
         path: "/Users/robert/Developer/router",
         sessionCount: 3,
         lastActive: "2026-03-09T12:00:00Z"
-      )
+      ),
     ]
 
     let groups = ProjectPickerPlanner.groupedRecentProjects(from: projects)
 
-    #expect(groups.map { $0.repoPath } == [
+    #expect(groups.map(\.repoPath) == [
       "/Users/robert/Developer/printer",
       "/Users/robert/Developer/router",
     ])
     #expect(groups.first?.totalSessionCount == 7)
     #expect(groups.first?.repoProject?.path == "/Users/robert/Developer/printer")
-    #expect(groups.first?.worktrees.map { $0.branchPath } == ["branch-a", "branch-b"])
+    #expect(groups.first?.worktrees.map(\.branchPath) == ["branch-a", "branch-b"])
   }
 
   @Test func displayPathCollapsesUserHomePrefix() {
@@ -62,7 +62,7 @@ struct ProjectPickerPlannerTests {
 
   @Test func browseResponsePushesHistoryOnlyForNestedBrowseRequests() {
     let entries = [
-      ServerDirectoryEntry(name: "printer", isDir: true, isGit: true)
+      ServerDirectoryEntry(name: "printer", isDir: true, isGit: true),
     ]
 
     let rootProjection = ProjectPickerPlanner.applyBrowseResponse(
@@ -90,7 +90,7 @@ struct ProjectPickerPlannerTests {
 
   @Test func navigateBackResponsePopsOneHistoryLevel() {
     let entries = [
-      ServerDirectoryEntry(name: "router", isDir: true, isGit: false)
+      ServerDirectoryEntry(name: "router", isDir: true, isGit: false),
     ]
 
     let projection = ProjectPickerPlanner.applyNavigateBackResponse(

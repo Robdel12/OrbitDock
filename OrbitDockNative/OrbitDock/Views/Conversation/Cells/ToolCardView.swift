@@ -20,16 +20,45 @@ struct ToolCardView: View {
   var isLoadingContent: Bool = false
   var onToggle: (() -> Void)?
 
-  private var display: ServerToolDisplay? { toolRow.toolDisplay }
-  private var glyphSymbol: String { display?.glyphSymbol ?? "gearshape" }
-  private var glyphColor: Color { Self.resolveColor(display?.glyphColor ?? "gray") }
-  private var summary: String { display?.summary ?? toolRow.title }
-  private var subtitle: String? { display?.subtitle ?? toolRow.subtitle }
-  private var rightMeta: String? { display?.rightMeta }
-  private var isRunning: Bool { toolRow.status == .running || toolRow.status == .pending }
-  private var isFailed: Bool { toolRow.status == .failed }
-  private var toolType: String { display?.toolType ?? "generic" }
-  private var displayTier: String { display?.displayTier ?? "standard" }
+  private var display: ServerToolDisplay? {
+    toolRow.toolDisplay
+  }
+
+  private var glyphSymbol: String {
+    display?.glyphSymbol ?? "gearshape"
+  }
+
+  private var glyphColor: Color {
+    Self.resolveColor(display?.glyphColor ?? "gray")
+  }
+
+  private var summary: String {
+    display?.summary ?? toolRow.title
+  }
+
+  private var subtitle: String? {
+    display?.subtitle ?? toolRow.subtitle
+  }
+
+  private var rightMeta: String? {
+    display?.rightMeta
+  }
+
+  private var isRunning: Bool {
+    toolRow.status == .running || toolRow.status == .pending
+  }
+
+  private var isFailed: Bool {
+    toolRow.status == .failed
+  }
+
+  private var toolType: String {
+    display?.toolType ?? "generic"
+  }
+
+  private var displayTier: String {
+    display?.displayTier ?? "standard"
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -53,6 +82,7 @@ struct ToolCardView: View {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: - Card Chrome
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   private var cardBackground: some View {
@@ -75,6 +105,7 @@ struct ToolCardView: View {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: - Compact Row (universal)
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   private var compactRow: some View {
@@ -155,6 +186,7 @@ struct ToolCardView: View {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: - Compact Inline Preview (type-specific)
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   @ViewBuilder
@@ -243,9 +275,9 @@ struct ToolCardView: View {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: - Expanded Section
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  @ViewBuilder
   private var expandedSection: some View {
     VStack(alignment: .leading, spacing: 0) {
       divider
@@ -277,56 +309,56 @@ struct ToolCardView: View {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: - Expanded Body Dispatch
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  @ViewBuilder
   private func expandedBody(_ content: ServerRowContent) -> some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       switch toolType {
-      case "bash":
-        BashExpandedView(content: content, isFailed: isFailed)
-      case "read":
-        ReadExpandedView(content: content)
-      case "edit":
-        EditExpandedView(content: content, toolType: toolType)
-      case "write":
-        WriteExpandedView(content: content)
-      case "glob":
-        GlobExpandedView(content: content)
-      case "grep":
-        GrepExpandedView(content: content)
-      case "task":
-        TaskExpandedView(content: content, toolRow: toolRow)
-      case "mcp":
-        MCPExpandedView(content: content, toolRow: toolRow)
-      case "webSearch":
-        WebSearchExpandedView(content: content)
-      case "webFetch":
-        WebFetchExpandedView(content: content)
-      case "web":
-        webExpandedDispatch(content)
-      case "plan":
-        PlanExpandedView(content: content, toolRow: toolRow)
-      case "todo":
-        TodoExpandedView(content: content, display: display)
-      case "question":
-        QuestionExpandedView(content: content, toolRow: toolRow)
-      case "toolSearch":
-        ToolSearchExpandedView(content: content)
-      case "hook":
-        HookExpandedView(content: content, toolRow: toolRow)
-      case "handoff":
-        HandoffExpandedView(content: content, toolRow: toolRow)
-      case "image":
-        ImageExpandedView(content: content)
-      case "compactContext":
-        CompactContextExpandedView(content: content)
-      case "config":
-        ConfigExpandedView(content: content)
-      case "worktree":
-        WorktreeExpandedView(content: content)
-      default:
-        GenericExpandedView(content: content)
+        case "bash":
+          BashExpandedView(content: content, isFailed: isFailed)
+        case "read":
+          ReadExpandedView(content: content)
+        case "edit":
+          EditExpandedView(content: content, toolType: toolType)
+        case "write":
+          WriteExpandedView(content: content)
+        case "glob":
+          GlobExpandedView(content: content)
+        case "grep":
+          GrepExpandedView(content: content)
+        case "task":
+          TaskExpandedView(content: content, toolRow: toolRow)
+        case "mcp":
+          MCPExpandedView(content: content, toolRow: toolRow)
+        case "webSearch":
+          WebSearchExpandedView(content: content)
+        case "webFetch":
+          WebFetchExpandedView(content: content)
+        case "web":
+          webExpandedDispatch(content)
+        case "plan":
+          PlanExpandedView(content: content, toolRow: toolRow)
+        case "todo":
+          TodoExpandedView(content: content, display: display)
+        case "question":
+          QuestionExpandedView(content: content, toolRow: toolRow)
+        case "toolSearch":
+          ToolSearchExpandedView(content: content)
+        case "hook":
+          HookExpandedView(content: content, toolRow: toolRow)
+        case "handoff":
+          HandoffExpandedView(content: content, toolRow: toolRow)
+        case "image":
+          ImageExpandedView(content: content)
+        case "compactContext":
+          CompactContextExpandedView(content: content)
+        case "config":
+          ConfigExpandedView(content: content)
+        case "worktree":
+          WorktreeExpandedView(content: content)
+        default:
+          GenericExpandedView(content: content)
       }
     }
     .padding(Spacing.md)
@@ -347,7 +379,6 @@ struct ToolCardView: View {
 
   // ── Fallback (no REST content) ───────────────────────────────────────────
 
-  @ViewBuilder
   private var fallbackBody: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       if let input = toolRow.toolDisplay.inputDisplay, !input.isEmpty {
@@ -366,6 +397,7 @@ struct ToolCardView: View {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: - Shared Components
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   private func codeBlock(label: String, text: String, language: String?) -> some View {
@@ -402,28 +434,29 @@ struct ToolCardView: View {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: - Color Resolution
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   static func resolveColor(_ name: String) -> Color {
     switch name {
-    case "accent", "cyan": return .accent
-    case "green", "toolBash": return .toolBash
-    case "orange", "toolWrite": return .toolWrite
-    case "blue", "toolRead": return .toolRead
-    case "purple", "toolSearch": return .toolSearch
-    case "red": return .feedbackNegative
-    case "yellow", "amber", "feedbackCaution": return .feedbackCaution
-    case "teal": return .accent
-    case "pink", "toolSkill": return .toolSkill
-    case "toolTask": return .toolTask
-    case "toolWeb": return .toolWeb
-    case "toolMcp": return .toolMcp
-    case "toolPlan": return .toolPlan
-    case "toolTodo": return .toolTodo
-    case "toolQuestion": return .toolQuestion
-    case "statusReply": return .statusReply
-    case "gray", "grey", "secondaryLabel": return .textTertiary
-    default: return .textTertiary
+      case "accent", "cyan": .accent
+      case "green", "toolBash": .toolBash
+      case "orange", "toolWrite": .toolWrite
+      case "blue", "toolRead": .toolRead
+      case "purple", "toolSearch": .toolSearch
+      case "red": .feedbackNegative
+      case "yellow", "amber", "feedbackCaution": .feedbackCaution
+      case "teal": .accent
+      case "pink", "toolSkill": .toolSkill
+      case "toolTask": .toolTask
+      case "toolWeb": .toolWeb
+      case "toolMcp": .toolMcp
+      case "toolPlan": .toolPlan
+      case "toolTodo": .toolTodo
+      case "toolQuestion": .toolQuestion
+      case "statusReply": .statusReply
+      case "gray", "grey", "secondaryLabel": .textTertiary
+      default: .textTertiary
     }
   }
 }

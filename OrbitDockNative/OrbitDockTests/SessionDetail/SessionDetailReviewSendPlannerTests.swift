@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct SessionDetailReviewSendPlannerTests {
   @Test func makePlanBuildsMessageForSelectedOpenComments() {

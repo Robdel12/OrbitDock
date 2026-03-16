@@ -43,7 +43,7 @@ struct DirectSessionComposerCommandDeckPlannerTests {
           path: "/skills/mcp-debug",
           scope: .repo,
           enabled: true
-        )
+        ),
       ],
       mcpToolEntries: [
         ComposerMcpToolEntry(
@@ -57,7 +57,7 @@ struct DirectSessionComposerCommandDeckPlannerTests {
             outputSchema: nil,
             annotations: nil
           )
-        )
+        ),
       ],
       mcpResourceEntries: [
         ComposerMcpResourceEntry(
@@ -72,7 +72,7 @@ struct DirectSessionComposerCommandDeckPlannerTests {
             size: nil,
             annotations: nil
           )
-        )
+        ),
       ],
       mcpResourceTemplateEntries: [
         ComposerMcpResourceTemplateEntry(
@@ -86,7 +86,7 @@ struct DirectSessionComposerCommandDeckPlannerTests {
             mimeType: nil,
             annotations: nil
           )
-        )
+        ),
       ]
     )
 
@@ -100,7 +100,7 @@ struct DirectSessionComposerCommandDeckPlannerTests {
   }
 
   @Test func commandDeckLimitsResultsAndReflectsShellModeState() {
-    let files = (0..<20).map { index in
+    let files = (0 ..< 20).map { index in
       ProjectFileIndex.ProjectFile(
         id: "src/File\(index).swift",
         name: "File\(index).swift",

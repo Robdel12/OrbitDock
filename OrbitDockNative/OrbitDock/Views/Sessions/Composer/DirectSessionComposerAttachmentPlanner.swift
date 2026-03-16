@@ -13,7 +13,10 @@ struct DirectSessionComposerResolvedAttachments: Equatable {
     !mentionInputs.isEmpty
   }
 
-  static func == (lhs: DirectSessionComposerResolvedAttachments, rhs: DirectSessionComposerResolvedAttachments) -> Bool {
+  static func == (
+    lhs: DirectSessionComposerResolvedAttachments,
+    rhs: DirectSessionComposerResolvedAttachments
+  ) -> Bool {
     let mentionsMatch = lhs.mentionInputs.elementsEqual(rhs.mentionInputs, by: { left, right in
       left.name == right.name && left.path == right.path
     })

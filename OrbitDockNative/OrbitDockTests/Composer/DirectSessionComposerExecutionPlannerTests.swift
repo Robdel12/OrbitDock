@@ -17,7 +17,7 @@ struct DirectSessionComposerExecutionPlannerTests {
         path: "/skills/build",
         scope: .repo,
         enabled: true
-      )
+      ),
     ]
     let action = DirectSessionComposerExecutionPlanner.prepare(
       sendPlan: .send(content: "Use $build now", model: "claude-opus", effort: "high"),

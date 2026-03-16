@@ -58,13 +58,24 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
   let content: String
   let timestamp: Date
   let toolName: String?
-  var toolDuration: TimeInterval? { didSet { recomputeContentSignature() } }
+  var toolDuration: TimeInterval? {
+    didSet { recomputeContentSignature() }
+  }
+
   let inputTokens: Int?
   let outputTokens: Int?
   var isError: Bool = false
-  var isInProgress: Bool = false { didSet { recomputeContentSignature() } }
-  var images: [MessageImage] = [] { didSet { recomputeContentSignature() } }
-  var thinking: String? { didSet { recomputeContentSignature() } }
+  var isInProgress: Bool = false {
+    didSet { recomputeContentSignature() }
+  }
+
+  var images: [MessageImage] = [] {
+    didSet { recomputeContentSignature() }
+  }
+
+  var thinking: String? {
+    didSet { recomputeContentSignature() }
+  }
 
   /// Server-provided tool family string, if available.
   let serverToolFamily: String?

@@ -264,7 +264,7 @@ class NotificationManager {
       return
     }
 
-    if wasWorking && !shouldTrackAsWorking {
+    if wasWorking, !shouldTrackAsWorking {
       if notifyOnWorkComplete {
         notifyWorkComplete(session: session)
       }
@@ -311,11 +311,11 @@ class NotificationManager {
   private func sound(for soundID: String) -> UNNotificationSound? {
     switch soundID {
       case "none":
-        return nil
+        nil
       case "default":
-        return .default
+        .default
       default:
-        return UNNotificationSound(named: UNNotificationSoundName(rawValue: soundID))
+        UNNotificationSound(named: UNNotificationSoundName(rawValue: soundID))
     }
   }
 

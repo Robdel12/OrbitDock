@@ -1,12 +1,12 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 @MainActor
 struct SessionStoreControlStateSyncTests {
   @Test func approvalEventsKeepSummaryAndDetailStateAligned() throws {
     let store = SessionStore.preview()
-    store.routeEvent(.sessionSnapshot(try decodeSnapshot(detailSnapshotJSON)))
+    try store.routeEvent(.sessionSnapshot(decodeSnapshot(detailSnapshotJSON)))
 
     let request = ServerApprovalRequest(
       id: "req-1",
@@ -42,12 +42,12 @@ struct SessionStoreControlStateSyncTests {
 
   @Test func sessionDeltaKeepsConfigAndPendingApprovalStateInSync() throws {
     let store = SessionStore.preview()
-    store.routeEvent(.sessionSnapshot(try decodeSnapshot(detailSnapshotJSON)))
+    try store.routeEvent(.sessionSnapshot(decodeSnapshot(detailSnapshotJSON)))
 
-    store.routeEvent(
+    try store.routeEvent(
       .sessionDelta(
         sessionId: "session-1",
-        changes: try decodeChanges(
+        changes: decodeChanges(
           """
           {
             "approval_policy": "never",
@@ -79,7 +79,7 @@ struct SessionStoreControlStateSyncTests {
   @Test func sessionSnapshotHydratesSubagentMetadataIntoDetailState() throws {
     let store = SessionStore.preview()
 
-    store.routeEvent(.sessionSnapshot(try decodeSnapshot(
+    try store.routeEvent(.sessionSnapshot(decodeSnapshot(
       """
       {
         "id": "session-1",

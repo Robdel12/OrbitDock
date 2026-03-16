@@ -6,190 +6,191 @@ extension SessionStore {
     let summary = eventSummary(event)
     netLog(.info, cat: .store, "Event: \(summary)")
     switch event {
-    case .sessionsList, .sessionCreated, .sessionListItemUpdated, .sessionListItemRemoved:
-      break
-    case .sessionEnded(let sessionId, let reason):
-      handleSessionEnded(sessionId, reason)
-    case .conversationBootstrap(let state, let conversation):
-      handleConversationBootstrap(state, conversation)
-    case .sessionSnapshot(let state):
-      handleConversationBootstrap(
-        state,
-        ServerConversationHistoryPage(
-          rows: state.rows,
-          totalRowCount: state.totalRowCount ?? UInt64(state.rows.count),
-          hasMoreBefore: state.hasMoreBefore ?? false,
-          oldestSequence: state.oldestSequence,
-          newestSequence: state.newestSequence
+      case .sessionsList, .sessionCreated, .sessionListItemUpdated, .sessionListItemRemoved:
+        break
+      case let .sessionEnded(sessionId, reason):
+        handleSessionEnded(sessionId, reason)
+      case let .conversationBootstrap(state, conversation):
+        handleConversationBootstrap(state, conversation)
+      case let .sessionSnapshot(state):
+        handleConversationBootstrap(
+          state,
+          ServerConversationHistoryPage(
+            rows: state.rows,
+            totalRowCount: state.totalRowCount ?? UInt64(state.rows.count),
+            hasMoreBefore: state.hasMoreBefore ?? false,
+            oldestSequence: state.oldestSequence,
+            newestSequence: state.newestSequence
+          )
         )
-      )
-    case .sessionDelta(let sessionId, let changes):
-      handleSessionDelta(sessionId, changes)
-    case .conversationRowsChanged(let sessionId, let upserted, let removedRowIds, let totalRowCount):
-      handleConversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount)
-    case .approvalRequested(let sessionId, let request, let version):
-      handleApprovalRequested(sessionId, request, version)
-    case .approvalDecisionResult(let sessionId, let requestId, let outcome, let activeId, let version):
-      handleApprovalDecisionResult(sessionId, requestId, outcome, activeId, version)
-    case .approvalsList(let sessionId, let approvals):
-      handleApprovalsList(sessionId, approvals)
-    case .approvalDeleted(let approvalId):
-      handleApprovalDeleted(approvalId)
-    case .tokensUpdated(let sessionId, let usage, let kind):
-      let obs = session(sessionId)
-      obs.applyTokenUsage(usage, snapshotKind: kind)
-    case .modelsList(let models):
-      codexModels = models
-    case .claudeModelsList(let models):
-      claudeModels = models
-    case .codexAccountStatus(let status):
-      codexAccountStatus = status
-    case .codexAccountUpdated(let status):
-      codexAccountStatus = status
-    case .codexLoginChatgptStarted, .codexLoginChatgptCompleted, .codexLoginChatgptCanceled:
-      break
-    case .skillsList(let sessionId, let skills, _):
-      session(sessionId).skills = skills.flatMap(\.skills)
-    case .remoteSkillsList, .remoteSkillDownloaded, .skillsUpdateAvailable:
-      break
-    case .mcpToolsList(let sessionId, let tools, let resources, let resourceTemplates, let authStatuses):
-      let obs = session(sessionId)
-      obs.mcpTools = tools
-      obs.mcpResources = resources
-      obs.mcpResourceTemplates = resourceTemplates
-      obs.mcpAuthStatuses = authStatuses
-    case .mcpStartupUpdate(let sessionId, let server, let status):
-      let obs = session(sessionId)
-      if obs.mcpStartupState == nil {
-        obs.mcpStartupState = McpStartupState()
-      }
-      obs.mcpStartupState?.serverStatuses[server] = status
-    case .mcpStartupComplete(let sessionId, let ready, let failed, let cancelled):
-      let obs = session(sessionId)
-      if obs.mcpStartupState == nil {
-        obs.mcpStartupState = McpStartupState()
-      }
-      obs.mcpStartupState?.isComplete = true
-      obs.mcpStartupState?.readyServers = ready
-      obs.mcpStartupState?.failedServers = failed
-      obs.mcpStartupState?.cancelledServers = cancelled
-    case .claudeCapabilities(let sessionId, let slashCommands, let skills, let tools, let models):
-      let obs = session(sessionId)
-      obs.slashCommands = Set(slashCommands)
-      obs.claudeSkillNames = skills
-      obs.claudeToolNames = tools
-      claudeModels = models
-    case .contextCompacted:
-      break
-    case .undoStarted(let sessionId, let message):
-      let obs = session(sessionId)
-      obs.undoInProgress = true
-      if let message {
-        netLog(.info, cat: .store, "Undo started", sid: sessionId, data: ["message": message])
-      }
-    case .undoCompleted(let sessionId, let success, _):
-      let obs = session(sessionId)
-      obs.undoInProgress = false
-      if success {
+      case let .sessionDelta(sessionId, changes):
+        handleSessionDelta(sessionId, changes)
+      case let .conversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount):
+        handleConversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount)
+      case let .approvalRequested(sessionId, request, version):
+        handleApprovalRequested(sessionId, request, version)
+      case let .approvalDecisionResult(sessionId, requestId, outcome, activeId, version):
+        handleApprovalDecisionResult(sessionId, requestId, outcome, activeId, version)
+      case let .approvalsList(sessionId, approvals):
+        handleApprovalsList(sessionId, approvals)
+      case let .approvalDeleted(approvalId):
+        handleApprovalDeleted(approvalId)
+      case let .tokensUpdated(sessionId, usage, kind):
+        let obs = session(sessionId)
+        obs.applyTokenUsage(usage, snapshotKind: kind)
+      case let .modelsList(models):
+        codexModels = models
+      case let .claudeModelsList(models):
+        claudeModels = models
+      case let .codexAccountStatus(status):
+        codexAccountStatus = status
+      case let .codexAccountUpdated(status):
+        codexAccountStatus = status
+      case .codexLoginChatgptStarted, .codexLoginChatgptCompleted, .codexLoginChatgptCanceled:
+        break
+      case let .skillsList(sessionId, skills, _):
+        session(sessionId).skills = skills.flatMap(\.skills)
+      case .remoteSkillsList, .remoteSkillDownloaded, .skillsUpdateAvailable:
+        break
+      case let .mcpToolsList(sessionId, tools, resources, resourceTemplates, authStatuses):
+        let obs = session(sessionId)
+        obs.mcpTools = tools
+        obs.mcpResources = resources
+        obs.mcpResourceTemplates = resourceTemplates
+        obs.mcpAuthStatuses = authStatuses
+      case let .mcpStartupUpdate(sessionId, server, status):
+        let obs = session(sessionId)
+        if obs.mcpStartupState == nil {
+          obs.mcpStartupState = McpStartupState()
+        }
+        obs.mcpStartupState?.serverStatuses[server] = status
+      case let .mcpStartupComplete(sessionId, ready, failed, cancelled):
+        let obs = session(sessionId)
+        if obs.mcpStartupState == nil {
+          obs.mcpStartupState = McpStartupState()
+        }
+        obs.mcpStartupState?.isComplete = true
+        obs.mcpStartupState?.readyServers = ready
+        obs.mcpStartupState?.failedServers = failed
+        obs.mcpStartupState?.cancelledServers = cancelled
+      case let .claudeCapabilities(sessionId, slashCommands, skills, tools, models):
+        let obs = session(sessionId)
+        obs.slashCommands = Set(slashCommands)
+        obs.claudeSkillNames = skills
+        obs.claudeToolNames = tools
+        claudeModels = models
+      case .contextCompacted:
+        break
+      case let .undoStarted(sessionId, message):
+        let obs = session(sessionId)
+        obs.undoInProgress = true
+        if let message {
+          netLog(.info, cat: .store, "Undo started", sid: sessionId, data: ["message": message])
+        }
+      case let .undoCompleted(sessionId, success, _):
+        let obs = session(sessionId)
+        obs.undoInProgress = false
+        if success {
+          let conv = conversation(sessionId)
+          Task { _ = await conv.bootstrapFresh() }
+        }
+      case let .threadRolledBack(sessionId, _):
         let conv = conversation(sessionId)
         Task { _ = await conv.bootstrapFresh() }
-      }
-    case .threadRolledBack(let sessionId, _):
-      let conv = conversation(sessionId)
-      Task { _ = await conv.bootstrapFresh() }
-    case .sessionForked(let sourceSessionId, let newSessionId, _):
-      let obs = session(sourceSessionId)
-      obs.forkInProgress = false
-      session(newSessionId).forkedFrom = sourceSessionId
-      requestSelection(SessionRef(endpointId: endpointId, sessionId: newSessionId))
-    case .turnDiffSnapshot(let sessionId, let turnId, let diff, let input, let output, let cached, let window, let kind):
-      let obs = session(sessionId)
-      let projection = SessionTurnDiffSnapshotProjection.fromTurnDiffSnapshot(
-        turnId: turnId,
-        diff: diff,
-        inputTokens: input,
-        outputTokens: output,
-        cachedTokens: cached,
-        contextWindow: window,
-        snapshotKind: kind
-      )
-      obs.applyTurnDiffSnapshot(projection)
-    case .reviewCommentCreated(let sessionId, _, let comment):
-      session(sessionId).reviewComments.append(comment)
-    case .reviewCommentUpdated(let sessionId, _, let comment):
-      let obs = session(sessionId)
-      if let idx = obs.reviewComments.firstIndex(where: { $0.id == comment.id }) {
-        obs.reviewComments[idx] = comment
-      }
-    case .reviewCommentDeleted(let sessionId, _, let commentId):
-      session(sessionId).reviewComments.removeAll { $0.id == commentId }
-    case .reviewCommentsList(let sessionId, _, let comments):
-      session(sessionId).reviewComments = comments
-    case .subagentToolsList(let sessionId, let subagentId, let tools):
-      session(sessionId).subagentTools[subagentId] = tools
-    case .shellStarted:
-      break
-    case .shellOutput(let sessionId, _, _, _, _, _, _):
-      _ = session(sessionId)
-    case .worktreesList(_, let repoRoot, _, let worktrees):
-      if let root = repoRoot {
-        worktreesByRepo[root] = worktrees
-      }
-    case .worktreeCreated(_, _, _, let worktree):
-      let root = worktree.repoRoot
-      if worktreesByRepo[root] != nil {
-        worktreesByRepo[root]?.append(worktree)
-      } else {
-        worktreesByRepo[root] = [worktree]
-      }
-    case .worktreeRemoved(_, let repoRoot, _, let worktreeId):
-      worktreesByRepo[repoRoot]?.removeAll { $0.id == worktreeId }
-    case .worktreeStatusChanged(let worktreeId, let status, let repoRoot):
-      if var wts = worktreesByRepo[repoRoot],
-         let idx = wts.firstIndex(where: { $0.id == worktreeId }) {
-        wts[idx].status = status
-        worktreesByRepo[repoRoot] = wts
-      }
-    case .worktreeError:
-      break
-    case .rateLimitEvent(let sessionId, let info):
-      session(sessionId).rateLimitInfo = info
-    case .promptSuggestion(let sessionId, let suggestion):
-      session(sessionId).promptSuggestions.append(suggestion)
-    case .filesPersisted(let sessionId, _):
-      session(sessionId).lastFilesPersistedAt = Date()
-    case .serverInfo(let isPrimary, let claims):
-      serverIsPrimary = isPrimary
-      serverPrimaryClaims = claims
-    case .permissionRules(let sessionId, let rules):
-      session(sessionId).permissionRules = rules
-    case .error(let code, let message, let sessionId):
-      handleError(code, message, sessionId)
-    case .connectionStatusChanged(let status):
-      handleConnectionStatusChanged(status)
-    case .revision(let sessionId, let revision):
-      lastRevision[sessionId] = revision
+      case let .sessionForked(sourceSessionId, newSessionId, _):
+        let obs = session(sourceSessionId)
+        obs.forkInProgress = false
+        session(newSessionId).forkedFrom = sourceSessionId
+        requestSelection(SessionRef(endpointId: endpointId, sessionId: newSessionId))
+      case let .turnDiffSnapshot(sessionId, turnId, diff, input, output, cached, window, kind):
+        let obs = session(sessionId)
+        let projection = SessionTurnDiffSnapshotProjection.fromTurnDiffSnapshot(
+          turnId: turnId,
+          diff: diff,
+          inputTokens: input,
+          outputTokens: output,
+          cachedTokens: cached,
+          contextWindow: window,
+          snapshotKind: kind
+        )
+        obs.applyTurnDiffSnapshot(projection)
+      case let .reviewCommentCreated(sessionId, _, comment):
+        session(sessionId).reviewComments.append(comment)
+      case let .reviewCommentUpdated(sessionId, _, comment):
+        let obs = session(sessionId)
+        if let idx = obs.reviewComments.firstIndex(where: { $0.id == comment.id }) {
+          obs.reviewComments[idx] = comment
+        }
+      case let .reviewCommentDeleted(sessionId, _, commentId):
+        session(sessionId).reviewComments.removeAll { $0.id == commentId }
+      case let .reviewCommentsList(sessionId, _, comments):
+        session(sessionId).reviewComments = comments
+      case let .subagentToolsList(sessionId, subagentId, tools):
+        session(sessionId).subagentTools[subagentId] = tools
+      case .shellStarted:
+        break
+      case let .shellOutput(sessionId, _, _, _, _, _, _):
+        _ = session(sessionId)
+      case let .worktreesList(_, repoRoot, _, worktrees):
+        if let root = repoRoot {
+          worktreesByRepo[root] = worktrees
+        }
+      case let .worktreeCreated(_, _, _, worktree):
+        let root = worktree.repoRoot
+        if worktreesByRepo[root] != nil {
+          worktreesByRepo[root]?.append(worktree)
+        } else {
+          worktreesByRepo[root] = [worktree]
+        }
+      case let .worktreeRemoved(_, repoRoot, _, worktreeId):
+        worktreesByRepo[repoRoot]?.removeAll { $0.id == worktreeId }
+      case let .worktreeStatusChanged(worktreeId, status, repoRoot):
+        if var wts = worktreesByRepo[repoRoot],
+           let idx = wts.firstIndex(where: { $0.id == worktreeId })
+        {
+          wts[idx].status = status
+          worktreesByRepo[repoRoot] = wts
+        }
+      case .worktreeError:
+        break
+      case let .rateLimitEvent(sessionId, info):
+        session(sessionId).rateLimitInfo = info
+      case let .promptSuggestion(sessionId, suggestion):
+        session(sessionId).promptSuggestions.append(suggestion)
+      case let .filesPersisted(sessionId, _):
+        session(sessionId).lastFilesPersistedAt = Date()
+      case let .serverInfo(isPrimary, claims):
+        serverIsPrimary = isPrimary
+        serverPrimaryClaims = claims
+      case let .permissionRules(sessionId, rules):
+        session(sessionId).permissionRules = rules
+      case let .error(code, message, sessionId):
+        handleError(code, message, sessionId)
+      case let .connectionStatusChanged(status):
+        handleConnectionStatusChanged(status)
+      case let .revision(sessionId, revision):
+        lastRevision[sessionId] = revision
     }
   }
 
   func eventSummary(_ event: ServerEvent) -> String {
     switch event {
-    case .sessionsList(let sessions): "sessionsList(\(sessions.count))"
-    case .sessionCreated(let s): "sessionCreated(\(s.id))"
-    case .sessionListItemUpdated(let s): "sessionListItemUpdated(\(s.id))"
-    case .sessionListItemRemoved(let sid): "sessionListItemRemoved(\(sid))"
-    case .sessionEnded(let sid, _): "sessionEnded(\(sid))"
-    case .conversationBootstrap(let s, let conversation): "conversationBootstrap(\(s.id), \(conversation.rows.count))"
-    case .sessionSnapshot(let s): "sessionSnapshot(\(s.id))"
-    case .sessionDelta(let sid, _): "sessionDelta(\(sid))"
-    case .conversationRowsChanged(let sid, let upserted, let removed, _):
-      "conversationRowsChanged(\(sid), +\(upserted.count), -\(removed.count))"
-    case .approvalRequested(let sid, _, _): "approvalRequested(\(sid))"
-    case .approvalDecisionResult(let sid, let rid, let outcome, _, _): "approvalResult(\(sid), \(rid), \(outcome))"
-    case .connectionStatusChanged(let status): "connectionStatus(\(status))"
-    case .revision(let sid, let rev): "revision(\(sid), \(rev))"
-    case .error(let code, let msg, let sid): "error(\(code), \(msg), \(sid ?? "nil"))"
-    default: String(describing: event).prefix(80).description
+      case let .sessionsList(sessions): "sessionsList(\(sessions.count))"
+      case let .sessionCreated(s): "sessionCreated(\(s.id))"
+      case let .sessionListItemUpdated(s): "sessionListItemUpdated(\(s.id))"
+      case let .sessionListItemRemoved(sid): "sessionListItemRemoved(\(sid))"
+      case let .sessionEnded(sid, _): "sessionEnded(\(sid))"
+      case let .conversationBootstrap(s, conversation): "conversationBootstrap(\(s.id), \(conversation.rows.count))"
+      case let .sessionSnapshot(s): "sessionSnapshot(\(s.id))"
+      case let .sessionDelta(sid, _): "sessionDelta(\(sid))"
+      case let .conversationRowsChanged(sid, upserted, removed, _):
+        "conversationRowsChanged(\(sid), +\(upserted.count), -\(removed.count))"
+      case let .approvalRequested(sid, _, _): "approvalRequested(\(sid))"
+      case let .approvalDecisionResult(sid, rid, outcome, _, _): "approvalResult(\(sid), \(rid), \(outcome))"
+      case let .connectionStatusChanged(status): "connectionStatus(\(status))"
+      case let .revision(sid, rev): "revision(\(sid), \(rev))"
+      case let .error(code, msg, sid): "error(\(code), \(msg), \(sid ?? "nil"))"
+      default: String(describing: event).prefix(80).description
     }
   }
 
@@ -409,12 +410,12 @@ extension SessionStore {
 
   private func applyPendingApprovalChange(_ change: SessionPendingApprovalChange, to observable: SessionObservable) {
     switch change {
-    case .none:
-      break
-    case .set(let request):
-      observable.applyPendingApproval(request)
-    case .clear(let resetAttention):
-      observable.clearPendingApprovalDetails(resetAttention: resetAttention)
+      case .none:
+        break
+      case let .set(request):
+        observable.applyPendingApproval(request)
+      case let .clear(resetAttention):
+        observable.clearPendingApprovalDetails(resetAttention: resetAttention)
     }
   }
 

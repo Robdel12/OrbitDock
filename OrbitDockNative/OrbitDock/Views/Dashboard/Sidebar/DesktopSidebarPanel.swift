@@ -14,7 +14,9 @@ struct DesktopSidebarPanel: View {
   @Binding var projectFilter: String?
   let onSelectSession: (RootSessionNode) -> Void
 
-  private var activeSessions: [RootSessionNode] { sessions }
+  private var activeSessions: [RootSessionNode] {
+    sessions
+  }
 
   /// Group projects by their grouping path (repo root) to collapse worktrees
   private var projectNames: [(path: String, name: String, count: Int)] {
@@ -105,7 +107,10 @@ struct DesktopSidebarPanel: View {
           .frame(width: 8)
 
         Text(label)
-          .font(.system(size: TypeScale.caption, weight: session.hasUnreadMessages || status.needsAttention ? .semibold : .regular))
+          .font(.system(
+            size: TypeScale.caption,
+            weight: session.hasUnreadMessages || status.needsAttention ? .semibold : .regular
+          ))
           .foregroundStyle(sidebarTitleColor(for: session, status: status))
           .lineLimit(2)
           .truncationMode(.tail)
@@ -227,7 +232,12 @@ private struct SidebarUsageSection: View {
   @Environment(UsageServiceRegistry.self) private var registry
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  private var activeProviders: [(provider: Provider, windows: [RateLimitWindow], isLoading: Bool, error: (any LocalizedError)?)] {
+  private var activeProviders: [(
+    provider: Provider,
+    windows: [RateLimitWindow],
+    isLoading: Bool,
+    error: (any LocalizedError)?
+  )] {
     registry.allProviders.map { provider in
       (
         provider: provider,
@@ -360,7 +370,7 @@ private struct SidebarUsageSection: View {
       }
       .buttonStyle(.plain)
 
-      if isExpanded && !windows.isEmpty {
+      if isExpanded, !windows.isEmpty {
         VStack(alignment: .leading, spacing: Spacing.sm) {
           ForEach(windows) { window in
             sidebarWindowRow(window, provider: provider)

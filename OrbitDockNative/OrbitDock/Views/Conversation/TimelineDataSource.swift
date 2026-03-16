@@ -55,20 +55,20 @@ enum TimelineDataSource {
 
     for entry in rawEntries {
       switch entry.row {
-      case let .tool(toolRow):
-        if toolBuffer.isEmpty {
-          bufferSessionId = entry.sessionId
-          bufferStartSequence = entry.sequence
-        }
-        toolBuffer.append(toolRow)
+        case let .tool(toolRow):
+          if toolBuffer.isEmpty {
+            bufferSessionId = entry.sessionId
+            bufferStartSequence = entry.sequence
+          }
+          toolBuffer.append(toolRow)
 
-      case .worker, .plan, .hook, .handoff:
-        flushBuffer()
-        result.append(entry)
+        case .worker, .plan, .hook, .handoff:
+          flushBuffer()
+          result.append(entry)
 
-      default:
-        flushBuffer()
-        result.append(entry)
+        default:
+          flushBuffer()
+          result.append(entry)
       }
     }
 

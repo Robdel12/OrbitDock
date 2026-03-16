@@ -42,72 +42,82 @@ struct TimelineRowContent: View {
   @ViewBuilder
   private var cellContent: some View {
     switch entry.row {
-    case let .user(msg):
-      MessageRowView(
-        role: .user, content: msg.content,
-        images: convertImages(msg.images),
-        isStreaming: msg.isStreaming,
-        imageLoader: imageLoader
-      )
+      case let .user(msg):
+        MessageRowView(
+          role: .user, content: msg.content,
+          images: convertImages(msg.images),
+          isStreaming: msg.isStreaming,
+          imageLoader: imageLoader
+        )
 
-    case let .assistant(msg):
-      MessageRowView(
-        role: .assistant, content: msg.content,
-        images: convertImages(msg.images),
-        isStreaming: msg.isStreaming,
-        imageLoader: imageLoader
-      )
+      case let .assistant(msg):
+        MessageRowView(
+          role: .assistant, content: msg.content,
+          images: convertImages(msg.images),
+          isStreaming: msg.isStreaming,
+          imageLoader: imageLoader
+        )
 
-    case let .system(msg):
-      MessageRowView(
-        role: .system, content: msg.content,
-        images: convertImages(msg.images),
-        isStreaming: msg.isStreaming,
-        imageLoader: imageLoader
-      )
+      case let .system(msg):
+        MessageRowView(
+          role: .system, content: msg.content,
+          images: convertImages(msg.images),
+          isStreaming: msg.isStreaming,
+          imageLoader: imageLoader
+        )
 
-    case let .thinking(msg):
-      ThinkingRowView(
-        content: msg.content, isStreaming: msg.isStreaming,
-        isExpanded: isExpanded,
-        onToggle: { onToggle?(msg.id) }
-      )
+      case let .thinking(msg):
+        ThinkingRowView(
+          content: msg.content, isStreaming: msg.isStreaming,
+          isExpanded: isExpanded,
+          onToggle: { onToggle?(msg.id) }
+        )
 
-    case let .tool(toolRow):
-      ToolCardView(
-        toolRow: toolRow, isExpanded: isExpanded,
-        sessionId: sessionId, clients: clients,
-        fetchedContent: fetchedContent,
-        isLoadingContent: isLoadingContent,
-        onToggle: { onToggle?(toolRow.id) }
-      )
+      case let .tool(toolRow):
+        ToolCardView(
+          toolRow: toolRow, isExpanded: isExpanded,
+          sessionId: sessionId, clients: clients,
+          fetchedContent: fetchedContent,
+          isLoadingContent: isLoadingContent,
+          onToggle: { onToggle?(toolRow.id) }
+        )
 
-    case let .activityGroup(group):
-      ActivityGroupRowView(
-        group: group, isExpanded: isExpanded,
-        sessionId: sessionId, clients: clients,
-        onToggle: onToggle, isItemExpanded: isItemExpanded,
-        contentForChild: contentForChild,
-        isChildLoading: isChildLoading
-      )
+      case let .activityGroup(group):
+        ActivityGroupRowView(
+          group: group, isExpanded: isExpanded,
+          sessionId: sessionId, clients: clients,
+          onToggle: onToggle, isItemExpanded: isItemExpanded,
+          contentForChild: contentForChild,
+          isChildLoading: isChildLoading
+        )
 
-    case let .approval(approval):
-      ApprovalRowView(title: approval.title, subtitle: approval.subtitle, summary: approval.summary, isQuestion: false)
+      case let .approval(approval):
+        ApprovalRowView(
+          title: approval.title,
+          subtitle: approval.subtitle,
+          summary: approval.summary,
+          isQuestion: false
+        )
 
-    case let .question(question):
-      ApprovalRowView(title: question.title, subtitle: question.subtitle, summary: question.summary, isQuestion: true)
+      case let .question(question):
+        ApprovalRowView(title: question.title, subtitle: question.subtitle, summary: question.summary, isQuestion: true)
 
-    case let .worker(worker):
-      WorkerRowView(icon: "person.2.fill", iconColor: .toolTask, title: worker.title, subtitle: worker.subtitle)
+      case let .worker(worker):
+        WorkerRowView(icon: "person.2.fill", iconColor: .toolTask, title: worker.title, subtitle: worker.subtitle)
 
-    case let .plan(plan):
-      WorkerRowView(icon: "list.bullet.clipboard", iconColor: .toolPlan, title: plan.title, subtitle: plan.subtitle)
+      case let .plan(plan):
+        WorkerRowView(icon: "list.bullet.clipboard", iconColor: .toolPlan, title: plan.title, subtitle: plan.subtitle)
 
-    case let .hook(hook):
-      WorkerRowView(icon: "link", iconColor: .textTertiary, title: hook.title, subtitle: hook.subtitle)
+      case let .hook(hook):
+        WorkerRowView(icon: "link", iconColor: .textTertiary, title: hook.title, subtitle: hook.subtitle)
 
-    case let .handoff(handoff):
-      WorkerRowView(icon: "arrow.triangle.branch", iconColor: .accent, title: handoff.title, subtitle: handoff.subtitle)
+      case let .handoff(handoff):
+        WorkerRowView(
+          icon: "arrow.triangle.branch",
+          iconColor: .accent,
+          title: handoff.title,
+          subtitle: handoff.subtitle
+        )
     }
   }
 

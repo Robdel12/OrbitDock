@@ -151,7 +151,7 @@ import Foundation
     ) -> Task<String, Error> {
       switch module {
         case let .speech(transcriber):
-          return Task<String, Error> {
+          Task<String, Error> {
             var latestTranscript = ""
             var transcriptSegments: [DictationTranscriptAssembler.Segment] = []
             for try await result in transcriber.results {
@@ -168,7 +168,7 @@ import Foundation
             return latestTranscript
           }
         case let .dictation(transcriber):
-          return Task<String, Error> {
+          Task<String, Error> {
             var latestTranscript = ""
             var transcriptSegments: [DictationTranscriptAssembler.Segment] = []
             for try await result in transcriber.results {

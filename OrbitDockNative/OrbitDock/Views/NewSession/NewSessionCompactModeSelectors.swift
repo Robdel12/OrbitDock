@@ -21,17 +21,17 @@ struct CompactClaudePermissionSelector: View {
       }
     }
     #if !os(iOS)
-      .onHover { hovering in
-        if hovering {
-          NSCursor.pointingHand.push()
-        } else {
-          NSCursor.pop()
-          hoveredMode = nil
-        }
+    .onHover { hovering in
+      if hovering {
+        NSCursor.pointingHand.push()
+      } else {
+        NSCursor.pop()
+        hoveredMode = nil
       }
+    }
     #endif
-      .animation(Motion.bouncy, value: hoveredMode)
-      .animation(Motion.bouncy, value: selection)
+    .animation(Motion.bouncy, value: hoveredMode)
+    .animation(Motion.bouncy, value: selection)
   }
 }
 
@@ -56,17 +56,17 @@ struct CompactAutonomySelector: View {
       }
     }
     #if !os(iOS)
-      .onHover { hovering in
-        if hovering {
-          NSCursor.pointingHand.push()
-        } else {
-          NSCursor.pop()
-          hoveredLevel = nil
-        }
+    .onHover { hovering in
+      if hovering {
+        NSCursor.pointingHand.push()
+      } else {
+        NSCursor.pop()
+        hoveredLevel = nil
       }
+    }
     #endif
-      .animation(Motion.bouncy, value: hoveredLevel)
-      .animation(Motion.bouncy, value: selection)
+    .animation(Motion.bouncy, value: hoveredLevel)
+    .animation(Motion.bouncy, value: selection)
   }
 }
 

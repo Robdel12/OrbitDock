@@ -47,7 +47,7 @@ struct DashboardStatusBar: View {
     )
   }
 
-  // Connection state
+  /// Connection state
   private var enabledRuntimes: [ServerRuntime] {
     runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
   }
@@ -349,7 +349,10 @@ struct DashboardStatusBar: View {
         .font(.system(size: 10, weight: .bold))
         .foregroundStyle(Color.accent)
         .frame(width: 28, height: 28)
-        .background(Color.accent.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
+        .background(
+          Color.accent.opacity(OpacityTier.light),
+          in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
+        )
     }
     .menuStyle(.borderlessButton)
     .help("New session")
@@ -460,7 +463,7 @@ struct DashboardTabSwitcher: View {
 
     return Button {
       withAnimation(Motion.hover) {
-        router.dashboardTab = tab
+        router.selectDashboardTab(tab, source: .dashboardTabSwitcher)
       }
     } label: {
       HStack(spacing: Spacing.xs) {

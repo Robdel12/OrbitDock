@@ -14,7 +14,9 @@ enum AppHapticLevel: String, CaseIterable, Identifiable {
   case minimal
   case full
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var title: String {
     switch self {

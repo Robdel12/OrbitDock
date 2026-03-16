@@ -23,7 +23,12 @@ struct ConversationStructureSnapshot: Sendable, Equatable {
 }
 
 enum ConversationStructureEvent: Sendable, Equatable {
-  case bootstrap(rows: [ConversationRowRecord], oldestLoadedSequence: UInt64?, newestLoadedSequence: UInt64?, hasMoreHistoryBefore: Bool)
+  case bootstrap(
+    rows: [ConversationRowRecord],
+    oldestLoadedSequence: UInt64?,
+    newestLoadedSequence: UInt64?,
+    hasMoreHistoryBefore: Bool
+  )
   case prepend(rows: [ConversationRowRecord], oldestLoadedSequence: UInt64?, hasMoreHistoryBefore: Bool)
   case append(row: ConversationRowRecord)
   case replace(rowID: String, row: ConversationRowRecord)

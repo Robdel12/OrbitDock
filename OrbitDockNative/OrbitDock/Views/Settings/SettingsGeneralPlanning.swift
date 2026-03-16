@@ -82,14 +82,14 @@ enum SettingsGeneralPlanning {
   ) -> SettingsDictationPresentation {
     switch availability {
       case .available:
-        return SettingsDictationPresentation(
+        SettingsDictationPresentation(
           title: "Apple Speech",
           description: "Dictation updates the composer live as you speak and stays fully on-device.",
           iconName: "apple.logo",
           showsLiveBadge: true
         )
       case .unavailable:
-        return SettingsDictationPresentation(
+        SettingsDictationPresentation(
           title: "Dictation unavailable",
           description: "Dictation requires iOS 26 or macOS 26 because OrbitDock now uses Apple's new Speech framework directly.",
           iconName: "xmark.circle.fill",

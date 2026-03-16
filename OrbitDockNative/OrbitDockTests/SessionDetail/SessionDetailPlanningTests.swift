@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct SessionDetailPlanningTests {
   private let costCalculator = TokenCostCalculator(
@@ -321,13 +321,13 @@ struct SessionDetailPlanningTests {
         ),
       ],
       currentDiff: """
-        diff --git a/Sources/Feature.swift b/Sources/Feature.swift
-        --- a/Sources/Feature.swift
-        +++ b/Sources/Feature.swift
-        @@ -1 +1 @@
-        -old
-        +new
-        """
+      diff --git a/Sources/Feature.swift b/Sources/Feature.swift
+      --- a/Sources/Feature.swift
+      +++ b/Sources/Feature.swift
+      @@ -1 +1 @@
+      -old
+      +new
+      """
     )
     #expect(count == 2)
 
@@ -345,13 +345,13 @@ struct SessionDetailPlanningTests {
         ),
       ],
       currentDiff: """
-        diff --git a/Sources/App.swift b/Sources/App.swift
-        --- a/Sources/App.swift
-        +++ b/Sources/App.swift
-        @@ -1 +1 @@
-        -old
-        +new
-        """
+      diff --git a/Sources/App.swift b/Sources/App.swift
+      --- a/Sources/App.swift
+      +++ b/Sources/App.swift
+      @@ -1 +1 @@
+      -old
+      +new
+      """
     )
     #expect(dedupedCount == 1)
   }

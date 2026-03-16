@@ -152,7 +152,7 @@ extension DirectSessionComposer {
       case .reviewNotes:
         .reviewNotes
       case .shell:
-      .shell
+        .shell
     }
   }
 

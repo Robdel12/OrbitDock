@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct ReviewMessageFormatterTests {
   @Test func formatBuildsStructuredReviewMessageWithDiffSnippetsAndIds() {
@@ -64,7 +64,7 @@ struct ReviewMessageFormatterTests {
         lineEnd: nil,
         body: "Please add a guard clause",
         tag: nil
-      )
+      ),
     ]
 
     let message = ReviewMessageFormatter.format(comments: comments, model: nil)
@@ -136,7 +136,7 @@ struct ReviewMessageFormatterTests {
             lines: [
               DiffLine(type: .added, content: "let safeDefault = true", oldLineNum: nil, newLineNum: 20, prefix: "+"),
             ]
-          )
+          ),
         ]
       ),
     ])

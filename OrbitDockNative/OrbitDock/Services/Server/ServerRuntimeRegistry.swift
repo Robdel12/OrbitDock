@@ -23,6 +23,7 @@ final class ServerRuntimeRegistry {
   @ObservationIgnored private let readinessContinuation: AsyncStream<Void>.Continuation
 
   // MARK: - Session list aggregation (across all endpoints)
+
   @ObservationIgnored private var sessionsByEndpoint: [UUID: [String: RootSessionNode]] = [:]
   private(set) var aggregatedSessions: [RootSessionNode] = []
 
@@ -41,8 +42,11 @@ final class ServerRuntimeRegistry {
       endpointId: UUID()
     )
   }()
+
   @ObservationIgnored private var statusObserverTasks: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var readinessObserverTasks: [UUID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var connectionListenerTokensByEndpointId: [UUID: ServerConnectionListenerToken] = [:]
+  @ObservationIgnored private var suspendedForBackground = false
 
   private static func resolvedDeviceName() -> String {
     #if canImport(UIKit)
@@ -179,9 +183,7 @@ final class ServerRuntimeRegistry {
   }
 
   var connectedRuntimeCount: Int {
-    readinessByEndpointId.values.filter {
-      $0.transportReady
-    }.count
+    readinessByEndpointId.values.filter(\.transportReady).count
   }
 
   var hasEnabledRuntimes: Bool {
@@ -238,6 +240,7 @@ final class ServerRuntimeRegistry {
     let configuredIds = Set(configuredEndpoints.map(\.id))
 
     for (id, runtime) in runtimesByEndpointId where !configuredIds.contains(id) {
+      unbindRuntimeState(runtime)
       runtime.stop()
       runtimesByEndpointId[id] = nil
       statusObserverTasks[id]?.cancel()
@@ -253,6 +256,7 @@ final class ServerRuntimeRegistry {
     for endpoint in configuredEndpoints {
       if let existing = runtimesByEndpointId[endpoint.id] {
         if existing.endpoint != endpoint {
+          unbindRuntimeState(existing)
           existing.stop()
           statusObserverTasks[endpoint.id]?.cancel()
           statusObserverTasks[endpoint.id] = nil
@@ -354,6 +358,23 @@ final class ServerRuntimeRegistry {
       runtime.stop()
     }
   }
+
+  #if os(iOS)
+    func suspendForBackground() {
+      guard !suspendedForBackground else { return }
+      suspendedForBackground = true
+      for runtime in runtimesByEndpointId.values where runtime.endpoint.isEnabled {
+        runtime.suspendInactive()
+      }
+    }
+
+    func resumeFromBackgroundIfNeeded() {
+      ensureInitialized()
+      guard suspendedForBackground else { return }
+      suspendedForBackground = false
+      startEnabledRuntimes()
+    }
+  #endif
 
   func waitForControlPlaneIdleForTests() async {
     await controlPlaneCoordinator.waitUntilIdleForTests()
@@ -478,59 +499,74 @@ final class ServerRuntimeRegistry {
 
     // Cancel any existing observation for this endpoint
     runtimeObservationTasks[endpointId]?.cancel()
+    if let token = connectionListenerTokensByEndpointId.removeValue(forKey: endpointId) {
+      runtime.connection.removeListener(token)
+    }
 
     // Observe connection status + session list changes from the ServerConnection
     let endpointName = runtime.endpoint.name
-    runtime.connection.addListener { [weak self, weak runtime] event in
+    connectionListenerTokensByEndpointId[endpointId] = runtime.connection.addListener { [
+      weak self,
+      weak runtime
+    ] event in
       guard let self, let runtime else { return }
       switch event {
-      case let .connectionStatusChanged(status):
-        self.connectionStatusByEndpointId[endpointId] = status
-        self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
-          connectionStatus: status,
-          hasReceivedInitialRootList: runtime.connection.hasReceivedInitialSessionsList
-        )
+        case let .connectionStatusChanged(status):
+          self.connectionStatusByEndpointId[endpointId] = status
+          self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
+            connectionStatus: status,
+            hasReceivedInitialRootList: runtime.connection.hasReceivedInitialSessionsList
+          )
 
-      case let .sessionsList(items):
-        self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
-          connectionStatus: runtime.connection.connectionStatus,
-          hasReceivedInitialRootList: true
-        )
-        var index: [String: RootSessionNode] = [:]
-        for item in items {
+        case let .sessionsList(items):
+          self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
+            connectionStatus: runtime.connection.connectionStatus,
+            hasReceivedInitialRootList: true
+          )
+          var index: [String: RootSessionNode] = [:]
+          for item in items {
+            let node = RootSessionNode(
+              session: item, endpointId: endpointId, endpointName: endpointName,
+              connectionStatus: .connected
+            )
+            index[node.scopedID] = node
+          }
+          self.sessionsByEndpoint[endpointId] = index
+          self.recomputeAggregatedSessions()
+
+        case let .sessionCreated(item), let .sessionListItemUpdated(item):
           let node = RootSessionNode(
             session: item, endpointId: endpointId, endpointName: endpointName,
             connectionStatus: .connected
           )
-          index[node.scopedID] = node
-        }
-        self.sessionsByEndpoint[endpointId] = index
-        self.recomputeAggregatedSessions()
-
-      case let .sessionCreated(item), let .sessionListItemUpdated(item):
-        let node = RootSessionNode(
-          session: item, endpointId: endpointId, endpointName: endpointName,
-          connectionStatus: .connected
-        )
-        self.sessionsByEndpoint[endpointId, default: [:]][node.scopedID] = node
-        self.recomputeAggregatedSessions()
-
-      case let .sessionListItemRemoved(sessionId):
-        let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
-        self.sessionsByEndpoint[endpointId]?[scopedID] = nil
-        self.recomputeAggregatedSessions()
-
-      case let .sessionEnded(sessionId, reason):
-        let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
-        if let existing = self.sessionsByEndpoint[endpointId]?[scopedID] {
-          self.sessionsByEndpoint[endpointId]?[scopedID] = existing.ended(reason: reason)
+          self.sessionsByEndpoint[endpointId, default: [:]][node.scopedID] = node
           self.recomputeAggregatedSessions()
-        }
 
-      default:
-        break
+        case let .sessionListItemRemoved(sessionId):
+          let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
+          self.sessionsByEndpoint[endpointId]?[scopedID] = nil
+          self.recomputeAggregatedSessions()
+
+        case let .sessionEnded(sessionId, reason):
+          let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
+          if let existing = self.sessionsByEndpoint[endpointId]?[scopedID] {
+            self.sessionsByEndpoint[endpointId]?[scopedID] = existing.ended(reason: reason)
+            self.recomputeAggregatedSessions()
+          }
+
+        default:
+          break
       }
     }
+  }
+
+  private func unbindRuntimeState(_ runtime: ServerRuntime) {
+    let endpointId = runtime.endpoint.id
+    if let token = connectionListenerTokensByEndpointId.removeValue(forKey: endpointId) {
+      runtime.connection.removeListener(token)
+    }
+    runtimeObservationTasks[endpointId]?.cancel()
+    runtimeObservationTasks[endpointId] = nil
   }
 
   private func recomputeAggregatedSessions() {

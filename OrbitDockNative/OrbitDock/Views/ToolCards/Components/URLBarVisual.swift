@@ -12,7 +12,9 @@ struct URLBarVisual: View {
   let urlString: String
   var statusCode: Int?
 
-  private var parsedURL: URL? { URL(string: urlString) }
+  private var parsedURL: URL? {
+    URL(string: urlString)
+  }
 
   var body: some View {
     HStack(spacing: Spacing.sm) {
@@ -59,10 +61,10 @@ struct URLBarVisual: View {
   @ViewBuilder
   private func statusBadge(_ code: Int) -> some View {
     let color: Color = switch code {
-    case 200..<300: .feedbackPositive
-    case 300..<400: .feedbackCaution
-    case 400..<500: .feedbackWarning
-    default: .feedbackNegative
+      case 200 ..< 300: .feedbackPositive
+      case 300 ..< 400: .feedbackCaution
+      case 400 ..< 500: .feedbackWarning
+      default: .feedbackNegative
     }
 
     Text("\(code)")

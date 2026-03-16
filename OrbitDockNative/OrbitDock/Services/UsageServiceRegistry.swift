@@ -22,22 +22,22 @@ final class UsageServiceRegistry {
 
   func windows(for provider: Provider) -> [RateLimitWindow] {
     switch provider {
-    case .claude: claudeWindows
-    case .codex: codexWindows
+      case .claude: claudeWindows
+      case .codex: codexWindows
     }
   }
 
   func error(for provider: Provider) -> (any LocalizedError)? {
     switch provider {
-    case .claude: claudeError
-    case .codex: codexError
+      case .claude: claudeError
+      case .codex: codexError
     }
   }
 
   func isLoading(for provider: Provider) -> Bool {
     switch provider {
-    case .claude: claudeLoading
-    case .codex: codexLoading
+      case .claude: claudeLoading
+      case .codex: codexLoading
     }
   }
 
@@ -168,5 +168,7 @@ final class UsageServiceRegistry {
 
 struct UsageFetchError: LocalizedError {
   let message: String
-  var errorDescription: String? { message }
+  var errorDescription: String? {
+    message
+  }
 }

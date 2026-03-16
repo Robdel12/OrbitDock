@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct QuickSwitcherProjectionTests {
   @Test func filtersSessionsAcrossSearchFields() {
@@ -47,7 +47,7 @@ struct QuickSwitcherProjectionTests {
         summary: "Café cleanup",
         status: .active,
         startedAt: Date(timeIntervalSince1970: 100)
-      )
+      ),
     ]
 
     let projection = QuickSwitcherProjection.make(
@@ -96,7 +96,12 @@ struct QuickSwitcherProjectionTests {
 
     #expect(projection.activeSessions.map(\.sessionId) == ["active-new", "active-old"])
     #expect(projection.recentSessions.map(\.sessionId) == ["recent-newer", "recent-older"])
-    #expect(projection.allVisibleSessions.map(\.sessionId) == ["active-new", "active-old", "recent-newer", "recent-older"])
+    #expect(projection.allVisibleSessions.map(\.sessionId) == [
+      "active-new",
+      "active-old",
+      "recent-newer",
+      "recent-older",
+    ])
   }
 
   @Test func recentSessionsStayHiddenUntilExpandedUnlessSearching() {
@@ -138,7 +143,12 @@ struct QuickSwitcherProjectionTests {
   @Test func navigationLayoutUsesCommandDashboardAndVisibleSessionCounts() {
     let sessions = [
       makeSession(id: "active", status: .active, startedAt: Date(timeIntervalSince1970: 100)),
-      makeSession(id: "recent", status: .ended, startedAt: Date(timeIntervalSince1970: 10), endedAt: Date(timeIntervalSince1970: 20)),
+      makeSession(
+        id: "recent",
+        status: .ended,
+        startedAt: Date(timeIntervalSince1970: 10),
+        endedAt: Date(timeIntervalSince1970: 20)
+      ),
     ]
 
     let projection = QuickSwitcherProjection.make(
@@ -157,7 +167,7 @@ struct QuickSwitcherProjectionTests {
   @Test func quickLaunchNavigationUsesProjectCountInsteadOfSessionCounts() {
     let projection = QuickSwitcherProjection.make(
       sessions: [
-        makeSession(id: "active", status: .active, startedAt: Date(timeIntervalSince1970: 100))
+        makeSession(id: "active", status: .active, startedAt: Date(timeIntervalSince1970: 100)),
       ],
       normalizedQuery: "",
       isRecentExpanded: false,
@@ -171,7 +181,7 @@ struct QuickSwitcherProjectionTests {
   }
 
   @Test func recentSessionsAreCappedAtTwenty() {
-    let sessions = (0..<24).map { index in
+    let sessions = (0 ..< 24).map { index in
       makeSession(
         id: "recent-\(index)",
         status: .ended,

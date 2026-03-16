@@ -37,7 +37,9 @@ struct SkillsClient: Sendable {
     forceReload: Bool = false
   ) async throws -> SkillsResponse {
     var query: [URLQueryItem] = []
-    for cwd in cwds { query.append(URLQueryItem(name: "cwd", value: cwd)) }
+    for cwd in cwds {
+      query.append(URLQueryItem(name: "cwd", value: cwd))
+    }
     if forceReload { query.append(URLQueryItem(name: "force_reload", value: "true")) }
     return try await http.get(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/skills",

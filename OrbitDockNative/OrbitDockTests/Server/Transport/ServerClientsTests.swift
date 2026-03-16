@@ -17,8 +17,8 @@ struct ServerClientsTests {
 
   @Test func setServerRoleSendsScopedJSONAndAuthorizationHeader() async throws {
     let recorder = RequestRecorder()
-    let clients = ServerClients(
-      serverURL: try #require(URL(string: "ws://127.0.0.1:4000/ws")),
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       authToken: "secret-token",
       dataLoader: { request in
         await recorder.record(request)
@@ -46,8 +46,8 @@ struct ServerClientsTests {
 
   @Test func setClientPrimaryClaimPostsExpectedBody() async throws {
     let recorder = RequestRecorder()
-    let clients = ServerClients(
-      serverURL: try #require(URL(string: "http://localhost:4000")),
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "http://localhost:4000")),
       authToken: "secret-token",
       dataLoader: { request in
         await recorder.record(request)
@@ -79,8 +79,8 @@ struct ServerClientsTests {
 
   @Test func browseDirectoryPreservesPathQueryAndDecodesListing() async throws {
     let recorder = RequestRecorder()
-    let clients = ServerClients(
-      serverURL: try #require(URL(string: "http://localhost:4000")),
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "http://localhost:4000")),
       authToken: nil,
       dataLoader: { request in
         await recorder.record(request)
@@ -105,8 +105,8 @@ struct ServerClientsTests {
 
   @Test func listSkillsRepeatsCwdQueryItemsAndForceReloadFlag() async throws {
     let recorder = RequestRecorder()
-    let clients = ServerClients(
-      serverURL: try #require(URL(string: "http://localhost:4000")),
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "http://localhost:4000")),
       authToken: nil,
       dataLoader: { request in
         await recorder.record(request)
@@ -138,8 +138,8 @@ struct ServerClientsTests {
   }
 
   @Test func surfacesStructuredHTTPFailures() async throws {
-    let clients = ServerClients(
-      serverURL: try #require(URL(string: "http://localhost:4000")),
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "http://localhost:4000")),
       authToken: nil,
       dataLoader: { request in
         Self.jsonResponse(
@@ -166,7 +166,7 @@ struct ServerClientsTests {
     }
   }
 
-  nonisolated private static func jsonResponse(
+  private nonisolated static func jsonResponse(
     url: URL,
     statusCode: Int,
     json: String

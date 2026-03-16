@@ -48,7 +48,6 @@ struct SettingsOpenAiNamingSection: View {
     }
   }
 
-  @ViewBuilder
   private var statusRow: some View {
     HStack {
       if presentation.showsProgress {
@@ -182,11 +181,11 @@ struct SettingsOpenAiNamingSection: View {
   private func statusColor(for tone: SettingsSectionTone) -> Color {
     switch tone {
       case .neutral:
-        return .textSecondary
+        .textSecondary
       case .positive:
-        return .feedbackPositive
+        .feedbackPositive
       case .warning:
-        return .statusPermission
+        .statusPermission
     }
   }
 }

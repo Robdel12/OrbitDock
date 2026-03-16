@@ -44,8 +44,10 @@ struct GrepExpandedView: View {
 
   // MARK: - Grouped Results
 
-  @ViewBuilder
-  private func groupedResults(groups: [(file: String, matches: [(line: Int?, content: String)])], pattern: String) -> some View {
+  private func groupedResults(
+    groups: [(file: String, matches: [(line: Int?, content: String)])],
+    pattern: String
+  ) -> some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
       ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
         FileMatchGroup(file: group.file, matches: group.matches, pattern: pattern)
@@ -55,7 +57,6 @@ struct GrepExpandedView: View {
 
   // MARK: - Flat Results
 
-  @ViewBuilder
   private func flatResults(lines: [String], pattern: String) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
@@ -86,7 +87,8 @@ struct GrepExpandedView: View {
       // Parse "file:line:content" format
       let parts = line.split(separator: ":", maxSplits: 2)
       if parts.count >= 3,
-         let lineNum = Int(parts[1]) {
+         let lineNum = Int(parts[1])
+      {
         let file = String(parts[0])
         let matchContent = String(parts[2])
 
@@ -99,7 +101,8 @@ struct GrepExpandedView: View {
         }
         currentMatches.append((line: lineNum, content: matchContent))
       } else if parts.count >= 2,
-                !parts[0].contains(" ") {
+                !parts[0].contains(" ")
+      {
         // file:content format (no line number)
         let file = String(parts[0])
         let matchContent = String(parts.dropFirst().joined(separator: ":"))
@@ -144,7 +147,7 @@ struct GrepExpandedView: View {
     let patternLowered = pattern.lowercased()
     var searchStart = lowered.startIndex
 
-    while let range = lowered.range(of: patternLowered, range: searchStart..<lowered.endIndex) {
+    while let range = lowered.range(of: patternLowered, range: searchStart ..< lowered.endIndex) {
       if let attrRange = Range(range, in: result) {
         result[attrRange].backgroundColor = Color.toolSearch.opacity(0.2)
         result[attrRange].foregroundColor = Color.toolSearch

@@ -12,15 +12,20 @@ struct PlanExpandedView: View {
   let content: ServerRowContent
   let toolRow: ServerConversationToolRow
 
-  private var isExit: Bool { toolRow.kind == .exitPlanMode }
-  private var isUpdate: Bool { toolRow.kind == .updatePlan }
+  private var isExit: Bool {
+    toolRow.kind == .exitPlanMode
+  }
+
+  private var isUpdate: Bool {
+    toolRow.kind == .updatePlan
+  }
 
   private var modeLabel: String {
     switch toolRow.kind {
-    case .enterPlanMode: "Entering Plan Mode"
-    case .exitPlanMode: "Plan Complete"
-    case .updatePlan: "Plan Updated"
-    default: "Plan"
+      case .enterPlanMode: "Entering Plan Mode"
+      case .exitPlanMode: "Plan Complete"
+      case .updatePlan: "Plan Updated"
+      default: "Plan"
     }
   }
 
@@ -48,7 +53,7 @@ struct PlanExpandedView: View {
       }
 
       // Phase banner for enter/exit modes
-      if !isExit && !isUpdate {
+      if !isExit, !isUpdate {
         HStack(spacing: Spacing.xs) {
           Rectangle()
             .fill(modeColor)
@@ -172,17 +177,17 @@ struct PlanExpandedView: View {
 
   private func stepIcon(_ status: String) -> String {
     switch status {
-    case "completed": "checkmark.circle.fill"
-    case "in_progress": "circle.dotted"
-    default: "circle"
+      case "completed": "checkmark.circle.fill"
+      case "in_progress": "circle.dotted"
+      default: "circle"
     }
   }
 
   private func stepColor(_ status: String) -> Color {
     switch status {
-    case "completed": .feedbackPositive
-    case "in_progress": .accent
-    default: .textQuaternary
+      case "completed": .feedbackPositive
+      case "in_progress": .accent
+      default: .textQuaternary
     }
   }
 }

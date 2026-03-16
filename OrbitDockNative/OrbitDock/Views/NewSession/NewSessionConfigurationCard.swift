@@ -326,7 +326,8 @@ struct NewSessionConfigurationCard: View {
                 .font(.system(size: TypeScale.micro, weight: .medium))
             }
             .foregroundStyle(
-              selectedAutonomy.isSandboxed ? Color.textQuaternary : Color.autonomyOpen.opacity(0.7))
+              selectedAutonomy.isSandboxed ? Color.textQuaternary : Color.autonomyOpen.opacity(0.7)
+            )
           }
           .foregroundStyle(Color.textQuaternary)
           .padding(.top, Spacing.xxs)
@@ -429,12 +430,12 @@ struct NewSessionConfigurationCard: View {
             ? (codexMultiAgentEnabled ? "Worker spawning enabled" : "Single-agent session")
             : "Workers unavailable"
           )
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(
-              codexSupportsMultiAgent
-                ? (codexMultiAgentEnabled ? Color.providerCodex : Color.textSecondary)
-                : Color.textSecondary
-            )
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(
+            codexSupportsMultiAgent
+              ? (codexMultiAgentEnabled ? Color.providerCodex : Color.textSecondary)
+              : Color.textSecondary
+          )
 
           Text(
             codexSupportsMultiAgent
@@ -586,10 +587,12 @@ struct NewSessionConfigurationCard: View {
                 )
             }
 
-            Text("Use this for durable session behavior. For one-off guidance later, steer the active turn from the composer.")
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(Color.textTertiary)
-              .fixedSize(horizontal: false, vertical: true)
+            Text(
+              "Use this for durable session behavior. For one-off guidance later, steer the active turn from the composer."
+            )
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
           }
         }
         .transition(.move(edge: .top).combined(with: .opacity))
@@ -622,12 +625,12 @@ struct NewSessionConfigurationCard: View {
     return summary.joined(separator: " • ")
   }
 
-  private func codexAdvancedPickerCard<Control: View, Description: View>(
+  private func codexAdvancedPickerCard(
     title: String,
     icon: String,
     tint: Color,
-    @ViewBuilder control: () -> Control,
-    @ViewBuilder description: () -> Description
+    @ViewBuilder control: () -> some View,
+    @ViewBuilder description: () -> some View
   ) -> some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
       HStack(spacing: Spacing.sm) {

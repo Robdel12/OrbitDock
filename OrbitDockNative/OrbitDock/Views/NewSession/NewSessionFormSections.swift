@@ -181,18 +181,22 @@ struct NewSessionContinuationSection: View {
             .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textTertiary)
 
-          Text("This starts a fresh session, then asks the new agent to inspect session `\(continuation.sessionId)` with the OrbitDock CLI for context.")
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
+          Text(
+            "This starts a fresh session, then asks the new agent to inspect session `\(continuation.sessionId)` with the OrbitDock CLI for context."
+          )
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
         }
       }
 
       if !supportsContinuation {
-        Text("Continue from session is limited to the same local OrbitDock server for now. Switch back to the source endpoint or use the normal new-session flow.")
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.statusPermission)
-          .fixedSize(horizontal: false, vertical: true)
+        Text(
+          "Continue from session is limited to the same local OrbitDock server for now. Switch back to the source endpoint or use the normal new-session flow."
+        )
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.statusPermission)
+        .fixedSize(horizontal: false, vertical: true)
       }
     }
     .padding(Spacing.lg)
@@ -436,11 +440,11 @@ struct NewSessionFooter: View {
     Button("Cancel", action: onCancel)
       .buttonStyle(.bordered)
       .tint(Color.textTertiary)
-      #if os(iOS)
-        .controlSize(.large)
-      #else
-        .keyboardShortcut(.escape, modifiers: [])
-      #endif
+    #if os(iOS)
+      .controlSize(.large)
+    #else
+      .keyboardShortcut(.escape, modifiers: [])
+    #endif
   }
 
   private var launchButton: some View {

@@ -139,10 +139,12 @@ enum ReviewCommentComposerPlanner {
 
       let startHunk = min(markHunkIndex, currentHunkIndex)
       let endHunk = max(markHunkIndex, currentHunkIndex)
-      let startLineIndex = startHunk == endHunk ? min(markLineIndex, currentLineIndex) : (markHunkIndex <= currentHunkIndex
-        ? markLineIndex : currentLineIndex)
-      let endLineIndex = startHunk == endHunk ? max(markLineIndex, currentLineIndex) : (markHunkIndex <= currentHunkIndex
-        ? currentLineIndex : markLineIndex)
+      let startLineIndex = startHunk == endHunk ? min(markLineIndex, currentLineIndex) :
+        (markHunkIndex <= currentHunkIndex
+          ? markLineIndex : currentLineIndex)
+      let endLineIndex = startHunk == endHunk ? max(markLineIndex, currentLineIndex) :
+        (markHunkIndex <= currentHunkIndex
+          ? currentLineIndex : markLineIndex)
 
       guard let range = makeRangeTarget(
         fileIndex: markFileIndex,

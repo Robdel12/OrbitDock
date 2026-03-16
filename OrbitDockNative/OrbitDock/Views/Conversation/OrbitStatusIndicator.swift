@@ -18,38 +18,40 @@ struct OrbitStatusIndicator: View {
 
   private var title: String {
     switch displayStatus {
-    case .working: orbitPhrase
-    case .permission: "Holding pattern"
-    case .question: "Hailing Frequencies"
-    case .reply: "Docked"
-    case .ended: "Mission Complete"
+      case .working: orbitPhrase
+      case .permission: "Holding pattern"
+      case .question: "Hailing Frequencies"
+      case .reply: "Docked"
+      case .ended: "Mission Complete"
     }
   }
 
   private var detail: String? {
     switch displayStatus {
-    case .working:
-      currentTool.map { "Running \($0)" }
-    case .permission:
-      "Awaiting clearance"
-    case .question:
-      "Standing by for response"
-    case .reply:
-      "Ready for next mission"
-    case .ended:
-      nil
+      case .working:
+        currentTool.map { "Running \($0)" }
+      case .permission:
+        "Awaiting clearance"
+      case .question:
+        "Standing by for response"
+      case .reply:
+        "Ready for next mission"
+      case .ended:
+        nil
     }
   }
 
-  private var statusColor: Color { displayStatus.color }
+  private var statusColor: Color {
+    displayStatus.color
+  }
 
   private var orbitalState: OrbitalAnimationLayer.OrbitalState {
     switch displayStatus {
-    case .working: .orbiting
-    case .permission: .holding
-    case .question: .holding
-    case .reply: .parked
-    case .ended: .hidden
+      case .working: .orbiting
+      case .permission: .holding
+      case .question: .holding
+      case .reply: .parked
+      case .ended: .hidden
     }
   }
 
@@ -126,7 +128,9 @@ struct OrbitStatusIndicator: View {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) {
+      fatalError()
+    }
 
     override func layout() {
       super.layout()
@@ -163,7 +167,9 @@ struct OrbitStatusIndicator: View {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) {
+      fatalError()
+    }
 
     override func layoutSubviews() {
       super.layoutSubviews()

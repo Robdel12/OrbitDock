@@ -23,9 +23,11 @@ struct SettingsDictationSection: View {
           .tint(Color.accent)
           .disabled(availability == .unavailable)
 
-          Text("OrbitDock uses Apple's on-device Speech framework for live dictation on iOS 26 and macOS 26. The system may install speech assets the first time you use it.")
-            .font(.system(size: TypeScale.meta))
-            .foregroundStyle(Color.textTertiary)
+          Text(
+            "OrbitDock uses Apple's on-device Speech framework for live dictation on iOS 26 and macOS 26. The system may install speech assets the first time you use it."
+          )
+          .font(.system(size: TypeScale.meta))
+          .foregroundStyle(Color.textTertiary)
         }
 
         Divider()

@@ -55,7 +55,7 @@ struct EditExpandedView: View {
       let isChange = kind == .addition || kind == .deletion
 
       // Insert hunk separator when change follows 2+ context lines after a previous change
-      if isChange && contextRun >= 2 && hadChange {
+      if isChange, contextRun >= 2, hadChange {
         entries.append(DiffEntry(
           id: -(index + 1), kind: .separator,
           oldLine: nil, newLine: nil, content: ""
@@ -277,25 +277,25 @@ struct EditExpandedView: View {
 
   private func lineColor(_ kind: DiffEntry.EntryKind) -> Color {
     switch kind {
-    case .addition: .diffAddedAccent
-    case .deletion: .diffRemovedAccent
-    case .context, .separator: .textTertiary
+      case .addition: .diffAddedAccent
+      case .deletion: .diffRemovedAccent
+      case .context, .separator: .textTertiary
     }
   }
 
   private func lineBg(_ kind: DiffEntry.EntryKind) -> Color {
     switch kind {
-    case .addition: .diffAddedBg
-    case .deletion: .diffRemovedBg
-    case .context, .separator: .backgroundCode
+      case .addition: .diffAddedBg
+      case .deletion: .diffRemovedBg
+      case .context, .separator: .backgroundCode
     }
   }
 
   private func edgeColor(_ kind: DiffEntry.EntryKind) -> Color {
     switch kind {
-    case .addition: .diffAddedEdge
-    case .deletion: .diffRemovedEdge
-    case .context, .separator: .clear
+      case .addition: .diffAddedEdge
+      case .deletion: .diffRemovedEdge
+      case .context, .separator: .clear
     }
   }
 }

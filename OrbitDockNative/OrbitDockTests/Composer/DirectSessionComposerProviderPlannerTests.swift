@@ -36,7 +36,7 @@ struct DirectSessionComposerProviderPlannerTests {
         value: "claude-opus-4-1",
         displayName: "Opus",
         description: "Big model"
-      )
+      ),
     ]
 
     #expect(
@@ -71,14 +71,14 @@ struct DirectSessionComposerProviderPlannerTests {
         description: "Default",
         isDefault: true,
         supportedReasoningEfforts: ["low", "medium"]
-      )
+      ),
     ]
     let claudeOptions = [
       ServerClaudeModelOption(
         value: "claude-opus-4-1",
         displayName: "Opus",
         description: "Big model"
-      )
+      ),
     ]
 
     #expect(

@@ -530,7 +530,7 @@ enum SessionCardHelpers {
 
   private static func hasExplicitTitle(_ session: RootSessionNode) -> Bool {
     [session.displayTitle].contains { value in
-      return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
   }
 

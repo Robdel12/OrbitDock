@@ -32,16 +32,15 @@ struct ActivityStream {
       activeSessions = activeSessions.filter { $0.projectPath == projectFilter }
     }
 
-    let filtered: [RootSessionNode]
-    switch filter {
-      case .all: filtered = activeSessions
-      case .direct: filtered = activeSessions.filter(\.isDirect)
-      case .attention: filtered = activeSessions.filter { $0.displayStatus.needsAttention }
-      case .running: filtered = activeSessions.filter { $0.displayStatus == .working }
-      case .ready: filtered = activeSessions.filter { $0.displayStatus == .reply }
+    let filtered: [RootSessionNode] = switch filter {
+      case .all: activeSessions
+      case .direct: activeSessions.filter(\.isDirect)
+      case .attention: activeSessions.filter(\.displayStatus.needsAttention)
+      case .running: activeSessions.filter { $0.displayStatus == .working }
+      case .ready: activeSessions.filter { $0.displayStatus == .reply }
     }
 
-    let attentionSessions = filtered.filter { $0.displayStatus.needsAttention }
+    let attentionSessions = filtered.filter(\.displayStatus.needsAttention)
       .sorted { lhs, rhs in
         sortDate(lhs) < sortDate(rhs)
       }

@@ -74,11 +74,11 @@ struct CodexCapabilityNoticeCard: View {
   private var noticeTint: Color {
     switch notice.style {
       case .informational:
-        return .accent
+        .accent
       case .success:
-        return .feedbackPositive
+        .feedbackPositive
       case .caution:
-        return .feedbackCaution
+        .feedbackCaution
     }
   }
 }
@@ -511,7 +511,8 @@ struct McpServersTab: View {
     [
       entry.tools.isEmpty ? nil : "\(entry.tools.count) tool\(entry.tools.count == 1 ? "" : "s")",
       entry.resources.isEmpty ? nil : "\(entry.resources.count) resource\(entry.resources.count == 1 ? "" : "s")",
-      entry.resourceTemplates.isEmpty ? nil : "\(entry.resourceTemplates.count) template\(entry.resourceTemplates.count == 1 ? "" : "s")",
+      entry.resourceTemplates
+        .isEmpty ? nil : "\(entry.resourceTemplates.count) template\(entry.resourceTemplates.count == 1 ? "" : "s")",
     ]
     .compactMap { $0 }
     .joined(separator: " · ")

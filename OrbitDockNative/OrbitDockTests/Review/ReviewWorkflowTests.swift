@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct ReviewWorkflowTests {
   @Test func commentsToSendPrefersSelectedSubsetWhenPresent() {

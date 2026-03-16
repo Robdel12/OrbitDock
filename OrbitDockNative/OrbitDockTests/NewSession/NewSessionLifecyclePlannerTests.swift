@@ -1,12 +1,12 @@
-@testable import OrbitDock
 import Foundation
+@testable import OrbitDock
 import Testing
 
 @MainActor
 struct NewSessionLifecyclePlannerTests {
-  @Test func onAppearPrefersContinuationEndpointAndSeedsContinuationDefaults() {
-    let primaryEndpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-    let continuationEndpointId = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+  @Test func onAppearPrefersContinuationEndpointAndSeedsContinuationDefaults() throws {
+    let primaryEndpointId = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+    let continuationEndpointId = try #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"))
     let plan = NewSessionLifecyclePlanner.onAppear(
       current: makeState(selectedEndpointId: primaryEndpointId),
       selectableEndpoints: [
@@ -28,8 +28,8 @@ struct NewSessionLifecyclePlannerTests {
     #expect(plan.shouldSyncModelSelections == true)
   }
 
-  @Test func endpointChangedResetsStateAndReappliesContinuationDefaultsForMatchingEndpoint() {
-    let endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+  @Test func endpointChangedResetsStateAndReappliesContinuationDefaultsForMatchingEndpoint() throws {
+    let endpointId = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
     let state = NewSessionLifecycleState(
       selectedEndpointId: endpointId,
       selectedPath: "/tmp/old",
@@ -80,8 +80,8 @@ struct NewSessionLifecyclePlannerTests {
     #expect(plan.shouldSyncModelSelections == false)
   }
 
-  @Test func pathChangedClearsWorktreeStateWithoutRefreshingModels() {
-    let endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+  @Test func pathChangedClearsWorktreeStateWithoutRefreshingModels() throws {
+    let endpointId = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
     let plan = NewSessionLifecyclePlanner.pathChanged(
       current: NewSessionLifecycleState(
         selectedEndpointId: endpointId,
@@ -104,8 +104,8 @@ struct NewSessionLifecyclePlannerTests {
     #expect(plan.shouldSyncModelSelections == false)
   }
 
-  @Test func providerChangedResetsOnlyProviderState() {
-    let endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+  @Test func providerChangedResetsOnlyProviderState() throws {
+    let endpointId = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
     let current = NewSessionLifecycleState(
       selectedEndpointId: endpointId,
       selectedPath: "/tmp/project",

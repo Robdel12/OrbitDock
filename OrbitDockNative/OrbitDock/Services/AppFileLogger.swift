@@ -100,7 +100,7 @@ final class AppFileLogger: @unchecked Sendable {
     /// Reads from `readFd` and writes each chunk to both `fileFd` and `origFd`.
     private func startTeeThread(readFd: Int32, fileFd: Int32, origFd: Int32) {
       let thread = Thread {
-        let bufSize = 4096
+        let bufSize = 4_096
         let buf = UnsafeMutableRawPointer.allocate(byteCount: bufSize, alignment: 1)
         defer { buf.deallocate() }
         while true {

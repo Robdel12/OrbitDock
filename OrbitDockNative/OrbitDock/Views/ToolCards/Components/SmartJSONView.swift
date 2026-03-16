@@ -16,16 +16,16 @@ struct SmartJSONView: View {
 
   var body: some View {
     switch classify(jsonString) {
-    case .plainText(let text):
-      Text(text)
-        .font(.system(size: TypeScale.body))
-        .foregroundStyle(Color.textSecondary)
+      case let .plainText(text):
+        Text(text)
+          .font(.system(size: TypeScale.body))
+          .foregroundStyle(Color.textSecondary)
 
-    case .keyValuePairs(let pairs):
-      keyValueList(pairs)
+      case let .keyValuePairs(pairs):
+        keyValueList(pairs)
 
-    case .complexJSON:
-      JSONTreeView(jsonString: jsonString)
+      case .complexJSON:
+        JSONTreeView(jsonString: jsonString)
     }
   }
 

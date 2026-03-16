@@ -81,7 +81,11 @@ struct PendingCommandCodeBlock: View {
   var body: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       Text(verbatim: command)
-        .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.caption, weight: .regular, design: .monospaced))
+        .font(.system(
+          size: isCompactLayout ? TypeScale.micro : TypeScale.caption,
+          weight: .regular,
+          design: .monospaced
+        ))
         .foregroundStyle(Color.textPrimary)
         .lineSpacing(isCompactLayout ? 2 : 3)
         .fixedSize(horizontal: true, vertical: true)
@@ -140,7 +144,11 @@ struct PendingCommandChainRow: View {
 
       ScrollView(.horizontal, showsIndicators: false) {
         Text(verbatim: segment.command)
-          .font(.system(size: isCompactLayout ? TypeScale.micro : TypeScale.caption, weight: .regular, design: .monospaced))
+          .font(.system(
+            size: isCompactLayout ? TypeScale.micro : TypeScale.caption,
+            weight: .regular,
+            design: .monospaced
+          ))
           .foregroundStyle(Color.textPrimary)
           .lineSpacing(isCompactLayout ? 2 : 3)
           .fixedSize(horizontal: true, vertical: true)
@@ -291,7 +299,7 @@ struct DirectSessionComposerPendingQuestionContent: View {
           draft: drafts[prompt.id] ?? "",
           onToggleOption: { optionLabel in
             onToggleOption(prompt.id, optionLabel, prompt.allowsMultipleSelection)
-            if !prompt.allowsMultipleSelection && !prompt.allowsOther && boundedIndex < prompts.count - 1 {
+            if !prompt.allowsMultipleSelection, !prompt.allowsOther, boundedIndex < prompts.count - 1 {
               onAdvanceAfterSingleSelection()
             }
           },

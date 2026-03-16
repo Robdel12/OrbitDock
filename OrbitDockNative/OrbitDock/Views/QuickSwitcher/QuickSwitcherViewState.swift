@@ -11,18 +11,53 @@ struct QuickSwitcherViewState {
   let quickLaunchMode: QuickLaunchProvider?
   let recentProjects: [ServerRecentProject]
 
-  var searchQuery: String { queryPlan.normalizedQuery }
-  var filteredSessions: [RootSessionNode] { projection.filteredSessions }
-  var activeSessions: [RootSessionNode] { projection.activeSessions }
-  var recentSessions: [RootSessionNode] { projection.recentSessions }
-  var allVisibleSessions: [RootSessionNode] { projection.allVisibleSessions }
-  var totalItems: Int { projection.totalItems }
-  var commandCount: Int { projection.commandCount }
-  var dashboardIndex: Int { projection.dashboardIndex }
-  var sessionStartIndex: Int { projection.sessionStartIndex }
-  var shouldShowRecentSessions: Bool { projection.shouldShowRecentSessions }
-  var isQuickLaunchMode: Bool { quickLaunchMode != nil }
-  var isEmptyState: Bool { allVisibleSessions.isEmpty && filteredCommands.isEmpty && !searchQuery.isEmpty }
+  var searchQuery: String {
+    queryPlan.normalizedQuery
+  }
+
+  var filteredSessions: [RootSessionNode] {
+    projection.filteredSessions
+  }
+
+  var activeSessions: [RootSessionNode] {
+    projection.activeSessions
+  }
+
+  var recentSessions: [RootSessionNode] {
+    projection.recentSessions
+  }
+
+  var allVisibleSessions: [RootSessionNode] {
+    projection.allVisibleSessions
+  }
+
+  var totalItems: Int {
+    projection.totalItems
+  }
+
+  var commandCount: Int {
+    projection.commandCount
+  }
+
+  var dashboardIndex: Int {
+    projection.dashboardIndex
+  }
+
+  var sessionStartIndex: Int {
+    projection.sessionStartIndex
+  }
+
+  var shouldShowRecentSessions: Bool {
+    projection.shouldShowRecentSessions
+  }
+
+  var isQuickLaunchMode: Bool {
+    quickLaunchMode != nil
+  }
+
+  var isEmptyState: Bool {
+    allVisibleSessions.isEmpty && filteredCommands.isEmpty && !searchQuery.isEmpty
+  }
 
   static func make(
     sessions: [RootSessionNode],
@@ -39,11 +74,10 @@ struct QuickSwitcherViewState {
 
     let queryPlan = QuickSwitcherQueryPlanner.plan(searchText: state.searchText)
     let commands = QuickSwitcherCommandCatalog.allCommands()
-    let filteredCommands: [QuickSwitcherCommand]
-    if queryPlan.normalizedQuery.isEmpty {
-      filteredCommands = []
+    let filteredCommands: [QuickSwitcherCommand] = if queryPlan.normalizedQuery.isEmpty {
+      []
     } else {
-      filteredCommands = commands.filter { $0.name.lowercased().contains(queryPlan.normalizedQuery) }
+      commands.filter { $0.name.lowercased().contains(queryPlan.normalizedQuery) }
     }
 
     let projection = QuickSwitcherProjection.make(

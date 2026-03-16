@@ -127,7 +127,9 @@ final class ModelPricingService: @unchecked Sendable {
     return _prices
   }
 
-  var isLoading: Bool { false }
+  var isLoading: Bool {
+    false
+  }
 
   var lastUpdated: Date? {
     lock.lock()

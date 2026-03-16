@@ -13,7 +13,9 @@ struct DiffStatsBar: View {
   let deletions: Int
   var maxWidth: CGFloat = 80
 
-  private var total: Int { additions + deletions }
+  private var total: Int {
+    additions + deletions
+  }
 
   var body: some View {
     HStack(spacing: Spacing.sm_) {
@@ -62,7 +64,9 @@ struct MicroDiffStatsBar: View {
   let deletions: Int
   var maxWidth: CGFloat = 60
 
-  private var total: Int { additions + deletions }
+  private var total: Int {
+    additions + deletions
+  }
 
   var body: some View {
     if total > 0 {

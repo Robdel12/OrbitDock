@@ -34,7 +34,7 @@ enum ANSIColorParser {
 
       // Append text before the escape
       if escIndex > scanner.startIndex {
-        let text = String(scanner[scanner.startIndex..<escIndex])
+        let text = String(scanner[scanner.startIndex ..< escIndex])
         var chunk = AttributedString(text)
         chunk.foregroundColor = currentColor
         if isBold {
@@ -49,36 +49,37 @@ enum ANSIColorParser {
       scanner = scanner[escIndex...]
       if let mIndex = scanner.firstIndex(of: "m"),
          scanner.index(after: escIndex) < scanner.endIndex,
-         scanner[scanner.index(after: escIndex)] == "[" {
+         scanner[scanner.index(after: escIndex)] == "["
+      {
 
         let paramsStart = scanner.index(escIndex, offsetBy: 2)
-        let params = String(scanner[paramsStart..<mIndex])
+        let params = String(scanner[paramsStart ..< mIndex])
         let codes = params.split(separator: ";").compactMap { Int($0) }
 
         for code in codes {
           switch code {
-          case 0:
-            currentColor = .textSecondary
-            isBold = false
-          case 1:
-            isBold = true
-          case 30: currentColor = .textQuaternary   // black
-          case 31: currentColor = .feedbackNegative  // red
-          case 32: currentColor = .feedbackPositive  // green
-          case 33: currentColor = .feedbackCaution   // yellow
-          case 34: currentColor = .accent            // blue
-          case 35: currentColor = .syntaxKeyword     // magenta
-          case 36: currentColor = .toolWeb           // cyan
-          case 37: currentColor = .textPrimary       // white
-          case 90: currentColor = .textTertiary      // bright black (gray)
-          case 91: currentColor = .feedbackNegative  // bright red
-          case 92: currentColor = .feedbackPositive  // bright green
-          case 93: currentColor = .feedbackCaution   // bright yellow
-          case 94: currentColor = .accent            // bright blue
-          case 95: currentColor = .syntaxKeyword     // bright magenta
-          case 96: currentColor = .toolWeb           // bright cyan
-          case 97: currentColor = .textPrimary       // bright white
-          default: break
+            case 0:
+              currentColor = .textSecondary
+              isBold = false
+            case 1:
+              isBold = true
+            case 30: currentColor = .textQuaternary // black
+            case 31: currentColor = .feedbackNegative // red
+            case 32: currentColor = .feedbackPositive // green
+            case 33: currentColor = .feedbackCaution // yellow
+            case 34: currentColor = .accent // blue
+            case 35: currentColor = .syntaxKeyword // magenta
+            case 36: currentColor = .toolWeb // cyan
+            case 37: currentColor = .textPrimary // white
+            case 90: currentColor = .textTertiary // bright black (gray)
+            case 91: currentColor = .feedbackNegative // bright red
+            case 92: currentColor = .feedbackPositive // bright green
+            case 93: currentColor = .feedbackCaution // bright yellow
+            case 94: currentColor = .accent // bright blue
+            case 95: currentColor = .syntaxKeyword // bright magenta
+            case 96: currentColor = .toolWeb // bright cyan
+            case 97: currentColor = .textPrimary // bright white
+            default: break
           }
         }
 

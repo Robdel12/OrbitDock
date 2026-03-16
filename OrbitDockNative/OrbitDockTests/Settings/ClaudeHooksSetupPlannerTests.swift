@@ -1,10 +1,11 @@
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct ClaudeHooksSetupPlannerTests {
   @Test
   func hooksConfiguredReturnsTrueForOrbitDockCommand() {
-    #expect(ClaudeHooksSetupPlanner.hooksConfigured(contents: "\"command\": \"orbitdock hook-forward claude_tool_event\""))
+    #expect(ClaudeHooksSetupPlanner
+      .hooksConfigured(contents: "\"command\": \"orbitdock hook-forward claude_tool_event\""))
   }
 
   @Test

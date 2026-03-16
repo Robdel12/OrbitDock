@@ -46,6 +46,10 @@ struct QuickSwitcher: View {
     #endif
   }
 
+  private var isQuickSwitcherVisible: Bool {
+    router.showQuickSwitcher
+  }
+
   var body: some View {
     mainContent
       .onAppear {
@@ -53,6 +57,7 @@ struct QuickSwitcher: View {
         focusSearchField()
       }
       .modifier(KeyboardNavigationModifier(
+        isEnabled: isQuickSwitcherVisible,
         onMoveUp: { moveSelection(by: -1) },
         onMoveDown: { moveSelection(by: 1) },
         onMoveToFirst: {
@@ -128,6 +133,7 @@ struct QuickSwitcher: View {
   }
 
   private func runCommand(_ command: QuickSwitcherCommand) {
+    guard isQuickSwitcherVisible else { return }
     guard let plan = QuickSwitcherActionPlanner.commandPlan(
       command: command,
       currentSession: viewState.currentSession,
@@ -142,25 +148,26 @@ struct QuickSwitcher: View {
   }
 
   private func performCommandPlan(_ plan: QuickSwitcherCommandPlan) {
+    guard isQuickSwitcherVisible else { return }
+
     switch plan {
       case .goToDashboard:
-        router.goToDashboard()
-        router.closeQuickSwitcher()
-      case .openNewSession(let provider):
+        navigateToDashboard()
+      case let .openNewSession(provider):
         router.openNewSession(provider: provider)
-        router.closeQuickSwitcher()
-      case .renameSession(let session):
+        closeQuickSwitcherIfVisible()
+      case let .renameSession(session):
         quickSwitcherState.renameText = session.customName ?? ""
         quickSwitcherState.renamingSession = session
-      case .openInFinder(let path):
+      case let .openInFinder(path):
         _ = Platform.services.revealInFileBrowser(path)
-        router.closeQuickSwitcher()
-      case .copyResumeCommand(let command):
+        closeQuickSwitcherIfVisible()
+      case let .copyResumeCommand(command):
         Platform.services.copyToClipboard(command)
-        router.closeQuickSwitcher()
-      case .closeSession(let session):
+        closeQuickSwitcherIfVisible()
+      case let .closeSession(session):
         Task { try? await rootSessionActions.endSession(session) }
-        router.closeQuickSwitcher()
+        closeQuickSwitcherIfVisible()
     }
   }
 
@@ -172,7 +179,7 @@ struct QuickSwitcher: View {
       searchText: $quickSwitcherState.searchText,
       isSearchFocused: $isSearchFocused,
       onClear: { quickSwitcherState.searchText = "" },
-      onCancel: { router.closeQuickSwitcher() }
+      onCancel: { closeQuickSwitcherIfVisible() }
     )
   }
 
@@ -279,8 +286,7 @@ struct QuickSwitcher: View {
       },
       onSelect: {
         Platform.services.playHaptic(.navigation)
-        router.goToDashboard()
-        router.closeQuickSwitcher()
+        navigateToDashboard()
       }
     )
   }
@@ -299,8 +305,7 @@ struct QuickSwitcher: View {
       },
       onNavigate: {
         Platform.services.playHaptic(.navigation)
-        router.selectSession(session.sessionRef)
-        router.closeQuickSwitcher()
+        navigateToSession(session)
       },
       onOpenInFinder: {
         performCommandPlan(.openInFinder(path: session.projectPath))
@@ -316,6 +321,7 @@ struct QuickSwitcher: View {
       } : nil
     )
   }
+
   // MARK: - Empty State
 
   private var emptyState: some View {
@@ -354,6 +360,8 @@ struct QuickSwitcher: View {
   }
 
   private func selectCurrent() {
+    guard isQuickSwitcherVisible else { return }
+
     switch QuickSwitcherActionPlanner.selectionPlan(
       selectedKind: selectedKind,
       recentProjects: viewState.recentProjects,
@@ -364,19 +372,17 @@ struct QuickSwitcher: View {
     ) {
       case .none:
         return
-      case .quickLaunch(let path):
+      case let .quickLaunch(path):
         quickLaunchSession(path: path)
-      case .command(let plan):
+      case let .command(plan):
         Platform.services.playHaptic(.action)
         performCommandPlan(plan)
       case .goToDashboard:
         Platform.services.playHaptic(.navigation)
-        router.goToDashboard()
-        router.closeQuickSwitcher()
-      case .openSession(let session):
+        navigateToDashboard()
+      case let .openSession(session):
         Platform.services.playHaptic(.navigation)
-        router.selectSession(session.sessionRef)
-        router.closeQuickSwitcher()
+        navigateToSession(session)
     }
   }
 
@@ -437,6 +443,7 @@ struct QuickSwitcher: View {
   }
 
   private func quickLaunchSession(path: String) {
+    guard isQuickSwitcherVisible else { return }
     guard let provider = viewState.quickLaunchMode else { return }
     Platform.services.playHaptic(.action)
     switch provider {
@@ -445,13 +452,31 @@ struct QuickSwitcher: View {
       case .codex:
         onQuickLaunchCodex?(path)
     }
-    router.closeQuickSwitcher()
+    closeQuickSwitcherIfVisible()
   }
 
   private func openFullSheet() {
+    guard isQuickSwitcherVisible else { return }
     guard let provider = viewState.quickLaunchMode else { return }
     Platform.services.playHaptic(.selection)
     router.openNewSession(provider: provider == .claude ? .claude : .codex)
+    closeQuickSwitcherIfVisible()
+  }
+
+  private func navigateToDashboard() {
+    guard isQuickSwitcherVisible else { return }
+    router.goToDashboard(source: .quickSwitcher)
+    closeQuickSwitcherIfVisible()
+  }
+
+  private func navigateToSession(_ session: RootSessionNode) {
+    guard isQuickSwitcherVisible else { return }
+    router.selectSession(session.sessionRef, source: .quickSwitcher)
+    closeQuickSwitcherIfVisible()
+  }
+
+  private func closeQuickSwitcherIfVisible() {
+    guard isQuickSwitcherVisible else { return }
     router.closeQuickSwitcher()
   }
 }

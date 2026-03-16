@@ -270,10 +270,10 @@ struct SessionStateProjectionTests {
         status: .open,
         createdAt: "2026-03-09T10:00:00Z",
         updatedAt: nil
-      )
+      ),
     ]
     observable.pendingShellContext = [
-      ShellContextEntry(command: "pwd", output: "/tmp/project", exitCode: 0, timestamp: Date())
+      ShellContextEntry(command: "pwd", output: "/tmp/project", exitCode: 0, timestamp: Date()),
     ]
 
     observable.trimInactiveDetailPayloads()
@@ -349,7 +349,7 @@ struct SessionStateProjectionTests {
     #expect(session.repositoryRoot == "/tmp/repo")
     #expect(session.isWorktree)
     #expect(session.unreadCount == 7)
-    #expect(session.lastActivityAt == Date(timeIntervalSince1970: 1234))
+    #expect(session.lastActivityAt == Date(timeIntervalSince1970: 1_234))
 
     #expect(observable.workStatus == .working)
     #expect(observable.attentionReason == .none)
@@ -369,7 +369,7 @@ struct SessionStateProjectionTests {
       inputTokens: 50,
       outputTokens: 25,
       cachedTokens: 10,
-      contextWindow: 1000
+      contextWindow: 1_000
     )
 
     var session = Session(
@@ -389,14 +389,14 @@ struct SessionStateProjectionTests {
     #expect(session.inputTokens == 50)
     #expect(session.outputTokens == 25)
     #expect(session.cachedTokens == 10)
-    #expect(session.contextWindow == 1000)
+    #expect(session.contextWindow == 1_000)
     #expect(session.totalTokens == 75)
     #expect(session.tokenUsageSnapshotKind == .lifetimeTotals)
 
     #expect(observable.inputTokens == 50)
     #expect(observable.outputTokens == 25)
     #expect(observable.cachedTokens == 10)
-    #expect(observable.contextWindow == 1000)
+    #expect(observable.contextWindow == 1_000)
     #expect(observable.totalTokens == 75)
     #expect(observable.tokenUsageSnapshotKind == .lifetimeTotals)
     #expect(observable.tokenUsage?.inputTokens == 50)
@@ -446,7 +446,14 @@ struct SessionStateProjectionTests {
   @Test func turnDiffSnapshotProjectionReplacesExistingTurnById() {
     let observable = SessionObservable(id: "session-1")
     observable.turnDiffs = [
-      ServerTurnDiff(turnId: "turn-1", diff: "old diff", inputTokens: 1, outputTokens: 2, cachedTokens: 3, contextWindow: 4)
+      ServerTurnDiff(
+        turnId: "turn-1",
+        diff: "old diff",
+        inputTokens: 1,
+        outputTokens: 2,
+        cachedTokens: 3,
+        contextWindow: 4
+      ),
     ]
 
     let projection = SessionTurnDiffSnapshotProjection.fromTurnDiffSnapshot(
@@ -526,7 +533,7 @@ struct SessionStateProjectionTests {
           id: "q1",
           header: "Question",
           question: "Ship it?"
-        )
+        ),
       ]
     )
   }

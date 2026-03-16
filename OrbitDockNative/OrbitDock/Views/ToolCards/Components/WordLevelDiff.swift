@@ -70,8 +70,8 @@ enum WordLevelDiff {
 
     var dp = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)
 
-    for i in 1...max(m, 1) {
-      for j in 1...max(n, 1) {
+    for i in 1 ... max(m, 1) {
+      for j in 1 ... max(n, 1) {
         if i <= m, j <= n, a[i - 1] == b[j - 1] {
           dp[i][j] = dp[i - 1][j - 1] + 1
         } else {

@@ -24,7 +24,7 @@ struct QuickSwitcherState {
     switch transition.mode {
       case .standard:
         quickLaunchMode = nil
-      case .quickLaunch(let intent):
+      case let .quickLaunch(intent):
         quickLaunchMode = QuickLaunchProvider(intent: intent)
     }
   }

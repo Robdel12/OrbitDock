@@ -14,7 +14,8 @@ struct JSONTreeView: View {
 
   init(jsonString: String, maxDepth: Int = 20) {
     if let data = jsonString.data(using: .utf8),
-       let parsed = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) {
+       let parsed = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed)
+    {
       self.json = parsed
     } else {
       self.json = jsonString
@@ -47,8 +48,13 @@ private struct JSONNodeView: View {
 
   @State private var isExpanded = true
 
-  private var indent: CGFloat { CGFloat(depth) * 14 }
-  private var isArrayIndex: Bool { key?.hasPrefix("[") == true }
+  private var indent: CGFloat {
+    CGFloat(depth) * 14
+  }
+
+  private var isArrayIndex: Bool {
+    key?.hasPrefix("[") == true
+  }
 
   var body: some View {
     if let dict = value as? [String: Any] {

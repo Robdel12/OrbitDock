@@ -17,11 +17,12 @@ struct BashExpandedView: View {
   /// Height cap for the output viewport (shorter on iOS to preserve scroll context)
   private var maxOutputHeight: CGFloat {
     #if os(iOS)
-    260
+      260
     #else
-    350
+      350
     #endif
   }
+
   /// Line count threshold — outputs shorter than this render inline
   private let inlineThreshold = 25
 

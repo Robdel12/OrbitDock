@@ -279,9 +279,9 @@ private struct CodexSessionSettingsPopover: View {
               ? draftPersonality.description
               : "This model does not currently expose personality overrides through OrbitDock."
           )
-            .font(.system(size: TypeScale.micro))
-            .foregroundStyle(Color.textTertiary)
-            .fixedSize(horizontal: false, vertical: true)
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textTertiary)
+          .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -349,9 +349,9 @@ private struct CodexSessionSettingsPopover: View {
             ? "Use Steer when you want a one-turn nudge instead of a durable session rule."
             : "Steer the active turn if you still want one-off guidance for this model."
         )
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textTertiary)
-          .fixedSize(horizontal: false, vertical: true)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textTertiary)
+        .fixedSize(horizontal: false, vertical: true)
       }
 
       HStack {

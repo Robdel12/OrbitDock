@@ -9,7 +9,7 @@ nonisolated enum ComposerImageAttachmentPolicy {
   static let maxImageCount = 5
   // Attachments upload individually, so the main limit is per-image reliability,
   // not one giant serialized turn payload.
-  static let maxSingleImageBytes = 12 * 1024 * 1024
+  static let maxSingleImageBytes = 12 * 1_024 * 1_024
   static let maxTotalRawBytes = maxImageCount * maxSingleImageBytes
   static let nearLimitFraction = 0.85
 
@@ -64,12 +64,11 @@ nonisolated enum ComposerImageAttachmentPolicy {
   static func message(for validation: Validation) -> String? {
     switch validation {
       case .allowed:
-        return nil
+        nil
       case let .tooMany(maxCount):
-        return "You can attach up to \(maxCount) images in one turn."
+        "You can attach up to \(maxCount) images in one turn."
       case let .tooLarge(maxBytes):
-        return
-          "That image is still too large to upload reliably. "
+        "That image is still too large to upload reliably. "
           + "Try a smaller screenshot or keep it under \(formatBytes(maxBytes))."
     }
   }

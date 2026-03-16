@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 @MainActor
 struct QuickSwitcherActionPlannerTests {
@@ -47,10 +47,10 @@ struct QuickSwitcherActionPlannerTests {
     #expect(target == nil)
   }
 
-  @Test func commandPlanUsesCurrentSessionBeforeExplicitTarget() {
+  @Test func commandPlanUsesCurrentSessionBeforeExplicitTarget() throws {
     let current = makeSession(id: "current")
     let explicit = makeSession(id: "explicit")
-    let command = QuickSwitcherCommandCatalog.sessionCommands().first { $0.id == "copy" }!
+    let command = try #require(QuickSwitcherCommandCatalog.sessionCommands().first { $0.id == "copy" })
 
     let plan = QuickSwitcherActionPlanner.commandPlan(
       command: command,
@@ -62,9 +62,9 @@ struct QuickSwitcherActionPlannerTests {
     #expect(plan == .copyResumeCommand("claude --resume current"))
   }
 
-  @Test func selectionPlanReturnsCommandPlanForSelectedCommand() {
+  @Test func selectionPlanReturnsCommandPlanForSelectedCommand() throws {
     let current = makeSession(id: "current")
-    let command = QuickSwitcherCommandCatalog.sessionCommands().first { $0.id == "finder" }!
+    let command = try #require(QuickSwitcherCommandCatalog.sessionCommands().first { $0.id == "finder" })
 
     let plan = QuickSwitcherActionPlanner.selectionPlan(
       selectedKind: .command(index: 0),
@@ -78,8 +78,8 @@ struct QuickSwitcherActionPlannerTests {
     #expect(plan == .command(.openInFinder(path: "/tmp/current")))
   }
 
-  @Test func selectionPlanReturnsNoneWhenSessionCommandHasNoTarget() {
-    let command = QuickSwitcherCommandCatalog.sessionCommands().first { $0.id == "rename" }!
+  @Test func selectionPlanReturnsNoneWhenSessionCommandHasNoTarget() throws {
+    let command = try #require(QuickSwitcherCommandCatalog.sessionCommands().first { $0.id == "rename" })
 
     let plan = QuickSwitcherActionPlanner.selectionPlan(
       selectedKind: .command(index: 0),

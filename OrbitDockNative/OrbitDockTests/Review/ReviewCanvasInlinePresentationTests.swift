@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct ReviewCanvasInlinePresentationTests {
   @Test func presentationIncludesOpenAndResolvedCommentsForVisibleTurnLine() {
@@ -15,7 +15,13 @@ struct ReviewCanvasInlinePresentationTests {
       filePath: "Sources/A.swift",
       newLine: 10,
       activeTurnId: "turn-1",
-      resolvedGroups: [10: [makeComment(id: "resolved", filePath: "Sources/A.swift", lineStart: 10, turnId: "turn-1", status: .resolved)]],
+      resolvedGroups: [10: [makeComment(
+        id: "resolved",
+        filePath: "Sources/A.swift",
+        lineStart: 10,
+        turnId: "turn-1",
+        status: .resolved
+      )]],
       composerTarget: nil,
       fileIndex: 0,
       hunkIndex: 0,

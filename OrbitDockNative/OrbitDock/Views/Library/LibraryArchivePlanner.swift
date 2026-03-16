@@ -21,7 +21,9 @@ struct LibraryProjectGroup: Identifiable, Equatable {
   let totalTokens: Int
   let endpointFacets: [LibraryEndpointFacet]
 
-  var id: String { path }
+  var id: String {
+    path
+  }
 
   var totalSessionCount: Int {
     liveSessions.count + archivedSessions.count
@@ -43,7 +45,9 @@ struct LibraryEndpointFacet: Identifiable, Hashable {
   let sessionCount: Int
   let isConnected: Bool
 
-  var id: UUID { endpointId }
+  var id: UUID {
+    endpointId
+  }
 }
 
 struct LibraryArchiveSummary: Equatable {

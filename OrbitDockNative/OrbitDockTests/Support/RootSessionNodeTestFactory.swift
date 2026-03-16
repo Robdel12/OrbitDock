@@ -80,18 +80,18 @@ private func serverWorkStatus(
 private func serverCodexMode(_ mode: CodexIntegrationMode) -> ServerCodexIntegrationMode {
   switch mode {
     case .direct:
-      return .direct
+      .direct
     case .passive:
-      return .passive
+      .passive
   }
 }
 
 private func serverClaudeMode(_ mode: ClaudeIntegrationMode) -> ServerClaudeIntegrationMode {
   switch mode {
     case .direct:
-      return .direct
+      .direct
     case .passive:
-      return .passive
+      .passive
   }
 }
 

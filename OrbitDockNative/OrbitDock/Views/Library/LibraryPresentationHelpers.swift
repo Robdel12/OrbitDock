@@ -52,8 +52,8 @@ struct LibrarySummaryCard: View {
 
 struct LibraryFilterChip: View {
   let title: String
-  var count: Int? = nil
-  var icon: String? = nil
+  var count: Int?
+  var icon: String?
   var tint: Color = .accent
   var isSelected: Bool
 
@@ -87,7 +87,10 @@ struct LibraryFilterChip: View {
         .fill((isSelected ? tint : Color.backgroundPrimary).opacity(isSelected ? 0.16 : 0.32))
         .overlay(
           Capsule(style: .continuous)
-            .stroke((isSelected ? tint : Color.surfaceBorder).opacity(isSelected ? 0.30 : OpacityTier.subtle), lineWidth: 1)
+            .stroke(
+              (isSelected ? tint : Color.surfaceBorder).opacity(isSelected ? 0.30 : OpacityTier.subtle),
+              lineWidth: 1
+            )
         )
     )
   }

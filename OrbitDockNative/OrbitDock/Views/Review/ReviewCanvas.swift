@@ -50,7 +50,7 @@ struct ReviewCanvas: View {
   @State private var previousFileCount = 0
   @FocusState var isCanvasFocused: Bool
 
-  // Comment interaction state
+  /// Comment interaction state
   @State var commentInteraction = ReviewCommentInteractionState()
 
   // Review round tracking — detects which files the model modified after feedback

@@ -1,12 +1,12 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct ServerEndpointSelectionTests {
-  @Test func initialEndpointIDPrefersContinuationEndpoint() {
-    let endpoint = ServerEndpoint(
+  @Test func initialEndpointIDPrefersContinuationEndpoint() throws {
+    let endpoint = try ServerEndpoint(
       name: "Remote",
-      wsURL: URL(string: "ws://10.0.0.5:4000/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.5:4000/ws")),
       isLocalManaged: false,
       isDefault: true
     )
@@ -21,16 +21,16 @@ struct ServerEndpointSelectionTests {
     #expect(selectedID == continuationEndpointID)
   }
 
-  @Test func initialEndpointIDFallsBackToInjectedEndpointsBeforeDefault() {
-    let first = ServerEndpoint(
+  @Test func initialEndpointIDFallsBackToInjectedEndpointsBeforeDefault() throws {
+    let first = try ServerEndpoint(
       name: "First",
-      wsURL: URL(string: "ws://10.0.0.5:4000/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.5:4000/ws")),
       isLocalManaged: false,
       isDefault: false
     )
-    let preferred = ServerEndpoint(
+    let preferred = try ServerEndpoint(
       name: "Preferred",
-      wsURL: URL(string: "ws://10.0.0.6:4000/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.6:4000/ws")),
       isLocalManaged: false,
       isDefault: true
     )
@@ -45,17 +45,17 @@ struct ServerEndpointSelectionTests {
     #expect(selectedID == preferred.id)
   }
 
-  @Test func resolvedEndpointIDFallsBackToPreferredConfiguredEndpoint() {
-    let disabledDefault = ServerEndpoint(
+  @Test func resolvedEndpointIDFallsBackToPreferredConfiguredEndpoint() throws {
+    let disabledDefault = try ServerEndpoint(
       name: "Disabled Default",
-      wsURL: URL(string: "ws://10.0.0.5:4000/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.5:4000/ws")),
       isLocalManaged: false,
       isEnabled: false,
       isDefault: true
     )
-    let enabled = ServerEndpoint(
+    let enabled = try ServerEndpoint(
       name: "Enabled",
-      wsURL: URL(string: "ws://10.0.0.6:4000/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.6:4000/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false

@@ -44,12 +44,14 @@ enum NewSessionLifecyclePlanner {
     var nextState = current
 
     if let primaryEndpointId,
-       selectableEndpoints.contains(where: { $0.id == primaryEndpointId }) {
+       selectableEndpoints.contains(where: { $0.id == primaryEndpointId })
+    {
       nextState.selectedEndpointId = primaryEndpointId
     }
 
     if let continuationEndpointId,
-       selectableEndpoints.contains(where: { $0.id == continuationEndpointId }) {
+       selectableEndpoints.contains(where: { $0.id == continuationEndpointId })
+    {
       nextState.selectedEndpointId = continuationEndpointId
     }
 
@@ -141,7 +143,8 @@ enum NewSessionLifecyclePlanner {
     }
 
     if let primaryEndpointId,
-       selectableEndpoints.contains(where: { $0.id == primaryEndpointId }) {
+       selectableEndpoints.contains(where: { $0.id == primaryEndpointId })
+    {
       return primaryEndpointId
     }
 

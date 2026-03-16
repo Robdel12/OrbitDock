@@ -324,7 +324,8 @@ extension ServerToClientMessage {
         let worktreeRevision = try container.decode(UInt64.self, forKey: .worktreeRevision)
         let worktrees = try container.decode([ServerWorktreeSummary].self, forKey: .worktrees)
         self = .worktreesList(
-          requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktrees: worktrees)
+          requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktrees: worktrees
+        )
 
       case "worktree_created":
         let requestId = try container.decode(String.self, forKey: .requestId)
@@ -332,7 +333,8 @@ extension ServerToClientMessage {
         let worktreeRevision = try container.decode(UInt64.self, forKey: .worktreeRevision)
         let worktree = try container.decode(ServerWorktreeSummary.self, forKey: .worktree)
         self = .worktreeCreated(
-          requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktree: worktree)
+          requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktree: worktree
+        )
 
       case "worktree_removed":
         let requestId = try container.decode(String.self, forKey: .requestId)
@@ -340,7 +342,8 @@ extension ServerToClientMessage {
         let worktreeRevision = try container.decode(UInt64.self, forKey: .worktreeRevision)
         let worktreeId = try container.decode(String.self, forKey: .worktreeId)
         self = .worktreeRemoved(
-          requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktreeId: worktreeId)
+          requestId: requestId, repoRoot: repoRoot, worktreeRevision: worktreeRevision, worktreeId: worktreeId
+        )
 
       case "worktree_status_changed":
         let worktreeId = try container.decode(String.self, forKey: .worktreeId)

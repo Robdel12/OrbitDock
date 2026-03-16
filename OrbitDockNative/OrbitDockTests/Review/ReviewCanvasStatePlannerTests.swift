@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct ReviewCanvasStatePlannerTests {
   @Test func rawDiffPrefersSelectedTurnDiff() {

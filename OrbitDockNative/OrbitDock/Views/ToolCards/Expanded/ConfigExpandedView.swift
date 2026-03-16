@@ -83,7 +83,8 @@ struct ConfigExpandedView: View {
        looksLikeJSON(input),
        let data = input.data(using: .utf8),
        let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-       let key = dict["key"] as? String {
+       let key = dict["key"] as? String
+    {
       HStack(spacing: Spacing.sm) {
         Image(systemName: "gearshape")
           .font(.system(size: IconScale.sm))

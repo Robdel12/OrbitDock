@@ -107,5 +107,7 @@ struct MessageImageView: View {
 }
 
 extension Int: @retroactive Identifiable {
-  public var id: Int { self }
+  public var id: Int {
+    self
+  }
 }

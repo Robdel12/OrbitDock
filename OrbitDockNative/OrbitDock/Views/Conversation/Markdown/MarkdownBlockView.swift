@@ -36,26 +36,26 @@ struct MarkdownBlockView: View {
   @ViewBuilder
   private func blockView(_ block: MarkdownBlock) -> some View {
     switch block {
-    case let .text(md):
-      inlineMarkdown(md)
-        .lineSpacing(MarkdownTypography.bodyLineSpacing(style: style))
-        .font(MarkdownTypography.bodyFont(style: style))
-        .fixedSize(horizontal: false, vertical: true)
+      case let .text(md):
+        inlineMarkdown(md)
+          .lineSpacing(MarkdownTypography.bodyLineSpacing(style: style))
+          .font(MarkdownTypography.bodyFont(style: style))
+          .fixedSize(horizontal: false, vertical: true)
 
-    case let .heading(level, text):
-      headingView(level: level, text: text)
+      case let .heading(level, text):
+        headingView(level: level, text: text)
 
-    case let .codeBlock(language, code):
-      SwiftUICodeBlockView(language: language, code: code)
+      case let .codeBlock(language, code):
+        SwiftUICodeBlockView(language: language, code: code)
 
-    case let .blockquote(md):
-      blockquoteView(md)
+      case let .blockquote(md):
+        blockquoteView(md)
 
-    case let .table(headers, rows):
-      tableView(headers: headers, rows: rows)
+      case let .table(headers, rows):
+        tableView(headers: headers, rows: rows)
 
-    case .thematicBreak:
-      thematicBreakView
+      case .thematicBreak:
+        thematicBreakView
     }
   }
 

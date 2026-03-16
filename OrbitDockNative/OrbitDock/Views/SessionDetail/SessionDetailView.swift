@@ -16,7 +16,7 @@ struct SessionDetailView: View {
   let endpointId: UUID
 
   var scopedServerState: SessionStore {
-    return runtimeRegistry.sessionStore(for: endpointId, fallback: serverState)
+    runtimeRegistry.sessionStore(for: endpointId, fallback: serverState)
   }
 
   var obs: SessionObservable {
@@ -69,36 +69,36 @@ struct SessionDetailView: View {
   var body: some View {
     VStack(spacing: 0) {
       #if os(macOS)
-      // Custom header on macOS (no native nav bar)
-      HeaderView(
-        sessionId: sessionId,
-        endpointId: endpointId,
-        onEndSession: obs.isDirect ? { endDirectSession() } : nil,
-        layoutConfig: obs.isDirect ? $layoutConfig : nil,
-        chatViewMode: $chatViewMode,
-        workerPanelVisible: $showWorkerPanel,
-        hasWorkerPanelContent: workerRosterPresentation != nil,
-        selectedCommentIds: $selectedCommentIds,
-        onNavigateToComment: { comment in
-          navigateToComment = comment
-          withAnimation(Motion.gentle) {
-            layoutConfig = SessionDetailLayoutPlanner.nextLayout(
-              currentLayout: layoutConfig,
-              intent: .revealReviewSplit
-            )
-          }
-        },
-        onSendReview: { sendReviewToModel() }
-      )
+        // Custom header on macOS (no native nav bar)
+        HeaderView(
+          sessionId: sessionId,
+          endpointId: endpointId,
+          onEndSession: obs.isDirect ? { endDirectSession() } : nil,
+          layoutConfig: obs.isDirect ? $layoutConfig : nil,
+          chatViewMode: $chatViewMode,
+          workerPanelVisible: $showWorkerPanel,
+          hasWorkerPanelContent: workerRosterPresentation != nil,
+          selectedCommentIds: $selectedCommentIds,
+          onNavigateToComment: { comment in
+            navigateToComment = comment
+            withAnimation(Motion.gentle) {
+              layoutConfig = SessionDetailLayoutPlanner.nextLayout(
+                currentLayout: layoutConfig,
+                intent: .revealReviewSplit
+              )
+            }
+          },
+          onSendReview: { sendReviewToModel() }
+        )
 
-      Divider()
-        .foregroundStyle(Color.panelBorder)
+        Divider()
+          .foregroundStyle(Color.panelBorder)
       #else
-      // iOS: status strip only (native nav bar handles title + back)
-      iOSStatusStrip
+        // iOS: status strip only (native nav bar handles title + back)
+        iOSStatusStrip
 
-      Divider()
-        .foregroundStyle(Color.panelBorder)
+        Divider()
+          .foregroundStyle(Color.panelBorder)
       #endif
 
       // Diff-available banner
@@ -138,48 +138,48 @@ struct SessionDetailView: View {
     }
     .background(Color.backgroundPrimary)
     #if os(iOS)
-    .navigationTitle(obs.displayName)
-    .navigationBarTitleDisplayMode(.inline)
-    .toolbar {
-      ToolbarItemGroup(placement: .topBarTrailing) {
-        Button { router.openQuickSwitcher() } label: {
-          Image(systemName: "magnifyingglass")
+      .navigationTitle(obs.displayName)
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+          Button { router.openQuickSwitcher() } label: {
+            Image(systemName: "magnifyingglass")
+          }
+          iOSOverflowMenu
         }
-        iOSOverflowMenu
       }
-    }
     #endif
-    .environment(scopedServerState)
-    .onAppear(perform: handleOnAppear)
-    .onDisappear(perform: handleOnDisappear)
-    .onChange(of: isPinned) { _, pinned in
-      handlePinnedChange(pinned)
-    }
-    // Layout keyboard shortcuts
-    .onKeyPress(phases: .down) { keyPress in
-      guard let command = SessionDetailShortcutPlanner.command(
-        isDirect: obs.isDirect,
-        modifiers: keyPress.modifiers,
-        key: keyPress.key
-      ) else {
-        return .ignored
+      .environment(scopedServerState)
+      .onAppear(perform: handleOnAppear)
+      .onDisappear(perform: handleOnDisappear)
+      .onChange(of: isPinned) { _, pinned in
+        handlePinnedChange(pinned)
       }
+      // Layout keyboard shortcuts
+      .onKeyPress(phases: .down) { keyPress in
+        guard let command = SessionDetailShortcutPlanner.command(
+          isDirect: obs.isDirect,
+          modifiers: keyPress.modifiers,
+          key: keyPress.key
+        ) else {
+          return .ignored
+        }
 
-      withAnimation(Motion.gentle) {
-        layoutConfig = SessionDetailShortcutPlanner.nextLayout(
-          currentLayout: layoutConfig,
-          command: command
-        )
+        withAnimation(Motion.gentle) {
+          layoutConfig = SessionDetailShortcutPlanner.nextLayout(
+            currentLayout: layoutConfig,
+            command: command
+          )
+        }
+        return .handled
       }
-      return .handled
-    }
-    // Diff-available banner trigger
-    .onChange(of: scopedServerState.session(sessionId).diff) { oldDiff, newDiff in
-      handleDiffChange(oldDiff: oldDiff, newDiff: newDiff)
-    }
-    .onChange(of: workerSelectionSignature) { _, _ in
-      syncSelectedWorker()
-    }
+      // Diff-available banner trigger
+      .onChange(of: scopedServerState.session(sessionId).diff) { oldDiff, newDiff in
+        handleDiffChange(oldDiff: oldDiff, newDiff: newDiff)
+      }
+      .onChange(of: workerSelectionSignature) { _, _ in
+        syncSelectedWorker()
+      }
   }
 
   var sessionDetailWorktreeCleanupState: SessionDetailWorktreeCleanupBannerState? {
@@ -196,96 +196,96 @@ struct SessionDetailView: View {
   // MARK: - iOS Native Nav Bar
 
   #if os(iOS)
-  private var iOSStatusStrip: some View {
-    HStack(spacing: Spacing.sm) {
-      HeaderCompactStatusBadge(
-        presentation: HeaderCompactPresentation.build(
-          workStatus: obs.workStatus,
-          provider: obs.provider,
-          model: obs.model,
-          effort: obs.effort
+    private var iOSStatusStrip: some View {
+      HStack(spacing: Spacing.sm) {
+        HeaderCompactStatusBadge(
+          presentation: HeaderCompactPresentation.build(
+            workStatus: obs.workStatus,
+            provider: obs.provider,
+            model: obs.model,
+            effort: obs.effort
+          )
         )
-      )
-      .layoutPriority(1)
+        .layoutPriority(1)
 
-      Spacer(minLength: 0)
+        Spacer(minLength: 0)
 
-      ConversationViewModeToggle(
-        chatViewMode: $chatViewMode,
-        showsContainerChrome: false
-      )
+        ConversationViewModeToggle(
+          chatViewMode: $chatViewMode,
+          showsContainerChrome: false
+        )
+      }
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm)
+      .background(Color.backgroundSecondary)
     }
-    .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm)
-    .background(Color.backgroundSecondary)
-  }
 
-  private var iOSOverflowMenu: some View {
-    Menu {
-      // Session info
-      if let endpointName = obs.endpointName {
-        Text("Endpoint: \(endpointName)")
-      }
-      ForEach(SessionCapability.capabilities(for: obs)) { cap in
-        if let icon = cap.icon {
-          Label(cap.label, systemImage: icon)
-        } else {
-          Text(cap.label)
+    private var iOSOverflowMenu: some View {
+      Menu {
+        // Session info
+        if let endpointName = obs.endpointName {
+          Text("Endpoint: \(endpointName)")
         }
-      }
+        ForEach(SessionCapability.capabilities(for: obs)) { cap in
+          if let icon = cap.icon {
+            Label(cap.label, systemImage: icon)
+          } else {
+            Text(cap.label)
+          }
+        }
 
-      Divider()
+        Divider()
 
-      // Layout (only for direct sessions)
-      if obs.isDirect {
-        Section("Layout") {
-          ForEach(LayoutConfiguration.allCases, id: \.self) { config in
-            Button {
-              withAnimation(Motion.gentle) {
-                layoutConfig = config
+        // Layout (only for direct sessions)
+        if obs.isDirect {
+          Section("Layout") {
+            ForEach(LayoutConfiguration.allCases, id: \.self) { config in
+              Button {
+                withAnimation(Motion.gentle) {
+                  layoutConfig = config
+                }
+              } label: {
+                Label(config.label, systemImage: config.icon)
               }
-            } label: {
-              Label(config.label, systemImage: config.icon)
             }
           }
         }
-      }
 
-      HeaderContinuationMenuSection(
-        continuation: SessionContinuation(
-          endpointId: endpointId,
-          sessionId: sessionId,
-          provider: obs.provider,
-          displayName: obs.displayName,
-          projectPath: obs.projectPath,
-          model: obs.model,
-          hasGitRepository: obs.branch != nil || obs.repositoryRoot != nil || obs.isWorktree
+        HeaderContinuationMenuSection(
+          continuation: SessionContinuation(
+            endpointId: endpointId,
+            sessionId: sessionId,
+            provider: obs.provider,
+            displayName: obs.displayName,
+            projectPath: obs.projectPath,
+            model: obs.model,
+            hasGitRepository: obs.branch != nil || obs.repositoryRoot != nil || obs.isWorktree
+          )
         )
-      )
 
-      Divider()
-
-      HeaderDebugContextMenu(
-        sessionId: sessionId,
-        threadId: obs.codexThreadId,
-        projectPath: obs.projectPath,
-        provider: obs.provider,
-        codexIntegrationMode: obs.codexIntegrationMode.map { String(describing: $0) },
-        claudeIntegrationMode: obs.claudeIntegrationMode.map { String(describing: $0) }
-      )
-
-      if obs.isDirect, obs.isActive {
         Divider()
-        Button(role: .destructive) {
-          endDirectSession()
-        } label: {
-          Label("End Session", systemImage: "stop.circle")
+
+        HeaderDebugContextMenu(
+          sessionId: sessionId,
+          threadId: obs.codexThreadId,
+          projectPath: obs.projectPath,
+          provider: obs.provider,
+          codexIntegrationMode: obs.codexIntegrationMode.map { String(describing: $0) },
+          claudeIntegrationMode: obs.claudeIntegrationMode.map { String(describing: $0) }
+        )
+
+        if obs.isDirect, obs.isActive {
+          Divider()
+          Button(role: .destructive) {
+            endDirectSession()
+          } label: {
+            Label("End Session", systemImage: "stop.circle")
+          }
         }
+      } label: {
+        Image(systemName: "ellipsis.circle")
       }
-    } label: {
-      Image(systemName: "ellipsis.circle")
     }
-  }
   #endif
 
   // MARK: - Action Bar

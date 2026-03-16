@@ -11,7 +11,9 @@ import SwiftUI
 struct ImageExpandedView: View {
   let content: ServerRowContent
 
-  private var filePath: String? { content.inputDisplay }
+  private var filePath: String? {
+    content.inputDisplay
+  }
 
   private var fileName: String? {
     filePath?.components(separatedBy: "/").last
@@ -21,10 +23,10 @@ struct ImageExpandedView: View {
     guard let name = fileName else { return nil }
     let ext = name.components(separatedBy: ".").last?.uppercased()
     switch ext {
-    case "PNG", "JPG", "JPEG", "GIF", "SVG", "WEBP", "HEIC", "TIFF":
-      return ext
-    default:
-      return nil
+      case "PNG", "JPG", "JPEG", "GIF", "SVG", "WEBP", "HEIC", "TIFF":
+        return ext
+      default:
+        return nil
     }
   }
 
@@ -60,7 +62,8 @@ struct ImageExpandedView: View {
 
       // Caption support — short, single-line output treated as caption
       if let output = content.outputDisplay, !output.isEmpty,
-         !output.contains("\n"), output.count < 200 {
+         !output.contains("\n"), output.count < 200
+      {
         Text(output)
           .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.textTertiary)
@@ -85,45 +88,45 @@ struct ImageExpandedView: View {
   @ViewBuilder
   private func inlineImage(path: String) -> some View {
     #if os(macOS)
-    let imageMaxHeight: CGFloat = 400
-    if let image = NSImage(contentsOfFile: path) {
-      let dims = "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text(dims)
-          .font(.system(size: TypeScale.mini, weight: .semibold))
-          .foregroundStyle(Color.textQuaternary)
-          .padding(.horizontal, Spacing.sm_)
-          .padding(.vertical, Spacing.xxs)
-          .background(Color.backgroundSecondary, in: Capsule())
-        Image(nsImage: image)
-          .resizable()
-          .aspectRatio(contentMode: .fit)
-          .frame(maxHeight: imageMaxHeight)
-          .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+      let imageMaxHeight: CGFloat = 400
+      if let image = NSImage(contentsOfFile: path) {
+        let dims = "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          Text(dims)
+            .font(.system(size: TypeScale.mini, weight: .semibold))
+            .foregroundStyle(Color.textQuaternary)
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.xxs)
+            .background(Color.backgroundSecondary, in: Capsule())
+          Image(nsImage: image)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(maxHeight: imageMaxHeight)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+        }
+      } else {
+        imageFallback(path: path)
       }
-    } else {
-      imageFallback(path: path)
-    }
     #else
-    let imageMaxHeight: CGFloat = 280
-    if let image = UIImage(contentsOfFile: path) {
-      let dims = "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text(dims)
-          .font(.system(size: TypeScale.mini, weight: .semibold))
-          .foregroundStyle(Color.textQuaternary)
-          .padding(.horizontal, Spacing.sm_)
-          .padding(.vertical, Spacing.xxs)
-          .background(Color.backgroundSecondary, in: Capsule())
-        Image(uiImage: image)
-          .resizable()
-          .aspectRatio(contentMode: .fit)
-          .frame(maxHeight: imageMaxHeight)
-          .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+      let imageMaxHeight: CGFloat = 280
+      if let image = UIImage(contentsOfFile: path) {
+        let dims = "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          Text(dims)
+            .font(.system(size: TypeScale.mini, weight: .semibold))
+            .foregroundStyle(Color.textQuaternary)
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.xxs)
+            .background(Color.backgroundSecondary, in: Capsule())
+          Image(uiImage: image)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(maxHeight: imageMaxHeight)
+            .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+        }
+      } else {
+        imageFallback(path: path)
       }
-    } else {
-      imageFallback(path: path)
-    }
     #endif
   }
 

@@ -1,6 +1,6 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct CodexAccountRefreshPolicyTests {
   @Test func autoRefreshIsDisabledWhenRunningTests() {

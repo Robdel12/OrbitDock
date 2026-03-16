@@ -63,12 +63,6 @@ struct HeaderView: View {
         regularHeader
       }
     }
-    .onAppear {
-      let message =
-        "onAppear session=\(sessionId) endpoint=\(endpointId.uuidString) route=\(String(describing: router.route)) router=\(String(describing: ObjectIdentifier(router)))"
-      print("[OrbitDock][HeaderView] \(message)")
-      NSLog("[OrbitDock][HeaderView] %@", message)
-    }
   }
 
   // MARK: - Layouts
@@ -129,7 +123,7 @@ struct HeaderView: View {
   private var backButton: some View {
     Button(action: {
       Platform.services.playHaptic(.navigation)
-      router.goToDashboard()
+      router.goToDashboard(source: .sessionHeader)
     }) {
       HStack(spacing: Spacing.xs) {
         Image(systemName: "chevron.left")
@@ -232,7 +226,7 @@ struct HeaderView: View {
 
   private var compactPrimaryRow: some View {
     HStack(spacing: Spacing.xs) {
-      Button(action: { router.goToDashboard() }) {
+      Button(action: { router.goToDashboard(source: .sessionHeader) }) {
         Image(systemName: "chevron.left")
           .font(.system(size: TypeScale.body, weight: .semibold))
           .foregroundStyle(Color.textSecondary)
@@ -418,14 +412,20 @@ struct HeaderView: View {
       switch status.account {
         case .apiKey?:
           CapabilityBadge(label: "API Key", icon: "key.fill", color: .feedbackCaution)
-            .help("This Codex session is using API key auth. Some app-backed MCP capabilities may only appear with ChatGPT sign-in.")
+            .help(
+              "This Codex session is using API key auth. Some app-backed MCP capabilities may only appear with ChatGPT sign-in."
+            )
         case .chatgpt?:
           CapabilityBadge(label: "ChatGPT", icon: "sparkles", color: .feedbackPositive)
             .help("This Codex session is using ChatGPT sign-in, which unlocks Codex-managed apps and MCP capabilities.")
         case .none:
           if status.requiresOpenaiAuth {
-            CapabilityBadge(label: "Sign In", icon: "person.crop.circle.badge.exclamationmark", color: .statusPermission)
-              .help("Sign in with ChatGPT to unlock Codex-managed apps and MCP capabilities.")
+            CapabilityBadge(
+              label: "Sign In",
+              icon: "person.crop.circle.badge.exclamationmark",
+              color: .statusPermission
+            )
+            .help("Sign in with ChatGPT to unlock Codex-managed apps and MCP capabilities.")
           }
       }
     }

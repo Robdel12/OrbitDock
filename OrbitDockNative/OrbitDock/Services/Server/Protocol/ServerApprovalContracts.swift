@@ -269,7 +269,10 @@ struct ServerApprovalRequest: Codable, Identifiable {
     requestedPermissions = try container.decodePermissionDescriptors(forKey: .requestedPermissions)
     grantedPermissions = try container.decodePermissionDescriptors(forKey: .grantedPermissions)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
-    permissionSuggestions = try container.decodeIfPresent([ServerPermissionSuggestion].self, forKey: .permissionSuggestions)
+    permissionSuggestions = try container.decodeIfPresent(
+      [ServerPermissionSuggestion].self,
+      forKey: .permissionSuggestions
+    )
     elicitationMode = try container.decodeIfPresent(ServerElicitationMode.self, forKey: .elicitationMode)
     elicitationSchema = try container.decodeIfPresent(AnyCodable.self, forKey: .elicitationSchema)
     elicitationUrl = try container.decodeIfPresent(String.self, forKey: .elicitationUrl)
@@ -324,7 +327,9 @@ enum ServerPermissionGrantScope: String, Codable, CaseIterable, Identifiable {
   case turn
   case session
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var title: String {
     switch self {
@@ -478,7 +483,10 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
     decision = try container.decodeIfPresent(String.self, forKey: .decision)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
-    permissionSuggestions = try container.decodeIfPresent([ServerPermissionSuggestion].self, forKey: .permissionSuggestions)
+    permissionSuggestions = try container.decodeIfPresent(
+      [ServerPermissionSuggestion].self,
+      forKey: .permissionSuggestions
+    )
     elicitationMode = try container.decodeIfPresent(ServerElicitationMode.self, forKey: .elicitationMode)
     elicitationSchema = try container.decodeIfPresent(AnyCodable.self, forKey: .elicitationSchema)
     elicitationUrl = try container.decodeIfPresent(String.self, forKey: .elicitationUrl)
@@ -631,7 +639,7 @@ extension KeyedDecodingContainer {
   func decodePermissionDescriptors(
     forKey key: Key
   ) throws -> [ServerPermissionDescriptor]? {
-    guard contains(key), !(try decodeNil(forKey: key)) else { return nil }
+    guard contains(key), try !decodeNil(forKey: key) else { return nil }
 
     // Try typed array first (future format)
     if let typed = try? decode([ServerPermissionDescriptor].self, forKey: key) {

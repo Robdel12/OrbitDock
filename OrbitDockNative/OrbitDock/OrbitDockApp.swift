@@ -8,6 +8,8 @@ import UserNotifications
 struct OrbitDockApp: App {
   #if os(macOS)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+  #else
+    @Environment(\.scenePhase) private var scenePhase
   #endif
   @State private var appRuntime: OrbitDockAppRuntime
   #if os(macOS)
@@ -75,6 +77,18 @@ struct OrbitDockApp: App {
             await appRuntime.startIfNeeded()
           }
       }
+      .onChange(of: scenePhase) { _, newPhase in
+        switch newPhase {
+          case .active:
+            appRuntime.runtimeRegistry.resumeFromBackgroundIfNeeded()
+          case .background:
+            appRuntime.runtimeRegistry.suspendForBackground()
+          case .inactive:
+            break
+          @unknown default:
+            break
+        }
+      }
     #endif
   }
 }
@@ -85,7 +99,7 @@ struct OrbitDockWindowCommands: Commands {
   var body: some Commands {
     CommandGroup(after: .toolbar) {
       Button("Dashboard") {
-        router?.goToDashboard()
+        router?.goToDashboard(source: .commandMenu)
       }
       .keyboardShortcut("0", modifiers: .command)
       .disabled(router == nil)

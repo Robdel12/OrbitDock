@@ -12,7 +12,6 @@ import SwiftUI
 struct ActivityStreamContent: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(AppRouter.self) private var router
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   let sessions: [RootSessionNode]
   let filter: ActiveSessionWorkbenchFilter
@@ -140,7 +139,6 @@ struct ActivityStreamContent: View {
         CompactSessionRow(
           session: session,
           onSelect: {
-            print("The fuck")
             selectSession(session)
           },
           isSelected: selectedIndex == globalIndex
@@ -200,6 +198,6 @@ struct ActivityStreamContent: View {
   // MARK: - Navigation
 
   private func selectSession(_ session: RootSessionNode) {
-    router.selectSession(session.sessionRef)
+    router.selectSession(session.sessionRef, source: .dashboardStream)
   }
 }

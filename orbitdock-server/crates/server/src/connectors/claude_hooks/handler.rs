@@ -30,7 +30,8 @@ use crate::support::session_time::chrono_now;
 
 use super::approval::{
     classify_permission_request, claude_permission_request_id, extract_plan_from_tool_input,
-    extract_question_from_tool_input, resolve_pending_approvals_after_tool_outcome,
+    extract_question_from_tool_input, permission_request_matches_snapshot,
+    resolve_pending_approvals_after_tool_outcome, PermissionRequestSnapshotMatch,
 };
 use super::session_materialization::{
     emit_capabilities_from_transcript, is_codex_rollout_payload, materialize_claude_session,
@@ -1050,114 +1051,140 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         None,
                     );
                     let plan_text = extract_plan_from_tool_input(tool_input.as_ref());
-
-                    actor
-                        .send(SessionCommand::SetLastTool {
-                            tool: Some(tool_name.clone()),
-                        })
-                        .await;
-                    actor
-                        .send(SessionCommand::SetPendingApproval {
-                            request_id: request_id.clone(),
-                            approval_type,
-                            proposed_amendment: None,
-                            tool_name: Some(tool_name.clone()),
-                            tool_input: serialized_input.clone(),
-                            question: question_text.clone(),
-                        })
-                        .await;
-                    actor
-                        .send(SessionCommand::ApplyDelta {
-                            changes: orbitdock_protocol::StateChanges {
-                                work_status: Some(work_status),
-                                current_plan: plan_text.clone().map(Some),
-                                last_activity_at: Some(chrono_now()),
-                                ..Default::default()
-                            },
-                            persist_op: None,
-                        })
-                        .await;
-
-                    tracing::info!(
-                        component = "hook_handler",
-                        event = "claude.permission_request",
-                        session_id = %session_id,
-                        tool_name = %tool_name,
-                        ?approval_type,
-                        permission_suggestions_count,
-                        "Received Claude permission request"
+                    let snapshot = actor.snapshot();
+                    let is_duplicate_request = permission_request_matches_snapshot(
+                        &snapshot,
+                        &PermissionRequestSnapshotMatch {
+                            request_id: request_id.as_str(),
+                            tool_name: tool_name.as_str(),
+                            tool_input: serialized_input.as_deref(),
+                            question: question_text.as_deref(),
+                            work_status,
+                            permission_mode: permission_mode.as_deref(),
+                            plan_text: plan_text.as_deref(),
+                        },
                     );
 
-                    let _ = persist_tx
-                        .send(PersistCommand::ApprovalRequested {
-                            session_id: session_id.clone(),
-                            request_id: request_id.clone(),
-                            approval_type,
-                            tool_name: Some(tool_name.clone()),
-                            tool_input: serialized_input.clone(),
-                            command: None,
-                            file_path: None,
-                            diff: None,
-                            question: question_text.clone(),
-                            question_prompts,
-                            preview,
-                            permission_reason: None,
-                            requested_permissions: None,
-                            granted_permissions: None,
-                            cwd: None,
-                            proposed_amendment: None,
-                            permission_suggestions: permission_suggestions.clone(),
-                            elicitation_mode: None,
-                            elicitation_schema: None,
-                            elicitation_url: None,
-                            elicitation_message: None,
-                            mcp_server_name: None,
-                            network_host: None,
-                            network_protocol: None,
-                        })
-                        .await;
+                    if is_duplicate_request {
+                        tracing::info!(
+                            component = "hook_handler",
+                            event = "claude.permission_request.duplicate_ignored",
+                            session_id = %session_id,
+                            request_id = %request_id,
+                            tool_name = %tool_name,
+                            ?approval_type,
+                            permission_suggestions_count,
+                            "Ignoring duplicate Claude permission request with unchanged effective state"
+                        );
+                    } else {
+                        actor
+                            .send(SessionCommand::SetLastTool {
+                                tool: Some(tool_name.clone()),
+                            })
+                            .await;
+                        actor
+                            .send(SessionCommand::SetPendingApproval {
+                                request_id: request_id.clone(),
+                                approval_type,
+                                proposed_amendment: None,
+                                tool_name: Some(tool_name.clone()),
+                                tool_input: serialized_input.clone(),
+                                question: question_text.clone(),
+                            })
+                            .await;
+                        actor
+                            .send(SessionCommand::ApplyDelta {
+                                changes: orbitdock_protocol::StateChanges {
+                                    work_status: Some(work_status),
+                                    current_plan: plan_text.clone().map(Some),
+                                    last_activity_at: Some(chrono_now()),
+                                    ..Default::default()
+                                },
+                                persist_op: None,
+                            })
+                            .await;
 
-                    if let Some(plan_text) = plan_text {
+                        tracing::info!(
+                            component = "hook_handler",
+                            event = "claude.permission_request",
+                            session_id = %session_id,
+                            tool_name = %tool_name,
+                            ?approval_type,
+                            permission_suggestions_count,
+                            "Received Claude permission request"
+                        );
+
                         let _ = persist_tx
-                            .send(PersistCommand::TurnStateUpdate {
+                            .send(PersistCommand::ApprovalRequested {
                                 session_id: session_id.clone(),
+                                request_id: request_id.clone(),
+                                approval_type,
+                                tool_name: Some(tool_name.clone()),
+                                tool_input: serialized_input.clone(),
+                                command: None,
+                                file_path: None,
                                 diff: None,
-                                plan: Some(plan_text),
+                                question: question_text.clone(),
+                                question_prompts,
+                                preview,
+                                permission_reason: None,
+                                requested_permissions: None,
+                                granted_permissions: None,
+                                cwd: None,
+                                proposed_amendment: None,
+                                permission_suggestions: permission_suggestions.clone(),
+                                elicitation_mode: None,
+                                elicitation_schema: None,
+                                elicitation_url: None,
+                                elicitation_message: None,
+                                mcp_server_name: None,
+                                network_host: None,
+                                network_protocol: None,
+                            })
+                            .await;
+
+                        if let Some(plan_text) = plan_text {
+                            let _ = persist_tx
+                                .send(PersistCommand::TurnStateUpdate {
+                                    session_id: session_id.clone(),
+                                    diff: None,
+                                    plan: Some(plan_text),
+                                })
+                                .await;
+                        }
+
+                        let pending_question =
+                            if approval_type == orbitdock_protocol::ApprovalType::Question {
+                                Some(question_text)
+                            } else {
+                                None
+                            };
+
+                        let _ = persist_tx
+                            .send(PersistCommand::ClaudeSessionUpdate {
+                                id: session_id.clone(),
+                                work_status: Some(
+                                    serde_json::to_value(work_status)
+                                        .ok()
+                                        .and_then(|v| v.as_str().map(String::from))
+                                        .unwrap_or_else(|| "permission".to_string()),
+                                ),
+                                attention_reason: Some(Some(attention_reason.to_string())),
+                                last_tool: Some(Some(tool_name.clone())),
+                                last_tool_at: Some(Some(chrono_now())),
+                                pending_tool_name: Some(Some(tool_name)),
+                                pending_tool_input: Some(serialized_input),
+                                pending_question,
+                                source: None,
+                                agent_type: None,
+                                permission_mode: permission_mode.map(Some),
+                                active_subagent_id: None,
+                                active_subagent_type: None,
+                                first_prompt: None,
+                                compact_count_increment: false,
                             })
                             .await;
                     }
-
-                    let pending_question =
-                        if approval_type == orbitdock_protocol::ApprovalType::Question {
-                            Some(question_text)
-                        } else {
-                            None
-                        };
-
-                    let _ = persist_tx
-                        .send(PersistCommand::ClaudeSessionUpdate {
-                            id: session_id.clone(),
-                            work_status: Some(
-                                serde_json::to_value(work_status)
-                                    .ok()
-                                    .and_then(|v| v.as_str().map(String::from))
-                                    .unwrap_or_else(|| "permission".to_string()),
-                            ),
-                            attention_reason: Some(Some(attention_reason.to_string())),
-                            last_tool: Some(Some(tool_name.clone())),
-                            last_tool_at: Some(Some(chrono_now())),
-                            pending_tool_name: Some(Some(tool_name)),
-                            pending_tool_input: Some(serialized_input),
-                            pending_question,
-                            source: None,
-                            agent_type: None,
-                            permission_mode: permission_mode.map(Some),
-                            active_subagent_id: None,
-                            active_subagent_type: None,
-                            first_prompt: None,
-                            compact_count_increment: false,
-                        })
-                        .await;
                 }
                 _ => {}
             }

@@ -37,7 +37,7 @@ struct DirectSessionComposerAttachmentPlannerTests {
     let attachments = DirectSessionComposerAttachmentState(
       images: [image],
       mentions: [
-        AttachedMention(id: "file-1", name: "Widget.swift", path: "/tmp/repo/Sources/Widget.swift")
+        AttachedMention(id: "file-1", name: "Widget.swift", path: "/tmp/repo/Sources/Widget.swift"),
       ]
     )
 

@@ -4,7 +4,9 @@ enum SessionProvider: String, CaseIterable, Identifiable {
   case claude
   case codex
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var displayName: String {
     switch self {
@@ -35,7 +37,9 @@ enum ClaudeEffortLevel: String, CaseIterable, Identifiable {
   case high
   case max
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var displayName: String {
     switch self {

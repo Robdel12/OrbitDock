@@ -18,6 +18,7 @@ enum MarkdownTypography {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Heading
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   static func headingFont(level: Int, style: ContentStyle) -> Font {
@@ -26,35 +27,35 @@ enum MarkdownTypography {
 
   static func headingSize(level: Int, style: ContentStyle) -> CGFloat {
     switch style {
-    case .standard:
-      switch level {
-      case 1: TypeScale.chatHeading1      // 22pt — rare, major sections
-      case 2: TypeScale.chatHeading2      // 18pt — primary structure ("Part 1: ...")
-      case 3: TypeScale.chatHeading3      // 16pt — sub-sections
-      default: TypeScale.chatBody         // 15pt — h4+ treated as emphasized body
-      }
-    case .thinking:
-      switch level {
-      case 1: TypeScale.thinkingHeading1  // 18pt
-      case 2: TypeScale.thinkingHeading2  // 16pt
-      default: TypeScale.code             // 13pt
-      }
+      case .standard:
+        switch level {
+          case 1: TypeScale.chatHeading1 // 22pt — rare, major sections
+          case 2: TypeScale.chatHeading2 // 18pt — primary structure ("Part 1: ...")
+          case 3: TypeScale.chatHeading3 // 16pt — sub-sections
+          default: TypeScale.chatBody // 15pt — h4+ treated as emphasized body
+        }
+      case .thinking:
+        switch level {
+          case 1: TypeScale.thinkingHeading1 // 18pt
+          case 2: TypeScale.thinkingHeading2 // 16pt
+          default: TypeScale.code // 13pt
+        }
     }
   }
 
   static func headingWeight(level: Int) -> Font.Weight {
     switch level {
-    case 1: .bold
-    case 2: .semibold
-    case 3: .semibold
-    default: .medium
+      case 1: .bold
+      case 2: .semibold
+      case 3: .semibold
+      default: .medium
     }
   }
 
   static func headingColor(level: Int) -> Color {
     switch level {
-    case 1, 2: .textPrimary
-    default: Color.white.opacity(0.85)
+      case 1, 2: .textPrimary
+      default: Color.white.opacity(0.85)
     }
   }
 
@@ -65,6 +66,7 @@ enum MarkdownTypography {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Body
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   static func bodyFont(style: ContentStyle) -> Font {
@@ -73,8 +75,8 @@ enum MarkdownTypography {
 
   static func bodySize(style: ContentStyle) -> CGFloat {
     switch style {
-    case .standard: TypeScale.chatBody  // 15pt
-    case .thinking: TypeScale.code      // 13pt
+      case .standard: TypeScale.chatBody // 15pt
+      case .thinking: TypeScale.code // 13pt
     }
   }
 
@@ -82,13 +84,14 @@ enum MarkdownTypography {
   /// built-in leading to reach ~1.47x effective line height (22pt for 15pt text).
   static func bodyLineSpacing(style: ContentStyle) -> CGFloat {
     switch style {
-    case .standard: 4
-    case .thinking: 3
+      case .standard: 4
+      case .thinking: 3
     }
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Inline Code
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   /// Warm signal orange for inline code spans (backtick-wrapped text).
@@ -96,8 +99,8 @@ enum MarkdownTypography {
 
   static func inlineCodeSize(style: ContentStyle) -> CGFloat {
     switch style {
-    case .standard: TypeScale.chatCode   // 14pt
-    case .thinking: TypeScale.code       // 13pt
+      case .standard: TypeScale.chatCode // 14pt
+      case .thinking: TypeScale.code // 13pt
     }
   }
 
@@ -122,6 +125,7 @@ enum MarkdownTypography {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Inter-Block Spacing
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   /// Contextual vertical gap between two adjacent markdown blocks.
@@ -138,34 +142,34 @@ enum MarkdownTypography {
     let base: CGFloat = style == .thinking ? 8 : 12
 
     switch (previous, current) {
-    // Heading after anything → extra top space to separate sections
-    case (_, .heading(let level, _)):
-      switch style {
-      case .standard:
-        switch level {
-        case 1: return 24
-        case 2: return 20
-        case 3: return 16
-        default: return base
+      // Heading after anything → extra top space to separate sections
+      case let (_, .heading(level, _)):
+        switch style {
+          case .standard:
+            switch level {
+              case 1: return 24
+              case 2: return 20
+              case 3: return 16
+              default: return base
+            }
+          case .thinking:
+            switch level {
+              case 1: return 16
+              case 2: return 12
+              default: return 8
+            }
         }
-      case .thinking:
-        switch level {
-        case 1: return 16
-        case 2: return 12
-        default: return 8
-        }
-      }
 
-    // Content right after a heading → tight coupling
-    case (.heading, _):
-      return style == .thinking ? 4 : 6
+      // Content right after a heading → tight coupling
+      case (.heading, _):
+        return style == .thinking ? 4 : 6
 
-    // Thematic breaks get extra breathing room
-    case (_, .thematicBreak), (.thematicBreak, _):
-      return style == .thinking ? 8 : 16
+      // Thematic breaks get extra breathing room
+      case (_, .thematicBreak), (.thematicBreak, _):
+        return style == .thinking ? 8 : 16
 
-    default:
-      return base
+      default:
+        return base
     }
   }
 }

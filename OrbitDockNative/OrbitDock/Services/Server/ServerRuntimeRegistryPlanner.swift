@@ -53,6 +53,6 @@ enum ServerRuntimeRegistryPlanner {
         !requireControlPlaneReady || readinessByEndpointId[runtime.endpoint.id]?.controlPlaneReady == true
       }
       .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
-      .map { $0.controlPlanePort }
+      .map(\.controlPlanePort)
   }
 }

@@ -13,9 +13,9 @@ struct DiffChangeStrip: View {
   let lines: [ServerDiffLine]
   var height: CGFloat = {
     #if os(iOS)
-    260
+      260
     #else
-    350
+      350
     #endif
   }()
 
@@ -28,14 +28,13 @@ struct DiffChangeStrip: View {
       let stripHeight = size.height
 
       for (index, line) in lines.enumerated() {
-        let color: Color?
-        switch line.type {
-        case .addition:
-          color = .diffAddedEdge
-        case .deletion:
-          color = .diffRemovedEdge
-        case .context:
-          color = nil
+        let color: Color? = switch line.type {
+          case .addition:
+            .diffAddedEdge
+          case .deletion:
+            .diffRemovedEdge
+          case .context:
+            nil
         }
 
         guard let markColor = color else { continue }

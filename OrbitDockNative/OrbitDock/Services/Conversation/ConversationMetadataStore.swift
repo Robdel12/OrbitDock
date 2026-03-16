@@ -114,7 +114,9 @@ struct ConversationMetadataStore: Sendable {
     }
 
     guard let approvalID = input.pendingApprovalId?.trimmedNilIfEmpty
-      ?? (input.pendingQuestion?.isEmpty == false || input.pendingToolName?.isEmpty == false || input.pendingPermissionDetail?.isEmpty == false ? "pending" : nil)
+      ??
+      (input.pendingQuestion?.isEmpty == false || input.pendingToolName?.isEmpty == false || input
+        .pendingPermissionDetail?.isEmpty == false ? "pending" : nil)
     else {
       return nil
     }
@@ -203,8 +205,8 @@ struct ConversationMetadataStore: Sendable {
 
   private func threadEntrySnapshot(_ entry: ServerConversationRowEntry) -> ConversationWorkerThreadEntrySnapshot? {
     switch entry.row {
-      case .user(let message):
-        return ConversationWorkerThreadEntrySnapshot(
+      case let .user(message):
+        ConversationWorkerThreadEntrySnapshot(
           id: message.id,
           type: "user",
           title: "Instruction",
@@ -212,8 +214,8 @@ struct ConversationMetadataStore: Sendable {
           timestamp: message.timestamp,
           isInProgress: message.isStreaming
         )
-      case .assistant(let message):
-        return ConversationWorkerThreadEntrySnapshot(
+      case let .assistant(message):
+        ConversationWorkerThreadEntrySnapshot(
           id: message.id,
           type: "assistant",
           title: "Worker reply",
@@ -221,8 +223,8 @@ struct ConversationMetadataStore: Sendable {
           timestamp: message.timestamp,
           isInProgress: message.isStreaming
         )
-      case .thinking(let message):
-        return ConversationWorkerThreadEntrySnapshot(
+      case let .thinking(message):
+        ConversationWorkerThreadEntrySnapshot(
           id: message.id,
           type: "thinking",
           title: "Worker thinking",
@@ -230,8 +232,8 @@ struct ConversationMetadataStore: Sendable {
           timestamp: message.timestamp,
           isInProgress: message.isStreaming
         )
-      case .tool(let tool):
-        return ConversationWorkerThreadEntrySnapshot(
+      case let .tool(tool):
+        ConversationWorkerThreadEntrySnapshot(
           id: tool.id,
           type: "tool",
           title: tool.title,
@@ -241,8 +243,8 @@ struct ConversationMetadataStore: Sendable {
           timestamp: tool.startedAt,
           isInProgress: tool.status == .running || tool.status == .pending
         )
-      case .system(let message):
-        return ConversationWorkerThreadEntrySnapshot(
+      case let .system(message):
+        ConversationWorkerThreadEntrySnapshot(
           id: message.id,
           type: "system",
           title: "System",
@@ -251,7 +253,7 @@ struct ConversationMetadataStore: Sendable {
           isInProgress: message.isStreaming
         )
       default:
-        return nil
+        nil
     }
   }
 

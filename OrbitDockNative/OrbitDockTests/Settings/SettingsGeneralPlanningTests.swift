@@ -1,5 +1,5 @@
-import Testing
 @testable import OrbitDock
+import Testing
 
 @MainActor
 struct SettingsGeneralPlanningTests {

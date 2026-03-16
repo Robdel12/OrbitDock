@@ -55,11 +55,10 @@ enum ReviewCanvasInlinePresentationPlanner {
     }
 
     let fileName = composerTarget.filePath.components(separatedBy: "/").last ?? composerTarget.filePath
-    let lineLabel: String
-    if let lineEnd = composerTarget.lineEnd, lineEnd != composerTarget.lineStart {
-      lineLabel = "Lines \(composerTarget.lineStart)–\(lineEnd)"
+    let lineLabel = if let lineEnd = composerTarget.lineEnd, lineEnd != composerTarget.lineStart {
+      "Lines \(composerTarget.lineStart)–\(lineEnd)"
     } else {
-      lineLabel = "Line \(composerTarget.lineStart)"
+      "Line \(composerTarget.lineStart)"
     }
 
     return ReviewCanvasInlineComposerContext(

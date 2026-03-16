@@ -1,5 +1,5 @@
-import XCTest
 @testable import OrbitDock
+import XCTest
 
 final class ConversationStructureStoreTests: XCTestCase {
   func testBootstrapAndPrependPreserveOrderedRows() {
@@ -12,14 +12,28 @@ final class ConversationStructureStoreTests: XCTestCase {
           id: "message-2",
           session: session,
           kind: .message,
-          payload: .message(.init(messageID: "message-2", role: .assistant, speaker: "Assistant", text: "two", timestamp: nil, contentSignature: 2)),
+          payload: .message(.init(
+            messageID: "message-2",
+            role: .assistant,
+            speaker: "Assistant",
+            text: "two",
+            timestamp: nil,
+            contentSignature: 2
+          )),
           sequence: 2
         ),
         ConversationRowRecord(
           id: "message-3",
           session: session,
           kind: .message,
-          payload: .message(.init(messageID: "message-3", role: .assistant, speaker: "Assistant", text: "three", timestamp: nil, contentSignature: 3)),
+          payload: .message(.init(
+            messageID: "message-3",
+            role: .assistant,
+            speaker: "Assistant",
+            text: "three",
+            timestamp: nil,
+            contentSignature: 3
+          )),
           sequence: 3
         ),
       ],
@@ -34,9 +48,16 @@ final class ConversationStructureStoreTests: XCTestCase {
           id: "message-1",
           session: session,
           kind: .message,
-          payload: .message(.init(messageID: "message-1", role: .assistant, speaker: "Assistant", text: "one", timestamp: nil, contentSignature: 1)),
+          payload: .message(.init(
+            messageID: "message-1",
+            role: .assistant,
+            speaker: "Assistant",
+            text: "one",
+            timestamp: nil,
+            contentSignature: 1
+          )),
           sequence: 1
-        )
+        ),
       ],
       oldestLoadedSequence: 1,
       hasMoreHistoryBefore: false
@@ -58,9 +79,16 @@ final class ConversationStructureStoreTests: XCTestCase {
           id: "message-1",
           session: session,
           kind: .message,
-          payload: .message(.init(messageID: "message-1", role: .assistant, speaker: "Assistant", text: "one", timestamp: nil, contentSignature: 1)),
+          payload: .message(.init(
+            messageID: "message-1",
+            role: .assistant,
+            speaker: "Assistant",
+            text: "one",
+            timestamp: nil,
+            contentSignature: 1
+          )),
           sequence: 1
-        )
+        ),
       ],
       oldestLoadedSequence: 1,
       newestLoadedSequence: 1,

@@ -1,6 +1,6 @@
+@testable import OrbitDock
 import Testing
 import UserNotifications
-@testable import OrbitDock
 
 #if os(macOS)
   import AppKit

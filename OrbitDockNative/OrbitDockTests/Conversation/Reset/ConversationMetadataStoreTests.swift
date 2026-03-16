@@ -1,5 +1,5 @@
-import XCTest
 @testable import OrbitDock
+import XCTest
 
 final class ConversationMetadataStoreTests: XCTestCase {
   func testHydrateBuildsWorkerApprovalAndInspectorStateTogether() {
@@ -54,8 +54,8 @@ final class ConversationMetadataStoreTests: XCTestCase {
         selectedWorkerID: "worker-1",
         toolsByWorker: [
           "worker-1": [
-            ServerSubagentTool(id: "tool-1", toolName: "Read", summary: "Read auth", output: nil, isInProgress: true)
-          ]
+            ServerSubagentTool(id: "tool-1", toolName: "Read", summary: "Read auth", output: nil, isInProgress: true),
+          ],
         ],
         messagesByWorker: [
           "worker-1": [
@@ -64,8 +64,8 @@ final class ConversationMetadataStoreTests: XCTestCase {
               sessionId: session.sessionId,
               sequence: 1,
               content: "I found the auth entrypoint."
-            )
-          ]
+            ),
+          ],
         ],
         provider: .codex,
         model: "gpt-5.4"
@@ -129,8 +129,14 @@ final class ConversationMetadataStoreTests: XCTestCase {
         selectedWorkerID: "worker-1",
         toolsByWorker: [
           "worker-2": [
-            ServerSubagentTool(id: "tool-2", toolName: "Search", summary: "Search auth state", output: nil, isInProgress: false)
-          ]
+            ServerSubagentTool(
+              id: "tool-2",
+              toolName: "Search",
+              summary: "Search auth state",
+              output: nil,
+              isInProgress: false
+            ),
+          ],
         ],
         messagesByWorker: [
           "worker-2": [
@@ -139,8 +145,8 @@ final class ConversationMetadataStoreTests: XCTestCase {
               sessionId: session.sessionId,
               sequence: 2,
               content: "Auth state looks good."
-            )
-          ]
+            ),
+          ],
         ],
         provider: .codex
       )

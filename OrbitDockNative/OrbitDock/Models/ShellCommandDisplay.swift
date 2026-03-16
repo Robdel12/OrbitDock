@@ -1,7 +1,7 @@
 import Foundation
 
 extension String {
-  nonisolated private static let xmlTagRegex: NSRegularExpression? = try? NSRegularExpression(
+  private nonisolated static let xmlTagRegex: NSRegularExpression? = try? NSRegularExpression(
     pattern: "<[^>]+>",
     options: []
   )
@@ -56,7 +56,7 @@ extension String {
     return nil
   }
 
-  nonisolated private static func shellCommandDisplay(fromParts parts: [String]) -> String? {
+  private nonisolated static func shellCommandDisplay(fromParts parts: [String]) -> String? {
     guard !parts.isEmpty else { return nil }
 
     if let wrapped = ShellWrapperParser.extractWrappedCommand(from: parts) {
@@ -68,7 +68,7 @@ extension String {
   }
 }
 
-nonisolated private enum ShellWrapperParser {
+private nonisolated enum ShellWrapperParser {
   struct Token {
     let value: String
   }
@@ -252,7 +252,9 @@ nonisolated private enum ShellWrapperParser {
     var index = shellIndex + 1
     while index < tokens.count {
       let option = tokens[index].value.lowercased()
-      if option == "-command" || option == "--command" || option == "-c" || option == "-encodedcommand" || option == "-ec" {
+      if option == "-command" || option == "--command" || option == "-c" || option == "-encodedcommand" || option ==
+        "-ec"
+      {
         return tokensAfter(index + 1, in: tokens)
       }
 

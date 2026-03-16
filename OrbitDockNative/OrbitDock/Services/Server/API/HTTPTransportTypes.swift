@@ -26,14 +26,14 @@ enum HTTPTransportError: LocalizedError, Equatable, Sendable {
   init(error: any Error) {
     if let urlError = error as? URLError {
       switch urlError.code {
-      case .cancelled:
-        self = .cancelled
-      case .timedOut:
-        self = .timedOut
-      case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
-        self = .unreachable(urlError.localizedDescription)
-      default:
-        self = .transport(urlError.localizedDescription)
+        case .cancelled:
+          self = .cancelled
+        case .timedOut:
+          self = .timedOut
+        case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+          self = .unreachable(urlError.localizedDescription)
+        default:
+          self = .transport(urlError.localizedDescription)
       }
     } else {
       self = .transport(error.localizedDescription)
@@ -42,18 +42,18 @@ enum HTTPTransportError: LocalizedError, Equatable, Sendable {
 
   var errorDescription: String? {
     switch self {
-    case .cancelled:
-      "Request cancelled."
-    case .timedOut:
-      "Request timed out."
-    case let .unreachable(message):
-      message
-    case let .transport(message):
-      message
-    case .serverUnreachable:
-      "Server is not reachable."
-    case .invalidResponse:
-      "Server returned an invalid response."
+      case .cancelled:
+        "Request cancelled."
+      case .timedOut:
+        "Request timed out."
+      case let .unreachable(message):
+        message
+      case let .transport(message):
+        message
+      case .serverUnreachable:
+        "Server is not reachable."
+      case .invalidResponse:
+        "Server returned an invalid response."
     }
   }
 }

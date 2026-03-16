@@ -33,10 +33,10 @@ enum AppWindowPlanner {
     }
 
     switch route {
-    case .dashboard:
-      return .dashboard
-    case let .session(ref):
-      return .session(ref)
+      case .dashboard:
+        return .dashboard
+      case let .session(ref):
+        return .session(ref)
     }
   }
 
@@ -72,8 +72,8 @@ enum AppWindowPlanner {
     guard scenePhase == .active else { return nil }
 
     switch command {
-    case let .selectSession(sessionID, endpointID):
-      return (sessionID, endpointID)
+      case let .selectSession(sessionID, endpointID):
+        return (sessionID, endpointID)
     }
   }
 }

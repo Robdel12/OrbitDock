@@ -11,7 +11,9 @@ import SwiftUI
 struct WebSearchExpandedView: View {
   let content: ServerRowContent
 
-  private var query: String { content.inputDisplay ?? "" }
+  private var query: String {
+    content.inputDisplay ?? ""
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
@@ -105,7 +107,7 @@ struct WebSearchExpandedView: View {
     let lowered = text.lowercased()
     for word in words {
       var searchStart = lowered.startIndex
-      while let range = lowered.range(of: word, range: searchStart..<lowered.endIndex) {
+      while let range = lowered.range(of: word, range: searchStart ..< lowered.endIndex) {
         if let attrRange = Range(range, in: result) {
           result[attrRange].backgroundColor = Color.toolWeb.opacity(0.15)
           result[attrRange].foregroundColor = Color.toolWeb
@@ -127,7 +129,8 @@ struct WebSearchExpandedView: View {
   private func parseSearchResults(_ output: String) -> [SearchResult] {
     // Try JSON array format
     if let data = output.data(using: .utf8),
-       let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+       let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+    {
       return array.compactMap { dict in
         guard let title = dict["title"] as? String else { return nil }
         return SearchResult(

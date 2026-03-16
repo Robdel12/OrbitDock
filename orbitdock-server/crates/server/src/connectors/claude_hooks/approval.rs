@@ -3,6 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::domain::sessions::session::SessionSnapshot;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::SessionCommand;
@@ -84,6 +85,35 @@ pub(crate) fn extract_plan_from_tool_input(tool_input: Option<&Value>) -> Option
         .map(ToString::to_string)
 }
 
+pub(crate) struct PermissionRequestSnapshotMatch<'a> {
+    pub(crate) request_id: &'a str,
+    pub(crate) tool_name: &'a str,
+    pub(crate) tool_input: Option<&'a str>,
+    pub(crate) question: Option<&'a str>,
+    pub(crate) work_status: orbitdock_protocol::WorkStatus,
+    pub(crate) permission_mode: Option<&'a str>,
+    pub(crate) plan_text: Option<&'a str>,
+}
+
+pub(crate) fn permission_request_matches_snapshot(
+    snapshot: &SessionSnapshot,
+    request: &PermissionRequestSnapshotMatch<'_>,
+) -> bool {
+    snapshot.pending_approval_id.as_deref() == Some(request.request_id)
+        && snapshot.pending_tool_name.as_deref() == Some(request.tool_name)
+        && snapshot.pending_tool_input.as_deref() == request.tool_input
+        && snapshot.pending_question.as_deref() == request.question
+        && snapshot.work_status == request.work_status
+        && request
+            .permission_mode
+            .map(|mode| snapshot.permission_mode.as_deref() == Some(mode))
+            .unwrap_or(true)
+        && request
+            .plan_text
+            .map(|plan| snapshot.current_plan.as_deref() == Some(plan))
+            .unwrap_or(true)
+}
+
 pub(crate) async fn resolve_pending_approvals_after_tool_outcome(
     actor: &SessionActorHandle,
     persist_tx: &mpsc::Sender<PersistCommand>,
@@ -144,5 +174,116 @@ fn normalized_non_empty(value: Option<&str>) -> Option<String> {
         None
     } else {
         Some(value.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use orbitdock_protocol::{
+        Provider, SessionStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    };
+
+    use super::{permission_request_matches_snapshot, PermissionRequestSnapshotMatch};
+    use crate::domain::sessions::session::SessionSnapshot;
+
+    fn snapshot() -> SessionSnapshot {
+        SessionSnapshot {
+            id: "session-1".to_string(),
+            provider: Provider::Claude,
+            status: SessionStatus::Active,
+            work_status: WorkStatus::Permission,
+            project_path: "/repo".to_string(),
+            project_name: None,
+            transcript_path: None,
+            custom_name: None,
+            summary: None,
+            first_prompt: None,
+            last_message: None,
+            model: None,
+            codex_integration_mode: None,
+            claude_integration_mode: None,
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: Some("default".to_string()),
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
+            has_pending_approval: true,
+            pending_tool_name: Some("Bash".to_string()),
+            pending_tool_input: Some("{\"command\":\"ls\"}".to_string()),
+            pending_question: None,
+            pending_approval_id: Some("claude-perm-tooluse-1".to_string()),
+            message_count: 0,
+            token_usage: TokenUsage::default(),
+            token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
+            started_at: None,
+            last_activity_at: None,
+            revision: 0,
+            current_plan: Some("Inspect files".to_string()),
+            git_branch: None,
+            git_sha: None,
+            current_cwd: None,
+            effort: None,
+            terminal_session_id: None,
+            terminal_app: None,
+            approval_version: 1,
+            repository_root: None,
+            is_worktree: false,
+            worktree_id: None,
+            has_turn_diff: false,
+            subscriber_count: 0,
+            unread_count: 0,
+            newest_synced_row_id: None,
+        }
+    }
+
+    #[test]
+    fn duplicate_permission_request_matches_snapshot_state() {
+        let snapshot = snapshot();
+
+        assert!(permission_request_matches_snapshot(
+            &snapshot,
+            &PermissionRequestSnapshotMatch {
+                request_id: "claude-perm-tooluse-1",
+                tool_name: "Bash",
+                tool_input: Some("{\"command\":\"ls\"}"),
+                question: None,
+                work_status: WorkStatus::Permission,
+                permission_mode: Some("default"),
+                plan_text: Some("Inspect files"),
+            }
+        ));
+    }
+
+    #[test]
+    fn changed_plan_or_permission_mode_breaks_duplicate_match() {
+        let snapshot = snapshot();
+
+        assert!(!permission_request_matches_snapshot(
+            &snapshot,
+            &PermissionRequestSnapshotMatch {
+                request_id: "claude-perm-tooluse-1",
+                tool_name: "Bash",
+                tool_input: Some("{\"command\":\"ls\"}"),
+                question: None,
+                work_status: WorkStatus::Permission,
+                permission_mode: Some("workspace-write"),
+                plan_text: Some("Inspect files"),
+            }
+        ));
+        assert!(!permission_request_matches_snapshot(
+            &snapshot,
+            &PermissionRequestSnapshotMatch {
+                request_id: "claude-perm-tooluse-1",
+                tool_name: "Bash",
+                tool_input: Some("{\"command\":\"ls\"}"),
+                question: None,
+                work_status: WorkStatus::Permission,
+                permission_mode: Some("default"),
+                plan_text: Some("Run tests"),
+            }
+        ));
     }
 }

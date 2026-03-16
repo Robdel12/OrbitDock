@@ -1,11 +1,15 @@
-import XCTest
 @testable import OrbitDock
+import XCTest
 
 @MainActor
 final class ConversationDetailRuntimeMetadataTests: XCTestCase {
-  func testHydratedApprovalStateCarriesQuestionAndPermissionDetail() {
+  func testHydratedApprovalStateCarriesQuestionAndPermissionDetail() throws {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-approval")
-    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil, dataLoader: { _ in throw HTTPTransportError.serverUnreachable })
+    let clients = try ServerClients(
+      serverURL: XCTUnwrap(URL(string: "http://127.0.0.1:4000")),
+      authToken: nil,
+      dataLoader: { _ in throw HTTPTransportError.serverUnreachable }
+    )
     let runtime = ConversationDetailRuntime(session: session, clients: clients, provider: .codex, model: "gpt-5.4")
 
     runtime.hydrateMetadata(
@@ -38,9 +42,13 @@ final class ConversationDetailRuntimeMetadataTests: XCTestCase {
     XCTAssertEqual(approval?.currentPrompt, "Need permission to patch a file.")
   }
 
-  func testSelectingWorkerPreservesInspectorStateFromWorkerPayloads() {
+  func testSelectingWorkerPreservesInspectorStateFromWorkerPayloads() throws {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-worker")
-    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil, dataLoader: { _ in throw HTTPTransportError.serverUnreachable })
+    let clients = try ServerClients(
+      serverURL: XCTUnwrap(URL(string: "http://127.0.0.1:4000")),
+      authToken: nil,
+      dataLoader: { _ in throw HTTPTransportError.serverUnreachable }
+    )
     let runtime = ConversationDetailRuntime(session: session, clients: clients, provider: .codex, model: "gpt-5.4")
 
     runtime.hydrateMetadata(
@@ -82,8 +90,14 @@ final class ConversationDetailRuntimeMetadataTests: XCTestCase {
         selectedWorkerID: "worker-b",
         toolsByWorker: [
           "worker-b": [
-            ServerSubagentTool(id: "tool-b", toolName: "Read", summary: "Read auth store", output: nil, isInProgress: false)
-          ]
+            ServerSubagentTool(
+              id: "tool-b",
+              toolName: "Read",
+              summary: "Read auth store",
+              output: nil,
+              isInProgress: false
+            ),
+          ],
         ],
         messagesByWorker: [
           "worker-b": [
@@ -101,8 +115,8 @@ final class ConversationDetailRuntimeMetadataTests: XCTestCase {
                   images: nil
                 )
               )
-            )
-          ]
+            ),
+          ],
         ],
         provider: .codex,
         model: "gpt-5.4"

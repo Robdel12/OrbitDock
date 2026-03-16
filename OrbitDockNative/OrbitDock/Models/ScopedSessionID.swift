@@ -28,7 +28,7 @@ struct ScopedSessionID: Sendable {
   }
 
   nonisolated static func endpointPrefix(endpointId: UUID) -> String {
-    "\(endpointId.uuidString)\(Self.delimiter)"
+    "\(endpointId.uuidString)\(delimiter)"
   }
 
   nonisolated var sessionRef: SessionRef {
@@ -37,10 +37,6 @@ struct ScopedSessionID: Sendable {
 }
 
 extension ScopedSessionID: Equatable, Hashable {
-  static func == (lhs: ScopedSessionID, rhs: ScopedSessionID) -> Bool {
-    lhs.endpointId == rhs.endpointId && lhs.sessionId == rhs.sessionId
-  }
-
   func hash(into hasher: inout Hasher) {
     hasher.combine(endpointId)
     hasher.combine(sessionId)

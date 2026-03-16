@@ -26,7 +26,7 @@ enum QuickSwitcherActionPlanner {
   ) -> RootSessionNode? {
     if oldSearchText.isEmpty, !newSearchText.isEmpty {
       switch selectedKind {
-        case .session(let index):
+        case let .session(index):
           guard visibleSessions.indices.contains(index) else { return visibleSessions.first }
           return visibleSessions[index]
         default:
@@ -60,7 +60,7 @@ enum QuickSwitcherActionPlanner {
     switch command.action {
       case .goToDashboard:
         return .goToDashboard
-      case .openNewSession(let provider):
+      case let .openNewSession(provider):
         return .openNewSession(provider)
       case .renameSession:
         guard let targetSession else { return nil }
@@ -88,10 +88,10 @@ enum QuickSwitcherActionPlanner {
     switch selectedKind {
       case .none:
         return .none
-      case .quickLaunchProject(let index):
+      case let .quickLaunchProject(index):
         guard recentProjects.indices.contains(index) else { return .none }
         return .quickLaunch(path: recentProjects[index].path)
-      case .command(let index):
+      case let .command(index):
         guard filteredCommands.indices.contains(index) else { return .none }
         guard let plan = commandPlan(
           command: filteredCommands[index],
@@ -104,7 +104,7 @@ enum QuickSwitcherActionPlanner {
         return .command(plan)
       case .dashboard:
         return .goToDashboard
-      case .session(let index):
+      case let .session(index):
         guard visibleSessions.indices.contains(index) else { return .none }
         return .openSession(visibleSessions[index])
     }
@@ -114,7 +114,7 @@ enum QuickSwitcherActionPlanner {
     selectedKind: QuickSwitcherSelectionKind,
     visibleSessions: [RootSessionNode]
   ) -> RootSessionNode? {
-    guard case .session(let index) = selectedKind, visibleSessions.indices.contains(index) else {
+    guard case let .session(index) = selectedKind, visibleSessions.indices.contains(index) else {
       return nil
     }
 

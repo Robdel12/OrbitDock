@@ -152,54 +152,54 @@ extension ServerApprovalRequest {
 extension ServerConversationRowEntry {
   func toTranscriptMessage(endpointId: UUID? = nil) -> TranscriptMessage {
     switch row {
-      case .user(let message):
-        return message.toTranscriptMessage(
+      case let .user(message):
+        message.toTranscriptMessage(
           type: .user,
           sessionId: sessionId,
           sequence: sequence,
           turnId: turnId,
           endpointId: endpointId
         )
-      case .assistant(let message):
-        return message.toTranscriptMessage(
+      case let .assistant(message):
+        message.toTranscriptMessage(
           type: .assistant,
           sessionId: sessionId,
           sequence: sequence,
           turnId: turnId,
           endpointId: endpointId
         )
-      case .thinking(let message):
-        return message.toTranscriptMessage(
+      case let .thinking(message):
+        message.toTranscriptMessage(
           type: .thinking,
           sessionId: sessionId,
           sequence: sequence,
           turnId: turnId,
           endpointId: endpointId
         )
-      case .system(let message):
-        return message.toTranscriptMessage(
+      case let .system(message):
+        message.toTranscriptMessage(
           type: .system,
           sessionId: sessionId,
           sequence: sequence,
           turnId: turnId,
           endpointId: endpointId
         )
-      case .tool(let tool):
-        return tool.toTranscriptMessage(sequence: sequence, timestamp: parseServerTimestamp(tool.startedAt) ?? Date())
-      case .activityGroup(let group):
-        return group.toTranscriptMessage(sequence: sequence)
-      case .approval(let approval):
-        return approval.toTranscriptMessage(sequence: sequence)
-      case .question(let question):
-        return question.toTranscriptMessage(sequence: sequence)
-      case .worker(let worker):
-        return worker.toTranscriptMessage(sequence: sequence)
-      case .plan(let plan):
-        return plan.toTranscriptMessage(sequence: sequence)
-      case .hook(let hook):
-        return hook.toTranscriptMessage(sequence: sequence)
-      case .handoff(let handoff):
-        return handoff.toTranscriptMessage(sequence: sequence)
+      case let .tool(tool):
+        tool.toTranscriptMessage(sequence: sequence, timestamp: parseServerTimestamp(tool.startedAt) ?? Date())
+      case let .activityGroup(group):
+        group.toTranscriptMessage(sequence: sequence)
+      case let .approval(approval):
+        approval.toTranscriptMessage(sequence: sequence)
+      case let .question(question):
+        question.toTranscriptMessage(sequence: sequence)
+      case let .worker(worker):
+        worker.toTranscriptMessage(sequence: sequence)
+      case let .plan(plan):
+        plan.toTranscriptMessage(sequence: sequence)
+      case let .hook(hook):
+        hook.toTranscriptMessage(sequence: sequence)
+      case let .handoff(handoff):
+        handoff.toTranscriptMessage(sequence: sequence)
     }
   }
 }
@@ -357,19 +357,19 @@ extension ServerImageInput {
   func toMessageImage(index: Int, endpointId: UUID? = nil, sessionId: String) -> MessageImage? {
     let imageId = "\(inputType):\(value):\(index)"
     return switch inputType {
-    case "url":
-      messageImageFromDataURI(self, imageId: imageId)
-    case "path":
-      messageImageFromPath(self, imageId: imageId)
-    case "attachment":
-      messageImageFromAttachment(
-        self,
-        imageId: imageId,
-        endpointId: endpointId,
-        sessionId: sessionId
-      )
-    default:
-      nil
+      case "url":
+        messageImageFromDataURI(self, imageId: imageId)
+      case "path":
+        messageImageFromPath(self, imageId: imageId)
+      case "attachment":
+        messageImageFromAttachment(
+          self,
+          imageId: imageId,
+          endpointId: endpointId,
+          sessionId: sessionId
+        )
+      default:
+        nil
     }
   }
 }

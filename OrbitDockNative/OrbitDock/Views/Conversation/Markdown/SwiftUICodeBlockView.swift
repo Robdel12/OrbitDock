@@ -102,7 +102,7 @@ struct SwiftUICodeBlockView: View {
   private var codeBody: some View {
     let count = visibleCount
     let gutterChars = max(2, "\(allLines.count)".count)
-    let gutterWidth = CGFloat(gutterChars) * 8 + 10 + 14  // content + trailing pad
+    let gutterWidth = CGFloat(gutterChars) * 8 + 10 + 14 // content + trailing pad
 
     return HStack(alignment: .top, spacing: 0) {
       // Line numbers — single Text

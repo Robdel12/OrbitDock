@@ -1,12 +1,12 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 @MainActor
 struct LibraryArchivePlannerTests {
-  @Test func stateFiltersByProviderEndpointAndSearchQuery() {
-    let endpointA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-    let endpointB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+  @Test func stateFiltersByProviderEndpointAndSearchQuery() throws {
+    let endpointA = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+    let endpointB = try #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"))
     let sessions = [
       makeSession(
         id: "claude-a",
@@ -48,18 +48,18 @@ struct LibraryArchivePlannerTests {
       scopedID(endpointId: endpointB, sessionId: "claude-b"),
     ])
     #expect(state.endpointScopedSessions.map(\.scopedID) == [
-      scopedID(endpointId: endpointA, sessionId: "claude-a")
+      scopedID(endpointId: endpointA, sessionId: "claude-a"),
     ])
     #expect(state.filteredSessions.map(\.scopedID) == [
-      scopedID(endpointId: endpointA, sessionId: "claude-a")
+      scopedID(endpointId: endpointA, sessionId: "claude-a"),
     ])
     #expect(state.selectedEndpointFacet?.name == "Local")
     #expect(state.scopeDescription == "Local • Claude • 1 sessions")
   }
 
-  @Test func endpointFacetsSortByNameAndTrackConnectionState() {
-    let endpointA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
-    let endpointB = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+  @Test func endpointFacetsSortByNameAndTrackConnectionState() throws {
+    let endpointA = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+    let endpointB = try #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"))
     let facets = LibraryArchivePlanner.endpointFacets(
       from: [
         makeSession(
@@ -85,8 +85,8 @@ struct LibraryArchivePlannerTests {
     #expect(facets.map(\.isConnected) == [true, false])
   }
 
-  @Test func projectGroupsSplitLiveAndArchivedSessionsAndSortByRequestedMode() {
-    let endpointA = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+  @Test func projectGroupsSplitLiveAndArchivedSessionsAndSortByRequestedMode() throws {
+    let endpointA = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
     let recent = Date(timeIntervalSince1970: 20)
     let older = Date(timeIntervalSince1970: 10)
     let oldest = Date(timeIntervalSince1970: 5)
@@ -137,21 +137,21 @@ struct LibraryArchivePlannerTests {
       sort: .status
     )
 
-    let firstGroup = try! #require(groups.first)
+    let firstGroup = try #require(groups.first)
     #expect(firstGroup.path == "/tmp/printer")
     #expect(firstGroup.liveSessions.map(\.scopedID) == [
-      scopedID(endpointId: endpointA, sessionId: "live-one")
+      scopedID(endpointId: endpointA, sessionId: "live-one"),
     ])
     #expect(firstGroup.archivedSessions.map(\.scopedID) == [
-      scopedID(endpointId: endpointA, sessionId: "cached-active")
+      scopedID(endpointId: endpointA, sessionId: "cached-active"),
     ])
     #expect(firstGroup.cachedActiveSessionCount == 1)
     #expect(firstGroup.totalTokens == 2_200)
     #expect(firstGroup.totalCost == 1.75)
   }
 
-  @Test func liveSessionClassificationRequiresAnActiveLiveConnection() {
-    let endpointID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+  @Test func liveSessionClassificationRequiresAnActiveLiveConnection() throws {
+    let endpointID = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
 
     let live = makeSession(
       id: "live",

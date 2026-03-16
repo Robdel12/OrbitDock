@@ -99,13 +99,13 @@ enum SessionControlStateReducer {
       }
 
       switch pendingApproval {
-      case .some(let request):
-        nextState.pendingApprovalId = request.id
-        transition.approvalChange = .set(request)
-      case .none:
-        nextState.pendingApprovalId = nil
-        guard !summaryStillBlocked else { break }
-        transition.approvalChange = .clear(resetAttention: false)
+        case let .some(request):
+          nextState.pendingApprovalId = request.id
+          transition.approvalChange = .set(request)
+        case .none:
+          nextState.pendingApprovalId = nil
+          guard !summaryStillBlocked else { break }
+          transition.approvalChange = .clear(resetAttention: false)
       }
     } else if !summaryStillBlocked, current.pendingApprovalId != nil {
       nextState.pendingApprovalId = nil

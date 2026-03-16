@@ -22,7 +22,9 @@ struct WriteExpandedView: View {
     return []
   }
 
-  private var lineCount: Int { contentLines.count }
+  private var lineCount: Int {
+    contentLines.count
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {

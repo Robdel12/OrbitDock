@@ -52,6 +52,15 @@ struct DashboardView: View {
     rootSessions
   }
 
+  private var isMissionControlVisible: Bool {
+    guard case .dashboard(.missionControl) = router.route else { return false }
+    return true
+  }
+
+  private var isDashboardInteractionEnabled: Bool {
+    isMissionControlVisible && !router.showQuickSwitcher
+  }
+
   private var navigableSessions: [RootSessionNode] {
     activityStream.attention + activityStream.working + activityStream.ready
   }
@@ -121,13 +130,9 @@ struct DashboardView: View {
             width: sidebarWidth,
             projectFilter: $activeProjectFilter,
             onSelectSession: { session in
-              let message =
-                "sidebar tap scopedID=\(session.scopedID) endpoint=\(session.sessionRef.endpointId.uuidString)"
-              print("[OrbitDock][DashboardSidebar] \(message)")
-              NSLog("[OrbitDock][DashboardSidebar] %@", message)
               withAnimation(Motion.hover) {
                 dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
-                router.selectSession(session.sessionRef)
+                router.selectSession(session.sessionRef, source: .dashboardSidebar)
               }
             }
           )
@@ -218,8 +223,17 @@ struct DashboardView: View {
     .focusable()
     .focused($isDashboardFocused)
     .onAppear {
-      isDashboardFocused = true
       dashboardScrollAnchorID = router.dashboardScrollAnchorID
+      syncDashboardFocus()
+    }
+    .onChange(of: router.route) { _, _ in
+      if isMissionControlVisible {
+        dashboardScrollAnchorID = router.dashboardScrollAnchorID
+      }
+      syncDashboardFocus()
+    }
+    .onChange(of: router.showQuickSwitcher) { _, _ in
+      syncDashboardFocus()
     }
     .onChange(of: dashboardScrollAnchorID) { _, newAnchorID in
       router.dashboardScrollAnchorID = newAnchorID
@@ -230,6 +244,7 @@ struct DashboardView: View {
       }
     }
     .modifier(KeyboardNavigationModifier(
+      isEnabled: isDashboardInteractionEnabled,
       onMoveUp: { moveSelection(by: -1) },
       onMoveDown: { moveSelection(by: 1) },
       onMoveToFirst: { selectedIndex = 0 },
@@ -313,12 +328,17 @@ struct DashboardView: View {
   }
 
   private func selectCurrentSession() {
+    guard isDashboardInteractionEnabled else { return }
     guard selectedIndex >= 0, selectedIndex < navigableSessions.count else { return }
     let session = navigableSessions[selectedIndex]
     dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
     withAnimation(Motion.standard) {
-      router.selectSession(session.sessionRef)
+      router.selectSession(session.sessionRef, source: .dashboardKeyboard)
     }
+  }
+
+  private func syncDashboardFocus() {
+    isDashboardFocused = isDashboardInteractionEnabled
   }
 
   private func effectiveSidebarWidth(for containerWidth: CGFloat) -> CGFloat {
@@ -363,7 +383,10 @@ private struct DashboardSidebarResizeHandle: View {
         )
         .overlay(
           RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            .stroke(Color.surfaceBorder.opacity(isActive || isHovered ? OpacityTier.strong : OpacityTier.light), lineWidth: 1)
+            .stroke(
+              Color.surfaceBorder.opacity(isActive || isHovered ? OpacityTier.strong : OpacityTier.light),
+              lineWidth: 1
+            )
         )
         .shadow(color: Color.black.opacity(isActive ? 0.18 : 0.10), radius: isActive ? 8 : 4, y: 1)
         .opacity(isActive || isHovered ? 1.0 : 0.82)
@@ -385,8 +408,8 @@ private struct DashboardSidebarResizeHandle: View {
         isHovered = hovering
       }
     #endif
-    .accessibilityLabel("Resize sidebar")
-    .accessibilityHint("Drag to change the mission control sidebar width. Double click to reset.")
+      .accessibilityLabel("Resize sidebar")
+      .accessibilityHint("Drag to change the mission control sidebar width. Double click to reset.")
   }
 }
 

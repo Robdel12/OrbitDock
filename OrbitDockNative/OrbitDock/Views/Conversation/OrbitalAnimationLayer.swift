@@ -106,14 +106,14 @@ final class OrbitalAnimationLayer: CALayer {
     applyColors(primary: color, secondary: secondaryColor ?? color)
 
     switch state {
-    case .orbiting:
-      showOrbiting()
-    case .holding:
-      showHolding()
-    case .parked:
-      showParked()
-    case .hidden:
-      hideAll()
+      case .orbiting:
+        showOrbiting()
+      case .holding:
+        showHolding()
+      case .parked:
+        showParked()
+      case .hidden:
+        hideAll()
     }
 
     CATransaction.commit()

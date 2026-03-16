@@ -215,7 +215,10 @@ struct ContextPopoverContent: View {
             .padding(.top, Spacing.sm)
 
             HStack(spacing: Spacing.md) {
-              tokenStat("In", value: effectiveContextInputTokens(usage: usage, snapshotKind: obs.tokenUsageSnapshotKind))
+              tokenStat(
+                "In",
+                value: effectiveContextInputTokens(usage: usage, snapshotKind: obs.tokenUsageSnapshotKind)
+              )
               tokenStat("Out", value: usage.outputTokens)
               if usage.cachedTokens > 0 {
                 tokenStat("Cache", value: usage.cachedTokens)

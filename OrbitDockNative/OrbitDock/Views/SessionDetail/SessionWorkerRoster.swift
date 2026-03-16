@@ -258,24 +258,26 @@ enum SessionWorkerRosterPlanner {
     .first
   }
 
-  private static func statusPresentation(_ status: ServerSubagentStatus?) -> (label: String, color: Color, isActive: Bool, narrative: String) {
+  private static func statusPresentation(_ status: ServerSubagentStatus?)
+    -> (label: String, color: Color, isActive: Bool, narrative: String)
+  {
     switch status {
-    case .pending:
-      return ("Pending", .feedbackCaution, true, "Queued up and waiting for a turn.")
-    case .running:
-      return ("Running", .statusWorking, true, "Actively working through its assignment.")
-    case .completed:
-      return ("Complete", .feedbackPositive, false, "Finished cleanly and reported back.")
-    case .failed:
-      return ("Failed", .feedbackNegative, false, "Stopped with an error and may need attention.")
-    case .cancelled:
-      return ("Cancelled", .feedbackWarning, false, "Cancelled before it could finish.")
-    case .shutdown:
-      return ("Stopped", .textSecondary, false, "Closed down after the run ended.")
-    case .notFound:
-      return ("Unavailable", .feedbackNegative, false, "Could not be found when OrbitDock checked in.")
-    case nil:
-      return ("Known", .textSecondary, false, "Known to the session, but still waiting on more detail.")
+      case .pending:
+        ("Pending", .feedbackCaution, true, "Queued up and waiting for a turn.")
+      case .running:
+        ("Running", .statusWorking, true, "Actively working through its assignment.")
+      case .completed:
+        ("Complete", .feedbackPositive, false, "Finished cleanly and reported back.")
+      case .failed:
+        ("Failed", .feedbackNegative, false, "Stopped with an error and may need attention.")
+      case .cancelled:
+        ("Cancelled", .feedbackWarning, false, "Cancelled before it could finish.")
+      case .shutdown:
+        ("Stopped", .textSecondary, false, "Closed down after the run ended.")
+      case .notFound:
+        ("Unavailable", .feedbackNegative, false, "Could not be found when OrbitDock checked in.")
+      case nil:
+        ("Known", .textSecondary, false, "Known to the session, but still waiting on more detail.")
     }
   }
 
@@ -301,20 +303,20 @@ enum SessionWorkerRosterPlanner {
 
   private static func visuals(for agentType: String) -> (label: String, iconName: String) {
     switch agentType.lowercased() {
-    case "explore", "explorer":
-      return ("Explorer", "binoculars.fill")
-    case "plan", "planner":
-      return ("Planner", "map.fill")
-    case "worker":
-      return ("Worker", "person.crop.circle.badge.gearshape.fill")
-    case "reviewer":
-      return ("Reviewer", "checklist.checked")
-    case "researcher":
-      return ("Researcher", "magnifyingglass.circle.fill")
-    case "general-purpose":
-      return ("General", "cpu.fill")
-    default:
-      return (agentType.replacingOccurrences(of: "-", with: " ").capitalized, "person.crop.circle.fill")
+      case "explore", "explorer":
+        ("Explorer", "binoculars.fill")
+      case "plan", "planner":
+        ("Planner", "map.fill")
+      case "worker":
+        ("Worker", "person.crop.circle.badge.gearshape.fill")
+      case "reviewer":
+        ("Reviewer", "checklist.checked")
+      case "researcher":
+        ("Researcher", "magnifyingglass.circle.fill")
+      case "general-purpose":
+        ("General", "cpu.fill")
+      default:
+        (agentType.replacingOccurrences(of: "-", with: " ").capitalized, "person.crop.circle.fill")
     }
   }
 
@@ -353,34 +355,34 @@ enum SessionWorkerRosterPlanner {
     let tint: Color
 
     switch message.type {
-    case .user:
-      title = "Worker prompt"
-      iconName = "arrow.up.circle.fill"
-      tint = .accent
-    case .assistant:
-      title = "Worker reply"
-      iconName = "sparkles"
-      tint = .textPrimary
-    case .thinking:
-      title = "Reasoning"
-      iconName = "brain.head.profile"
-      tint = .textSecondary
-    case .tool, .toolResult:
-      title = message.toolName.map(Self.toolDisplayName) ?? "Tool activity"
-      iconName = ToolCardStyle.icon(for: message.toolName ?? "tool")
-      tint = ToolCardStyle.color(for: message.toolName ?? "tool")
-    case .steer:
-      title = "Steer"
-      iconName = "arrowshape.turn.up.right.fill"
-      tint = .statusReply
-    case .shell:
-      title = "Shell"
-      iconName = "terminal.fill"
-      tint = .feedbackWarning
-    case .system:
-      title = "System"
-      iconName = "info.circle.fill"
-      tint = .textSecondary
+      case .user:
+        title = "Worker prompt"
+        iconName = "arrow.up.circle.fill"
+        tint = .accent
+      case .assistant:
+        title = "Worker reply"
+        iconName = "sparkles"
+        tint = .textPrimary
+      case .thinking:
+        title = "Reasoning"
+        iconName = "brain.head.profile"
+        tint = .textSecondary
+      case .tool, .toolResult:
+        title = message.toolName.map(Self.toolDisplayName) ?? "Tool activity"
+        iconName = ToolCardStyle.icon(for: message.toolName ?? "tool")
+        tint = ToolCardStyle.color(for: message.toolName ?? "tool")
+      case .steer:
+        title = "Steer"
+        iconName = "arrowshape.turn.up.right.fill"
+        tint = .statusReply
+      case .shell:
+        title = "Shell"
+        iconName = "terminal.fill"
+        tint = .feedbackWarning
+      case .system:
+        title = "System"
+        iconName = "info.circle.fill"
+        tint = .textSecondary
     }
 
     return .init(
@@ -430,7 +432,9 @@ enum SessionWorkerRosterPlanner {
       if derivedAssignmentPreview == nil {
         if let prompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
           derivedAssignmentPreview = prompt
-        } else if let description = message.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+        } else if let description = message.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
+          .nilIfEmpty
+        {
           derivedAssignmentPreview = description
         } else {
           let trimmedContent = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -519,7 +523,7 @@ enum SessionWorkerRosterPlanner {
   }
 
   private static func matchesWorker(_ message: TranscriptMessage, workerID: String) -> Bool {
-    if Self.linkedWorkerID(for: message) == workerID {
+    if linkedWorkerID(for: message) == workerID {
       return true
     }
 
@@ -535,26 +539,26 @@ enum SessionWorkerRosterPlanner {
 
   private static func workerEventTitle(for message: TranscriptMessage) -> String {
     if let toolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-      return Self.toolDisplayName(toolName)
+      return toolDisplayName(toolName)
     }
 
     switch message.type {
-    case .assistant:
-      return "Assistant Update"
-    case .thinking:
-      return "Reasoning"
-    case .steer:
-      return "Steer"
-    case .shell:
-      return "Shell"
-    case .toolResult:
-      return "Tool Result"
-    case .system:
-      return "System"
-    case .user:
-      return "User"
-    case .tool:
-      return "Tool"
+      case .assistant:
+        return "Assistant Update"
+      case .thinking:
+        return "Reasoning"
+      case .steer:
+        return "Steer"
+      case .shell:
+        return "Shell"
+      case .toolResult:
+        return "Tool Result"
+      case .system:
+        return "System"
+      case .user:
+        return "User"
+      case .tool:
+        return "Tool"
     }
   }
 
@@ -580,16 +584,16 @@ enum SessionWorkerRosterPlanner {
   private static func toolDisplayName(_ toolName: String) -> String {
     let normalized = toolName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     switch normalized {
-    case "bash": return "Bash"
-    case "read": return "Read"
-    case "edit": return "Edit"
-    case "write": return "Write"
-    case "glob": return "Glob"
-    case "grep": return "Grep"
-    case "task", "agent", "spawn_agent": return "Agent"
-    case "webfetch": return "Fetch"
-    case "websearch": return "Search"
-    default: return toolName
+      case "bash": return "Bash"
+      case "read": return "Read"
+      case "edit": return "Edit"
+      case "write": return "Write"
+      case "glob": return "Glob"
+      case "grep": return "Grep"
+      case "task", "agent", "spawn_agent": return "Agent"
+      case "webfetch": return "Fetch"
+      case "websearch": return "Search"
+      default: return toolName
     }
   }
 
@@ -622,22 +626,22 @@ enum SessionWorkerRosterPlanner {
     }
 
     switch message.type {
-    case .assistant:
-      return "bubble.left.and.text.bubble.right.fill"
-    case .thinking:
-      return "brain"
-    case .steer:
-      return "arrow.turn.down.right"
-    case .shell:
-      return "terminal"
-    case .toolResult:
-      return "checkmark.circle"
-    case .system:
-      return "gearshape.2.fill"
-    case .user:
-      return "person.fill"
-    case .tool:
-      return "gearshape"
+      case .assistant:
+        return "bubble.left.and.text.bubble.right.fill"
+      case .thinking:
+        return "brain"
+      case .steer:
+        return "arrow.turn.down.right"
+      case .shell:
+        return "terminal"
+      case .toolResult:
+        return "checkmark.circle"
+      case .system:
+        return "gearshape.2.fill"
+      case .user:
+        return "person.fill"
+      case .tool:
+        return "gearshape"
     }
   }
 
@@ -653,12 +657,12 @@ enum SessionWorkerRosterPlanner {
     }
 
     switch message.type {
-    case .thinking:
-      return ("Reasoning", .statusQuestion)
-    case .steer:
-      return ("Guidance", .statusReply)
-    default:
-      return ("Captured", .textSecondary)
+      case .thinking:
+        return ("Reasoning", .statusQuestion)
+      case .steer:
+        return ("Guidance", .statusReply)
+      default:
+        return ("Captured", .textSecondary)
     }
   }
 
@@ -679,8 +683,8 @@ enum SessionWorkerRosterPlanner {
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter {
         !$0.isEmpty &&
-        !$0.hasPrefix("sender:") &&
-        !$0.contains("Completed(Some(")
+          !$0.hasPrefix("sender:") &&
+          !$0.contains("Completed(Some(")
       }
 
     if !filteredLines.isEmpty {
@@ -914,7 +918,10 @@ struct SessionWorkerDetailView: View {
               }
               .padding(.horizontal, Spacing.md)
               .padding(.vertical, Spacing.sm)
-              .background(Color.backgroundSecondary.opacity(0.72), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+              .background(
+                Color.backgroundSecondary.opacity(0.72),
+                in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              )
             }
           }
         }
@@ -963,7 +970,10 @@ struct SessionWorkerDetailView: View {
               .frame(maxWidth: .infinity, alignment: .leading)
               .padding(.horizontal, Spacing.md)
               .padding(.vertical, Spacing.sm)
-              .background(Color.backgroundSecondary.opacity(0.62), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+              .background(
+                Color.backgroundSecondary.opacity(0.62),
+                in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              )
             }
           }
         }
@@ -1003,7 +1013,10 @@ struct SessionWorkerDetailView: View {
                 }
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
-                .background(Color.backgroundSecondary.opacity(0.62), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                .background(
+                  Color.backgroundSecondary.opacity(0.62),
+                  in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                )
               }
               .buttonStyle(.plain)
             }
@@ -1073,7 +1086,10 @@ struct SessionWorkerDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, Spacing.md)
                 .padding(.vertical, Spacing.sm)
-                .background(Color.backgroundSecondary.opacity(0.62), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                .background(
+                  Color.backgroundSecondary.opacity(0.62),
+                  in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                )
               }
               .buttonStyle(.plain)
             }
@@ -1203,7 +1219,10 @@ struct SessionWorkerDetailView: View {
           }
           .padding(.horizontal, Spacing.md)
           .padding(.vertical, Spacing.sm)
-          .background(Color.backgroundSecondary.opacity(0.68), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+          .background(
+            Color.backgroundSecondary.opacity(0.68),
+            in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          )
         }
       }
     }
@@ -1220,7 +1239,7 @@ struct SessionWorkerDetailView: View {
   private var workerFactsGrid: some View {
     LazyVGrid(
       columns: [
-        GridItem(.adaptive(minimum: 128), alignment: .leading)
+        GridItem(.adaptive(minimum: 128), alignment: .leading),
       ],
       alignment: .leading,
       spacing: Spacing.sm
@@ -1240,17 +1259,20 @@ struct SessionWorkerDetailView: View {
         .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
-        .background(Color.backgroundTertiary.opacity(0.62), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+        .background(
+          Color.backgroundTertiary.opacity(0.62),
+          in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        )
       }
     }
   }
 
-  private func activitySection<Content: View>(
+  private func activitySection(
     title: String,
     eyebrow: String,
     icon: String,
     accent: Color,
-    @ViewBuilder content: () -> Content
+    @ViewBuilder content: () -> some View
   ) -> some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       HStack(spacing: Spacing.sm) {
@@ -1312,10 +1334,12 @@ private struct SessionWorkerEmptyState: View {
         .font(.system(size: TypeScale.title, weight: .semibold, design: .rounded))
         .foregroundStyle(Color.textPrimary)
 
-      Text("Pick a worker from the deck to inspect its report, status, and recent activity without losing the conversation.")
-        .font(.system(size: TypeScale.meta))
-        .foregroundStyle(Color.textSecondary)
-        .fixedSize(horizontal: false, vertical: true)
+      Text(
+        "Pick a worker from the deck to inspect its report, status, and recent activity without losing the conversation."
+      )
+      .font(.system(size: TypeScale.meta))
+      .foregroundStyle(Color.textSecondary)
+      .fixedSize(horizontal: false, vertical: true)
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.xl)

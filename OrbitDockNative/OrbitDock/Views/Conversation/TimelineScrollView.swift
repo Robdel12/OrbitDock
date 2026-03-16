@@ -46,9 +46,9 @@ struct TimelineScrollView: View {
     var h = entries.count
     if let last = entries.last {
       switch last.row {
-      case let .assistant(msg): h = h &* 31 &+ msg.content.count
-      case let .thinking(msg): h = h &* 31 &+ msg.content.count
-      default: break
+        case let .assistant(msg): h = h &* 31 &+ msg.content.count
+        case let .thinking(msg): h = h &* 31 &+ msg.content.count
+        default: break
       }
     }
     return h
@@ -169,19 +169,19 @@ struct TimelineScrollView: View {
   /// Returns the ID used for expand/collapse state, if the row type supports it.
   private static func expandableId(for entry: ServerConversationRowEntry) -> String? {
     switch entry.row {
-    case let .tool(toolRow): toolRow.id
-    case let .thinking(msg): msg.id
-    case let .activityGroup(group): group.id
-    default: nil
+      case let .tool(toolRow): toolRow.id
+      case let .thinking(msg): msg.id
+      case let .activityGroup(group): group.id
+      default: nil
     }
   }
 
   /// Returns the ID used for fetching expanded content, if applicable.
   private static func fetchableId(for entry: ServerConversationRowEntry) -> String? {
     switch entry.row {
-    case let .tool(toolRow): toolRow.id
-    case let .activityGroup(group): group.id
-    default: nil
+      case let .tool(toolRow): toolRow.id
+      case let .activityGroup(group): group.id
+      default: nil
     }
   }
 }

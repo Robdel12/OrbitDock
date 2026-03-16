@@ -24,9 +24,9 @@ struct CodeViewport<Content: View>: View {
   /// Platform-adaptive default viewport height
   private static var defaultViewportHeight: CGFloat {
     #if os(iOS)
-    260
+      260
     #else
-    350
+      350
     #endif
   }
 

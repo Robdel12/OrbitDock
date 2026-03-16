@@ -93,11 +93,11 @@ struct NewSessionFormSections<
         continuationSection(continuation)
       }
 
-      if isCodexProvider && shouldShowAuthGate {
+      if isCodexProvider, shouldShowAuthGate {
         authGateSection()
       }
 
-      if isCodexProvider && shouldShowCodexCapabilityNotice {
+      if isCodexProvider, shouldShowCodexCapabilityNotice {
         codexCapabilityNoticeSection()
       }
 

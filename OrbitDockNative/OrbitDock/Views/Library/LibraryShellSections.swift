@@ -285,9 +285,9 @@ struct LibraryHeaderSection: View {
     )
   }
 
-  private func filterSection<Content: View>(
+  private func filterSection(
     title: String,
-    @ViewBuilder content: () -> Content
+    @ViewBuilder content: () -> some View
   ) -> some View {
     VStack(alignment: .leading, spacing: Spacing.xs) {
       libraryFilterLabel(title)

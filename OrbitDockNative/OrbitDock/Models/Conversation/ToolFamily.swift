@@ -35,8 +35,8 @@ nonisolated enum ToolFamily: String, Hashable, Sendable, CaseIterable {
         let suffixStr = String(suffix)
         switch suffixStr {
           case "todowrite", "todo_write", "taskcreate", "task_create",
-            "taskupdate", "task_update", "tasklist", "task_list",
-            "taskget", "task_get":
+               "taskupdate", "task_update", "tasklist", "task_list",
+               "taskget", "task_get":
             return .plan
           default:
             break
@@ -46,11 +46,10 @@ nonisolated enum ToolFamily: String, Hashable, Sendable, CaseIterable {
     }
 
     // Colon-separated names — use the suffix
-    let normalized: String
-    if lowered.contains(":"), let suffix = lowered.split(separator: ":").last {
-      normalized = String(suffix)
+    let normalized: String = if lowered.contains(":"), let suffix = lowered.split(separator: ":").last {
+      String(suffix)
     } else {
-      normalized = lowered
+      lowered
     }
 
     switch normalized {
@@ -61,14 +60,14 @@ nonisolated enum ToolFamily: String, Hashable, Sendable, CaseIterable {
       case "glob", "grep", "toolsearch", "tool_search", "compactcontext":
         return .search
       case "task", "agent", "spawn_agent", "send_input", "wait", "handoff",
-        "resume_agent", "close_agent":
+           "resume_agent", "close_agent":
         return .agent
       case "askuserquestion", "question":
         return .question
       case "enterplanmode", "exitplanmode", "plan", "update_plan",
-        "todowrite", "todo_write", "taskcreate", "task_create",
-        "taskupdate", "task_update", "tasklist", "task_list",
-        "taskget", "task_get":
+           "todowrite", "todo_write", "taskcreate", "task_create",
+           "taskupdate", "task_update", "tasklist", "task_list",
+           "taskget", "task_get":
         return .plan
       case "hook":
         return .hook

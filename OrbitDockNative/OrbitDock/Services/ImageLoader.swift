@@ -56,14 +56,14 @@ final class ImageLoader: Sendable {
 
   private func resolve(_ image: MessageImage) async -> PlatformImage? {
     switch image.source {
-    case let .filePath(path):
-      loadFromFile(path)
-    case let .dataURI(uri):
-      decodeDataURI(uri)
-    case let .inlineData(data):
-      decodePlatformImage(from: data)
-    case let .serverAttachment(ref):
-      await downloadAttachment(ref)
+      case let .filePath(path):
+        loadFromFile(path)
+      case let .dataURI(uri):
+        decodeDataURI(uri)
+      case let .inlineData(data):
+        decodePlatformImage(from: data)
+      case let .serverAttachment(ref):
+        await downloadAttachment(ref)
     }
   }
 
@@ -99,9 +99,16 @@ final class ImageLoader: Sendable {
       )
       return decodePlatformImage(from: data)
     } catch {
-      netLog(.error, cat: .api, "Failed to download image attachment",
-             data: ["sessionId": ref.sessionId, "attachmentId": ref.attachmentId,
-                    "error": error.localizedDescription])
+      netLog(
+        .error,
+        cat: .api,
+        "Failed to download image attachment",
+        data: [
+          "sessionId": ref.sessionId,
+          "attachmentId": ref.attachmentId,
+          "error": error.localizedDescription,
+        ]
+      )
       return nil
     }
   }

@@ -87,7 +87,8 @@ struct ToolSearchExpandedView: View {
   private func parseTools(_ output: String) -> [FoundTool] {
     // Try JSON format
     if let data = output.data(using: .utf8),
-       let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+       let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+    {
       return array.compactMap { dict in
         guard let name = dict["name"] as? String else { return nil }
         return FoundTool(name: name, description: dict["description"] as? String)

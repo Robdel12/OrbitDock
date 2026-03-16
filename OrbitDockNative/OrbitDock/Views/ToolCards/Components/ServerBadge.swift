@@ -23,8 +23,13 @@ struct ServerBadge: View {
       .capitalized
   }
 
-  private var color: Color { ToolCardStyle.mcpServerColor(serverName) }
-  private var icon: String { ToolCardStyle.mcpServerIcon(serverName) }
+  private var color: Color {
+    ToolCardStyle.mcpServerColor(serverName)
+  }
+
+  private var icon: String {
+    ToolCardStyle.mcpServerIcon(serverName)
+  }
 
   var body: some View {
     HStack(spacing: Spacing.xs) {

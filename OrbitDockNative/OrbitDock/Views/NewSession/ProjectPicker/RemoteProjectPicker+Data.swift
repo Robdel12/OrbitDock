@@ -37,12 +37,20 @@ extension RemoteProjectPicker {
 
       do {
         let projects = try await resolved.port.listRecentProjects()
-        guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: recentProjectsRequestId)
+        guard shouldApplyResponse(
+          requestId: requestId,
+          requestEndpointId: requestEndpointId,
+          activeRequestId: recentProjectsRequestId
+        )
         else { return }
         recentProjects = projects
       } catch {
         remoteProjectPickerLogger.error("Failed to load recent projects: \(error.localizedDescription)")
-        guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: recentProjectsRequestId)
+        guard shouldApplyResponse(
+          requestId: requestId,
+          requestEndpointId: requestEndpointId,
+          activeRequestId: recentProjectsRequestId
+        )
         else { return }
         recentProjects = []
       }
@@ -85,7 +93,11 @@ extension RemoteProjectPicker {
 
       do {
         let (browsedPath, entries) = try await resolved.port.browseDirectory(path ?? "")
-        guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: browseRequestId)
+        guard shouldApplyResponse(
+          requestId: requestId,
+          requestEndpointId: requestEndpointId,
+          activeRequestId: browseRequestId
+        )
         else { return }
 
         let projection = ProjectPickerPlanner.applyBrowseResponse(
@@ -98,7 +110,11 @@ extension RemoteProjectPicker {
         applyBrowseProjection(projection)
       } catch {
         remoteProjectPickerLogger.error("Failed to browse directory: \(error.localizedDescription)")
-        guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: browseRequestId)
+        guard shouldApplyResponse(
+          requestId: requestId,
+          requestEndpointId: requestEndpointId,
+          activeRequestId: browseRequestId
+        )
         else { return }
         directoryEntries = []
       }
@@ -141,7 +157,11 @@ extension RemoteProjectPicker {
 
       do {
         let (browsedPath, entries) = try await resolved.port.browseDirectory(previous.isEmpty ? "" : previous)
-        guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: browseRequestId)
+        guard shouldApplyResponse(
+          requestId: requestId,
+          requestEndpointId: requestEndpointId,
+          activeRequestId: browseRequestId
+        )
         else { return }
         guard let projection = ProjectPickerPlanner.applyNavigateBackResponse(
           browseHistory: browseHistory,
@@ -151,7 +171,11 @@ extension RemoteProjectPicker {
         applyBrowseProjection(projection)
       } catch {
         remoteProjectPickerLogger.error("Failed to navigate back in directory browser: \(error.localizedDescription)")
-        guard shouldApplyResponse(requestId: requestId, requestEndpointId: requestEndpointId, activeRequestId: browseRequestId)
+        guard shouldApplyResponse(
+          requestId: requestId,
+          requestEndpointId: requestEndpointId,
+          activeRequestId: browseRequestId
+        )
         else { return }
         directoryEntries = []
       }

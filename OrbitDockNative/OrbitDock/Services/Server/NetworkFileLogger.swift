@@ -24,10 +24,10 @@ final class NetworkFileLogger: @unchecked Sendable {
 
   /// Source component that produced the log entry.
   enum Category: String {
-    case api     // HTTP server client requests
-    case ws      // ServerConnection WebSocket
-    case store   // SessionStore event routing & actions
-    case conv    // ConversationStore loading pipeline
+    case api // HTTP server client requests
+    case ws // ServerConnection WebSocket
+    case store // SessionStore event routing & actions
+    case conv // ConversationStore loading pipeline
     case circuit // ConnectionCircuitBreaker state changes
   }
 

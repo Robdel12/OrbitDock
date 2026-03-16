@@ -34,7 +34,7 @@ struct OrbitDockWindowRoot: View {
       }
     }
     #if os(macOS)
-      .environment(\.serverManager, appRuntime.serverManager)
+    .environment(\.serverManager, appRuntime.serverManager)
     #endif
     .environment(appRuntime.runtimeRegistry)
     .environment(appRuntime.usageServiceRegistry)
@@ -56,32 +56,34 @@ struct OrbitDockWindowRoot: View {
     .preferredColorScheme(.dark)
     .toolbar(.hidden)
     .onChange(of: router.route) { oldRoute, newRoute in
-      switch newRoute {
-      case let .session(ref):
-        // Unsubscribe from previous session before subscribing to the new one
-        if case let .session(oldRef) = oldRoute {
-          detailSessionStore(for: oldRef.endpointId)
-            .unsubscribeFromSession(oldRef.sessionId)
-        }
-        navigationPath = NavigationPath([ref])
-        detailSessionStore(for: ref.endpointId)
-          .subscribeToSession(ref.sessionId)
+      guard oldRoute != newRoute else { return }
 
-      case .dashboard:
-        // Pop instantly — no slide animation. Unsubscribe after the view
-        // is removed so clearing the store doesn't trigger competing
-        // animations inside the outgoing ConversationView.
-        var t = Transaction(animation: nil)
-        t.disablesAnimations = true
-        withTransaction(t) {
-          navigationPath = NavigationPath()
-        }
-        if case let .session(oldRef) = oldRoute {
-          Task { @MainActor in
+      switch newRoute {
+        case let .session(ref):
+          // Unsubscribe from previous session before subscribing to the new one
+          if case let .session(oldRef) = oldRoute {
             detailSessionStore(for: oldRef.endpointId)
               .unsubscribeFromSession(oldRef.sessionId)
           }
-        }
+          navigationPath = NavigationPath([ref])
+          detailSessionStore(for: ref.endpointId)
+            .subscribeToSession(ref.sessionId)
+
+        case .dashboard:
+          // Pop instantly — no slide animation. Unsubscribe after the view
+          // is removed so clearing the store doesn't trigger competing
+          // animations inside the outgoing ConversationView.
+          var t = Transaction(animation: nil)
+          t.disablesAnimations = true
+          withTransaction(t) {
+            navigationPath = NavigationPath()
+          }
+          if case let .session(oldRef) = oldRoute {
+            Task { @MainActor in
+              detailSessionStore(for: oldRef.endpointId)
+                .unsubscribeFromSession(oldRef.sessionId)
+            }
+          }
       }
     }
     .sheet(isPresented: Binding(

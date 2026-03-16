@@ -296,5 +296,7 @@ struct AttachmentBar: View {
 private struct AttachmentPreviewSelection: Identifiable {
   let index: Int
 
-  var id: Int { index }
+  var id: Int {
+    index
+  }
 }

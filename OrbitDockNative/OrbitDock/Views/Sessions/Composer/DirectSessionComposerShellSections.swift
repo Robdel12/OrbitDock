@@ -27,7 +27,13 @@ struct DirectSessionComposerShell<Leading: View, ActiveSurface: View, Resume: Vi
   }
 }
 
-struct DirectSessionComposerSurface<TopSections: View, Input: View, Footer: View, BottomSections: View, DropOverlay: View>:
+struct DirectSessionComposerSurface<
+  TopSections: View,
+  Input: View,
+  Footer: View,
+  BottomSections: View,
+  DropOverlay: View
+>:
   View
 {
   let composerBorderColor: Color

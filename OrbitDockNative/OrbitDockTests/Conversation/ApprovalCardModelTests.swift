@@ -692,7 +692,7 @@ struct ApprovalCardModelTests {
     #expect(model?.approvalType == .permissions)
     #expect(model?.toolName == "Permissions")
     #expect(model?.permissionRequest?.reason == "Codex needs broader access to complete this step.")
-    #expect(model?.permissionRequest?.groups.map { $0.title } == ["Network", "Filesystem", "macOS"])
+    #expect(model?.permissionRequest?.groups.map(\.title) == ["Network", "Filesystem", "macOS"])
   }
 }
 

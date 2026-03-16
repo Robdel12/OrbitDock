@@ -197,7 +197,6 @@ struct NewSessionSheet: View {
 
   // MARK: - Form Content
 
-  @ViewBuilder
   private var formContent: some View {
     NewSessionFormShell {
       formSections
@@ -270,7 +269,6 @@ struct NewSessionSheet: View {
 
   // MARK: - Auth Gate (Codex only)
 
-  @ViewBuilder
   private func continuationSection(_ continuation: SessionContinuation) -> some View {
     NewSessionContinuationSection(
       continuation: continuation,

@@ -115,7 +115,6 @@ struct QuickSwitcherCommandsSection<Row: View>: View {
     }
   }
 
-  @ViewBuilder
   private func sectionHeader(title: String, icon: String) -> some View {
     HStack(spacing: Spacing.xs) {
       Image(systemName: icon)
@@ -148,7 +147,6 @@ struct QuickSwitcherActiveSessionsSection<Row: View>: View {
     }
   }
 
-  @ViewBuilder
   private func sectionHeader(title: String, icon: String, tint: Color) -> some View {
     HStack(spacing: Spacing.xs) {
       Image(systemName: icon)

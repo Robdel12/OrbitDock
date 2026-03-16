@@ -169,7 +169,7 @@ private struct FileTreeNodeView: View {
         HStack(spacing: Spacing.sm_) {
           // Indentation guide
           if depth > 0 {
-            ForEach(0..<depth, id: \.self) { _ in
+            ForEach(0 ..< depth, id: \.self) { _ in
               Rectangle()
                 .fill(Color.textQuaternary.opacity(0.12))
                 .frame(width: 1)
@@ -213,7 +213,7 @@ private struct FileTreeNodeView: View {
   private var fileNode: some View {
     HStack(spacing: Spacing.sm_) {
       if depth > 0 {
-        ForEach(0..<depth, id: \.self) { _ in
+        ForEach(0 ..< depth, id: \.self) { _ in
           Rectangle()
             .fill(Color.textQuaternary.opacity(0.12))
             .frame(width: 1)
@@ -239,28 +239,28 @@ private struct FileTreeNodeView: View {
   private func fileIcon(for name: String) -> String {
     let ext = name.components(separatedBy: ".").last?.lowercased() ?? ""
     switch ext {
-    case "swift": return "swift"
-    case "rs": return "gearshape"
-    case "ts", "tsx", "js", "jsx": return "chevron.left.forwardslash.chevron.right"
-    case "json", "yaml", "yml", "toml": return "doc.text"
-    case "md": return "doc.richtext"
-    case "png", "jpg", "svg": return "photo"
-    default: return "doc.text"
+      case "swift": return "swift"
+      case "rs": return "gearshape"
+      case "ts", "tsx", "js", "jsx": return "chevron.left.forwardslash.chevron.right"
+      case "json", "yaml", "yml", "toml": return "doc.text"
+      case "md": return "doc.richtext"
+      case "png", "jpg", "svg": return "photo"
+      default: return "doc.text"
     }
   }
 
   private func fileColor(for name: String) -> Color {
     let ext = name.components(separatedBy: ".").last?.lowercased() ?? ""
     switch ext {
-    case "swift": return .langSwift
-    case "rs": return .langRust
-    case "ts", "tsx": return .langJavaScript
-    case "js", "jsx": return .langJavaScript
-    case "py": return .langPython
-    case "go": return .langGo
-    case "json": return .langJSON
-    case "md": return .toolRead
-    default: return .toolSearch.opacity(0.5)
+      case "swift": return .langSwift
+      case "rs": return .langRust
+      case "ts", "tsx": return .langJavaScript
+      case "js", "jsx": return .langJavaScript
+      case "py": return .langPython
+      case "go": return .langGo
+      case "json": return .langJSON
+      case "md": return .toolRead
+      default: return .toolSearch.opacity(0.5)
     }
   }
 }

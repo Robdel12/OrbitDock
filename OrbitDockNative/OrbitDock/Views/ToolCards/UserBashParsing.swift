@@ -207,12 +207,11 @@ struct ParsedShellContext {
     let contextBody = extractTag("shell-context", from: content)
     guard !contextBody.isEmpty else { return nil }
 
-    let userPrompt: String
-    if let closeRange = content.range(of: "</shell-context>") {
-      userPrompt = String(content[closeRange.upperBound...])
+    let userPrompt = if let closeRange = content.range(of: "</shell-context>") {
+      String(content[closeRange.upperBound...])
         .trimmingCharacters(in: .whitespacesAndNewlines)
     } else {
-      userPrompt = ""
+      ""
     }
 
     let allLines = contextBody.components(separatedBy: "\n")

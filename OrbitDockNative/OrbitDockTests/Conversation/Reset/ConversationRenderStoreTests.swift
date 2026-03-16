@@ -1,5 +1,5 @@
-import XCTest
 @testable import OrbitDock
+import XCTest
 
 @MainActor
 final class ConversationRenderStoreTests: XCTestCase {
@@ -34,9 +34,16 @@ final class ConversationRenderStoreTests: XCTestCase {
             id: "message-1",
             session: session,
             kind: .message,
-            payload: .message(.init(messageID: "message-1", role: .assistant, speaker: "Assistant", text: "Hello", timestamp: nil, contentSignature: 1)),
+            payload: .message(.init(
+              messageID: "message-1",
+              role: .assistant,
+              speaker: "Assistant",
+              text: "Hello",
+              timestamp: nil,
+              contentSignature: 1
+            )),
             sequence: 1
-          )
+          ),
         ],
         oldestLoadedSequence: 1,
         newestLoadedSequence: 1,
@@ -45,13 +52,13 @@ final class ConversationRenderStoreTests: XCTestCase {
     )
 
     store.applyStreaming([
-      StreamingMessageState(session: session, messageID: "message-1", content: "Hello")
+      StreamingMessageState(session: session, messageID: "message-1", content: "Hello"),
     ])
     XCTAssertEqual(store.streamingMessages["message-1"]?.content, "Hello")
     XCTAssertEqual(store.rows.map(\.id), ["message-1"])
 
     store.applyStreaming([
-      StreamingMessageState(session: session, messageID: "message-1", content: "Hello world", isFinal: true)
+      StreamingMessageState(session: session, messageID: "message-1", content: "Hello world", isFinal: true),
     ])
 
     XCTAssertNil(store.streamingMessages["message-1"])

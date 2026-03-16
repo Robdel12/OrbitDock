@@ -1,5 +1,5 @@
-@testable import OrbitDock
 import Foundation
+@testable import OrbitDock
 import Testing
 
 struct AppRuntimeModeTests {

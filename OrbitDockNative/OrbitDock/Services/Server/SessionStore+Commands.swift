@@ -67,10 +67,16 @@ extension SessionStore {
     scope: ServerPermissionGrantScope,
     grantRequestedPermissions: Bool
   ) async throws {
-    netLog(.info, cat: .store, "Respond to permission request", sid: sessionId, data: ["requestId": requestId, "scope": scope.rawValue])
+    netLog(
+      .info,
+      cat: .store,
+      "Respond to permission request",
+      sid: sessionId,
+      data: ["requestId": requestId, "scope": scope.rawValue]
+    )
     let permissionsPayload: [ServerPermissionDescriptor]? = if grantRequestedPermissions,
-      let approval = session(sessionId).pendingApproval,
-      approval.id == requestId
+                                                               let approval = session(sessionId).pendingApproval,
+                                                               approval.id == requestId
     {
       approval.requestedPermissions
     } else {
@@ -83,7 +89,9 @@ extension SessionStore {
     _ = try await clients.approvals.respondToPermissionRequest(sessionId, request: request)
   }
 
-  func createSession(_ request: SessionsClient.CreateSessionRequest) async throws -> SessionsClient.CreateSessionResponse {
+  func createSession(_ request: SessionsClient.CreateSessionRequest) async throws -> SessionsClient
+    .CreateSessionResponse
+  {
     netLog(.info, cat: .store, "Create session", data: ["provider": request.provider, "cwd": request.cwd])
     return try await clients.sessions.createSession(request)
   }
@@ -374,7 +382,12 @@ extension SessionStore {
           let worktrees = try await clients.worktrees.listWorktrees(repoRoot: root)
           worktreesByRepo[root] = worktrees
         } catch {
-          netLog(.error, cat: .store, "List worktrees failed", data: ["repoRoot": root, "error": error.localizedDescription])
+          netLog(
+            .error,
+            cat: .store,
+            "List worktrees failed",
+            data: ["repoRoot": root, "error": error.localizedDescription]
+          )
         }
       }
     }
@@ -389,11 +402,11 @@ extension SessionStore {
   }
 
   func refreshCodexModels() {
-    Task { codexModels = (try? await clients.usage.listCodexModels()) ?? codexModels }
+    Task { codexModels = await (try? clients.usage.listCodexModels()) ?? codexModels }
   }
 
   func refreshClaudeModels() {
-    Task { claudeModels = (try? await clients.usage.listClaudeModels()) ?? claudeModels }
+    Task { claudeModels = await (try? clients.usage.listClaudeModels()) ?? claudeModels }
   }
 
   func handleMemoryPressure() {

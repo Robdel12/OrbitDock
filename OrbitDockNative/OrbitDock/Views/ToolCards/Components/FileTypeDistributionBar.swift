@@ -24,7 +24,9 @@ struct FileTypeDistributionBar: View {
       .map { (ext: $0.key, count: $0.value, color: FileLanguageMapping.color(for: "file.\($0.key)")) }
   }
 
-  private var total: Int { files.count }
+  private var total: Int {
+    files.count
+  }
 
   var body: some View {
     if total > 0 {

@@ -46,10 +46,10 @@ struct ServerSessionListRefreshTests {
     isDefault: Bool,
     port: Int
   ) throws -> ServerEndpoint {
-    ServerEndpoint(
-      id: try #require(UUID(uuidString: id)),
+    try ServerEndpoint(
+      id: #require(UUID(uuidString: id)),
       name: name,
-      wsURL: try #require(URL(string: "ws://127.0.0.1:\(port)/ws")),
+      wsURL: #require(URL(string: "ws://127.0.0.1:\(port)/ws")),
       isLocalManaged: true,
       isEnabled: isEnabled,
       isDefault: isDefault

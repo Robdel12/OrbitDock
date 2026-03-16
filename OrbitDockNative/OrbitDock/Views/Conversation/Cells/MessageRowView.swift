@@ -20,26 +20,26 @@ struct MessageRowView: View {
 
     var label: String {
       switch self {
-      case .user: "You"
-      case .assistant: "Assistant"
-      case .system: "System"
+        case .user: "You"
+        case .assistant: "Assistant"
+        case .system: "System"
       }
     }
 
     var color: Color {
       switch self {
-      case .user: .accent
-      case .assistant: .accent
-      case .system: .textQuaternary
+        case .user: .accent
+        case .assistant: .accent
+        case .system: .textQuaternary
       }
     }
   }
 
   var body: some View {
     switch role {
-    case .user: userMessage
-    case .assistant: assistantMessage
-    case .system: systemMessage
+      case .user: userMessage
+      case .assistant: assistantMessage
+      case .system: systemMessage
     }
   }
 

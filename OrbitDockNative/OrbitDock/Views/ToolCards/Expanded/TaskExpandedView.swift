@@ -21,7 +21,7 @@ struct TaskExpandedView: View {
   private var agentType: String? {
     guard let subtitle = toolRow.toolDisplay.subtitle ?? toolRow.subtitle else { return nil }
     if let dashRange = subtitle.range(of: " — ") {
-      return String(subtitle[subtitle.startIndex..<dashRange.lowerBound])
+      return String(subtitle[subtitle.startIndex ..< dashRange.lowerBound])
     }
     // Subtitle might be just the type name if no description
     return subtitle.isEmpty ? nil : subtitle
@@ -47,18 +47,18 @@ struct TaskExpandedView: View {
 
   private var agentIcon: String {
     switch agentType?.lowercased() {
-    case "explore": return "binoculars"
-    case "plan": return "map"
-    case "general-purpose": return "cpu"
-    default: return "person.2.fill"
+      case "explore": "binoculars"
+      case "plan": "map"
+      case "general-purpose": "cpu"
+      default: "person.2.fill"
     }
   }
 
   private var agentColor: Color {
     switch agentType?.lowercased() {
-    case "explore": return .toolSearch
-    case "plan": return .toolPlan
-    default: return .toolTask
+      case "explore": .toolSearch
+      case "plan": .toolPlan
+      default: .toolTask
     }
   }
 
@@ -258,8 +258,8 @@ struct TaskExpandedView: View {
   }
 
   private func formatDuration(_ ms: UInt64) -> String {
-    if ms < 1000 { return "\(ms)ms" }
-    let seconds = Double(ms) / 1000
+    if ms < 1_000 { return "\(ms)ms" }
+    let seconds = Double(ms) / 1_000
     if seconds < 60 { return String(format: "%.1fs", seconds) }
     let minutes = Int(seconds) / 60
     let secs = Int(seconds) % 60

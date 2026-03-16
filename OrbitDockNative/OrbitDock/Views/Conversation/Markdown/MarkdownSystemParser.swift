@@ -75,7 +75,9 @@ enum MarkdownSystemParser {
     switch markup {
       case let codeBlock as CodeBlock:
         var code = codeBlock.code
-        while code.hasSuffix("\n") { code = String(code.dropLast()) }
+        while code.hasSuffix("\n") {
+          code = String(code.dropLast())
+        }
         blocks.append(.codeBlock(language: MarkdownLanguage.normalize(codeBlock.language), code: code))
 
       case let table as Markdown.Table:
@@ -111,7 +113,9 @@ enum MarkdownSystemParser {
         if !text.isEmpty { blocks.append(.text(text)) }
 
       default:
-        for child in markup.children { appendBlock(from: child, style: style, into: &blocks) }
+        for child in markup.children {
+          appendBlock(from: child, style: style, into: &blocks)
+        }
     }
   }
 
@@ -137,7 +141,9 @@ enum MarkdownSystemParser {
           let t = blockquoteText(from: nested)
           if !t.isEmpty { parts.append(t) }
         case let code as CodeBlock:
-          var c = code.code; while c.hasSuffix("\n") { c = String(c.dropLast()) }
+          var c = code.code; while c.hasSuffix("\n") {
+            c = String(c.dropLast())
+          }
           if !c.isEmpty { parts.append(c) }
         default:
           let t = markdownSource(for: child).trimmingCharacters(in: .newlines)

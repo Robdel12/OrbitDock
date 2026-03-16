@@ -89,8 +89,10 @@ final class ServerRuntime: Identifiable {
 
   func reconnect() {
     guard endpoint.isEnabled else { return }
-    stop()
     sessionStore.startProcessingEvents()
+    if isStarted {
+      connection.disconnect()
+    }
     connection.connect(to: endpoint.wsURL)
     isStarted = true
   }

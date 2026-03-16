@@ -50,7 +50,8 @@ struct HookExpandedView: View {
       // Show raw input as code block only if there are no structured fields
       let info2 = hookInfo
       if let input = content.inputDisplay, !input.isEmpty,
-         info2.name == nil, info2.event == nil, info2.phase == nil, durationString == nil {
+         info2.name == nil, info2.event == nil, info2.phase == nil, durationString == nil
+      {
         codeBlock(label: "Hook Event", text: input)
       }
 
@@ -70,17 +71,17 @@ struct HookExpandedView: View {
 
   private func entryIcon(_ kind: String?) -> String {
     switch kind {
-    case "pass", "success": return "checkmark.circle.fill"
-    case "fail", "error": return "xmark.circle.fill"
-    default: return "circle.fill"
+      case "pass", "success": "checkmark.circle.fill"
+      case "fail", "error": "xmark.circle.fill"
+      default: "circle.fill"
     }
   }
 
   private func entryColor(_ kind: String?) -> Color {
     switch kind {
-    case "pass", "success": return .feedbackPositive
-    case "fail", "error": return .feedbackNegative
-    default: return .textQuaternary
+      case "pass", "success": .feedbackPositive
+      case "fail", "error": .feedbackNegative
+      default: .textQuaternary
     }
   }
 

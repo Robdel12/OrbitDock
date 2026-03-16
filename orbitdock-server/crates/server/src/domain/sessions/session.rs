@@ -15,6 +15,7 @@ use orbitdock_protocol::{
     SessionSummary, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
     WorkStatus,
 };
+use serde::Serialize;
 use tokio::sync::broadcast;
 use tracing::info;
 
@@ -97,6 +98,23 @@ fn fallback_tool_input(approval: &ApprovalRequest) -> Option<String> {
     } else {
         Some(serde_json::Value::Object(payload).to_string())
     }
+}
+
+fn serialized_value_eq<T: Serialize>(left: &T, right: &T) -> bool {
+    serde_json::to_value(left).ok() == serde_json::to_value(right).ok()
+}
+
+fn approval_requests_effectively_equal(left: &ApprovalRequest, right: &ApprovalRequest) -> bool {
+    serialized_value_eq(left, right)
+}
+
+fn pending_approval_entries_effectively_equal(
+    left: &PendingApprovalEntry,
+    right: &PendingApprovalEntry,
+) -> bool {
+    left.approval_type == right.approval_type
+        && left.proposed_amendment == right.proposed_amendment
+        && approval_requests_effectively_equal(&left.request, &right.request)
 }
 
 fn parse_bool_value(value: Option<&serde_json::Value>) -> bool {
@@ -331,6 +349,7 @@ pub struct SessionSnapshot {
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
     pub revision: u64,
+    pub current_plan: Option<String>,
     pub git_branch: Option<String>,
     pub git_sha: Option<String>,
     pub current_cwd: Option<String>,
@@ -356,6 +375,13 @@ struct PendingApprovalEntry {
     request: ApprovalRequest,
     approval_type: ApprovalType,
     proposed_amendment: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingApprovalMutation {
+    Unchanged,
+    Updated,
+    Enqueued,
 }
 
 const EVENT_LOG_CAPACITY: usize = 1000;
@@ -641,6 +667,7 @@ impl SessionHandle {
             started_at: Some(now.clone()),
             last_activity_at: Some(now.clone()),
             revision: 0,
+            current_plan: None,
             git_branch: None,
             git_sha: None,
             current_cwd: None,
@@ -799,6 +826,7 @@ impl SessionHandle {
             started_at: started_at.clone(),
             last_activity_at: last_activity_at.clone(),
             revision: 0,
+            current_plan: current_plan.clone(),
             git_branch: git_branch.clone(),
             git_sha: git_sha.clone(),
             current_cwd: current_cwd.clone(),
@@ -1503,24 +1531,40 @@ impl SessionHandle {
         self.approval_version
     }
 
+    fn is_active_pending_approval(&self, entry: &PendingApprovalEntry) -> bool {
+        self.pending_approval
+            .as_ref()
+            .is_some_and(|current| approval_requests_effectively_equal(current, &entry.request))
+            && self.pending_tool_name == fallback_tool_name(&entry.request)
+            && self.pending_tool_input == fallback_tool_input(&entry.request)
+            && self.pending_question.as_deref() == entry.request.question.as_deref()
+            && self.pending_approval_id.as_deref() == Some(entry.request.id.as_str())
+            && self.work_status == Self::work_status_for_approval_type(entry.approval_type)
+    }
+
     fn queue_pending_approval(
         &mut self,
         approval: ApprovalRequest,
         approval_type: ApprovalType,
         proposed_amendment: Option<Vec<String>>,
-    ) {
+    ) -> PendingApprovalMutation {
         let normalized_request_id = normalize_request_id(&approval.id).to_string();
+        let next_entry = PendingApprovalEntry {
+            request: approval,
+            approval_type,
+            proposed_amendment,
+        };
         if let Some(index) = self
             .pending_approvals
             .iter()
             .position(|entry| normalize_request_id(&entry.request.id) == normalized_request_id)
         {
             if let Some(existing) = self.pending_approvals.get_mut(index) {
-                existing.request = approval;
-                existing.approval_type = approval_type;
-                existing.proposed_amendment = proposed_amendment;
+                if pending_approval_entries_effectively_equal(existing, &next_entry) {
+                    return PendingApprovalMutation::Unchanged;
+                }
+                *existing = next_entry;
             }
-            // Update in place — still bump version since state changed.
             self.approval_version += 1;
             info!(
                 component = "approval",
@@ -1528,18 +1572,14 @@ impl SessionHandle {
                 session_id = %self.id,
                 request_id = %normalized_request_id,
                 approval_version = self.approval_version,
-                approval_type = ?approval_type,
+                approval_type = ?self.pending_approvals[index].approval_type,
                 queue_depth = self.pending_approvals.len(),
                 "Approval request updated in place"
             );
-            return;
+            return PendingApprovalMutation::Updated;
         }
 
-        self.pending_approvals.push_back(PendingApprovalEntry {
-            request: approval,
-            approval_type,
-            proposed_amendment,
-        });
+        self.pending_approvals.push_back(next_entry);
         self.approval_version += 1;
         info!(
             component = "approval",
@@ -1547,14 +1587,18 @@ impl SessionHandle {
             session_id = %self.id,
             request_id = %normalized_request_id,
             approval_version = self.approval_version,
-            approval_type = ?approval_type,
+            approval_type = ?self.pending_approvals.back().map(|entry| entry.approval_type).unwrap_or(approval_type),
             queue_depth = self.pending_approvals.len(),
             "Approval request enqueued"
         );
+        PendingApprovalMutation::Enqueued
     }
 
     fn promote_queue_front(&mut self) {
         if let Some(entry) = self.pending_approvals.front() {
+            if self.is_active_pending_approval(entry) {
+                return;
+            }
             self.pending_approval = Some(entry.request.clone());
             self.pending_tool_name = fallback_tool_name(&entry.request);
             self.pending_tool_input = fallback_tool_input(&entry.request);
@@ -1574,6 +1618,14 @@ impl SessionHandle {
             return;
         }
 
+        let had_active_pending = self.pending_approval.is_some()
+            || self.pending_tool_name.is_some()
+            || self.pending_tool_input.is_some()
+            || self.pending_question.is_some()
+            || self.pending_approval_id.is_some();
+        if !had_active_pending {
+            return;
+        }
         self.pending_approval = None;
         self.pending_tool_name = None;
         self.pending_tool_input = None;
@@ -1911,6 +1963,7 @@ impl SessionHandle {
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
             revision: self.revision,
+            current_plan: self.current_plan.clone(),
             git_branch: self.git_branch.clone(),
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
@@ -2119,4 +2172,121 @@ fn chrono_now() -> String {
 
 fn normalize_request_id(value: &str) -> &str {
     value.trim()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pending_approval_session() -> SessionHandle {
+        SessionHandle::new(
+            "session-1".to_string(),
+            Provider::Claude,
+            "/repo".to_string(),
+        )
+    }
+
+    #[test]
+    fn duplicate_pending_approval_is_a_no_op() {
+        let mut session = pending_approval_session();
+
+        session.set_pending_approval(
+            "approval-1".to_string(),
+            ApprovalType::Exec,
+            None,
+            Some("Bash".to_string()),
+            Some("{\"command\":\"ls\"}".to_string()),
+            None,
+        );
+        let version_after_first = session.approval_version();
+
+        session.set_pending_approval(
+            "approval-1".to_string(),
+            ApprovalType::Exec,
+            None,
+            Some("Bash".to_string()),
+            Some("{\"command\":\"ls\"}".to_string()),
+            None,
+        );
+
+        assert_eq!(session.approval_version(), version_after_first);
+        assert_eq!(session.pending_approvals.len(), 1);
+        assert_eq!(session.pending_approval_id.as_deref(), Some("approval-1"));
+    }
+
+    #[test]
+    fn changed_pending_approval_updates_version_in_place() {
+        let mut session = pending_approval_session();
+
+        session.set_pending_approval(
+            "approval-1".to_string(),
+            ApprovalType::Exec,
+            None,
+            Some("Bash".to_string()),
+            Some("{\"command\":\"ls\"}".to_string()),
+            None,
+        );
+
+        session.set_pending_approval(
+            "approval-1".to_string(),
+            ApprovalType::Exec,
+            None,
+            Some("Bash".to_string()),
+            Some("{\"command\":\"pwd\"}".to_string()),
+            None,
+        );
+
+        assert_eq!(session.approval_version(), 2);
+        assert_eq!(session.pending_approvals.len(), 1);
+        assert_eq!(
+            session.pending_tool_input.as_deref(),
+            Some("{\"command\":\"pwd\"}")
+        );
+    }
+
+    #[test]
+    fn apply_changes_with_same_pending_approval_does_not_bump_version() {
+        let mut session = pending_approval_session();
+        let request = ApprovalRequest {
+            id: "approval-1".to_string(),
+            session_id: "session-1".to_string(),
+            approval_type: ApprovalType::Question,
+            tool_name: Some("AskUserQuestion".to_string()),
+            tool_input: Some("{\"question\":\"Ship it?\"}".to_string()),
+            command: None,
+            file_path: None,
+            diff: None,
+            question: Some("Ship it?".to_string()),
+            question_prompts: vec![],
+            preview: None,
+            permission_reason: None,
+            requested_permissions: None,
+            granted_permissions: None,
+            proposed_amendment: None,
+            permission_suggestions: None,
+            elicitation_mode: None,
+            elicitation_schema: None,
+            elicitation_url: None,
+            elicitation_message: None,
+            mcp_server_name: None,
+            network_host: None,
+            network_protocol: None,
+        };
+
+        session.apply_changes(&StateChanges {
+            pending_approval: Some(Some(request.clone())),
+            work_status: Some(WorkStatus::Question),
+            ..Default::default()
+        });
+        let version_after_first = session.approval_version();
+
+        session.apply_changes(&StateChanges {
+            pending_approval: Some(Some(request)),
+            work_status: Some(WorkStatus::Question),
+            ..Default::default()
+        });
+
+        assert_eq!(session.approval_version(), version_after_first);
+        assert_eq!(session.pending_approvals.len(), 1);
+    }
 }

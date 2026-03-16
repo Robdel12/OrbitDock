@@ -53,7 +53,7 @@ enum ServerInstallStateResolver {
       file: StaticString = #fileID,
       line: UInt = #line
     ) -> ServerManager {
-      return ServerManager(previewInstallState: .unknown)
+      ServerManager(previewInstallState: .unknown)
     }
 
     @Published private(set) var installState: ServerInstallState = .unknown
@@ -100,8 +100,8 @@ enum ServerInstallStateResolver {
         return
       }
 
-      installState = ServerInstallStateResolver.resolve(
-        isHealthy: await checkHealth(),
+      installState = await ServerInstallStateResolver.resolve(
+        isHealthy: checkHealth(),
         launchdPlistExists: launchdPlistExists(),
         hasRemoteEndpoint: endpointSettings.hasRemoteEndpoint()
       )

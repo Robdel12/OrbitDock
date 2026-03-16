@@ -29,9 +29,9 @@ struct ServerHTTPClient: Sendable {
     try await request(path: path, method: "GET", query: query)
   }
 
-  func post<B: Encodable, R: Decodable>(
+  func post<R: Decodable>(
     _ path: String,
-    body: B,
+    body: some Encodable,
     query: [URLQueryItem] = []
   ) async throws -> R {
     try await request(path: path, method: "POST", body: body, query: query)
@@ -57,10 +57,10 @@ struct ServerHTTPClient: Sendable {
     }
   }
 
-  func request<B: Encodable, R: Decodable>(
+  func request<R: Decodable>(
     path: String,
     method: String,
-    body: B,
+    body: some Encodable,
     query: [URLQueryItem] = []
   ) async throws -> R {
     netLog(.debug, cat: .api, "→ \(method) \(path)")
@@ -69,7 +69,7 @@ struct ServerHTTPClient: Sendable {
       method: method,
       query: query,
       contentType: "application/json",
-      body: try Self.encoder.encode(body)
+      body: Self.encoder.encode(body)
     )
     let response = try await loadResponse(request)
     try validate(response: response, method: method, path: path)
@@ -113,10 +113,10 @@ struct ServerHTTPClient: Sendable {
     }
   }
 
-  func sendVoid<B: Encodable>(
+  func sendVoid(
     _ path: String,
     method: String,
-    body: B,
+    body: some Encodable,
     query: [URLQueryItem] = []
   ) async throws {
     netLog(.debug, cat: .api, "→ \(method) \(path)")
@@ -125,7 +125,7 @@ struct ServerHTTPClient: Sendable {
       method: method,
       query: query,
       contentType: "application/json",
-      body: try Self.encoder.encode(body)
+      body: Self.encoder.encode(body)
     )
     let response = try await loadResponse(request)
     try validate(response: response, method: method, path: path)
@@ -198,7 +198,7 @@ struct ServerHTTPClient: Sendable {
   }
 
   private func validate(response: HTTPResponse, method: String, path: String) throws {
-    guard (200..<300).contains(response.statusCode) else {
+    guard (200 ..< 300).contains(response.statusCode) else {
       let apiError = try? Self.decoder.decode(APIErrorResponse.self, from: response.body)
       netLog(
         .error,

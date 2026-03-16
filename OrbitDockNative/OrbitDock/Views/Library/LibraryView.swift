@@ -12,7 +12,7 @@ struct LibraryView: View {
   @Environment(AppRouter.self) private var router
 
   let sessions: [RootSessionNode]
-  var containerWidth: CGFloat? = nil
+  var containerWidth: CGFloat?
 
   @State private var searchText = ""
   @State private var sort: ActiveSessionSort = .recent
@@ -123,12 +123,8 @@ struct LibraryView: View {
   // MARK: - Navigation
 
   private func selectSession(_ session: RootSessionNode) {
-    let message =
-      "library tap scopedID=\(session.scopedID) endpoint=\(session.sessionRef.endpointId.uuidString)"
-    print("[OrbitDock][Library] \(message)")
-    NSLog("[OrbitDock][Library] %@", message)
     withAnimation(Motion.standard) {
-      router.selectSession(session.sessionRef)
+      router.selectSession(session.sessionRef, source: .library)
     }
   }
 }

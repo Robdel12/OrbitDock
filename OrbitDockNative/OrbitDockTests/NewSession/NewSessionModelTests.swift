@@ -1,12 +1,12 @@
-@testable import OrbitDock
 import Foundation
+@testable import OrbitDock
 import Testing
 
 struct NewSessionModelTests {
-  @Test func canCreateSessionRespectsProviderSpecificGates() {
-    var model = NewSessionModel(
+  @Test func canCreateSessionRespectsProviderSpecificGates() throws {
+    var model = try NewSessionModel(
       provider: .codex,
-      selectedEndpointId: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+      selectedEndpointId: #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
     )
     model.selectedPath = "/tmp/printer"
     model.codexModel = "gpt-5-codex"
@@ -39,13 +39,13 @@ struct NewSessionModelTests {
     )
   }
 
-  @Test func applyLifecyclePlanProjectsProviderAndWorktreeState() {
-    var model = NewSessionModel(
+  @Test func applyLifecyclePlanProjectsProviderAndWorktreeState() throws {
+    var model = try NewSessionModel(
       provider: .claude,
-      selectedEndpointId: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+      selectedEndpointId: #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
     )
 
-    let endpointId = UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")!
+    let endpointId = try #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"))
     let plan = NewSessionLifecyclePlan(
       nextState: NewSessionLifecycleState(
         selectedEndpointId: endpointId,

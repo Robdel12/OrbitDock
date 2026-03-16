@@ -21,11 +21,10 @@ enum ReviewMessageFormatter {
       lines.append("### \(filePath)")
 
       for comment in fileComments.sorted(by: { $0.lineStart < $1.lineStart }) {
-        let lineRef: String
-        if let end = comment.lineEnd, end != comment.lineStart {
-          lineRef = "Lines \(comment.lineStart)–\(end)"
+        let lineRef = if let end = comment.lineEnd, end != comment.lineStart {
+          "Lines \(comment.lineStart)–\(end)"
         } else {
-          lineRef = "Line \(comment.lineStart)"
+          "Line \(comment.lineStart)"
         }
 
         let tagSuffix = comment.tag.map { " [\($0.rawValue)]" } ?? ""

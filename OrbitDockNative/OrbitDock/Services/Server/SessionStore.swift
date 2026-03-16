@@ -56,6 +56,7 @@ final class SessionStore {
   @ObservationIgnored var reconnectTask: Task<Void, Never>?
   @ObservationIgnored var eventProcessingTask: Task<Void, Never>?
   @ObservationIgnored private(set) var eventProcessingStartCount = 0
+  @ObservationIgnored private var connectionListenerToken: ServerConnectionListenerToken?
   @ObservationIgnored private let selectionRequestContinuation: AsyncStream<SessionRef>.Continuation
 
   /// Shared project file index for @ mention completions.
@@ -114,10 +115,10 @@ final class SessionStore {
   // MARK: - Event processing
 
   func startProcessingEvents() {
-    guard eventProcessingTask == nil else { return }
+    guard connectionListenerToken == nil, eventProcessingTask == nil else { return }
     eventProcessingStartCount += 1
     netLog(.info, cat: .store, "Started event processing", data: ["endpointId": self.endpointId.uuidString])
-    connection.addListener { [weak self] event in
+    connectionListenerToken = connection.addListener { [weak self] event in
       self?.routeEvent(event)
     }
     // Mark as started so we don't add duplicate listeners
@@ -127,6 +128,16 @@ final class SessionStore {
   func stopProcessingEvents() {
     eventProcessingTask?.cancel()
     eventProcessingTask = nil
+    reconnectTask?.cancel()
+    reconnectTask = nil
+    for task in inFlightBootstraps.values {
+      task.cancel()
+    }
+    inFlightBootstraps.removeAll()
+    if let connectionListenerToken {
+      connection.removeListener(connectionListenerToken)
+      self.connectionListenerToken = nil
+    }
     netLog(.info, cat: .store, "Stopped event processing", data: ["endpointId": self.endpointId.uuidString])
   }
 
@@ -159,7 +170,13 @@ final class SessionStore {
         let response = try await clients.approvals.listApprovals(sessionId: sessionId, limit: 200)
         session(sessionId).approvalHistory = response.approvals
       } catch {
-        netLog(.error, cat: .store, "Load approvals failed", sid: sessionId, data: ["error": error.localizedDescription])
+        netLog(
+          .error,
+          cat: .store,
+          "Load approvals failed",
+          sid: sessionId,
+          data: ["error": error.localizedDescription]
+        )
       }
     }
   }

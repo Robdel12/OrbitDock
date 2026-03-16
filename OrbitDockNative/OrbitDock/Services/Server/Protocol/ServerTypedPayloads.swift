@@ -222,7 +222,7 @@ enum ServerToolPreviewPayload: Codable {
   case questions(count: UInt32, summary: String?)
   case image(count: UInt32, summary: String?)
 
-  // Externally-tagged serde: {"Text": {"value": "..."}}
+  /// Externally-tagged serde: {"Text": {"value": "..."}}
   enum OuterKey: String, CodingKey {
     case Text, Diff, Todos, Search, Worker, Questions, Image
   }
@@ -240,43 +240,43 @@ enum ServerToolPreviewPayload: Codable {
 
     if container.contains(.Text) {
       let nested = try container.nestedContainer(keyedBy: TextKeys.self, forKey: .Text)
-      self = .text(value: try nested.decode(String.self, forKey: .value))
+      self = try .text(value: nested.decode(String.self, forKey: .value))
     } else if container.contains(.Diff) {
       let nested = try container.nestedContainer(keyedBy: DiffKeys.self, forKey: .Diff)
-      self = .diff(
-        additions: try nested.decode(UInt32.self, forKey: .additions),
-        deletions: try nested.decode(UInt32.self, forKey: .deletions),
-        snippet: try nested.decode(String.self, forKey: .snippet)
+      self = try .diff(
+        additions: nested.decode(UInt32.self, forKey: .additions),
+        deletions: nested.decode(UInt32.self, forKey: .deletions),
+        snippet: nested.decode(String.self, forKey: .snippet)
       )
     } else if container.contains(.Todos) {
       let nested = try container.nestedContainer(keyedBy: TodosKeys.self, forKey: .Todos)
-      self = .todos(
-        total: try nested.decode(UInt32.self, forKey: .total),
-        completed: try nested.decode(UInt32.self, forKey: .completed)
+      self = try .todos(
+        total: nested.decode(UInt32.self, forKey: .total),
+        completed: nested.decode(UInt32.self, forKey: .completed)
       )
     } else if container.contains(.Search) {
       let nested = try container.nestedContainer(keyedBy: SearchKeys.self, forKey: .Search)
-      self = .search(
-        matches: try nested.decode(UInt32.self, forKey: .matches),
-        summary: try nested.decodeIfPresent(String.self, forKey: .summary)
+      self = try .search(
+        matches: nested.decode(UInt32.self, forKey: .matches),
+        summary: nested.decodeIfPresent(String.self, forKey: .summary)
       )
     } else if container.contains(.Worker) {
       let nested = try container.nestedContainer(keyedBy: WorkerKeys.self, forKey: .Worker)
-      self = .worker(
-        label: try nested.decodeIfPresent(String.self, forKey: .label),
-        status: try nested.decodeIfPresent(String.self, forKey: .status)
+      self = try .worker(
+        label: nested.decodeIfPresent(String.self, forKey: .label),
+        status: nested.decodeIfPresent(String.self, forKey: .status)
       )
     } else if container.contains(.Questions) {
       let nested = try container.nestedContainer(keyedBy: QuestionsKeys.self, forKey: .Questions)
-      self = .questions(
-        count: try nested.decode(UInt32.self, forKey: .count),
-        summary: try nested.decodeIfPresent(String.self, forKey: .summary)
+      self = try .questions(
+        count: nested.decode(UInt32.self, forKey: .count),
+        summary: nested.decodeIfPresent(String.self, forKey: .summary)
       )
     } else if container.contains(.Image) {
       let nested = try container.nestedContainer(keyedBy: ImageKeys.self, forKey: .Image)
-      self = .image(
-        count: try nested.decode(UInt32.self, forKey: .count),
-        summary: try nested.decodeIfPresent(String.self, forKey: .summary)
+      self = try .image(
+        count: nested.decode(UInt32.self, forKey: .count),
+        summary: nested.decodeIfPresent(String.self, forKey: .summary)
       )
     } else {
       throw DecodingError.dataCorrupted(

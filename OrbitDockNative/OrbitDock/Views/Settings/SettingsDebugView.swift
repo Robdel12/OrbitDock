@@ -76,24 +76,24 @@ struct DebugSettingsView: View {
 
         SettingsSection(title: "SERVER", icon: "server.rack") {
           #if os(macOS)
-          HStack {
-            Circle()
-              .fill(installStateColor)
-              .frame(width: 8, height: 8)
+            HStack {
+              Circle()
+                .fill(installStateColor)
+                .frame(width: 8, height: 8)
 
-            Text(installStateLabel)
-              .font(.system(size: TypeScale.body))
+              Text(installStateLabel)
+                .font(.system(size: TypeScale.body))
 
-            Spacer()
+              Spacer()
 
-            serverActionButtons
-          }
+              serverActionButtons
+            }
 
-          if let error = serverManager.installError {
-            Text(error)
-              .font(.system(size: TypeScale.meta))
-              .foregroundStyle(Color.statusError)
-          }
+            if let error = serverManager.installError {
+              Text(error)
+                .font(.system(size: TypeScale.meta))
+                .foregroundStyle(Color.statusError)
+            }
           #else
             Text("Local server install controls are available on macOS.")
               .font(.system(size: TypeScale.body))
@@ -115,20 +115,20 @@ struct DebugSettingsView: View {
 
           HStack {
             #if os(macOS)
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-              Text("Binary")
-                .font(.system(size: TypeScale.body))
-              Text(serverManager.findServerBinary() ?? "Not found")
-                .font(.system(size: TypeScale.meta).monospaced())
-                .foregroundStyle(Color.textTertiary)
-            }
+              VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text("Binary")
+                  .font(.system(size: TypeScale.body))
+                Text(serverManager.findServerBinary() ?? "Not found")
+                  .font(.system(size: TypeScale.meta).monospaced())
+                  .foregroundStyle(Color.textTertiary)
+              }
 
-            Spacer()
+              Spacer()
 
-            Button("Refresh") {
-              Task { await serverManager.refreshState() }
-            }
-            .buttonStyle(.bordered)
+              Button("Refresh") {
+                Task { await serverManager.refreshState() }
+              }
+              .buttonStyle(.bordered)
             #else
               VStack(alignment: .leading, spacing: Spacing.xs) {
                 Text("Binary")
@@ -151,13 +151,13 @@ struct DebugSettingsView: View {
 
   private var installStateColor: Color {
     #if os(macOS)
-    switch serverManager.installState {
-      case .running: .feedbackPositive
-      case .installed: .statusReply
-      case .remote: .statusQuestion
-      case .notConfigured: .statusEnded
-      case .unknown: .statusEnded
-    }
+      switch serverManager.installState {
+        case .running: .feedbackPositive
+        case .installed: .statusReply
+        case .remote: .statusQuestion
+        case .notConfigured: .statusEnded
+        case .unknown: .statusEnded
+      }
     #else
       .statusReply
     #endif
@@ -165,13 +165,13 @@ struct DebugSettingsView: View {
 
   private var installStateLabel: String {
     #if os(macOS)
-    switch serverManager.installState {
-      case .running: "Server Running"
-      case .installed: "Installed (Stopped)"
-      case .remote: "Remote Configured"
-      case .notConfigured: "Not Configured"
-      case .unknown: "Checking..."
-    }
+      switch serverManager.installState {
+        case .running: "Server Running"
+        case .installed: "Installed (Stopped)"
+        case .remote: "Remote Configured"
+        case .notConfigured: "Not Configured"
+        case .unknown: "Checking..."
+      }
     #else
       "Managed by Connected Runtime"
     #endif
@@ -182,45 +182,45 @@ struct DebugSettingsView: View {
     #if os(macOS)
       switch serverManager.installState {
         case .running:
-          HStack(spacing: Spacing.sm) {
-            Button("Stop") {
-              Task { try? await serverManager.stopService() }
-            }
-            .buttonStyle(.bordered)
-
-            Button("Restart") {
-              Task { try? await serverManager.restartService() }
-            }
-            .buttonStyle(.bordered)
+        HStack(spacing: Spacing.sm) {
+          Button("Stop") {
+            Task { try? await serverManager.stopService() }
           }
+          .buttonStyle(.bordered)
+
+          Button("Restart") {
+            Task { try? await serverManager.restartService() }
+          }
+          .buttonStyle(.bordered)
+        }
 
         case .installed:
-          Button("Start") {
-            Task {
-              try? await serverManager.startService()
-              if serverManager.installState == .running {
-                runtimeRegistry.startEnabledRuntimes()
-              }
+        Button("Start") {
+          Task {
+            try? await serverManager.startService()
+            if serverManager.installState == .running {
+              runtimeRegistry.startEnabledRuntimes()
             }
           }
-          .buttonStyle(.borderedProminent)
-          .tint(Color.accent)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color.accent)
 
         case .notConfigured:
-          Button("Install") {
-            Task {
-              try? await serverManager.install()
-              if serverManager.installState == .running {
-                runtimeRegistry.startEnabledRuntimes()
-              }
+        Button("Install") {
+          Task {
+            try? await serverManager.install()
+            if serverManager.installState == .running {
+              runtimeRegistry.startEnabledRuntimes()
             }
           }
-          .buttonStyle(.borderedProminent)
-          .tint(Color.accent)
-          .disabled(serverManager.isInstalling)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color.accent)
+        .disabled(serverManager.isInstalling)
 
         case .remote, .unknown:
-          EmptyView()
+        EmptyView()
       }
     #endif
   }

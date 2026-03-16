@@ -25,7 +25,7 @@ struct WebFetchExpandedView: View {
               .font(.system(size: TypeScale.caption, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
 
-            let sizeKB = output.utf8.count / 1024
+            let sizeKB = output.utf8.count / 1_024
             if sizeKB > 0 {
               Text("~\(sizeKB) KB")
                 .font(.system(size: TypeScale.mini, design: .monospaced))

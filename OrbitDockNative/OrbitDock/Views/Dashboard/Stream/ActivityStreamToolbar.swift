@@ -66,11 +66,23 @@ struct ActivityStreamToolbar: View {
         filterChip(target: .all, icon: nil, label: "All", count: sessions.count, color: .textSecondary)
 
         if counts.attention > 0 || filter == .attention {
-          filterChip(target: .attention, icon: "exclamationmark.circle.fill", label: "Attn", count: counts.attention, color: .statusPermission)
+          filterChip(
+            target: .attention,
+            icon: "exclamationmark.circle.fill",
+            label: "Attn",
+            count: counts.attention,
+            color: .statusPermission
+          )
         }
 
         if counts.running > 0 || filter == .running {
-          filterChip(target: .running, icon: "bolt.fill", label: "Running", count: counts.running, color: .statusWorking)
+          filterChip(
+            target: .running,
+            icon: "bolt.fill",
+            label: "Running",
+            count: counts.running,
+            color: .statusWorking
+          )
         }
 
         if counts.ready > 0 || filter == .ready {
@@ -78,7 +90,13 @@ struct ActivityStreamToolbar: View {
         }
 
         if directCount > 0 || filter == .direct {
-          filterChip(target: .direct, icon: "chevron.left.forwardslash.chevron.right", label: "Direct", count: directCount, color: .providerCodex)
+          filterChip(
+            target: .direct,
+            icon: "chevron.left.forwardslash.chevron.right",
+            label: "Direct",
+            count: directCount,
+            color: .providerCodex
+          )
         }
 
         if isPhoneCompact {

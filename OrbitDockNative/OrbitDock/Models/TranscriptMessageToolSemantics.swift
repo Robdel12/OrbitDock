@@ -33,32 +33,32 @@ enum TranscriptMessageToolKind: String, Sendable {
 
   var iconName: String {
     switch self {
-      case .read: return "doc.text"
-      case .edit: return "pencil"
-      case .write: return "square.and.pencil"
-      case .bash: return "terminal"
-      case .glob: return "folder.badge.gearshape"
-      case .grep: return "magnifyingglass"
-      case .task: return "person.2"
-      case .handoff: return "arrow.triangle.branch"
-      case .hook: return "bolt.badge.clock"
-      case .webFetch: return "globe"
-      case .webSearch: return "magnifyingglass.circle"
-      case .unknown: return "gearshape"
+      case .read: "doc.text"
+      case .edit: "pencil"
+      case .write: "square.and.pencil"
+      case .bash: "terminal"
+      case .glob: "folder.badge.gearshape"
+      case .grep: "magnifyingglass"
+      case .task: "person.2"
+      case .handoff: "arrow.triangle.branch"
+      case .hook: "bolt.badge.clock"
+      case .webFetch: "globe"
+      case .webSearch: "magnifyingglass.circle"
+      case .unknown: "gearshape"
     }
   }
 
   var colorName: String {
     switch self {
-      case .read: return "blue"
-      case .edit, .write: return "orange"
-      case .bash: return "green"
-      case .glob, .grep: return "purple"
-      case .task: return "indigo"
-      case .handoff: return "blue"
-      case .hook: return "teal"
-      case .webFetch, .webSearch: return "teal"
-      case .unknown: return "secondary"
+      case .read: "blue"
+      case .edit, .write: "orange"
+      case .bash: "green"
+      case .glob, .grep: "purple"
+      case .task: "indigo"
+      case .handoff: "blue"
+      case .hook: "teal"
+      case .webFetch, .webSearch: "teal"
+      case .unknown: "secondary"
     }
   }
 }

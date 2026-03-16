@@ -116,15 +116,41 @@ struct ConversationMetadataSnapshot: Sendable, Equatable {
     self.model = model?.trimmedNilIfEmpty
   }
 
-  var pendingToolName: String? { approval?.pendingToolName }
-  var pendingPermissionDetail: String? { approval?.pendingPermissionDetail }
-  var currentPrompt: String? { approval?.currentPrompt }
-  var approvalID: String? { approval?.id }
-  var approvalVersion: UInt64? { approval?.version }
-  var pendingQuestion: String? { approval?.pendingQuestion }
-  var workerIDs: [String] { workers.map(\.id) }
-  var workerCount: Int { workers.count }
-  var selectedWorkerID: String? { workerInspector.selectedWorkerID }
+  var pendingToolName: String? {
+    approval?.pendingToolName
+  }
+
+  var pendingPermissionDetail: String? {
+    approval?.pendingPermissionDetail
+  }
+
+  var currentPrompt: String? {
+    approval?.currentPrompt
+  }
+
+  var approvalID: String? {
+    approval?.id
+  }
+
+  var approvalVersion: UInt64? {
+    approval?.version
+  }
+
+  var pendingQuestion: String? {
+    approval?.pendingQuestion
+  }
+
+  var workerIDs: [String] {
+    workers.map(\.id)
+  }
+
+  var workerCount: Int {
+    workers.count
+  }
+
+  var selectedWorkerID: String? {
+    workerInspector.selectedWorkerID
+  }
 
   static func empty(for session: ScopedSessionID, provider: Provider = .claude, model: String? = nil) -> Self {
     Self(session: session, provider: provider, model: model)

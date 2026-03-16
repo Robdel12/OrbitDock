@@ -38,17 +38,21 @@ struct AttentionServiceTests {
 
     service.update(sessions: [permissionSession, questionSession, diffSession])
 
-    #expect(service.events.contains { $0.sessionId == permissionSession.scopedID && matches($0.type, .permissionRequired) })
+    #expect(service.events
+      .contains { $0.sessionId == permissionSession.scopedID && matches($0.type, .permissionRequired) })
     #expect(service.events.contains { $0.sessionId == questionSession.scopedID && matches($0.type, .questionWaiting) })
     #expect(service.events.contains { $0.sessionId == diffSession.scopedID && matches($0.type, .unreviewedDiff) })
   }
 
   private func matches(_ lhs: AttentionEventType, _ rhs: AttentionEventType) -> Bool {
     switch (lhs, rhs) {
-      case (.permissionRequired, .permissionRequired), (.questionWaiting, .questionWaiting), (.unreviewedDiff, .unreviewedDiff):
-        return true
+      case (.permissionRequired, .permissionRequired), (.questionWaiting, .questionWaiting), (
+      .unreviewedDiff,
+      .unreviewedDiff
+    ):
+        true
       default:
-        return false
+        false
     }
   }
 }

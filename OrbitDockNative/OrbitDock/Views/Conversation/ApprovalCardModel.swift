@@ -112,32 +112,6 @@ struct ApprovalCardSessionContext: Hashable, Sendable {
   let canAnswer: Bool
   let canTakeOver: Bool
   let canSendInput: Bool
-
-  init(
-    id: String,
-    projectPath: String,
-    isActive: Bool,
-    attentionReason: Session.AttentionReason,
-    pendingApprovalId: String?,
-    pendingToolName: String?,
-    pendingToolInput: String?,
-    canApprove: Bool,
-    canAnswer: Bool,
-    canTakeOver: Bool,
-    canSendInput: Bool
-  ) {
-    self.id = id
-    self.projectPath = projectPath
-    self.isActive = isActive
-    self.attentionReason = attentionReason
-    self.pendingApprovalId = pendingApprovalId
-    self.pendingToolName = pendingToolName
-    self.pendingToolInput = pendingToolInput
-    self.canApprove = canApprove
-    self.canAnswer = canAnswer
-    self.canTakeOver = canTakeOver
-    self.canSendInput = canSendInput
-  }
 }
 
 struct ApprovalCardModel: Hashable, Sendable {
@@ -170,7 +144,7 @@ struct ApprovalCardModel: Hashable, Sendable {
   let networkHost: String?
   let networkProtocol: String?
 
-  // Custom Hashable conformance since `elicitationSchema` is `Any?`
+  /// Custom Hashable conformance since `elicitationSchema` is `Any?`
   func hash(into hasher: inout Hasher) {
     hasher.combine(mode)
     hasher.combine(approvalId)
@@ -301,7 +275,8 @@ enum ApprovalCardModelBuilder {
       ? historyItem.questionPrompts
       : request.questionPrompts
     let mergedPreview = request.preview ?? historyItem.preview
-    let mergedPermissionReason = normalizedText(request.permissionReason) ?? normalizedText(historyItem.permissionReason)
+    let mergedPermissionReason = normalizedText(request.permissionReason) ??
+      normalizedText(historyItem.permissionReason)
     let mergedRequestedPermissions = request.requestedPermissions ?? historyItem.requestedPermissions
     let mergedGrantedPermissions = request.grantedPermissions ?? historyItem.grantedPermissions
     let mergedProposedAmendment = request.proposedAmendment ?? historyItem.proposedAmendment
@@ -512,7 +487,7 @@ enum ApprovalCardModelBuilder {
       approvalType: approvalType
     )
     guard mode != .none else { return nil }
-    if (mode == .permission || mode == .question), approvalId == nil {
+    if mode == .permission || mode == .question, approvalId == nil {
       return nil
     }
     // passiveBlocked doesn't require approvalId — it's informational

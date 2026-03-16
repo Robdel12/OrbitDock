@@ -1,13 +1,13 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 @MainActor
 struct SessionControlStateReducerTests {
   @Test func snapshotSeedsApprovalAndControlConfigurationConsistently() throws {
-    let transition = SessionControlStateReducer.snapshotTransition(
+    let transition = try SessionControlStateReducer.snapshotTransition(
       current: baseState(),
-      snapshot: try decodeSnapshot(
+      snapshot: decodeSnapshot(
         """
         {
           "id": "session-1",
@@ -56,7 +56,7 @@ struct SessionControlStateReducerTests {
   }
 
   @Test func staleApprovalDeltaIsIgnoredWithoutDroppingCurrentPendingApproval() throws {
-    let transition = SessionControlStateReducer.deltaTransition(
+    let transition = try SessionControlStateReducer.deltaTransition(
       current: SessionControlState(
         approvalVersion: 9,
         approvalPolicy: "on-request",
@@ -66,7 +66,7 @@ struct SessionControlStateReducerTests {
         autonomyConfiguredOnServer: true,
         pendingApprovalId: "req-current"
       ),
-      changes: try decodeChanges(
+      changes: decodeChanges(
         """
         {
           "pending_approval": {
@@ -88,9 +88,9 @@ struct SessionControlStateReducerTests {
   }
 
   @Test func approvalDeltaAppliesSummaryAndDetailFromOneTransition() throws {
-    let transition = SessionControlStateReducer.deltaTransition(
+    let transition = try SessionControlStateReducer.deltaTransition(
       current: baseState(),
-      changes: try decodeChanges(
+      changes: decodeChanges(
         """
         {
           "pending_approval": {
@@ -112,7 +112,7 @@ struct SessionControlStateReducerTests {
   }
 
   @Test func configChangesRecomputeAutonomyDeterministically() throws {
-    let transition = SessionControlStateReducer.deltaTransition(
+    let transition = try SessionControlStateReducer.deltaTransition(
       current: SessionControlState(
         approvalVersion: 1,
         approvalPolicy: "on-request",
@@ -122,7 +122,7 @@ struct SessionControlStateReducerTests {
         autonomyConfiguredOnServer: true,
         pendingApprovalId: nil
       ),
-      changes: try decodeChanges(
+      changes: decodeChanges(
         """
         {
           "approval_policy": "never",
@@ -156,7 +156,7 @@ struct SessionControlStateReducerTests {
 
     #expect(transition.nextState.approvalVersion == 3)
     #expect(transition.nextState.pendingApprovalId == nil)
-    if case .clear(let resetAttention) = transition.approvalChange {
+    if case let .clear(resetAttention) = transition.approvalChange {
       #expect(resetAttention == true)
     } else {
       Issue.record("Expected approval change to clear")

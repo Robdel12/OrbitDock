@@ -44,16 +44,16 @@ final class ConnectionCircuitBreaker {
 
   var shouldAllow: Bool {
     switch state {
-    case .closed:
-      return true
-    case let .open(until):
-      if Date() >= until {
-        state = .halfOpen
+      case .closed:
         return true
-      }
-      return false
-    case .halfOpen:
-      return true
+      case let .open(until):
+        if Date() >= until {
+          state = .halfOpen
+          return true
+        }
+        return false
+      case .halfOpen:
+        return true
     }
   }
 

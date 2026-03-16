@@ -1,6 +1,6 @@
+@testable import OrbitDock
 import SwiftUI
 import Testing
-@testable import OrbitDock
 
 @MainActor
 struct QuickSwitcherKeyboardActionResolverTests {
@@ -22,9 +22,12 @@ struct QuickSwitcherKeyboardActionResolverTests {
 
   @Test func characterBindingsMapToNavigationAndRenameActions() {
     #expect(QuickSwitcherKeyboardActionResolver.resolveCharacter(KeyEquivalent("p"), modifiers: [.control]) == .moveUp)
-    #expect(QuickSwitcherKeyboardActionResolver.resolveCharacter(KeyEquivalent("n"), modifiers: [.control]) == .moveDown)
-    #expect(QuickSwitcherKeyboardActionResolver.resolveCharacter(KeyEquivalent("a"), modifiers: [.control]) == .moveToFirst)
-    #expect(QuickSwitcherKeyboardActionResolver.resolveCharacter(KeyEquivalent("e"), modifiers: [.control]) == .moveToLast)
+    #expect(QuickSwitcherKeyboardActionResolver
+      .resolveCharacter(KeyEquivalent("n"), modifiers: [.control]) == .moveDown)
+    #expect(QuickSwitcherKeyboardActionResolver
+      .resolveCharacter(KeyEquivalent("a"), modifiers: [.control]) == .moveToFirst)
+    #expect(QuickSwitcherKeyboardActionResolver
+      .resolveCharacter(KeyEquivalent("e"), modifiers: [.control]) == .moveToLast)
     #expect(QuickSwitcherKeyboardActionResolver.resolveCharacter(KeyEquivalent("r"), modifiers: [.command]) == .rename)
     #expect(QuickSwitcherKeyboardActionResolver.resolveCharacter(KeyEquivalent("x"), modifiers: []) == .ignored)
   }

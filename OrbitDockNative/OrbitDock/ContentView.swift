@@ -100,22 +100,19 @@ struct ContentView: View {
   private var mainContent: some View {
     Group {
       switch contentDestination {
-      case .setup:
-        ServerSetupView()
-          .onAppear {
-            
-          }
-      case let .session(ref):
-        SessionDetailView(
-          sessionId: ref.sessionId,
-          endpointId: ref.endpointId
-        )
-        .environment(detailSessionStore(for: ref.endpointId))
-        .id(ref.scopedID)
-      case .dashboard:
-        dashboardView
-          .onAppear {
-          }
+        case .setup:
+          ServerSetupView()
+            .onAppear {}
+        case let .session(ref):
+          SessionDetailView(
+            sessionId: ref.sessionId,
+            endpointId: ref.endpointId
+          )
+          .environment(detailSessionStore(for: ref.endpointId))
+          .id(ref.scopedID)
+        case .dashboard:
+          dashboardView
+            .onAppear {}
       }
     }
   }

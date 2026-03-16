@@ -282,7 +282,6 @@ extension DirectSessionComposer {
     }
   }
 
-  @ViewBuilder
   private func pendingPermissionGroupCard(
     _ group: ApprovalPermissionGroup,
     tint: Color
@@ -414,7 +413,6 @@ extension DirectSessionComposer {
 
   // MARK: - Passive Blocked Inline Content
 
-  @ViewBuilder
   func pendingPassiveBlockedInlineContent(_ model: ApprovalCardModel) -> some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
       Text("This session requires approval. Respond in your terminal, or take over to approve here.")
@@ -648,7 +646,6 @@ extension DirectSessionComposer {
 
   // MARK: Passive Blocked Footer
 
-  @ViewBuilder
   private func passiveBlockedFooterActions(_ model: ApprovalCardModel) -> some View {
     HStack(spacing: Spacing.sm_) {
       Spacer()

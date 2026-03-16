@@ -29,7 +29,7 @@ enum AppRuntimeMode: String {
     isRunningTests: Bool,
     platform: Platform
   ) -> AppRuntimeMode {
-    return resolved(
+    resolved(
       environment: environment,
       hasRemoteEndpoint: isRunningTests ? false : endpointSettings.hasRemoteEndpoint(),
       isRunningTests: isRunningTests,

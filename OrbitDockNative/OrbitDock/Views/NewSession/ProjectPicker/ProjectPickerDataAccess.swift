@@ -18,7 +18,7 @@ enum ProjectPickerDataAccess {
       activeEndpointID: runtimeRegistry.activeEndpointId,
       availableEndpoints: endpointSettings.endpoints()
     ),
-    let clients = runtimeRegistry.runtimesByEndpointId[endpointId]?.clients
+      let clients = runtimeRegistry.runtimesByEndpointId[endpointId]?.clients
     else {
       return nil
     }

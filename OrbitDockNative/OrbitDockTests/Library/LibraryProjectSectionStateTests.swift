@@ -1,11 +1,11 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 @MainActor
 struct LibraryProjectSectionStateTests {
-  @Test func buildsBadgesAndCachedArchiveStateFromProjectGroup() {
-    let endpointID = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")!
+  @Test func buildsBadgesAndCachedArchiveStateFromProjectGroup() throws {
+    let endpointID = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
     let sessions = [
       makeSession(
         id: "live",
@@ -31,7 +31,7 @@ struct LibraryProjectSectionStateTests {
       ),
     ]
 
-    let group = try! #require(
+    let group = try #require(
       LibraryArchivePlanner.projectGroups(
         sessions: sessions,
         sort: .recent
@@ -50,8 +50,8 @@ struct LibraryProjectSectionStateTests {
     )
   }
 
-  @Test func limitsVisibleEndpointFacetsAndReportsOverflowCount() {
-    let endpointIDs = (0..<5).map { index in
+  @Test func limitsVisibleEndpointFacetsAndReportsOverflowCount() throws {
+    let endpointIDs = (0 ..< 5).map { index in
       UUID(uuidString: String(format: "%08X-AAAA-AAAA-AAAA-AAAAAAAAAAAA", index + 1))!
     }
 
@@ -66,7 +66,7 @@ struct LibraryProjectSectionStateTests {
       )
     }
 
-    let group = try! #require(
+    let group = try #require(
       LibraryArchivePlanner.projectGroups(
         sessions: sessions,
         sort: .recent

@@ -21,12 +21,11 @@ enum ConversationHydrationState: Sendable, Equatable {
 
   var hasRenderableConversation: Bool {
     switch self {
-    case .readyPartial, .readyComplete: true
-    default: false
+      case .readyPartial, .readyComplete: true
+      default: false
     }
   }
 }
-
 
 // MARK: - ConversationStore
 
@@ -61,21 +60,27 @@ final class ConversationStore {
   @ObservationIgnored private(set) var newestLoadedSequence: UInt64?
 
   /// Convenience for views — returns messages directly (old code had normalization layer)
-  var normalizedMessages: [TranscriptMessage] { messages }
+  var normalizedMessages: [TranscriptMessage] {
+    messages
+  }
 
   /// Whether there's enough data to render
-  var hasRenderableConversation: Bool { !messages.isEmpty }
+  var hasRenderableConversation: Bool {
+    !messages.isEmpty
+  }
 
   /// Whether initial data has been loaded
-  var hasReceivedInitialData: Bool { state == .ready }
+  var hasReceivedInitialData: Bool {
+    state == .ready
+  }
 
   /// Compatibility with old hydration state
   var hydrationState: ConversationHydrationState {
     switch state {
-    case .idle: .empty
-    case .loading: .loadingRecent
-    case .ready: hasMoreHistoryBefore ? .readyPartial : .readyComplete
-    case .failed: .failed
+      case .idle: .empty
+      case .loading: .loadingRecent
+      case .ready: hasMoreHistoryBefore ? .readyPartial : .readyComplete
+      case .failed: .failed
     }
   }
 
@@ -105,7 +110,13 @@ final class ConversationStore {
       return result
     } catch {
       state = messages.isEmpty ? .failed : .ready
-      netLog(.error, cat: .conv, "Bootstrap fetch failed", sid: self.sessionId, data: ["error": error.localizedDescription])
+      netLog(
+        .error,
+        cat: .conv,
+        "Bootstrap fetch failed",
+        sid: self.sessionId,
+        data: ["error": error.localizedDescription]
+      )
       return nil
     }
   }
@@ -138,10 +149,17 @@ final class ConversationStore {
       defer { isLoadingOlderMessages = false }
       do {
         let page = try await clients.conversation.fetchConversationHistory(
-          sessionId, beforeSequence: before, limit: limit)
+          sessionId, beforeSequence: before, limit: limit
+        )
         applyHistoryPage(page)
       } catch {
-        netLog(.error, cat: .conv, "Load older messages failed", sid: self.sessionId, data: ["error": error.localizedDescription])
+        netLog(
+          .error,
+          cat: .conv,
+          "Load older messages failed",
+          sid: self.sessionId,
+          data: ["error": error.localizedDescription]
+        )
       }
     }
   }
@@ -179,18 +197,18 @@ final class ConversationStore {
     guard !upserted.isEmpty || !removedRowIds.isEmpty || totalRowCount != nil else { return }
     let rowTypes = upserted.map { entry -> String in
       switch entry.row {
-      case .user: "user"
-      case .assistant: "assistant"
-      case .thinking: "thinking"
-      case .tool: "tool"
-      case .activityGroup: "activityGroup"
-      case .system: "system"
-      case .question: "question"
-      case .approval: "approval"
-      case .worker: "worker"
-      case .plan: "plan"
-      case .hook: "hook"
-      case .handoff: "handoff"
+        case .user: "user"
+        case .assistant: "assistant"
+        case .thinking: "thinking"
+        case .tool: "tool"
+        case .activityGroup: "activityGroup"
+        case .system: "system"
+        case .question: "question"
+        case .approval: "approval"
+        case .worker: "worker"
+        case .plan: "plan"
+        case .hook: "hook"
+        case .handoff: "handoff"
       }
     }
     netLog(.info, cat: .conv, "Rows changed", sid: self.sessionId, data: [
@@ -215,10 +233,10 @@ final class ConversationStore {
         // Binary-search insert to maintain sort order (O(log n) vs O(n log n) full sort)
         let insertionIndex = nextMessages.binarySearchInsertionIndex { existing in
           switch (existing.sequence, normalized.sequence) {
-          case let (l?, r?): return l < r
-          case (.some, .none): return true
-          case (.none, .some): return false
-          case (.none, .none): return existing.timestamp < normalized.timestamp
+            case let (l?, r?): l < r
+            case (.some, .none): true
+            case (.none, .some): false
+            case (.none, .none): existing.timestamp < normalized.timestamp
           }
         }
         nextMessages.insert(normalized, at: insertionIndex)
@@ -272,7 +290,13 @@ final class ConversationStore {
       oldestSequence: page.oldestSequence,
       newestSequence: page.newestSequence
     )
-    netLog(.debug, cat: .conv, "Applied history page", sid: self.sessionId, data: ["added": messages.count - beforeCount, "total": self.messages.count])
+    netLog(
+      .debug,
+      cat: .conv,
+      "Applied history page",
+      sid: self.sessionId,
+      data: ["added": messages.count - beforeCount, "total": self.messages.count]
+    )
   }
 
   private func applyRowsUpdate(
@@ -306,25 +330,31 @@ final class ConversationStore {
 
     merged.sort { lhs, rhs in
       switch (lhs.sequence, rhs.sequence) {
-      case let (l?, r?):
-        return l < r
-      case (.some, .none):
-        return true
-      case (.none, .some):
-        return false
-      case (.none, .none):
-        return lhs.timestamp < rhs.timestamp
+        case let (l?, r?):
+          l < r
+        case (.some, .none):
+          true
+        case (.none, .some):
+          false
+        case (.none, .none):
+          lhs.timestamp < rhs.timestamp
       }
     }
 
     messages = merged
     messagesRevision += 1
     totalMessageCount = Int(totalRowCount)
-    self.oldestLoadedSequence = min(self.oldestLoadedSequence ?? UInt64.max, oldestSequence ?? messages.compactMap(\.sequence).min() ?? UInt64.max)
+    self.oldestLoadedSequence = min(
+      self.oldestLoadedSequence ?? UInt64.max,
+      oldestSequence ?? messages.compactMap(\.sequence).min() ?? UInt64.max
+    )
     if self.oldestLoadedSequence == UInt64.max {
       self.oldestLoadedSequence = nil
     }
-    self.newestLoadedSequence = max(self.newestLoadedSequence ?? 0, newestSequence ?? messages.compactMap(\.sequence).max() ?? 0)
+    self.newestLoadedSequence = max(
+      self.newestLoadedSequence ?? 0,
+      newestSequence ?? messages.compactMap(\.sequence).max() ?? 0
+    )
     if self.newestLoadedSequence == 0 {
       self.newestLoadedSequence = nil
     }
