@@ -46,7 +46,7 @@ struct MessageRowView: View {
   // MARK: - User (bubble)
 
   private var userMessage: some View {
-    let bubbleMax: CGFloat = 640
+    let bubbleMax: CGFloat = 780
 
     return VStack(alignment: .trailing, spacing: Spacing.xs) {
       Text("You")
