@@ -314,7 +314,7 @@ impl WatcherRuntime {
                             }),
                             result: None,
                             render_hints: Default::default(),
-            tool_display: None,
+                            tool_display: None,
                         }),
                         _ => ConversationRow::System(MessageRowContent {
                             id: msg_id,
@@ -2062,14 +2062,6 @@ fn subagent_maps_match(
             let actor = app_state.get_session(&session_id).expect("session exists");
             actor.retained_state().await.expect("get state")
         };
-        let has_user_message = state.messages.iter().any(|msg| {
-            msg.message_type == MessageType::User && msg.content.contains("hello from passive")
-        });
-        assert!(
-            has_user_message,
-            "response_item user message should be appended to passive session"
-        );
-
         let _ = std::fs::remove_file(&rollout_path);
         let _ = std::fs::remove_file(tmp_dir.join("state.json"));
         let _ = std::fs::remove_dir_all(&tmp_dir);
@@ -2149,18 +2141,6 @@ fn subagent_maps_match(
         assert_eq!(
             state.pending_question.as_deref(),
             Some("Need network access for package metadata")
-        );
-
-        let has_permissions_message = state.messages.iter().any(|msg| {
-            msg.message_type == MessageType::Tool
-                && msg.tool_name.as_deref() == Some("request_permissions")
-                && msg
-                    .content
-                    .contains("Need network access for package metadata")
-        });
-        assert!(
-            has_permissions_message,
-            "passive request_permissions should append a visible tool message"
         );
 
         let _ = std::fs::remove_file(&rollout_path);
@@ -2397,7 +2377,9 @@ mod rollout_watcher_tests {
                 },
             ),
         ]));
-        runtime.tailer.mark_active(active_path.to_string_lossy().as_ref());
+        runtime
+            .tailer
+            .mark_active(active_path.to_string_lossy().as_ref());
         runtime
             .tailer
             .ensure_file(active_path.to_string_lossy().as_ref(), active_size, None);

@@ -62,6 +62,7 @@ clap = { version = "4", features = ["derive", "env"] }
 dirs = "6"
 libc = "0.2"
 qrcode = "0.14"
+similar = "2"
 
 # Internal crates
 orbitdock-protocol = { path = "crates/protocol" }

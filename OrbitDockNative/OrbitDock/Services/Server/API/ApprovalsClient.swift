@@ -33,7 +33,7 @@ struct ApprovalsClient: Sendable {
 
   struct RespondToPermissionRequestRequest: Encodable {
     let requestId: String
-    var permissions: AnyCodable?
+    var permissions: [ServerPermissionDescriptor]?
     var scope: ServerPermissionGrantScope?
   }
 

@@ -68,7 +68,7 @@ extension SessionStore {
     grantRequestedPermissions: Bool
   ) async throws {
     netLog(.info, cat: .store, "Respond to permission request", sid: sessionId, data: ["requestId": requestId, "scope": scope.rawValue])
-    let permissionsPayload: AnyCodable? = if grantRequestedPermissions,
+    let permissionsPayload: [ServerPermissionDescriptor]? = if grantRequestedPermissions,
       let approval = session(sessionId).pendingApproval,
       approval.id == requestId
     {

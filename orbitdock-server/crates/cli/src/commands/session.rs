@@ -278,10 +278,7 @@ async fn get(rest: &RestClient, output: &Output, session_id: &str, messages: boo
         format!("/api/sessions/{session_id}")
     };
     match rest.get::<SessionResponse>(&path).await.into_result() {
-        Ok(mut resp) => {
-            if !messages {
-                resp.session.messages.clear();
-            }
+        Ok(resp) => {
             if output.json {
                 output.print_json(&resp);
             } else {
@@ -1342,7 +1339,9 @@ fn print_watch_event(msg: &ServerMessage) {
             for entry in upserted {
                 let role = format_row_type_summary(&entry.row);
                 let content =
-                    orbitdock_protocol::conversation_contracts::extract_row_content_str_summary(&entry.row);
+                    orbitdock_protocol::conversation_contracts::extract_row_content_str_summary(
+                        &entry.row,
+                    );
                 let content = truncate(&content, 120);
                 println!("{} [{role}] {content}", bold.apply_to("+row"));
             }

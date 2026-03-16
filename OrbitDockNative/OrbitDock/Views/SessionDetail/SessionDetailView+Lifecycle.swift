@@ -14,6 +14,7 @@ extension SessionDetailView {
   func handlePinnedChange(_ pinned: Bool) {
     guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
     scopedServerState.setSessionAutoMarkRead(sessionId, enabled: pinned)
+    if pinned { unreadCount = 0 }
   }
 
   func handleDiffChange(oldDiff: String?, newDiff: String?) {

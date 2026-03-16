@@ -56,14 +56,11 @@ impl JsonlTailer {
         );
     }
 
-    pub(crate) fn ensure_file(
-        &mut self,
-        path: &str,
-        size: u64,
-        created_at: Option<SystemTime>,
-    ) {
+    pub(crate) fn ensure_file(&mut self, path: &str, size: u64, created_at: Option<SystemTime>) {
         if let Some(state) = self.states.get_mut(path) {
-            if state.session_id.is_some() || state.project_path.is_some() || state.model_provider.is_some()
+            if state.session_id.is_some()
+                || state.project_path.is_some()
+                || state.model_provider.is_some()
             {
                 return;
             }
@@ -128,7 +125,9 @@ impl JsonlTailer {
     }
 
     pub(crate) fn binding_session_id(&self, path: &str) -> Option<String> {
-        self.states.get(path).and_then(|state| state.session_id.clone())
+        self.states
+            .get(path)
+            .and_then(|state| state.session_id.clone())
     }
 
     pub(crate) fn apply_binding(&mut self, path: &str, binding: &PersistedFileState) {
@@ -270,8 +269,10 @@ mod tests {
 
     #[test]
     fn read_appended_lines_buffers_partial_line_until_completed() {
-        let tmp_dir =
-            std::env::temp_dir().join(format!("orbitdock-jsonl-tailer-partial-{}", std::process::id()));
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "orbitdock-jsonl-tailer-partial-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp_dir);
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
         let path = tmp_dir.join("rollout.jsonl");
@@ -299,8 +300,10 @@ mod tests {
 
     #[test]
     fn checkpoint_seed_resumes_from_stored_offset() {
-        let tmp_dir =
-            std::env::temp_dir().join(format!("orbitdock-jsonl-tailer-resume-{}", std::process::id()));
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "orbitdock-jsonl-tailer-resume-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&tmp_dir);
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
         let path = tmp_dir.join("rollout.jsonl");

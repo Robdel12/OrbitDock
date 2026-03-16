@@ -95,7 +95,7 @@ enum MarkdownSystemParser {
       case let heading as Heading:
         let text = heading.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty {
-          blocks.append(.text(heading.level <= 3 ? "**\(text)**" : text))
+          blocks.append(.heading(level: heading.level, text: text))
         }
 
       case let list as OrderedList:

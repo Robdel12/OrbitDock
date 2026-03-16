@@ -11,12 +11,10 @@ import SwiftUI
 struct WriteExpandedView: View {
   let content: ServerRowContent
 
-  /// Clean content lines with `+` prefixes stripped when sourced from diffDisplay.
+  /// Content lines extracted from structured diff data or output display.
   private var contentLines: [String] {
-    if let diff = content.diffDisplay, !diff.isEmpty {
-      return diff
-        .components(separatedBy: "\n")
-        .map { $0.hasPrefix("+") ? String($0.dropFirst()) : $0 }
+    if let diffLines = content.diffDisplay, !diffLines.isEmpty {
+      return diffLines.map(\.content)
     }
     if let output = content.outputDisplay, !output.isEmpty {
       return output.components(separatedBy: "\n")
@@ -44,25 +42,28 @@ struct WriteExpandedView: View {
         CodeViewport(lineCount: lineCount, accentColor: .feedbackPositive) {
           ForEach(Array(contentLines.enumerated()), id: \.offset) { index, line in
             HStack(alignment: .top, spacing: 0) {
+              // ── Line number ──
               Text("\(index + 1)")
                 .font(.system(size: TypeScale.code, design: .monospaced))
-                .foregroundStyle(Color.textQuaternary.opacity(0.4))
+                .foregroundStyle(Color.feedbackPositive.opacity(0.4))
                 .frame(width: CGFloat(gutterChars) * 8 + Spacing.sm, alignment: .trailing)
-                .padding(.trailing, Spacing.sm)
+                .padding(.trailing, Spacing.sm_)
 
+              // ── Gutter divider ──
               Rectangle()
                 .fill(Color.textQuaternary.opacity(0.08))
                 .frame(width: 1)
 
+              // ── Content ──
               if let lang, !lang.isEmpty, !line.isEmpty {
                 let highlighted = SyntaxHighlighter.highlightLine(line, language: lang)
                 Text(highlighted)
-                  .padding(.leading, Spacing.sm)
+                  .padding(.leading, Spacing.sm_)
               } else {
                 Text(line.isEmpty ? " " : line)
                   .font(.system(size: TypeScale.code, design: .monospaced))
                   .foregroundStyle(Color.textSecondary)
-                  .padding(.leading, Spacing.sm)
+                  .padding(.leading, Spacing.sm_)
               }
             }
             .padding(.vertical, 1)

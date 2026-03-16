@@ -458,7 +458,11 @@ pub enum PersistOp {
 /// `Completed`, and returns Persist + Emit effects for each. Called on
 /// TurnCompleted, TurnAborted, and SessionEnded to prevent tool rows stuck
 /// at "running...".
-fn finalize_in_progress_rows(sid: &str, rows: &mut [ConversationRowEntry], total_row_count: u64) -> Vec<Effect> {
+fn finalize_in_progress_rows(
+    sid: &str,
+    rows: &mut [ConversationRowEntry],
+    total_row_count: u64,
+) -> Vec<Effect> {
     let mut effects = Vec::new();
     let mut finalized_entries = Vec::new();
     for entry in rows.iter_mut() {
@@ -581,7 +585,11 @@ pub fn transition(
             }
 
             // Finalize any tool messages stuck at is_in_progress before status change
-            effects.extend(finalize_in_progress_rows(&sid, &mut state.rows, state.total_row_count));
+            effects.extend(finalize_in_progress_rows(
+                &sid,
+                &mut state.rows,
+                state.total_row_count,
+            ));
 
             // Only transition if we're actually working
             if matches!(state.phase, WorkPhase::Working) {
@@ -612,7 +620,11 @@ pub fn transition(
             // A second TurnAborted (e.g. from watchdog after provider already aborted) is a no-op.
             if !matches!(state.phase, WorkPhase::Idle | WorkPhase::Ended { .. }) {
                 // Finalize any tool messages stuck at is_in_progress before status change
-                effects.extend(finalize_in_progress_rows(&sid, &mut state.rows, state.total_row_count));
+                effects.extend(finalize_in_progress_rows(
+                    &sid,
+                    &mut state.rows,
+                    state.total_row_count,
+                ));
 
                 state.phase = WorkPhase::Idle;
                 state.last_activity_at = Some(now.to_string());
@@ -999,7 +1011,11 @@ pub fn transition(
         // -- Lifecycle --------------------------------------------------------
         Input::SessionEnded { reason } => {
             // Finalize any tool messages stuck at is_in_progress before ending
-            effects.extend(finalize_in_progress_rows(&sid, &mut state.rows, state.total_row_count));
+            effects.extend(finalize_in_progress_rows(
+                &sid,
+                &mut state.rows,
+                state.total_row_count,
+            ));
 
             state.phase = WorkPhase::Ended {
                 reason: reason.clone(),
@@ -2516,8 +2532,8 @@ fn shell_segments_for_preview(command: &str) -> Vec<ApprovalPreviewSegment> {
 mod tests {
     use super::*;
     use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
-    use serde_json::json;
     use orbitdock_protocol::{ApprovalPreviewType, ApprovalRiskLevel, TokenUsage};
+    use serde_json::json;
 
     fn test_state() -> TransitionState {
         TransitionState {

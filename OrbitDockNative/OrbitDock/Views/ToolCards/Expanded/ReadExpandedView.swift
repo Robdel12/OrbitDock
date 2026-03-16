@@ -3,7 +3,8 @@
 //  OrbitDock
 //
 //  Code editor experience for file read output.
-//  Features: FileTabHeader, syntax highlighting, line numbers, CodeViewport for large files.
+//  Server sends clean content (cat -n prefixes stripped) + start_line for real line numbers.
+//  Features: FileTabHeader, syntax highlighting, real file line numbers, CodeViewport.
 //
 
 import SwiftUI
@@ -21,11 +22,12 @@ struct ReadExpandedView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       if let input = content.inputDisplay, !input.isEmpty {
-        let lines = content.outputDisplay?.components(separatedBy: "\n") ?? []
+        let lineCount = content.outputDisplay?
+          .components(separatedBy: "\n").count ?? 0
         FileTabHeader(
           path: input,
           language: content.language,
-          metric: "\(lines.count) lines"
+          metric: "\(lineCount) lines"
         )
       }
 
@@ -43,32 +45,38 @@ struct ReadExpandedView: View {
 
       if let output = content.outputDisplay, !output.isEmpty {
         let lines = output.components(separatedBy: "\n")
-        let gutterChars = max(3, "\(lines.count)".count)
+        let startLine = content.startLine ?? 1
+        let maxLineNum = startLine + lines.count - 1
+        let gutterChars = max(3, "\(maxLineNum)".count)
         let lang = content.language
 
         CodeViewport(lineCount: lines.count, accentColor: .toolRead) {
           ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-            HStack(alignment: .top, spacing: 0) {
-              Text("\(index + 1)")
-                .font(.system(size: TypeScale.code, design: .monospaced))
-                .foregroundStyle(Color.textQuaternary.opacity(0.4))
-                .frame(width: CGFloat(gutterChars) * 8 + Spacing.sm, alignment: .trailing)
-                .padding(.trailing, Spacing.sm)
+            let lineNum = startLine + index
 
+            HStack(alignment: .top, spacing: 0) {
+              // ── Line number ──
+              Text("\(lineNum)")
+                .font(.system(size: TypeScale.code, design: .monospaced))
+                .foregroundStyle(Color.toolRead.opacity(0.4))
+                .frame(width: CGFloat(gutterChars) * 7 + Spacing.sm_, alignment: .trailing)
+                .padding(.trailing, Spacing.xs)
+
+              // ── Gutter bar (3pt, matches Edit edge bar weight) ──
               Rectangle()
                 .fill(Color.textQuaternary.opacity(0.08))
-                .frame(width: 1)
+                .frame(width: 3)
 
-              // Syntax-highlighted line
+              // ── Content ──
               if let lang, !lang.isEmpty, !line.isEmpty {
                 let highlighted = SyntaxHighlighter.highlightLine(line, language: lang)
                 Text(highlighted)
-                  .padding(.leading, Spacing.sm)
+                  .padding(.leading, Spacing.sm_)
               } else {
                 Text(line.isEmpty ? " " : line)
                   .font(.system(size: TypeScale.code, design: .monospaced))
                   .foregroundStyle(Color.textSecondary)
-                  .padding(.leading, Spacing.sm)
+                  .padding(.leading, Spacing.sm_)
               }
             }
             .padding(.vertical, 1)

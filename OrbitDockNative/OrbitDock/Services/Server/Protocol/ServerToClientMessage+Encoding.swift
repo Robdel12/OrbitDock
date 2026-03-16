@@ -344,6 +344,9 @@ extension ServerToClientMessage {
         try container.encode(code, forKey: .code)
         try container.encode(message, forKey: .message)
         try container.encodeIfPresent(sessionId, forKey: .sessionId)
+
+      case let .unknown(type):
+        try container.encode(type, forKey: .type)
     }
   }
 }

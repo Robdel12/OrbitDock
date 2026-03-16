@@ -9,12 +9,12 @@ import Foundation
 
 // MARK: - Conversation Rows
 
-enum ServerConversationRowType: String, Codable {
+enum ServerConversationRowType: Codable, Equatable {
   case user
   case assistant
   case thinking
   case tool
-  case activityGroup = "activity_group"
+  case activityGroup
   case question
   case approval
   case worker
@@ -22,6 +22,47 @@ enum ServerConversationRowType: String, Codable {
   case hook
   case handoff
   case system
+  case unknown
+
+  init(from decoder: Decoder) throws {
+    let value = try decoder.singleValueContainer().decode(String.self)
+    switch value {
+      case "user": self = .user
+      case "assistant": self = .assistant
+      case "thinking": self = .thinking
+      case "tool": self = .tool
+      case "activity_group": self = .activityGroup
+      case "question": self = .question
+      case "approval": self = .approval
+      case "worker": self = .worker
+      case "plan": self = .plan
+      case "hook": self = .hook
+      case "handoff": self = .handoff
+      case "system": self = .system
+      default:
+        netLog(.error, cat: .ws, "Unknown conversation row type: \(value)")
+        self = .unknown
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    switch self {
+      case .user: try container.encode("user")
+      case .assistant: try container.encode("assistant")
+      case .thinking: try container.encode("thinking")
+      case .tool: try container.encode("tool")
+      case .activityGroup: try container.encode("activity_group")
+      case .question: try container.encode("question")
+      case .approval: try container.encode("approval")
+      case .worker: try container.encode("worker")
+      case .plan: try container.encode("plan")
+      case .hook: try container.encode("hook")
+      case .handoff: try container.encode("handoff")
+      case .system: try container.encode("system")
+      case .unknown: try container.encode("unknown")
+    }
+  }
 }
 
 enum ServerConversationToolFamily: String, Codable {
@@ -161,11 +202,11 @@ struct ServerConversationToolRow: Codable {
   let title: String
   let subtitle: String?
   let summary: String?
-  let preview: AnyCodable?
+  let preview: ServerToolPreviewPayload?
   let startedAt: String?
   let endedAt: String?
   let durationMs: UInt64?
-  let groupingKey: AnyCodable?
+  let groupingKey: String?
   let renderHints: ServerConversationRenderHints
   let toolDisplay: ServerToolDisplay
 
@@ -224,7 +265,7 @@ struct ServerConversationQuestionRow: Codable {
   let subtitle: String?
   let summary: String?
   let prompts: [ServerApprovalQuestionPrompt]
-  let response: AnyCodable?
+  let response: ServerQuestionResponseValue?
   let renderHints: ServerConversationRenderHints
 
   enum CodingKeys: String, CodingKey {
@@ -261,7 +302,7 @@ struct ServerConversationWorkerRow: Codable {
   let title: String
   let subtitle: String?
   let summary: String?
-  let worker: AnyCodable
+  let worker: ServerWorkerStateSnapshot
   let operation: String?
   let renderHints: ServerConversationRenderHints
 
@@ -281,7 +322,7 @@ struct ServerConversationPlanRow: Codable {
   let title: String
   let subtitle: String?
   let summary: String?
-  let payload: AnyCodable
+  let payload: ServerPlanModePayload
   let renderHints: ServerConversationRenderHints
 
   enum CodingKeys: String, CodingKey {
@@ -299,7 +340,7 @@ struct ServerConversationHookRow: Codable {
   let title: String
   let subtitle: String?
   let summary: String?
-  let payload: AnyCodable
+  let payload: ServerHookPayload
   let renderHints: ServerConversationRenderHints
 
   enum CodingKeys: String, CodingKey {
@@ -317,7 +358,7 @@ struct ServerConversationHandoffRow: Codable {
   let title: String
   let subtitle: String?
   let summary: String?
-  let payload: AnyCodable
+  let payload: ServerHandoffPayload
   let renderHints: ServerConversationRenderHints
 
   enum CodingKeys: String, CodingKey {
@@ -376,6 +417,17 @@ enum ServerConversationRow: Codable {
         self = .handoff(try ServerConversationHandoffRow(from: decoder))
       case .system:
         self = .system(try ServerConversationMessageRow(from: decoder))
+      case .unknown:
+        // Decode minimal system row for unknown types — id may be present or synthesized
+        let id = (try? container.decode(String.self, forKey: .rowType)) ?? UUID().uuidString
+        self = .system(ServerConversationMessageRow(
+          id: "unknown-\(id)",
+          content: "",
+          turnId: nil,
+          timestamp: nil,
+          isStreaming: false,
+          images: nil
+        ))
     }
   }
 
@@ -626,7 +678,7 @@ struct ServerToolDisplay: Codable {
   // Expanded rendering fields
   let inputDisplay: String?
   let outputDisplay: String?
-  let diffDisplay: String?
+  let diffDisplay: [ServerDiffLine]?
 
   enum CodingKeys: String, CodingKey {
     case summary
@@ -664,7 +716,7 @@ struct ServerToolDisplay: Codable {
     glyphSymbol: String, glyphColor: String, language: String?,
     diffPreview: ServerToolDiffPreview?, outputPreview: String?, liveOutputPreview: String?,
     todoItems: [ServerToolTodoItem], toolType: String, summaryFont: String, displayTier: String,
-    inputDisplay: String?, outputDisplay: String?, diffDisplay: String?
+    inputDisplay: String?, outputDisplay: String?, diffDisplay: [ServerDiffLine]?
   ) {
     self.summary = summary
     self.subtitle = subtitle
@@ -703,7 +755,29 @@ struct ServerToolDisplay: Codable {
     displayTier = try container.decodeIfPresent(String.self, forKey: .displayTier) ?? "standard"
     inputDisplay = try container.decodeIfPresent(String.self, forKey: .inputDisplay)
     outputDisplay = try container.decodeIfPresent(String.self, forKey: .outputDisplay)
-    diffDisplay = try container.decodeIfPresent(String.self, forKey: .diffDisplay)
+    diffDisplay = try container.decodeIfPresent([ServerDiffLine].self, forKey: .diffDisplay)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(summary, forKey: .summary)
+    try container.encodeIfPresent(subtitle, forKey: .subtitle)
+    try container.encodeIfPresent(rightMeta, forKey: .rightMeta)
+    try container.encode(subtitleAbsorbsMeta, forKey: .subtitleAbsorbsMeta)
+    try container.encode(glyphSymbol, forKey: .glyphSymbol)
+    try container.encode(glyphColor, forKey: .glyphColor)
+    try container.encodeIfPresent(language, forKey: .language)
+    try container.encodeIfPresent(diffPreview, forKey: .diffPreview)
+    try container.encodeIfPresent(outputPreview, forKey: .outputPreview)
+    try container.encodeIfPresent(liveOutputPreview, forKey: .liveOutputPreview)
+    try container.encode(todoItems, forKey: .todoItems)
+    try container.encode(toolType, forKey: .toolType)
+    try container.encode(summaryFont, forKey: .summaryFont)
+    try container.encode(displayTier, forKey: .displayTier)
+    try container.encodeIfPresent(inputDisplay, forKey: .inputDisplay)
+    try container.encodeIfPresent(outputDisplay, forKey: .outputDisplay)
+    // diffDisplay is Decodable-only (ServerDiffLine); omit from encoding
+    // (always nil from WebSocket, only populated via REST API response)
   }
 }
 

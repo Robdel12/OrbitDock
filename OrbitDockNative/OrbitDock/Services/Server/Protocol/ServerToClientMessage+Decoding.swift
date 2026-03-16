@@ -381,12 +381,8 @@ extension ServerToClientMessage {
         self = .error(code: code, message: message, sessionId: sessionId)
 
       default:
-        throw DecodingError.dataCorrupted(
-          DecodingError.Context(
-            codingPath: container.codingPath,
-            debugDescription: "Unknown message type: \(type)"
-          )
-        )
+        netLog(.error, cat: .ws, "Unknown server message type: \(type)")
+        self = .unknown(type: type)
     }
   }
 }

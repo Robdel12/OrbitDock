@@ -174,7 +174,6 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         is_worktree: false,
         worktree_id: None,
         unread_count: restored.unread_count,
-        messages: vec![],
     }
 }
 

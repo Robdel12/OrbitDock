@@ -54,7 +54,7 @@ impl CodexAuthService {
     pub fn new(list_tx: broadcast::Sender<ServerMessage>) -> Self {
         match find_codex_home() {
             Ok(codex_home) => {
-                let credentials_store_mode = AuthCredentialsStoreMode::Auto;
+                let credentials_store_mode = AuthCredentialsStoreMode::File;
                 Self {
                     state: StdMutex::new(ServiceState::Deferred {
                         codex_home,

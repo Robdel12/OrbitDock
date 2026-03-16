@@ -9,6 +9,7 @@ import Foundation
 
 enum MarkdownBlock: Equatable {
   case text(String)
+  case heading(level: Int, text: String)
   case codeBlock(language: String?, code: String)
   case blockquote(String)
   case table(headers: [String], rows: [[String]])

@@ -13,18 +13,24 @@ struct OrbitDockWindowRoot: View {
   }
 
   var body: some View {
-    NavigationStack(path: $navigationPath) {
-      DashboardView(
-        isInitialLoading: false,
-        isRefreshingCachedSessions: false
-      )
-      .navigationDestination(for: SessionRef.self) { ref in
-        SessionDetailView(
-          sessionId: ref.sessionId,
-          endpointId: ref.endpointId
+    ZStack {
+      NavigationStack(path: $navigationPath) {
+        DashboardView(
+          isInitialLoading: false,
+          isRefreshingCachedSessions: false
         )
-        .environment(detailSessionStore(for: ref.endpointId))
-        .id(ref.scopedID)
+        .navigationDestination(for: SessionRef.self) { ref in
+          SessionDetailView(
+            sessionId: ref.sessionId,
+            endpointId: ref.endpointId
+          )
+          .environment(detailSessionStore(for: ref.endpointId))
+          .id(ref.scopedID)
+        }
+      }
+
+      if router.showQuickSwitcher {
+        quickSwitcherOverlay
       }
     }
     #if os(macOS)
@@ -39,22 +45,43 @@ struct OrbitDockWindowRoot: View {
     .environment(\.rootSessionActions, RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
     .environment(\.modelPricingService, ModelPricingService.live())
     .focusedSceneValue(\.orbitDockRouter, router)
+    .focusable()
+    .onKeyPress(keys: [.escape]) { _ in
+      guard router.showQuickSwitcher else { return .ignored }
+      withAnimation(Motion.standard) {
+        router.closeQuickSwitcher()
+      }
+      return .handled
+    }
     .preferredColorScheme(.dark)
     .toolbar(.hidden)
     .onChange(of: router.route) { oldRoute, newRoute in
-      // Unsubscribe from previous session
-      if case let .session(oldRef) = oldRoute {
-        detailSessionStore(for: oldRef.endpointId)
-          .unsubscribeFromSession(oldRef.sessionId)
-      }
-      // Navigate + subscribe
       switch newRoute {
       case let .session(ref):
+        // Unsubscribe from previous session before subscribing to the new one
+        if case let .session(oldRef) = oldRoute {
+          detailSessionStore(for: oldRef.endpointId)
+            .unsubscribeFromSession(oldRef.sessionId)
+        }
         navigationPath = NavigationPath([ref])
         detailSessionStore(for: ref.endpointId)
           .subscribeToSession(ref.sessionId)
+
       case .dashboard:
-        navigationPath = NavigationPath()
+        // Pop instantly — no slide animation. Unsubscribe after the view
+        // is removed so clearing the store doesn't trigger competing
+        // animations inside the outgoing ConversationView.
+        var t = Transaction(animation: nil)
+        t.disablesAnimations = true
+        withTransaction(t) {
+          navigationPath = NavigationPath()
+        }
+        if case let .session(oldRef) = oldRoute {
+          Task { @MainActor in
+            detailSessionStore(for: oldRef.endpointId)
+              .unsubscribeFromSession(oldRef.sessionId)
+          }
+        }
       }
     }
     .sheet(isPresented: Binding(
@@ -74,6 +101,47 @@ struct OrbitDockWindowRoot: View {
         .presentationDragIndicator(.visible)
       #endif
     }
+  }
+
+  // MARK: - Quick Switcher Overlay
+
+  private var quickSwitcherOverlay: some View {
+    ZStack {
+      Color.black.opacity(0.5)
+        .ignoresSafeArea()
+        .onTapGesture {
+          withAnimation(Motion.standard) {
+            router.closeQuickSwitcher()
+          }
+        }
+
+      QuickSwitcher(
+        onQuickLaunchClaude: { path in
+          Task {
+            try? await creationStore().createSession(
+              SessionsClient.CreateSessionRequest(provider: "claude", cwd: path)
+            )
+          }
+        },
+        onQuickLaunchCodex: { path in
+          let targetState = creationStore()
+          let defaultModel = targetState.codexModels.first(where: { $0.isDefault })?.model
+            ?? targetState.codexModels.first?.model ?? ""
+          Task {
+            try? await targetState.createSession(
+              SessionsClient.CreateSessionRequest(
+                provider: "codex",
+                cwd: path,
+                model: defaultModel,
+                approvalPolicy: "on-request",
+                sandboxMode: "workspace-write"
+              )
+            )
+          }
+        }
+      )
+    }
+    .transition(.opacity)
   }
 
   private func creationStore() -> SessionStore {

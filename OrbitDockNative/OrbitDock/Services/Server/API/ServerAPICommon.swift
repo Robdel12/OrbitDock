@@ -15,8 +15,10 @@ struct ServerRowContent: Decodable {
   let rowId: String
   let inputDisplay: String?
   let outputDisplay: String?
-  let diffDisplay: String?
+  let diffDisplay: [ServerDiffLine]?
   let language: String?
+  /// Starting line number for Read tool output (from cat -n format).
+  let startLine: Int?
 
   enum CodingKeys: String, CodingKey {
     case rowId = "row_id"
@@ -24,6 +26,28 @@ struct ServerRowContent: Decodable {
     case outputDisplay = "output_display"
     case diffDisplay = "diff_display"
     case language
+    case startLine = "start_line"
+  }
+}
+
+/// A single line in a structured diff from the server.
+struct ServerDiffLine: Decodable {
+  let type: DiffLineKind
+  let oldLine: Int?
+  let newLine: Int?
+  let content: String
+
+  enum DiffLineKind: String, Decodable {
+    case context
+    case addition
+    case deletion
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case type
+    case oldLine = "old_line"
+    case newLine = "new_line"
+    case content
   }
 }
 

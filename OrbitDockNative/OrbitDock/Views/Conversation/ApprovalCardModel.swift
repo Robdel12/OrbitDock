@@ -161,7 +161,7 @@ struct ApprovalCardModel: Hashable, Sendable {
   let approvalId: String?
   let sessionId: String
   // MCP elicitation fields
-  let elicitationMode: String?
+  let elicitationMode: ServerElicitationMode?
   let elicitationSchema: Any?
   let elicitationUrl: String?
   let elicitationMessage: String?
@@ -348,119 +348,71 @@ enum ApprovalCardModelBuilder {
     )
   }
 
-  private static func valueAtPath(_ root: Any?, path: [String]) -> Any? {
-    var current = root
-    for key in path {
-      guard let dict = current as? [String: Any] else { return nil }
-      current = dict[key]
-    }
-    return current
-  }
-
-  private static func stringValue(_ value: Any?) -> String? {
-    guard let value else { return nil }
-    if let string = value as? String {
-      let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
-      return normalized.isEmpty ? nil : normalized
-    }
-    return nil
-  }
-
-  private static func boolValue(_ value: Any?) -> Bool? {
-    if let value = value as? Bool { return value }
-    return nil
-  }
-
-  private static func stringArray(_ value: Any?) -> [String] {
-    guard let array = value as? [Any] else { return [] }
-    return array.compactMap { stringValue($0) }
-  }
-
-  private static func permissionRequest(from payload: AnyCodable?, reason: String?) -> ApprovalPermissionRequest? {
-    guard let root = payload?.value as? [String: Any] else {
+  private static func permissionRequest(
+    from descriptors: [ServerPermissionDescriptor]?,
+    reason: String?
+  ) -> ApprovalPermissionRequest? {
+    guard let descriptors, !descriptors.isEmpty else {
       if let reason = normalizedText(reason) {
         return ApprovalPermissionRequest(reason: reason, groups: [])
       }
       return nil
     }
 
+    var networkLines: [String] = []
+    var fileLines: [String] = []
+    var macLines: [String] = []
+    var genericLines: [String] = []
+
+    for descriptor in descriptors {
+      switch descriptor {
+        case let .network(hosts):
+          if hosts.isEmpty {
+            networkLines.append("Allow outbound network access for this request.")
+          } else {
+            networkLines.append(contentsOf: hosts.map { "Allow access to \($0)" })
+          }
+        case let .filesystem(readPaths, writePaths):
+          fileLines.append(contentsOf: readPaths.map { "Read \($0)" })
+          fileLines.append(contentsOf: writePaths.map { "Write \($0)" })
+        case let .macOs(entitlement, details):
+          switch entitlement {
+            case "preferences":
+              switch details {
+                case "read_write": macLines.append("Read and write macOS preferences.")
+                case "read_only": macLines.append("Read macOS preferences.")
+                default: macLines.append("macOS preferences: \(details ?? entitlement)")
+              }
+            case "automation":
+              if let details {
+                if details == "all" {
+                  macLines.append("Automate other macOS apps.")
+                } else {
+                  macLines.append("Automate \(details)")
+                }
+              }
+            case "accessibility": macLines.append("Use Accessibility control.")
+            case "calendar": macLines.append("Access Calendar data.")
+            default:
+              macLines.append(details ?? entitlement)
+          }
+        case let .generic(permission, details):
+          genericLines.append(details ?? permission)
+      }
+    }
+
     var groups: [ApprovalPermissionGroup] = []
-
-    if let network = valueAtPath(root, path: ["network"]) as? [String: Any],
-       boolValue(network["enabled"]) == true
-    {
-      groups.append(
-        ApprovalPermissionGroup(
-          title: "Network",
-          iconName: "network",
-          lines: ["Allow outbound network access for this request."]
-        )
-      )
+    if !networkLines.isEmpty {
+      groups.append(ApprovalPermissionGroup(title: "Network", iconName: "network", lines: networkLines))
     }
-
-    if let fileSystem = valueAtPath(root, path: ["file_system"]) as? [String: Any] {
-      var fileLines: [String] = []
-      let readPaths = stringArray(fileSystem["read"])
-      let writePaths = stringArray(fileSystem["write"])
-      if !readPaths.isEmpty {
-        fileLines.append(contentsOf: readPaths.map { "Read \($0)" })
-      }
-      if !writePaths.isEmpty {
-        fileLines.append(contentsOf: writePaths.map { "Write \($0)" })
-      }
-      if !fileLines.isEmpty {
-        groups.append(
-          ApprovalPermissionGroup(
-            title: "Filesystem",
-            iconName: "folder",
-            lines: fileLines
-          )
-        )
-      }
+    if !fileLines.isEmpty {
+      groups.append(ApprovalPermissionGroup(title: "Filesystem", iconName: "folder", lines: fileLines))
     }
-
-    if let macos = valueAtPath(root, path: ["macos"]) as? [String: Any] {
-      var macLines: [String] = []
-      if let preferences = stringValue(macos["macos_preferences"] ?? macos["preferences"]) {
-        switch preferences {
-          case "read_write":
-            macLines.append("Read and write macOS preferences.")
-          case "read_only":
-            macLines.append("Read macOS preferences.")
-          default:
-            break
-        }
-      }
-
-      let automation = macos["macos_automation"] ?? macos["automations"]
-      if let mode = stringValue(automation) {
-        if mode == "all" {
-          macLines.append("Automate other macOS apps.")
-        }
-      } else if let automationDict = automation as? [String: Any] {
-        let bundleIds = stringArray(automationDict["bundle_ids"])
-        macLines.append(contentsOf: bundleIds.map { "Automate \($0)" })
-      } else {
-        let bundleIds = stringArray(automation)
-        macLines.append(contentsOf: bundleIds.map { "Automate \($0)" })
-      }
-
-      if boolValue(macos["macos_accessibility"] ?? macos["accessibility"]) == true {
-        macLines.append("Use Accessibility control.")
-      }
-      if boolValue(macos["macos_calendar"] ?? macos["calendar"]) == true {
-        macLines.append("Access Calendar data.")
-      }
-
-      if !macLines.isEmpty {
-        groups.append(
-          ApprovalPermissionGroup(
-            title: "macOS",
-            iconName: "apple.logo",
-            lines: macLines
-          )
-        )
-      }
+    if !macLines.isEmpty {
+      groups.append(ApprovalPermissionGroup(title: "macOS", iconName: "apple.logo", lines: macLines))
+    }
+    if !genericLines.isEmpty {
+      groups.append(ApprovalPermissionGroup(title: "Permissions", iconName: "lock.shield", lines: genericLines))
     }
 
     let normalizedReason = normalizedText(reason)

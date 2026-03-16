@@ -265,6 +265,7 @@ struct MarkdownParsingTests {
     let blocks = MarkdownSystemParser.parse(markdown)
     let blockKinds = blocks.map { blockKindName($0) }
 
+    #expect(blockKinds.contains("heading"))
     #expect(blockKinds.contains("text"))
     #expect(blockKinds.contains("blockquote"))
     #expect(blockKinds.contains("thematicBreak"))
@@ -283,7 +284,7 @@ struct MarkdownParsingTests {
 
   // MARK: - New tests
 
-  @Test func headingsH1ThroughH3RenderAsBold() {
+  @Test func headingsEmitHeadingBlocks() {
     let markdown = """
     # First
 
@@ -292,20 +293,20 @@ struct MarkdownParsingTests {
     ### Third
     """
     let blocks = MarkdownSystemParser.parse(markdown)
-    let textBlocks = blocks.compactMap { block -> String? in
-      if case let .text(text) = block { return text }
+    let headings = blocks.compactMap { block -> (level: Int, text: String)? in
+      if case let .heading(level, text) = block { return (level, text) }
       return nil
     }
 
-    #expect(textBlocks.count >= 3)
-    guard textBlocks.count >= 3 else { return }
+    #expect(headings.count == 3)
+    guard headings.count == 3 else { return }
 
-    #expect(textBlocks[0] == "**First**")
-    #expect(textBlocks[1] == "**Second**")
-    #expect(textBlocks[2] == "**Third**")
+    #expect(headings[0] == (1, "First"))
+    #expect(headings[1] == (2, "Second"))
+    #expect(headings[2] == (3, "Third"))
   }
 
-  @Test func headingsH4ThroughH6RenderAsPlainText() {
+  @Test func headingsH4ThroughH6EmitHeadingBlocks() {
     let markdown = """
     #### H4
 
@@ -314,17 +315,17 @@ struct MarkdownParsingTests {
     ###### H6
     """
     let blocks = MarkdownSystemParser.parse(markdown)
-    let textBlocks = blocks.compactMap { block -> String? in
-      if case let .text(text) = block { return text }
+    let headings = blocks.compactMap { block -> (level: Int, text: String)? in
+      if case let .heading(level, text) = block { return (level, text) }
       return nil
     }
 
-    #expect(textBlocks.count >= 3)
-    guard textBlocks.count >= 3 else { return }
+    #expect(headings.count == 3)
+    guard headings.count == 3 else { return }
 
-    #expect(textBlocks[0] == "H4")
-    #expect(textBlocks[1] == "H5")
-    #expect(textBlocks[2] == "H6")
+    #expect(headings[0] == (4, "H4"))
+    #expect(headings[1] == (5, "H5"))
+    #expect(headings[2] == (6, "H6"))
   }
 
   @Test func parserOutputIsIdenticalAcrossStyles() {
@@ -365,6 +366,7 @@ struct MarkdownParsingTests {
   private func blockKindName(_ block: MarkdownBlock) -> String {
     switch block {
       case .text: "text"
+      case .heading: "heading"
       case .codeBlock: "codeBlock"
       case .blockquote: "blockquote"
       case .table: "table"

@@ -98,7 +98,7 @@ struct ServerSessionContractsTests {
                 "subtitle": "Mapping the repository",
                 "summary": "Scanning files",
                 "worker": {
-                  "subagent_id": "worker-1",
+                  "id": "worker-1",
                   "label": "Scout",
                   "status": "running"
                 },

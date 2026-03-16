@@ -5,9 +5,15 @@
 //  Pure SwiftUI replacement for NSTableView/UICollectionView timeline.
 //  Heights are automatic — no manual measurement or caching needed.
 //
-//  Scroll-to-bottom uses ScrollViewReader + a bottom sentinel.
-//  The sentinel's onAppear/onDisappear tracks whether the user is
-//  pinned to the bottom — zero polling, zero display-link overhead.
+//  Follow (pin-to-bottom) logic:
+//  - Sentinel onAppear re-pins when user scrolls back to the bottom.
+//  - Sentinel onDisappear marks the sentinel as off-screen but does NOT
+//    immediately unpin — content growth also pushes the sentinel off-screen
+//    before auto-scroll corrects it.
+//  - Unpin only happens when a USER-INITIATED scroll ends with the sentinel
+//    still off-screen. User scroll is detected via platform scroll-view
+//    notifications (macOS) or pan gesture tracking (iOS) through
+//    TimelineUserScrollDetector.
 //
 
 import SwiftUI
@@ -19,9 +25,11 @@ struct TimelineScrollView: View {
   var viewMode: ChatViewMode = .focused
   let onLoadMore: (() -> Void)?
   @Binding var isPinned: Bool
+  @Binding var scrollToBottomTrigger: Int
 
   @State private var rowState = TimelineRowStateStore()
-  @State private var isPinnedToBottom = true
+  @State private var sentinelVisible = true
+  @State private var userIsLiveScrolling = false
 
   /// Tool grouping happens here — computed fresh when entries change.
   private var displayEntries: [ServerConversationRowEntry] {
@@ -51,7 +59,7 @@ struct TimelineScrollView: View {
 
     ScrollViewReader { proxy in
       ScrollView(.vertical) {
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
           // Pagination sentinel — triggers history load when scrolled into view
           Color.clear
             .frame(height: 1)
@@ -62,29 +70,52 @@ struct TimelineScrollView: View {
               .id(entry.id)
           }
 
-          // Bottom sentinel — tracks pin state via visibility, not polling.
-          // onAppear/onDisappear fire exactly once per visibility change.
+          // Bottom sentinel — tracks viewport visibility for pin state.
+          // onAppear re-pins (user scrolled back to bottom).
+          // onDisappear records that the sentinel left but does NOT unpin —
+          // unpin is deferred to TimelineUserScrollDetector.
           Color.clear
             .frame(height: 1)
             .id("timeline-bottom")
             .onAppear {
-              guard !isPinnedToBottom else { return }
-              isPinnedToBottom = true
+              sentinelVisible = true
+              guard !isPinned else { return }
               isPinned = true
             }
             .onDisappear {
-              guard isPinnedToBottom else { return }
-              isPinnedToBottom = false
+              sentinelVisible = false
+              // Unpin immediately only if the user is actively scrolling.
+              // Content-push disappearances are corrected by auto-scroll.
+              guard isPinned, userIsLiveScrolling else { return }
               isPinned = false
             }
+        }
+        .background {
+          TimelineUserScrollDetector(isUserScrolling: $userIsLiveScrolling)
+            .frame(width: 0, height: 0)
         }
       }
       .scrollDismissesKeyboard(.interactively)
       .defaultScrollAnchor(.bottom)
       .background(Color.backgroundPrimary)
-      .onChange(of: autoScrollVersion) { _, _ in
-        guard isPinnedToBottom, let lastID = displayed.last?.id else { return }
+      .onAppear {
+        guard let lastID = displayed.last?.id else { return }
         proxy.scrollTo(lastID, anchor: .bottom)
+      }
+      .onChange(of: autoScrollVersion) { _, _ in
+        guard isPinned, let lastID = displayed.last?.id else { return }
+        proxy.scrollTo(lastID, anchor: .bottom)
+      }
+      .onChange(of: scrollToBottomTrigger) { _, _ in
+        guard let lastID = displayed.last?.id else { return }
+        proxy.scrollTo(lastID, anchor: .bottom)
+      }
+      // When user scroll ends, check if sentinel is still off-screen → unpin.
+      // Handles momentum scrolling: macOS didEndLiveScrollNotification fires
+      // after momentum settles; iOS tracks deceleration via contentOffset KVO.
+      .onChange(of: userIsLiveScrolling) { _, isScrolling in
+        guard !isScrolling, isPinned, !sentinelVisible else { return }
+        isPinned = false
       }
     }
   }

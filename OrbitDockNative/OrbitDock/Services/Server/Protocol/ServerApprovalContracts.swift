@@ -161,11 +161,13 @@ struct ServerApprovalRequest: Codable, Identifiable {
   let questionPrompts: [ServerApprovalQuestionPrompt]
   let preview: ServerApprovalPreview?
   let permissionReason: String?
-  let requestedPermissions: AnyCodable?
-  let grantedPermissions: AnyCodable?
+  let requestedPermissions: [ServerPermissionDescriptor]?
+  let grantedPermissions: [ServerPermissionDescriptor]?
   let proposedAmendment: [String]?
-  let permissionSuggestions: AnyCodable?
-  let elicitationMode: String?
+  /// Raw permission suggestions from Claude SDK (PermissionUpdate[]).
+  /// Opaque JSON — the SDK format doesn't match PermissionDescriptor.
+  let permissionSuggestions: [ServerPermissionSuggestion]?
+  let elicitationMode: ServerElicitationMode?
   let elicitationSchema: AnyCodable?
   let elicitationUrl: String?
   let elicitationMessage: String?
@@ -212,11 +214,11 @@ struct ServerApprovalRequest: Codable, Identifiable {
     questionPrompts: [ServerApprovalQuestionPrompt] = [],
     preview: ServerApprovalPreview? = nil,
     permissionReason: String? = nil,
-    requestedPermissions: AnyCodable? = nil,
-    grantedPermissions: AnyCodable? = nil,
+    requestedPermissions: [ServerPermissionDescriptor]? = nil,
+    grantedPermissions: [ServerPermissionDescriptor]? = nil,
     proposedAmendment: [String]? = nil,
-    permissionSuggestions: AnyCodable? = nil,
-    elicitationMode: String? = nil,
+    permissionSuggestions: [ServerPermissionSuggestion]? = nil,
+    elicitationMode: ServerElicitationMode? = nil,
     elicitationSchema: AnyCodable? = nil,
     elicitationUrl: String? = nil,
     elicitationMessage: String? = nil,
@@ -264,11 +266,11 @@ struct ServerApprovalRequest: Codable, Identifiable {
       try container.decodeIfPresent([ServerApprovalQuestionPrompt].self, forKey: .questionPrompts) ?? []
     preview = try container.decodeIfPresent(ServerApprovalPreview.self, forKey: .preview)
     permissionReason = try container.decodeIfPresent(String.self, forKey: .permissionReason)
-    requestedPermissions = try container.decodeIfPresent(AnyCodable.self, forKey: .requestedPermissions)
-    grantedPermissions = try container.decodeIfPresent(AnyCodable.self, forKey: .grantedPermissions)
+    requestedPermissions = try container.decodePermissionDescriptors(forKey: .requestedPermissions)
+    grantedPermissions = try container.decodePermissionDescriptors(forKey: .grantedPermissions)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
-    permissionSuggestions = try container.decodeIfPresent(AnyCodable.self, forKey: .permissionSuggestions)
-    elicitationMode = try container.decodeIfPresent(String.self, forKey: .elicitationMode)
+    permissionSuggestions = try container.decodeIfPresent([ServerPermissionSuggestion].self, forKey: .permissionSuggestions)
+    elicitationMode = try container.decodeIfPresent(ServerElicitationMode.self, forKey: .elicitationMode)
     elicitationSchema = try container.decodeIfPresent(AnyCodable.self, forKey: .elicitationSchema)
     elicitationUrl = try container.decodeIfPresent(String.self, forKey: .elicitationUrl)
     elicitationMessage = try container.decodeIfPresent(String.self, forKey: .elicitationMessage)
@@ -293,8 +295,12 @@ struct ServerApprovalRequest: Codable, Identifiable {
     }
     try container.encodeIfPresent(preview, forKey: .preview)
     try container.encodeIfPresent(permissionReason, forKey: .permissionReason)
-    try container.encodeIfPresent(requestedPermissions, forKey: .requestedPermissions)
-    try container.encodeIfPresent(grantedPermissions, forKey: .grantedPermissions)
+    if let perms = requestedPermissions, !perms.isEmpty {
+      try container.encode(perms, forKey: .requestedPermissions)
+    }
+    if let perms = grantedPermissions, !perms.isEmpty {
+      try container.encode(perms, forKey: .grantedPermissions)
+    }
     try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
     try container.encodeIfPresent(permissionSuggestions, forKey: .permissionSuggestions)
     try container.encodeIfPresent(elicitationMode, forKey: .elicitationMode)
@@ -342,13 +348,15 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
   let questionPrompts: [ServerApprovalQuestionPrompt]
   let preview: ServerApprovalPreview?
   let permissionReason: String?
-  let requestedPermissions: AnyCodable?
-  let grantedPermissions: AnyCodable?
+  let requestedPermissions: [ServerPermissionDescriptor]?
+  let grantedPermissions: [ServerPermissionDescriptor]?
   let cwd: String?
   let decision: String?
   let proposedAmendment: [String]?
-  let permissionSuggestions: AnyCodable?
-  let elicitationMode: String?
+  /// Raw permission suggestions from Claude SDK (PermissionUpdate[]).
+  /// Opaque JSON — the SDK format doesn't match PermissionDescriptor.
+  let permissionSuggestions: [ServerPermissionSuggestion]?
+  let elicitationMode: ServerElicitationMode?
   let elicitationSchema: AnyCodable?
   let elicitationUrl: String?
   let elicitationMessage: String?
@@ -403,13 +411,13 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     questionPrompts: [ServerApprovalQuestionPrompt] = [],
     preview: ServerApprovalPreview? = nil,
     permissionReason: String? = nil,
-    requestedPermissions: AnyCodable? = nil,
-    grantedPermissions: AnyCodable? = nil,
+    requestedPermissions: [ServerPermissionDescriptor]? = nil,
+    grantedPermissions: [ServerPermissionDescriptor]? = nil,
     cwd: String? = nil,
     decision: String? = nil,
     proposedAmendment: [String]? = nil,
-    permissionSuggestions: AnyCodable? = nil,
-    elicitationMode: String? = nil,
+    permissionSuggestions: [ServerPermissionSuggestion]? = nil,
+    elicitationMode: ServerElicitationMode? = nil,
     elicitationSchema: AnyCodable? = nil,
     elicitationUrl: String? = nil,
     elicitationMessage: String? = nil,
@@ -465,13 +473,13 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
       try container.decodeIfPresent([ServerApprovalQuestionPrompt].self, forKey: .questionPrompts) ?? []
     preview = try container.decodeIfPresent(ServerApprovalPreview.self, forKey: .preview)
     permissionReason = try container.decodeIfPresent(String.self, forKey: .permissionReason)
-    requestedPermissions = try container.decodeIfPresent(AnyCodable.self, forKey: .requestedPermissions)
-    grantedPermissions = try container.decodeIfPresent(AnyCodable.self, forKey: .grantedPermissions)
+    requestedPermissions = try container.decodePermissionDescriptors(forKey: .requestedPermissions)
+    grantedPermissions = try container.decodePermissionDescriptors(forKey: .grantedPermissions)
     cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
     decision = try container.decodeIfPresent(String.self, forKey: .decision)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
-    permissionSuggestions = try container.decodeIfPresent(AnyCodable.self, forKey: .permissionSuggestions)
-    elicitationMode = try container.decodeIfPresent(String.self, forKey: .elicitationMode)
+    permissionSuggestions = try container.decodeIfPresent([ServerPermissionSuggestion].self, forKey: .permissionSuggestions)
+    elicitationMode = try container.decodeIfPresent(ServerElicitationMode.self, forKey: .elicitationMode)
     elicitationSchema = try container.decodeIfPresent(AnyCodable.self, forKey: .elicitationSchema)
     elicitationUrl = try container.decodeIfPresent(String.self, forKey: .elicitationUrl)
     elicitationMessage = try container.decodeIfPresent(String.self, forKey: .elicitationMessage)
@@ -499,12 +507,18 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     }
     try container.encodeIfPresent(preview, forKey: .preview)
     try container.encodeIfPresent(permissionReason, forKey: .permissionReason)
-    try container.encodeIfPresent(requestedPermissions, forKey: .requestedPermissions)
-    try container.encodeIfPresent(grantedPermissions, forKey: .grantedPermissions)
+    if let perms = requestedPermissions, !perms.isEmpty {
+      try container.encode(perms, forKey: .requestedPermissions)
+    }
+    if let perms = grantedPermissions, !perms.isEmpty {
+      try container.encode(perms, forKey: .grantedPermissions)
+    }
     try container.encodeIfPresent(cwd, forKey: .cwd)
     try container.encodeIfPresent(decision, forKey: .decision)
     try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
-    try container.encodeIfPresent(permissionSuggestions, forKey: .permissionSuggestions)
+    if let suggestions = permissionSuggestions, !suggestions.isEmpty {
+      try container.encode(suggestions, forKey: .permissionSuggestions)
+    }
     try container.encodeIfPresent(elicitationMode, forKey: .elicitationMode)
     try container.encodeIfPresent(elicitationSchema, forKey: .elicitationSchema)
     try container.encodeIfPresent(elicitationUrl, forKey: .elicitationUrl)
@@ -605,5 +619,84 @@ struct ServerPermissionRulesResponse: Codable {
   enum CodingKeys: String, CodingKey {
     case sessionId = "session_id"
     case rules
+  }
+}
+
+// MARK: - Resilient Permission Decoding
+
+/// Decodes permission descriptors from either:
+/// 1. Typed `[ServerPermissionDescriptor]` (future server format)
+/// 2. Legacy flat dict `{"network": {...}, "file_system": {...}, "macos": {...}}` (current format)
+extension KeyedDecodingContainer {
+  func decodePermissionDescriptors(
+    forKey key: Key
+  ) throws -> [ServerPermissionDescriptor]? {
+    guard contains(key), !(try decodeNil(forKey: key)) else { return nil }
+
+    // Try typed array first (future format)
+    if let typed = try? decode([ServerPermissionDescriptor].self, forKey: key) {
+      return typed
+    }
+
+    // Fall back to legacy dict transform
+    guard let raw = try? decode(AnyCodable.self, forKey: key),
+          let dict = raw.value as? [String: Any]
+    else { return nil }
+
+    return ServerPermissionDescriptorLegacy.parse(dict)
+  }
+}
+
+/// Transforms the legacy flat-dict permission format into typed descriptors.
+enum ServerPermissionDescriptorLegacy {
+  static func parse(_ dict: [String: Any]) -> [ServerPermissionDescriptor] {
+    var result: [ServerPermissionDescriptor] = []
+
+    // Network: {"network": {"enabled": true}} or {"network": {"hosts": [...]}}
+    if let network = dict["network"] as? [String: Any] {
+      if let hosts = network["hosts"] as? [String], !hosts.isEmpty {
+        result.append(.network(hosts: hosts))
+      } else if (network["enabled"] as? Bool) == true {
+        result.append(.network(hosts: []))
+      }
+    }
+
+    // Filesystem: {"file_system": {"read": [...], "write": [...]}}
+    if let fs = dict["file_system"] as? [String: Any] {
+      let readPaths = (fs["read"] as? [String]) ?? []
+      let writePaths = (fs["write"] as? [String]) ?? []
+      if !readPaths.isEmpty || !writePaths.isEmpty {
+        result.append(.filesystem(readPaths: readPaths, writePaths: writePaths))
+      }
+    }
+
+    // macOS: {"macos": {"macos_preferences": "read_write", ...}}
+    if let macos = dict["macos"] as? [String: Any] {
+      if let prefs = (macos["macos_preferences"] ?? macos["preferences"]) as? String {
+        result.append(.macOs(entitlement: "preferences", details: prefs))
+      }
+      let automation = macos["macos_automation"] ?? macos["automations"]
+      if let mode = automation as? String {
+        result.append(.macOs(entitlement: "automation", details: mode))
+      } else if let autoDict = automation as? [String: Any],
+                let bundleIds = autoDict["bundle_ids"] as? [String]
+      {
+        for id in bundleIds {
+          result.append(.macOs(entitlement: "automation", details: id))
+        }
+      } else if let bundleIds = automation as? [String] {
+        for id in bundleIds {
+          result.append(.macOs(entitlement: "automation", details: id))
+        }
+      }
+      if (macos["macos_accessibility"] ?? macos["accessibility"]) as? Bool == true {
+        result.append(.macOs(entitlement: "accessibility", details: nil))
+      }
+      if (macos["macos_calendar"] ?? macos["calendar"]) as? Bool == true {
+        result.append(.macOs(entitlement: "calendar", details: nil))
+      }
+    }
+
+    return result
   }
 }

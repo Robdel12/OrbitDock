@@ -3,7 +3,8 @@ use crate::infrastructure::persistence::load_row_by_id_async;
 use crate::support::session_time::parse_unix_z;
 use orbitdock_protocol::conversation_contracts::{
     compute_diff_display, compute_expanded_output, compute_input_display, detect_language,
-    extract_row_content_str, ConversationRow, RowEntrySummary, RowPageSummary,
+    extract_row_content_str, extract_start_line, ConversationRow, DiffLine, RowEntrySummary,
+    RowPageSummary,
 };
 use orbitdock_protocol::domain_events::ToolStatus;
 use orbitdock_protocol::SessionListItem;
@@ -429,9 +430,12 @@ pub struct RowContentResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_display: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub diff_display: Option<String>,
+    pub diff_display: Option<Vec<DiffLine>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    /// Starting line number for Read tool output (extracted from cat -n format).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_line: Option<u32>,
 }
 
 pub async fn get_row_content(
@@ -471,19 +475,19 @@ pub async fn get_row_content(
     match &entry.row {
         ConversationRow::Tool(tool) => {
             // Unwrap raw_input wrapper, same logic as compute_tool_display
-            let unwrapped = tool.invocation.get("raw_input")
+            let unwrapped = tool
+                .invocation
+                .get("raw_input")
                 .filter(|ri| ri.is_object())
                 .or(Some(&tool.invocation));
 
-            let result_output = tool
-                .result
-                .as_ref()
-                .and_then(|r| {
-                    r.get("output")
-                        .and_then(|o| o.as_str())
-                        .or_else(|| r.get("raw_output").and_then(|o| o.as_str()))
-                });
+            let result_output = tool.result.as_ref().and_then(|r| {
+                r.get("output")
+                    .and_then(|o| o.as_str())
+                    .or_else(|| r.get("raw_output").and_then(|o| o.as_str()))
+            });
 
+            let start_line = extract_start_line(tool.kind, result_output);
             let input_display = compute_input_display(tool.kind, unwrapped);
             let output_display = compute_expanded_output(tool.kind, result_output);
             let diff_display = compute_diff_display(tool.kind, unwrapped);
@@ -495,6 +499,7 @@ pub async fn get_row_content(
                 output_display,
                 diff_display,
                 language,
+                start_line,
             }))
         }
         _ => Err((

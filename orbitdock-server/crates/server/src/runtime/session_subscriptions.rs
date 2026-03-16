@@ -80,10 +80,7 @@ pub(crate) async fn request_subscribe(
 pub(crate) fn prepare_subscribe_result(result: SubscribeResult) -> PreparedSubscribeResult {
     match result {
         SubscribeResult::Replay { events, rx } => PreparedSubscribeResult::Replay { events, rx },
-        SubscribeResult::Snapshot { state, rx } => PreparedSubscribeResult::Snapshot {
-            state,
-            rx,
-        },
+        SubscribeResult::Snapshot { state, rx } => PreparedSubscribeResult::Snapshot { state, rx },
     }
 }
 

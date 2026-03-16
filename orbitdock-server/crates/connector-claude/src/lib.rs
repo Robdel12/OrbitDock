@@ -77,7 +77,10 @@ fn extract_subtitle(tool_name: &str, raw_input: Option<&Value>) -> Option<String
         "Bash" | "bash" => {
             let cmd = input.get("command").and_then(Value::as_str).unwrap_or("");
             if cmd.is_empty() {
-                return input.get("description").and_then(Value::as_str).map(String::from);
+                return input
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .map(String::from);
             }
             let truncated = if cmd.len() > 120 {
                 format!("{}…", &cmd[..120])
@@ -99,10 +102,7 @@ fn extract_subtitle(tool_name: &str, raw_input: Option<&Value>) -> Option<String
             .get("pattern")
             .and_then(Value::as_str)
             .map(String::from),
-        "WebSearch" | "websearch" => input
-            .get("query")
-            .and_then(Value::as_str)
-            .map(String::from),
+        "WebSearch" | "websearch" => input.get("query").and_then(Value::as_str).map(String::from),
         "WebFetch" | "webfetch" => input.get("url").and_then(Value::as_str).map(String::from),
         "Agent" | "agent" => {
             let desc = input.get("description").and_then(Value::as_str);
@@ -116,7 +116,11 @@ fn extract_subtitle(tool_name: &str, raw_input: Option<&Value>) -> Option<String
         }
         n if n.starts_with("mcp__") => {
             // mcp__server__tool → "server · tool"
-            let parts: Vec<&str> = n.strip_prefix("mcp__").unwrap_or(n).splitn(2, "__").collect();
+            let parts: Vec<&str> = n
+                .strip_prefix("mcp__")
+                .unwrap_or(n)
+                .splitn(2, "__")
+                .collect();
             match parts.as_slice() {
                 [server, tool] => Some(format!("{server} · {tool}")),
                 _ => None,
@@ -242,12 +246,10 @@ fn tool_render_hints(kind: ToolKind) -> RenderHints {
             monospace_summary: true,
             ..Default::default()
         },
-        ToolKind::Read | ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit => {
-            RenderHints {
-                can_expand: true,
-                ..Default::default()
-            }
-        }
+        ToolKind::Read | ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit => RenderHints {
+            can_expand: true,
+            ..Default::default()
+        },
         ToolKind::Grep | ToolKind::Glob => RenderHints {
             can_expand: true,
             ..Default::default()
@@ -266,17 +268,19 @@ fn make_tool_row(
     let (family, kind) = classify_tool(tool_name);
     let subtitle = extract_subtitle(tool_name, raw_input);
     let render_hints = tool_render_hints(kind);
-    let tool_display = Some(orbitdock_protocol::conversation_contracts::compute_tool_display(
-        kind,
-        family,
-        status,
-        tool_name,
-        subtitle.as_deref(),
-        None,
-        None,
-        raw_input,
-        None,
-    ));
+    let tool_display = Some(
+        orbitdock_protocol::conversation_contracts::compute_tool_display(
+            kind,
+            family,
+            status,
+            tool_name,
+            subtitle.as_deref(),
+            None,
+            None,
+            raw_input,
+            None,
+        ),
+    );
     ToolRow {
         id,
         provider: orbitdock_protocol::Provider::Claude,
@@ -1743,7 +1747,7 @@ impl ClaudeConnector {
                         tr.ended_at = Some(now_iso());
                         tr.result = Some(serde_json::json!({
                             "tool_name": "CompactContext",
-                            
+
                             "summary": "Done",
                         }));
                         let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
@@ -1895,7 +1899,7 @@ impl ClaudeConnector {
                     tr.duration_ms = duration_ms;
                     tr.result = Some(serde_json::json!({
                         "tool_name": "task",
-                        
+
                         "summary": summary,
                     }));
                     let seq = msg_counter.fetch_add(1, Ordering::Relaxed);

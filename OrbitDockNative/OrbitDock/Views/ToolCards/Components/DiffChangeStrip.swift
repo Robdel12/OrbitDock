@@ -10,7 +10,7 @@
 import SwiftUI
 
 struct DiffChangeStrip: View {
-  let lines: [String]
+  let lines: [ServerDiffLine]
   var height: CGFloat = 350
 
   var body: some View {
@@ -23,11 +23,12 @@ struct DiffChangeStrip: View {
 
       for (index, line) in lines.enumerated() {
         let color: Color?
-        if line.hasPrefix("+") {
+        switch line.type {
+        case .addition:
           color = .diffAddedEdge
-        } else if line.hasPrefix("-") {
+        case .deletion:
           color = .diffRemovedEdge
-        } else {
+        case .context:
           color = nil
         }
 

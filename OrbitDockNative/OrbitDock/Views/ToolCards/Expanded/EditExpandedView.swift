@@ -11,20 +11,19 @@ import SwiftUI
 
 // MARK: - Diff Entry Model
 
-/// A single line in a parsed diff with computed line numbers.
+/// A single line in a structured diff with view-related additions.
 private struct DiffEntry: Identifiable {
-  let id: Int           // index in the entries array
-  let type: DiffType
-  let oldLine: Int?     // line number in old file (nil for additions)
-  let newLine: Int?     // line number in new file (nil for deletions)
-  let content: String   // line content without +/- prefix
-  let rawLine: String   // original line with prefix
+  let id: Int
+  let kind: EntryKind
+  let oldLine: Int?
+  let newLine: Int?
+  let content: String
 
-  enum DiffType {
-    case context    // unchanged line (no prefix or space prefix)
-    case addition   // + prefix
-    case deletion   // - prefix
-    case separator  // hunk separator (inserted during parsing)
+  enum EntryKind {
+    case context
+    case addition
+    case deletion
+    case separator
   }
 }
 
@@ -35,67 +34,45 @@ struct EditExpandedView: View {
   let toolType: String
 
   private var isNewFile: Bool {
-    guard let diff = content.diffDisplay else { return false }
-    let lines = diff.components(separatedBy: "\n").filter { !$0.isEmpty }
-    return !lines.contains(where: { $0.hasPrefix("-") })
+    guard let diffLines = content.diffDisplay else { return false }
+    // Only truly new if ALL lines are additions (no context or deletions)
+    return !diffLines.isEmpty && diffLines.allSatisfy { $0.type == .addition }
   }
 
-  /// Parse the raw diff string into structured entries with line numbers.
-  private func parseDiff(_ diff: String) -> [DiffEntry] {
-    let rawLines = diff.components(separatedBy: "\n")
+  /// Convert structured server diff lines into view entries with hunk separators.
+  private func buildEntries(from diffLines: [ServerDiffLine]) -> [DiffEntry] {
     var entries: [DiffEntry] = []
-    var oldLine = 1
-    var newLine = 1
-    var prevWasChange = false
-    var contextRunLength = 0
+    var contextRun = 0
+    var hadChange = false
 
-    for (index, raw) in rawLines.enumerated() {
-      let isChange = raw.hasPrefix("+") || raw.hasPrefix("-")
-
-      // Detect hunk boundaries: if we see a change after 2+ context lines
-      // following a previous change, insert a separator
-      if isChange && contextRunLength >= 2 && prevWasChange == false && !entries.isEmpty {
-        let lastChange = entries.last(where: {
-          $0.type == .addition || $0.type == .deletion
-        })
-        if lastChange != nil {
-          entries.append(DiffEntry(
-            id: index * 1000, type: .separator,
-            oldLine: nil, newLine: nil,
-            content: "", rawLine: ""
-          ))
-        }
+    for (index, line) in diffLines.enumerated() {
+      let kind: DiffEntry.EntryKind = switch line.type {
+        case .context: .context
+        case .addition: .addition
+        case .deletion: .deletion
       }
 
-      if raw.hasPrefix("-") {
+      let isChange = kind == .addition || kind == .deletion
+
+      // Insert hunk separator when change follows 2+ context lines after a previous change
+      if isChange && contextRun >= 2 && hadChange {
         entries.append(DiffEntry(
-          id: index, type: .deletion,
-          oldLine: oldLine, newLine: nil,
-          content: String(raw.dropFirst()), rawLine: raw
+          id: index * 1000 + 999, kind: .separator,
+          oldLine: nil, newLine: nil, content: ""
         ))
-        oldLine += 1
-        contextRunLength = 0
-        prevWasChange = true
-      } else if raw.hasPrefix("+") {
-        entries.append(DiffEntry(
-          id: index, type: .addition,
-          oldLine: nil, newLine: newLine,
-          content: String(raw.dropFirst()), rawLine: raw
-        ))
-        newLine += 1
-        contextRunLength = 0
-        prevWasChange = true
+      }
+
+      entries.append(DiffEntry(
+        id: index, kind: kind,
+        oldLine: line.oldLine, newLine: line.newLine,
+        content: line.content
+      ))
+
+      if isChange {
+        contextRun = 0
+        hadChange = true
       } else {
-        // Context line (no prefix or space prefix)
-        entries.append(DiffEntry(
-          id: index, type: .context,
-          oldLine: oldLine, newLine: newLine,
-          content: raw, rawLine: raw
-        ))
-        oldLine += 1
-        newLine += 1
-        contextRunLength += 1
-        if contextRunLength == 1 { prevWasChange = false }
+        contextRun += 1
       }
     }
 
@@ -105,10 +82,9 @@ struct EditExpandedView: View {
   /// Compute word-level diff segments for a deletion line if the next entry is an addition.
   private func wordDiffSegments(entries: [DiffEntry], at index: Int) -> [WordLevelDiff.Segment]? {
     let entry = entries[index]
-    guard entry.type == .deletion else { return nil }
-    // Look ahead for an adjacent addition
+    guard entry.kind == .deletion else { return nil }
     let nextIdx = index + 1
-    guard nextIdx < entries.count, entries[nextIdx].type == .addition else { return nil }
+    guard nextIdx < entries.count, entries[nextIdx].kind == .addition else { return nil }
     let result = WordLevelDiff.compute(old: entry.content, new: entries[nextIdx].content)
     return result.old
   }
@@ -129,8 +105,8 @@ struct EditExpandedView: View {
         )
       }
 
-      if let diff = content.diffDisplay, !diff.isEmpty {
-        diffView(diff)
+      if let diffLines = content.diffDisplay, !diffLines.isEmpty {
+        diffView(diffLines)
       }
 
       if let output = content.outputDisplay, !output.isEmpty {
@@ -142,11 +118,10 @@ struct EditExpandedView: View {
   // MARK: - Diff View
 
   @ViewBuilder
-  private func diffView(_ diff: String) -> some View {
-    let rawLines = diff.components(separatedBy: "\n")
-    let adds = rawLines.filter { $0.hasPrefix("+") }.count
-    let dels = rawLines.filter { $0.hasPrefix("-") }.count
-    let entries = parseDiff(diff)
+  private func diffView(_ diffLines: [ServerDiffLine]) -> some View {
+    let adds = diffLines.filter { $0.type == .addition }.count
+    let dels = diffLines.filter { $0.type == .deletion }.count
+    let entries = buildEntries(from: diffLines)
     let lang = content.language
     let maxLine = max(
       entries.compactMap(\.oldLine).max() ?? 1,
@@ -176,7 +151,7 @@ struct EditExpandedView: View {
       HStack(alignment: .top, spacing: 0) {
         CodeViewport(lineCount: entries.count, maxHeight: 400, accentColor: .toolWrite) {
           ForEach(entries) { entry in
-            if entry.type == .separator {
+            if entry.kind == .separator {
               hunkSeparator(gutter: gutter)
             } else {
               let wordDiff: [WordLevelDiff.Segment]? = {
@@ -195,8 +170,8 @@ struct EditExpandedView: View {
         }
 
         // Change density strip for large diffs
-        if rawLines.count > 30 {
-          DiffChangeStrip(lines: rawLines, height: 400)
+        if diffLines.count > 30 {
+          DiffChangeStrip(lines: diffLines, height: 400)
             .padding(.leading, Spacing.xs)
         }
       }
@@ -214,37 +189,39 @@ struct EditExpandedView: View {
     gutter: CGFloat
   ) -> some View {
     HStack(spacing: 0) {
-      // ── Line number (single column) ──
-      let lineNum = entry.type == .deletion ? entry.oldLine : entry.newLine
+      // ── Line number ──
+      let lineNum = entry.kind == .deletion ? entry.oldLine : entry.newLine
       Text(lineNum.map { "\($0)" } ?? "")
         .font(.system(size: TypeScale.code, design: .monospaced))
-        .foregroundStyle(lineColor(entry.type).opacity(0.4))
+        .foregroundStyle(lineColor(entry.kind).opacity(0.4))
         .frame(width: gutter, alignment: .trailing)
         .padding(.trailing, Spacing.xs)
 
-      // ── Edge bar ──
+      // ── Edge bar (doubles as gutter divider — colored for changes, neutral for context) ──
       Rectangle()
-        .fill(edgeColor(entry.type))
+        .fill(entry.kind == .context || entry.kind == .separator
+          ? Color.textQuaternary.opacity(0.08)
+          : edgeColor(entry.kind))
         .frame(width: 3)
 
-      // ── Content (no +/- prefix — edge bar is sufficient) ──
+      // ── Content ──
       if let segments = wordDiff {
-        wordLevelContent(segments: segments, type: entry.type)
-          .padding(.horizontal, Spacing.sm_)
+        wordLevelContent(segments: segments, kind: entry.kind)
+          .padding(.leading, Spacing.sm_)
       } else if let lang, !lang.isEmpty, !entry.content.isEmpty {
         let highlighted = SyntaxHighlighter.highlightLine(entry.content, language: lang)
         Text(highlighted)
-          .padding(.horizontal, Spacing.sm_)
+          .padding(.leading, Spacing.sm_)
       } else {
         Text(entry.content.isEmpty ? " " : entry.content)
           .font(.system(size: TypeScale.code, design: .monospaced))
-          .foregroundStyle(lineColor(entry.type))
-          .padding(.horizontal, Spacing.sm_)
+          .foregroundStyle(lineColor(entry.kind))
+          .padding(.leading, Spacing.sm_)
       }
     }
     .padding(.vertical, 1)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(lineBg(entry.type))
+    .background(lineBg(entry.kind))
   }
 
   // MARK: - Hunk Separator
@@ -254,26 +231,27 @@ struct EditExpandedView: View {
       Color.clear
         .frame(width: gutter + Spacing.xs)
 
+      // Neutral divider bar (matches edge bar position)
       Rectangle()
         .fill(Color.textQuaternary.opacity(0.08))
         .frame(width: 3)
 
       Spacer()
-      Text("\u{22EF}")  // midline horizontal ellipsis
+      Text("\u{22EF}")
         .font(.system(size: TypeScale.caption, design: .monospaced))
-        .foregroundStyle(Color.textQuaternary.opacity(0.4))
+        .foregroundStyle(Color.textQuaternary.opacity(0.3))
       Spacer()
     }
     .frame(height: Spacing.lg)
-    .background(Color.textQuaternary.opacity(0.03))
+    .background(Color.textQuaternary.opacity(0.02))
   }
 
   // MARK: - Word-Level Diff
 
   @ViewBuilder
-  private func wordLevelContent(segments: [WordLevelDiff.Segment], type: DiffEntry.DiffType) -> some View {
-    let highlightColor: Color = type == .deletion ? .diffRemovedHighlight : .diffAddedHighlight
-    let textColor = lineColor(type)
+  private func wordLevelContent(segments: [WordLevelDiff.Segment], kind: DiffEntry.EntryKind) -> some View {
+    let highlightColor: Color = kind == .deletion ? .diffRemovedHighlight : .diffAddedHighlight
+    let textColor = lineColor(kind)
 
     HStack(spacing: 0) {
       ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
@@ -303,24 +281,24 @@ struct EditExpandedView: View {
 
   // MARK: - Style Helpers
 
-  private func lineColor(_ type: DiffEntry.DiffType) -> Color {
-    switch type {
+  private func lineColor(_ kind: DiffEntry.EntryKind) -> Color {
+    switch kind {
     case .addition: .diffAddedAccent
     case .deletion: .diffRemovedAccent
     case .context, .separator: .textTertiary
     }
   }
 
-  private func lineBg(_ type: DiffEntry.DiffType) -> Color {
-    switch type {
+  private func lineBg(_ kind: DiffEntry.EntryKind) -> Color {
+    switch kind {
     case .addition: .diffAddedBg
     case .deletion: .diffRemovedBg
     case .context, .separator: .clear
     }
   }
 
-  private func edgeColor(_ type: DiffEntry.DiffType) -> Color {
-    switch type {
+  private func edgeColor(_ kind: DiffEntry.EntryKind) -> Color {
+    switch kind {
     case .addition: .diffAddedEdge
     case .deletion: .diffRemovedEdge
     case .context, .separator: .clear

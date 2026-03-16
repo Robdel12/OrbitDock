@@ -3,8 +3,10 @@
 //  OrbitDock
 //
 //  Core SwiftUI view that renders [MarkdownBlock] as a vertical stack.
-//  Text blocks use SwiftUI's native AttributedString(markdown:) — no
-//  NSAttributedString, no TextKit, no NSViewRepresentable.
+//  Uses MarkdownTypography for all font sizes, weights, colors, and spacing.
+//
+//  Text blocks use SwiftUI's native AttributedString(markdown:) with
+//  post-processed inline code styling (SF Mono + warm signal color).
 //
 
 import SwiftUI
@@ -14,12 +16,17 @@ struct MarkdownBlockView: View {
   let style: ContentStyle
 
   var body: some View {
-    VStack(alignment: .leading, spacing: style == .thinking ? 8 : 12) {
-      ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+    VStack(alignment: .leading, spacing: 0) {
+      ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+        let previous = index > 0 ? blocks[index - 1] : nil
+        let spacing = MarkdownTypography.interBlockSpacing(
+          previous: previous, current: block, style: style
+        )
+
         blockView(block)
+          .padding(.top, spacing)
       }
     }
-    .font(.system(size: style == .thinking ? TypeScale.code : TypeScale.chatBody))
     .tint(Color.markdownLink)
     .textSelection(.enabled)
   }
@@ -31,7 +38,12 @@ struct MarkdownBlockView: View {
     switch block {
     case let .text(md):
       inlineMarkdown(md)
+        .lineSpacing(MarkdownTypography.bodyLineSpacing(style: style))
+        .font(MarkdownTypography.bodyFont(style: style))
         .fixedSize(horizontal: false, vertical: true)
+
+    case let .heading(level, text):
+      headingView(level: level, text: text)
 
     case let .codeBlock(language, code):
       SwiftUICodeBlockView(language: language, code: code)
@@ -47,13 +59,24 @@ struct MarkdownBlockView: View {
     }
   }
 
+  // MARK: - Heading
+
+  private func headingView(level: Int, text: String) -> some View {
+    Text(text)
+      .font(MarkdownTypography.headingFont(level: level, style: style))
+      .foregroundStyle(MarkdownTypography.headingColor(level: level))
+      .padding(.bottom, MarkdownTypography.headingBottomPadding(level: level, style: style))
+      .fixedSize(horizontal: false, vertical: true)
+  }
+
   // MARK: - Inline Markdown Rendering
 
   private func inlineMarkdown(_ text: String) -> Text {
-    if let attr = try? AttributedString(
+    if var attr = try? AttributedString(
       markdown: text,
       options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
     ) {
+      attr = MarkdownTypography.applyInlineCodeStyle(attr, style: style)
       return Text(attr)
     }
     return Text(text)
@@ -74,6 +97,8 @@ struct MarkdownBlockView: View {
         .frame(width: barWidth)
 
       inlineMarkdown(md)
+        .lineSpacing(MarkdownTypography.bodyLineSpacing(style: style))
+        .font(MarkdownTypography.bodyFont(style: style))
         .fixedSize(horizontal: false, vertical: true)
     }
   }
@@ -118,6 +143,7 @@ struct MarkdownBlockView: View {
         }
       }
     }
+    .font(MarkdownTypography.bodyFont(style: style))
     .clipShape(RoundedRectangle(cornerRadius: 6))
     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.surfaceBorder.opacity(0.9), lineWidth: 1))
   }

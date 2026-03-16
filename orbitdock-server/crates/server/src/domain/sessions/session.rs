@@ -1049,7 +1049,6 @@ impl SessionHandle {
             has_more_before: false,
             oldest_sequence: None,
             newest_sequence: None,
-            messages: vec![],
         }
     }
 

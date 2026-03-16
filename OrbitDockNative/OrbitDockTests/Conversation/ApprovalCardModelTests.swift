@@ -677,18 +677,11 @@ struct ApprovalCardModelTests {
       questionPrompts: [],
       preview: nil,
       permissionReason: "Codex needs broader access to complete this step.",
-      requestedPermissions: AnyCodable([
-        "network": [
-          "enabled": true,
-        ],
-        "file_system": [
-          "read": ["/tmp/OrbitDock/README.md"],
-          "write": ["/tmp/OrbitDock/output.txt"],
-        ],
-        "macos": [
-          "accessibility": true,
-        ],
-      ])
+      requestedPermissions: [
+        .network(hosts: []),
+        .filesystem(readPaths: ["/tmp/OrbitDock/README.md"], writePaths: ["/tmp/OrbitDock/output.txt"]),
+        .macOs(entitlement: "accessibility", details: nil),
+      ]
     )
 
     let model = ApprovalCardModelBuilder.build(

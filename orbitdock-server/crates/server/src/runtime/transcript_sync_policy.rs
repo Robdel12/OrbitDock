@@ -99,10 +99,8 @@ pub(crate) fn plan_transcript_sync(input: TranscriptSyncInputs) -> TranscriptSyn
     let usage_update =
         transcript_usage_update(input.provider, &input.current_usage, input.transcript_usage);
 
-    let (message_sync_decision, split_at) = classify_transcript_message_sync(
-        &input.transcript_rows,
-        input.newest_known_id.as_deref(),
-    );
+    let (message_sync_decision, split_at) =
+        classify_transcript_message_sync(&input.transcript_rows, input.newest_known_id.as_deref());
 
     let (new_rows, updated_rows) = match message_sync_decision {
         TranscriptMessageSyncDecision::AppendNewMessages => {
@@ -111,7 +109,9 @@ pub(crate) fn plan_transcript_sync(input: TranscriptSyncInputs) -> TranscriptSyn
             // parser (tool_result entries matched back to earlier tool_use rows).
             let updated: Vec<ConversationRowEntry> = input.transcript_rows[..split_at]
                 .iter()
-                .filter(|entry| matches!(&entry.row, ConversationRow::Tool(t) if t.result.is_some()))
+                .filter(
+                    |entry| matches!(&entry.row, ConversationRow::Tool(t) if t.result.is_some()),
+                )
                 .cloned()
                 .collect();
             (new, updated)

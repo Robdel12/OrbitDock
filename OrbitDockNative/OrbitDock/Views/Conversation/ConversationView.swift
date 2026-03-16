@@ -93,6 +93,10 @@ struct ConversationView: View {
     .onChange(of: loadState) { _, newState in
       if newState == .ready { hasShownContent = true }
     }
+    .onChange(of: conversationStore?.rowEntries.count ?? 0) { oldCount, newCount in
+      guard !isPinned, newCount > oldCount else { return }
+      unreadCount += newCount - oldCount
+    }
   }
 
   // MARK: - Timeline
@@ -108,7 +112,8 @@ struct ConversationView: View {
         onLoadMore: {
           serverState.loadOlderMessages(sessionId: sessionId, limit: pageSize)
         },
-        isPinned: $isPinned
+        isPinned: $isPinned,
+        scrollToBottomTrigger: $scrollToBottomTrigger
       )
     } else {
       ConversationEmptyStateView()

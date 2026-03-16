@@ -113,6 +113,26 @@ The Swift client uses a **hybrid networking model**: REST for client-initiated o
 
 **When adding new client operations:** Default to REST. Only use WS for operations that need the persistent connection (subscriptions, streaming turn interaction). If the server needs to notify all clients after a mutation, add a REST endpoint that broadcasts the result via WS — do not send the mutation itself over WS.
 
+### Protocol Type System
+The server–client protocol uses strongly-typed Swift structs that mirror Rust serde types. Follow these rules when adding or changing protocol fields:
+
+**Unknown type resilience:** Both `ServerToClientMessage` and `ServerConversationRowType` decode unknown variants gracefully (`.unknown(type:)`) with error logging instead of throwing. The WS connection never crashes on a new server type the client doesn't recognize.
+
+**No `AnyCodable` for structured payloads:** Row payload fields (worker, plan, hook, handoff, question response, tool preview) and permission fields use typed Swift structs that mirror their Rust counterparts. Don't add `AnyCodable` fields for data that has a known schema — add a typed struct instead.
+
+**Tagged enum decoding patterns:**
+- Rust `#[serde(tag = "kind")]` (internally tagged) → Swift manual decoder reading the tag key, e.g. `ServerPermissionDescriptor`
+- Rust `#[serde(tag = "response_type")]` → Swift manual decoder, e.g. `ServerQuestionResponseValue`
+- Rust default serde (externally tagged `{"Variant": {...}}`) → Swift decoder checking container keys, e.g. `ServerToolPreviewPayload`
+
+**Permission descriptors:** `requestedPermissions` and `grantedPermissions` on approval types are `[ServerPermissionDescriptor]?`. The decoder handles both the typed array format and the legacy flat-dict format (`{"network": {...}, "file_system": {...}}`) via `decodePermissionDescriptors(forKey:)`.
+
+**Key files:**
+- `Services/Server/Protocol/ServerTypedPayloads.swift` — All typed payload structs (worker, plan, hook, handoff, question response, tool preview, permissions, elicitation mode)
+- `Services/Server/Protocol/ServerConversationContracts.swift` — Row types with typed payload fields
+- `Services/Server/Protocol/ServerApprovalContracts.swift` — Approval types with typed permission fields + resilient decode helper
+- `Services/Server/Protocol/ServerToClientMessage+Decoding.swift` — WS message decoder with unknown resilience
+
 ### Approval Version Gating
 - Each session has a monotonic `approval_version` counter (`sessions.approval_version` in SQLite, `SessionHandle.approval_version` in memory)
 - The counter increments on every approval state change: enqueue, decide, clear, or in-place update

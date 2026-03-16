@@ -9,4 +9,5 @@ description = "Shared protocol types for OrbitDock server and clients"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+similar = { workspace = true }
 uuid = { workspace = true }

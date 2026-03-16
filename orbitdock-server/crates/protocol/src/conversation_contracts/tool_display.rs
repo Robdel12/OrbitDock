@@ -64,7 +64,6 @@ pub struct ToolDisplay {
     pub display_tier: String,
 
     // --- Expanded rendering fields ---
-
     /// Full tool input for expanded view — pre-formatted, human-readable.
     /// e.g. "$ git status" for bash, file path for read, pattern for grep.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -75,9 +74,9 @@ pub struct ToolDisplay {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_display: Option<String>,
 
-    /// Unified diff string for edit/write tools — expanded view renders this line-by-line.
+    /// Structured diff for edit/write tools — expanded view renders this line-by-line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub diff_display: Option<String>,
+    pub diff_display: Option<Vec<DiffLine>>,
 }
 
 /// Diff preview for edit/write tool cards.
@@ -98,6 +97,33 @@ pub struct ToolTodoItem {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+}
+
+/// A single line in a structured diff.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiffLine {
+    /// Line type: "context", "addition", or "deletion".
+    #[serde(rename = "type")]
+    pub kind: DiffLineKind,
+
+    /// Line number in the old file (present for deletions and context lines).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_line: Option<u32>,
+
+    /// Line number in the new file (present for additions and context lines).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_line: Option<u32>,
+
+    /// Line content (without +/- prefix).
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiffLineKind {
+    Context,
+    Addition,
+    Deletion,
 }
 
 fn default_summary_font() -> String {
@@ -130,6 +156,7 @@ fn truncate(s: &str, max_chars: usize) -> String {
 ///
 /// This is the single source of truth for how tools appear in the client.
 /// Called when building/updating ToolRows in connectors.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_tool_display(
     kind: ToolKind,
     family: ToolFamily,
@@ -144,9 +171,8 @@ pub fn compute_tool_display(
     // Unwrap the raw_input wrapper if present — hook data wraps input as
     // {"raw_input": {"command": "..."}, "tool_name": "Bash"} but extract
     // functions expect the flat {"command": "..."} shape.
-    let unwrapped = invocation_input.and_then(|v| {
-        v.get("raw_input").filter(|ri| ri.is_object()).or(Some(v))
-    });
+    let unwrapped =
+        invocation_input.and_then(|v| v.get("raw_input").filter(|ri| ri.is_object()).or(Some(v)));
     let invocation_input = unwrapped;
 
     let (glyph_symbol, glyph_color) = glyph_for_kind(kind, family);
@@ -247,9 +273,7 @@ fn glyph_for_kind(kind: ToolKind, family: ToolFamily) -> (String, String) {
         ToolKind::CompactContext => ("arrow.triangle.2.circlepath".into(), "accent".into()),
         ToolKind::ViewImage | ToolKind::ImageGeneration => ("photo".into(), "toolRead".into()),
         ToolKind::HookNotification => ("bolt.badge.clock".into(), "feedbackCaution".into()),
-        ToolKind::HandoffRequested => {
-            ("arrow.triangle.branch".into(), "statusReply".into())
-        }
+        ToolKind::HandoffRequested => ("arrow.triangle.branch".into(), "statusReply".into()),
         _ => match family {
             ToolFamily::Shell => ("terminal".into(), "toolBash".into()),
             ToolFamily::FileRead => ("doc.plaintext".into(), "toolRead".into()),
@@ -281,7 +305,11 @@ fn display_name_for_kind(kind: ToolKind, title: &str) -> String {
         ToolKind::WebSearch => "Web Search".into(),
         ToolKind::WebFetch => "Web Fetch".into(),
         ToolKind::McpToolCall | ToolKind::DynamicToolCall => {
-            if title.is_empty() { "MCP Tool".into() } else { title.to_string() }
+            if title.is_empty() {
+                "MCP Tool".into()
+            } else {
+                title.to_string()
+            }
         }
         ToolKind::SpawnAgent => "Agent".into(),
         ToolKind::AskUserQuestion => "Question".into(),
@@ -293,7 +321,11 @@ fn display_name_for_kind(kind: ToolKind, title: &str) -> String {
         ToolKind::HookNotification => "Hook".into(),
         ToolKind::HandoffRequested => "Handoff".into(),
         _ => {
-            if title.is_empty() { "Tool".into() } else { title.to_string() }
+            if title.is_empty() {
+                "Tool".into()
+            } else {
+                title.to_string()
+            }
         }
     }
 }
@@ -407,10 +439,7 @@ fn extract_subtitle_from_input(
             .get("query")
             .and_then(|v| v.as_str())
             .map(String::from),
-        ToolKind::WebFetch => input
-            .get("url")
-            .and_then(|v| v.as_str())
-            .map(String::from),
+        ToolKind::WebFetch => input.get("url").and_then(|v| v.as_str()).map(String::from),
         ToolKind::SpawnAgent => {
             let desc = input.get("description").and_then(|v| v.as_str());
             let agent_type = input.get("subagent_type").and_then(|v| v.as_str());
@@ -429,10 +458,7 @@ fn extract_subtitle_from_input(
                 .map(String::from)
         }
         ToolKind::ViewImage => file_name_from_input(input),
-        ToolKind::Config => input
-            .get("key")
-            .and_then(|v| v.as_str())
-            .map(String::from),
+        ToolKind::Config => input.get("key").and_then(|v| v.as_str()).map(String::from),
         _ => None,
     };
     result.filter(|s| !s.trim().is_empty())
@@ -511,19 +537,19 @@ fn compute_output_preview(kind: ToolKind, result_output: Option<&str>) -> Option
     }
 
     match kind {
-        // Shell: first few meaningful lines
+        // Shell: single meaningful output line, skip noise
         ToolKind::Bash => {
-            let preview: String = output
+            let first_meaningful = output
                 .lines()
                 .filter(|l| !l.trim().is_empty())
-                .take(3)
-                .collect::<Vec<_>>()
-                .join("\n");
-            if preview.is_empty() {
-                None
-            } else {
-                Some(truncate(&preview, 300))
-            }
+                .find(|l| {
+                    let lower = l.trim().to_lowercase();
+                    // Skip status messages that add no value in preview
+                    !lower.starts_with("(bash completed")
+                        && !lower.starts_with("bash completed")
+                        && !lower.starts_with("command completed")
+                });
+            first_meaningful.map(|l| truncate(l.trim(), 120).to_string())
         }
         // Search: summary line
         ToolKind::Grep | ToolKind::Glob => {
@@ -535,12 +561,17 @@ fn compute_output_preview(kind: ToolKind, result_output: Option<&str>) -> Option
                 Some(format!("{}\n… and {} more", first_three, lines.len() - 3))
             }
         }
-        // Read: first 2 non-empty lines for file content preview
+        // Read: first 2 non-empty lines, with line number prefixes stripped
         ToolKind::Read => {
             let lines: Vec<&str> = output
                 .lines()
                 .filter(|l| !l.trim().is_empty())
                 .take(2)
+                .map(|l| {
+                    split_line_number(l)
+                        .map(|(_, content)| content)
+                        .unwrap_or(l)
+                })
                 .collect();
             if lines.is_empty() {
                 None
@@ -608,7 +639,10 @@ fn compute_diff_preview(
     input: Option<&serde_json::Value>,
     _result_output: Option<&str>,
 ) -> Option<ToolDiffPreview> {
-    if !matches!(kind, ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit) {
+    if !matches!(
+        kind,
+        ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit
+    ) {
         return None;
     }
     let input = input?;
@@ -682,10 +716,7 @@ pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) 
             .get("query")
             .and_then(|v| v.as_str())
             .map(String::from),
-        ToolKind::WebFetch => input
-            .get("url")
-            .and_then(|v| v.as_str())
-            .map(String::from),
+        ToolKind::WebFetch => input.get("url").and_then(|v| v.as_str()).map(String::from),
         ToolKind::SpawnAgent => {
             let desc = input.get("description").and_then(|v| v.as_str());
             let prompt = input.get("prompt").and_then(|v| v.as_str());
@@ -702,7 +733,7 @@ pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) 
             serde_json::to_string_pretty(input).ok()
         }
         _ => {
-            if input.is_object() && input.as_object().map_or(true, |o| o.is_empty()) {
+            if input.is_object() && input.as_object().is_none_or(|o| o.is_empty()) {
                 None
             } else {
                 serde_json::to_string_pretty(input).ok()
@@ -716,21 +747,139 @@ pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) 
 // ---------------------------------------------------------------------------
 
 /// Pre-formatted output for the expanded tool card.
+///
+/// For Read tools, strips `cat -n` line number prefixes so the client receives
+/// clean content. The starting line number is available via [`extract_start_line`].
 pub fn compute_expanded_output(kind: ToolKind, result_output: Option<&str>) -> Option<String> {
     let output = result_output?;
     if output.is_empty() {
         return None;
     }
-    _ = kind;
+
+    if kind == ToolKind::Read {
+        return Some(strip_cat_n_prefixes(output));
+    }
+
     Some(output.to_string())
+}
+
+/// Extract the starting line number from Read tool output (`cat -n` format).
+/// Returns `None` if the output doesn't use line numbers.
+pub fn extract_start_line(kind: ToolKind, result_output: Option<&str>) -> Option<u32> {
+    if kind != ToolKind::Read {
+        return None;
+    }
+    let output = result_output?;
+    let first_line = output.lines().next()?;
+    parse_cat_n_line_number(first_line)
+}
+
+/// Strip line number prefixes from Read tool output.
+///
+/// Detection strategy (robust against format changes):
+/// 1. Try to parse a leading number + separator from each of the first few lines
+/// 2. Verify the parsed numbers are consecutive (N, N+1, N+2...)
+/// 3. Only strip if the consecutive check passes — prevents false positives
+///    on content that happens to start with numbers.
+///
+/// The separator can be any single non-alphanumeric character (tab, →, |, etc.)
+fn strip_cat_n_prefixes(output: &str) -> String {
+    let lines: Vec<&str> = output.lines().collect();
+
+    if !has_consecutive_line_numbers(&lines) {
+        return output.to_string();
+    }
+
+    lines
+        .iter()
+        .map(|line| {
+            if let Some((_, content)) = split_line_number(line) {
+                content
+            } else {
+                *line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Parse the line number from a line with a number prefix.
+fn parse_cat_n_line_number(line: &str) -> Option<u32> {
+    split_line_number(line).map(|(num, _)| num)
+}
+
+/// Check whether the output has consecutive line numbers across multiple lines.
+/// Requires at least 2 consecutive matches to confirm the pattern.
+fn has_consecutive_line_numbers(lines: &[&str]) -> bool {
+    let mut prev_num: Option<u32> = None;
+    let mut consecutive_count = 0;
+
+    for line in lines.iter().take(10) {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match split_line_number(line) {
+            Some((num, _)) => {
+                if let Some(prev) = prev_num {
+                    if num == prev + 1 {
+                        consecutive_count += 1;
+                        if consecutive_count >= 2 {
+                            return true;
+                        }
+                    } else {
+                        // Numbers aren't consecutive — not line-numbered output
+                        return false;
+                    }
+                }
+                prev_num = Some(num);
+            }
+            None => return false, // a non-empty line without a number → not line-numbered
+        }
+    }
+
+    consecutive_count >= 2
+}
+
+/// Split a line into (line_number, content) if it has a number prefix.
+///
+/// Matches the pattern: `optional_whitespace + digits + single_separator_char + content`
+/// where separator is any non-alphanumeric, non-space character.
+/// This handles tab, →, |, :, and any future separator without hardcoding.
+fn split_line_number(line: &str) -> Option<(u32, &str)> {
+    let trimmed = line.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Find the run of leading digits
+    let digit_end = trimmed.find(|c: char| !c.is_ascii_digit()).unwrap_or(0);
+    if digit_end == 0 {
+        return None; // no leading digits
+    }
+
+    let num: u32 = trimmed[..digit_end].parse().ok()?;
+
+    // The next character must be a separator (non-alphanumeric, non-space)
+    let rest = &trimmed[digit_end..];
+    let sep_char = rest.chars().next()?;
+    if sep_char.is_alphanumeric() || sep_char == ' ' {
+        return None; // e.g. "42 items" or "42nd line" — not a line number prefix
+    }
+
+    let content_start = sep_char.len_utf8();
+    Some((num, &rest[content_start..]))
 }
 
 // ---------------------------------------------------------------------------
 // Expanded rendering: diff_display
 // ---------------------------------------------------------------------------
 
-/// Unified diff for edit/write tools in the expanded view.
-pub fn compute_diff_display(kind: ToolKind, input: Option<&serde_json::Value>) -> Option<String> {
+/// Structured diff for edit/write tools in the expanded view.
+/// Uses the `similar` crate for proper LCS-based interleaved diffs with context lines.
+pub fn compute_diff_display(
+    kind: ToolKind,
+    input: Option<&serde_json::Value>,
+) -> Option<Vec<DiffLine>> {
     if !matches!(
         kind,
         ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit
@@ -739,9 +888,10 @@ pub fn compute_diff_display(kind: ToolKind, input: Option<&serde_json::Value>) -
     }
     let input = input?;
 
-    if let Some(diff) = input.get("unified_diff").and_then(|v| v.as_str()) {
-        if !diff.is_empty() {
-            return Some(diff.to_string());
+    // Check for pre-computed unified_diff first — parse it into structured lines
+    if let Some(diff_str) = input.get("unified_diff").and_then(|v| v.as_str()) {
+        if !diff_str.is_empty() {
+            return Some(parse_unified_diff_string(diff_str));
         }
     }
 
@@ -750,22 +900,151 @@ pub fn compute_diff_display(kind: ToolKind, input: Option<&serde_json::Value>) -
 
     match (old_string, new_string) {
         (Some(old), Some(new)) => {
-            let mut diff = String::new();
-            for line in old.lines() {
-                diff.push_str(&format!("-{line}\n"));
+            let lines = compute_similar_diff(old, new);
+            if lines.is_empty() {
+                None
+            } else {
+                Some(lines)
             }
-            for line in new.lines() {
-                diff.push_str(&format!("+{line}\n"));
-            }
-            if diff.is_empty() { None } else { Some(diff) }
         }
         (None, _) => {
+            // Write-only: content field = all additions
             let content = input.get("content").and_then(|v| v.as_str())?;
-            let diff: String = content.lines().map(|l| format!("+{l}\n")).collect();
-            if diff.is_empty() { None } else { Some(diff) }
+            let lines: Vec<DiffLine> = content
+                .lines()
+                .enumerate()
+                .map(|(i, line)| DiffLine {
+                    kind: DiffLineKind::Addition,
+                    old_line: None,
+                    new_line: Some((i + 1) as u32),
+                    content: line.to_string(),
+                })
+                .collect();
+            if lines.is_empty() {
+                None
+            } else {
+                Some(lines)
+            }
         }
         _ => None,
     }
+}
+
+/// Compute a proper interleaved diff using the `similar` crate (Myers/LCS algorithm).
+fn compute_similar_diff(old: &str, new: &str) -> Vec<DiffLine> {
+    use similar::{ChangeTag, TextDiff};
+
+    let text_diff = TextDiff::from_lines(old, new);
+    let mut lines = Vec::new();
+
+    for change in text_diff.iter_all_changes() {
+        let content = change.value().trim_end_matches('\n').to_string();
+        match change.tag() {
+            ChangeTag::Equal => {
+                lines.push(DiffLine {
+                    kind: DiffLineKind::Context,
+                    old_line: change.old_index().map(|i| (i + 1) as u32),
+                    new_line: change.new_index().map(|i| (i + 1) as u32),
+                    content,
+                });
+            }
+            ChangeTag::Delete => {
+                lines.push(DiffLine {
+                    kind: DiffLineKind::Deletion,
+                    old_line: change.old_index().map(|i| (i + 1) as u32),
+                    new_line: None,
+                    content,
+                });
+            }
+            ChangeTag::Insert => {
+                lines.push(DiffLine {
+                    kind: DiffLineKind::Addition,
+                    old_line: None,
+                    new_line: change.new_index().map(|i| (i + 1) as u32),
+                    content,
+                });
+            }
+        }
+    }
+
+    lines
+}
+
+/// Parse a pre-computed unified diff string into structured DiffLine entries.
+/// Handles standard unified diff format with @@ hunk headers.
+fn parse_unified_diff_string(diff: &str) -> Vec<DiffLine> {
+    let mut lines = Vec::new();
+    let mut old_line: u32 = 1;
+    let mut new_line: u32 = 1;
+
+    for raw in diff.lines() {
+        if raw.starts_with("@@") {
+            // Parse hunk header: @@ -a,b +c,d @@
+            if let Some(nums) = parse_hunk_header(raw) {
+                old_line = nums.0;
+                new_line = nums.1;
+            }
+            continue;
+        }
+        if raw.starts_with("---") || raw.starts_with("+++") {
+            continue; // Skip file headers
+        }
+
+        if let Some(content) = raw.strip_prefix('-') {
+            lines.push(DiffLine {
+                kind: DiffLineKind::Deletion,
+                old_line: Some(old_line),
+                new_line: None,
+                content: content.to_string(),
+            });
+            old_line += 1;
+        } else if let Some(content) = raw.strip_prefix('+') {
+            lines.push(DiffLine {
+                kind: DiffLineKind::Addition,
+                old_line: None,
+                new_line: Some(new_line),
+                content: content.to_string(),
+            });
+            new_line += 1;
+        } else {
+            // Context line (may have leading space)
+            let content = raw.strip_prefix(' ').unwrap_or(raw);
+            lines.push(DiffLine {
+                kind: DiffLineKind::Context,
+                old_line: Some(old_line),
+                new_line: Some(new_line),
+                content: content.to_string(),
+            });
+            old_line += 1;
+            new_line += 1;
+        }
+    }
+
+    lines
+}
+
+/// Parse @@ -a,b +c,d @@ → (a, c)
+fn parse_hunk_header(header: &str) -> Option<(u32, u32)> {
+    let header = header.trim_start_matches('@').trim();
+    let parts: Vec<&str> = header.split_whitespace().collect();
+    if parts.len() < 2 {
+        return None;
+    }
+
+    let old_start = parts[0]
+        .trim_start_matches('-')
+        .split(',')
+        .next()?
+        .parse::<u32>()
+        .ok()?;
+    let new_start = parts[1]
+        .trim_start_matches('+')
+        .split(',')
+        .next()?
+        .parse::<u32>()
+        .ok()?;
+
+    Some((old_start, new_start))
 }
 
 // ---------------------------------------------------------------------------
@@ -787,7 +1066,7 @@ fn extract_todo_items(kind: ToolKind, input: Option<&serde_json::Value>) -> Vec<
     };
     items
         .iter()
-        .filter_map(|item| {
+        .map(|item| {
             let status = item
                 .get("status")
                 .and_then(|v| v.as_str())
@@ -797,7 +1076,7 @@ fn extract_todo_items(kind: ToolKind, input: Option<&serde_json::Value>) -> Vec<
                 .get("content")
                 .and_then(|v| v.as_str())
                 .map(|s| truncate(s, 200));
-            Some(ToolTodoItem { status, content })
+            ToolTodoItem { status, content }
         })
         .collect()
 }

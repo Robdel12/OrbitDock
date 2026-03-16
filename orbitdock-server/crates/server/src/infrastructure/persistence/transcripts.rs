@@ -243,22 +243,28 @@ pub(crate) fn load_messages_from_transcript(
                     if let Some(id) = &tool_use_id {
                         if let Some(&index) = tool_use_index.get(id) {
                             if let ConversationRow::Tool(ref mut tool_row) = rows[index].row {
-                                let tool_name = tool_row.invocation
+                                let tool_name = tool_row
+                                    .invocation
                                     .get("tool_name")
                                     .and_then(|v| v.as_str())
                                     .map(str::to_string)
                                     .unwrap_or_else(|| tool_row.title.clone());
-                                tool_row.result =
-                                    Some(serde_json::json!({
-                                        "tool_name": tool_name,
-                                        "raw_output": tool_output,
-                                    }));
+                                tool_row.result = Some(serde_json::json!({
+                                    "tool_name": tool_name,
+                                    "raw_output": tool_output,
+                                }));
                                 // Recompute tool_display with result data
                                 let input = tool_row.invocation.get("raw_input");
                                 tool_row.tool_display = Some(compute_tool_display(
-                                    tool_row.kind, tool_row.family, ToolStatus::Completed,
-                                    &tool_row.title, None, None, None,
-                                    input, Some(&tool_output),
+                                    tool_row.kind,
+                                    tool_row.family,
+                                    ToolStatus::Completed,
+                                    &tool_row.title,
+                                    None,
+                                    None,
+                                    None,
+                                    input,
+                                    Some(&tool_output),
                                 ));
                                 continue;
                             }
@@ -273,8 +279,15 @@ pub(crate) fn load_messages_from_transcript(
                         tool_use_index.insert(id.clone(), row_index);
                     }
                     let td = Some(compute_tool_display(
-                        ToolKind::Generic, ToolFamily::Generic, ToolStatus::Completed, "Tool",
-                        None, None, None, None, Some(&tool_output),
+                        ToolKind::Generic,
+                        ToolFamily::Generic,
+                        ToolStatus::Completed,
+                        "Tool",
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(&tool_output),
                     ));
                     rows.push(ConversationRowEntry {
                         session_id: String::new(),
@@ -321,8 +334,15 @@ pub(crate) fn load_messages_from_transcript(
                         tool_use_index.insert(id.clone(), row_index);
                     }
                     let td = Some(compute_tool_display(
-                        kind, family, ToolStatus::Completed, &tool_name,
-                        None, None, None, tool_input.as_ref(), None,
+                        kind,
+                        family,
+                        ToolStatus::Completed,
+                        &tool_name,
+                        None,
+                        None,
+                        None,
+                        tool_input.as_ref(),
+                        None,
                     ));
                     rows.push(ConversationRowEntry {
                         session_id: String::new(),

@@ -146,7 +146,7 @@ final class ServerConnection {
   private let authToken: String?
   private var serverURL: URL?
   private var webSocket: URLSessionWebSocketTask?
-  private let wsSession: URLSession
+  private var wsSession: URLSession
   private let httpSession: URLSession
   private var receiveTask: Task<Void, Never>?
   private var connectTask: Task<Void, Never>?
@@ -165,14 +165,18 @@ final class ServerConnection {
     return host != "127.0.0.1" && host != "localhost" && host != "::1"
   }
 
+  private static func makeWSSession() -> URLSession {
+    let config = URLSessionConfiguration.default
+    config.timeoutIntervalForRequest = 10
+    config.timeoutIntervalForResource = 0
+    return URLSession(configuration: config)
+  }
+
   init(authToken: String?) {
     self.authToken = authToken
 
     // WS session: unlimited resource timeout for long-lived connection
-    let wsConfig = URLSessionConfiguration.default
-    wsConfig.timeoutIntervalForRequest = 10
-    wsConfig.timeoutIntervalForResource = 0
-    self.wsSession = URLSession(configuration: wsConfig)
+    self.wsSession = Self.makeWSSession()
 
     // HTTP session: bounded timeouts for data requests
     let httpConfig = URLSessionConfiguration.default
@@ -383,6 +387,7 @@ final class ServerConnection {
   }
 
   private func startReceiving() {
+    receiveTask?.cancel()
     receiveTask = Task { await receiveLoop() }
   }
 
@@ -418,6 +423,13 @@ final class ServerConnection {
       break
     }
 
+    // Mark disconnected immediately so the second caller (receiveLoop OR
+    // connectTask) hits the guard above and returns. Without this, both
+    // callers pass the guard, and the second tears down the reconnect that
+    // the first just created — orphaning URLSessionWebSocketTasks and
+    // producing a burst of nw_socket errors.
+    connectionStatus = .disconnected
+
     // Tear down everything from the current attempt
     stopKeepAlive()
     stableConnectionTask?.cancel()
@@ -429,6 +441,12 @@ final class ServerConnection {
     webSocket?.cancel(with: .goingAway, reason: nil)
     webSocket = nil
     lastConnectedAt = nil
+
+    // Invalidate the WS session so Network.framework drops all lingering
+    // TCP connections from previous attempts. A fresh session is created
+    // on the next attemptConnect().
+    wsSession.invalidateAndCancel()
+    wsSession = Self.makeWSSession()
 
     circuitBreaker.recordFailure()
     netLog(.warning, cat: .circuit, "Circuit breaker recorded failure", data: [
@@ -589,6 +607,8 @@ final class ServerConnection {
     case .directoryListing, .recentProjectsList, .openAiKeyStatus,
          .codexUsageResult, .claudeUsageResult:
       break
+    case .unknown:
+      break // Already logged at decode time
     }
   }
 

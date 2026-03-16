@@ -457,7 +457,7 @@ extension DirectSessionComposer {
           .fixedSize(horizontal: false, vertical: true)
       }
 
-      if model.elicitationMode == "url", let url = model.elicitationUrl, !url.isEmpty {
+      if model.elicitationMode == .url, let url = model.elicitationUrl, !url.isEmpty {
         PendingInfoHintRow(
           iconName: "safari",
           iconColor: modeColor,

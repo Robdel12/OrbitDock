@@ -107,8 +107,8 @@ extension TranscriptMessage {
     nil
   }
 
-  /// Unified diff — use toolDisplay.diffDisplay instead.
-  var unifiedDiff: String? {
+  /// Structured diff lines — use toolDisplay.diffDisplay instead.
+  var unifiedDiff: [ServerDiffLine]? {
     toolDisplay?.diffDisplay
   }
 

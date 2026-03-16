@@ -1378,11 +1378,7 @@ impl RolloutFileProcessor {
             return;
         }
 
-        let seeded = self
-            .checkpoint_seeds
-            .get(path)
-            .cloned()
-            .unwrap_or_default();
+        let seeded = self.checkpoint_seeds.get(path).cloned().unwrap_or_default();
 
         self.parse_states.insert(
             path.to_string(),
@@ -1807,9 +1803,7 @@ mod tests {
             },
         );
 
-        let snapshot = processor
-            .binding_snapshot(path)
-            .expect("binding snapshot");
+        let snapshot = processor.binding_snapshot(path).expect("binding snapshot");
 
         assert_eq!(snapshot.offset, 0);
         assert_eq!(snapshot.session_id.as_deref(), Some("session-1"));

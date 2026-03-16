@@ -123,4 +123,10 @@ enum ServerToClientMessage: Codable {
   // MARK: Errors
 
   case error(code: String, message: String, sessionId: String?)
+
+  // MARK: Unknown (resilience)
+
+  /// Server sent a message type the client doesn't recognize.
+  /// Logged at decode time; the event router ignores this case.
+  case unknown(type: String)
 }

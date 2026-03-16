@@ -47,8 +47,8 @@ enum TypeScale {
   /// Assistant/user prose body in transcript cards
   static let chatBody: CGFloat = 15
   /// Prominent markdown headers inside assistant responses
-  static let chatHeading1: CGFloat = 24
-  static let chatHeading2: CGFloat = 20
+  static let chatHeading1: CGFloat = 22
+  static let chatHeading2: CGFloat = 18
   static let chatHeading3: CGFloat = 16
   /// Thinking-mode heading 1 — scaled down from chatHeading1 but still dominant
   static let thinkingHeading1: CGFloat = 18
