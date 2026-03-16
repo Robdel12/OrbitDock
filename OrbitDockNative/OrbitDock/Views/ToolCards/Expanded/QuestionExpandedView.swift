@@ -9,10 +9,15 @@ import SwiftUI
 
 struct QuestionExpandedView: View {
   let content: ServerRowContent
+  let toolRow: ServerConversationToolRow
 
   private var hasResponse: Bool {
     if let output = content.outputDisplay, !output.isEmpty { return true }
     return false
+  }
+
+  private var isCompleted: Bool {
+    toolRow.status == .completed
   }
 
   var body: some View {
@@ -90,6 +95,19 @@ struct QuestionExpandedView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.statusReply.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.sm))
         }
+      } else if isCompleted {
+        // Completed but no output recorded
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "minus.circle")
+            .font(.system(size: IconScale.sm))
+            .foregroundStyle(Color.textQuaternary)
+          Text("No response recorded")
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textQuaternary)
+        }
+        .padding(Spacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
       } else {
         // Pending state placeholder
         HStack(spacing: Spacing.sm) {

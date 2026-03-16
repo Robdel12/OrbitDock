@@ -160,6 +160,9 @@ extension Color {
   /// Code blocks — slightly darker
   static let backgroundCode = Color(red: 0.04, green: 0.04, blue: 0.052)
 
+  /// Alternating stripe for code line groups
+  static let codeStripe = Color.white.opacity(0.012)
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Surfaces — Interaction States
 

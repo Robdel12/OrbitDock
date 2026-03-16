@@ -57,7 +57,7 @@ struct EditExpandedView: View {
       // Insert hunk separator when change follows 2+ context lines after a previous change
       if isChange && contextRun >= 2 && hadChange {
         entries.append(DiffEntry(
-          id: index * 1000 + 999, kind: .separator,
+          id: -(index + 1), kind: .separator,
           oldLine: nil, newLine: nil, content: ""
         ))
       }
@@ -142,18 +142,13 @@ struct EditExpandedView: View {
       // Diff content with CodeViewport + DiffChangeStrip
       HStack(alignment: .top, spacing: 0) {
         CodeViewport(lineCount: entries.count, accentColor: .toolWrite) {
-          ForEach(entries) { entry in
+          ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
             if entry.kind == .separator {
               hunkSeparator(gutter: gutter)
             } else {
-              let wordDiff: [WordLevelDiff.Segment]? = {
-                guard let idx = entries.firstIndex(where: { $0.id == entry.id }) else { return nil }
-                return wordDiffSegments(entries: entries, at: idx)
-              }()
-
               diffLineRow(
                 entry: entry,
-                wordDiff: wordDiff,
+                wordDiff: wordDiffSegments(entries: entries, at: index),
                 lang: lang,
                 gutter: gutter
               )
@@ -211,8 +206,8 @@ struct EditExpandedView: View {
           .padding(.leading, Spacing.sm_)
       }
     }
-    .padding(.vertical, 1)
     .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.vertical, 1)
     .background(lineBg(entry.kind))
   }
 
@@ -292,7 +287,7 @@ struct EditExpandedView: View {
     switch kind {
     case .addition: .diffAddedBg
     case .deletion: .diffRemovedBg
-    case .context, .separator: .clear
+    case .context, .separator: .backgroundCode
     }
   }
 

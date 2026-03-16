@@ -73,26 +73,25 @@ enum ToolCardStyle {
     }
 
     switch lowercased {
-      case "read": return "doc.text.fill"
-      case "edit": return "pencil"
-      case "write": return "square.and.pencil"
+      case "read": return "doc.plaintext"
+      case "edit": return "pencil.line"
+      case "write": return "pencil.line"
       case "bash": return "terminal"
-      case "glob": return "folder.badge.gearshape"
+      case "glob": return "magnifyingglass"
       case "grep": return "magnifyingglass"
-      case "task": return "person.2.fill"
+      case "task": return "bolt.fill"
       case "webfetch": return "globe"
-      case "websearch": return "magnifyingglass.circle"
+      case "websearch": return "globe"
       case "view_image": return "photo"
-      case "askuserquestion": return "questionmark.circle.fill"
+      case "askuserquestion": return "questionmark.bubble"
       case "toolsearch": return "puzzlepiece.extension"
       case "skill": return "sparkles"
-      case "enterplanmode": return "doc.text.magnifyingglass"
-      case "exitplanmode": return "checkmark.rectangle"
+      case "enterplanmode", "exitplanmode", "updateplan": return "map"
       case "todowrite", "todo_write": return "checklist"
       case "taskcreate": return "plus.circle.fill"
       case "taskupdate": return "pencil.circle.fill"
       case "tasklist": return "list.bullet.clipboard.fill"
-      case "taskget": return "doc.text.fill"
+      case "taskget": return "doc.plaintext"
       default: return "gearshape"
     }
   }
@@ -130,6 +129,13 @@ enum ToolCardStyle {
       return ".../" + components.suffix(2).joined(separator: "/")
     }
     return path
+  }
+
+  /// Heuristic JSON detection — shared across all tool card views.
+  static func looksLikeJSON(_ text: String) -> Bool {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return (trimmed.hasPrefix("{") && trimmed.hasSuffix("}"))
+        || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]"))
   }
 
   // MARK: - MCP Server Styling

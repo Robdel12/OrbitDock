@@ -299,6 +299,10 @@ struct ToolCardView: View {
         TaskExpandedView(content: content, toolRow: toolRow)
       case "mcp":
         MCPExpandedView(content: content, toolRow: toolRow)
+      case "webSearch":
+        WebSearchExpandedView(content: content)
+      case "webFetch":
+        WebFetchExpandedView(content: content)
       case "web":
         webExpandedDispatch(content)
       case "plan":
@@ -306,7 +310,7 @@ struct ToolCardView: View {
       case "todo":
         TodoExpandedView(content: content, display: display)
       case "question":
-        QuestionExpandedView(content: content)
+        QuestionExpandedView(content: content, toolRow: toolRow)
       case "toolSearch":
         ToolSearchExpandedView(content: content)
       case "hook":
@@ -357,9 +361,7 @@ struct ToolCardView: View {
   }
 
   private func looksLikeJSON(_ text: String) -> Bool {
-    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    return (trimmed.hasPrefix("{") && trimmed.hasSuffix("}"))
-        || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]"))
+    ToolCardStyle.looksLikeJSON(text)
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

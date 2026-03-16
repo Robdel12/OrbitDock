@@ -8,7 +8,7 @@ Both providers (Claude and Codex) normalize to this shared protocol via `ToolFam
 
 Tool rows on the wire use `ToolRowSummary` — **no raw invocation/result payloads**. The server computes a `ToolDisplay` struct with all rendering metadata (summary, subtitle, glyph, output preview, diff preview, display tier, tool type). The client renders from `ToolDisplay` directly with zero tool-specific branching for compact cards.
 
-Expanded view content is fetched on demand via REST `GET /rows/{id}/content` → `ServerRowContent { inputDisplay, outputDisplay, diffDisplay, language }`.
+Expanded view content is fetched on demand via REST `GET /rows/{id}/content` → `ServerRowContent { inputDisplay, outputDisplay, diffDisplay: [DiffLine]?, language, startLine: u32? }`.
 
 The "Invocation Payload" and "Result Payload" tables below describe the **server-internal** data shapes used to compute `ToolDisplay`. They are not sent on the wire.
 
@@ -33,7 +33,7 @@ The "Invocation Payload" and "Result Payload" tables below describe the **server
 | `prominent` | Full | Standard | Accent-tinted | AskUserQuestion |
 | `standard` | Full | Standard | Card default | Bash, Edit, Write, Agent, WebSearch, WebFetch, MCP, Handoff, Image |
 | `compact` | Reduced | Standard | Card default | Read, Glob, Grep, ToolSearch |
-| `minimal` | Minimal | Smaller icon | Card default | Plan (Enter/Exit/Update), Todo, CompactContext, Hook, Config |
+| `minimal` | Minimal | Smaller icon | Card default | Plan (Enter/Exit/Update), Todo, CompactContext, Hook, Config, TaskOutput, TaskStop |
 
 ## Status Lifecycle
 
@@ -118,6 +118,11 @@ All tools progress through: `pending` → `running` → `completed` | `failed` |
 | Field | Type | Description |
 |-------|------|-------------|
 | `content` | `String?` | File contents (may include line numbers) |
+
+**Server `ServerRowContent` extras for Read:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `start_line` | `u32?` | First line number (extracted from `cat -n` format). Defaults to 1 if absent. |
 
 **Compact Card:**
 - `doc.plaintext` icon + filename (last 2 path segments) + language badge + "N lines" right meta
@@ -301,7 +306,7 @@ Uses `EditExpandedView` with notebook-specific `FileTabHeader` icon. The `.ipynb
 
 **Expanded View:**
 - `SearchBarVisual` + tool cards with icon/name/description
-- Category pills: "Built-in" (blue) vs "MCP" (purple) vs "Deferred" (gray)
+- Category pills: "Built-in" (blue) vs "MCP" (purple)
 
 ---
 
@@ -311,10 +316,10 @@ Uses `EditExpandedView` with notebook-specific `FileTabHeader` icon. The `.ipynb
 |-------|-------|
 | ToolKind | `WebSearch` |
 | ToolFamily | `Web` |
-| tool_type | `"web"` (dispatches to WebSearch via URL detection) |
+| tool_type | `"webSearch"` |
 | Display Tier | Standard |
 | Accent | `Color.toolWeb` |
-| Glyph | `magnifyingglass.circle` |
+| Glyph | `globe` |
 | Client View | `WebSearchExpandedView` |
 
 **Invocation Payload** (`WebSearchPayload`):
@@ -344,7 +349,7 @@ Uses `EditExpandedView` with notebook-specific `FileTabHeader` icon. The `.ipynb
 |-------|-------|
 | ToolKind | `WebFetch` |
 | ToolFamily | `Web` |
-| tool_type | `"web"` (dispatches to WebFetch via URL detection) |
+| tool_type | `"webFetch"` |
 | Display Tier | Standard |
 | Accent | `Color.toolWeb` |
 | Glyph | `globe` |
@@ -382,6 +387,7 @@ Uses `EditExpandedView` with notebook-specific `FileTabHeader` icon. The `.ipynb
 | Accent | `Color.toolTask` (per-type: Explore=`toolSearch`, Plan=`toolPlan`) |
 | Glyph | `bolt.fill` |
 | Client View | `TaskExpandedView` |
+| Sub-kinds | `SendAgentInput`, `ResumeAgent`, `WaitAgent`, `CloseAgent` — all map to `tool_type: "task"` |
 
 **Invocation Payload** (`WorkerInvocationPayload`):
 | Field | Type | Description |
@@ -932,4 +938,6 @@ Additional fields from raw invocation JSON:
 | `ProgressSummaryBar` | `Components/ProgressSummaryBar.swift` | Todo, Plan |
 | `ANSIColorParser` | `Components/ANSIColorParser.swift` | Bash |
 | `SyntaxHighlighter` | (shared utility) | Read, Edit, Write, Bash |
-| `ToolCardStyle` | `ToolCardStyle.swift` | All (color/icon fallbacks) |
+| `CodeViewport` | `Components/CodeViewport.swift` | Read, Edit, Write |
+| `DiffChangeStrip` | `Components/DiffChangeStrip.swift` | Edit (large diffs >30 lines) |
+| `ToolCardStyle` | `ToolCardStyle.swift` | All (color/icon fallbacks, `looksLikeJSON` utility) |

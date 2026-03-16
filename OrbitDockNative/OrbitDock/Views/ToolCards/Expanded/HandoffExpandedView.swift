@@ -38,19 +38,13 @@ struct HandoffExpandedView: View {
         }
       }
 
+      // Transcript excerpt as muted quote (from input — the context sent to the target)
       if let input = content.inputDisplay, !input.isEmpty {
-        Text(input)
-          .font(.system(size: TypeScale.body))
-          .foregroundStyle(Color.textSecondary)
-      }
-
-      // Transcript excerpt as muted quote
-      if let excerpt = content.outputDisplay, !excerpt.isEmpty {
         VStack(alignment: .leading, spacing: Spacing.xs) {
           Text("Context")
             .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(Color.textTertiary)
-          Text(excerpt)
+          Text(input)
             .font(.system(size: TypeScale.caption))
             .foregroundStyle(Color.textQuaternary)
             .padding(Spacing.sm)
@@ -64,6 +58,7 @@ struct HandoffExpandedView: View {
         }
       }
 
+      // Result (output only)
       if let output = content.outputDisplay, !output.isEmpty {
         VStack(alignment: .leading, spacing: Spacing.xs) {
           Text("Result")

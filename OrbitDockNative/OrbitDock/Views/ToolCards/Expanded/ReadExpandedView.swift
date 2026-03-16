@@ -82,7 +82,7 @@ struct ReadExpandedView: View {
             .padding(.vertical, 1)
             .background(
               (index / 5) % 2 == 1
-                ? Color.white.opacity(0.012)
+                ? Color.codeStripe
                 : Color.clear
             )
           }

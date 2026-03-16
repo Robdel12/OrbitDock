@@ -48,6 +48,7 @@ private struct JSONNodeView: View {
   @State private var isExpanded = true
 
   private var indent: CGFloat { CGFloat(depth) * 14 }
+  private var isArrayIndex: Bool { key?.hasPrefix("[") == true }
 
   var body: some View {
     if let dict = value as? [String: Any] {
@@ -73,12 +74,14 @@ private struct JSONNodeView: View {
           .frame(width: 10)
 
         if let key {
-          Text("\"\(key)\"")
+          Text(isArrayIndex ? key : "\"\(key)\"")
             .font(.system(size: TypeScale.code, design: .monospaced))
-            .foregroundStyle(Color.syntaxProperty)
-          Text(":")
-            .font(.system(size: TypeScale.code, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
+            .foregroundStyle(isArrayIndex ? Color.textQuaternary : Color.syntaxProperty)
+          if !isArrayIndex {
+            Text(":")
+              .font(.system(size: TypeScale.code, design: .monospaced))
+              .foregroundStyle(Color.textQuaternary)
+          }
         }
 
         if !isExpanded {
@@ -124,12 +127,14 @@ private struct JSONNodeView: View {
           .frame(width: 10)
 
         if let key {
-          Text("\"\(key)\"")
+          Text(isArrayIndex ? key : "\"\(key)\"")
             .font(.system(size: TypeScale.code, design: .monospaced))
-            .foregroundStyle(Color.syntaxProperty)
-          Text(":")
-            .font(.system(size: TypeScale.code, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
+            .foregroundStyle(isArrayIndex ? Color.textQuaternary : Color.syntaxProperty)
+          if !isArrayIndex {
+            Text(":")
+              .font(.system(size: TypeScale.code, design: .monospaced))
+              .foregroundStyle(Color.textQuaternary)
+          }
         }
 
         if !isExpanded {
@@ -150,7 +155,7 @@ private struct JSONNodeView: View {
       ForEach(Array(array.enumerated()), id: \.offset) { index, item in
         JSONNodeView(
           value: item,
-          key: "\(index)",
+          key: "[\(index)]",
           depth: depth + 1,
           maxDepth: maxDepth
         )

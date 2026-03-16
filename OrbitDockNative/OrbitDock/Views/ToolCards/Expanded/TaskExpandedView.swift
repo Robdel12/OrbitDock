@@ -237,8 +237,7 @@ struct TaskExpandedView: View {
   }
 
   private func looksLikeJSON(_ text: String) -> Bool {
-    let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    return (t.hasPrefix("{") && t.hasSuffix("}")) || (t.hasPrefix("[") && t.hasSuffix("]"))
+    ToolCardStyle.looksLikeJSON(text)
   }
 
   // MARK: - Helpers

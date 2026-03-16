@@ -43,7 +43,8 @@ struct FileTypeDistributionBar: View {
           }
           .frame(width: width, alignment: .leading)
         }
-        .frame(width: maxWidth, height: 4)
+        .frame(maxWidth: maxWidth)
+        .frame(height: 4)
 
         // Legend
         HStack(spacing: Spacing.sm_) {

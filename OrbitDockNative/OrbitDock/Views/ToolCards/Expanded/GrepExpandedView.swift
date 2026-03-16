@@ -129,12 +129,12 @@ struct GrepExpandedView: View {
         .font(.system(size: TypeScale.code, design: .monospaced))
         .foregroundStyle(Color.textSecondary)
     } else {
-      let highlighted = highlightPattern(in: line, pattern: pattern)
+      let highlighted = Self.highlightPattern(in: line, pattern: pattern)
       Text(highlighted)
     }
   }
 
-  private func highlightPattern(in text: String, pattern: String) -> AttributedString {
+  static func highlightPattern(in text: String, pattern: String) -> AttributedString {
     var result = AttributedString(text)
     result.font = .system(size: TypeScale.code, design: .monospaced)
     result.foregroundColor = Color.textSecondary
@@ -227,28 +227,8 @@ private struct FileMatchGroup: View {
         .font(.system(size: TypeScale.code, design: .monospaced))
         .foregroundStyle(Color.textSecondary)
     } else {
-      let highlighted = highlightPattern(in: text, pattern: pattern)
+      let highlighted = GrepExpandedView.highlightPattern(in: text, pattern: pattern)
       Text(highlighted)
     }
-  }
-
-  private func highlightPattern(in text: String, pattern: String) -> AttributedString {
-    var result = AttributedString(text)
-    result.font = .system(size: TypeScale.code, design: .monospaced)
-    result.foregroundColor = Color.textSecondary
-
-    let lowered = text.lowercased()
-    let patternLowered = pattern.lowercased()
-    var searchStart = lowered.startIndex
-
-    while let range = lowered.range(of: patternLowered, range: searchStart..<lowered.endIndex) {
-      if let attrRange = Range(range, in: result) {
-        result[attrRange].backgroundColor = Color.toolSearch.opacity(0.2)
-        result[attrRange].foregroundColor = Color.toolSearch
-      }
-      searchStart = range.upperBound
-    }
-
-    return result
   }
 }

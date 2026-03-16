@@ -349,7 +349,8 @@ fn tool_type_string(kind: ToolKind, _family: ToolFamily) -> String {
         | ToolKind::CloseAgent => "task",
         ToolKind::McpToolCall | ToolKind::DynamicToolCall => "mcp",
         ToolKind::ReadMcpResource | ToolKind::ListMcpResources => "mcp",
-        ToolKind::WebSearch | ToolKind::WebFetch => "web",
+        ToolKind::WebSearch => "webSearch",
+        ToolKind::WebFetch => "webFetch",
         ToolKind::EnterPlanMode | ToolKind::ExitPlanMode | ToolKind::UpdatePlan => "plan",
         ToolKind::TodoWrite => "todo",
         ToolKind::AskUserQuestion => "question",
@@ -386,7 +387,8 @@ fn display_tier_string(kind: ToolKind, _family: ToolFamily, _status: ToolStatus)
         | ToolKind::UpdatePlan
         | ToolKind::TodoWrite
         | ToolKind::CompactContext
-        | ToolKind::HookNotification => "minimal",
+        | ToolKind::HookNotification
+        | ToolKind::Config => "minimal",
         _ => "standard",
     }
     .to_string()

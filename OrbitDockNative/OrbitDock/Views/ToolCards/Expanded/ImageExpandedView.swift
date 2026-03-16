@@ -28,19 +28,7 @@ struct ImageExpandedView: View {
     }
   }
 
-  private var imageDimensions: String? {
-    guard let path = filePath else { return nil }
-    #if os(macOS)
-    if let image = NSImage(contentsOfFile: path) {
-      return "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
-    }
-    #else
-    if let image = UIImage(contentsOfFile: path) {
-      return "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
-    }
-    #endif
-    return nil
-  }
+  // imageDimensions computed inline in inlineImage to avoid double disk I/O
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
@@ -54,14 +42,6 @@ struct ImageExpandedView: View {
             .font(.system(size: TypeScale.code, design: .monospaced))
             .foregroundStyle(Color.textSecondary)
           Spacer(minLength: 0)
-          if let dims = imageDimensions {
-            Text(dims)
-              .font(.system(size: TypeScale.mini, weight: .semibold))
-              .foregroundStyle(Color.textQuaternary)
-              .padding(.horizontal, Spacing.sm_)
-              .padding(.vertical, Spacing.xxs)
-              .background(Color.backgroundSecondary, in: Capsule())
-          }
           if let badge = formatBadge {
             Text(badge)
               .font(.system(size: TypeScale.mini, weight: .semibold))
@@ -107,22 +87,40 @@ struct ImageExpandedView: View {
     #if os(macOS)
     let imageMaxHeight: CGFloat = 400
     if let image = NSImage(contentsOfFile: path) {
-      Image(nsImage: image)
-        .resizable()
-        .aspectRatio(contentMode: .fit)
-        .frame(maxHeight: imageMaxHeight)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+      let dims = "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        Text(dims)
+          .font(.system(size: TypeScale.mini, weight: .semibold))
+          .foregroundStyle(Color.textQuaternary)
+          .padding(.horizontal, Spacing.sm_)
+          .padding(.vertical, Spacing.xxs)
+          .background(Color.backgroundSecondary, in: Capsule())
+        Image(nsImage: image)
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(maxHeight: imageMaxHeight)
+          .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+      }
     } else {
       imageFallback(path: path)
     }
     #else
     let imageMaxHeight: CGFloat = 280
     if let image = UIImage(contentsOfFile: path) {
-      Image(uiImage: image)
-        .resizable()
-        .aspectRatio(contentMode: .fit)
-        .frame(maxHeight: imageMaxHeight)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+      let dims = "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        Text(dims)
+          .font(.system(size: TypeScale.mini, weight: .semibold))
+          .foregroundStyle(Color.textQuaternary)
+          .padding(.horizontal, Spacing.sm_)
+          .padding(.vertical, Spacing.xxs)
+          .background(Color.backgroundSecondary, in: Capsule())
+        Image(uiImage: image)
+          .resizable()
+          .aspectRatio(contentMode: .fit)
+          .frame(maxHeight: imageMaxHeight)
+          .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
+      }
     } else {
       imageFallback(path: path)
     }

@@ -88,8 +88,6 @@ struct MCPExpandedView: View {
   }
 
   private func looksLikeJSON(_ text: String) -> Bool {
-    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    return (trimmed.hasPrefix("{") && trimmed.hasSuffix("}"))
-        || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]"))
+    ToolCardStyle.looksLikeJSON(text)
   }
 }

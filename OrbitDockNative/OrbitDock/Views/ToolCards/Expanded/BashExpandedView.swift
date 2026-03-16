@@ -70,7 +70,7 @@ struct BashExpandedView: View {
               .padding(.vertical, Spacing.xxs)
               .background(Color.backgroundSecondary, in: Capsule())
 
-            exitCodePill(code: isFailed ? 1 : 0)
+            exitCodePill(failed: isFailed)
           }
           .padding(.top, Spacing.sm)
 
@@ -177,9 +177,10 @@ struct BashExpandedView: View {
 
   // MARK: - Exit Code
 
-  private func exitCodePill(code: Int) -> some View {
-    let color: Color = code == 0 ? .feedbackPositive : .feedbackNegative
-    return Text("EXIT \(code)")
+  private func exitCodePill(failed: Bool) -> some View {
+    let color: Color = failed ? .feedbackNegative : .feedbackPositive
+    let label = failed ? "EXIT \u{2717}" : "EXIT 0"
+    return Text(label)
       .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
       .foregroundStyle(color)
       .padding(.horizontal, Spacing.xs)

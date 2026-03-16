@@ -47,24 +47,15 @@ struct HookExpandedView: View {
         .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
       }
 
-      if let input = content.inputDisplay, !input.isEmpty, hookInfo.name == nil {
+      // Show raw input as code block only if there are no structured fields
+      let info2 = hookInfo
+      if let input = content.inputDisplay, !input.isEmpty,
+         info2.name == nil, info2.event == nil, info2.phase == nil, durationString == nil {
         codeBlock(label: "Hook Event", text: input)
       }
 
       if let output = content.outputDisplay, !output.isEmpty {
         codeBlock(label: "Result", text: output)
-      }
-
-      // Structured entries (rendered from input display if present)
-      if let input = content.inputDisplay, !input.isEmpty {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          Text("Details")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
-          Text(input)
-            .font(.system(size: TypeScale.code, design: .monospaced))
-            .foregroundStyle(Color.textSecondary)
-        }
       }
     }
   }
