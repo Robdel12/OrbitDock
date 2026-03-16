@@ -57,6 +57,7 @@ struct MissionSettingsTab: View {
       saveFooter
     }
     .onAppear { populateFromSettings() }
+    .onChange(of: settings) { _, _ in populateFromSettings() }
   }
 
   // MARK: - Provider Section
@@ -773,6 +774,10 @@ struct MissionSettingsTab: View {
 
   private func populateFromSettings() {
     guard let s = settings else { return }
+    populateFromResponse(s)
+  }
+
+  private func populateFromResponse(_ s: MissionSettings) {
     triggerKind = s.trigger.kind
     pollInterval = s.trigger.interval
     editLabels = s.trigger.filters.labels.joined(separator: ", ")
@@ -822,7 +827,7 @@ struct MissionSettingsTab: View {
     )
 
     do {
-      let _: SettingsUpdateResponse = try await http.request(
+      let response: SettingsUpdateResponse = try await http.request(
         path: "/api/missions/\(missionId)/settings",
         method: "PUT",
         body: body
@@ -834,6 +839,10 @@ struct MissionSettingsTab: View {
         if !Task.isCancelled {
           withAnimation(Motion.standard) { showSaveConfirmation = false }
         }
+      }
+      // Re-populate form from the response to avoid stale state
+      if let saved = response.settings {
+        populateFromResponse(saved)
       }
       await onUpdated()
     } catch {
@@ -918,4 +927,9 @@ private enum OptionalUInt32: Encodable {
 
 private struct SettingsUpdateResponse: Decodable {
   let summary: MissionSummary
+  let settings: MissionSettings?
+
+  enum CodingKeys: String, CodingKey {
+    case summary, settings
+  }
 }
