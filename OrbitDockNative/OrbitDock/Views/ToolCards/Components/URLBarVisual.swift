@@ -26,11 +26,13 @@ struct URLBarVisual: View {
             Text(host)
               .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
               .foregroundStyle(Color.textPrimary)
+              .layoutPriority(1) // preserve domain on narrow screens
           }
           Text(url.path.isEmpty ? "/" : url.path)
             .font(.system(size: TypeScale.code, design: .monospaced))
             .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
+            .truncationMode(.middle)
         }
       } else {
         Text(urlString)

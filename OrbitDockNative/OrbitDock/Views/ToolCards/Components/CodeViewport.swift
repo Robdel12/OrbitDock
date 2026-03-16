@@ -14,12 +14,21 @@ import SwiftUI
 
 struct CodeViewport<Content: View>: View {
   let lineCount: Int
-  var maxHeight: CGFloat = 350
+  var maxHeight: CGFloat = defaultViewportHeight
   var accentColor: Color = .accent
   @ViewBuilder var content: () -> Content
 
   /// Threshold below which content renders inline (no viewport)
   private let inlineThreshold = 30
+
+  /// Platform-adaptive default viewport height
+  private static var defaultViewportHeight: CGFloat {
+    #if os(iOS)
+    260
+    #else
+    350
+    #endif
+  }
 
   @State private var isFullyExpanded = false
 

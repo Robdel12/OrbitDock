@@ -70,14 +70,28 @@ struct FileTabHeader: View {
 
   private var pathView: some View {
     let segments = path.components(separatedBy: "/").filter { !$0.isEmpty }
+    // On narrow screens, show only the last 2 path segments to preserve the filename
+    let displaySegments: [String] = {
+      #if os(iOS)
+      if segments.count > 2 {
+        return ["…"] + Array(segments.suffix(2))
+      }
+      #else
+      if segments.count > 5 {
+        return ["…"] + Array(segments.suffix(3))
+      }
+      #endif
+      return segments
+    }()
+
     return HStack(spacing: 0) {
-      ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+      ForEach(Array(displaySegments.enumerated()), id: \.offset) { index, segment in
         if index > 0 {
           Text("/")
             .font(.system(size: TypeScale.code, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)
         }
-        if index == segments.count - 1 {
+        if index == displaySegments.count - 1 {
           Text(segment)
             .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
             .foregroundStyle(Color.textSecondary)

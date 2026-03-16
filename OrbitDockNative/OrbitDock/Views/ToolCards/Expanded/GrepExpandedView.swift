@@ -203,8 +203,8 @@ private struct FileMatchGroup: View {
                 Text("\(lineNum)")
                   .font(.system(size: TypeScale.code, design: .monospaced))
                   .foregroundStyle(Color.textQuaternary.opacity(0.4))
-                  .frame(width: 40, alignment: .trailing)
-                  .padding(.trailing, Spacing.sm)
+                  .frame(width: 32, alignment: .trailing)
+                  .padding(.trailing, Spacing.xs)
               }
 
               highlightedContent(match.content)

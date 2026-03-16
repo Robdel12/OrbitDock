@@ -105,21 +105,23 @@ struct ImageExpandedView: View {
   @ViewBuilder
   private func inlineImage(path: String) -> some View {
     #if os(macOS)
+    let imageMaxHeight: CGFloat = 400
     if let image = NSImage(contentsOfFile: path) {
       Image(nsImage: image)
         .resizable()
         .aspectRatio(contentMode: .fit)
-        .frame(maxHeight: 400)
+        .frame(maxHeight: imageMaxHeight)
         .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
     } else {
       imageFallback(path: path)
     }
     #else
+    let imageMaxHeight: CGFloat = 280
     if let image = UIImage(contentsOfFile: path) {
       Image(uiImage: image)
         .resizable()
         .aspectRatio(contentMode: .fit)
-        .frame(maxHeight: 400)
+        .frame(maxHeight: imageMaxHeight)
         .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
     } else {
       imageFallback(path: path)

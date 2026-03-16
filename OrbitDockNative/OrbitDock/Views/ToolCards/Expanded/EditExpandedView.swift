@@ -141,7 +141,7 @@ struct EditExpandedView: View {
 
       // Diff content with CodeViewport + DiffChangeStrip
       HStack(alignment: .top, spacing: 0) {
-        CodeViewport(lineCount: entries.count, maxHeight: 400, accentColor: .toolWrite) {
+        CodeViewport(lineCount: entries.count, accentColor: .toolWrite) {
           ForEach(entries) { entry in
             if entry.kind == .separator {
               hunkSeparator(gutter: gutter)
@@ -163,7 +163,7 @@ struct EditExpandedView: View {
 
         // Change density strip for large diffs
         if diffLines.count > 30 {
-          DiffChangeStrip(lines: diffLines, height: 400)
+          DiffChangeStrip(lines: diffLines)
             .padding(.leading, Spacing.xs)
         }
       }

@@ -11,7 +11,13 @@ import SwiftUI
 
 struct DiffChangeStrip: View {
   let lines: [ServerDiffLine]
-  var height: CGFloat = 350
+  var height: CGFloat = {
+    #if os(iOS)
+    260
+    #else
+    350
+    #endif
+  }()
 
   var body: some View {
     Canvas { context, size in

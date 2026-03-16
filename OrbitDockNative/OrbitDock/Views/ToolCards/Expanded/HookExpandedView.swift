@@ -104,10 +104,11 @@ struct HookExpandedView: View {
       Text(label)
         .font(.system(size: TypeScale.caption, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
-        .frame(width: 50, alignment: .trailing)
+        .frame(width: 44, alignment: .trailing)
       Text(value)
         .font(.system(size: TypeScale.code, design: .monospaced))
         .foregroundStyle(Color.textSecondary)
+        .lineLimit(2)
     }
   }
 
