@@ -343,7 +343,8 @@ struct MissionShowView: View {
       return
     }
 
-    isLoading = true
+    let isInitialLoad = summary == nil
+    if isInitialLoad { isLoading = true }
     do {
       let response: MissionDetailResponse = try await http.get("/api/missions/\(missionId)")
       summary = response.summary
@@ -354,7 +355,7 @@ struct MissionShowView: View {
     } catch {
       self.error = error.localizedDescription
     }
-    isLoading = false
+    if isInitialLoad { isLoading = false }
   }
 
   private func updateMission(enabled: Bool? = nil, paused: Bool? = nil) async {
