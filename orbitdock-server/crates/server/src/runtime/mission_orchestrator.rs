@@ -423,6 +423,7 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
         _ => Provider::Claude,
     };
 
+    let orchestrator_running = registry.is_orchestrator_running();
     let orchestrator_status = if !mission.enabled {
         Some("disabled".to_string())
     } else if mission.paused {
@@ -431,8 +432,31 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
         Some("config_error".to_string())
     } else if crate::support::api_keys::resolve_linear_api_key().is_none() {
         Some("no_api_key".to_string())
+    } else if !orchestrator_running {
+        Some("idle".to_string())
     } else {
         Some("polling".to_string())
+    };
+
+    // Read strategy from config_json if available
+    let (provider_strategy, secondary_provider) = if let Some(ref json) = mission.config_json {
+        if let Ok(config) =
+            serde_json::from_str::<crate::domain::mission_control::config::MissionConfig>(json)
+        {
+            let secondary = config
+                .provider
+                .secondary
+                .as_ref()
+                .map(|s| match s.as_str() {
+                    "codex" => Provider::Codex,
+                    _ => Provider::Claude,
+                });
+            (config.provider.strategy, secondary)
+        } else {
+            ("single".to_string(), None)
+        }
+    } else {
+        ("single".to_string(), None)
     };
 
     let summary = MissionSummary {
@@ -442,9 +466,9 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
         paused: mission.paused,
         tracker_kind: mission.tracker_kind.clone(),
         provider: primary_provider,
-        provider_strategy: "single".to_string(),
+        provider_strategy,
         primary_provider,
-        secondary_provider: None,
+        secondary_provider,
         active_count,
         queued_count,
         completed_count,

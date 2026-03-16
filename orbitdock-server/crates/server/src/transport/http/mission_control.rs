@@ -12,8 +12,8 @@ use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, P
 use crate::domain::mission_control::config::{parse_workflow, MissionConfig};
 use crate::domain::mission_control::template::default_workflow_template;
 use crate::infrastructure::persistence::{
-    load_mission_by_id, load_mission_issues, load_missions, MissionIssueRow, MissionRow,
-    PersistCommand,
+    load_mission_by_id, load_mission_issues, load_missions_with_counts, MissionIssueRow,
+    MissionRow, PersistCommand,
 };
 use crate::runtime::session_registry::SessionRegistry;
 
@@ -135,9 +135,10 @@ pub async fn list_missions(
     State(registry): State<Arc<SessionRegistry>>,
 ) -> ApiResult<MissionsListResponse> {
     let db_path = registry.db_path().clone();
+    let orchestrator_running = registry.is_orchestrator_running();
     let rows = tokio::task::spawn_blocking(move || {
         let conn = rusqlite::Connection::open(&db_path)?;
-        load_missions(&conn)
+        load_missions_with_counts(&conn)
     })
     .await
     .map_err(|e| internal("join_error", format!("join: {e}")))?
@@ -145,7 +146,9 @@ pub async fn list_missions(
 
     let missions = rows
         .into_iter()
-        .map(|r| mission_row_to_summary(&r))
+        .map(|(r, (active, queued, completed, failed))| {
+            summary_from_row(&r, active, queued, completed, failed, orchestrator_running)
+        })
         .collect();
 
     Ok(Json(MissionsListResponse { missions }))
@@ -156,6 +159,15 @@ pub async fn create_mission(
     State(registry): State<Arc<SessionRegistry>>,
     Json(req): Json<CreateMissionRequest>,
 ) -> ApiResult<MissionSummary> {
+    // Validate that repo_root is a git repository
+    let git_dir = StdPath::new(&req.repo_root).join(".git");
+    if tokio::fs::metadata(&git_dir).await.is_err() {
+        return Err(bad_request(
+            "not_git_repo",
+            format!("Directory is not a git repository: {}", req.repo_root),
+        ));
+    }
+
     let id = orbitdock_protocol::new_id();
 
     let _ = registry
@@ -234,7 +246,8 @@ pub async fn get_mission(
         .await
         .is_ok();
 
-    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows);
+    let orchestrator_running = registry.is_orchestrator_running();
+    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
     let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
 
     // Build settings from config_json + prompt_template
@@ -453,7 +466,8 @@ pub async fn scaffold_mission_workflow(
     .map_err(|e| internal("join_error", format!("join: {e}")))?
     .map_err(|e| internal("db_error", format!("db: {e}")))?;
 
-    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows);
+    let orchestrator_running = registry.is_orchestrator_running();
+    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
     let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
 
     let settings = config_to_settings_response(&parsed.config, &prompt_template);
@@ -684,13 +698,23 @@ pub async fn start_mission_orchestrator_endpoint(
     let api_key = crate::support::api_keys::resolve_linear_api_key()
         .ok_or_else(|| bad_request("no_api_key", "Linear API key not configured. Set it via POST /api/server/linear-key or LINEAR_API_KEY env var.".to_string()))?;
 
+    if !registry.try_start_orchestrator() {
+        return Err(conflict(
+            "already_running",
+            "Orchestrator is already running",
+        ));
+    }
+
     let reg = registry.clone();
     tokio::spawn(async move {
         let tracker: std::sync::Arc<dyn crate::domain::mission_control::tracker::Tracker> =
             std::sync::Arc::new(crate::infrastructure::linear::client::LinearClient::new(
                 api_key,
             ));
-        crate::runtime::mission_orchestrator::start_mission_orchestrator(reg, tracker).await;
+        crate::runtime::mission_orchestrator::start_mission_orchestrator(reg.clone(), tracker)
+            .await;
+        // If the loop ever exits, release the guard
+        reg.stop_orchestrator();
     });
 
     info!(
@@ -842,7 +866,8 @@ pub async fn update_mission_settings(
     .map_err(|e| internal("join_error", format!("join: {e}")))?
     .map_err(|e| internal("db_error", format!("db: {e}")))?;
 
-    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows);
+    let orchestrator_running = registry.is_orchestrator_running();
+    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
     let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
     let settings = config_to_settings_response(&config, &prompt_tmpl);
 
@@ -902,7 +927,7 @@ fn build_settings_response(mission: &MissionRow) -> Option<MissionSettingsRespon
     Some(config_to_settings_response(&config, &prompt_template))
 }
 
-fn compute_orchestrator_status(row: &MissionRow) -> Option<String> {
+fn compute_orchestrator_status(row: &MissionRow, orchestrator_running: bool) -> Option<String> {
     if !row.enabled {
         return Some("disabled".to_string());
     }
@@ -915,6 +940,9 @@ fn compute_orchestrator_status(row: &MissionRow) -> Option<String> {
     if crate::support::api_keys::resolve_linear_api_key().is_none() {
         return Some("no_api_key".to_string());
     }
+    if !orchestrator_running {
+        return Some("idle".to_string());
+    }
     Some("polling".to_string())
 }
 
@@ -925,9 +953,10 @@ fn summary_from_row(
     queued: u32,
     completed: u32,
     failed: u32,
+    orchestrator_running: bool,
 ) -> MissionSummary {
     let primary_provider = parse_provider(&row.provider);
-    let orchestrator_status = compute_orchestrator_status(row);
+    let orchestrator_status = compute_orchestrator_status(row, orchestrator_running);
 
     // Try to pull strategy from parsed config
     let (strategy, secondary) = if let Some(ref json) = row.config_json {
@@ -966,13 +995,10 @@ fn summary_from_row(
     }
 }
 
-fn mission_row_to_summary(row: &MissionRow) -> MissionSummary {
-    summary_from_row(row, 0, 0, 0, 0)
-}
-
 fn mission_row_to_summary_with_issues(
     row: &MissionRow,
     issue_rows: &[MissionIssueRow],
+    orchestrator_running: bool,
 ) -> MissionSummary {
     let mut active_count = 0u32;
     let mut queued_count = 0u32;
@@ -995,6 +1021,7 @@ fn mission_row_to_summary_with_issues(
         queued_count,
         completed_count,
         failed_count,
+        orchestrator_running,
     )
 }
 

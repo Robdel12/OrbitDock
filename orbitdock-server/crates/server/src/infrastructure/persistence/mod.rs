@@ -45,7 +45,7 @@ pub(crate) use messages::{
 #[allow(unused_imports)]
 pub(crate) use mission_control::{
     load_all_active_mission_issues, load_mission_by_id, load_mission_issues, load_missions,
-    MissionIssueRow, MissionRow,
+    load_missions_with_counts, MissionIssueRow, MissionRow,
 };
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
 pub(crate) use session_reads::{

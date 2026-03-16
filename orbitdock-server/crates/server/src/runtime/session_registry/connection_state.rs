@@ -16,6 +16,7 @@ pub(crate) struct ConnectionState {
     client_primary_claims: DashMap<u64, ClientPrimaryClaimState>,
     ws_connections: AtomicU64,
     started_at: Instant,
+    orchestrator_running: AtomicBool,
 }
 
 impl ConnectionState {
@@ -25,6 +26,7 @@ impl ConnectionState {
             client_primary_claims: DashMap::new(),
             ws_connections: AtomicU64::new(0),
             started_at: Instant::now(),
+            orchestrator_running: AtomicBool::new(false),
         }
     }
 
@@ -51,6 +53,23 @@ impl ConnectionState {
 
     pub(crate) fn uptime_seconds(&self) -> u64 {
         self.started_at.elapsed().as_secs()
+    }
+
+    /// Atomically claim orchestrator ownership. Returns `true` if this call
+    /// transitioned from stopped → running (caller should spawn the loop).
+    /// Returns `false` if an orchestrator is already running.
+    pub(crate) fn try_start_orchestrator(&self) -> bool {
+        self.orchestrator_running
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
+            .is_ok()
+    }
+
+    pub(crate) fn stop_orchestrator(&self) {
+        self.orchestrator_running.store(false, Ordering::SeqCst);
+    }
+
+    pub(crate) fn is_orchestrator_running(&self) -> bool {
+        self.orchestrator_running.load(Ordering::Relaxed)
     }
 
     pub(crate) fn set_client_primary_claim(
@@ -117,7 +136,31 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::collect_active_primary_claims;
+    use super::{collect_active_primary_claims, ConnectionState};
+
+    #[test]
+    fn orchestrator_first_start_succeeds() {
+        let state = ConnectionState::new(true);
+        assert!(!state.is_orchestrator_running());
+        assert!(state.try_start_orchestrator());
+        assert!(state.is_orchestrator_running());
+    }
+
+    #[test]
+    fn orchestrator_second_start_rejected() {
+        let state = ConnectionState::new(true);
+        assert!(state.try_start_orchestrator());
+        assert!(!state.try_start_orchestrator());
+    }
+
+    #[test]
+    fn orchestrator_can_restart_after_stop() {
+        let state = ConnectionState::new(true);
+        assert!(state.try_start_orchestrator());
+        state.stop_orchestrator();
+        assert!(!state.is_orchestrator_running());
+        assert!(state.try_start_orchestrator());
+    }
 
     #[test]
     fn collect_active_primary_claims_dedup_by_client_and_ignore_non_primary() {

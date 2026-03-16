@@ -273,6 +273,26 @@ pub fn parse_workflow(content: &str) -> Result<WorkflowDefinition> {
         // Legacy flat schema → convert
         let legacy: LegacyMissionConfig =
             serde_yaml::from_str(yaml_block).context("failed to parse WORKFLOW.md YAML config")?;
+
+        // Reject configs that are entirely defaults (no recognized Mission Control fields)
+        let defaults = LegacyMissionConfig::default();
+        let has_any_config = legacy.tracker != defaults.tracker
+            || legacy.provider != defaults.provider
+            || legacy.project_key.is_some()
+            || legacy.team_key.is_some()
+            || !legacy.label_filter.is_empty()
+            || !legacy.state_filter.is_empty()
+            || legacy.max_concurrent != defaults.max_concurrent
+            || legacy.poll_interval_secs != defaults.poll_interval_secs
+            || legacy.base_branch != defaults.base_branch;
+
+        if !has_any_config {
+            anyhow::bail!(
+                "WORKFLOW.md does not contain OrbitDock mission configuration. \
+                 Add an `orbitdock:` section or use 'Generate WORKFLOW.md' to create one."
+            );
+        }
+
         MissionConfig::from(legacy)
     };
 
@@ -392,12 +412,26 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
     }
 
     #[test]
-    fn parse_empty_front_matter_legacy() {
+    fn parse_empty_front_matter_legacy_rejects_all_defaults() {
         let content = "---\n---\nHello";
+        let result = parse_workflow(content);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("does not contain OrbitDock mission configuration"));
+    }
+
+    #[test]
+    fn parse_unrelated_yaml_rejects() {
+        let content = "---\nname: My Workflow\nsteps:\n  - build\n---\nHello";
+        let result = parse_workflow(content);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_legacy_with_recognized_field_succeeds() {
+        let content = "---\ntracker: linear\nproject_key: PROJ\n---\nHello";
         let def = parse_workflow(content).unwrap();
-        assert_eq!(def.config.tracker, "linear");
-        assert_eq!(def.config.provider.primary, "claude");
-        assert_eq!(def.config.provider.max_concurrent, 3);
+        assert_eq!(def.config.trigger.filters.project.as_deref(), Some("PROJ"));
         assert_eq!(def.prompt_template, "Hello");
     }
 

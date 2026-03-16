@@ -81,6 +81,57 @@ pub fn load_missions(conn: &Connection) -> Result<Vec<MissionRow>> {
     Ok(rows)
 }
 
+/// (active, queued, completed, failed) counts for a mission.
+pub type MissionIssueCounts = (u32, u32, u32, u32);
+
+pub fn load_missions_with_counts(
+    conn: &Connection,
+) -> Result<Vec<(MissionRow, MissionIssueCounts)>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.id, m.repo_root, m.tracker_kind, m.provider, m.config_json,
+                    m.prompt_template, m.enabled, m.paused, m.last_parsed_at, m.parse_error,
+                    m.created_at, m.updated_at,
+                    COUNT(CASE WHEN mi.orchestration_state IN ('running','claimed') THEN 1 END),
+                    COUNT(CASE WHEN mi.orchestration_state IN ('queued','retry_queued') THEN 1 END),
+                    COUNT(CASE WHEN mi.orchestration_state = 'completed' THEN 1 END),
+                    COUNT(CASE WHEN mi.orchestration_state = 'failed' THEN 1 END)
+             FROM missions m
+             LEFT JOIN mission_issues mi ON mi.mission_id = m.id
+             GROUP BY m.id
+             ORDER BY m.created_at DESC",
+        )
+        .context("prepare load_missions_with_counts")?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let mission = MissionRow {
+                id: row.get(0)?,
+                repo_root: row.get(1)?,
+                tracker_kind: row.get(2)?,
+                provider: row.get(3)?,
+                config_json: row.get(4)?,
+                prompt_template: row.get(5)?,
+                enabled: row.get::<_, i64>(6)? != 0,
+                paused: row.get::<_, i64>(7)? != 0,
+                last_parsed_at: row.get(8)?,
+                parse_error: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
+            };
+            let active: u32 = row.get::<_, Option<u32>>(12)?.unwrap_or(0);
+            let queued: u32 = row.get::<_, Option<u32>>(13)?.unwrap_or(0);
+            let completed: u32 = row.get::<_, Option<u32>>(14)?.unwrap_or(0);
+            let failed: u32 = row.get::<_, Option<u32>>(15)?.unwrap_or(0);
+            Ok((mission, (active, queued, completed, failed)))
+        })
+        .context("query load_missions_with_counts")?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
 pub fn load_mission_by_id(conn: &Connection, id: &str) -> Result<Option<MissionRow>> {
     let row = conn
         .query_row(

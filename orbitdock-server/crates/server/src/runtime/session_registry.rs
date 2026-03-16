@@ -151,6 +151,20 @@ impl SessionRegistry {
         self.connections.uptime_seconds()
     }
 
+    /// Atomically claim orchestrator ownership. Returns `true` if this call
+    /// transitioned from stopped → running. Returns `false` if already running.
+    pub fn try_start_orchestrator(&self) -> bool {
+        self.connections.try_start_orchestrator()
+    }
+
+    pub fn stop_orchestrator(&self) {
+        self.connections.stop_orchestrator()
+    }
+
+    pub fn is_orchestrator_running(&self) -> bool {
+        self.connections.is_orchestrator_running()
+    }
+
     pub fn set_client_primary_claim(
         &self,
         conn_id: u64,
