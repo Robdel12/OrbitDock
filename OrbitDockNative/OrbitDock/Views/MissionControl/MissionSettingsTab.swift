@@ -43,7 +43,7 @@ struct MissionSettingsTab: View {
         Image(systemName: "doc.text")
           .font(.system(size: 10, weight: .medium))
           .foregroundStyle(Color.textQuaternary)
-        Text("These settings are saved to WORKFLOW.md in your repo — committed to source control and shared with your team.")
+        Text("These settings are saved to MISSION.md in your repo — committed to source control and shared with your team.")
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textTertiary)
           .fixedSize(horizontal: false, vertical: true)
@@ -319,7 +319,7 @@ struct MissionSettingsTab: View {
         HStack(spacing: Spacing.md) {
           #if os(macOS)
             Button {
-              openWorkflowInEditor()
+              openMissionFileInEditor()
             } label: {
               HStack(spacing: Spacing.sm_) {
                 Image(systemName: "pencil.and.outline")
@@ -332,7 +332,7 @@ struct MissionSettingsTab: View {
             .buttonStyle(.plain)
 
             Button {
-              let path = repoRoot.hasSuffix("/") ? repoRoot + "WORKFLOW.md" : repoRoot + "/WORKFLOW.md"
+              let path = repoRoot.hasSuffix("/") ? repoRoot + "MISSION.md" : repoRoot + "/MISSION.md"
               NSPasteboard.general.clearContents()
               NSPasteboard.general.setString(path, forType: .string)
             } label: {
@@ -367,14 +367,14 @@ struct MissionSettingsTab: View {
             Image(systemName: "doc.text")
               .font(.system(size: 10, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
-            Text("Edit WORKFLOW.md in your editor — agent instructions are stored as a file in your repo.")
+            Text("Edit MISSION.md in your editor — agent instructions are stored as a file in your repo.")
               .font(.system(size: TypeScale.micro))
               .foregroundStyle(Color.textTertiary)
               .fixedSize(horizontal: false, vertical: true)
           }
         #else
           Text(
-            "Agent instructions live in WORKFLOW.md. They include issue context (title, description, URL) and workflow guidance. Supports Liquid syntax for dynamic values."
+            "Agent instructions live in MISSION.md. They include issue context (title, description, URL) and workflow guidance. Supports Liquid syntax for dynamic values."
           )
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textQuaternary)
@@ -409,19 +409,19 @@ struct MissionSettingsTab: View {
     }
   }
 
-  private func openWorkflowInEditor() {
-    let workflowPath = repoRoot.hasSuffix("/")
-      ? repoRoot + "WORKFLOW.md"
-      : repoRoot + "/WORKFLOW.md"
+  private func openMissionFileInEditor() {
+    let missionPath = repoRoot.hasSuffix("/")
+      ? repoRoot + "MISSION.md"
+      : repoRoot + "/MISSION.md"
 
     #if os(macOS)
       if !preferredEditor.isEmpty {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [preferredEditor, workflowPath]
+        process.arguments = [preferredEditor, missionPath]
         try? process.run()
       } else {
-        NSWorkspace.shared.open(URL(fileURLWithPath: workflowPath))
+        NSWorkspace.shared.open(URL(fileURLWithPath: missionPath))
       }
     #else
       // iOS: can't open local files in external editors, but the preview still works
@@ -449,7 +449,7 @@ struct MissionSettingsTab: View {
           Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 14))
             .foregroundStyle(Color.feedbackPositive)
-          Text("Settings saved to WORKFLOW.md")
+          Text("Settings saved to MISSION.md")
             .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(Color.feedbackPositive)
         }
@@ -468,7 +468,7 @@ struct MissionSettingsTab: View {
           Image(systemName: "doc.text")
             .font(.system(size: 9))
             .foregroundStyle(Color.textQuaternary)
-          Text("WORKFLOW.md")
+          Text("MISSION.md")
             .font(.system(size: TypeScale.micro, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)
         }

@@ -1,31 +1,30 @@
-/// Generate a default WORKFLOW.md template for a mission.
+/// Generate a default MISSION.md template for a mission.
 ///
 /// The template uses Liquid syntax (`{{ }}` / `{% %}`) for variable interpolation
-/// at dispatch time. The YAML front matter configures the orchestrator using
-/// the nested `orbitdock:` schema.
-pub fn default_workflow_template(provider: &str) -> String {
+/// at dispatch time. The YAML front matter configures the orchestrator with
+/// `MissionConfig` keys at the top level.
+pub fn default_mission_template(provider: &str) -> String {
     let body = r#"---
-orbitdock:
-  tracker: linear
+tracker: linear
 
-  provider:
-    strategy: single
-    primary: PROVIDER_PLACEHOLDER
-    max_concurrent: 3
+provider:
+  strategy: single
+  primary: PROVIDER_PLACEHOLDER
+  max_concurrent: 3
 
-  trigger:
-    kind: polling
-    interval: 60
-    # filters:
-    #   labels: []
-    #   states: [Todo, "In Progress"]
-    #   project: YOUR_PROJECT
-    #   team: YOUR_TEAM
+trigger:
+  kind: polling
+  interval: 60
+  # filters:
+  #   labels: []
+  #   states: [Todo, "In Progress"]
+  #   project: YOUR_PROJECT
+  #   team: YOUR_TEAM
 
-  orchestration:
-    max_retries: 3
-    stall_timeout: 600
-    base_branch: main
+orchestration:
+  max_retries: 3
+  stall_timeout: 600
+  base_branch: main
 ---
 
 You are working on Linear issue `{{ issue.identifier }}`: {{ issue.title }}
@@ -75,22 +74,22 @@ mod tests {
 
     #[test]
     fn template_includes_provider() {
-        let tmpl = default_workflow_template("codex");
+        let tmpl = default_mission_template("codex");
         assert!(tmpl.contains("primary: codex"));
         assert!(!tmpl.contains("PROVIDER_PLACEHOLDER"));
     }
 
     #[test]
     fn template_has_front_matter() {
-        let tmpl = default_workflow_template("claude");
+        let tmpl = default_mission_template("claude");
         assert!(tmpl.starts_with("---\n"));
         assert!(tmpl.matches("---").count() >= 2);
     }
 
     #[test]
-    fn template_has_nested_schema() {
-        let tmpl = default_workflow_template("claude");
-        assert!(tmpl.contains("orbitdock:"));
+    fn template_has_top_level_schema() {
+        let tmpl = default_mission_template("claude");
+        assert!(!tmpl.contains("orbitdock:"));
         assert!(tmpl.contains("provider:"));
         assert!(tmpl.contains("strategy: single"));
         assert!(tmpl.contains("trigger:"));
@@ -99,16 +98,16 @@ mod tests {
 
     #[test]
     fn template_has_liquid_variables() {
-        let tmpl = default_workflow_template("claude");
+        let tmpl = default_mission_template("claude");
         assert!(tmpl.contains("{{ issue.identifier }}"));
         assert!(tmpl.contains("{{ issue.title }}"));
         assert!(tmpl.contains("{% if attempt > 1 %}"));
     }
 
     #[test]
-    fn template_parses_as_valid_workflow() {
-        let tmpl = default_workflow_template("claude");
-        let def = crate::domain::mission_control::config::parse_workflow(&tmpl).unwrap();
+    fn template_parses_as_valid_mission_file() {
+        let tmpl = default_mission_template("claude");
+        let def = crate::domain::mission_control::config::parse_mission_file(&tmpl).unwrap();
         assert_eq!(def.config.tracker, "linear");
         assert_eq!(def.config.provider.strategy, "single");
         assert_eq!(def.config.provider.primary, "claude");

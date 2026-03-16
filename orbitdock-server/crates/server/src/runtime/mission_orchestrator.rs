@@ -2,7 +2,7 @@
 //!
 //! Spawned as a tokio task at server startup. Each tick:
 //! 1. Load enabled missions from DB
-//! 2. For each mission: parse WORKFLOW.md -> validate -> fetch candidates -> gate -> dispatch
+//! 2. For each mission: parse MISSION.md -> validate -> fetch candidates -> gate -> dispatch
 //! 3. Broadcast MissionDelta on state changes
 
 use std::collections::HashSet;
@@ -12,7 +12,7 @@ use std::sync::Arc;
 use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, Provider};
 use tracing::{debug, error, info, warn};
 
-use crate::domain::mission_control::config::{parse_workflow, MissionConfig};
+use crate::domain::mission_control::config::{parse_mission_file, MissionConfig};
 use crate::domain::mission_control::eligibility::{is_eligible, sort_candidates};
 use crate::domain::mission_control::tracker::Tracker;
 use crate::infrastructure::persistence::mission_control::{
@@ -35,7 +35,7 @@ pub async fn start_mission_orchestrator(registry: Arc<SessionRegistry>, tracker:
         "Mission orchestrator started"
     );
 
-    // Initial poll interval — overridden per-mission once we parse WORKFLOW.md
+    // Initial poll interval — overridden per-mission once we parse MISSION.md
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
 
     loop {
@@ -148,16 +148,16 @@ async fn process_mission(
     tracker: &Arc<dyn Tracker>,
     mission: &MissionRow,
 ) -> anyhow::Result<()> {
-    // Load and parse WORKFLOW.md
-    let workflow_path = Path::new(&mission.repo_root).join("WORKFLOW.md");
-    let workflow_content = match tokio::fs::read_to_string(&workflow_path).await {
+    // Load and parse MISSION.md
+    let mission_file_path = Path::new(&mission.repo_root).join("MISSION.md");
+    let mission_content = match tokio::fs::read_to_string(&mission_file_path).await {
         Ok(content) => content,
         Err(err) => {
             debug!(
                 component = "mission_control",
                 mission_id = %mission.id,
                 error = %err,
-                "WORKFLOW.md not found or unreadable"
+                "MISSION.md not found or unreadable"
             );
             // Record the missing file so the client knows why nothing is happening
             let _ = registry
@@ -168,14 +168,14 @@ async fn process_mission(
                     paused: None,
                     config_json: None,
                     prompt_template: None,
-                    parse_error: Some(Some("WORKFLOW.md not found in repository".to_string())),
+                    parse_error: Some(Some("MISSION.md not found in repository".to_string())),
                 })
                 .await;
             return Ok(());
         }
     };
 
-    let workflow = match parse_workflow(&workflow_content) {
+    let workflow = match parse_mission_file(&mission_content) {
         Ok(w) => w,
         Err(err) => {
             let _ = registry

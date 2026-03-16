@@ -33,16 +33,9 @@ fn default_base_branch() -> String {
     "main".to_string()
 }
 
-// ── New nested config types ──────────────────────────────────────────
+// ── Config types ─────────────────────────────────────────────────────
 
-/// Top-level YAML wrapper: everything lives under `orbitdock:` key.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkflowYaml {
-    #[serde(default)]
-    pub orbitdock: MissionConfig,
-}
-
-/// Parsed mission configuration from WORKFLOW.md YAML front matter.
+/// Parsed mission configuration from MISSION.md YAML front matter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MissionConfig {
@@ -235,26 +228,26 @@ impl MissionConfig {
     }
 }
 
-/// Parsed WORKFLOW.md: config + prompt template.
+/// Parsed MISSION.md: config + prompt template.
 #[derive(Debug, Clone)]
-pub struct WorkflowDefinition {
+pub struct MissionDefinition {
     pub config: MissionConfig,
     pub prompt_template: String,
 }
 
-/// Parse a WORKFLOW.md file: YAML front matter between `---` fences, rest is Liquid template.
+/// Parse a MISSION.md file: YAML front matter between `---` fences, rest is Liquid template.
 ///
-/// Supports both new nested `orbitdock:` schema and legacy flat schema for backward compat.
-pub fn parse_workflow(content: &str) -> Result<WorkflowDefinition> {
+/// Supports the top-level `MissionConfig` schema and legacy flat schema for backward compat.
+pub fn parse_mission_file(content: &str) -> Result<MissionDefinition> {
     let content = content.trim();
     if !content.starts_with("---") {
-        anyhow::bail!("WORKFLOW.md must start with YAML front matter (---)");
+        anyhow::bail!("MISSION.md must start with YAML front matter (---)");
     }
 
     let after_first = &content[3..];
     let end_idx = after_first
         .find("\n---")
-        .context("WORKFLOW.md missing closing --- for YAML front matter")?;
+        .context("MISSION.md missing closing --- for YAML front matter")?;
 
     let yaml_block = &after_first[..end_idx];
     let prompt_start = 3 + end_idx + 4; // skip past "\n---"
@@ -264,86 +257,117 @@ pub fn parse_workflow(content: &str) -> Result<WorkflowDefinition> {
         String::new()
     };
 
-    // Try new nested schema first (has `orbitdock:` key)
-    let config = if yaml_block.contains("orbitdock:") {
-        let wrapper: WorkflowYaml =
-            serde_yaml::from_str(yaml_block).context("failed to parse WORKFLOW.md nested YAML")?;
-        wrapper.orbitdock
-    } else {
-        // Legacy flat schema → convert
-        let legacy: LegacyMissionConfig =
-            serde_yaml::from_str(yaml_block).context("failed to parse WORKFLOW.md YAML config")?;
+    // Try parsing as MissionConfig directly (top-level keys).
+    // This can fail if the YAML has legacy fields (e.g. `provider: "claude"` string
+    // instead of `provider: {strategy: ...}` struct), so we fall back to legacy.
+    if let Ok(config) = serde_yaml::from_str::<MissionConfig>(yaml_block) {
+        // Check if parsed config differs from defaults — if it's all defaults,
+        // the YAML may not contain any recognized Mission Control fields.
+        let defaults = MissionConfig::default();
+        let has_mission_config = config.tracker != defaults.tracker
+            || config.provider.strategy != defaults.provider.strategy
+            || config.provider.primary != defaults.provider.primary
+            || config.provider.secondary.is_some()
+            || config.provider.max_concurrent != defaults.provider.max_concurrent
+            || config.provider.max_concurrent_primary.is_some()
+            || config.trigger.kind != defaults.trigger.kind
+            || config.trigger.interval != defaults.trigger.interval
+            || !config.trigger.filters.labels.is_empty()
+            || !config.trigger.filters.states.is_empty()
+            || config.trigger.filters.project.is_some()
+            || config.trigger.filters.team.is_some()
+            || config.orchestration.max_retries != defaults.orchestration.max_retries
+            || config.orchestration.stall_timeout != defaults.orchestration.stall_timeout
+            || config.orchestration.base_branch != defaults.orchestration.base_branch;
 
-        // Reject configs that are entirely defaults (no recognized Mission Control fields)
-        let defaults = LegacyMissionConfig::default();
-        let has_any_config = legacy.tracker != defaults.tracker
-            || legacy.provider != defaults.provider
+        if has_mission_config {
+            return Ok(MissionDefinition {
+                config,
+                prompt_template,
+            });
+        }
+
+        // MissionConfig parsed but is all defaults — check if the YAML has any
+        // recognized MissionConfig top-level keys (even with default values).
+        let has_recognized_keys = yaml_block.contains("tracker:")
+            || yaml_block.contains("provider:")
+            || yaml_block.contains("trigger:")
+            || yaml_block.contains("orchestration:");
+
+        if has_recognized_keys {
+            return Ok(MissionDefinition {
+                config,
+                prompt_template,
+            });
+        }
+    }
+
+    // MissionConfig parse failed or returned unrecognized YAML — try legacy flat schema
+    if let Ok(legacy) = serde_yaml::from_str::<LegacyMissionConfig>(yaml_block) {
+        let legacy_defaults = LegacyMissionConfig::default();
+        let has_legacy_config = legacy.tracker != legacy_defaults.tracker
+            || legacy.provider != legacy_defaults.provider
             || legacy.project_key.is_some()
             || legacy.team_key.is_some()
             || !legacy.label_filter.is_empty()
             || !legacy.state_filter.is_empty()
-            || legacy.max_concurrent != defaults.max_concurrent
-            || legacy.poll_interval_secs != defaults.poll_interval_secs
-            || legacy.base_branch != defaults.base_branch;
+            || legacy.max_concurrent != legacy_defaults.max_concurrent
+            || legacy.poll_interval_secs != legacy_defaults.poll_interval_secs
+            || legacy.base_branch != legacy_defaults.base_branch;
 
-        if !has_any_config {
-            anyhow::bail!(
-                "WORKFLOW.md does not contain OrbitDock mission configuration. \
-                 Add an `orbitdock:` section or use 'Generate WORKFLOW.md' to create one."
-            );
+        if has_legacy_config {
+            return Ok(MissionDefinition {
+                config: MissionConfig::from(legacy),
+                prompt_template,
+            });
         }
+    }
 
-        MissionConfig::from(legacy)
-    };
-
-    Ok(WorkflowDefinition {
-        config,
-        prompt_template,
-    })
+    anyhow::bail!(
+        "MISSION.md does not contain OrbitDock mission configuration. \
+         Use 'Generate MISSION.md' to create one."
+    )
 }
 
-/// Reconstruct WORKFLOW.md content from config + prompt template.
+/// Reconstruct MISSION.md content from config + prompt template.
 ///
-/// Always writes the new nested `orbitdock:` format.
-pub fn serialize_workflow(config: &MissionConfig, prompt_template: &str) -> Result<String> {
-    let wrapper = WorkflowYaml {
-        orbitdock: config.clone(),
-    };
-    let yaml = serde_yaml::to_string(&wrapper).context("serialize config to YAML")?;
+/// Writes config keys at the top level of the YAML front matter.
+pub fn serialize_mission_file(config: &MissionConfig, prompt_template: &str) -> Result<String> {
+    let yaml = serde_yaml::to_string(config).context("serialize config to YAML")?;
     Ok(format!("---\n{}---\n\n{}", yaml, prompt_template))
 }
 
-/// Serialize config while preserving non-orbitdock content from an existing WORKFLOW.md.
+/// Serialize config while preserving non-mission content from an existing MISSION.md.
 ///
-/// - If `existing_content` has YAML front matter with non-orbitdock keys, they are preserved.
+/// - If `existing_content` has YAML front matter with non-mission keys, they are preserved.
 /// - If `prompt_template` is empty, the existing body (text after front matter) is kept.
-/// - If `existing_content` has no front matter, the orbitdock config is prepended and
+/// - If `existing_content` has no front matter, the mission config is prepended and
 ///   the existing content becomes the prompt body.
-pub fn serialize_workflow_preserving(
+pub fn serialize_mission_file_preserving(
     config: &MissionConfig,
     prompt_template: &str,
     existing_content: Option<&str>,
 ) -> Result<String> {
     let Some(existing) = existing_content else {
-        return serialize_workflow(config, prompt_template);
+        return serialize_mission_file(config, prompt_template);
     };
 
     let trimmed = existing.trim();
     if !trimmed.starts_with("---") {
-        // No front matter — prepend orbitdock config
+        // No front matter — prepend mission config
         let body = if prompt_template.is_empty() {
             trimmed
         } else {
             prompt_template
         };
-        return serialize_workflow(config, body);
+        return serialize_mission_file(config, body);
     }
 
-    // Has front matter — parse existing YAML, inject/replace orbitdock key
+    // Has front matter — parse existing YAML, inject/replace mission config keys
     let after_first = &trimmed[3..];
     let end_idx = after_first
         .find("\n---")
-        .context("existing WORKFLOW.md missing closing ---")?;
+        .context("existing MISSION.md missing closing ---")?;
     let existing_yaml = &after_first[..end_idx];
     let existing_body_start = 3 + end_idx + 4;
     let existing_body = if existing_body_start < trimmed.len() {
@@ -352,14 +376,18 @@ pub fn serialize_workflow_preserving(
         ""
     };
 
-    // Parse existing YAML as generic mapping, inject orbitdock key
+    // Parse existing YAML as generic mapping, inject mission config keys
     let mut mapping: serde_yaml::Mapping = serde_yaml::from_str(existing_yaml).unwrap_or_default();
-    let orbitdock_value =
-        serde_yaml::to_value(config).context("serialize orbitdock config to YAML value")?;
-    mapping.insert(
-        serde_yaml::Value::String("orbitdock".to_string()),
-        orbitdock_value,
-    );
+    let config_value =
+        serde_yaml::to_value(config).context("serialize mission config to YAML value")?;
+
+    // Inject each config key directly into the mapping (flat, no wrapper)
+    if let serde_yaml::Value::Mapping(config_map) = config_value {
+        for (k, v) in config_map {
+            mapping.insert(k, v);
+        }
+    }
+
     let yaml = serde_yaml::to_string(&mapping).context("serialize merged YAML")?;
 
     // Body: use provided prompt_template if non-empty, else preserve existing body
@@ -377,32 +405,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_new_nested_schema() {
+    fn parse_top_level_schema() {
         let content = r#"---
-orbitdock:
-  tracker: linear
-  provider:
-    strategy: priority
-    primary: claude
-    secondary: codex
-    max_concurrent: 5
-    max_concurrent_primary: 3
-  trigger:
-    kind: polling
-    interval: 30
-    filters:
-      labels: [bug, agent-ready]
-      states: [Todo]
-      project: PROJ
-      team: Engineering
-  orchestration:
-    max_retries: 5
-    stall_timeout: 300
-    base_branch: develop
+tracker: linear
+provider:
+  strategy: priority
+  primary: claude
+  secondary: codex
+  max_concurrent: 5
+  max_concurrent_primary: 3
+trigger:
+  kind: polling
+  interval: 30
+  filters:
+    labels: [bug, agent-ready]
+    states: [Todo]
+    project: PROJ
+    team: Engineering
+orchestration:
+  max_retries: 5
+  stall_timeout: 300
+  base_branch: develop
 ---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}
 "#;
-        let def = parse_workflow(content).unwrap();
+        let def = parse_mission_file(content).unwrap();
         assert_eq!(def.config.tracker, "linear");
         assert_eq!(def.config.provider.strategy, "priority");
         assert_eq!(def.config.provider.primary, "claude");
@@ -442,7 +469,7 @@ state_filter:
 ---
 You are working on issue {{ issue.identifier }}: {{ issue.title }}
 "#;
-        let def = parse_workflow(content).unwrap();
+        let def = parse_mission_file(content).unwrap();
         assert_eq!(def.config.tracker, "linear");
         assert_eq!(def.config.provider.strategy, "single");
         assert_eq!(def.config.provider.primary, "claude");
@@ -455,9 +482,9 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
     }
 
     #[test]
-    fn parse_defaults() {
-        let content = "---\norbitdock: {}\n---\nHello";
-        let def = parse_workflow(content).unwrap();
+    fn parse_defaults_with_recognized_key() {
+        let content = "---\ntracker: linear\n---\nHello";
+        let def = parse_mission_file(content).unwrap();
         assert_eq!(def.config.tracker, "linear");
         assert_eq!(def.config.provider.strategy, "single");
         assert_eq!(def.config.provider.primary, "claude");
@@ -471,9 +498,9 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
     }
 
     #[test]
-    fn parse_empty_front_matter_legacy_rejects_all_defaults() {
+    fn parse_empty_front_matter_rejects_all_defaults() {
         let content = "---\n---\nHello";
-        let result = parse_workflow(content);
+        let result = parse_mission_file(content);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("does not contain OrbitDock mission configuration"));
@@ -482,38 +509,57 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
     #[test]
     fn parse_unrelated_yaml_rejects() {
         let content = "---\nname: My Workflow\nsteps:\n  - build\n---\nHello";
-        let result = parse_workflow(content);
+        let result = parse_mission_file(content);
         assert!(result.is_err());
     }
 
     #[test]
-    fn parse_legacy_with_recognized_field_succeeds() {
-        let content = "---\ntracker: linear\nproject_key: PROJ\n---\nHello";
-        let def = parse_workflow(content).unwrap();
+    fn parse_with_trigger_filters_succeeds() {
+        let content = "---\ntracker: linear\ntrigger:\n  filters:\n    project: PROJ\n---\nHello";
+        let def = parse_mission_file(content).unwrap();
         assert_eq!(def.config.trigger.filters.project.as_deref(), Some("PROJ"));
         assert_eq!(def.prompt_template, "Hello");
     }
 
     #[test]
+    fn parse_legacy_with_project_key_succeeds() {
+        // Legacy format with project_key (no new-format keys like provider:/trigger:)
+        let content = "---\nproject_key: PROJ\nmax_concurrent: 5\n---\nHello";
+        let def = parse_mission_file(content).unwrap();
+        assert_eq!(def.config.trigger.filters.project.as_deref(), Some("PROJ"));
+        assert_eq!(def.config.provider.max_concurrent, 5);
+        assert_eq!(def.prompt_template, "Hello");
+    }
+
+    #[test]
     fn parse_missing_front_matter() {
-        let result = parse_workflow("no front matter here");
+        let result = parse_mission_file("no front matter here");
         assert!(result.is_err());
     }
 
     #[test]
     fn parse_missing_closing_fence() {
-        let result = parse_workflow("---\ntracker: linear\nno closing fence");
+        let result = parse_mission_file("---\ntracker: linear\nno closing fence");
         assert!(result.is_err());
     }
 
     #[test]
-    fn serialize_preserving_keeps_non_orbitdock_yaml() {
+    fn serialize_preserving_keeps_extra_yaml_keys() {
         let existing = "---\nname: My Workflow\nsteps:\n  - build\n  - test\n---\n\nSome existing body content";
-        let config = MissionConfig::default();
-        let result = serialize_workflow_preserving(&config, "", Some(existing)).unwrap();
-        assert!(result.contains("orbitdock:"));
+        let config = MissionConfig {
+            provider: ProviderConfig {
+                strategy: "priority".to_string(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = serialize_mission_file_preserving(&config, "", Some(existing)).unwrap();
+        assert!(result.contains("tracker:"));
+        assert!(result.contains("provider:"));
         assert!(result.contains("name: My Workflow"));
         assert!(result.contains("Some existing body content"));
+        // Should NOT have orbitdock: wrapper
+        assert!(!result.contains("orbitdock:"));
     }
 
     #[test]
@@ -521,8 +567,9 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
         let existing = "---\nname: My Workflow\n---\n\nOld body";
         let config = MissionConfig::default();
         let result =
-            serialize_workflow_preserving(&config, "New template body", Some(existing)).unwrap();
-        assert!(result.contains("orbitdock:"));
+            serialize_mission_file_preserving(&config, "New template body", Some(existing))
+                .unwrap();
+        assert!(result.contains("tracker:"));
         assert!(result.contains("name: My Workflow"));
         assert!(result.contains("New template body"));
         assert!(!result.contains("Old body"));
@@ -532,16 +579,16 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
     fn serialize_preserving_no_frontmatter_prepends_config() {
         let existing = "Just a regular markdown file\n\nWith some content.";
         let config = MissionConfig::default();
-        let result = serialize_workflow_preserving(&config, "", Some(existing)).unwrap();
-        assert!(result.contains("orbitdock:"));
+        let result = serialize_mission_file_preserving(&config, "", Some(existing)).unwrap();
+        assert!(result.contains("tracker:"));
         assert!(result.contains("Just a regular markdown file"));
     }
 
     #[test]
     fn serialize_preserving_none_uses_standard() {
         let config = MissionConfig::default();
-        let result = serialize_workflow_preserving(&config, "Hello", None).unwrap();
-        assert!(result.contains("orbitdock:"));
+        let result = serialize_mission_file_preserving(&config, "Hello", None).unwrap();
+        assert!(result.contains("tracker:"));
         assert!(result.contains("Hello"));
     }
 
@@ -571,12 +618,15 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
             },
         };
         let template = "Fix {{ issue.identifier }}";
-        let content = serialize_workflow(&config, template).unwrap();
+        let content = serialize_mission_file(&config, template).unwrap();
 
-        // Should use nested format
-        assert!(content.contains("orbitdock:"));
+        // Should NOT have orbitdock: wrapper
+        assert!(!content.contains("orbitdock:"));
+        // Should have top-level keys
+        assert!(content.contains("tracker:"));
+        assert!(content.contains("provider:"));
 
-        let parsed = parse_workflow(&content).unwrap();
+        let parsed = parse_mission_file(&content).unwrap();
         assert_eq!(parsed.config.tracker, "linear");
         assert_eq!(parsed.config.provider.strategy, "priority");
         assert_eq!(parsed.config.provider.primary, "claude");

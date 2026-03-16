@@ -9,8 +9,8 @@ use tracing::info;
 
 use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, Provider};
 
-use crate::domain::mission_control::config::{parse_workflow, MissionConfig};
-use crate::domain::mission_control::template::default_workflow_template;
+use crate::domain::mission_control::config::{parse_mission_file, MissionConfig};
+use crate::domain::mission_control::template::default_mission_template;
 use crate::infrastructure::persistence::{
     load_mission_by_id, load_mission_issues, load_missions_with_counts, MissionIssueRow,
     MissionRow, PersistCommand,
@@ -31,7 +31,7 @@ pub struct MissionDetailResponse {
     pub summary: MissionSummary,
     pub issues: Vec<MissionIssueItem>,
     pub settings: Option<MissionSettingsResponse>,
-    pub workflow_exists: bool,
+    pub mission_file_exists: bool,
 }
 
 #[derive(Serialize)]
@@ -242,9 +242,10 @@ pub async fn get_mission(
     let mission = mission_row
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let workflow_exists = tokio::fs::metadata(StdPath::new(&mission.repo_root).join("WORKFLOW.md"))
-        .await
-        .is_ok();
+    let mission_file_exists =
+        tokio::fs::metadata(StdPath::new(&mission.repo_root).join("MISSION.md"))
+            .await
+            .is_ok();
 
     let orchestrator_running = registry.is_orchestrator_running();
     let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
@@ -257,7 +258,7 @@ pub async fn get_mission(
         summary,
         issues,
         settings,
-        workflow_exists,
+        mission_file_exists,
     }))
 }
 
@@ -388,11 +389,11 @@ pub async fn retry_mission_issue(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-/// POST /api/missions/:id/scaffold-workflow
+/// POST /api/missions/:id/scaffold
 ///
-/// Writes a default WORKFLOW.md template to the mission's repo_root.
+/// Writes a default MISSION.md template to the mission's repo_root.
 /// Returns 409 if the file already exists.
-pub async fn scaffold_mission_workflow(
+pub async fn scaffold_mission_file(
     State(registry): State<Arc<SessionRegistry>>,
     Path(mission_id): Path<String>,
 ) -> ApiResult<MissionDetailResponse> {
@@ -408,32 +409,32 @@ pub async fn scaffold_mission_workflow(
     .map_err(|e| internal("db_error", format!("db: {e}")))?
     .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let workflow_path = StdPath::new(&mission.repo_root).join("WORKFLOW.md");
+    let mission_file_path = StdPath::new(&mission.repo_root).join("MISSION.md");
 
-    // Don't overwrite an existing WORKFLOW.md
-    if tokio::fs::metadata(&workflow_path).await.is_ok() {
+    // Don't overwrite an existing MISSION.md
+    if tokio::fs::metadata(&mission_file_path).await.is_ok() {
         return Err(conflict(
-            "workflow_exists",
-            "WORKFLOW.md already exists in this repository",
+            "mission_file_exists",
+            "MISSION.md already exists in this repository",
         ));
     }
 
     // Generate and write the template
-    let template_content = default_workflow_template(&mission.provider);
-    tokio::fs::write(&workflow_path, &template_content)
+    let template_content = default_mission_template(&mission.provider);
+    tokio::fs::write(&mission_file_path, &template_content)
         .await
-        .map_err(|e| internal("write_error", format!("Failed to write WORKFLOW.md: {e}")))?;
+        .map_err(|e| internal("write_error", format!("Failed to write MISSION.md: {e}")))?;
 
     info!(
         component = "mission_control",
-        event = "workflow.scaffolded",
+        event = "mission_file.scaffolded",
         mission_id = %mission_id,
         repo_root = %mission.repo_root,
-        "Scaffolded WORKFLOW.md"
+        "Scaffolded MISSION.md"
     );
 
     // Parse the template immediately and persist
-    let parsed = parse_workflow(&template_content).map_err(|e| {
+    let parsed = parse_mission_file(&template_content).map_err(|e| {
         internal(
             "parse_error",
             format!("Failed to parse scaffolded template: {e}"),
@@ -476,7 +477,7 @@ pub async fn scaffold_mission_workflow(
         summary,
         issues,
         settings: Some(settings),
-        workflow_exists: true,
+        mission_file_exists: true,
     }))
 }
 
@@ -503,8 +504,8 @@ pub async fn get_default_template(
     .map_err(|e| internal("db_error", format!("db: {e}")))?
     .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let full_template = default_workflow_template(&mission.provider);
-    let template_body = parse_workflow(&full_template)
+    let full_template = default_mission_template(&mission.provider);
+    let template_body = parse_mission_file(&full_template)
         .map(|def| def.prompt_template)
         .unwrap_or_default();
 
@@ -764,7 +765,7 @@ pub async fn start_mission_orchestrator_endpoint(
 
 /// PUT /api/missions/:id/settings
 ///
-/// Partial update: reads current WORKFLOW.md, merges changes, writes back.
+/// Partial update: reads current MISSION.md, merges changes, writes back.
 pub async fn update_mission_settings(
     State(registry): State<Arc<SessionRegistry>>,
     Path(mission_id): Path<String>,
@@ -782,11 +783,11 @@ pub async fn update_mission_settings(
     .map_err(|e| internal("db_error", format!("db: {e}")))?
     .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    // Read + parse current WORKFLOW.md (or use defaults)
-    let workflow_path = StdPath::new(&mission.repo_root).join("WORKFLOW.md");
-    let existing_file_content = tokio::fs::read_to_string(&workflow_path).await.ok();
+    // Read + parse current MISSION.md (or use defaults)
+    let mission_file_path = StdPath::new(&mission.repo_root).join("MISSION.md");
+    let existing_file_content = tokio::fs::read_to_string(&mission_file_path).await.ok();
     let (mut config, mut prompt_tmpl) = if let Some(ref content) = existing_file_content {
-        match parse_workflow(content) {
+        match parse_mission_file(content) {
             Ok(w) => (w.config, w.prompt_template),
             Err(_) => (MissionConfig::default(), String::new()),
         }
@@ -852,22 +853,23 @@ pub async fn update_mission_settings(
         prompt_tmpl = v;
     }
 
-    // Serialize back to WORKFLOW.md
-    let workflow_content = crate::domain::mission_control::config::serialize_workflow_preserving(
-        &config,
-        &prompt_tmpl,
-        existing_file_content.as_deref(),
-    )
-    .map_err(|e| {
-        internal(
-            "serialize_error",
-            format!("Failed to serialize config: {e}"),
+    // Serialize back to MISSION.md
+    let mission_content =
+        crate::domain::mission_control::config::serialize_mission_file_preserving(
+            &config,
+            &prompt_tmpl,
+            existing_file_content.as_deref(),
         )
-    })?;
+        .map_err(|e| {
+            internal(
+                "serialize_error",
+                format!("Failed to serialize config: {e}"),
+            )
+        })?;
 
-    tokio::fs::write(&workflow_path, &workflow_content)
+    tokio::fs::write(&mission_file_path, &mission_content)
         .await
-        .map_err(|e| internal("write_error", format!("Failed to write WORKFLOW.md: {e}")))?;
+        .map_err(|e| internal("write_error", format!("Failed to write MISSION.md: {e}")))?;
 
     // Persist to DB
     let config_json = serde_json::to_string(&config).unwrap_or_default();
@@ -910,7 +912,7 @@ pub async fn update_mission_settings(
         summary,
         issues,
         settings: Some(settings),
-        workflow_exists: true,
+        mission_file_exists: true,
     }))
 }
 

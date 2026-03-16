@@ -245,7 +245,7 @@ private struct MissionRowView: View {
             Image(systemName: "bolt.horizontal.circle")
               .font(.system(size: IconScale.sm, weight: .medium))
               .foregroundStyle(Color.accent)
-            Text("Needs WORKFLOW.md setup")
+            Text("Needs MISSION.md setup")
               .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.accent)
 

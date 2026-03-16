@@ -70,7 +70,7 @@ struct MissionApiKeyBanner: View {
         .foregroundStyle(Color.textSecondary)
         .fixedSize(horizontal: false, vertical: true)
 
-        Text("Stored encrypted on the server — never saved to WORKFLOW.md or source control.")
+        Text("Stored encrypted on the server — never saved to MISSION.md or source control.")
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textQuaternary)
         .fixedSize(horizontal: false, vertical: true)

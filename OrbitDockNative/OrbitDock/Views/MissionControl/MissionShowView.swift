@@ -14,7 +14,7 @@ struct MissionShowView: View {
   @State private var summary: MissionSummary?
   @State private var issues: [MissionIssueItem] = []
   @State private var settings: MissionSettings?
-  @State private var workflowExists = true
+  @State private var missionFileExists = true
   @State private var isLoading = true
   @State private var error: String?
   @State private var selectedTab: MissionTab = .overview
@@ -119,7 +119,7 @@ struct MissionShowView: View {
                 settings: settings,
                 issues: issues,
                 missionId: missionId,
-                workflowExists: workflowExists,
+                missionFileExists: missionFileExists,
                 http: http,
                 isCompact: isCompact,
                 onRefresh: { await fetchDetail() },
@@ -350,7 +350,7 @@ struct MissionShowView: View {
       summary = response.summary
       issues = response.issues
       settings = response.settings
-      workflowExists = response.workflowExists
+      missionFileExists = response.missionFileExists
       error = nil
     } catch {
       self.error = error.localizedDescription
@@ -418,11 +418,11 @@ private struct MissionDetailResponse: Codable {
   let summary: MissionSummary
   let issues: [MissionIssueItem]
   let settings: MissionSettings?
-  let workflowExists: Bool
+  let missionFileExists: Bool
 
   enum CodingKeys: String, CodingKey {
     case summary, issues, settings
-    case workflowExists = "workflow_exists"
+    case missionFileExists = "mission_file_exists"
   }
 }
 

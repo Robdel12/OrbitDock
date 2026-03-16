@@ -190,17 +190,17 @@ The server–client protocol uses strongly-typed Swift structs that mirror Rust 
 
 ### Mission Control
 
-Autonomous issue-driven agent orchestration. Polls issue trackers (Linear first), creates per-issue git worktrees, and launches coding sessions. Configured via repo-local `WORKFLOW.md` with nested YAML front matter under `orbitdock:` key + Liquid prompt template.
+Autonomous issue-driven agent orchestration. Polls issue trackers (Linear first), creates per-issue git worktrees, and launches coding sessions. Configured via repo-local `MISSION.md` with YAML front matter + Liquid agent instructions template.
 
 Server-driven architecture — orchestration state lives in Rust, client renders via REST + WebSocket deltas. No MissionControlStore. Orchestrator starts only when `LINEAR_API_KEY` env var is set (or saved in settings).
 
-**WORKFLOW.md schema** — nested under `orbitdock:` with sections for `provider` (strategy: single/priority/round_robin, primary/secondary, max_concurrent), `trigger` (kind: polling/manual_only, interval, filters), and `orchestration` (max_retries, stall_timeout, base_branch). Backward-compatible: legacy flat YAML still parses correctly.
+**MISSION.md schema** — top-level YAML with sections for `provider` (strategy: single/priority/round_robin, primary/secondary, max_concurrent), `trigger` (kind: polling/manual_only, interval, filters), and `orchestration` (max_retries, stall_timeout, base_branch).
 
 **Provider strategies** — `single` (all issues → primary), `priority` (primary up to max_concurrent_primary, overflow → secondary), `round_robin` (alternate between primary and secondary).
 
 **Key paths:** `domain/mission_control/`, `infrastructure/linear/`, `runtime/mission_orchestrator.rs`, `runtime/mission_dispatch.rs`, `transport/http/mission_control.rs`, `Views/MissionControl/`, `Models/MissionControl/`
 
-**REST:** `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `PUT /api/missions/:id/settings`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`
+**REST:** `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `PUT /api/missions/:id/settings`, `POST /api/missions/:id/scaffold`, `GET /api/missions/:id/default-template`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`
 
 **Swift models:** `MissionSettings.swift` (ProviderSettings, TriggerSettings, TriggerFilters, OrchestrationSettings), `MissionSummary.swift` (includes providerStrategy, primaryProvider, secondaryProvider)
 
@@ -489,7 +489,7 @@ orbitdock session rename <ID> --name "name"
 orbitdock session resume <ID>
 
 # Mission Control
-orbitdock mission enable <repo-path>        # Enable mission for repo with WORKFLOW.md
+orbitdock mission enable <repo-path>        # Enable mission for repo with MISSION.md
 orbitdock mission list                      # List configured missions
 orbitdock mission status <id>               # Show mission detail + issue pipeline
 orbitdock mission pause <id>                # Pause orchestration

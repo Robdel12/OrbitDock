@@ -147,7 +147,7 @@ struct MissionSetupCard: View {
             Image(systemName: "wand.and.stars")
               .font(.system(size: 12, weight: .semibold))
           }
-          Text("Generate WORKFLOW.md")
+          Text("Generate MISSION.md")
             .font(.system(size: TypeScale.body, weight: .semibold))
         }
         .foregroundStyle(.white)
@@ -175,7 +175,7 @@ struct MissionSetupCard: View {
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textQuaternary)
 
-        Text(repoRoot + "/WORKFLOW.md")
+        Text(repoRoot + "/MISSION.md")
           .font(.system(size: TypeScale.micro, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
           .textSelection(.enabled)
@@ -194,7 +194,7 @@ struct MissionSetupCard: View {
 
     do {
       let _: ScaffoldResponse = try await http.post(
-        "/api/missions/\(missionId)/scaffold-workflow",
+        "/api/missions/\(missionId)/scaffold",
         body: EmptyBody()
       )
       await onComplete()
@@ -210,11 +210,11 @@ private struct ScaffoldResponse: Codable {
   let summary: MissionSummary
   let issues: [MissionIssueItem]
   let settings: MissionSettings?
-  let workflowExists: Bool
+  let missionFileExists: Bool
 
   enum CodingKeys: String, CodingKey {
     case summary, issues, settings
-    case workflowExists = "workflow_exists"
+    case missionFileExists = "mission_file_exists"
   }
 }
 

@@ -5,7 +5,7 @@ struct MissionOverviewTab: View {
   let settings: MissionSettings?
   let issues: [MissionIssueItem]
   let missionId: String
-  let workflowExists: Bool
+  let missionFileExists: Bool
   let http: ServerHTTPClient?
   let isCompact: Bool
   let onRefresh: () async -> Void
@@ -17,7 +17,7 @@ struct MissionOverviewTab: View {
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xl) {
       // Setup banners (contextual)
-      if !workflowExists, settings == nil {
+      if !missionFileExists, settings == nil {
         MissionSetupCard(
           missionId: missionId,
           repoRoot: mission.repoRoot,
@@ -27,7 +27,7 @@ struct MissionOverviewTab: View {
         }
       }
 
-      if mission.parseError != nil, settings == nil, workflowExists {
+      if mission.parseError != nil, settings == nil, missionFileExists {
         configNeededBanner
       }
 
@@ -415,7 +415,7 @@ struct MissionOverviewTab: View {
       case "no_api_key":
         "Set a Linear API key above or via the LINEAR_API_KEY environment variable, then start the orchestrator."
       case "config_error":
-        "There's a problem with your WORKFLOW.md configuration. Check the Settings tab for details."
+        "There's a problem with your MISSION.md configuration. Check the Settings tab for details."
       case "paused":
         "Resume the orchestrator from the actions menu to continue processing issues."
       case "disabled":
@@ -440,7 +440,7 @@ struct MissionOverviewTab: View {
       }
 
       Text(
-        "Your WORKFLOW.md doesn't contain OrbitDock configuration yet. Open Settings to configure — your existing file content will be preserved."
+        "Your MISSION.md doesn't contain OrbitDock configuration yet. Open Settings to configure — your existing file content will be preserved."
       )
       .font(.system(size: TypeScale.caption))
       .foregroundStyle(Color.textSecondary)
@@ -531,7 +531,7 @@ struct MissionOverviewTab: View {
         }
       }
 
-      Text("Operational state — not saved to WORKFLOW.md")
+      Text("Operational state — not saved to MISSION.md")
         .font(.system(size: TypeScale.micro))
         .foregroundStyle(Color.textQuaternary)
     }

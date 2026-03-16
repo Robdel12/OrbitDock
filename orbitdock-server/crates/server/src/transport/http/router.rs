@@ -311,8 +311,8 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
             post(super::retry_mission_issue),
         )
         .route(
-            "/api/missions/{mission_id}/scaffold-workflow",
-            post(super::scaffold_mission_workflow),
+            "/api/missions/{mission_id}/scaffold",
+            post(super::scaffold_mission_file),
         )
         .route(
             "/api/missions/{mission_id}/settings",
