@@ -110,6 +110,12 @@ struct ContentView: View {
           )
           .environment(detailSessionStore(for: ref.endpointId))
           .id(ref.scopedID)
+        case let .mission(ref):
+          MissionShowView(
+            missionId: ref.missionId,
+            endpointId: ref.endpointId
+          )
+          .id(ref.id)
         case .dashboard:
           dashboardView
             .onAppear {}

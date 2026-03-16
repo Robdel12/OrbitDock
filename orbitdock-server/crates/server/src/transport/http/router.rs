@@ -306,4 +306,31 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
             "/api/missions/{mission_id}/issues",
             get(super::list_mission_issues),
         )
+        .route(
+            "/api/missions/{mission_id}/issues/{issue_id}/retry",
+            post(super::retry_mission_issue),
+        )
+        .route(
+            "/api/missions/{mission_id}/scaffold-workflow",
+            post(super::scaffold_mission_workflow),
+        )
+        .route(
+            "/api/missions/{mission_id}/settings",
+            put(super::update_mission_settings),
+        )
+        .route(
+            "/api/missions/{mission_id}/start-orchestrator",
+            post(super::start_mission_orchestrator_endpoint),
+        )
+        .route(
+            "/api/server/linear-key",
+            get(super::check_linear_key)
+                .post(super::set_linear_key)
+                .delete(super::delete_linear_key),
+        )
+        .route("/api/server/tracker-keys", get(super::get_tracker_keys))
+        .route(
+            "/api/server/mission-defaults",
+            get(super::get_mission_defaults).put(super::update_mission_defaults),
+        )
 }

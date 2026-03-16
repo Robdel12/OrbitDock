@@ -2,6 +2,11 @@ import SwiftUI
 
 struct MissionIssueRow: View {
   let issue: MissionIssueItem
+  let missionId: String
+  let endpointId: UUID
+  let http: ServerHTTPClient?
+
+  @Environment(AppRouter.self) private var router
 
   var body: some View {
     HStack(spacing: Spacing.md) {
@@ -17,7 +22,6 @@ struct MissionIssueRow: View {
           Text(issue.title)
             .font(.system(size: TypeScale.body))
             .foregroundStyle(Color.textPrimary)
-            .lineLimit(1)
         }
 
         HStack(spacing: Spacing.sm) {
@@ -28,50 +32,127 @@ struct MissionIssueRow: View {
           if issue.attempt > 1 {
             Text("Attempt \(issue.attempt)")
               .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(.orange)
+              .foregroundStyle(Color.feedbackCaution)
           }
 
           if let activity = issue.lastActivity {
             Text(activity)
               .font(.system(size: TypeScale.micro))
               .foregroundStyle(Color.textTertiary)
-              .lineLimit(1)
           }
         }
       }
 
       Spacer()
 
+      if issue.orchestrationState == .failed {
+        Button {
+          Task { await retryIssue() }
+        } label: {
+          Label("Retry", systemImage: "arrow.clockwise")
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.accent)
+        }
+        .buttonStyle(.plain)
+      }
+
+      if issue.sessionId != nil {
+        Button {
+          navigateToSession()
+        } label: {
+          Image(systemName: "arrow.right.circle")
+            .font(.system(size: 14))
+            .foregroundStyle(Color.textTertiary)
+        }
+        .buttonStyle(.plain)
+        .help("Go to session")
+      }
+
       if let error = issue.error {
         Image(systemName: "exclamationmark.triangle")
-          .foregroundStyle(Color.statusError)
+          .foregroundStyle(Color.feedbackNegative)
           .help(error)
       }
     }
+    .padding(.horizontal, Spacing.md)
     .padding(.vertical, Spacing.sm_)
+    .contentShape(Rectangle())
+    .contextMenu {
+      if issue.sessionId != nil {
+        Button {
+          navigateToSession()
+        } label: {
+          Label("Go to Session", systemImage: "arrow.right.circle")
+        }
+      }
+
+      if let url = issue.url, let openURL = URL(string: url) {
+        Button {
+          #if os(macOS)
+            NSWorkspace.shared.open(openURL)
+          #else
+            UIApplication.shared.open(openURL)
+          #endif
+        } label: {
+          Label("Open in Linear", systemImage: "arrow.up.right.square")
+        }
+      }
+
+      if issue.orchestrationState == .failed {
+        Button {
+          Task { await retryIssue() }
+        } label: {
+          Label("Retry", systemImage: "arrow.clockwise")
+        }
+      }
+    }
   }
 
   @ViewBuilder
   private var stateIcon: some View {
     switch issue.orchestrationState {
-    case .queued:
-      Image(systemName: "clock")
-        .foregroundStyle(Color.textTertiary)
-    case .claimed:
-      Image(systemName: "arrow.right.circle")
-        .foregroundStyle(.blue)
-    case .running:
-      Image(systemName: "play.circle.fill")
-        .foregroundStyle(.blue)
-    case .retryQueued:
-      Image(systemName: "arrow.clockwise.circle")
-        .foregroundStyle(.orange)
-    case .completed:
-      Image(systemName: "checkmark.circle.fill")
-        .foregroundStyle(Color.feedbackPositive)
-    case .failed:
-      Image(systemName: "xmark.circle.fill")
-        .foregroundStyle(Color.statusError)
+      case .queued:
+        Image(systemName: "clock")
+          .foregroundStyle(Color.textTertiary)
+      case .claimed:
+        Image(systemName: "arrow.right.circle")
+          .foregroundStyle(Color.statusWorking)
+      case .running:
+        Image(systemName: "play.circle.fill")
+          .foregroundStyle(Color.statusWorking)
+      case .retryQueued:
+        Image(systemName: "arrow.clockwise.circle")
+          .foregroundStyle(Color.feedbackCaution)
+      case .completed:
+        Image(systemName: "checkmark.circle.fill")
+          .foregroundStyle(Color.feedbackPositive)
+      case .failed:
+        Image(systemName: "xmark.circle.fill")
+          .foregroundStyle(Color.feedbackNegative)
     }
   }
+
+  // MARK: - Actions
+
+  private func navigateToSession() {
+    guard let sessionId = issue.sessionId else { return }
+    let ref = SessionRef(endpointId: endpointId, sessionId: sessionId)
+    router.selectSession(ref, source: .external)
+  }
+
+  private func retryIssue() async {
+    guard let http else { return }
+    do {
+      let _: MissionIssueRetryResponse = try await http.request(
+        path: "/api/missions/\(missionId)/issues/\(issue.issueId)/retry",
+        method: "POST"
+      )
+    } catch {
+      print("[OrbitDock] Failed to retry issue: \(error)")
+    }
+  }
+}
+
+private struct MissionIssueRetryResponse: Decodable {
+  let ok: Bool?
 }

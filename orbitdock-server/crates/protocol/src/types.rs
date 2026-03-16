@@ -1467,13 +1467,20 @@ pub struct MissionSummary {
     pub enabled: bool,
     pub paused: bool,
     pub tracker_kind: String,
+    /// Primary provider (backward compat — same as primary_provider).
     pub provider: Provider,
+    pub provider_strategy: String,
+    pub primary_provider: Provider,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secondary_provider: Option<Provider>,
     pub active_count: u32,
     pub queued_count: u32,
     pub completed_count: u32,
     pub failed_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parse_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orchestrator_status: Option<String>,
 }
 
 /// A single issue tracked by a mission.
@@ -1527,7 +1534,6 @@ pub enum SessionPermissionRules {
         sandbox_mode: Option<String>,
     },
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -10,6 +10,7 @@ struct NewMissionSheet: View {
   @State private var selectedPath = ""
   @State private var selectedPathIsGit = false
   @State private var provider: SessionProvider = .claude
+  @State private var trackerKind = "linear"
   @State private var isCreating = false
   @State private var error: String?
 
@@ -68,6 +69,8 @@ struct NewMissionSheet: View {
 
         providerSection
 
+        trackerSection
+
         if let error {
           Text(error)
             .font(.system(size: TypeScale.caption))
@@ -97,21 +100,73 @@ struct NewMissionSheet: View {
   }
 
   private var providerSection: some View {
-    NewSessionProviderPicker(
-      provider: provider,
-      onSelect: { provider = $0 }
-    )
+    VStack(alignment: .leading, spacing: Spacing.lg) {
+      NewSessionProviderPicker(
+        provider: provider,
+        onSelect: { provider = $0 }
+      )
+    }
+  }
+
+  private var trackerSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      Text("Issue Tracker")
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
+
+      HStack(spacing: Spacing.sm) {
+        trackerOption("Linear", value: "linear", icon: "link", enabled: true)
+        trackerOption("GitHub", value: "github", icon: "chevron.left.forwardslash.chevron.right", enabled: false)
+      }
+    }
+  }
+
+  private func trackerOption(_ label: String, value: String, icon: String, enabled: Bool) -> some View {
+    Button {
+      if enabled { trackerKind = value }
+    } label: {
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: icon)
+          .font(.system(size: IconScale.sm, weight: .semibold))
+        Text(label)
+          .font(.system(size: TypeScale.caption, weight: .medium))
+        if !enabled {
+          Text("Coming soon")
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textQuaternary)
+        }
+      }
+      .foregroundStyle(enabled ? (trackerKind == value ? Color.accent : Color.textSecondary) : Color.textQuaternary)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(trackerKind == value && enabled ? Color.accent.opacity(OpacityTier.light) : Color.backgroundTertiary)
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+              .strokeBorder(
+                trackerKind == value && enabled ? Color.accent.opacity(OpacityTier.medium) : .clear,
+                lineWidth: 1
+              )
+          )
+      )
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
   }
 
   private var infoSection: some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
-      Label("Repository must contain a WORKFLOW.md file", systemImage: "doc.text")
+      Label("A WORKFLOW.md will be generated if not present", systemImage: "doc.text")
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textTertiary)
 
-      Label("Issues are pulled from Linear (configured in WORKFLOW.md)", systemImage: "arrow.triangle.branch")
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textTertiary)
+      Label(
+        "Issues are pulled from \(trackerKind.capitalized) (configured in WORKFLOW.md)",
+        systemImage: "arrow.triangle.branch"
+      )
+      .font(.system(size: TypeScale.caption))
+      .foregroundStyle(Color.textTertiary)
     }
   }
 
@@ -141,9 +196,9 @@ struct NewMissionSheet: View {
         .foregroundStyle(Color.textSecondary)
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.md_)
-        #if os(iOS)
+      #if os(iOS)
         .frame(maxWidth: .infinity)
-        #endif
+      #endif
         .background(
           RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
             .fill(Color.backgroundTertiary)
@@ -169,12 +224,12 @@ struct NewMissionSheet: View {
       .padding(.horizontal, Spacing.lg)
       .padding(.vertical, Spacing.md_)
       #if os(iOS)
-      .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity)
       #endif
-      .background(
-        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          .fill(canCreate ? Color.accent : Color.backgroundTertiary)
-      )
+        .background(
+          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            .fill(canCreate ? Color.accent : Color.backgroundTertiary)
+        )
     }
     .buttonStyle(.plain)
     .disabled(!canCreate)
@@ -189,7 +244,7 @@ struct NewMissionSheet: View {
     let providerString = provider == .codex ? "codex" : "claude"
     let body = CreateMissionRequest(
       repoRoot: selectedPath,
-      trackerKind: "linear",
+      trackerKind: trackerKind,
       provider: providerString
     )
 

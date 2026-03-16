@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use reqwest::Client;
 use tracing::debug;
 
-use crate::domain::mission_control::tracker::{Tracker, TrackerConfig, TrackerIssue};
 use super::models::{GraphQLResponse, IssueStatesData, IssuesData};
+use crate::domain::mission_control::tracker::{Tracker, TrackerConfig, TrackerIssue};
 
 pub struct LinearClient {
     http: Client,

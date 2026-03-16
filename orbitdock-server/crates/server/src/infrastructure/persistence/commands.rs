@@ -415,6 +415,7 @@ pub enum PersistCommand {
         issue_state: Option<String>,
         orchestration_state: String,
         provider: Option<String>,
+        url: Option<String>,
     },
 
     /// Update mission issue orchestration state

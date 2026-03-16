@@ -42,6 +42,7 @@ pub struct MissionIssueRow {
     pub retry_due_at: Option<String>,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+    pub url: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -115,7 +116,7 @@ pub fn load_mission_issues(conn: &Connection, mission_id: &str) -> Result<Vec<Mi
         .prepare(
             "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
                     orchestration_state, session_id, provider, attempt, last_error,
-                    retry_due_at, started_at, completed_at, created_at, updated_at
+                    retry_due_at, started_at, completed_at, url, created_at, updated_at
              FROM mission_issues
              WHERE mission_id = ?1
              ORDER BY created_at ASC",
@@ -139,8 +140,9 @@ pub fn load_mission_issues(conn: &Connection, mission_id: &str) -> Result<Vec<Mi
                 retry_due_at: row.get(11)?,
                 started_at: row.get(12)?,
                 completed_at: row.get(13)?,
-                created_at: row.get(14)?,
-                updated_at: row.get(15)?,
+                url: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
             })
         })
         .context("query load_mission_issues")?
@@ -157,7 +159,7 @@ pub fn load_all_active_mission_issues(conn: &Connection) -> Result<Vec<MissionIs
             "SELECT mi.id, mi.mission_id, mi.issue_id, mi.issue_identifier, mi.issue_title,
                     mi.issue_state, mi.orchestration_state, mi.session_id, mi.provider,
                     mi.attempt, mi.last_error, mi.retry_due_at, mi.started_at,
-                    mi.completed_at, mi.created_at, mi.updated_at
+                    mi.completed_at, mi.url, mi.created_at, mi.updated_at
              FROM mission_issues mi
              JOIN missions m ON m.id = mi.mission_id
              WHERE m.enabled = 1
@@ -183,8 +185,9 @@ pub fn load_all_active_mission_issues(conn: &Connection) -> Result<Vec<MissionIs
                 retry_due_at: row.get(11)?,
                 started_at: row.get(12)?,
                 completed_at: row.get(13)?,
-                created_at: row.get(14)?,
-                updated_at: row.get(15)?,
+                url: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
             })
         })
         .context("query load_all_active_mission_issues")?

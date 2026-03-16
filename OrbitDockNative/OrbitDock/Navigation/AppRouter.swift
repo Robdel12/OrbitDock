@@ -22,6 +22,7 @@ enum NavigationSource: String, Sendable {
 enum AppRoute: Equatable {
   case dashboard(DashboardTab)
   case session(SessionRef)
+  case mission(MissionRef)
 }
 
 struct SessionContinuation: Hashable, Sendable {
@@ -79,6 +80,17 @@ final class AppRouter {
   func navigateToSession(scopedID: String, source: NavigationSource = .external) {
     guard let ref = SessionRef(scopedID: scopedID) else { return }
     selectSession(ref, source: source)
+  }
+
+  func navigateToMission(missionId: String, endpointId: UUID, source: NavigationSource = .unspecified) {
+    let ref = MissionRef(endpointId: endpointId, missionId: missionId)
+    logNavigation(
+      action: "navigateToMission",
+      source: source,
+      outcome: "applied",
+      details: "missionId=\(missionId) from=\(routeSummary)"
+    )
+    route = .mission(ref)
   }
 
   func selectSession(_ ref: SessionRef, source: NavigationSource = .unspecified) {
@@ -169,8 +181,13 @@ final class AppRouter {
     return ref
   }
 
+  var selectedMissionRef: MissionRef? {
+    guard case let .mission(ref) = route else { return nil }
+    return ref
+  }
+
   var selectedEndpointId: UUID? {
-    selectedSessionRef?.endpointId
+    selectedSessionRef?.endpointId ?? selectedMissionRef?.endpointId
   }
 
   var dashboardTab: DashboardTab {
@@ -189,6 +206,8 @@ final class AppRouter {
         "dashboard(\(tab.rawValue))"
       case let .session(ref):
         "session(\(ref.scopedID))"
+      case let .mission(ref):
+        "mission(\(ref.missionId))"
     }
   }
 

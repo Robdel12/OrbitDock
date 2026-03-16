@@ -90,6 +90,8 @@ pub async fn dispatch_issue(
         &issue.identifier,
         &issue.title,
         issue.description.as_deref(),
+        issue.url.as_deref(),
+        Some(&issue.state),
         1,
     )?;
 
@@ -117,11 +119,10 @@ pub async fn dispatch_issue(
         developer_instructions: None,
     };
 
-    let persisted =
-        prepare_persist_direct_session(registry, session_id.clone(), request).await;
-    launch_prepared_direct_session(registry, persisted).await.map_err(|e| {
-        anyhow::anyhow!("Failed to launch session: {e}")
-    })?;
+    let persisted = prepare_persist_direct_session(registry, session_id.clone(), request).await;
+    launch_prepared_direct_session(registry, persisted)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to launch session: {e}"))?;
 
     // Update mission issue with session link
     let _ = registry

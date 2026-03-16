@@ -12,7 +12,7 @@ use std::sync::Arc;
 use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, Provider};
 use tracing::{debug, error, info, warn};
 
-use crate::domain::mission_control::config::parse_workflow;
+use crate::domain::mission_control::config::{parse_workflow, MissionConfig};
 use crate::domain::mission_control::eligibility::{is_eligible, sort_candidates};
 use crate::domain::mission_control::tracker::Tracker;
 use crate::infrastructure::persistence::mission_control::{
@@ -28,10 +28,7 @@ use super::mission_reconciliation::reconcile_mission;
 ///
 /// Runs until the server shuts down. Safe to call even if no missions
 /// are configured — the loop idles at the poll interval.
-pub async fn start_mission_orchestrator(
-    registry: Arc<SessionRegistry>,
-    tracker: Arc<dyn Tracker>,
-) {
+pub async fn start_mission_orchestrator(registry: Arc<SessionRegistry>, tracker: Arc<dyn Tracker>) {
     info!(
         component = "mission_control",
         event = "orchestrator.started",
@@ -88,6 +85,64 @@ async fn orchestrator_tick(
     Ok(())
 }
 
+/// Choose which provider to use for a dispatch based on the config strategy.
+fn choose_provider(
+    config: &MissionConfig,
+    running_by_provider: &ProviderCounts,
+    dispatch_index: u32,
+) -> String {
+    let strategy = config.provider.strategy.as_str();
+    let primary = &config.provider.primary;
+    let secondary = config.provider.secondary.as_deref();
+
+    match strategy {
+        "priority" => {
+            if let (Some(secondary_name), Some(max_primary)) =
+                (secondary, config.provider.max_concurrent_primary)
+            {
+                if running_by_provider.count(primary) >= max_primary {
+                    return secondary_name.to_string();
+                }
+            }
+            primary.clone()
+        }
+        "round_robin" => {
+            if let Some(secondary_name) = secondary {
+                if dispatch_index % 2 == 0 {
+                    primary.clone()
+                } else {
+                    secondary_name.to_string()
+                }
+            } else {
+                primary.clone()
+            }
+        }
+        // "single" or anything else
+        _ => primary.clone(),
+    }
+}
+
+/// Tracks running issue counts per provider.
+struct ProviderCounts {
+    counts: std::collections::HashMap<String, u32>,
+}
+
+impl ProviderCounts {
+    fn new() -> Self {
+        Self {
+            counts: std::collections::HashMap::new(),
+        }
+    }
+
+    fn increment(&mut self, provider: &str) {
+        *self.counts.entry(provider.to_string()).or_insert(0) += 1;
+    }
+
+    fn count(&self, provider: &str) -> u32 {
+        self.counts.get(provider).copied().unwrap_or(0)
+    }
+}
+
 async fn process_mission(
     registry: &Arc<SessionRegistry>,
     tracker: &Arc<dyn Tracker>,
@@ -104,6 +159,18 @@ async fn process_mission(
                 error = %err,
                 "WORKFLOW.md not found or unreadable"
             );
+            // Record the missing file so the client knows why nothing is happening
+            let _ = registry
+                .persist()
+                .send(PersistCommand::MissionUpdate {
+                    id: mission.id.clone(),
+                    enabled: None,
+                    paused: None,
+                    config_json: None,
+                    prompt_template: None,
+                    parse_error: Some(Some("WORKFLOW.md not found in repository".to_string())),
+                })
+                .await;
             return Ok(());
         }
     };
@@ -155,27 +222,41 @@ async fn process_mission(
         .await??
     };
 
-    // Build running/claimed sets
+    // Build running/claimed sets + per-provider counts
     let mut running_ids = HashSet::new();
     let mut claimed_ids = HashSet::new();
     let mut current_running = 0u32;
+    let mut provider_counts = ProviderCounts::new();
 
     for issue_row in &existing_issues {
         match issue_row.orchestration_state.as_str() {
             "running" => {
                 running_ids.insert(issue_row.issue_id.clone());
                 current_running += 1;
+                if let Some(p) = &issue_row.provider {
+                    provider_counts.increment(p);
+                }
             }
             "claimed" => {
                 claimed_ids.insert(issue_row.issue_id.clone());
                 current_running += 1;
+                if let Some(p) = &issue_row.provider {
+                    provider_counts.increment(p);
+                }
             }
             _ => {}
         }
     }
 
     // Reconcile existing issues (stall detection, tracker state check)
-    reconcile_mission(registry, tracker, mission, &existing_issues, &workflow.config).await;
+    reconcile_mission(
+        registry,
+        tracker,
+        mission,
+        &existing_issues,
+        &workflow.config,
+    )
+    .await;
 
     // Upsert all tracker candidates into mission_issues
     for candidate in &candidates {
@@ -190,7 +271,8 @@ async fn process_mission(
                 issue_title: Some(candidate.title.clone()),
                 issue_state: Some(candidate.state.clone()),
                 orchestration_state: "queued".to_string(),
-                provider: Some(mission.provider.clone()),
+                provider: Some(workflow.config.provider.primary.clone()),
+                url: candidate.url.clone(),
             })
             .await;
     }
@@ -198,28 +280,34 @@ async fn process_mission(
     // Sort and dispatch eligible candidates
     sort_candidates(&mut candidates);
 
+    let mut dispatch_index = 0u32;
     for candidate in &candidates {
         if !is_eligible(
             candidate,
             &running_ids,
             &claimed_ids,
-            workflow.config.max_concurrent,
+            workflow.config.provider.max_concurrent,
             current_running,
         ) {
             continue;
         }
 
+        // Choose provider based on strategy
+        let chosen_provider = choose_provider(&workflow.config, &provider_counts, dispatch_index);
+
         // Claim
         claimed_ids.insert(candidate.id.clone());
         current_running += 1;
+        provider_counts.increment(&chosen_provider);
+        dispatch_index += 1;
 
         let registry = registry.clone();
         let candidate = candidate.clone();
         let mission_id = mission.id.clone();
-        let provider_str = mission.provider.clone();
+        let provider_str = chosen_provider;
         let repo_root = mission.repo_root.clone();
         let prompt_template = workflow.prompt_template.clone();
-        let base_branch = workflow.config.base_branch.clone();
+        let base_branch = workflow.config.orchestration.base_branch.clone();
 
         tokio::spawn(async move {
             if let Err(err) = dispatch_issue(
@@ -330,9 +418,21 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
         })
         .collect();
 
-    let provider = match mission.provider.as_str() {
+    let primary_provider = match mission.provider.as_str() {
         "codex" => Provider::Codex,
         _ => Provider::Claude,
+    };
+
+    let orchestrator_status = if !mission.enabled {
+        Some("disabled".to_string())
+    } else if mission.paused {
+        Some("paused".to_string())
+    } else if mission.parse_error.is_some() {
+        Some("config_error".to_string())
+    } else if crate::support::api_keys::resolve_linear_api_key().is_none() {
+        Some("no_api_key".to_string())
+    } else {
+        Some("polling".to_string())
     };
 
     let summary = MissionSummary {
@@ -341,12 +441,16 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
         enabled: mission.enabled,
         paused: mission.paused,
         tracker_kind: mission.tracker_kind.clone(),
-        provider,
+        provider: primary_provider,
+        provider_strategy: "single".to_string(),
+        primary_provider,
+        secondary_provider: None,
         active_count,
         queued_count,
         completed_count,
         failed_count,
         parse_error: mission.parse_error.clone(),
+        orchestrator_status,
     };
 
     let msg = orbitdock_protocol::ServerMessage::MissionDelta {

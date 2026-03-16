@@ -59,6 +59,13 @@ pub use files::{
     browse_directory, git_init_endpoint, list_recent_projects, list_subagent_messages_endpoint,
     list_subagent_tools_endpoint,
 };
+pub use mission_control::{
+    check_linear_key, create_mission, delete_linear_key, delete_mission, get_mission,
+    get_mission_defaults, get_tracker_keys, list_mission_issues, list_missions,
+    retry_mission_issue, scaffold_mission_workflow, set_linear_key,
+    start_mission_orchestrator_endpoint, update_mission, update_mission_defaults,
+    update_mission_settings,
+};
 pub use permissions::{add_permission_rule, get_permission_rules, remove_permission_rule};
 pub use review_comments::{
     create_review_comment_endpoint, delete_review_comment_by_id, list_review_comments_endpoint,
@@ -86,8 +93,4 @@ pub use sessions::{
     get_session_stats, list_sessions, mark_session_read, search_conversation_rows,
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
-pub use mission_control::{
-    create_mission, delete_mission, get_mission, list_mission_issues, list_missions,
-    update_mission,
-};
 pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};

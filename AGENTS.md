@@ -188,64 +188,25 @@ The server–client protocol uses strongly-typed Swift structs that mirror Rust 
 - Put small shared pure helpers in `orbitdock-server/crates/server/src/support/`
 - Put server-admin capabilities exposed through the binary in `orbitdock-server/crates/server/src/admin/`
 
-### Mission Control (Autonomous Issue Orchestration)
+### Mission Control
 
-Mission Control polls issue trackers, creates per-issue git worktrees, and launches coding agent sessions autonomously. A repo-local `WORKFLOW.md` file defines the tracker config and prompt template.
+Autonomous issue-driven agent orchestration. Polls issue trackers (Linear first), creates per-issue git worktrees, and launches coding sessions. Configured via repo-local `WORKFLOW.md` with nested YAML front matter under `orbitdock:` key + Liquid prompt template.
 
-**Architecture:** Server-driven. All orchestration state lives in Rust — the Swift client renders it via REST fetches and WebSocket deltas. No MissionControlStore or intermediate event types.
+Server-driven architecture — orchestration state lives in Rust, client renders via REST + WebSocket deltas. No MissionControlStore. Orchestrator starts only when `LINEAR_API_KEY` env var is set (or saved in settings).
 
-**WORKFLOW.md format:**
-```markdown
----
-tracker: linear
-provider: claude
-team_key: TEAM-KEY
-label_filter: [bug, feature]
-state_filter: [Todo, "In Progress"]
-max_concurrent: 3
-base_branch: main
----
-You are working on issue {{ issue.identifier }}: {{ issue.title }}
+**WORKFLOW.md schema** — nested under `orbitdock:` with sections for `provider` (strategy: single/priority/round_robin, primary/secondary, max_concurrent), `trigger` (kind: polling/manual_only, interval, filters), and `orchestration` (max_retries, stall_timeout, base_branch). Backward-compatible: legacy flat YAML still parses correctly.
 
-{{ issue.description }}
+**Provider strategies** — `single` (all issues → primary), `priority` (primary up to max_concurrent_primary, overflow → secondary), `round_robin` (alternate between primary and secondary).
 
-Attempt: {{ attempt }}
-```
-YAML front matter between `---` fences configures the mission. The body is a Liquid template rendered per-issue with `issue.*` and `attempt` variables.
+**Key paths:** `domain/mission_control/`, `infrastructure/linear/`, `runtime/mission_orchestrator.rs`, `runtime/mission_dispatch.rs`, `transport/http/mission_control.rs`, `Views/MissionControl/`, `Models/MissionControl/`
 
-**Server layers:**
-- `domain/mission_control/` — config parsing, eligibility gating, retry backoff, prompt rendering, pluggable `Tracker` trait
-- `infrastructure/linear/` — Linear GraphQL adapter implementing `Tracker`
-- `infrastructure/persistence/mission_control.rs` — read queries for `missions` and `mission_issues` tables
-- `runtime/mission_orchestrator.rs` — async poll loop: load missions → parse WORKFLOW.md → fetch candidates → gate → dispatch
-- `runtime/mission_dispatch.rs` — per-issue: create worktree → create session → send prompt
-- `runtime/mission_reconciliation.rs` — stall detection + tracker state reconciliation
-- `transport/http/mission_control.rs` — REST endpoints for CRUD + pipeline views
+**REST:** `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `PUT /api/missions/:id/settings`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`
 
-**REST endpoints:**
-- `GET /api/missions` — list missions
-- `POST /api/missions` — create mission `{ repo_root, tracker_kind?, provider? }`
-- `GET /api/missions/:id` — mission detail with summary + issues
-- `PUT /api/missions/:id` — update `{ enabled?, paused? }`
-- `DELETE /api/missions/:id` — remove mission
-- `GET /api/missions/:id/issues` — issue pipeline
+**Swift models:** `MissionSettings.swift` (ProviderSettings, TriggerSettings, TriggerFilters, OrchestrationSettings), `MissionSummary.swift` (includes providerStrategy, primaryProvider, secondaryProvider)
 
-**WebSocket events:**
-- `MissionsList { missions }` — full mission list (list-lane safe)
-- `MissionDelta { mission_id, issues, summary }` — pushed on orchestration state changes
+**UI:** Mission detail uses tab bar (Overview | Settings | Issues). Global Mission Control pane in Settings window for API keys + provider defaults.
 
-**Orchestration states:** `Queued → Claimed → Running → Completed | Failed | RetryQueued`
-
-**Swift client:**
-- Models: `MissionSummary`, `MissionIssueItem` (in `Models/MissionControl/`)
-- Views: `MissionListView`, `MissionDetailView`, `MissionIssueRow`, `NewMissionSheet` (in `Views/MissionControl/`)
-- Dashboard: "Missions" tab in `DashboardTabSwitcher`, wired in `DashboardView`
-- Events: `missionsList` and `missionDelta` decoded in `ServerToClientMessage+Decoding.swift`
-- Session badge: `issueIdentifier` field on `RootSessionNode` shown in `ActivityStreamCard`
-
-**Environment gate:** Orchestrator only starts if `LINEAR_API_KEY` env var is set.
-
-**Key migration:** `V025__mission_control.sql` — creates `missions` and `mission_issues` tables, adds `mission_id`/`issue_id`/`issue_identifier` columns to `sessions`.
+**Migration:** `V025__mission_control.sql`, `V026__mission_issue_url.sql`
 
 ### Cosmic Harbor Theme & Design System
 - Design tokens in `Theme.swift`, `DesignTokens.swift`, `ComponentStyles.swift`

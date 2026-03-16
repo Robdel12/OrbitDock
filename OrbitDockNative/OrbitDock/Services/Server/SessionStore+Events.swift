@@ -168,12 +168,12 @@ extension SessionStore {
         handleError(code, message, sessionId)
       case let .connectionStatusChanged(status):
         handleConnectionStatusChanged(status)
-      case .missionsList:
-        break // Mission data rendered by MissionListView via REST
-
-      case .missionDelta:
-        break // Mission data rendered by MissionDetailView via REST
-
+      case let .missionsList(missions):
+        missionListSnapshot = missions
+      case let .missionDelta(missionId, issues, summary):
+        missionDeltaMissionId = missionId
+        missionDeltaSummary = summary
+        missionDeltaIssues = issues
       case let .revision(sessionId, revision):
         lastRevision[sessionId] = revision
     }

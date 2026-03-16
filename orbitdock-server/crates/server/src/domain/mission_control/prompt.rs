@@ -8,6 +8,8 @@ pub fn render_prompt(
     issue_identifier: &str,
     issue_title: &str,
     issue_description: Option<&str>,
+    issue_url: Option<&str>,
+    issue_state: Option<&str>,
     attempt: u32,
 ) -> Result<String> {
     let parser = ParserBuilder::with_stdlib()
@@ -23,6 +25,8 @@ pub fn render_prompt(
             "identifier": issue_identifier,
             "title": issue_title,
             "description": issue_description.unwrap_or(""),
+            "url": issue_url.unwrap_or(""),
+            "state": issue_state.unwrap_or(""),
         },
         "attempt": attempt,
     });
@@ -47,6 +51,8 @@ mod tests {
             "PROJ-42",
             "Login broken",
             Some("Users can't log in with Google OAuth"),
+            None,
+            None,
             1,
         )
         .unwrap();
@@ -59,14 +65,33 @@ mod tests {
     #[test]
     fn render_with_attempt() {
         let template = "{% if attempt > 1 %}Retry attempt {{ attempt }}. {% endif %}Fix {{ issue.identifier }}";
-        let result = render_prompt(template, "id-1", "PROJ-1", "Bug", None, 3).unwrap();
+        let result = render_prompt(template, "id-1", "PROJ-1", "Bug", None, None, None, 3).unwrap();
         assert!(result.contains("Retry attempt 3"));
     }
 
     #[test]
     fn render_empty_description() {
         let template = "{{ issue.description }}";
-        let result = render_prompt(template, "id-1", "PROJ-1", "Bug", None, 1).unwrap();
+        let result = render_prompt(template, "id-1", "PROJ-1", "Bug", None, None, None, 1).unwrap();
         assert_eq!(result.trim(), "");
+    }
+
+    #[test]
+    fn render_url_and_state() {
+        let template = "URL: {{ issue.url }} | State: {{ issue.state }}";
+        let result = render_prompt(
+            template,
+            "id-1",
+            "PROJ-1",
+            "Bug",
+            None,
+            Some("https://linear.app/team/PROJ-1"),
+            Some("In Progress"),
+            1,
+        )
+        .unwrap();
+
+        assert!(result.contains("https://linear.app/team/PROJ-1"));
+        assert!(result.contains("In Progress"));
     }
 }

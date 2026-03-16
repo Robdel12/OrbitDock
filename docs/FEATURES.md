@@ -209,16 +209,22 @@ Side panel for direct sessions with multiple tabs:
 Autonomous issue-driven agent orchestration. Poll issue trackers, create per-issue git worktrees, and launch coding agents with human-in-the-loop controls.
 
 - **Pluggable tracker** — `Tracker` trait with Linear adapter (GraphQL, paginated). Extensible to GitHub Issues.
-- **WORKFLOW.md config** — Repo-local YAML front matter configures tracker project, labels, concurrency, and prompt template (Liquid)
+- **WORKFLOW.md config** — Repo-local nested YAML under `orbitdock:` key with sections for provider, trigger, orchestration, plus a Liquid prompt template body
+- **Backward-compatible parsing** — Existing flat WORKFLOW.md files still parse correctly; new files use the nested schema
+- **Provider strategies** — Three dispatch modes: `single` (one provider), `priority` (primary up to limit, overflow to secondary), `round_robin` (alternate between providers)
+- **Multi-provider support** — Configure primary and secondary providers (Claude, Codex) per mission with concurrency limits
+- **Trigger configuration** — Polling with configurable interval, label/state/project/team filters, or manual-only mode
 - **Orchestration pipeline** — Issues flow through Queued → Claimed → Running → Completed/Failed states
-- **Agent dispatch** — Creates OrbitDock sessions with worktrees, supporting both Claude and Codex providers
+- **Agent dispatch** — Creates OrbitDock sessions with worktrees, provider selection based on strategy
 - **Eligibility engine** — Priority + date sorting, concurrency gating, retry queue with exponential backoff
 - **Dashboard tab** — Missions tab in the dashboard shows all configured missions with status capsules (Active/Paused/Disabled)
 - **Mission list** — Per-mission cards with active/queued/completed/failed counts and action menus (Pause/Resume, Enable/Disable, Delete)
-- **Create mission** — Reuses ProjectPicker and provider picker from session creation. Reads WORKFLOW.md from selected repo.
-- **Mission detail** — Pipeline view showing all issues with orchestration state, session links, and error info
+- **Create mission** — Reuses ProjectPicker and provider picker from session creation. Scaffolds WORKFLOW.md with nested schema.
+- **Mission detail tabs** — Tab bar with Overview (stats, orchestrator status, quick config capsules), Settings (trigger, provider, orchestration, prompt template), and Issues (pipeline grouped by state)
+- **Settings write-back** — Edits in the Settings tab write back to WORKFLOW.md on disk via `PUT /api/missions/:id/settings`
+- **Global settings pane** — Mission Control pane in the Settings window for tracker API keys (Linear status + source indicator) and default provider strategy/primary/secondary
 - **Issue badges** — Mission-spawned sessions show issue identifier badges in the activity stream
-- **REST API** — `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`
+- **REST API** — `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `PUT /api/missions/:id/settings`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`
 - **CLI** — `orbitdock mission enable/list/status/pause/resume/disable`
 - **Cross-platform** — Works on both macOS and iOS
 

@@ -1,7 +1,9 @@
 import Foundation
 
-struct MissionIssueItem: Codable, Identifiable {
-  var id: String { issueId }
+struct MissionIssueItem: Codable, Identifiable, Equatable {
+  var id: String {
+    issueId
+  }
 
   let issueId: String
   let identifier: String

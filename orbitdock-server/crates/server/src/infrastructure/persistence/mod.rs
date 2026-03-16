@@ -42,6 +42,11 @@ pub(crate) use config::{
 pub(crate) use messages::{
     load_message_page_for_session, load_messages_for_session, load_row_by_id_async,
 };
+#[allow(unused_imports)]
+pub(crate) use mission_control::{
+    load_all_active_mission_issues, load_mission_by_id, load_mission_issues, load_missions,
+    MissionIssueRow, MissionRow,
+};
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
 pub(crate) use session_reads::{
     load_session_by_id, load_session_permission_mode, load_sessions_for_startup, RestoredSession,
@@ -61,11 +66,6 @@ pub(crate) use transcripts::{
 use usage::{persist_usage_event, upsert_usage_session_state, upsert_usage_turn_snapshot};
 #[allow(unused_imports)]
 pub(crate) use worktrees::WorktreeRow;
-#[allow(unused_imports)]
-pub(crate) use mission_control::{
-    load_all_active_mission_issues, load_mission_by_id, load_mission_issues, load_missions,
-    MissionIssueRow, MissionRow,
-};
 pub(crate) use worktrees::{
     load_removed_worktree_paths, load_worktree_by_id, load_worktrees_by_repo,
 };
@@ -1575,7 +1575,10 @@ pub(super) fn execute_command(
             }
         }
         PersistCommand::MissionDelete { id } => {
-            conn.execute("DELETE FROM mission_issues WHERE mission_id = ?1", params![id])?;
+            conn.execute(
+                "DELETE FROM mission_issues WHERE mission_id = ?1",
+                params![id],
+            )?;
             conn.execute("DELETE FROM missions WHERE id = ?1", params![id])?;
         }
         PersistCommand::MissionIssueUpsert {
@@ -1587,15 +1590,17 @@ pub(super) fn execute_command(
             issue_state,
             orchestration_state,
             provider,
+            url,
         } => {
             conn.execute(
-                "INSERT INTO mission_issues (id, mission_id, issue_id, issue_identifier, issue_title, issue_state, orchestration_state, provider)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "INSERT INTO mission_issues (id, mission_id, issue_id, issue_identifier, issue_title, issue_state, orchestration_state, provider, url)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(mission_id, issue_id) DO UPDATE SET
                    issue_title = excluded.issue_title,
                    issue_state = excluded.issue_state,
+                   url = excluded.url,
                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-                params![id, mission_id, issue_id, issue_identifier, issue_title, issue_state, orchestration_state, provider],
+                params![id, mission_id, issue_id, issue_identifier, issue_title, issue_state, orchestration_state, provider, url],
             )?;
         }
         PersistCommand::MissionIssueUpdateState {
