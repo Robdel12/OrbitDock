@@ -5,7 +5,7 @@ import XCTest
 final class ConversationDetailRuntimeMetadataTests: XCTestCase {
   func testHydratedApprovalStateCarriesQuestionAndPermissionDetail() {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-approval")
-    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil)
+    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil, dataLoader: { _ in throw HTTPTransportError.serverUnreachable })
     let runtime = ConversationDetailRuntime(session: session, clients: clients, provider: .codex, model: "gpt-5.4")
 
     runtime.hydrateMetadata(
@@ -40,7 +40,7 @@ final class ConversationDetailRuntimeMetadataTests: XCTestCase {
 
   func testSelectingWorkerPreservesInspectorStateFromWorkerPayloads() {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-worker")
-    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil)
+    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil, dataLoader: { _ in throw HTTPTransportError.serverUnreachable })
     let runtime = ConversationDetailRuntime(session: session, clients: clients, provider: .codex, model: "gpt-5.4")
 
     runtime.hydrateMetadata(
@@ -87,20 +87,20 @@ final class ConversationDetailRuntimeMetadataTests: XCTestCase {
         ],
         messagesByWorker: [
           "worker-b": [
-            ServerMessage(
-              id: "worker-msg",
+            ServerConversationRowEntry(
               sessionId: session.sessionId,
               sequence: 4,
-              type: .assistant,
-              content: "Auth state is stable.",
-              toolName: nil,
-              toolInput: nil,
-              toolOutput: nil,
-              isError: false,
-              isInProgress: false,
-              timestamp: "2026-03-12T11:31:00Z",
-              durationMs: nil,
-              images: []
+              turnId: nil,
+              row: .assistant(
+                ServerConversationMessageRow(
+                  id: "worker-msg",
+                  content: "Auth state is stable.",
+                  turnId: nil,
+                  timestamp: "2026-03-12T11:31:00Z",
+                  isStreaming: false,
+                  images: nil
+                )
+              )
             )
           ]
         ],

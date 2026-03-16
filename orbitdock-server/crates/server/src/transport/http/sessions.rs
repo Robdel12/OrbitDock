@@ -3,7 +3,7 @@ use crate::infrastructure::persistence::load_row_by_id_async;
 use crate::support::session_time::parse_unix_z;
 use orbitdock_protocol::conversation_contracts::{
     compute_diff_display, compute_expanded_output, compute_input_display, detect_language,
-    extract_row_content_str, ConversationRow, ConversationRowPage,
+    extract_row_content_str, ConversationRow, RowEntrySummary, RowPageSummary,
 };
 use orbitdock_protocol::domain_events::ToolStatus;
 use orbitdock_protocol::SessionListItem;
@@ -230,10 +230,10 @@ pub async fn get_conversation_history(
     Path(session_id): Path<String>,
     Query(query): Query<ConversationPageQuery>,
     State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<ConversationRowPage> {
+) -> ApiResult<RowPageSummary> {
     let limit = clamp_conversation_limit(query.limit);
     match load_conversation_page(&state, &session_id, query.before_sequence, limit).await {
-        Ok(page) => Ok(Json(page.into_row_page())),
+        Ok(page) => Ok(Json(page.into_row_page_summary())),
         Err(SessionLoadError::NotFound) => Err((
             StatusCode::NOT_FOUND,
             Json(ApiErrorResponse {
@@ -299,7 +299,7 @@ pub async fn search_conversation_rows(
     Path(session_id): Path<String>,
     Query(query): Query<ConversationSearchQuery>,
     State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<ConversationRowPage> {
+) -> ApiResult<RowPageSummary> {
     let rows = load_full_session_state(&state, &session_id, true)
         .await
         .map_err(|error| match error {
@@ -332,12 +332,14 @@ pub async fn search_conversation_rows(
         .filter(|entry| row_matches_search(entry, &query))
         .collect();
 
-    Ok(Json(ConversationRowPage {
-        total_row_count: rows.len() as u64,
+    let summary_rows: Vec<RowEntrySummary> = rows.iter().map(|e| e.to_summary()).collect();
+
+    Ok(Json(RowPageSummary {
+        total_row_count: summary_rows.len() as u64,
         has_more_before: false,
-        oldest_sequence: rows.first().map(|entry| entry.sequence),
-        newest_sequence: rows.last().map(|entry| entry.sequence),
-        rows,
+        oldest_sequence: summary_rows.first().map(|entry| entry.sequence),
+        newest_sequence: summary_rows.last().map(|entry| entry.sequence),
+        rows: summary_rows,
     }))
 }
 

@@ -11,13 +11,14 @@ pub mod tool_display;
 pub mod tool_payloads;
 pub mod workers;
 
-pub use activity_groups::{ActivityGroupKind, ActivityGroupRow};
+pub use activity_groups::{ActivityGroupKind, ActivityGroupRow, ActivityGroupRowSummary};
 pub use approvals::{ApprovalRow, QuestionRow};
 pub use render_hints::{ConversationDisplayMode, RenderHints};
 pub use rows::{
-    extract_row_content_str, AssistantRow, ConversationRow, ConversationRowEntry,
-    ConversationRowPage, HandoffRow, HookRow, MessageRowContent, PlanRow, SystemRow, ThinkingRow,
-    ToolRow, UserRow,
+    extract_row_content_str, extract_row_content_str_summary, AssistantRow, ConversationRow,
+    ConversationRowEntry, ConversationRowPage, ConversationRowSummary, HandoffRow, HookRow,
+    MessageRowContent, PlanRow, RowEntrySummary, RowPageSummary, SystemRow, ThinkingRow, ToolRow,
+    ToolRowSummary, UserRow,
 };
 pub use tool_display::{
     compute_diff_display, compute_expanded_output, compute_input_display, compute_tool_display,

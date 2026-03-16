@@ -59,7 +59,19 @@ struct ToolSearchExpandedView: View {
             .lineLimit(2)
         }
       }
+
       Spacer()
+
+      // Category pill
+      let isMCP = tool.name.hasPrefix("mcp__")
+      let category = isMCP ? "MCP" : "Built-in"
+      let pillColor: Color = isMCP ? .toolMcp : .accent
+      Text(category)
+        .font(.system(size: TypeScale.mini, weight: .semibold))
+        .foregroundStyle(pillColor)
+        .padding(.horizontal, Spacing.sm_)
+        .padding(.vertical, 1)
+        .background(pillColor.opacity(OpacityTier.subtle), in: Capsule())
     }
     .padding(Spacing.sm)
     .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))

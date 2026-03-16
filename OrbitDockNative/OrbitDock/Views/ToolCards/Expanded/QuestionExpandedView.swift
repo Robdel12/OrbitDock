@@ -10,6 +10,11 @@ import SwiftUI
 struct QuestionExpandedView: View {
   let content: ServerRowContent
 
+  private var hasResponse: Bool {
+    if let output = content.outputDisplay, !output.isEmpty { return true }
+    return false
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       // Question bubble
@@ -22,6 +27,26 @@ struct QuestionExpandedView: View {
             Text("Question")
               .font(.system(size: TypeScale.caption, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
+            Spacer()
+            // Answered/pending badge
+            if hasResponse {
+              HStack(spacing: Spacing.xxs) {
+                Image(systemName: "checkmark.circle.fill")
+                  .font(.system(size: 8))
+                Text("Answered")
+                  .font(.system(size: TypeScale.mini, weight: .semibold))
+              }
+              .foregroundStyle(Color.feedbackPositive)
+            } else {
+              HStack(spacing: Spacing.xxs) {
+                Circle()
+                  .fill(Color.feedbackCaution)
+                  .frame(width: 5, height: 5)
+                Text("Pending")
+                  .font(.system(size: TypeScale.mini, weight: .semibold))
+              }
+              .foregroundStyle(Color.feedbackCaution)
+            }
           }
           Text(input)
             .font(.system(size: TypeScale.body))
@@ -34,6 +59,16 @@ struct QuestionExpandedView: View {
                 .fill(Color.toolQuestion)
                 .frame(width: 3)
             }
+        }
+      }
+
+      // Connecting line between Q and A
+      if hasResponse {
+        HStack {
+          Spacer().frame(width: Spacing.lg)
+          Rectangle()
+            .fill(Color.textQuaternary.opacity(0.2))
+            .frame(width: 1, height: Spacing.md)
         }
       }
 
@@ -55,6 +90,18 @@ struct QuestionExpandedView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.statusReply.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.sm))
         }
+      } else {
+        // Pending state placeholder
+        HStack(spacing: Spacing.sm) {
+          ProgressView()
+            .controlSize(.small)
+          Text("Awaiting response...")
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textQuaternary)
+        }
+        .padding(Spacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
       }
     }
   }

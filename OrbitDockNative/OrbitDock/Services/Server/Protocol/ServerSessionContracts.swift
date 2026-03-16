@@ -573,12 +573,7 @@ struct ServerSessionState: Codable, Identifiable {
     summary = try container.decodeIfPresent(String.self, forKey: .summary)
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
-    if let decodedRows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) {
-      rows = decodedRows
-    } else {
-      let decodedMessages = try container.decodeIfPresent([ServerMessage].self, forKey: .messages) ?? []
-      rows = decodedMessages.map { $0.toConversationRowEntry(defaultSessionId: decodedID) }
-    }
+    rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? []
     let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
     let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
     totalRowCount = directTotalRowCount ?? legacyTotalMessageCount

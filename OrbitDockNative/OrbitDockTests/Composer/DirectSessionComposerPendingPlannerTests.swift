@@ -222,7 +222,14 @@ struct DirectSessionComposerPendingPlannerTests {
       approvalType: .question,
       projectPath: "/tmp/OrbitDock",
       approvalId: "approval-1",
-      sessionId: "session-1"
+      sessionId: "session-1",
+      elicitationMode: nil,
+      elicitationSchema: nil,
+      elicitationUrl: nil,
+      elicitationMessage: nil,
+      mcpServerName: nil,
+      networkHost: nil,
+      networkProtocol: nil
     )
 
     let presentation = DirectSessionComposerPendingPlanner.presentation(
@@ -264,7 +271,14 @@ struct DirectSessionComposerPendingPlannerTests {
       approvalType: .permissions,
       projectPath: "/tmp/OrbitDock",
       approvalId: "approval-permissions",
-      sessionId: "session-permissions"
+      sessionId: "session-permissions",
+      elicitationMode: nil,
+      elicitationSchema: nil,
+      elicitationUrl: nil,
+      elicitationMessage: nil,
+      mcpServerName: nil,
+      networkHost: nil,
+      networkProtocol: nil
     )
 
     let presentation = DirectSessionComposerPendingPlanner.presentation(

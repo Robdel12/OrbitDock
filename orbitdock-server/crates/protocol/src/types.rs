@@ -421,8 +421,6 @@ pub struct SessionSummary {
     #[serde(default)]
     pub has_turn_diff: bool,
     pub display_title: String,
-    pub display_title_sort_key: String,
-    pub display_search_text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_line: Option<String>,
     pub list_status: SessionListStatus,
@@ -497,10 +495,6 @@ impl SessionSummary {
             .unwrap_or(project_fallback)
     }
 
-    pub fn display_title_sort_key(display_title: &str) -> String {
-        display_title.to_lowercase()
-    }
-
     pub fn context_line_from_parts(
         summary: Option<&str>,
         first_prompt: Option<&str>,
@@ -527,29 +521,6 @@ impl SessionSummary {
         }
 
         first_prompt_clean
-    }
-
-    pub fn display_search_text_from_parts(
-        display_title: &str,
-        context_line: Option<&str>,
-        project_name: Option<&str>,
-        git_branch: Option<&str>,
-        model: Option<&str>,
-    ) -> String {
-        [
-            Some(display_title),
-            context_line,
-            project_name,
-            git_branch,
-            model,
-        ]
-        .into_iter()
-        .flatten()
-        .map(clean_display_text)
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase()
     }
 
     pub fn list_status_from_parts(
@@ -626,8 +597,6 @@ impl SessionSummary {
             total_tokens: self.token_usage.input_tokens + self.token_usage.output_tokens,
             total_cost_usd: 0.0,
             display_title: self.display_title.clone(),
-            display_title_sort_key: self.display_title_sort_key.clone(),
-            display_search_text: self.display_search_text.clone(),
             context_line: self.context_line.clone(),
             list_status: self.list_status,
             effort: self.effort.clone(),
@@ -663,8 +632,6 @@ impl From<SessionSummary> for SessionListItem {
             total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
             total_cost_usd: 0.0,
             display_title: summary.display_title,
-            display_title_sort_key: summary.display_title_sort_key,
-            display_search_text: summary.display_search_text,
             context_line: summary.context_line,
             list_status: summary.list_status,
             effort: summary.effort,
@@ -887,8 +854,6 @@ pub struct SessionListItem {
     #[serde(default)]
     pub total_cost_usd: f64,
     pub display_title: String,
-    pub display_title_sort_key: String,
-    pub display_search_text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_line: Option<String>,
     pub list_status: SessionListStatus,
@@ -932,8 +897,6 @@ impl SessionListItem {
             total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
             total_cost_usd: 0.0,
             display_title: summary.display_title.clone(),
-            display_title_sort_key: summary.display_title_sort_key.clone(),
-            display_search_text: summary.display_search_text.clone(),
             context_line: summary.context_line.clone(),
             list_status: summary.list_status,
             effort: summary.effort.clone(),
@@ -1583,8 +1546,6 @@ mod tests {
             unread_count: 0,
             has_turn_diff: false,
             display_title: "OrbitDock".to_string(),
-            display_title_sort_key: "orbitdock".to_string(),
-            display_search_text: "orbitdock".to_string(),
             context_line: None,
             list_status: SessionListStatus::Working,
             active_worker_count: 3,

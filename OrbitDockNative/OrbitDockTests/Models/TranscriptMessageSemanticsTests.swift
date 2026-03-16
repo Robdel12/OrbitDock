@@ -41,19 +41,29 @@ struct TranscriptMessageSemanticsTests {
     #expect(!readMessage.isBashLikeCommand)
   }
 
-  @Test func formattedToolInputUsesKindSpecificRules() {
-    let readMessage = makeMessage(toolName: "Read", toolInput: ["path": "/tmp/file.txt"])
-    let taskMessage = makeMessage(toolName: "Task", toolInput: ["description": "Audit the renderer split"])
-    let unknownMessage = makeMessage(toolName: "Custom", toolInput: ["value": "kept"])
+  @Test func formattedToolInputUsesToolDisplay() {
+    let readMessage = makeMessage(
+      toolName: "Read",
+      toolDisplay: ServerToolDisplay.placeholder(summary: "/tmp/file.txt", toolType: "read")
+    )
+    let taskMessage = makeMessage(
+      toolName: "Task",
+      toolDisplay: ServerToolDisplay(
+        summary: "Task", subtitle: "Audit the renderer split", rightMeta: nil,
+        subtitleAbsorbsMeta: false, glyphSymbol: "person.2", glyphColor: "indigo",
+        language: nil, diffPreview: nil, outputPreview: nil, liveOutputPreview: nil,
+        todoItems: [], toolType: "task", summaryFont: "system", displayTier: "standard",
+        inputDisplay: "Audit the renderer split", outputDisplay: nil, diffDisplay: nil
+      )
+    )
 
-    #expect(readMessage.formattedToolInput == "/tmp/file.txt")
+    #expect(readMessage.filePath == "/tmp/file.txt")
     #expect(taskMessage.formattedToolInput == "Audit the renderer split")
-    #expect(unknownMessage.formattedToolInput?.contains("\"value\"") == true)
   }
 
   private func makeMessage(
     toolName: String?,
-    toolInput: [String: Any]? = nil
+    toolDisplay: ServerToolDisplay? = nil
   ) -> TranscriptMessage {
     TranscriptMessage(
       id: UUID().uuidString,
@@ -61,7 +71,7 @@ struct TranscriptMessageSemanticsTests {
       content: "",
       timestamp: Date(),
       toolName: toolName,
-      toolInput: toolInput
+      toolDisplay: toolDisplay
     )
   }
 }

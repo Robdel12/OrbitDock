@@ -22,7 +22,7 @@ struct OrbitDockApp: App {
     self.modelPricingService = modelPricingService
     #if os(macOS)
       _menuBarAppStore = State(
-        initialValue: AppStore(connection: appRuntime.runtimeRegistry.primaryConnection)
+        initialValue: AppStore(runtimeRegistry: appRuntime.runtimeRegistry)
       )
       appDelegate.configure(appRuntime: appRuntime, modelPricingService: modelPricingService)
     #endif
@@ -62,9 +62,6 @@ struct OrbitDockApp: App {
           .environment(menuBarAppStore)
           .environment(\.colorScheme, .dark)
           .preferredColorScheme(.dark)
-          .task {
-            menuBarAppStore.start()
-          }
       } label: {
         Image(systemName: "terminal.fill")
           .symbolRenderingMode(.monochrome)
@@ -118,7 +115,6 @@ struct OrbitDockWindowCommands: Commands {
       guard !AppRuntimeMode.isRunningTestsProcess else { return }
       AppFileLogger.shared.start()
       appRuntime?.notificationManager.configureAppSessionNotifications(delegate: self)
-      modelPricingService?.fetchPrices()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

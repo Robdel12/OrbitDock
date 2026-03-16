@@ -11,6 +11,8 @@ import SwiftUI
 struct GlobExpandedView: View {
   let content: ServerRowContent
 
+  @State private var allExpanded = true
+
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       if let input = content.inputDisplay, !input.isEmpty {
@@ -21,12 +23,20 @@ struct GlobExpandedView: View {
         let files = output.components(separatedBy: "\n").filter { !$0.isEmpty }
         let tree = FileTreeBuilder.buildTree(from: files)
 
+        FileTypeDistributionBar(files: files)
+
         VStack(alignment: .leading, spacing: Spacing.xs) {
           HStack {
             Text("Files")
               .font(.system(size: TypeScale.caption, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
             Spacer()
+            Button(action: { allExpanded.toggle() }) {
+              Text(allExpanded ? "Collapse all" : "Expand all")
+                .font(.system(size: TypeScale.mini, weight: .medium))
+                .foregroundStyle(Color.accent)
+            }
+            .buttonStyle(.plain)
             Text("\(files.count) matches")
               .font(.system(size: TypeScale.mini, design: .monospaced))
               .foregroundStyle(Color.textQuaternary)
@@ -40,8 +50,9 @@ struct GlobExpandedView: View {
               }
             } else {
               ForEach(tree) { node in
-                FileTreeNodeView(node: node, depth: 0)
+                FileTreeNodeView(node: node, depth: 0, defaultExpanded: allExpanded)
               }
+              .id(allExpanded)
             }
           }
           .padding(.vertical, Spacing.xs)
@@ -133,8 +144,16 @@ struct GlobExpandedView: View {
 private struct FileTreeNodeView: View {
   let node: FileTreeNode
   let depth: Int
+  var defaultExpanded: Bool = true
 
-  @State private var isExpanded = true
+  @State private var isExpanded: Bool
+
+  init(node: FileTreeNode, depth: Int, defaultExpanded: Bool = true) {
+    self.node = node
+    self.depth = depth
+    self.defaultExpanded = defaultExpanded
+    self._isExpanded = State(initialValue: defaultExpanded)
+  }
 
   var body: some View {
     if node.isDirectory {
@@ -185,7 +204,7 @@ private struct FileTreeNodeView: View {
 
       if isExpanded {
         ForEach(node.children) { child in
-          FileTreeNodeView(node: child, depth: depth + 1)
+          FileTreeNodeView(node: child, depth: depth + 1, defaultExpanded: defaultExpanded)
         }
       }
     }

@@ -83,7 +83,7 @@ struct ActivityGroupRowView: View {
     HStack(spacing: 3) {
       ForEach(Array(group.children.prefix(8).enumerated()), id: \.offset) { _, child in
         Circle()
-          .fill(ToolCardView.resolveColor(child.toolDisplay?.glyphColor ?? "gray"))
+          .fill(ToolCardView.resolveColor(child.toolDisplay.glyphColor))
           .frame(width: 6, height: 6)
       }
       if group.childCount > 8 {
@@ -99,7 +99,7 @@ struct ActivityGroupRowView: View {
   private var groupSummaryText: String {
     // Build a concise summary like "Read, Edit, Bash"
     let toolNames = group.children.prefix(4).map { child in
-      child.toolDisplay?.summary ?? child.title
+      child.toolDisplay.summary
     }
     let joined = toolNames.joined(separator: ", ")
     if group.childCount > 4 {

@@ -265,7 +265,7 @@ struct MenuBarView: View {
 
   #Preview {
     MenuBarView()
-      .environment(SessionStore())
+      .environment(SessionStore.preview())
   }
 
 #else

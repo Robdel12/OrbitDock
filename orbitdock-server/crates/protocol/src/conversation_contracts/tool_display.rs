@@ -306,7 +306,8 @@ fn tool_type_string(kind: ToolKind, _family: ToolFamily) -> String {
     match kind {
         ToolKind::Bash => "bash",
         ToolKind::Read => "read",
-        ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit => "edit",
+        ToolKind::Edit | ToolKind::NotebookEdit => "edit",
+        ToolKind::Write => "write",
         ToolKind::Glob => "glob",
         ToolKind::Grep => "grep",
         ToolKind::SpawnAgent

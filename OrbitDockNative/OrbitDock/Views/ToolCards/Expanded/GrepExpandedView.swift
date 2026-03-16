@@ -23,12 +23,20 @@ struct GrepExpandedView: View {
         let grouped = groupByFile(lines)
         let pattern = content.inputDisplay ?? ""
 
+        if !grouped.isEmpty {
+          Text("\(lines.count) matches in \(grouped.count) files")
+            .font(.system(size: TypeScale.mini))
+            .foregroundStyle(Color.textQuaternary)
+            .padding(.top, -Spacing.sm)
+        }
+
         if grouped.isEmpty {
           // Flat list fallback
           flatResults(lines: lines, pattern: pattern)
         } else {
-          // Grouped by file
-          groupedResults(groups: grouped, pattern: pattern)
+          // Grouped by file, sorted by match count (most matches first)
+          let sortedGroups = grouped.sorted { $0.matches.count > $1.matches.count }
+          groupedResults(groups: sortedGroups, pattern: pattern)
         }
       }
     }

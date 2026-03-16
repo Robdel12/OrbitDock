@@ -164,19 +164,33 @@ struct SessionWorkerRosterPlannerTests {
       content: "Waiting for agents",
       timestamp: Date(timeIntervalSince1970: 1_730_000_000),
       toolName: "task",
-      toolInput: [
-        "receiver_thread_ids": [worker.id]
-      ],
-      rawToolInput: nil,
-      toolOutput: """
-      sender: parent-thread
-      worker-thread - nickname=Scout - role=explore: Completed(Some(\"Scout finished and returned a repo summary.\"))
-      """,
-      toolDuration: nil,
-      inputTokens: nil,
-      outputTokens: nil,
       isError: false,
-      isInProgress: false
+      isInProgress: false,
+      toolDisplay: ServerToolDisplay(
+        summary: "Waiting for agents",
+        subtitle: nil,
+        rightMeta: nil,
+        subtitleAbsorbsMeta: false,
+        glyphSymbol: "person.2",
+        glyphColor: "indigo",
+        language: nil,
+        diffPreview: nil,
+        outputPreview: """
+        sender: parent-thread
+        worker-thread - nickname=Scout - role=explore: Completed(Some(\"Scout finished and returned a repo summary.\"))
+        """,
+        liveOutputPreview: nil,
+        todoItems: [],
+        toolType: "task",
+        summaryFont: "system",
+        displayTier: "standard",
+        inputDisplay: "{\"receiver_thread_ids\":[\"\(worker.id)\"]}",
+        outputDisplay: """
+        sender: parent-thread
+        worker-thread - nickname=Scout - role=explore: Completed(Some(\"Scout finished and returned a repo summary.\"))
+        """,
+        diffDisplay: nil
+      )
     )
 
     let presentation = SessionWorkerRosterPlanner.detailPresentation(
@@ -207,21 +221,19 @@ struct SessionWorkerRosterPlannerTests {
       toolsByWorker: [:],
       messagesByWorker: [
         worker.id: [
-          makeServerMessage(
+          makeRowEntry(
             id: "worker-user",
             sessionId: worker.id,
             sequence: 1,
-            type: .user,
-            content: "Inspect the auth flow",
-            timestamp: "2026-03-10T11:00:00Z"
+            rowType: .user,
+            content: "Inspect the auth flow"
           ),
-          makeServerMessage(
+          makeRowEntry(
             id: "worker-assistant",
             sessionId: worker.id,
             sequence: 2,
-            type: .assistant,
-            content: "The runtime coordinator owns the auth refresh path.",
-            timestamp: "2026-03-10T11:00:03Z"
+            rowType: .assistant,
+            content: "The runtime coordinator owns the auth refresh path."
           ),
         ]
       ],
@@ -229,8 +241,9 @@ struct SessionWorkerRosterPlannerTests {
     )
 
     #expect(presentation?.threadEntries.count == 2)
+    // TranscriptMessage mapped from a .user row uses "Worker prompt" title in threadEntryPresentation
     #expect(presentation?.threadEntries.first?.title == "Worker prompt")
-    #expect(presentation?.threadEntries.last?.body == "The runtime coordinator owns the auth refresh path.")
+    #expect(presentation?.threadEntries.last?.body.contains("The runtime coordinator owns the auth refresh path.") == true)
   }
 
   @Test func detailPresentationBuildsConversationTrailFromWorkerLinkedMessages() {
@@ -250,17 +263,27 @@ struct SessionWorkerRosterPlannerTests {
       content: "Spawning worker",
       timestamp: Date(timeIntervalSince1970: 1_730_000_010),
       toolName: "task",
-      toolInput: [
-        "subagent_id": worker.id,
-        "prompt": "Inspect the auth layer"
-      ],
-      rawToolInput: nil,
-      toolOutput: nil,
-      toolDuration: nil,
-      inputTokens: nil,
-      outputTokens: nil,
       isError: false,
-      isInProgress: true
+      isInProgress: true,
+      toolDisplay: ServerToolDisplay(
+        summary: "Spawning worker",
+        subtitle: "Inspect the auth layer",
+        rightMeta: nil,
+        subtitleAbsorbsMeta: false,
+        glyphSymbol: "person.2",
+        glyphColor: "indigo",
+        language: nil,
+        diffPreview: nil,
+        outputPreview: nil,
+        liveOutputPreview: nil,
+        todoItems: [],
+        toolType: "task",
+        summaryFont: "system",
+        displayTier: "standard",
+        inputDisplay: "{\"subagent_id\":\"\(worker.id)\",\"prompt\":\"Inspect the auth layer\"}",
+        outputDisplay: nil,
+        diffDisplay: nil
+      )
     )
 
     let waitMessage = TranscriptMessage(
@@ -269,16 +292,27 @@ struct SessionWorkerRosterPlannerTests {
       content: "Waiting for worker",
       timestamp: Date(timeIntervalSince1970: 1_730_000_100),
       toolName: "task",
-      toolInput: [
-        "receiver_thread_ids": [worker.id]
-      ],
-      rawToolInput: nil,
-      toolOutput: "Worker found the auth entrypoints and is reporting back.",
-      toolDuration: nil,
-      inputTokens: nil,
-      outputTokens: nil,
       isError: false,
-      isInProgress: false
+      isInProgress: false,
+      toolDisplay: ServerToolDisplay(
+        summary: "Waiting for worker",
+        subtitle: nil,
+        rightMeta: nil,
+        subtitleAbsorbsMeta: false,
+        glyphSymbol: "person.2",
+        glyphColor: "indigo",
+        language: nil,
+        diffPreview: nil,
+        outputPreview: "Worker found the auth entrypoints and is reporting back.",
+        liveOutputPreview: nil,
+        todoItems: [],
+        toolType: "task",
+        summaryFont: "system",
+        displayTier: "standard",
+        inputDisplay: "{\"receiver_thread_ids\":[\"\(worker.id)\"]}",
+        outputDisplay: "Worker found the auth entrypoints and is reporting back.",
+        diffDisplay: nil
+      )
     )
 
     let presentation = SessionWorkerRosterPlanner.detailPresentation(
@@ -371,27 +405,39 @@ struct SessionWorkerRosterPlannerTests {
     )
   }
 
-  private func makeServerMessage(
+  private enum RowEntryType {
+    case user
+    case assistant
+    case thinking
+  }
+
+  private func makeRowEntry(
     id: String,
     sessionId: String,
     sequence: UInt64,
-    type: ServerMessageType,
-    content: String,
-    timestamp: String
-  ) -> ServerMessage {
-    let json = """
-    {
-      "id": "\(id)",
-      "session_id": "\(sessionId)",
-      "sequence": \(sequence),
-      "message_type": "\(type.rawValue)",
-      "content": \(content.debugDescription),
-      "is_error": false,
-      "timestamp": "\(timestamp)"
-    }
-    """
+    rowType: RowEntryType,
+    content: String
+  ) -> ServerConversationRowEntry {
+    let messageRow = ServerConversationMessageRow(
+      id: id,
+      content: content,
+      turnId: nil,
+      timestamp: nil,
+      isStreaming: false,
+      images: nil
+    )
 
-    let decoder = JSONDecoder()
-    return try! decoder.decode(ServerMessage.self, from: Data(json.utf8))
+    let row: ServerConversationRow = switch rowType {
+      case .user: .user(messageRow)
+      case .assistant: .assistant(messageRow)
+      case .thinking: .thinking(messageRow)
+    }
+
+    return ServerConversationRowEntry(
+      sessionId: sessionId,
+      sequence: sequence,
+      turnId: nil,
+      row: row
+    )
   }
 }

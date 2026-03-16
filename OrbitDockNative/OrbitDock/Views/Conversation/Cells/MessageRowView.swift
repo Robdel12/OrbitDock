@@ -13,7 +13,6 @@ struct MessageRowView: View {
   let content: String
   let images: [MessageImage]
   let isStreaming: Bool
-  let availableWidth: CGFloat
   let imageLoader: ImageLoader?
 
   enum Role: String {
@@ -47,8 +46,7 @@ struct MessageRowView: View {
   // MARK: - User (bubble)
 
   private var userMessage: some View {
-    let bubbleMax: CGFloat = min(640, availableWidth)
-    let bubbleContentWidth = bubbleMax - Spacing.lg_ * 2
+    let bubbleMax: CGFloat = 640
 
     return VStack(alignment: .trailing, spacing: Spacing.xs) {
       Text("You")
@@ -59,15 +57,12 @@ struct MessageRowView: View {
         MessageImageView(
           images: images,
           imageLoader: imageLoader,
-          maxWidth: bubbleContentWidth
+          maxWidth: bubbleMax - Spacing.lg_ * 2
         )
       }
 
       if !content.isEmpty {
-        MarkdownContentRepresentable(
-          content: content, style: .standard,
-          availableWidth: bubbleContentWidth
-        )
+        MarkdownContentView(content: content, style: .standard)
       }
     }
     .padding(.horizontal, Spacing.lg_)
@@ -96,15 +91,12 @@ struct MessageRowView: View {
         MessageImageView(
           images: images,
           imageLoader: imageLoader,
-          maxWidth: availableWidth
+          maxWidth: .infinity
         )
       }
 
       if !content.isEmpty {
-        MarkdownContentRepresentable(
-          content: content, style: .standard,
-          availableWidth: availableWidth
-        )
+        MarkdownContentView(content: content, style: .standard)
       }
 
       if isStreaming {

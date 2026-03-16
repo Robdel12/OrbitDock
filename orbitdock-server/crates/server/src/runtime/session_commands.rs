@@ -145,6 +145,11 @@ pub enum SessionCommand {
     AddRowAndBroadcast {
         entry: ConversationRowEntry,
     },
+    /// Upsert an existing row (replace by ID) and broadcast.
+    /// Does NOT increment message count when replacing.
+    UpsertRowAndBroadcast {
+        entry: ConversationRowEntry,
+    },
 
     // -- Approval --
     /// Resolve a pending approval request and promote the next one if present.

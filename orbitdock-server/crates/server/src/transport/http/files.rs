@@ -2,7 +2,7 @@ use super::*;
 use std::path::PathBuf;
 
 use codex_core::config::find_codex_home;
-use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
+use orbitdock_protocol::conversation_contracts::{ConversationRowEntry, RowEntrySummary};
 use orbitdock_protocol::{DirectoryEntry, RecentProject, SubagentTool};
 use tracing::warn;
 
@@ -32,7 +32,7 @@ pub struct SubagentToolsResponse {
 pub struct SubagentMessagesResponse {
     pub session_id: String,
     pub subagent_id: String,
-    pub rows: Vec<ConversationRowEntry>,
+    pub rows: Vec<RowEntrySummary>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,7 +102,7 @@ pub async fn list_subagent_messages_endpoint(
     Json(SubagentMessagesResponse {
         session_id,
         subagent_id,
-        rows,
+        rows: rows.iter().map(|e| e.to_summary()).collect(),
     })
 }
 

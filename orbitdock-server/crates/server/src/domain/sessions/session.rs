@@ -5,7 +5,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
-use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry};
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRow, ConversationRowEntry, ConversationRowSummary, RowEntrySummary,
+};
 use orbitdock_protocol::domain_events::ToolFamily;
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
@@ -31,9 +33,7 @@ fn is_list_relevant(msg: &ServerMessage) -> bool {
             | ServerMessage::SessionListItemUpdated { .. }
             | ServerMessage::SessionListItemRemoved { .. }
             | ServerMessage::SessionEnded { .. }
-            | ServerMessage::SessionDelta { .. }
             | ServerMessage::SessionForked { .. }
-            | ServerMessage::ConversationBootstrap { .. }
     )
 }
 
@@ -346,6 +346,9 @@ pub struct SessionSnapshot {
     pub subscriber_count: usize,
     /// Cached count of unread messages.
     pub unread_count: u64,
+    /// ID of the newest row that has been synced from the transcript.
+    /// Used for sequence-based sync comparison (immune to count inflation).
+    pub newest_synced_row_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -430,6 +433,8 @@ pub struct SessionHandle {
     worktree_id: Option<String>,
     /// Cached count of unread rows (non-user with sequence > last_read).
     unread_count: u64,
+    /// ID of the newest row synced from transcript (for sequence-based sync).
+    newest_synced_row_id: Option<String>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
     list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
@@ -461,6 +466,11 @@ fn is_non_user_row(entry: &ConversationRowEntry) -> bool {
     !matches!(entry.row, ConversationRow::User(_))
 }
 
+fn is_non_user_row_summary(entry: &RowEntrySummary) -> bool {
+    !matches!(entry.row, ConversationRowSummary::User(_))
+}
+
+#[allow(dead_code)]
 fn is_message_row(entry: &ConversationRowEntry) -> bool {
     matches!(
         entry.row,
@@ -471,10 +481,29 @@ fn is_message_row(entry: &ConversationRowEntry) -> bool {
     )
 }
 
+fn is_message_row_summary(entry: &RowEntrySummary) -> bool {
+    matches!(
+        entry.row,
+        ConversationRowSummary::User(_)
+            | ConversationRowSummary::Assistant(_)
+            | ConversationRowSummary::Thinking(_)
+            | ConversationRowSummary::System(_)
+    )
+}
+
+#[allow(dead_code)]
 fn is_actively_streaming_message_row(entry: &ConversationRowEntry) -> bool {
     matches!(
         &entry.row,
         ConversationRow::Assistant(msg) | ConversationRow::Thinking(msg) | ConversationRow::System(msg)
+            if msg.is_streaming
+    )
+}
+
+fn is_actively_streaming_message_row_summary(entry: &RowEntrySummary) -> bool {
+    matches!(
+        &entry.row,
+        ConversationRowSummary::Assistant(msg) | ConversationRowSummary::Thinking(msg) | ConversationRowSummary::System(msg)
             if msg.is_streaming
     )
 }
@@ -506,7 +535,6 @@ impl SessionHandle {
     fn retained_has_more_before(&self) -> bool {
         self.oldest_retained_sequence()
             .is_some_and(|sequence| sequence > 0)
-            || self.total_row_count > self.rows.len() as u64
     }
 
     fn trim_retained_rows(&mut self) {
@@ -626,6 +654,7 @@ impl SessionHandle {
             has_turn_diff: false,
             subscriber_count: 0,
             unread_count: 0,
+            newest_synced_row_id: None,
         };
         Self {
             id,
@@ -681,6 +710,7 @@ impl SessionHandle {
             is_worktree: false,
             worktree_id: None,
             unread_count: 0,
+            newest_synced_row_id: None,
             broadcast_tx,
             list_tx: None,
             revision: 0,
@@ -784,6 +814,7 @@ impl SessionHandle {
             has_turn_diff: current_diff.is_some() || !turn_diffs.is_empty(),
             subscriber_count: 0,
             unread_count,
+            newest_synced_row_id: None, // Will be derived from rows below
         };
 
         let mut handle = Self {
@@ -840,6 +871,7 @@ impl SessionHandle {
             is_worktree: false,
             worktree_id: None,
             unread_count,
+            newest_synced_row_id: None,
             broadcast_tx,
             list_tx: None,
             revision: 0,
@@ -848,6 +880,8 @@ impl SessionHandle {
             snapshot_handle: Arc::new(ArcSwap::from_pointee(snapshot)),
         };
         handle.total_row_count = handle.rows.len() as u64;
+        // Initialize newest_synced_row_id from the last loaded row
+        handle.newest_synced_row_id = handle.rows.last().map(|r| r.id().to_string());
         handle.trim_retained_rows();
         handle.bootstrap_pending_approval_from_persisted_fields();
         handle.refresh_snapshot();
@@ -937,14 +971,6 @@ impl SessionHandle {
             worktree_id: self.worktree_id.clone(),
             unread_count: self.unread_count,
             has_turn_diff: self.current_diff.is_some() || !self.turn_diffs.is_empty(),
-            display_title_sort_key: SessionSummary::display_title_sort_key(&display_title),
-            display_search_text: SessionSummary::display_search_text_from_parts(
-                &display_title,
-                context_line.as_deref(),
-                self.project_name.as_deref(),
-                self.git_branch.as_deref(),
-                self.model.as_deref(),
-            ),
             display_title,
             context_line,
             list_status: SessionSummary::list_status_from_parts(self.status, self.work_status),
@@ -1126,6 +1152,18 @@ impl SessionHandle {
         self.total_row_count as usize
     }
 
+    /// Get the newest synced row ID (for transcript sync comparison).
+    #[allow(dead_code)]
+    pub fn newest_synced_row_id(&self) -> Option<&str> {
+        self.newest_synced_row_id.as_deref()
+    }
+
+    /// Update the newest synced row ID after a successful transcript sync.
+    #[allow(dead_code)]
+    pub fn set_newest_synced_row_id(&mut self, id: Option<String>) {
+        self.newest_synced_row_id = id;
+    }
+
     /// Check if a user row with this content already exists (dedup for connector echo)
     #[allow(dead_code)]
     pub fn has_user_row_with_content(&self, content: &str) -> bool {
@@ -1300,6 +1338,7 @@ impl SessionHandle {
         if is_non_user_row(&entry) {
             self.unread_count += 1;
         }
+        self.newest_synced_row_id = Some(entry.id().to_string());
         self.rows.push(entry.clone());
         self.total_row_count = self.total_row_count.saturating_add(1);
         self.trim_retained_rows();
@@ -1307,13 +1346,55 @@ impl SessionHandle {
         entry
     }
 
+    /// Replace an existing row by ID, or append if not found.
+    /// Does NOT increment total_row_count when replacing or when the row
+    /// was evicted from the retained window (already counted).
+    pub fn upsert_row(&mut self, mut entry: ConversationRowEntry) -> ConversationRowEntry {
+        let entry_id = entry.id().to_string();
+        if let Some(pos) = self.rows.iter().position(|r| r.id() == entry_id) {
+            // Preserve the existing sequence
+            if entry.sequence == 0 {
+                entry.sequence = self.rows[pos].sequence;
+            }
+            self.rows[pos] = entry.clone();
+            // Update newest_synced_row_id if this is the last row
+            if pos == self.rows.len() - 1 {
+                self.newest_synced_row_id = Some(entry_id);
+            }
+            self.last_activity_at = Some(chrono_now());
+            entry
+        } else {
+            // Row not in retained window — may be evicted rather than new.
+            // Append directly without going through add_row() to avoid
+            // false count inflation for evicted rows.
+            if entry.sequence == 0
+                && self
+                    .rows
+                    .last()
+                    .is_none_or(|last| last.sequence >= entry.sequence)
+            {
+                entry.sequence = self.next_row_sequence();
+            }
+            self.newest_synced_row_id = Some(entry.id().to_string());
+            self.rows.push(entry.clone());
+            // Only increment count if this is genuinely new (not evicted).
+            // Evicted rows have total_row_count >> rows.len().
+            if self.rows.len() as u64 > self.total_row_count {
+                self.total_row_count = self.rows.len() as u64;
+            }
+            self.trim_retained_rows();
+            self.last_activity_at = Some(chrono_now());
+            entry
+        }
+    }
+
     /// Increment unread for an already-applied row append in the transition path.
     ///
     /// `dispatch_transition_input` applies the connector state machine result directly,
     /// so it cannot call `add_row` without duplicating the row in memory.
     /// This keeps the in-memory unread count aligned with the persisted count.
-    pub fn note_transition_row_append(&mut self, entry: &ConversationRowEntry) -> bool {
-        if !is_non_user_row(entry) {
+    pub fn note_transition_row_append(&mut self, entry: &RowEntrySummary) -> bool {
+        if !is_non_user_row_summary(entry) {
             return false;
         }
 
@@ -1336,16 +1417,17 @@ impl SessionHandle {
     /// Replace all rows (used for snapshot hydration from transcript fallback)
     pub fn replace_rows(&mut self, mut rows: Vec<ConversationRowEntry>) {
         Self::normalize_row_sequences(&mut rows);
+        self.newest_synced_row_id = rows.last().map(|r| r.id().to_string());
         self.total_row_count = rows.len() as u64;
         self.rows = rows;
         self.streaming_row_emit_at.clear();
         self.trim_retained_rows();
     }
 
-    pub fn should_emit_streaming_row_update(&mut self, upserted: &[ConversationRowEntry]) -> bool {
+    pub fn should_emit_streaming_row_update(&mut self, upserted: &[RowEntrySummary]) -> bool {
         if upserted.len() != 1 {
             for entry in upserted {
-                if !is_actively_streaming_message_row(entry) {
+                if !is_actively_streaming_message_row_summary(entry) {
                     self.streaming_row_emit_at.remove(entry.id());
                 }
             }
@@ -1353,11 +1435,11 @@ impl SessionHandle {
         }
 
         let entry = &upserted[0];
-        if !is_message_row(entry) {
+        if !is_message_row_summary(entry) {
             self.streaming_row_emit_at.remove(entry.id());
             return true;
         }
-        if !is_actively_streaming_message_row(entry) {
+        if !is_actively_streaming_message_row_summary(entry) {
             self.streaming_row_emit_at.remove(entry.id());
             return true;
         }
@@ -1845,6 +1927,7 @@ impl SessionHandle {
             has_turn_diff: self.current_diff.is_some() || !self.turn_diffs.is_empty(),
             subscriber_count: self.broadcast_tx.receiver_count(),
             unread_count: self.unread_count,
+            newest_synced_row_id: self.newest_synced_row_id.clone(),
         }
     }
 
@@ -1939,7 +2022,8 @@ impl SessionHandle {
             revision: self.revision,
             phase,
             rows: self.rows.clone(),
-            total_row_count: self.total_row_count,
+            // Derive from sequences, not the inflatable counter
+            total_row_count: self.rows.last().map(|r| r.sequence + 1).unwrap_or(0),
             token_usage: self.token_usage.clone(),
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             current_diff: self.current_diff.clone(),

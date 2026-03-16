@@ -3,6 +3,7 @@
 //  OrbitDock
 //
 //  Inline image display for ViewImage and ImageGeneration tools.
+//  Features: format badge, dimensions badge, caption support.
 //
 
 import SwiftUI
@@ -27,6 +28,20 @@ struct ImageExpandedView: View {
     }
   }
 
+  private var imageDimensions: String? {
+    guard let path = filePath else { return nil }
+    #if os(macOS)
+    if let image = NSImage(contentsOfFile: path) {
+      return "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
+    }
+    #else
+    if let image = UIImage(contentsOfFile: path) {
+      return "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
+    }
+    #endif
+    return nil
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       // File path breadcrumb
@@ -39,6 +54,14 @@ struct ImageExpandedView: View {
             .font(.system(size: TypeScale.code, design: .monospaced))
             .foregroundStyle(Color.textSecondary)
           Spacer(minLength: 0)
+          if let dims = imageDimensions {
+            Text(dims)
+              .font(.system(size: TypeScale.mini, weight: .semibold))
+              .foregroundStyle(Color.textQuaternary)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.xxs)
+              .background(Color.backgroundSecondary, in: Capsule())
+          }
           if let badge = formatBadge {
             Text(badge)
               .font(.system(size: TypeScale.mini, weight: .semibold))
@@ -55,7 +78,15 @@ struct ImageExpandedView: View {
         inlineImage(path: path)
       }
 
-      if let output = content.outputDisplay, !output.isEmpty {
+      // Caption support — short, single-line output treated as caption
+      if let output = content.outputDisplay, !output.isEmpty,
+         !output.contains("\n"), output.count < 200 {
+        Text(output)
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+          .italic()
+          .padding(.top, Spacing.xs)
+      } else if let output = content.outputDisplay, !output.isEmpty {
         VStack(alignment: .leading, spacing: Spacing.xs) {
           Text("Result")
             .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -78,7 +109,7 @@ struct ImageExpandedView: View {
       Image(nsImage: image)
         .resizable()
         .aspectRatio(contentMode: .fit)
-        .frame(maxHeight: 300)
+        .frame(maxHeight: 400)
         .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
     } else {
       imageFallback(path: path)
@@ -88,7 +119,7 @@ struct ImageExpandedView: View {
       Image(uiImage: image)
         .resizable()
         .aspectRatio(contentMode: .fit)
-        .frame(maxHeight: 300)
+        .frame(maxHeight: 400)
         .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
     } else {
       imageFallback(path: path)

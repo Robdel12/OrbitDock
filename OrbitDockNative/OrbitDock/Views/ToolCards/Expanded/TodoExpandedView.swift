@@ -15,14 +15,33 @@ struct TodoExpandedView: View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       if let display, !display.todoItems.isEmpty {
         let completed = display.todoItems.filter { $0.status == "completed" }.count
+        let inProgress = display.todoItems.filter { $0.status == "in_progress" }.count
         let total = display.todoItems.count
+
+        // Operation header
+        Text(detectOperation(completed: completed, inProgress: inProgress, total: total))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.toolTodo)
+          .padding(.bottom, Spacing.xs)
 
         // Progress bar
         ProgressSummaryBar(completed: completed, total: total)
 
-        // Todo items
+        // Todo items — sorted: in-progress first, then pending, then completed
+        let sortedItems = display.todoItems.sorted { a, b in
+          let order: (String) -> Int = { status in
+            switch status {
+            case "in_progress": return 0
+            case "pending": return 1
+            case "completed": return 2
+            default: return 1
+            }
+          }
+          return order(a.status) < order(b.status)
+        }
+
         VStack(alignment: .leading, spacing: Spacing.xs) {
-          ForEach(Array(display.todoItems.enumerated()), id: \.offset) { _, item in
+          ForEach(Array(sortedItems.enumerated()), id: \.offset) { _, item in
             todoItemRow(item)
           }
         }
@@ -56,6 +75,12 @@ struct TodoExpandedView: View {
         }
       }
     }
+  }
+
+  private func detectOperation(completed: Int, inProgress: Int, total: Int) -> String {
+    if completed == total { return "All \(total) items complete" }
+    if inProgress > 0 { return "\(inProgress) in progress, \(completed)/\(total) done" }
+    return "\(total) items"
   }
 
   private func todoItemRow(_ item: ServerToolTodoItem) -> some View {

@@ -19,19 +19,6 @@ final class ServerClients: Sendable {
   let worktrees: WorktreesClient
   let imageLoader: ImageLoader
 
-  convenience init(serverURL: URL, authToken: String?) {
-    let baseURL = ServerURLResolver.httpBaseURL(from: serverURL)
-    let requestBuilder = HTTPRequestBuilder(baseURL: baseURL, authToken: authToken)
-    let transport = HTTPTransport()
-    self.init(
-      baseURL: baseURL,
-      requestBuilder: requestBuilder,
-      responseLoader: { request in
-        try await transport.execute(request)
-      }
-    )
-  }
-
   convenience init(
     serverURL: URL,
     authToken: String?,

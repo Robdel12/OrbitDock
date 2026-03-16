@@ -38,7 +38,7 @@ struct ConversationWorkerToolSnapshot: Sendable, Equatable, Identifiable {
 
 struct ConversationWorkerThreadEntrySnapshot: Sendable, Equatable, Identifiable {
   let id: String
-  let type: ServerMessageType
+  let type: String
   let title: String
   let body: String
   let timestamp: String?
@@ -145,7 +145,7 @@ struct ConversationMetadataInput {
   let workers: [ServerSubagentInfo]
   let selectedWorkerID: String?
   let toolsByWorker: [String: [ServerSubagentTool]]
-  let messagesByWorker: [String: [ServerMessage]]
+  let messagesByWorker: [String: [ServerConversationRowEntry]]
   let tokenUsage: ServerTokenUsage?
   let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind?
   let provider: Provider
@@ -165,7 +165,7 @@ struct ConversationMetadataInput {
     workers: [ServerSubagentInfo] = [],
     selectedWorkerID: String? = nil,
     toolsByWorker: [String: [ServerSubagentTool]] = [:],
-    messagesByWorker: [String: [ServerMessage]] = [:],
+    messagesByWorker: [String: [ServerConversationRowEntry]] = [:],
     tokenUsage: ServerTokenUsage? = nil,
     tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind? = nil,
     provider: Provider,

@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::conversation_contracts::activity_groups::ActivityGroupRow;
+use crate::conversation_contracts::activity_groups::{ActivityGroupRow, ActivityGroupRowSummary};
 use crate::conversation_contracts::approvals::{ApprovalRow, QuestionRow};
 use crate::conversation_contracts::render_hints::RenderHints;
-use crate::conversation_contracts::tool_display::ToolDisplay;
+use crate::conversation_contracts::tool_display::{compute_tool_display, ToolDisplay};
 use crate::conversation_contracts::tool_payloads::{
     ToolInvocationPayloadContract, ToolPreview, ToolResultPayloadContract,
 };
@@ -161,6 +161,173 @@ pub enum ConversationRow {
     System(SystemRow),
 }
 
+// ---------------------------------------------------------------------------
+// Wire-safe summary types — no raw tool payloads, guaranteed tool_display
+// ---------------------------------------------------------------------------
+
+/// Wire-safe tool row for WS events and HTTP timeline responses.
+/// Carries all display metadata but never raw invocation/result payloads.
+/// `tool_display` is required — the server always computes it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ToolRowSummary {
+    pub id: String,
+    pub provider: Provider,
+    pub family: ToolFamily,
+    pub kind: ToolKind,
+    pub status: ToolStatus,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<ToolPreview>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grouping_key: Option<String>,
+    #[serde(default)]
+    pub render_hints: RenderHints,
+    /// Always present on wire — server computes eagerly.
+    pub tool_display: ToolDisplay,
+}
+
+impl ToolRow {
+    /// Convert to wire-safe summary, stripping raw invocation/result.
+    /// Guarantees `tool_display` is populated — computes it on the fly if missing.
+    pub fn to_summary(&self) -> ToolRowSummary {
+        let display = self.tool_display.clone().unwrap_or_else(|| {
+            let result_str = self.result.as_ref().and_then(|v| v.as_str());
+            compute_tool_display(
+                self.kind,
+                self.family,
+                self.status,
+                &self.title,
+                self.subtitle.as_deref(),
+                self.summary.as_deref(),
+                self.duration_ms,
+                Some(&self.invocation),
+                result_str,
+            )
+        });
+        ToolRowSummary {
+            id: self.id.clone(),
+            provider: self.provider,
+            family: self.family,
+            kind: self.kind,
+            status: self.status,
+            title: self.title.clone(),
+            subtitle: self.subtitle.clone(),
+            summary: self.summary.clone(),
+            preview: self.preview.clone(),
+            started_at: self.started_at.clone(),
+            ended_at: self.ended_at.clone(),
+            duration_ms: self.duration_ms,
+            grouping_key: self.grouping_key.clone(),
+            render_hints: self.render_hints.clone(),
+            tool_display: display,
+        }
+    }
+}
+
+/// Wire-safe row enum — Tool and ActivityGroup variants use summary types.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "row_type", rename_all = "snake_case")]
+pub enum ConversationRowSummary {
+    User(UserRow),
+    Assistant(AssistantRow),
+    Thinking(ThinkingRow),
+    Tool(ToolRowSummary),
+    ActivityGroup(ActivityGroupRowSummary),
+    Question(QuestionRow),
+    Approval(ApprovalRow),
+    Worker(WorkerRow),
+    Plan(PlanRow),
+    Hook(HookRow),
+    Handoff(HandoffRow),
+    System(SystemRow),
+}
+
+impl ConversationRow {
+    /// Convert to wire-safe summary.
+    pub fn to_summary(&self) -> ConversationRowSummary {
+        match self {
+            ConversationRow::User(r) => ConversationRowSummary::User(r.clone()),
+            ConversationRow::Assistant(r) => ConversationRowSummary::Assistant(r.clone()),
+            ConversationRow::Thinking(r) => ConversationRowSummary::Thinking(r.clone()),
+            ConversationRow::System(r) => ConversationRowSummary::System(r.clone()),
+            ConversationRow::Tool(r) => ConversationRowSummary::Tool(r.to_summary()),
+            ConversationRow::ActivityGroup(r) => {
+                ConversationRowSummary::ActivityGroup(r.to_summary())
+            }
+            ConversationRow::Question(r) => ConversationRowSummary::Question(r.clone()),
+            ConversationRow::Approval(r) => ConversationRowSummary::Approval(r.clone()),
+            ConversationRow::Worker(r) => ConversationRowSummary::Worker(r.clone()),
+            ConversationRow::Plan(r) => ConversationRowSummary::Plan(r.clone()),
+            ConversationRow::Hook(r) => ConversationRowSummary::Hook(r.clone()),
+            ConversationRow::Handoff(r) => ConversationRowSummary::Handoff(r.clone()),
+        }
+    }
+}
+
+/// Wire-safe entry wrapper.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RowEntrySummary {
+    pub session_id: String,
+    pub sequence: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub row: ConversationRowSummary,
+}
+
+impl RowEntrySummary {
+    pub fn id(&self) -> &str {
+        match &self.row {
+            ConversationRowSummary::User(row)
+            | ConversationRowSummary::Assistant(row)
+            | ConversationRowSummary::Thinking(row)
+            | ConversationRowSummary::System(row) => &row.id,
+            ConversationRowSummary::Plan(row) => &row.id,
+            ConversationRowSummary::Hook(row) => &row.id,
+            ConversationRowSummary::Handoff(row) => &row.id,
+            ConversationRowSummary::Tool(row) => &row.id,
+            ConversationRowSummary::ActivityGroup(row) => &row.id,
+            ConversationRowSummary::Question(row) => &row.id,
+            ConversationRowSummary::Approval(row) => &row.id,
+            ConversationRowSummary::Worker(row) => &row.id,
+        }
+    }
+}
+
+impl ConversationRowEntry {
+    /// Convert to wire-safe summary.
+    pub fn to_summary(&self) -> RowEntrySummary {
+        RowEntrySummary {
+            session_id: self.session_id.clone(),
+            sequence: self.sequence,
+            turn_id: self.turn_id.clone(),
+            row: self.row.to_summary(),
+        }
+    }
+}
+
+/// Wire-safe page using summary entries.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RowPageSummary {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rows: Vec<RowEntrySummary>,
+    pub total_row_count: u64,
+    pub has_more_before: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oldest_sequence: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub newest_sequence: Option<u64>,
+}
+
 /// Extract a human-readable content string from a conversation row.
 pub fn extract_row_content_str(row: &ConversationRow) -> String {
     match row {
@@ -176,6 +343,24 @@ pub fn extract_row_content_str(row: &ConversationRow) -> String {
         ConversationRow::Approval(a) => a.id.clone(),
         ConversationRow::Question(q) => q.id.clone(),
         ConversationRow::ActivityGroup(g) => g.title.clone(),
+    }
+}
+
+/// Extract a human-readable content string from a summary row.
+pub fn extract_row_content_str_summary(row: &ConversationRowSummary) -> String {
+    match row {
+        ConversationRowSummary::User(m)
+        | ConversationRowSummary::Assistant(m)
+        | ConversationRowSummary::Thinking(m)
+        | ConversationRowSummary::System(m) => m.content.clone(),
+        ConversationRowSummary::Tool(t) => t.title.clone(),
+        ConversationRowSummary::Plan(p) => p.title.clone(),
+        ConversationRowSummary::Hook(h) => h.title.clone(),
+        ConversationRowSummary::Handoff(h) => h.title.clone(),
+        ConversationRowSummary::Worker(w) => w.title.clone(),
+        ConversationRowSummary::Approval(a) => a.id.clone(),
+        ConversationRowSummary::Question(q) => q.id.clone(),
+        ConversationRowSummary::ActivityGroup(g) => g.title.clone(),
     }
 }
 

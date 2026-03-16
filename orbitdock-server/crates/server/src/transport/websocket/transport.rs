@@ -2,7 +2,7 @@ use bytes::Bytes;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use orbitdock_protocol::conversation_contracts::ConversationRowPage;
+use orbitdock_protocol::conversation_contracts::RowPageSummary;
 use orbitdock_protocol::{ServerMessage, SessionState};
 
 use crate::support::snapshot_compaction::{
@@ -102,7 +102,7 @@ pub(crate) async fn send_snapshot_if_requested(
             tx,
             ServerMessage::ConversationBootstrap {
                 session: prepare_snapshot_for_transport(snapshot),
-                conversation: ConversationRowPage {
+                conversation: RowPageSummary {
                     rows: vec![],
                     total_row_count: 0,
                     has_more_before: false,

@@ -7,143 +7,6 @@
 
 import Foundation
 
-// MARK: - Legacy Subagent Message Types
-
-enum ServerMessageType: String, Codable {
-  case user
-  case assistant
-  case thinking
-  case tool
-  case toolResult = "tool_result"
-  case steer
-  case shell
-}
-
-// MARK: - Legacy Subagent Message Types
-
-struct ServerMessage: Codable, Identifiable {
-  let id: String
-  let sessionId: String
-  let sequence: UInt64?
-  let type: ServerMessageType
-  let content: String
-  let toolName: String?
-  let toolInput: String? // JSON string
-  let toolOutput: String?
-  let isError: Bool
-  let isInProgress: Bool
-  let timestamp: String
-  let durationMs: UInt64?
-  let images: [ServerImageInput]?
-  let toolFamily: String?
-  let toolDisplay: ServerToolDisplay?
-
-  enum CodingKeys: String, CodingKey {
-    case id
-    case sessionId = "session_id"
-    case sequence
-    case type = "message_type"
-    case content
-    case toolName = "tool_name"
-    case toolInput = "tool_input"
-    case toolOutput = "tool_output"
-    case isError = "is_error"
-    case isInProgress = "is_in_progress"
-    case timestamp
-    case durationMs = "duration_ms"
-    case images
-    case toolFamily = "tool_family"
-    case toolDisplay = "tool_display"
-  }
-
-  init(
-    id: String,
-    sessionId: String,
-    sequence: UInt64?,
-    type: ServerMessageType,
-    content: String,
-    toolName: String?,
-    toolInput: String?,
-    toolOutput: String?,
-    isError: Bool,
-    isInProgress: Bool,
-    timestamp: String,
-    durationMs: UInt64?,
-    images: [ServerImageInput],
-    toolFamily: String? = nil,
-    toolDisplay: ServerToolDisplay? = nil
-  ) {
-    self.id = id
-    self.sessionId = sessionId
-    self.sequence = sequence
-    self.type = type
-    self.content = content
-    self.toolName = toolName
-    self.toolInput = toolInput
-    self.toolOutput = toolOutput
-    self.isError = isError
-    self.isInProgress = isInProgress
-    self.timestamp = timestamp
-    self.durationMs = durationMs
-    self.images = images
-    self.toolFamily = toolFamily
-    self.toolDisplay = toolDisplay
-  }
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(String.self, forKey: .id)
-    sessionId = try container.decode(String.self, forKey: .sessionId)
-    sequence = try container.decodeIfPresent(UInt64.self, forKey: .sequence)
-    type = try container.decode(ServerMessageType.self, forKey: .type)
-    content = try container.decode(String.self, forKey: .content)
-    toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
-    toolInput = try container.decodeIfPresent(String.self, forKey: .toolInput)
-    toolOutput = try container.decodeIfPresent(String.self, forKey: .toolOutput)
-    isError = try container.decode(Bool.self, forKey: .isError)
-    isInProgress = try container.decodeIfPresent(Bool.self, forKey: .isInProgress) ?? false
-    timestamp = try container.decode(String.self, forKey: .timestamp)
-    durationMs = try container.decodeIfPresent(UInt64.self, forKey: .durationMs)
-    images = try container.decodeIfPresent([ServerImageInput].self, forKey: .images) ?? []
-    toolFamily = try container.decodeIfPresent(String.self, forKey: .toolFamily)
-    toolDisplay = try container.decodeIfPresent(ServerToolDisplay.self, forKey: .toolDisplay)
-  }
-
-  func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(sessionId, forKey: .sessionId)
-    try container.encodeIfPresent(sequence, forKey: .sequence)
-    try container.encode(type, forKey: .type)
-    try container.encode(content, forKey: .content)
-    try container.encodeIfPresent(toolName, forKey: .toolName)
-    try container.encodeIfPresent(toolInput, forKey: .toolInput)
-    try container.encodeIfPresent(toolOutput, forKey: .toolOutput)
-    try container.encode(isError, forKey: .isError)
-    if isInProgress {
-      try container.encode(isInProgress, forKey: .isInProgress)
-    }
-    try container.encode(timestamp, forKey: .timestamp)
-    try container.encodeIfPresent(durationMs, forKey: .durationMs)
-    if let images, !images.isEmpty {
-      try container.encode(images, forKey: .images)
-    }
-    try container.encodeIfPresent(toolFamily, forKey: .toolFamily)
-    try container.encodeIfPresent(toolDisplay, forKey: .toolDisplay)
-  }
-
-  /// Parse toolInput JSON string to dictionary if needed
-  var toolInputDict: [String: Any]? {
-    guard let json = toolInput,
-          let data = json.data(using: .utf8),
-          let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else {
-      return nil
-    }
-    return dict
-  }
-}
-
 // MARK: - Conversation Rows
 
 enum ServerConversationRowType: String, Codable {
@@ -287,6 +150,8 @@ struct ServerConversationMessageRow: Codable {
   }
 }
 
+/// Wire-safe tool row — no raw invocation/result payloads, guaranteed toolDisplay.
+/// Mirrors Rust `ToolRowSummary`. Client renders from `toolDisplay` directly.
 struct ServerConversationToolRow: Codable {
   let id: String
   let provider: ServerProvider
@@ -301,10 +166,8 @@ struct ServerConversationToolRow: Codable {
   let endedAt: String?
   let durationMs: UInt64?
   let groupingKey: AnyCodable?
-  let invocation: AnyCodable
-  let result: AnyCodable?
   let renderHints: ServerConversationRenderHints
-  let toolDisplay: ServerToolDisplay?
+  let toolDisplay: ServerToolDisplay
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -320,8 +183,6 @@ struct ServerConversationToolRow: Codable {
     case endedAt = "ended_at"
     case durationMs = "duration_ms"
     case groupingKey = "grouping_key"
-    case invocation
-    case result
     case renderHints = "render_hints"
     case toolDisplay = "tool_display"
   }
@@ -686,8 +547,6 @@ struct ServerConversationHistoryPage: Codable {
     case rows
     case totalRowCount = "total_row_count"
     case totalMessageCount = "total_message_count"
-    case messages
-    case sessionId = "session_id"
     case hasMoreBefore = "has_more_before"
     case oldestSequence = "oldest_sequence"
     case newestSequence = "newest_sequence"
@@ -709,13 +568,7 @@ struct ServerConversationHistoryPage: Codable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    if let directRows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) {
-      rows = directRows
-    } else {
-      let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId) ?? ""
-      let messages = try container.decodeIfPresent([ServerMessage].self, forKey: .messages) ?? []
-      rows = messages.map { $0.toConversationRowEntry(defaultSessionId: sessionId) }
-    }
+    rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? []
     let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
     let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
     totalRowCount = directTotalRowCount ?? legacyTotalMessageCount ?? UInt64(rows.count)
@@ -793,6 +646,43 @@ struct ServerToolDisplay: Codable {
     case inputDisplay = "input_display"
     case outputDisplay = "output_display"
     case diffDisplay = "diff_display"
+  }
+
+  /// Minimal placeholder for legacy conversion paths where server-computed display is unavailable.
+  static func placeholder(summary: String, toolType: String) -> ServerToolDisplay {
+    ServerToolDisplay(
+      summary: summary, subtitle: nil, rightMeta: nil, subtitleAbsorbsMeta: false,
+      glyphSymbol: "gearshape", glyphColor: "secondaryLabel", language: nil,
+      diffPreview: nil, outputPreview: nil, liveOutputPreview: nil, todoItems: [],
+      toolType: toolType, summaryFont: "system", displayTier: "standard",
+      inputDisplay: nil, outputDisplay: nil, diffDisplay: nil
+    )
+  }
+
+  init(
+    summary: String, subtitle: String?, rightMeta: String?, subtitleAbsorbsMeta: Bool,
+    glyphSymbol: String, glyphColor: String, language: String?,
+    diffPreview: ServerToolDiffPreview?, outputPreview: String?, liveOutputPreview: String?,
+    todoItems: [ServerToolTodoItem], toolType: String, summaryFont: String, displayTier: String,
+    inputDisplay: String?, outputDisplay: String?, diffDisplay: String?
+  ) {
+    self.summary = summary
+    self.subtitle = subtitle
+    self.rightMeta = rightMeta
+    self.subtitleAbsorbsMeta = subtitleAbsorbsMeta
+    self.glyphSymbol = glyphSymbol
+    self.glyphColor = glyphColor
+    self.language = language
+    self.diffPreview = diffPreview
+    self.outputPreview = outputPreview
+    self.liveOutputPreview = liveOutputPreview
+    self.todoItems = todoItems
+    self.toolType = toolType
+    self.summaryFont = summaryFont
+    self.displayTier = displayTier
+    self.inputDisplay = inputDisplay
+    self.outputDisplay = outputDisplay
+    self.diffDisplay = diffDisplay
   }
 
   init(from decoder: Decoder) throws {

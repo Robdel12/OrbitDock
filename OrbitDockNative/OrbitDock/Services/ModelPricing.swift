@@ -113,15 +113,12 @@ struct ModelPrice: Codable {
   }
 }
 
-typealias ModelPricingAsyncRunner = (@escaping @Sendable () -> Void) -> Void
-
-/// Service for fetching and caching model pricing
+/// Service for caching model pricing (local/cached only — no remote fetches)
 final class ModelPricingService: @unchecked Sendable {
   static let shared = ModelPricingService()
 
   private let lock = NSLock()
   private var _prices: [String: ModelPrice] = [:]
-  private var _isLoading = false
   private var _lastUpdated: Date?
 
   var prices: [String: ModelPrice] {
@@ -130,11 +127,7 @@ final class ModelPricingService: @unchecked Sendable {
     return _prices
   }
 
-  var isLoading: Bool {
-    lock.lock()
-    defer { lock.unlock() }
-    return _isLoading
-  }
+  var isLoading: Bool { false }
 
   var lastUpdated: Date? {
     lock.lock()
@@ -147,21 +140,13 @@ final class ModelPricingService: @unchecked Sendable {
   }
 
   private let cacheURL: URL
-  private let liteLLMURL =
-    URL(string: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")!
-  private let loadRemoteData: @Sendable (URL) throws -> Data
-  private let runAsync: ModelPricingAsyncRunner
 
   static func live() -> ModelPricingService {
     ModelPricingService()
   }
 
   init(
-    cacheURL: URL? = nil,
-    loadRemoteData: @escaping @Sendable (URL) throws -> Data = { try Data(contentsOf: $0) },
-    runAsync: @escaping ModelPricingAsyncRunner = { work in
-      DispatchQueue.global(qos: .utility).async(execute: work)
-    }
+    cacheURL: URL? = nil
   ) {
     if let cacheURL {
       self.cacheURL = cacheURL
@@ -169,8 +154,6 @@ final class ModelPricingService: @unchecked Sendable {
       let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
       self.cacheURL = cacheDir.appendingPathComponent("model_pricing.json")
     }
-    self.loadRemoteData = loadRemoteData
-    self.runAsync = runAsync
     loadCachedPrices()
   }
 
@@ -229,42 +212,6 @@ final class ModelPricingService: @unchecked Sendable {
       ),
     ]
     lock.unlock()
-  }
-
-  /// Fetch latest prices from LiteLLM
-  func fetchPrices() {
-    // Check loading state synchronously
-    lock.lock()
-    guard !_isLoading else {
-      lock.unlock()
-      return
-    }
-    _isLoading = true
-    lock.unlock()
-
-    runAsync { [self] in
-      do {
-        let data = try loadRemoteData(liteLLMURL)
-        let decoded = try JSONDecoder().decode([String: ModelPrice].self, from: data)
-
-        // Save to cache
-        try data.write(to: cacheURL)
-
-        // Update state synchronously
-        lock.lock()
-        _prices = decoded
-        _lastUpdated = Date()
-        _isLoading = false
-        lock.unlock()
-
-        print("[ModelPricing] Loaded \(decoded.count) models from LiteLLM")
-      } catch {
-        print("[ModelPricing] Failed to fetch: \(error)")
-        lock.lock()
-        _isLoading = false
-        lock.unlock()
-      }
-    }
   }
 
   /// Get pricing for a model (with fuzzy matching)

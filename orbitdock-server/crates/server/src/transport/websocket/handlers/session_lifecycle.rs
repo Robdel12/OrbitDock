@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
 
-use orbitdock_protocol::conversation_contracts::ConversationRowPage;
+use orbitdock_protocol::conversation_contracts::RowPageSummary;
 use orbitdock_protocol::{
     ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
     SessionListItem, SessionStatus, StateChanges, WorkStatus,
@@ -139,7 +139,7 @@ pub(crate) async fn handle(
                 client_tx,
                 ServerMessage::ConversationBootstrap {
                     session: snapshot,
-                    conversation: ConversationRowPage {
+                    conversation: RowPageSummary {
                         rows: vec![],
                         total_row_count: 0,
                         has_more_before: false,
@@ -1012,7 +1012,7 @@ pub(crate) async fn handle(
                                     client_tx,
                                     ServerMessage::ConversationBootstrap {
                                         session: prepare_snapshot_for_transport(*snapshot),
-                                        conversation: ConversationRowPage {
+                                        conversation: RowPageSummary {
                                             rows: vec![],
                                             total_row_count: 0,
                                             has_more_before: false,

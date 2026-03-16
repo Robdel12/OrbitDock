@@ -13,6 +13,7 @@ import SwiftUI
 struct StatsPopoverContent: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(UsageServiceRegistry.self) private var registry
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   let todayStats: StatusBarStats
   let allStats: StatusBarStats
@@ -43,7 +44,10 @@ struct StatsPopoverContent: View {
       .padding(Spacing.lg)
     }
     .frame(minWidth: layoutMode.isPhoneCompact ? nil : 300)
-    .task { await registry.refreshAll() }
+    .task {
+      await runtimeRegistry.waitForAnyQueryReadyRuntime()
+      await registry.refreshAll()
+    }
   }
 
   // MARK: - Usage Section

@@ -1,39 +1,17 @@
 import Foundation
 
-/// The app's central store. Holds the session list and connection state.
-/// Fed by WebSocket events from ServerConnection.
+/// Thin view model over ServerRuntimeRegistry.
+/// Provides session list queries for dashboard, sidebar, menu bar, and quick switcher.
+/// Does NOT own any network connections — all data comes from the registry's runtimes.
 @Observable
 @MainActor
 final class AppStore {
-  let connection: ServerConnection
+  let runtimeRegistry: ServerRuntimeRegistry
 
-  // Session list — drives dashboard, sidebar, quick switcher
-  private(set) var sessions: [RootSessionNode] = []
-  private(set) var connectionStatus: ConnectionStatus = .disconnected
+  @ObservationIgnored private var previewSessionsByID: [String: RootSessionNode]?
 
-  @ObservationIgnored private var sessionsByID: [String: RootSessionNode] = [:]
-
-  init(connection: ServerConnection) {
-    self.connection = connection
-  }
-
-  /// Convenience init for preview and test scenarios that construct from a registry.
-  convenience init(
-    runtimeRegistry: ServerRuntimeRegistry,
-    attentionService: AttentionService,
-    notificationManager: NotificationManager,
-    toastManager: ToastManager
-  ) {
-    let endpoint = runtimeRegistry.runtimes.first?.endpoint
-      ?? ServerEndpoint.localDefault()
-    self.init(connection: ServerConnection(endpoint: endpoint))
-  }
-
-  func start() {
-    connection.eventStream.onEvent = { [weak self] event in
-      self?.handleEvent(event)
-    }
-    connection.connect()
+  init(runtimeRegistry: ServerRuntimeRegistry) {
+    self.runtimeRegistry = runtimeRegistry
   }
 
   // MARK: - Per-window context
@@ -44,24 +22,54 @@ final class AppStore {
     // Toast filtering for per-window context — placeholder for now
   }
 
-  func runtimeGraphDidChange() {
-    // Reconnection handling — placeholder for now
-  }
-
   func sessionRef(for sessionID: String) -> SessionRef? {
     resolveSessionRef(sessionID: sessionID)
   }
 
   func resolveSessionRef(sessionID: String) -> SessionRef? {
-    // Try to find the session in our list
-    if let node = sessionsByID.values.first(where: { $0.sessionId == sessionID }) {
+    // Check preview/test data first
+    if let previewIndex = previewSessionsByID {
+      if let node = previewIndex.values.first(where: { $0.sessionId == sessionID }) {
+        return node.sessionRef
+      }
+      return nil
+    }
+
+    // Try to find the session in the registry's aggregated list
+    if let node = runtimeRegistry.sessionNode(forScopedID: sessionID) {
       return node.sessionRef
     }
-    // Fall back to constructing from the connection's endpoint
-    return SessionRef(endpointId: connection.endpoint.id, sessionId: sessionID)
+
+    // Try matching just the sessionId across all sessions
+    if let node = sessions.first(where: { $0.sessionId == sessionID }) {
+      return node.sessionRef
+    }
+
+    // Fall back to active endpoint
+    if let activeEndpointId = runtimeRegistry.activeEndpointId {
+      return SessionRef(endpointId: activeEndpointId, sessionId: sessionID)
+    }
+
+    return nil
   }
 
   // MARK: - Queries
+
+  var sessions: [RootSessionNode] {
+    if let previewIndex = previewSessionsByID {
+      return Array(previewIndex.values).sorted { lhs, rhs in
+        if lhs.isActive != rhs.isActive { return lhs.isActive }
+        let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+        let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+        return lhsDate > rhsDate
+      }
+    }
+    return runtimeRegistry.aggregatedSessions
+  }
+
+  var connectionStatus: ConnectionStatus {
+    runtimeRegistry.activeConnectionStatus
+  }
 
   var activeSessions: [RootSessionNode] {
     sessions.filter(\.isActive)
@@ -83,15 +91,16 @@ final class AppStore {
   }
 
   func session(for scopedID: String) -> RootSessionNode? {
-    sessionsByID[scopedID]
+    if let previewIndex = previewSessionsByID {
+      return previewIndex[scopedID]
+    }
+    return runtimeRegistry.sessionNode(forScopedID: scopedID)
   }
 
-  /// Compatibility: active sessions sorted for mission control
   func missionControlRecords() -> [RootSessionNode] {
     sessions.filter(\.showsInMissionControl)
   }
 
-  /// Compatibility: recently ended sessions
   func recentRecords(limit: Int? = nil) -> [RootSessionNode] {
     let recent = sessions
       .filter { !$0.showsInMissionControl }
@@ -104,77 +113,16 @@ final class AppStore {
     return recent
   }
 
-  /// Compatibility: all records optionally filtered
   func records(filter: RootShellEndpointFilter? = nil) -> [RootSessionNode] {
     sessions
   }
 
   /// Seed sessions for preview/test scenarios
   func seed(records: [RootSessionNode]) {
-    sessionsByID.removeAll()
+    var index: [String: RootSessionNode] = [:]
     for record in records {
-      sessionsByID[record.scopedID] = record
+      index[record.scopedID] = record
     }
-    refreshSortedSessions()
-  }
-
-  // MARK: - Event Handling
-
-  private func handleEvent(_ event: ServerEvent) {
-    switch event {
-    case let .connectionStatusChanged(status):
-      connectionStatus = status
-
-    case let .sessionsList(items):
-      let endpointId = connection.endpoint.id
-      let endpointName = connection.endpoint.name
-      sessionsByID.removeAll()
-      for item in items {
-        let node = RootSessionNode(
-          session: item,
-          endpointId: endpointId,
-          endpointName: endpointName,
-          connectionStatus: .connected
-        )
-        sessionsByID[node.scopedID] = node
-      }
-      refreshSortedSessions()
-
-    case let .sessionCreated(item), let .sessionListItemUpdated(item):
-      let node = RootSessionNode(
-        session: item,
-        endpointId: connection.endpoint.id,
-        endpointName: connection.endpoint.name,
-        connectionStatus: .connected
-      )
-      sessionsByID[node.scopedID] = node
-      refreshSortedSessions()
-
-    case let .sessionListItemRemoved(sessionId):
-      let scopedID = ScopedSessionID(endpointId: connection.endpoint.id, sessionId: sessionId).scopedID
-      sessionsByID.removeValue(forKey: scopedID)
-      refreshSortedSessions()
-
-    case let .sessionEnded(sessionId, reason):
-      let scopedID = ScopedSessionID(endpointId: connection.endpoint.id, sessionId: sessionId).scopedID
-      if let existing = sessionsByID[scopedID] {
-        sessionsByID[scopedID] = existing.ended(reason: reason)
-        refreshSortedSessions()
-      }
-
-    default:
-      break
-    }
-  }
-
-  private func refreshSortedSessions() {
-    sessions = Array(sessionsByID.values).sorted { lhs, rhs in
-      // Active first
-      if lhs.isActive != rhs.isActive { return lhs.isActive }
-      // Then by most recent activity
-      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
-      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
-      return lhsDate > rhsDate
-    }
+    previewSessionsByID = index
   }
 }

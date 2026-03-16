@@ -189,14 +189,27 @@ struct ApprovalCardModelTests {
         content: "Exit plan mode",
         timestamp: Date(),
         toolName: "ExitPlanMode",
-        toolInput: nil,
-        rawToolInput: "{\"plan\":\"# Plan\\n1. Clarify requirements\\n2. Implement change\"}",
-        toolOutput: nil,
-        toolDuration: nil,
-        inputTokens: nil,
-        outputTokens: nil,
         isError: false,
-        isInProgress: true
+        isInProgress: true,
+        toolDisplay: ServerToolDisplay(
+          summary: "Exit plan mode",
+          subtitle: nil,
+          rightMeta: nil,
+          subtitleAbsorbsMeta: false,
+          glyphSymbol: "list.bullet",
+          glyphColor: "secondaryLabel",
+          language: nil,
+          diffPreview: nil,
+          outputPreview: nil,
+          liveOutputPreview: nil,
+          todoItems: [],
+          toolType: "plan",
+          summaryFont: "system",
+          displayTier: "standard",
+          inputDisplay: "{\"plan\":\"# Plan\\n1. Clarify requirements\\n2. Implement change\"}",
+          outputDisplay: nil,
+          diffDisplay: nil
+        )
       ),
     ]
 

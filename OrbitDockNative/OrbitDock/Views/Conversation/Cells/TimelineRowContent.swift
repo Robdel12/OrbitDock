@@ -14,7 +14,6 @@ private let userBubbleMaxWidth: CGFloat = 640
 struct TimelineRowContent: View {
   let entry: ServerConversationRowEntry
   let isExpanded: Bool
-  var availableWidth: CGFloat = 600
   var sessionId: String = ""
   var clients: ServerClients?
   var fetchedContent: ServerRowContent?
@@ -23,11 +22,6 @@ struct TimelineRowContent: View {
   var isItemExpanded: ((String) -> Bool)?
   var contentForChild: ((String) -> ServerRowContent?)?
   var isChildLoading: ((String) -> Bool)?
-
-  /// Width available to cell content after horizontal padding.
-  private var contentWidth: CGFloat {
-    max(100, availableWidth - horizontalPad * 2)
-  }
 
   private var isUserRow: Bool {
     if case .user = entry.row { return true }
@@ -52,7 +46,7 @@ struct TimelineRowContent: View {
       MessageRowView(
         role: .user, content: msg.content,
         images: convertImages(msg.images),
-        isStreaming: msg.isStreaming, availableWidth: contentWidth,
+        isStreaming: msg.isStreaming,
         imageLoader: imageLoader
       )
 
@@ -60,7 +54,7 @@ struct TimelineRowContent: View {
       MessageRowView(
         role: .assistant, content: msg.content,
         images: convertImages(msg.images),
-        isStreaming: msg.isStreaming, availableWidth: contentWidth,
+        isStreaming: msg.isStreaming,
         imageLoader: imageLoader
       )
 
@@ -68,14 +62,14 @@ struct TimelineRowContent: View {
       MessageRowView(
         role: .system, content: msg.content,
         images: convertImages(msg.images),
-        isStreaming: msg.isStreaming, availableWidth: contentWidth,
+        isStreaming: msg.isStreaming,
         imageLoader: imageLoader
       )
 
     case let .thinking(msg):
       ThinkingRowView(
         content: msg.content, isStreaming: msg.isStreaming,
-        isExpanded: isExpanded, availableWidth: contentWidth,
+        isExpanded: isExpanded,
         onToggle: { onToggle?(msg.id) }
       )
 

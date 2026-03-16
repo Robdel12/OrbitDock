@@ -99,27 +99,7 @@ private func quickSwitcherPreviewAppStore() -> AppStore {
     runtimeFactory: { _ in fatalError("No runtime in preview") },
     shouldBootstrapFromSettings: false
   )
-  let store = AppStore(
-    runtimeRegistry: registry,
-    attentionService: AttentionService(),
-    notificationManager: NotificationManager(
-      isAuthorized: false,
-      shouldRequestAuthorizationOnStart: false,
-      notificationCenter: NotificationCenterClient(
-        requestAuthorization: { completion in completion(false, nil) },
-        setDelegate: { _ in },
-        setNotificationCategories: { _ in },
-        addRequest: { _, completion in completion(nil) },
-        removeDeliveredNotifications: { _ in }
-      ),
-      preferences: NotificationPreferences(
-        stringForKey: { _ in nil },
-        objectForKey: { _ in nil },
-        boolForKey: { _ in false }
-      )
-    ),
-    toastManager: ToastManager()
-  )
+  let store = AppStore(runtimeRegistry: registry)
   store.seed(records: [
     quickSwitcherPreviewNode(
       id: "1",

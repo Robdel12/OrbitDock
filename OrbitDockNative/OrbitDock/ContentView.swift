@@ -111,9 +111,6 @@ struct ContentView: View {
           endpointId: ref.endpointId
         )
         .environment(detailSessionStore(for: ref.endpointId))
-        .onAppear {
-          print("HI")
-        }
         .id(ref.scopedID)
       case .dashboard:
         dashboardView
@@ -127,7 +124,7 @@ struct ContentView: View {
     DashboardView(
       isInitialLoading: runtimeRegistry.runtimes
         .filter(\.endpoint.isEnabled)
-        .contains { !$0.eventStream.hasReceivedInitialSessionsList },
+        .contains { !$0.connection.hasReceivedInitialSessionsList },
       isRefreshingCachedSessions: isAnyRefreshingCachedSessions
     )
   }

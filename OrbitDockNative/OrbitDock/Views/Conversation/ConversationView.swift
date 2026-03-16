@@ -28,6 +28,10 @@ struct ConversationView: View {
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
 
+  /// Once the conversation has been rendered, don't flash the loading
+  /// skeleton again (e.g. when the store is cleared on navigate-away).
+  @State private var hasShownContent = false
+
   private let pageSize = 50
 
   private var conversationStore: ConversationStore? {
@@ -38,6 +42,9 @@ struct ConversationView: View {
   private var loadState: ConversationLoadState {
     guard let store = conversationStore else { return .empty }
     if !store.rowEntries.isEmpty { return .ready }
+    // If we already rendered content, the store was cleared (e.g. on
+    // unsubscribe). Show nothing instead of re-showing the skeleton.
+    if hasShownContent { return .empty }
     switch store.state {
     case .idle, .loading: return .loading
     case .ready: return .empty
@@ -83,6 +90,9 @@ struct ConversationView: View {
       }
     }
     .animation(Motion.fade, value: loadState == .loading)
+    .onChange(of: loadState) { _, newState in
+      if newState == .ready { hasShownContent = true }
+    }
   }
 
   // MARK: - Timeline
@@ -132,7 +142,7 @@ enum ConversationLoadState: Equatable {
     unreadCount: $unreadCount,
     scrollToBottomTrigger: $scrollTrigger
   )
-  .environment(SessionStore())
+  .environment(SessionStore.preview())
   .frame(width: 700, height: 600)
   .background(Color.backgroundPrimary)
 }

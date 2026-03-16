@@ -549,5 +549,5 @@ struct HeaderView: View {
   }
   .frame(width: 900)
   .background(Color.backgroundPrimary)
-  .environment(SessionStore())
+  .environment(SessionStore.preview())
 }

@@ -4,7 +4,10 @@
 //
 //  Pure SwiftUI replacement for NSTableView/UICollectionView timeline.
 //  Heights are automatic — no manual measurement or caching needed.
-//  Scroll position is managed via .scrollPosition(id:) binding.
+//
+//  Scroll-to-bottom uses ScrollViewReader + a bottom sentinel.
+//  The sentinel's onAppear/onDisappear tracks whether the user is
+//  pinned to the bottom — zero polling, zero display-link overhead.
 //
 
 import SwiftUI
@@ -18,9 +21,7 @@ struct TimelineScrollView: View {
   @Binding var isPinned: Bool
 
   @State private var rowState = TimelineRowStateStore()
-  @State private var scrollPosition: String?
   @State private var isPinnedToBottom = true
-  @State private var lastAppliedIDs: [String] = []
 
   /// Tool grouping happens here — computed fresh when entries change.
   private var displayEntries: [ServerConversationRowEntry] {
@@ -30,42 +31,68 @@ struct TimelineScrollView: View {
     return entries
   }
 
+  /// Lightweight value that changes when auto-scroll should fire.
+  /// Captures entry count (new messages) and last message content
+  /// length (streaming growth) — O(1) to compute.
+  private var autoScrollVersion: Int {
+    var h = entries.count
+    if let last = entries.last {
+      switch last.row {
+      case let .assistant(msg): h = h &* 31 &+ msg.content.count
+      case let .thinking(msg): h = h &* 31 &+ msg.content.count
+      default: break
+      }
+    }
+    return h
+  }
+
   var body: some View {
     let displayed = displayEntries
 
-    GeometryReader { geometry in
+    ScrollViewReader { proxy in
       ScrollView(.vertical) {
-        LazyVStack(spacing: 0) {
+        VStack(spacing: 0) {
           // Pagination sentinel — triggers history load when scrolled into view
           Color.clear
             .frame(height: 1)
             .onAppear { onLoadMore?() }
 
           ForEach(displayed) { entry in
-            timelineRow(entry, width: geometry.size.width)
+            timelineRow(entry)
               .id(entry.id)
           }
 
+          // Bottom sentinel — tracks pin state via visibility, not polling.
+          // onAppear/onDisappear fire exactly once per visibility change.
+          Color.clear
+            .frame(height: 1)
+            .id("timeline-bottom")
+            .onAppear {
+              guard !isPinnedToBottom else { return }
+              isPinnedToBottom = true
+              isPinned = true
+            }
+            .onDisappear {
+              guard isPinnedToBottom else { return }
+              isPinnedToBottom = false
+              isPinned = false
+            }
         }
-        .scrollTargetLayout()
       }
       .scrollDismissesKeyboard(.interactively)
       .defaultScrollAnchor(.bottom)
-      .scrollPosition(id: $scrollPosition, anchor: .bottom)
-      .onChange(of: scrollPosition) { _, newPosition in
-        handleScrollPositionChange(newPosition, lastID: displayed.last?.id)
+      .background(Color.backgroundPrimary)
+      .onChange(of: autoScrollVersion) { _, _ in
+        guard isPinnedToBottom, let lastID = displayed.last?.id else { return }
+        proxy.scrollTo(lastID, anchor: .bottom)
       }
-    }
-    .background(Color.backgroundPrimary)
-    .onChange(of: displayed.map(\.id)) { _, newIDs in
-      handleEntriesChanged(newIDs: newIDs)
     }
   }
 
   // MARK: - Row Rendering
 
   @ViewBuilder
-  private func timelineRow(_ entry: ServerConversationRowEntry, width: CGFloat) -> some View {
+  private func timelineRow(_ entry: ServerConversationRowEntry) -> some View {
     let expandableId = Self.expandableId(for: entry)
     let isExpanded = expandableId.map { rowState.isExpanded($0) } ?? false
     let fetchId = Self.fetchableId(for: entry)
@@ -73,7 +100,6 @@ struct TimelineScrollView: View {
     TimelineRowContent(
       entry: entry,
       isExpanded: isExpanded,
-      availableWidth: width,
       sessionId: sessionId,
       clients: clients,
       fetchedContent: fetchId.flatMap { rowState.content(for: $0) },
@@ -104,24 +130,6 @@ struct TimelineScrollView: View {
           rowState.fetchContentIfNeeded(rowId: child.id, sessionId: sessionId, clients: clients)
         }
       }
-    }
-  }
-
-  // MARK: - Scroll Behavior
-
-  private func handleScrollPositionChange(_ newPosition: String?, lastID: String?) {
-    let atBottom = newPosition == nil || newPosition == lastID
-    isPinnedToBottom = atBottom
-    isPinned = atBottom
-  }
-
-  private func handleEntriesChanged(newIDs: [String]) {
-    guard newIDs != lastAppliedIDs else { return }
-    let wasPinned = isPinnedToBottom
-    lastAppliedIDs = newIDs
-
-    if wasPinned, let lastID = newIDs.last {
-      scrollPosition = lastID
     }
   }
 

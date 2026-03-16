@@ -172,7 +172,7 @@ struct ConversationMetadataStore: Sendable {
     selectedWorkerID: String?,
     workers: [ConversationWorkerSnapshot],
     toolsByWorker: [String: [ServerSubagentTool]],
-    messagesByWorker: [String: [ServerMessage]]
+    messagesByWorker: [String: [ServerConversationRowEntry]]
   ) -> ConversationWorkerInspectorSnapshot {
     guard let selectedWorkerID,
           let selectedWorker = workers.first(where: { $0.id == selectedWorkerID })
@@ -184,7 +184,7 @@ struct ConversationMetadataStore: Sendable {
       selectedWorkerID: selectedWorkerID,
       selectedWorker: selectedWorker,
       tools: (toolsByWorker[selectedWorkerID] ?? []).map(toolSnapshot),
-      threadEntries: (messagesByWorker[selectedWorkerID] ?? []).map(threadEntrySnapshot),
+      threadEntries: (messagesByWorker[selectedWorkerID] ?? []).compactMap(threadEntrySnapshot),
       childWorkerIDs: workers
         .filter { $0.parentWorkerID == selectedWorkerID }
         .map(\.id)
@@ -201,42 +201,58 @@ struct ConversationMetadataStore: Sendable {
     )
   }
 
-  private func threadEntrySnapshot(_ message: ServerMessage) -> ConversationWorkerThreadEntrySnapshot {
-    ConversationWorkerThreadEntrySnapshot(
-      id: message.id,
-      type: message.type,
-      title: threadTitle(for: message),
-      body: threadBody(for: message),
-      timestamp: message.timestamp,
-      isInProgress: message.isInProgress
-    )
-  }
-
-  private func threadTitle(for message: ServerMessage) -> String {
-    switch message.type {
-      case .assistant:
-        return "Worker reply"
-      case .thinking:
-        return "Worker thinking"
-      case .tool, .toolResult:
-        return message.toolName?.trimmedNilIfEmpty ?? "Worker tool"
-      case .user:
-        return "Instruction"
-      case .steer:
-        return "Steer"
-      case .shell:
-        return "Shell"
+  private func threadEntrySnapshot(_ entry: ServerConversationRowEntry) -> ConversationWorkerThreadEntrySnapshot? {
+    switch entry.row {
+      case .user(let message):
+        return ConversationWorkerThreadEntrySnapshot(
+          id: message.id,
+          type: "user",
+          title: "Instruction",
+          body: message.content.trimmedNilIfEmpty ?? "No details yet.",
+          timestamp: message.timestamp,
+          isInProgress: message.isStreaming
+        )
+      case .assistant(let message):
+        return ConversationWorkerThreadEntrySnapshot(
+          id: message.id,
+          type: "assistant",
+          title: "Worker reply",
+          body: message.content.trimmedNilIfEmpty ?? "No details yet.",
+          timestamp: message.timestamp,
+          isInProgress: message.isStreaming
+        )
+      case .thinking(let message):
+        return ConversationWorkerThreadEntrySnapshot(
+          id: message.id,
+          type: "thinking",
+          title: "Worker thinking",
+          body: message.content.trimmedNilIfEmpty ?? "No details yet.",
+          timestamp: message.timestamp,
+          isInProgress: message.isStreaming
+        )
+      case .tool(let tool):
+        return ConversationWorkerThreadEntrySnapshot(
+          id: tool.id,
+          type: "tool",
+          title: tool.title,
+          body: tool.toolDisplay.summary.trimmedNilIfEmpty
+            ?? tool.toolDisplay.outputPreview?.trimmedNilIfEmpty
+            ?? "No details yet.",
+          timestamp: tool.startedAt,
+          isInProgress: tool.status == .running || tool.status == .pending
+        )
+      case .system(let message):
+        return ConversationWorkerThreadEntrySnapshot(
+          id: message.id,
+          type: "system",
+          title: "System",
+          body: message.content.trimmedNilIfEmpty ?? "No details yet.",
+          timestamp: message.timestamp,
+          isInProgress: message.isStreaming
+        )
+      default:
+        return nil
     }
-  }
-
-  private func threadBody(for message: ServerMessage) -> String {
-    [
-      message.content.trimmedNilIfEmpty,
-      message.toolOutput?.trimmedNilIfEmpty,
-      message.toolInput?.trimmedNilIfEmpty,
-    ]
-    .compactMap { $0 }
-    .first ?? "No details yet."
   }
 
   private func workerSort(lhs: ConversationWorkerSnapshot, rhs: ConversationWorkerSnapshot) -> Bool {

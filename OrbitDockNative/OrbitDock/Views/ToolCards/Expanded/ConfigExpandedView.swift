@@ -12,14 +12,8 @@ struct ConfigExpandedView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
-      HStack(spacing: Spacing.sm) {
-        Image(systemName: "gearshape")
-          .font(.system(size: IconScale.sm))
-          .foregroundStyle(Color.textTertiary)
-        Text("Configuration")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.textTertiary)
-      }
+      // Config key header — extract key from JSON input if possible
+      configKeyHeader
 
       if let input = content.inputDisplay, !input.isEmpty {
         if looksLikeJSON(input) {
@@ -77,6 +71,35 @@ struct ConfigExpandedView: View {
         Text(line)
           .font(.system(size: TypeScale.code, design: .monospaced))
           .foregroundStyle(Color.textSecondary)
+      }
+    }
+  }
+
+  // MARK: - Config Key Header
+
+  @ViewBuilder
+  private var configKeyHeader: some View {
+    if let input = content.inputDisplay, !input.isEmpty,
+       looksLikeJSON(input),
+       let data = input.data(using: .utf8),
+       let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+       let key = dict["key"] as? String {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: "gearshape")
+          .font(.system(size: IconScale.sm))
+          .foregroundStyle(Color.textTertiary)
+        Text(key)
+          .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
+          .foregroundStyle(Color.textSecondary)
+      }
+    } else {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: "gearshape")
+          .font(.system(size: IconScale.sm))
+          .foregroundStyle(Color.textTertiary)
+        Text("Configuration")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textTertiary)
       }
     }
   }

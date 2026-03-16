@@ -9,7 +9,7 @@ struct OrbitDockWindowRoot: View {
 
   init(appRuntime: OrbitDockAppRuntime) {
     self.appRuntime = appRuntime
-    _appStore = State(initialValue: AppStore(connection: appRuntime.runtimeRegistry.primaryConnection))
+    _appStore = State(initialValue: AppStore(runtimeRegistry: appRuntime.runtimeRegistry))
   }
 
   var body: some View {
@@ -41,13 +41,18 @@ struct OrbitDockWindowRoot: View {
     .focusedSceneValue(\.orbitDockRouter, router)
     .preferredColorScheme(.dark)
     .toolbar(.hidden)
-    .task {
-      appStore.start()
-    }
-    .onChange(of: router.route) { _, newRoute in
+    .onChange(of: router.route) { oldRoute, newRoute in
+      // Unsubscribe from previous session
+      if case let .session(oldRef) = oldRoute {
+        detailSessionStore(for: oldRef.endpointId)
+          .unsubscribeFromSession(oldRef.sessionId)
+      }
+      // Navigate + subscribe
       switch newRoute {
       case let .session(ref):
         navigationPath = NavigationPath([ref])
+        detailSessionStore(for: ref.endpointId)
+          .subscribeToSession(ref.sessionId)
       case .dashboard:
         navigationPath = NavigationPath()
       }

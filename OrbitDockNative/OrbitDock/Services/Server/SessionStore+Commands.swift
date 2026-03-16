@@ -381,7 +381,7 @@ extension SessionStore {
   }
 
   func refreshSessionsList() {
-    eventStream.subscribeList()
+    connection.subscribeList()
   }
 
   func clearServerError() {

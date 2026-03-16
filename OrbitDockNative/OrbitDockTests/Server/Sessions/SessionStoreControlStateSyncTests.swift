@@ -5,7 +5,7 @@ import Testing
 @MainActor
 struct SessionStoreControlStateSyncTests {
   @Test func approvalEventsKeepSummaryAndDetailStateAligned() throws {
-    let store = SessionStore()
+    let store = SessionStore.preview()
     store.routeEvent(.sessionSnapshot(try decodeSnapshot(detailSnapshotJSON)))
 
     let request = ServerApprovalRequest(
@@ -41,7 +41,7 @@ struct SessionStoreControlStateSyncTests {
   }
 
   @Test func sessionDeltaKeepsConfigAndPendingApprovalStateInSync() throws {
-    let store = SessionStore()
+    let store = SessionStore.preview()
     store.routeEvent(.sessionSnapshot(try decodeSnapshot(detailSnapshotJSON)))
 
     store.routeEvent(
@@ -77,7 +77,7 @@ struct SessionStoreControlStateSyncTests {
   }
 
   @Test func sessionSnapshotHydratesSubagentMetadataIntoDetailState() throws {
-    let store = SessionStore()
+    let store = SessionStore.preview()
 
     store.routeEvent(.sessionSnapshot(try decodeSnapshot(
       """

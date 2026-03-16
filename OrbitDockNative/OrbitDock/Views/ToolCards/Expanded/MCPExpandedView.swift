@@ -2,8 +2,8 @@
 //  MCPExpandedView.swift
 //  OrbitDock
 //
-//  Generic MCP tool expanded view with JSONTreeView.
-//  Replaces flat JSON dumps with interactive, collapsible tree display.
+//  Generic MCP tool expanded view with SmartJSONView.
+//  Smart input/output rendering with error detection.
 //
 
 import SwiftUI
@@ -13,12 +13,11 @@ struct MCPExpandedView: View {
   let toolRow: ServerConversationToolRow
 
   private var serverName: String? {
-    // Extract server from invocation
-    if let dict = toolRow.invocation.value as? [String: Any],
-       let server = dict["server"] as? String {
-      return server
+    // Server name is computed as subtitle by the server for MCP tools
+    if let subtitle = toolRow.toolDisplay.subtitle {
+      return subtitle
     }
-    // Try to extract from title (mcp__server__tool format)
+    // Fallback: parse from title (mcp__server__tool format)
     let title = toolRow.title
     if title.hasPrefix("mcp__") {
       let parts = title.dropFirst(5).split(separator: "__", maxSplits: 1)
@@ -28,10 +27,7 @@ struct MCPExpandedView: View {
   }
 
   private var toolName: String? {
-    if let dict = toolRow.invocation.value as? [String: Any],
-       let tool = dict["tool"] as? String {
-      return tool
-    }
+    // Fallback: parse from title (mcp__server__tool format)
     let title = toolRow.title
     if title.hasPrefix("mcp__") {
       let parts = title.dropFirst(5).split(separator: "__", maxSplits: 1)
@@ -61,7 +57,7 @@ struct MCPExpandedView: View {
           Text("Input")
             .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(Color.textTertiary)
-          JSONTreeView(jsonString: input)
+          SmartJSONView(jsonString: input)
         }
       }
 
@@ -71,9 +67,29 @@ struct MCPExpandedView: View {
           Text("Output")
             .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(Color.textTertiary)
-          JSONTreeView(jsonString: output)
+
+          // Error detection
+          let isError = output.lowercased().hasPrefix("error")
+            || (looksLikeJSON(output) && output.contains("\"error\""))
+
+          if isError {
+            SmartJSONView(jsonString: output)
+              .padding(Spacing.sm)
+              .background(
+                Color.feedbackNegative.opacity(OpacityTier.tint),
+                in: RoundedRectangle(cornerRadius: Radius.sm)
+              )
+          } else {
+            SmartJSONView(jsonString: output)
+          }
         }
       }
     }
+  }
+
+  private func looksLikeJSON(_ text: String) -> Bool {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return (trimmed.hasPrefix("{") && trimmed.hasSuffix("}"))
+        || (trimmed.hasPrefix("[") && trimmed.hasSuffix("]"))
   }
 }

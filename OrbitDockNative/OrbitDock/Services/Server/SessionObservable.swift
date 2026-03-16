@@ -58,7 +58,7 @@ final class SessionObservable {
   // Subagents
   var subagents: [ServerSubagentInfo] = []
   var subagentTools: [String: [ServerSubagentTool]] = [:] // keyed by subagent ID
-  var subagentMessages: [String: [ServerMessage]] = [:] // keyed by subagent ID
+  var subagentMessages: [String: [ServerConversationRowEntry]] = [:] // keyed by subagent ID
 
   /// Shell context buffer — auto-prepended to next sendMessage
   var pendingShellContext: [ShellContextEntry] = []

@@ -3,7 +3,8 @@ import Foundation
 @MainActor
 extension SessionStore {
   func routeEvent(_ event: ServerEvent) {
-    netLog(.debug, cat: .store, "Event: \(eventSummary(event))")
+    let summary = eventSummary(event)
+    netLog(.info, cat: .store, "Event: \(summary)")
     switch event {
     case .sessionsList, .sessionCreated, .sessionListItemUpdated, .sessionListItemRemoved:
       break
@@ -311,9 +312,13 @@ extension SessionStore {
 
     if code == "lagged" || code == "replay_oversized" {
       if let sessionId {
+        // Session-level lag: re-bootstrap that session
         let conv = conversation(sessionId)
         Task { await conv.bootstrapFresh() }
       }
+      // List-level lag (sessionId == nil): re-fetch sessions list via REST.
+      // The initial REST fetch on connect already covers this, and incremental
+      // WS updates will catch up. No additional action needed.
       return
     }
 
@@ -327,13 +332,38 @@ extension SessionStore {
 
   func handleConnectionStatusChanged(_ status: ConnectionStatus) {
     guard status == .connected else { return }
+    netLog(.info, cat: .store, "Connected — fetching sessions + re-subscribing", data: [
+      "subscribedSessionCount": subscribedSessions.count,
+    ])
 
-    // Re-subscribe list and all active sessions on reconnect
-    eventStream.subscribeList()
-    for sessionId in subscribedSessions {
-      Task {
+    // Clear stale revision state from previous connection — the HTTP bootstrap
+    // will set fresh revisions. Without this, sinceRevision from a dead
+    // connection can cause replay_oversized or missed events.
+    lastRevision.removeAll()
+
+    // Cancel any in-flight reconnect work from a previous connection cycle.
+    // Without this, a flapping connection spawns parallel reconnect Tasks.
+    reconnectTask?.cancel()
+
+    let sessionsToResubscribe = subscribedSessions
+    reconnectTask = Task {
+      // Fetch sessions list via REST (WS subscribeList is called in completeConnection)
+      do {
+        let items = try await clients.sessions.fetchSessionsList()
+        guard !Task.isCancelled else { return }
+        netLog(.info, cat: .store, "REST sessions fetched", data: ["count": items.count])
+        connection.applySessionsList(items)
+      } catch {
+        guard !Task.isCancelled else { return }
+        netLog(.error, cat: .store, "REST sessions fetch failed", data: ["error": error.localizedDescription])
+      }
+
+      // Re-subscribe all active sessions sequentially.
+      for sessionId in sessionsToResubscribe {
+        guard !Task.isCancelled else { return }
         let bootstrap = await hydrateSessionFromHTTPBootstrap(sessionId: sessionId)
-        eventStream.subscribeSession(
+        guard !Task.isCancelled else { return }
+        connection.subscribeSession(
           sessionId,
           sinceRevision: bootstrap?.session.revision,
           includeSnapshot: false

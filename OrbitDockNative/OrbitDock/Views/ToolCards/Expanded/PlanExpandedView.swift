@@ -47,6 +47,29 @@ struct PlanExpandedView: View {
           .background(modeColor.opacity(OpacityTier.subtle), in: Capsule())
       }
 
+      // Phase banner for enter/exit modes
+      if !isExit && !isUpdate {
+        HStack(spacing: Spacing.xs) {
+          Rectangle()
+            .fill(modeColor)
+            .frame(width: 3, height: 16)
+          Text("PLANNING PHASE")
+            .font(.system(size: TypeScale.mini, weight: .bold))
+            .foregroundStyle(modeColor)
+            .tracking(0.8)
+        }
+      } else if isExit {
+        HStack(spacing: Spacing.xs) {
+          Rectangle()
+            .fill(Color.feedbackPositive)
+            .frame(width: 3, height: 16)
+          Text("PLAN COMPLETE")
+            .font(.system(size: TypeScale.mini, weight: .bold))
+            .foregroundStyle(Color.feedbackPositive)
+            .tracking(0.8)
+        }
+      }
+
       if let input = content.inputDisplay, !input.isEmpty {
         Text(input)
           .font(.system(size: TypeScale.body))
@@ -92,18 +115,39 @@ struct PlanExpandedView: View {
           .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
       }
     } else {
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text("Steps")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.textTertiary)
-        ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-          HStack(spacing: Spacing.sm) {
-            Image(systemName: stepIcon(step.status))
-              .font(.system(size: IconScale.md))
-              .foregroundStyle(stepColor(step.status))
-            Text(step.title)
-              .font(.system(size: TypeScale.body))
-              .foregroundStyle(step.status == "completed" ? Color.textTertiary : Color.textSecondary)
+      let completed = steps.filter { $0.status == "completed" }.count
+
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        // Progress bar at top
+        ProgressSummaryBar(completed: completed, total: steps.count)
+
+        // Timeline steps
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+            HStack(alignment: .top, spacing: Spacing.md) {
+              // Timeline column: icon + connecting line
+              VStack(spacing: 0) {
+                Image(systemName: stepIcon(step.status))
+                  .font(.system(size: IconScale.md))
+                  .foregroundStyle(stepColor(step.status))
+
+                if index < steps.count - 1 {
+                  Rectangle()
+                    .fill(stepColor(step.status).opacity(0.3))
+                    .frame(width: 1)
+                    .frame(maxHeight: .infinity)
+                }
+              }
+              .frame(width: 16)
+
+              // Step content
+              Text(step.title)
+                .font(.system(size: TypeScale.body))
+                .foregroundStyle(
+                  step.status == "completed" ? Color.textTertiary : Color.textSecondary
+                )
+                .padding(.bottom, Spacing.md)
+            }
           }
         }
       }

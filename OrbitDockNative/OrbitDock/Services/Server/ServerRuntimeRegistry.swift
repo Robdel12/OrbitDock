@@ -19,16 +19,25 @@ final class ServerRuntimeRegistry {
   private(set) var activeEndpointId: UUID?
   private(set) var primaryEndpointId: UUID?
   private(set) var hasPrimaryEndpointConflict = false
-  let primaryEndpointUpdates: AsyncStream<UUID?>
-  @ObservationIgnored private let primaryEndpointContinuation: AsyncStream<UUID?>.Continuation
   let readinessUpdates: AsyncStream<Void>
   @ObservationIgnored private let readinessContinuation: AsyncStream<Void>.Continuation
+
+  // MARK: - Session list aggregation (across all endpoints)
+  @ObservationIgnored private var sessionsByEndpoint: [UUID: [String: RootSessionNode]] = [:]
+  private(set) var aggregatedSessions: [RootSessionNode] = []
+
   @ObservationIgnored
   private lazy var fallbackSessionStore: SessionStore = {
-    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:3000")!, authToken: nil)
-    let eventStream = EventStream(authToken: nil)
+    let baseURL = URL(string: "http://127.0.0.1:3000")!
+    let requestBuilder = HTTPRequestBuilder(baseURL: baseURL, authToken: nil)
+    let clients = ServerClients(
+      baseURL: baseURL,
+      requestBuilder: requestBuilder,
+      responseLoader: { _ in throw HTTPTransportError.serverUnreachable }
+    )
     return SessionStore(
-      clients: clients, eventStream: eventStream,
+      clients: clients,
+      connection: ServerConnection(authToken: nil),
       endpointId: UUID()
     )
   }()
@@ -70,9 +79,6 @@ final class ServerRuntimeRegistry {
   }
 
   init() {
-    var primaryEndpointContinuation: AsyncStream<UUID?>.Continuation!
-    primaryEndpointUpdates = AsyncStream { primaryEndpointContinuation = $0 }
-    self.primaryEndpointContinuation = primaryEndpointContinuation
     var readinessContinuation: AsyncStream<Void>.Continuation!
     readinessUpdates = AsyncStream { readinessContinuation = $0 }
     self.readinessContinuation = readinessContinuation
@@ -90,9 +96,6 @@ final class ServerRuntimeRegistry {
     endpointSettings: ServerEndpointSettingsClient? = nil,
     shouldBootstrapFromSettings: Bool = true
   ) {
-    var primaryEndpointContinuation: AsyncStream<UUID?>.Continuation!
-    primaryEndpointUpdates = AsyncStream { primaryEndpointContinuation = $0 }
-    self.primaryEndpointContinuation = primaryEndpointContinuation
     var readinessContinuation: AsyncStream<Void>.Continuation!
     readinessUpdates = AsyncStream { readinessContinuation = $0 }
     self.readinessContinuation = readinessContinuation
@@ -110,9 +113,6 @@ final class ServerRuntimeRegistry {
     endpointSettings: ServerEndpointSettingsClient? = nil,
     shouldBootstrapFromSettings: Bool = true
   ) {
-    var primaryEndpointContinuation: AsyncStream<UUID?>.Continuation!
-    primaryEndpointUpdates = AsyncStream { primaryEndpointContinuation = $0 }
-    self.primaryEndpointContinuation = primaryEndpointContinuation
     var readinessContinuation: AsyncStream<Void>.Continuation!
     readinessUpdates = AsyncStream { readinessContinuation = $0 }
     self.readinessContinuation = readinessContinuation
@@ -124,7 +124,6 @@ final class ServerRuntimeRegistry {
   }
 
   deinit {
-    primaryEndpointContinuation.finish()
     readinessContinuation.finish()
   }
 
@@ -247,6 +246,7 @@ final class ServerRuntimeRegistry {
       readinessObserverTasks[id] = nil
       connectionStatusByEndpointId[id] = nil
       readinessByEndpointId[id] = nil
+      sessionsByEndpoint[id] = nil
       readinessContinuation.yield(())
     }
 
@@ -258,6 +258,8 @@ final class ServerRuntimeRegistry {
           statusObserverTasks[endpoint.id] = nil
           readinessObserverTasks[endpoint.id]?.cancel()
           readinessObserverTasks[endpoint.id] = nil
+
+          sessionsByEndpoint[endpoint.id] = nil
 
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
@@ -275,6 +277,7 @@ final class ServerRuntimeRegistry {
       configuredEndpoints: configuredEndpoints
     )
     recomputePrimaryEndpoint(from: configuredEndpoints)
+    recomputeAggregatedSessions()
     readinessContinuation.yield(())
 
     guard startEnabled else { return }
@@ -387,18 +390,11 @@ final class ServerRuntimeRegistry {
     return fallback
   }
 
-  /// Returns a ServerConnection for the primary (or first) runtime endpoint.
-  var primaryConnection: ServerConnection {
-    let endpoint = primaryRuntime?.endpoint
-      ?? activeRuntime?.endpoint
-      ?? runtimes.first?.endpoint
-      ?? ServerEndpoint.localDefault()
-    return ServerConnection(endpoint: endpoint)
-  }
-
-  /// Returns an AppStore suitable for the menu bar.
-  var appStoreForMenuBar: AppStore {
-    AppStore(connection: primaryConnection)
+  func sessionNode(forScopedID scopedID: String) -> RootSessionNode? {
+    for index in sessionsByEndpoint.values {
+      if let node = index[scopedID] { return node }
+    }
+    return nil
   }
 
   static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
@@ -449,17 +445,12 @@ final class ServerRuntimeRegistry {
   private func recomputePrimaryEndpoint(from endpoints: [ServerEndpoint]? = nil) {
     let configuredEndpoints = endpoints ?? endpointsProvider()
     let enabledEndpoints = configuredEndpoints.filter(\.isEnabled)
-    let previousPrimaryEndpointId = primaryEndpointId
     let declaredPrimaryCandidates = enabledEndpoints.filter { endpoint in
       runtimesByEndpointId[endpoint.id]?.sessionStore.serverIsPrimary == true
     }
 
     hasPrimaryEndpointConflict = declaredPrimaryCandidates.count > 1
     primaryEndpointId = ServerRuntimeRegistryPlanner.preferredActiveEndpointID(from: configuredEndpoints)
-
-    if previousPrimaryEndpointId != primaryEndpointId {
-      primaryEndpointContinuation.yield(primaryEndpointId)
-    }
   }
 
   private func schedulePrimaryClaimReconciliation() {
@@ -482,29 +473,73 @@ final class ServerRuntimeRegistry {
 
   private func bindRuntimeState(_ runtime: ServerRuntime) {
     let endpointId = runtime.endpoint.id
-    connectionStatusByEndpointId[endpointId] = runtime.eventStream.connectionStatus
+    connectionStatusByEndpointId[endpointId] = runtime.connection.connectionStatus
     readinessByEndpointId[endpointId] = runtime.readiness
 
     // Cancel any existing observation for this endpoint
     runtimeObservationTasks[endpointId]?.cancel()
 
-    // Observe connection status changes from the EventStream
-    runtime.eventStream.addListener { [weak self, weak runtime] event in
+    // Observe connection status + session list changes from the ServerConnection
+    let endpointName = runtime.endpoint.name
+    runtime.connection.addListener { [weak self, weak runtime] event in
       guard let self, let runtime else { return }
-      if case let .connectionStatusChanged(status) = event {
+      switch event {
+      case let .connectionStatusChanged(status):
         self.connectionStatusByEndpointId[endpointId] = status
         self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
           connectionStatus: status,
-          hasReceivedInitialRootList: runtime.eventStream.hasReceivedInitialSessionsList
+          hasReceivedInitialRootList: runtime.connection.hasReceivedInitialSessionsList
         )
-      }
-      // Track when we receive the initial session list
-      if case .sessionsList = event {
+
+      case let .sessionsList(items):
         self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
-          connectionStatus: runtime.eventStream.connectionStatus,
+          connectionStatus: runtime.connection.connectionStatus,
           hasReceivedInitialRootList: true
         )
+        var index: [String: RootSessionNode] = [:]
+        for item in items {
+          let node = RootSessionNode(
+            session: item, endpointId: endpointId, endpointName: endpointName,
+            connectionStatus: .connected
+          )
+          index[node.scopedID] = node
+        }
+        self.sessionsByEndpoint[endpointId] = index
+        self.recomputeAggregatedSessions()
+
+      case let .sessionCreated(item), let .sessionListItemUpdated(item):
+        let node = RootSessionNode(
+          session: item, endpointId: endpointId, endpointName: endpointName,
+          connectionStatus: .connected
+        )
+        self.sessionsByEndpoint[endpointId, default: [:]][node.scopedID] = node
+        self.recomputeAggregatedSessions()
+
+      case let .sessionListItemRemoved(sessionId):
+        let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
+        self.sessionsByEndpoint[endpointId]?[scopedID] = nil
+        self.recomputeAggregatedSessions()
+
+      case let .sessionEnded(sessionId, reason):
+        let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
+        if let existing = self.sessionsByEndpoint[endpointId]?[scopedID] {
+          self.sessionsByEndpoint[endpointId]?[scopedID] = existing.ended(reason: reason)
+          self.recomputeAggregatedSessions()
+        }
+
+      default:
+        break
       }
+    }
+  }
+
+  private func recomputeAggregatedSessions() {
+    let all = sessionsByEndpoint.values.flatMap(\.values)
+    aggregatedSessions = all.sorted { lhs, rhs in
+      if lhs.isActive != rhs.isActive { return lhs.isActive }
+      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+      return lhsDate > rhsDate
     }
   }
 

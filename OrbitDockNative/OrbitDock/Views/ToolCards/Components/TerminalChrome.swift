@@ -13,18 +13,18 @@ struct TerminalChrome: View {
 
   var body: some View {
     HStack(spacing: 0) {
-      // Traffic light dots (decorative)
-      HStack(spacing: Spacing.sm_) {
-        Circle().fill(Color(red: 1.0, green: 0.38, blue: 0.35)).frame(width: 8, height: 8)
-        Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.2)).frame(width: 8, height: 8)
-        Circle().fill(Color(red: 0.3, green: 0.8, blue: 0.35)).frame(width: 8, height: 8)
+      // Traffic light dots (decorative, 6pt)
+      HStack(spacing: Spacing.xs) {
+        Circle().fill(Color(red: 1.0, green: 0.38, blue: 0.35)).frame(width: 6, height: 6)
+        Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.2)).frame(width: 6, height: 6)
+        Circle().fill(Color(red: 0.3, green: 0.8, blue: 0.35)).frame(width: 6, height: 6)
       }
 
       Spacer()
 
       if let path, !path.isEmpty {
         Text(path)
-          .font(.system(size: TypeScale.meta, design: .monospaced))
+          .font(.system(size: TypeScale.mini, design: .monospaced))
           .foregroundStyle(Color.textQuaternary)
           .lineLimit(1)
       }
@@ -32,14 +32,13 @@ struct TerminalChrome: View {
       Spacer()
 
       // Balance the traffic lights
-      HStack(spacing: Spacing.sm_) {
-        Circle().fill(Color.clear).frame(width: 8, height: 8)
-        Circle().fill(Color.clear).frame(width: 8, height: 8)
-        Circle().fill(Color.clear).frame(width: 8, height: 8)
+      HStack(spacing: Spacing.xs) {
+        Circle().fill(Color.clear).frame(width: 6, height: 6)
+        Circle().fill(Color.clear).frame(width: 6, height: 6)
+        Circle().fill(Color.clear).frame(width: 6, height: 6)
       }
     }
-    .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm_)
-    .background(Color.backgroundCode.opacity(0.6))
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
   }
 }

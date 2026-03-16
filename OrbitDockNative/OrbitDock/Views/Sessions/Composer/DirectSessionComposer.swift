@@ -505,7 +505,7 @@ struct DirectSessionComposer: View {
     runtimeFactory: { ServerRuntime(endpoint: $0) },
     shouldBootstrapFromSettings: false
   )
-  let sessionStore = SessionStore()
+  let sessionStore = SessionStore.preview()
   let router = AppRouter()
   DirectSessionComposer(
     sessionId: "test-session",

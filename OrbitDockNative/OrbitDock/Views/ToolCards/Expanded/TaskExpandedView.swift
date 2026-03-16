@@ -13,34 +13,18 @@ struct TaskExpandedView: View {
   let content: ServerRowContent
   let toolRow: ServerConversationToolRow
 
+  @State private var showFullPrompt = false
+
   // MARK: - Extracted fields
 
-  private var invocationDict: [String: Any]? {
-    toolRow.invocation.value as? [String: Any]
-  }
-
+  /// Agent type extracted from server-computed subtitle (format: "type — description").
   private var agentType: String? {
-    invocationDict?["subagent_type"] as? String
-  }
-
-  private var agentDescription: String? {
-    invocationDict?["description"] as? String
-  }
-
-  private var agentPrompt: String? {
-    invocationDict?["prompt"] as? String
-  }
-
-  private var agentModel: String? {
-    invocationDict?["model"] as? String
-  }
-
-  private var isBackground: Bool {
-    invocationDict?["run_in_background"] as? Bool ?? false
-  }
-
-  private var isIsolated: Bool {
-    (invocationDict?["isolation"] as? String) == "worktree"
+    guard let subtitle = toolRow.toolDisplay.subtitle ?? toolRow.subtitle else { return nil }
+    if let dashRange = subtitle.range(of: " — ") {
+      return String(subtitle[subtitle.startIndex..<dashRange.lowerBound])
+    }
+    // Subtitle might be just the type name if no description
+    return subtitle.isEmpty ? nil : subtitle
   }
 
   private var isRunning: Bool {
@@ -86,7 +70,7 @@ struct TaskExpandedView: View {
       agentIdentityHeader
 
       // ── Mission prompt ───────────────────────────────────────────────
-      if let prompt = content.inputDisplay ?? agentPrompt, !prompt.isEmpty {
+      if let prompt = content.inputDisplay ?? toolRow.toolDisplay.inputDisplay, !prompt.isEmpty {
         missionSection(prompt)
       }
 
@@ -127,20 +111,18 @@ struct TaskExpandedView: View {
           .foregroundStyle(statusColor)
       }
 
+      if isRunning, toolRow.startedAt != nil {
+        Text("Working...")
+          .font(.system(size: TypeScale.mini, weight: .medium))
+          .foregroundStyle(statusColor.opacity(0.7))
+      }
+
       Spacer()
 
       // Metadata pills
       HStack(spacing: Spacing.sm_) {
-        if isIsolated {
-          metadataPill(icon: "arrow.triangle.branch", label: "Worktree")
-        }
-
-        if isBackground {
-          metadataPill(icon: "arrow.down.circle", label: "Background")
-        }
-
-        if let model = agentModel {
-          metadataPill(icon: nil, label: shortenModel(model))
+        if let meta = toolRow.toolDisplay.rightMeta {
+          metadataPill(icon: nil, label: meta)
         }
 
         if let duration = toolRow.durationMs {
@@ -163,7 +145,13 @@ struct TaskExpandedView: View {
   // MARK: - Mission Section
 
   private func missionSection(_ prompt: String) -> some View {
-    VStack(alignment: .leading, spacing: Spacing.xs) {
+    let promptLines = prompt.components(separatedBy: "\n")
+    let shouldTruncate = promptLines.count > 5 && !showFullPrompt
+    let displayText = shouldTruncate
+      ? promptLines.prefix(3).joined(separator: "\n") + "..."
+      : prompt
+
+    return VStack(alignment: .leading, spacing: Spacing.xs) {
       // Section label with thin connecting line
       HStack(spacing: Spacing.xs) {
         Rectangle()
@@ -177,7 +165,7 @@ struct TaskExpandedView: View {
       }
 
       // Prompt content — the actual task description
-      Text(prompt)
+      Text(displayText)
         .font(.system(size: TypeScale.body))
         .foregroundStyle(Color.textSecondary)
         .padding(Spacing.sm)
@@ -194,6 +182,16 @@ struct TaskExpandedView: View {
           .fill(agentColor.opacity(0.35))
           .frame(width: 2)
         }
+
+      if promptLines.count > 5 {
+        Button(action: { withAnimation(Motion.snappy) { showFullPrompt.toggle() } }) {
+          Text(showFullPrompt ? "Show less" : "Show full prompt")
+            .font(.system(size: TypeScale.mini, weight: .medium))
+            .foregroundStyle(agentColor)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, Spacing.xs)
+      }
     }
     .padding(.bottom, Spacing.md)
   }
@@ -201,7 +199,10 @@ struct TaskExpandedView: View {
   // MARK: - Result Section
 
   private func resultSection(_ output: String) -> some View {
-    VStack(alignment: .leading, spacing: Spacing.xs) {
+    let isJSON = looksLikeJSON(output)
+    let isProselike = !isJSON && !output.contains("\n    ") && output.count > 100
+
+    return VStack(alignment: .leading, spacing: Spacing.xs) {
       HStack(spacing: Spacing.xs) {
         Rectangle()
           .fill(Color.textQuaternary.opacity(0.3))
@@ -220,7 +221,9 @@ struct TaskExpandedView: View {
       }
 
       Text(output)
-        .font(.system(size: TypeScale.code, design: .monospaced))
+        .font(isProselike
+          ? .system(size: TypeScale.body)
+          : .system(size: TypeScale.code, design: .monospaced))
         .foregroundStyle(isFailed ? Color.feedbackNegative.opacity(0.8) : Color.textSecondary)
         .padding(Spacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -231,6 +234,11 @@ struct TaskExpandedView: View {
           in: RoundedRectangle(cornerRadius: Radius.sm)
         )
     }
+  }
+
+  private func looksLikeJSON(_ text: String) -> Bool {
+    let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return (t.hasPrefix("{") && t.hasSuffix("}")) || (t.hasPrefix("[") && t.hasSuffix("]"))
   }
 
   // MARK: - Helpers
@@ -248,14 +256,6 @@ struct TaskExpandedView: View {
     .padding(.horizontal, Spacing.sm_)
     .padding(.vertical, 1)
     .background(Color.textQuaternary.opacity(OpacityTier.tint), in: Capsule())
-  }
-
-  private func shortenModel(_ model: String) -> String {
-    // "sonnet" → "Sonnet", "opus" → "Opus", "haiku" → "Haiku"
-    if model.contains("opus") { return "Opus" }
-    if model.contains("sonnet") { return "Sonnet" }
-    if model.contains("haiku") { return "Haiku" }
-    return model
   }
 
   private func formatDuration(_ ms: UInt64) -> String {

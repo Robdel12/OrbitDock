@@ -147,111 +147,7 @@ extension ServerApprovalRequest {
   }
 }
 
-// MARK: - ServerMessage → TranscriptMessage
-
-extension ServerMessage {
-  func toConversationRowEntry(defaultSessionId: String? = nil) -> ServerConversationRowEntry {
-    let resolvedSessionId = sessionId.isEmpty ? (defaultSessionId ?? "") : sessionId
-    let resolvedSequence = sequence ?? 0
-    let messageRow = ServerConversationMessageRow(
-      id: id,
-      content: content,
-      turnId: nil,
-      timestamp: timestamp,
-      isStreaming: isInProgress,
-      images: images
-    )
-
-    let row: ServerConversationRow = switch type {
-      case .user:
-        .user(messageRow)
-      case .assistant:
-        .assistant(messageRow)
-      case .thinking:
-        .thinking(messageRow)
-      case .steer, .shell:
-        .system(messageRow)
-      case .tool, .toolResult:
-        .tool(
-          ServerConversationToolRow(
-            id: id,
-            provider: .codex,
-            family: toolFamily.flatMap(ServerConversationToolFamily.init(rawValue:)) ?? .generic,
-            kind: toolName.flatMap(ServerConversationToolKind.init(rawValue:)) ?? .generic,
-            status: isInProgress ? .running : (isError ? .failed : .completed),
-            title: toolName ?? content,
-            subtitle: nil,
-            summary: content,
-            preview: nil,
-            startedAt: timestamp,
-            endedAt: nil,
-            durationMs: durationMs,
-            groupingKey: nil,
-            invocation: AnyCodable(toolInputDict ?? [:]),
-            result: toolOutput.map { AnyCodable(["output": $0]) },
-            renderHints: ServerConversationRenderHints(),
-            toolDisplay: toolDisplay
-          )
-        )
-    }
-
-    return ServerConversationRowEntry(
-      sessionId: resolvedSessionId,
-      sequence: resolvedSequence,
-      turnId: nil,
-      row: row
-    )
-  }
-
-  func toTranscriptMessage(endpointId: UUID? = nil) -> TranscriptMessage {
-    let msgType: TranscriptMessage.MessageType = switch type {
-      case .user: .user
-      case .assistant: .assistant
-      case .thinking: .thinking
-      case .tool: .tool
-      case .toolResult: .toolResult
-      case .steer: .steer
-      case .shell: .shell
-    }
-
-    var parsedToolInput: [String: Any]?
-    if let json = toolInput, let data = json.data(using: .utf8) {
-      parsedToolInput = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    }
-
-    let duration: TimeInterval? = durationMs.map { Double($0) / 1_000.0 }
-
-    let messageImages = (images ?? []).enumerated().compactMap { index, image in
-      convertServerImage(
-        image,
-        index: index,
-        endpointId: endpointId,
-        sessionId: sessionId
-      )
-    }
-
-    var msg = TranscriptMessage(
-      id: id,
-      sequence: sequence,
-      type: msgType,
-      content: content,
-      timestamp: parseServerTimestamp(timestamp) ?? Date(),
-      toolName: toolName,
-      toolInput: parsedToolInput,
-      rawToolInput: toolInput,
-      toolOutput: toolOutput,
-      toolDuration: duration,
-      inputTokens: nil,
-      outputTokens: nil,
-      isError: isError,
-      isInProgress: isInProgress,
-      serverToolFamily: toolFamily,
-      toolDisplay: toolDisplay
-    )
-    msg.images = messageImages
-    return msg
-  }
-}
+// MARK: - ServerConversationRowEntry → TranscriptMessage
 
 extension ServerConversationRowEntry {
   func toTranscriptMessage(endpointId: UUID? = nil) -> TranscriptMessage {
@@ -337,19 +233,13 @@ private extension ServerConversationMessageRow {
 
 private extension ServerConversationToolRow {
   func toTranscriptMessage(sequence: UInt64, timestamp: Date) -> TranscriptMessage {
-    let toolInput = anyJSONObject(from: invocation.value)
-    let rawToolInput = prettyJSONString(from: invocation.value)
-    let rawToolOutput = result.flatMap { prettyJSONString(from: $0.value) }
-    return TranscriptMessage(
+    TranscriptMessage(
       id: id,
       sequence: sequence,
       type: .tool,
       content: summary ?? subtitle ?? title,
       timestamp: timestamp,
       toolName: kind.rawValue,
-      toolInput: toolInput,
-      rawToolInput: rawToolInput,
-      toolOutput: rawToolOutput,
       toolDuration: durationMs.map { Double($0) / 1_000.0 },
       isError: status == .failed,
       isInProgress: status == .running || status == .pending || status == .needsInput,
@@ -361,32 +251,13 @@ private extension ServerConversationToolRow {
 
 private extension ServerConversationActivityGroupRow {
   func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
-    let childPayloads = children.map { child in
-      [
-        "id": child.id,
-        "title": child.title,
-        "kind": child.kind.rawValue,
-        "status": child.status.rawValue,
-      ]
-    }
-    return TranscriptMessage(
+    TranscriptMessage(
       id: id,
       sequence: sequence,
       type: .tool,
       content: summary ?? title,
       timestamp: Date(),
       toolName: "activity_group",
-      toolInput: [
-        "group_kind": groupKind.rawValue,
-        "child_count": childCount,
-        "children": childPayloads,
-      ],
-      rawToolInput: prettyJSONString(from: [
-        "group_kind": groupKind.rawValue,
-        "child_count": childCount,
-        "children": childPayloads,
-      ]),
-      toolDuration: nil,
       isError: status == .failed,
       isInProgress: status == .running,
       serverToolFamily: family?.rawValue ?? "generic"
@@ -403,7 +274,6 @@ private extension ServerConversationApprovalRow {
       content: summary ?? title,
       timestamp: Date(),
       toolName: "approval",
-      rawToolInput: prettyJSONString(from: request.value),
       isInProgress: true,
       serverToolFamily: "approval"
     )
@@ -419,9 +289,6 @@ private extension ServerConversationQuestionRow {
       content: summary ?? title,
       timestamp: Date(),
       toolName: "question",
-      rawToolInput: prettyJSONString(from: [
-        "prompts": prompts.map { ["id": $0.id, "question": $0.question] },
-      ]),
       isInProgress: response == nil,
       serverToolFamily: "question"
     )
@@ -437,7 +304,6 @@ private extension ServerConversationWorkerRow {
       content: summary ?? title,
       timestamp: Date(),
       toolName: "task",
-      rawToolInput: prettyJSONString(from: worker.value),
       serverToolFamily: "agent"
     )
   }
@@ -452,7 +318,6 @@ private extension ServerConversationPlanRow {
       content: summary ?? title,
       timestamp: Date(),
       toolName: "plan",
-      rawToolInput: prettyJSONString(from: payload.value),
       serverToolFamily: "plan"
     )
   }
@@ -467,7 +332,6 @@ private extension ServerConversationHookRow {
       content: summary ?? title,
       timestamp: Date(),
       toolName: "hook",
-      rawToolInput: prettyJSONString(from: payload.value),
       serverToolFamily: "hook"
     )
   }
@@ -482,24 +346,9 @@ private extension ServerConversationHandoffRow {
       content: summary ?? title,
       timestamp: Date(),
       toolName: "handoff",
-      rawToolInput: prettyJSONString(from: payload.value),
       serverToolFamily: "handoff"
     )
   }
-}
-
-private func anyJSONObject(from value: Any) -> [String: Any]? {
-  value as? [String: Any]
-}
-
-private func prettyJSONString(from value: Any) -> String? {
-  guard JSONSerialization.isValidJSONObject(value),
-        let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .prettyPrinted]),
-        let text = String(data: data, encoding: .utf8)
-  else {
-    return nil
-  }
-  return text
 }
 
 // MARK: - Image Conversion (Lazy — no Data loaded at decode time)

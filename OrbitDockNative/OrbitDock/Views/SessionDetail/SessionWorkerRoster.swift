@@ -136,7 +136,7 @@ enum SessionWorkerRosterPlanner {
     subagents: [ServerSubagentInfo],
     selectedWorkerID: String?,
     toolsByWorker: [String: [ServerSubagentTool]],
-    messagesByWorker: [String: [ServerMessage]],
+    messagesByWorker: [String: [ServerConversationRowEntry]],
     timelineMessages: [TranscriptMessage]
   ) -> SessionWorkerDetailPresentation? {
     guard let selectedWorkerID,
@@ -331,9 +331,9 @@ enum SessionWorkerRosterPlanner {
   }
 
   private static func threadEntries(
-    for messages: [ServerMessage]
+    for entries: [ServerConversationRowEntry]
   ) -> [SessionWorkerDetailPresentation.ThreadEntry] {
-    messages
+    entries
       .map { $0.toTranscriptMessage() }
       .filter {
         !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -523,8 +523,9 @@ enum SessionWorkerRosterPlanner {
       return true
     }
 
-    if let receiverThreadIDs = message.toolInput?["receiver_thread_ids"] as? [String],
-       receiverThreadIDs.contains(workerID)
+    // Check toolDisplay inputDisplay for receiver_thread_ids reference
+    if let inputDisplay = message.toolDisplay?.inputDisplay,
+       inputDisplay.contains(workerID)
     {
       return true
     }
@@ -566,7 +567,9 @@ enum SessionWorkerRosterPlanner {
       return taskPrompt
     }
 
-    if let output = message.sanitizedToolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+    if let output = (message.toolDisplay?.outputDisplay ?? message.toolDisplay?.outputPreview)?
+      .trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    {
       return cleanedReportPreview(output)
     }
 
@@ -591,15 +594,24 @@ enum SessionWorkerRosterPlanner {
   }
 
   private static func linkedWorkerID(for message: TranscriptMessage) -> String? {
-    if let subagentID = message.toolInput?["subagent_id"] as? String,
-       !subagentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    // With server-driven display, the toolDisplay subtitle or inputDisplay may contain the subagent ID.
+    // The content field or toolDisplay summary also references the worker.
+    guard let inputDisplay = message.toolDisplay?.inputDisplay else { return nil }
+
+    // Parse subagent_id from the inputDisplay JSON if present
+    if let data = inputDisplay.data(using: .utf8),
+       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     {
-      return subagentID
-    }
-    if let receiverThreadID = message.toolInput?["receiver_thread_id"] as? String,
-       !receiverThreadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    {
-      return receiverThreadID
+      if let subagentID = json["subagent_id"] as? String,
+         !subagentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        return subagentID
+      }
+      if let receiverThreadID = json["receiver_thread_id"] as? String,
+         !receiverThreadID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        return receiverThreadID
+      }
     }
     return nil
   }
@@ -1163,7 +1175,7 @@ struct SessionWorkerDetailView: View {
     ) {
       VStack(alignment: .leading, spacing: Spacing.md) {
         if let reportPreview = presentation.reportPreview {
-          MarkdownRepresentable(content: reportPreview, style: .standard)
+          MarkdownContentView(content: reportPreview, style: .standard)
             .frame(maxWidth: .infinity, alignment: .leading)
         } else if let assignmentPreview = presentation.assignmentPreview {
           Text(assignmentPreview)

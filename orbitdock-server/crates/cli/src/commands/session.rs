@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use orbitdock_protocol::conversation_contracts::ConversationRowPage;
+use orbitdock_protocol::conversation_contracts::RowPageSummary;
 use orbitdock_protocol::{
     ClientMessage, Provider, ServerMessage, SessionState, SessionStatus, WorkStatus,
 };
@@ -1013,7 +1013,7 @@ async fn watch(
     if output.json {
         output.print_json(&ServerMessage::ConversationBootstrap {
             session: session.clone(),
-            conversation: ConversationRowPage {
+            conversation: RowPageSummary {
                 rows: vec![],
                 total_row_count: 0,
                 has_more_before: false,
@@ -1176,8 +1176,8 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
                     ServerMessage::ConversationRowsChanged { upserted, .. } => {
                         if !output.json {
                             for entry in upserted {
-                                let role = format_row_type(&entry.row);
-                                let content = orbitdock_protocol::conversation_contracts::extract_row_content_str(&entry.row);
+                                let role = format_row_type_summary(&entry.row);
+                                let content = orbitdock_protocol::conversation_contracts::extract_row_content_str_summary(&entry.row);
                                 if !content.is_empty() {
                                     println!("[{role}] {content}");
                                 }
@@ -1239,19 +1239,19 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
     }
 }
 
-fn format_row_type(
-    row: &orbitdock_protocol::conversation_contracts::ConversationRow,
+fn format_row_type_summary(
+    row: &orbitdock_protocol::conversation_contracts::ConversationRowSummary,
 ) -> &'static str {
-    use orbitdock_protocol::conversation_contracts::ConversationRow;
+    use orbitdock_protocol::conversation_contracts::ConversationRowSummary;
     match row {
-        ConversationRow::User(_) => "user",
-        ConversationRow::Assistant(_) => "assistant",
-        ConversationRow::Tool(_) => "tool",
-        ConversationRow::Thinking(_) => "thinking",
-        ConversationRow::System(_) => "system",
-        ConversationRow::Worker(_) => "worker",
-        ConversationRow::Hook(_) => "hook",
-        ConversationRow::Plan(_) => "plan",
+        ConversationRowSummary::User(_) => "user",
+        ConversationRowSummary::Assistant(_) => "assistant",
+        ConversationRowSummary::Tool(_) => "tool",
+        ConversationRowSummary::Thinking(_) => "thinking",
+        ConversationRowSummary::System(_) => "system",
+        ConversationRowSummary::Worker(_) => "worker",
+        ConversationRowSummary::Hook(_) => "hook",
+        ConversationRowSummary::Plan(_) => "plan",
         _ => "other",
     }
 }
@@ -1340,9 +1340,9 @@ fn print_watch_event(msg: &ServerMessage) {
         }
         ServerMessage::ConversationRowsChanged { upserted, .. } => {
             for entry in upserted {
-                let role = format_row_type(&entry.row);
+                let role = format_row_type_summary(&entry.row);
                 let content =
-                    orbitdock_protocol::conversation_contracts::extract_row_content_str(&entry.row);
+                    orbitdock_protocol::conversation_contracts::extract_row_content_str_summary(&entry.row);
                 let content = truncate(&content, 120);
                 println!("{} [{role}] {content}", bold.apply_to("+row"));
             }

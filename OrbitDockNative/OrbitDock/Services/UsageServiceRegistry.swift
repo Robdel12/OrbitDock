@@ -50,7 +50,12 @@ final class UsageServiceRegistry {
   }
 
   func refreshAll() async {
-    guard let clients = runtimeRegistry.runtimes.first?.clients else { return }
+    guard let runtime = runtimeRegistry.primaryRuntime
+      ?? runtimeRegistry.activeRuntime
+      ?? runtimeRegistry.runtimes.first,
+      runtimeRegistry.runtimeReadiness(for: runtime.endpoint.id).queryReady
+    else { return }
+    let clients = runtime.clients
 
     // Fetch Claude usage
     claudeLoading = true

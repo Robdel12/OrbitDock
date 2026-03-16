@@ -4,7 +4,7 @@
 //
 //  Per-endpoint session management: per-session observables, conversation stores,
 //  subscription lifecycle, and event routing.
-//  All mutations go via typed server clients (HTTP); events arrive from EventStream.
+//  All mutations go via typed server clients (HTTP); events arrive from ServerConnection.
 //
 
 import Foundation
@@ -24,7 +24,7 @@ final class SessionStore {
   }
 
   let clients: ServerClients
-  let eventStream: EventStream
+  let connection: ServerConnection
   let endpointId: UUID
   var endpointName: String?
 
@@ -52,6 +52,8 @@ final class SessionStore {
   @ObservationIgnored var subscribedSessions: Set<String> = []
   @ObservationIgnored var autoMarkReadSessions: Set<String> = []
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []
+  @ObservationIgnored var inFlightBootstraps: [String: Task<ServerConversationBootstrap?, Never>] = [:]
+  @ObservationIgnored var reconnectTask: Task<Void, Never>?
   @ObservationIgnored var eventProcessingTask: Task<Void, Never>?
   @ObservationIgnored private(set) var eventProcessingStartCount = 0
   @ObservationIgnored private let selectionRequestContinuation: AsyncStream<SessionRef>.Continuation
@@ -59,22 +61,28 @@ final class SessionStore {
   /// Shared project file index for @ mention completions.
   let projectFileIndex = ProjectFileIndex()
 
-  init(clients: ServerClients, eventStream: EventStream, endpointId: UUID, endpointName: String? = nil) {
+  init(clients: ServerClients, connection: ServerConnection, endpointId: UUID, endpointName: String? = nil) {
     var selectionRequestContinuation: AsyncStream<SessionRef>.Continuation!
     self.selectionRequests = AsyncStream { selectionRequestContinuation = $0 }
     self.selectionRequestContinuation = selectionRequestContinuation
     self.clients = clients
-    self.eventStream = eventStream
+    self.connection = connection
     self.endpointId = endpointId
     self.endpointName = endpointName
   }
 
-  /// Convenience initializer for SwiftUI previews
-  convenience init() {
-    let url = URL(string: "http://127.0.0.1:3000")!
-    self.init(
-      clients: ServerClients(serverURL: url, authToken: nil),
-      eventStream: EventStream(authToken: nil),
+  /// No-op instance for SwiftUI previews and tests — creates zero network connections.
+  static func preview() -> SessionStore {
+    let baseURL = URL(string: "http://127.0.0.1:3000")!
+    let requestBuilder = HTTPRequestBuilder(baseURL: baseURL, authToken: nil)
+    let clients = ServerClients(
+      baseURL: baseURL,
+      requestBuilder: requestBuilder,
+      responseLoader: { _ in throw HTTPTransportError.serverUnreachable }
+    )
+    return SessionStore(
+      clients: clients,
+      connection: ServerConnection(authToken: nil),
       endpointId: UUID()
     )
   }
@@ -109,7 +117,7 @@ final class SessionStore {
     guard eventProcessingTask == nil else { return }
     eventProcessingStartCount += 1
     netLog(.info, cat: .store, "Started event processing", data: ["endpointId": self.endpointId.uuidString])
-    eventStream.addListener { [weak self] event in
+    connection.addListener { [weak self] event in
       self?.routeEvent(event)
     }
     // Mark as started so we don't add duplicate listeners
@@ -133,9 +141,15 @@ final class SessionStore {
 
     Task {
       let bootstrap = await hydrateSessionFromHTTPBootstrap(sessionId: sessionId)
-      eventStream.subscribeSession(
+      let sinceRev = bootstrap?.session.revision
+      netLog(.info, cat: .store, "WS subscribeSession", sid: sessionId, data: [
+        "sinceRevision": sinceRev as Any,
+        "bootstrapRowCount": bootstrap?.rows.count as Any,
+        "connectionStatus": String(describing: connection.connectionStatus),
+      ])
+      connection.subscribeSession(
         sessionId,
-        sinceRevision: bootstrap?.session.revision,
+        sinceRevision: sinceRev,
         includeSnapshot: false
       )
     }
@@ -154,30 +168,40 @@ final class SessionStore {
   func hydrateSessionFromHTTPBootstrap(
     sessionId: String
   ) async -> ServerConversationBootstrap? {
-    let bootstrap = await conversation(sessionId).fetchBootstrap()
-    guard let bootstrap else {
-      return nil
+    if let existing = inFlightBootstraps[sessionId] {
+      return await existing.value
     }
-    let state = bootstrap.session
 
-    handleConversationBootstrap(
-      state,
-      ServerConversationHistoryPage(
-        rows: bootstrap.rows,
-        totalRowCount: bootstrap.totalRowCount,
-        hasMoreBefore: bootstrap.hasMoreBefore,
-        oldestSequence: bootstrap.oldestSequence,
-        newestSequence: bootstrap.newestSequence
+    let task = Task<ServerConversationBootstrap?, Never> {
+      let bootstrap = await conversation(sessionId).fetchBootstrap()
+      guard let bootstrap else { return nil }
+
+      handleConversationBootstrap(
+        bootstrap.session,
+        ServerConversationHistoryPage(
+          rows: bootstrap.rows,
+          totalRowCount: bootstrap.totalRowCount,
+          hasMoreBefore: bootstrap.hasMoreBefore,
+          oldestSequence: bootstrap.oldestSequence,
+          newestSequence: bootstrap.newestSequence
+        )
       )
-    )
-    return bootstrap
+      return bootstrap
+    }
+
+    inFlightBootstraps[sessionId] = task
+    let result = await task.value
+    inFlightBootstraps.removeValue(forKey: sessionId)
+    return result
   }
 
   func unsubscribeFromSession(_ sessionId: String) {
     netLog(.info, cat: .store, "Unsubscribe", sid: sessionId)
     subscribedSessions.remove(sessionId)
     autoMarkReadSessions.remove(sessionId)
-    eventStream.unsubscribeSession(sessionId)
+    inFlightBootstraps[sessionId]?.cancel()
+    inFlightBootstraps.removeValue(forKey: sessionId)
+    connection.unsubscribeSession(sessionId)
     trimInactiveSessionPayload(sessionId)
   }
 
@@ -235,6 +259,6 @@ final class SessionStore {
   }
 
   var isRemoteConnection: Bool {
-    eventStream.isRemote
+    connection.isRemote
   }
 }

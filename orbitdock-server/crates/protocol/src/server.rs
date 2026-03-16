@@ -4,8 +4,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::conversation_contracts::ConversationRowEntry;
-use crate::conversation_contracts::ConversationRowPage;
+use crate::conversation_contracts::{RowEntrySummary, RowPageSummary};
 use crate::types::*;
 
 /// Messages sent from server to client
@@ -19,7 +18,7 @@ pub enum ServerMessage {
     },
     ConversationBootstrap {
         session: SessionState,
-        conversation: ConversationRowPage,
+        conversation: RowPageSummary,
     },
 
     // Incremental updates
@@ -30,7 +29,7 @@ pub enum ServerMessage {
     ConversationRowsChanged {
         session_id: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        upserted: Vec<ConversationRowEntry>,
+        upserted: Vec<RowEntrySummary>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         removed_row_ids: Vec<String>,
         total_row_count: u64,

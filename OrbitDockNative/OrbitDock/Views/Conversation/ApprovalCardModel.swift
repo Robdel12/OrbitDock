@@ -495,8 +495,8 @@ enum ApprovalCardModelBuilder {
       guard let messageToolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
             messageToolName == normalizedToolName
       else { continue }
-      if let rawToolInput = normalizedText(message.rawToolInput) {
-        return rawToolInput
+      if let inputDisplay = normalizedText(message.toolDisplay?.inputDisplay) {
+        return inputDisplay
       }
     }
     return nil

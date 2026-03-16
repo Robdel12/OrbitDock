@@ -8,7 +8,7 @@ use orbitdock_connector_codex::rollout_parser::{
     RolloutFileProcessor, SessionSource, DEBOUNCE_MS, SESSION_TIMEOUT_SECS,
     STARTUP_SEED_RECENT_SECS,
 };
-use orbitdock_protocol::conversation_contracts::ConversationRowPage;
+use orbitdock_protocol::conversation_contracts::RowPageSummary;
 use orbitdock_protocol::{
     conversation_contracts::{ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow},
     domain_events::{ToolFamily, ToolKind, ToolStatus},
@@ -1229,7 +1229,7 @@ impl WatcherRuntime {
                         .send(SessionCommand::Broadcast {
                             msg: ServerMessage::ConversationBootstrap {
                                 session: state,
-                                conversation: ConversationRowPage {
+                                conversation: RowPageSummary {
                                     rows: vec![],
                                     total_row_count: 0,
                                     has_more_before: false,

@@ -192,11 +192,9 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                  LEFT JOIN usage_session_state uss ON uss.session_id = s.id
                  WHERE s.status = 'active'
                     OR (s.status = 'ended' AND s.end_reason = 'server_shutdown')
-                    OR datetime(COALESCE(s.last_activity_at, s.started_at)) > datetime('now', '-7 days')
                  ORDER BY
                    datetime(s.last_activity_at) DESC,
-                   datetime(s.started_at) DESC
-                 LIMIT 1000",
+                   datetime(s.started_at) DESC",
             )?;
 
             #[allow(clippy::type_complexity)]

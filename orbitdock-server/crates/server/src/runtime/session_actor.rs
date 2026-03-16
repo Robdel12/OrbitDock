@@ -209,7 +209,7 @@ async fn passive_actor_loop(
 mod tests {
     use super::*;
     use orbitdock_protocol::conversation_contracts::{
-        ConversationRow, ConversationRowEntry, MessageRowContent,
+        ConversationRow, ConversationRowEntry, ConversationRowSummary, MessageRowContent,
     };
     use orbitdock_protocol::{Provider, WorkStatus};
 
@@ -384,7 +384,7 @@ mod tests {
             {
                 for entry in upserted {
                     if entry.id() == row_id {
-                        if let ConversationRow::Assistant(message) = entry.row {
+                        if let ConversationRowSummary::Assistant(message) = entry.row {
                             emitted_contents.push((message.content, message.is_streaming));
                         }
                     }

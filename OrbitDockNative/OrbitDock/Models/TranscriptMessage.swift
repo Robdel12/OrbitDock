@@ -58,9 +58,6 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
   let content: String
   let timestamp: Date
   let toolName: String?
-  let toolInput: [String: Any]?
-  let rawToolInput: String?
-  var toolOutput: String? { didSet { recomputeContentSignature() } }
   var toolDuration: TimeInterval? { didSet { recomputeContentSignature() } }
   let inputTokens: Int?
   let outputTokens: Int?
@@ -138,9 +135,6 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
     content: String,
     timestamp: Date,
     toolName: String? = nil,
-    toolInput: [String: Any]? = nil,
-    rawToolInput: String? = nil,
-    toolOutput: String? = nil,
     toolDuration: TimeInterval? = nil,
     inputTokens: Int? = nil,
     outputTokens: Int? = nil,
@@ -157,9 +151,6 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
     self.content = content
     self.timestamp = timestamp
     self.toolName = toolName
-    self.toolInput = toolInput
-    self.rawToolInput = rawToolInput
-    self.toolOutput = toolOutput
     self.toolDuration = toolDuration
     self.inputTokens = inputTokens
     self.outputTokens = outputTokens
@@ -170,8 +161,7 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
     self.serverToolFamily = serverToolFamily
     self.toolDisplay = toolDisplay
     self.contentSignature = Self.computeContentSignature(
-      content: content, rawToolInput: rawToolInput,
-      toolOutput: toolOutput, thinking: thinking,
+      content: content, thinking: thinking,
       toolName: toolName, toolDuration: toolDuration,
       inputTokens: inputTokens, outputTokens: outputTokens,
       isInProgress: isInProgress, images: images
@@ -180,8 +170,7 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
 
   private mutating func recomputeContentSignature() {
     contentSignature = Self.computeContentSignature(
-      content: content, rawToolInput: rawToolInput,
-      toolOutput: toolOutput, thinking: thinking,
+      content: content, thinking: thinking,
       toolName: toolName, toolDuration: toolDuration,
       inputTokens: inputTokens, outputTokens: outputTokens,
       isInProgress: isInProgress, images: images
@@ -189,16 +178,13 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
   }
 
   private static func computeContentSignature(
-    content: String, rawToolInput: String?,
-    toolOutput: String?, thinking: String?,
+    content: String, thinking: String?,
     toolName: String?, toolDuration: TimeInterval?,
     inputTokens: Int?, outputTokens: Int?,
     isInProgress: Bool, images: [MessageImage]
   ) -> Int {
     var h = Hasher()
     h.combine(content)
-    h.combine(rawToolInput)
-    h.combine(toolOutput)
     h.combine(thinking)
     h.combine(toolName)
     h.combine(toolDuration)
@@ -244,7 +230,6 @@ nonisolated struct TranscriptMessage: Identifiable, Hashable {
     lhs.id == rhs.id
       && lhs.sequence == rhs.sequence
       && lhs.content == rhs.content
-      && lhs.toolOutput == rhs.toolOutput
       && lhs.isError == rhs.isError
       && lhs.isInProgress == rhs.isInProgress
       && lhs.images == rhs.images

@@ -128,11 +128,7 @@ enum TurnBuilder {
       // Determine status
       let isLast = index == groups.count - 1
       let hasError = msgs
-        .contains {
-          $0
-            .type == .toolResult &&
-            ($0.toolOutput?.contains("error") == true || $0.toolOutput?.contains("Error") == true)
-        }
+        .contains { $0.isError }
       let isActive = isLast && (currentTurnId != nil || msgs.contains { $0.isInProgress })
       let status: TurnStatus = isActive ? .active : (hasError ? .failed : .completed)
 

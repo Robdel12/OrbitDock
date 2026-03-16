@@ -318,6 +318,14 @@ pub async fn handle_session_command(
         }
         SessionCommand::ReplaceRows { rows } => {
             handle.replace_rows(rows);
+            // Force resync is rare — broadcast all rows so clients recover.
+            let all_rows: Vec<_> = handle.rows().iter().map(|e| e.to_summary()).collect();
+            handle.broadcast(ServerMessage::ConversationRowsChanged {
+                session_id: handle.id().to_string(),
+                upserted: all_rows,
+                removed_row_ids: vec![],
+                total_row_count: handle.message_count() as u64,
+            });
         }
         SessionCommand::AddRowAndBroadcast { entry } => {
             let session_id = handle.id().to_string();
@@ -334,16 +342,15 @@ pub async fn handle_session_command(
                     handle.set_last_message(Some(snippet.clone()));
                 }
             }
-            let rows_changed = ServerMessage::ConversationRowsChanged {
-                session_id: session_id.clone(),
-                upserted: vec![entry],
-                removed_row_ids: vec![],
-                total_row_count: handle.message_count() as u64,
-            };
-            if let ServerMessage::ConversationRowsChanged { ref upserted, .. } = rows_changed {
-                if handle.should_emit_streaming_row_update(upserted) {
-                    handle.broadcast(rows_changed);
-                }
+            let summary = entry.to_summary();
+            let upserted = vec![summary];
+            if handle.should_emit_streaming_row_update(&upserted) {
+                handle.broadcast(ServerMessage::ConversationRowsChanged {
+                    session_id: session_id.clone(),
+                    upserted,
+                    removed_row_ids: vec![],
+                    total_row_count: handle.message_count() as u64,
+                });
             }
             if let Some(changes) = observability_changes {
                 handle.broadcast(ServerMessage::SessionDelta {
@@ -351,6 +358,17 @@ pub async fn handle_session_command(
                     changes,
                 });
             }
+        }
+        SessionCommand::UpsertRowAndBroadcast { entry } => {
+            let session_id = handle.id().to_string();
+            let entry = handle.upsert_row(entry);
+            let rows_changed = ServerMessage::ConversationRowsChanged {
+                session_id,
+                upserted: vec![entry.to_summary()],
+                removed_row_ids: vec![],
+                total_row_count: handle.message_count() as u64,
+            };
+            handle.broadcast(rows_changed);
         }
         SessionCommand::ResolvePendingApproval {
             request_id,

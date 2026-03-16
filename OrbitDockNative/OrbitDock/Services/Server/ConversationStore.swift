@@ -4,7 +4,7 @@
 //
 //  Per-session conversation state: messages, pagination, and live updates.
 //  Owns all conversation data loading via typed server clients (HTTP).
-//  Receives live updates from EventStream events (pushed by SessionStore).
+//  Receives live updates from ServerConnection events (pushed by SessionStore).
 //
 
 import Foundation
@@ -74,7 +74,7 @@ final class ConversationStore {
     switch state {
     case .idle: .empty
     case .loading: .loadingRecent
-    case .ready: messages.count < totalMessageCount ? .readyPartial : .readyComplete
+    case .ready: hasMoreHistoryBefore ? .readyPartial : .readyComplete
     case .failed: .failed
     }
   }
@@ -156,6 +156,11 @@ final class ConversationStore {
     oldestSequence: UInt64?,
     newestSequence: UInt64?
   ) {
+    netLog(.info, cat: .conv, "Bootstrap applied", sid: self.sessionId, data: [
+      "upsertedRows": upserted.count,
+      "totalRowCount": totalRowCount,
+      "hasMoreBefore": hasMoreBefore,
+    ])
     applyRowsUpdate(
       upserted: upserted,
       removedRowIds: removedRowIds,
@@ -172,6 +177,29 @@ final class ConversationStore {
     totalRowCount: UInt64?
   ) {
     guard !upserted.isEmpty || !removedRowIds.isEmpty || totalRowCount != nil else { return }
+    let rowTypes = upserted.map { entry -> String in
+      switch entry.row {
+      case .user: "user"
+      case .assistant: "assistant"
+      case .thinking: "thinking"
+      case .tool: "tool"
+      case .activityGroup: "activityGroup"
+      case .system: "system"
+      case .question: "question"
+      case .approval: "approval"
+      case .worker: "worker"
+      case .plan: "plan"
+      case .hook: "hook"
+      case .handoff: "handoff"
+      }
+    }
+    netLog(.info, cat: .conv, "Rows changed", sid: self.sessionId, data: [
+      "upsertedCount": upserted.count,
+      "removedCount": removedRowIds.count,
+      "totalRowCount": totalRowCount as Any,
+      "currentRowEntries": rowEntries.count,
+      "rowTypes": rowTypes.joined(separator: ","),
+    ])
 
     // Maintain raw row entries for the new timeline
     applyRowEntries(upserted: upserted, removedRowIds: removedRowIds)
@@ -184,7 +212,16 @@ final class ConversationStore {
       if let existingIndex = messageIDs[normalized.id] {
         nextMessages[existingIndex] = mergeMessage(nextMessages[existingIndex], with: normalized)
       } else {
-        nextMessages.append(normalized)
+        // Binary-search insert to maintain sort order (O(log n) vs O(n log n) full sort)
+        let insertionIndex = nextMessages.binarySearchInsertionIndex { existing in
+          switch (existing.sequence, normalized.sequence) {
+          case let (l?, r?): return l < r
+          case (.some, .none): return true
+          case (.none, .some): return false
+          case (.none, .none): return existing.timestamp < normalized.timestamp
+          }
+        }
+        nextMessages.insert(normalized, at: insertionIndex)
       }
     }
 
@@ -193,21 +230,8 @@ final class ConversationStore {
       nextMessages.removeAll { removed.contains($0.id) }
     }
 
-    nextMessages.sort { lhs, rhs in
-      switch (lhs.sequence, rhs.sequence) {
-      case let (l?, r?):
-        return l < r
-      case (.some, .none):
-        return true
-      case (.none, .some):
-        return false
-      case (.none, .none):
-        return lhs.timestamp < rhs.timestamp
-      }
-    }
-
     messages = nextMessages
-    totalMessageCount = totalRowCount.map(Int.init) ?? max(totalMessageCount, messages.count)
+    totalMessageCount = totalRowCount.map(Int.init) ?? messages.count
     oldestLoadedSequence = messages.compactMap(\.sequence).min()
     newestLoadedSequence = messages.compactMap(\.sequence).max()
     state = .ready
@@ -295,7 +319,7 @@ final class ConversationStore {
 
     messages = merged
     messagesRevision += 1
-    totalMessageCount = max(Int(totalRowCount), messages.count)
+    totalMessageCount = Int(totalRowCount)
     self.oldestLoadedSequence = min(self.oldestLoadedSequence ?? UInt64.max, oldestSequence ?? messages.compactMap(\.sequence).min() ?? UInt64.max)
     if self.oldestLoadedSequence == UInt64.max {
       self.oldestLoadedSequence = nil
@@ -377,9 +401,6 @@ final class ConversationStore {
       content: msg.content,
       timestamp: msg.timestamp,
       toolName: msg.toolName,
-      toolInput: msg.toolInput,
-      rawToolInput: msg.rawToolInput,
-      toolOutput: msg.toolOutput,
       toolDuration: msg.toolDuration,
       inputTokens: msg.inputTokens,
       outputTokens: msg.outputTokens,
@@ -402,9 +423,6 @@ final class ConversationStore {
       content: incoming.content.isEmpty ? existing.content : incoming.content,
       timestamp: incoming.timestamp,
       toolName: incoming.toolName ?? existing.toolName,
-      toolInput: incoming.toolInput ?? existing.toolInput,
-      rawToolInput: incoming.rawToolInput ?? existing.rawToolInput,
-      toolOutput: incoming.toolOutput ?? existing.toolOutput,
       toolDuration: incoming.toolDuration ?? existing.toolDuration,
       inputTokens: incoming.inputTokens ?? existing.inputTokens,
       outputTokens: incoming.outputTokens ?? existing.outputTokens,
@@ -415,5 +433,26 @@ final class ConversationStore {
       serverToolFamily: incoming.serverToolFamily ?? existing.serverToolFamily,
       toolDisplay: incoming.toolDisplay ?? existing.toolDisplay
     )
+  }
+}
+
+// MARK: - Binary Search
+
+extension Array {
+  /// Returns the index at which an element should be inserted to maintain sort order.
+  /// `isOrderedBefore` should return `true` if the existing element should come before
+  /// the element being inserted (same predicate as `sort(by:)`).
+  func binarySearchInsertionIndex(isOrderedBefore: (Element) -> Bool) -> Int {
+    var lo = startIndex
+    var hi = endIndex
+    while lo < hi {
+      let mid = lo + (hi - lo) / 2
+      if isOrderedBefore(self[mid]) {
+        lo = mid + 1
+      } else {
+        hi = mid
+      }
+    }
+    return lo
   }
 }

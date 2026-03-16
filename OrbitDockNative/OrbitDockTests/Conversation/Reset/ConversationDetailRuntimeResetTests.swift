@@ -5,7 +5,7 @@ import XCTest
 final class ConversationDetailRuntimeResetTests: XCTestCase {
   func testRuntimeKeepsStructureMetadataAndStreamingSeparated() {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-1")
-    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil)
+    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil, dataLoader: { _ in throw HTTPTransportError.serverUnreachable })
     let runtime = ConversationDetailRuntime(session: session, clients: clients, provider: .codex, model: "gpt-5.4")
 
     runtime.applyStructure(.bootstrap(
@@ -43,7 +43,7 @@ final class ConversationDetailRuntimeResetTests: XCTestCase {
 
   func testRuntimeBuildsWorkerInspectorWithoutTranscriptScanning() {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-2")
-    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil)
+    let clients = ServerClients(serverURL: URL(string: "http://127.0.0.1:4000")!, authToken: nil, dataLoader: { _ in throw HTTPTransportError.serverUnreachable })
     let runtime = ConversationDetailRuntime(session: session, clients: clients, provider: .codex, model: "gpt-5.4")
 
     runtime.hydrateMetadata(
@@ -98,20 +98,20 @@ final class ConversationDetailRuntimeResetTests: XCTestCase {
         ],
         messagesByWorker: [
           "worker-1": [
-            ServerMessage(
-              id: "msg-1",
+            ServerConversationRowEntry(
               sessionId: session.sessionId,
               sequence: 1,
-              type: .assistant,
-              content: "I found the auth entrypoint.",
-              toolName: nil,
-              toolInput: nil,
-              toolOutput: nil,
-              isError: false,
-              isInProgress: false,
-              timestamp: "2026-03-12T12:11:00Z",
-              durationMs: nil,
-              images: []
+              turnId: nil,
+              row: .assistant(
+                ServerConversationMessageRow(
+                  id: "msg-1",
+                  content: "I found the auth entrypoint.",
+                  turnId: nil,
+                  timestamp: "2026-03-12T12:11:00Z",
+                  isStreaming: false,
+                  images: nil
+                )
+              )
             )
           ]
         ],

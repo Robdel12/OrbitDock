@@ -5,22 +5,30 @@ final class ServerRuntime: Identifiable {
   let endpoint: ServerEndpoint
   let clients: ServerClients
   let controlPlaneClient: ControlPlaneClient
-  let eventStream: EventStream
+  let connection: ServerConnection
   let sessionStore: SessionStore
 
   private(set) var isStarted = false
 
   init(endpoint: ServerEndpoint) {
+    let connection = ServerConnection(authToken: endpoint.authToken)
+    let baseURL = ServerURLResolver.httpBaseURL(from: endpoint.wsURL)
+    let requestBuilder = HTTPRequestBuilder(baseURL: baseURL, authToken: endpoint.authToken)
+
     self.endpoint = endpoint
+    self.connection = connection
     self.clients = ServerClients(
-      serverURL: ServerURLResolver.httpBaseURL(from: endpoint.wsURL),
-      authToken: endpoint.authToken
+      baseURL: baseURL,
+      requestBuilder: requestBuilder,
+      responseLoader: { [weak connection] request in
+        guard let connection else { throw HTTPTransportError.serverUnreachable }
+        return try await connection.execute(request)
+      }
     )
     self.controlPlaneClient = clients.controlPlane
-    self.eventStream = EventStream(authToken: endpoint.authToken)
     self.sessionStore = SessionStore(
       clients: clients,
-      eventStream: eventStream,
+      connection: connection,
       endpointId: endpoint.id,
       endpointName: endpoint.name
     )
@@ -30,17 +38,17 @@ final class ServerRuntime: Identifiable {
     endpoint: ServerEndpoint,
     clients: ServerClients,
     controlPlaneClient: ControlPlaneClient? = nil,
-    eventStream: EventStream,
+    connection: ServerConnection,
     sessionStore: SessionStore? = nil
   ) {
     self.endpoint = endpoint
     self.clients = clients
     self.controlPlaneClient = controlPlaneClient ?? clients.controlPlane
-    self.eventStream = eventStream
+    self.connection = connection
     self.sessionStore = sessionStore
       ?? SessionStore(
         clients: clients,
-        eventStream: eventStream,
+        connection: connection,
         endpointId: endpoint.id,
         endpointName: endpoint.name
       )
@@ -59,8 +67,8 @@ final class ServerRuntime: Identifiable {
 
   var readiness: ServerRuntimeReadiness {
     ServerRuntimeReadiness.derive(
-      connectionStatus: eventStream.connectionStatus,
-      hasReceivedInitialRootList: eventStream.hasReceivedInitialSessionsList
+      connectionStatus: connection.connectionStatus,
+      hasReceivedInitialRootList: connection.hasReceivedInitialSessionsList
     )
   }
 
@@ -68,13 +76,13 @@ final class ServerRuntime: Identifiable {
     guard endpoint.isEnabled else { return }
     guard !isStarted else { return }
     sessionStore.startProcessingEvents()
-    eventStream.connect(to: endpoint.wsURL)
+    connection.connect(to: endpoint.wsURL)
     isStarted = true
   }
 
   func stop() {
     guard isStarted else { return }
-    eventStream.disconnect()
+    connection.disconnect()
     sessionStore.stopProcessingEvents()
     isStarted = false
   }
@@ -83,13 +91,13 @@ final class ServerRuntime: Identifiable {
     guard endpoint.isEnabled else { return }
     stop()
     sessionStore.startProcessingEvents()
-    eventStream.connect(to: endpoint.wsURL)
+    connection.connect(to: endpoint.wsURL)
     isStarted = true
   }
 
   func reconnectIfNeeded() {
     guard isStarted else { return }
-    eventStream.reconnectIfNeeded()
+    connection.reconnectIfNeeded()
   }
 
   func suspendInactive() {

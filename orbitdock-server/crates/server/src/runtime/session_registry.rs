@@ -99,7 +99,7 @@ impl SessionRegistry {
         db_path: PathBuf,
         is_primary: bool,
     ) -> Self {
-        let (list_tx, _) = broadcast::channel(64);
+        let (list_tx, _) = broadcast::channel(256);
         #[cfg(test)]
         let codex_auth = {
             let codex_home = db_path
@@ -285,14 +285,6 @@ impl SessionRegistry {
                     worktree_id: snap.worktree_id.clone(),
                     unread_count: snap.unread_count,
                     has_turn_diff: snap.has_turn_diff,
-                    display_title_sort_key: SessionSummary::display_title_sort_key(&display_title),
-                    display_search_text: SessionSummary::display_search_text_from_parts(
-                        &display_title,
-                        context_line.as_deref(),
-                        snap.project_name.as_deref(),
-                        snap.git_branch.as_deref(),
-                        snap.model.as_deref(),
-                    ),
                     display_title,
                     context_line,
                     list_status: SessionSummary::list_status_from_parts(

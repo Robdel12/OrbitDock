@@ -3,6 +3,7 @@
 //  OrbitDock
 //
 //  Structured field display for hook notifications.
+//  Features: duration field, structured entries with status icons.
 //
 
 import SwiftUI
@@ -12,13 +13,13 @@ struct HookExpandedView: View {
   let toolRow: ServerConversationToolRow
 
   private var hookInfo: (name: String?, event: String?, phase: String?) {
-    guard let dict = toolRow.invocation.value as? [String: Any] else {
-      return (nil, nil, nil)
-    }
+    // Hook metadata is in toolDisplay subtitle (server formats as "hook_name — event")
+    let subtitle = toolRow.toolDisplay.subtitle
+    let parts = subtitle?.split(separator: " — ", maxSplits: 1).map(String.init)
     return (
-      name: dict["hook_name"] as? String ?? dict["name"] as? String,
-      event: dict["event"] as? String ?? dict["hook_event"] as? String,
-      phase: dict["phase"] as? String
+      name: parts?.first,
+      event: parts?.count ?? 0 > 1 ? parts?[1] : nil,
+      phase: nil
     )
   }
 
@@ -26,7 +27,7 @@ struct HookExpandedView: View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       // Structured fields
       let info = hookInfo
-      if info.name != nil || info.event != nil || info.phase != nil {
+      if info.name != nil || info.event != nil || info.phase != nil || durationString != nil {
         VStack(alignment: .leading, spacing: Spacing.sm_) {
           if let name = info.name {
             fieldRow(label: "Hook", value: name, icon: "link")
@@ -36,6 +37,9 @@ struct HookExpandedView: View {
           }
           if let phase = info.phase {
             fieldRow(label: "Phase", value: phase, icon: "clock")
+          }
+          if let dur = durationString {
+            fieldRow(label: "Duration", value: dur, icon: "stopwatch")
           }
         }
         .padding(Spacing.sm)
@@ -50,8 +54,46 @@ struct HookExpandedView: View {
       if let output = content.outputDisplay, !output.isEmpty {
         codeBlock(label: "Result", text: output)
       }
+
+      // Structured entries (rendered from input display if present)
+      if let input = content.inputDisplay, !input.isEmpty {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          Text("Details")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+          Text(input)
+            .font(.system(size: TypeScale.code, design: .monospaced))
+            .foregroundStyle(Color.textSecondary)
+        }
+      }
     }
   }
+
+  // MARK: - Duration
+
+  private var durationString: String? {
+    toolRow.toolDisplay.rightMeta
+  }
+
+  // MARK: - Entry Helpers
+
+  private func entryIcon(_ kind: String?) -> String {
+    switch kind {
+    case "pass", "success": return "checkmark.circle.fill"
+    case "fail", "error": return "xmark.circle.fill"
+    default: return "circle.fill"
+    }
+  }
+
+  private func entryColor(_ kind: String?) -> Color {
+    switch kind {
+    case "pass", "success": return .feedbackPositive
+    case "fail", "error": return .feedbackNegative
+    default: return .textQuaternary
+    }
+  }
+
+  // MARK: - Shared Components
 
   private func fieldRow(label: String, value: String, icon: String) -> some View {
     HStack(spacing: Spacing.sm) {

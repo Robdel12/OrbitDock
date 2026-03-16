@@ -2,33 +2,13 @@ import SwiftUI
 
 extension SessionDetailView {
   func handleOnAppear() {
-    let sessionId = self.sessionId
-    let endpointId = self.endpointId
-    print("[OrbitDock][SessionDetail] onAppear session=\(sessionId) endpoint=\(endpointId)")
-    NSLog("[OrbitDock][SessionDetail] onAppear session=%@ endpoint=%@", sessionId, endpointId.uuidString)
-
-    guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      print("[OrbitDock][SessionDetail] skipping subscribe — empty sessionId")
-      return
-    }
-
-    scopedServerState.subscribeToSession(sessionId)
-    scopedServerState.setSessionAutoMarkRead(sessionId, enabled: isPinned)
+    // Subscription is managed by ContentView via route changes — not here.
+    // This only handles view-local state.
     syncSelectedWorker()
-
-    if obs.isDirect {
-      loadApprovalHistory()
-    }
   }
 
   func handleOnDisappear() {
-    let sessionId = self.sessionId
-    print("[OrbitDock][SessionDetail] onDisappear session=\(sessionId)")
-
-    guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-
-    scopedServerState.setSessionAutoMarkRead(sessionId, enabled: false)
-    scopedServerState.unsubscribeFromSession(sessionId)
+    // Unsubscription is managed by ContentView via route changes — not here.
   }
 
   func handlePinnedChange(_ pinned: Bool) {
@@ -49,14 +29,6 @@ extension SessionDetailView {
         withAnimation(Motion.standard) {
           showDiffBanner = false
         }
-      }
-    }
-  }
-
-  private func loadApprovalHistory() {
-    Task {
-      if let response = try? await scopedServerState.clients.approvals.listApprovals(sessionId: sessionId) {
-        scopedServerState.session(sessionId).approvalHistory = response.approvals
       }
     }
   }

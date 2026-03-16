@@ -29,14 +29,17 @@ struct PreviewRuntime {
     let endpoint = Self.previewEndpoint()
     self.endpoints = [endpoint]
 
+    let baseURL = ServerURLResolver.httpBaseURL(from: endpoint.wsURL)
+    let requestBuilder = HTTPRequestBuilder(baseURL: baseURL, authToken: endpoint.authToken)
     let clients = ServerClients(
-      serverURL: ServerURLResolver.httpBaseURL(from: endpoint.wsURL),
-      authToken: endpoint.authToken
+      baseURL: baseURL,
+      requestBuilder: requestBuilder,
+      responseLoader: { _ in throw HTTPTransportError.serverUnreachable }
     )
-    let eventStream = EventStream(authToken: endpoint.authToken)
+    let connection = ServerConnection(authToken: endpoint.authToken)
     let sessionStore = SessionStore(
       clients: clients,
-      eventStream: eventStream,
+      connection: connection,
       endpointId: endpoint.id,
       endpointName: endpoint.name
     )
@@ -52,13 +55,13 @@ struct PreviewRuntime {
       loginInProgress: false,
       activeLoginId: nil
     )
-    eventStream.seedSessionsListForTesting(Self.previewSessionListItems())
+    connection.seedSessionsListForTesting(Self.previewSessionListItems())
     self.sessionStore = sessionStore
 
     let runtime = ServerRuntime(
       endpoint: endpoint,
       clients: clients,
-      eventStream: eventStream,
+      connection: connection,
       sessionStore: sessionStore
     )
 
@@ -95,14 +98,8 @@ struct PreviewRuntime {
       )
     )
     self.externalNavigationCenter = AppExternalNavigationCenter()
-    self.appStore = AppStore(
-      runtimeRegistry: runtimeRegistry,
-      attentionService: attentionService,
-      notificationManager: notificationManager,
-      toastManager: toastManager
-    )
+    self.appStore = AppStore(runtimeRegistry: runtimeRegistry)
     self.appStore.router = router
-    self.appStore.start()
 
     #if os(macOS)
       self.serverManager = ServerManager(

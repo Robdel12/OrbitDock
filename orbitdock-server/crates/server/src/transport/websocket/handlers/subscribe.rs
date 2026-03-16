@@ -49,9 +49,7 @@ pub(crate) async fn handle(
         ClientMessage::SubscribeList => {
             let rx = state.subscribe_list();
             spawn_broadcast_forwarder(rx, client_tx.clone(), None);
-
-            let sessions = state.get_session_list_items();
-            send_json(client_tx, ServerMessage::SessionsList { sessions }).await;
+            // Initial list fetched via GET /api/sessions. WS delivers incremental updates only.
         }
 
         ClientMessage::SubscribeSession {

@@ -3,7 +3,7 @@
 //  OrbitDock
 //
 //  Search results cards for web search tool output.
-//  Features: SearchBarVisual, result cards with URL + snippet.
+//  Features: SearchBarVisual, domain badges, numbered results, query highlighting.
 //
 
 import SwiftUI
@@ -11,10 +11,12 @@ import SwiftUI
 struct WebSearchExpandedView: View {
   let content: ServerRowContent
 
+  private var query: String { content.inputDisplay ?? "" }
+
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
-      if let input = content.inputDisplay, !input.isEmpty {
-        SearchBarVisual(query: input, icon: "magnifyingglass.circle", tintColor: .toolWeb)
+      if !query.isEmpty {
+        SearchBarVisual(query: query, icon: "magnifyingglass.circle", tintColor: .toolWeb)
       }
 
       if let output = content.outputDisplay, !output.isEmpty {
@@ -22,8 +24,8 @@ struct WebSearchExpandedView: View {
         let results = parseSearchResults(output)
         if !results.isEmpty {
           VStack(alignment: .leading, spacing: Spacing.sm) {
-            ForEach(Array(results.enumerated()), id: \.offset) { _, result in
-              searchResultCard(result)
+            ForEach(Array(results.enumerated()), id: \.offset) { index, result in
+              searchResultCard(result, number: index + 1)
             }
           }
         } else {
@@ -40,11 +42,27 @@ struct WebSearchExpandedView: View {
 
   // MARK: - Result Card
 
-  private func searchResultCard(_ result: SearchResult) -> some View {
+  private func searchResultCard(_ result: SearchResult, number: Int) -> some View {
     VStack(alignment: .leading, spacing: Spacing.xs) {
-      Text(result.title)
-        .font(.system(size: TypeScale.body, weight: .medium))
-        .foregroundStyle(Color.accent)
+      // Domain badge
+      if let url = result.url, let domain = domainFrom(url) {
+        Text(domain)
+          .font(.system(size: TypeScale.mini, weight: .medium))
+          .foregroundStyle(Color.textQuaternary)
+          .padding(.horizontal, Spacing.sm_)
+          .padding(.vertical, 1)
+          .background(Color.textQuaternary.opacity(OpacityTier.tint), in: Capsule())
+      }
+
+      // Numbered title
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.sm_) {
+        Text("\(number).")
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textQuaternary)
+        Text(result.title)
+          .font(.system(size: TypeScale.body, weight: .medium))
+          .foregroundStyle(Color.accent)
+      }
 
       if let url = result.url {
         Text(url)
@@ -53,7 +71,10 @@ struct WebSearchExpandedView: View {
           .lineLimit(1)
       }
 
-      if let snippet = result.snippet {
+      if let snippet = result.snippet, !query.isEmpty {
+        Text(highlightQuery(in: snippet, query: query))
+          .lineLimit(3)
+      } else if let snippet = result.snippet {
         Text(snippet)
           .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.textTertiary)
@@ -68,6 +89,31 @@ struct WebSearchExpandedView: View {
         .frame(width: 3)
     }
     .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
+  }
+
+  // MARK: - Helpers
+
+  private func domainFrom(_ url: String) -> String? {
+    URL(string: url)?.host?.replacingOccurrences(of: "www.", with: "")
+  }
+
+  private func highlightQuery(in text: String, query: String) -> AttributedString {
+    var result = AttributedString(text)
+    result.font = .system(size: TypeScale.caption)
+    result.foregroundColor = Color.textTertiary
+    let words = query.lowercased().split(separator: " ")
+    let lowered = text.lowercased()
+    for word in words {
+      var searchStart = lowered.startIndex
+      while let range = lowered.range(of: word, range: searchStart..<lowered.endIndex) {
+        if let attrRange = Range(range, in: result) {
+          result[attrRange].backgroundColor = Color.toolWeb.opacity(0.15)
+          result[attrRange].foregroundColor = Color.toolWeb
+        }
+        searchStart = range.upperBound
+      }
+    }
+    return result
   }
 
   // MARK: - Parse

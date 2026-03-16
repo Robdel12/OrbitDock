@@ -76,61 +76,40 @@ extension TranscriptMessage {
     toolKind.colorName
   }
 
+  /// File path extracted from toolDisplay subtitle (server now provides this).
   var filePath: String? {
-    guard let input = toolInput else { return nil }
-    return input["file_path"] as? String ?? input["path"] as? String
+    toolDisplay?.subtitle
   }
 
+  /// Bash command extracted from toolDisplay summary.
   var bashCommand: String? {
     guard isBashLikeCommand else { return nil }
-    if let input = toolInput {
-      return String.shellCommandDisplay(from: input["command"])
-        ?? String.shellCommandDisplay(from: input["cmd"])
-        ?? String.shellCommandDisplay(from: content)
-        ?? content
-    }
-    return String.shellCommandDisplay(from: content) ?? content
+    return toolDisplay?.summary ?? String.shellCommandDisplay(from: content) ?? content
   }
 
+  /// Bash metadata — no longer available without raw tool input. Returns nil.
   var bashMetadataInput: String? {
-    guard isBashLikeCommand else { return nil }
-    guard var input = toolInput else {
-      return trimmedRawToolInput
-    }
-
-    input.removeValue(forKey: "command")
-    input.removeValue(forKey: "cmd")
-    if input.isEmpty {
-      return nil
-    }
-
-    guard JSONSerialization.isValidJSONObject(input),
-          let data = try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys, .prettyPrinted]),
-          let text = String(data: data, encoding: .utf8)
-    else {
-      return trimmedRawToolInput
-    }
-    return text
+    nil
   }
 
+  /// Edit old string — no longer available without raw tool input. Returns nil.
   var editOldString: String? {
-    guard toolKind == .edit, let input = toolInput else { return nil }
-    return input["old_string"] as? String
+    nil
   }
 
+  /// Edit new string — no longer available without raw tool input. Returns nil.
   var editNewString: String? {
-    guard toolKind == .edit, let input = toolInput else { return nil }
-    return input["new_string"] as? String
+    nil
   }
 
+  /// Write content — no longer available without raw tool input. Returns nil.
   var writeContent: String? {
-    guard toolKind == .write, let input = toolInput else { return nil }
-    return input["content"] as? String
+    nil
   }
 
+  /// Unified diff — use toolDisplay.diffDisplay instead.
   var unifiedDiff: String? {
-    guard let input = toolInput else { return nil }
-    return input["unified_diff"] as? String
+    toolDisplay?.diffDisplay
   }
 
   var hasUnifiedDiff: Bool {
@@ -140,65 +119,48 @@ extension TranscriptMessage {
     return false
   }
 
+  /// Glob pattern — extracted from toolDisplay summary.
   var globPattern: String? {
-    guard toolKind == .glob, let input = toolInput else { return nil }
-    return input["pattern"] as? String
+    guard toolKind == .glob else { return nil }
+    return toolDisplay?.summary
   }
 
+  /// Grep pattern — extracted from toolDisplay summary.
   var grepPattern: String? {
-    guard toolKind == .grep, let input = toolInput else { return nil }
-    return input["pattern"] as? String
+    guard toolKind == .grep else { return nil }
+    return toolDisplay?.summary
   }
 
+  /// Task prompt — extracted from toolDisplay inputDisplay.
   var taskPrompt: String? {
-    guard toolKind == .task, let input = toolInput else { return nil }
-    return input["prompt"] as? String
+    guard toolKind == .task else { return nil }
+    return toolDisplay?.inputDisplay
   }
 
+  /// Task description — extracted from toolDisplay subtitle.
   var taskDescription: String? {
-    guard toolKind == .task, let input = toolInput else { return nil }
-    return input["description"] as? String
+    guard toolKind == .task else { return nil }
+    return toolDisplay?.subtitle
   }
 
   var fullFormattedToolInput: String? {
-    formatToolInput(maxLength: nil)
+    toolDisplay?.inputDisplay
   }
 
   var toolInputRenderSignature: String? {
-    if let raw = trimmedRawToolInput {
-      return raw
-    }
-
-    guard let input = toolInput,
-          JSONSerialization.isValidJSONObject(input),
-          let data = try? JSONSerialization.data(withJSONObject: input, options: .sortedKeys),
-          let canonical = String(data: data, encoding: .utf8)
-    else {
-      return nil
-    }
-    return canonical
+    toolDisplay?.inputDisplay
   }
 
   var formattedToolInput: String? {
-    formatToolInput(maxLength: 500)
+    toolDisplay?.inputDisplay
   }
 
   var toolOutputPreview: String? {
-    guard let output = toolOutput else { return nil }
-    if output.count > 300 {
-      return String(output.prefix(300)) + "..."
-    }
-    return output
+    toolDisplay?.outputPreview
   }
 
   var sanitizedToolOutput: String? {
-    guard let output = toolOutput else { return nil }
-    let pattern = "\u{1b}\\[[0-9;?]*[a-zA-Z]"
-    guard let regex = try? NSRegularExpression(pattern: pattern) else {
-      return output
-    }
-    let range = NSRange(output.startIndex..., in: output)
-    return regex.stringByReplacingMatches(in: output, range: range, withTemplate: "")
+    toolDisplay?.outputDisplay ?? toolDisplay?.outputPreview
   }
 
   var formattedDuration: String? {
@@ -217,22 +179,24 @@ extension TranscriptMessage {
   }
 
   var outputLineCount: Int? {
-    guard let output = toolOutput, !output.isEmpty else { return nil }
+    guard let output = toolDisplay?.outputDisplay ?? toolDisplay?.outputPreview, !output.isEmpty else { return nil }
     return output.components(separatedBy: "\n").count
   }
 
   var globMatchCount: Int? {
-    guard toolKind == .glob, let output = toolOutput else { return nil }
+    guard toolKind == .glob, let output = toolDisplay?.outputDisplay ?? toolDisplay?.outputPreview else { return nil }
     return output.components(separatedBy: "\n").filter { !$0.isEmpty }.count
   }
 
   var grepMatchCount: Int? {
-    guard toolKind == .grep, let output = toolOutput else { return nil }
+    guard toolKind == .grep, let output = toolDisplay?.outputDisplay ?? toolDisplay?.outputPreview else { return nil }
     return output.components(separatedBy: "\n").filter { !$0.isEmpty }.count
   }
 
   var bashHasError: Bool {
-    guard isBashLikeCommand, let output = toolOutput else { return false }
+    guard isBashLikeCommand else { return false }
+    if isError { return true }
+    guard let output = toolDisplay?.outputDisplay ?? toolDisplay?.outputPreview else { return false }
     let lowerOutput = output.lowercased()
     return lowerOutput.contains("error:")
       || lowerOutput.contains("error[")
@@ -243,75 +207,11 @@ extension TranscriptMessage {
       || lowerOutput.contains("failed to")
   }
 
-  private var trimmedRawToolInput: String? {
-    guard let raw = rawToolInput?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
-      return nil
-    }
-    return raw
-  }
-
   private func truncateToolText(_ value: String, maxLength: Int?) -> String {
     guard let maxLength else { return value }
     if value.count > maxLength {
       return String(value.prefix(maxLength)) + "..."
     }
     return value
-  }
-
-  private func formatToolInput(maxLength: Int?) -> String? {
-    guard let input = toolInput else {
-      guard let raw = trimmedRawToolInput else { return nil }
-      return truncateToolText(raw, maxLength: maxLength)
-    }
-
-    switch toolKind {
-      case .bash:
-        guard let command = bashCommand else { return nil }
-        return truncateToolText(command, maxLength: maxLength)
-      case .read:
-        guard let path = filePath else { return nil }
-        return truncateToolText(path, maxLength: maxLength)
-      case .edit:
-        if let old = editOldString, let new = editNewString {
-          let oldPreview = old.count > 200 ? String(old.prefix(200)) + "..." : old
-          let newPreview = new.count > 200 ? String(new.prefix(200)) + "..." : new
-          return "- \(oldPreview)\n+ \(newPreview)"
-        }
-        if let path = filePath {
-          return truncateToolText(path, maxLength: maxLength)
-        }
-        return nil
-      case .write:
-        if let content = writeContent {
-          return truncateToolText(content, maxLength: maxLength)
-        }
-        if let path = filePath {
-          return truncateToolText(path, maxLength: maxLength)
-        }
-        return nil
-      case .glob:
-        guard let pattern = globPattern else { return nil }
-        return truncateToolText(pattern, maxLength: maxLength)
-      case .grep:
-        guard let pattern = grepPattern else { return nil }
-        return truncateToolText(pattern, maxLength: maxLength)
-      case .task:
-        if let description = taskDescription {
-          return truncateToolText(description, maxLength: maxLength)
-        }
-        if let prompt = taskPrompt {
-          return truncateToolText(prompt, maxLength: maxLength)
-        }
-        return nil
-      case .handoff, .hook, .webFetch, .webSearch, .unknown:
-        if let data = try? JSONSerialization.data(withJSONObject: input, options: .prettyPrinted),
-           let str = String(data: data, encoding: .utf8)
-        {
-          return truncateToolText(str, maxLength: maxLength)
-        }
-        return nil
-      @unknown default:
-        return nil
-    }
   }
 }

@@ -555,7 +555,7 @@ struct InlineAutonomyPicker: View {
   }
   .padding()
   .background(Color.backgroundPrimary)
-  .environment(SessionStore())
+  .environment(SessionStore.preview())
 }
 
 #Preview("Autonomy Popover") {

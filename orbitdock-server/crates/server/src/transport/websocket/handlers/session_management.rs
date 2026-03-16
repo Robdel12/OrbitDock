@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 
-use orbitdock_protocol::conversation_contracts::ConversationRowPage;
+use orbitdock_protocol::conversation_contracts::RowPageSummary;
 use orbitdock_protocol::{Provider, ServerMessage, SessionListItem};
 
 use crate::runtime::session_creation::{
@@ -84,7 +84,7 @@ pub(crate) async fn handle_create_session(
         client_tx,
         ServerMessage::ConversationBootstrap {
             session: snapshot,
-            conversation: ConversationRowPage {
+            conversation: RowPageSummary {
                 rows: vec![],
                 total_row_count: 0,
                 has_more_before: false,

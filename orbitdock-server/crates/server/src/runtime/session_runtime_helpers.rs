@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
@@ -181,6 +181,9 @@ pub(crate) fn is_stale_empty_claude_shell(
 
 /// Re-read a session's transcript and broadcast any new rows to subscribers.
 /// Works for any hook-triggered session (Claude CLI, future Codex CLI hooks).
+///
+/// Uses ID-based comparison: tracks the newest row ID we've synced rather than
+/// a count. This is immune to `total_row_count` inflation from upserts.
 pub(crate) async fn sync_transcript_messages(
     actor: &SessionActorHandle,
     persist_tx: &tokio::sync::mpsc::Sender<crate::infrastructure::persistence::PersistCommand>,
@@ -191,20 +194,14 @@ pub(crate) async fn sync_transcript_messages(
         None => return,
     };
     let session_id = snap.id.clone();
-    let existing_count = snap.message_count;
+    let newest_known_id = snap.newest_synced_row_id.clone();
 
     let all_rows = match load_messages_from_transcript_path(&transcript_path, &session_id).await {
         Ok(rows) => rows,
         Err(_) => return,
     };
 
-    // Double-check count hasn't changed while we were reading
-    let (count_tx, count_rx) = oneshot::channel();
-    actor
-        .send(SessionCommand::GetMessageCount { reply: count_tx })
-        .await;
-    let confirmed_count = count_rx.await.ok();
-
+    let transcript_row_count = all_rows.len();
     let plan = plan_transcript_sync(TranscriptSyncInputs {
         provider: snap.provider,
         current_usage: snap.token_usage.clone(),
@@ -213,9 +210,20 @@ pub(crate) async fn sync_transcript_messages(
             .ok()
             .flatten(),
         transcript_rows: all_rows,
-        existing_count,
-        confirmed_count,
+        newest_known_id: newest_known_id.clone(),
     });
+
+    tracing::info!(
+        component = "transcript_sync",
+        event = "transcript_sync.planned",
+        session_id = %session_id,
+        transcript_rows = transcript_row_count,
+        newest_known_id = ?newest_known_id,
+        decision = ?plan.message_sync_decision,
+        new_rows = plan.new_rows.len(),
+        updated_rows = plan.updated_rows.len(),
+        "Transcript sync planned"
+    );
 
     if let Some(usage_update) = plan.usage_update {
         actor
@@ -228,39 +236,55 @@ pub(crate) async fn sync_transcript_messages(
             .await;
     }
 
-    if matches!(
-        plan.message_sync_decision,
-        TranscriptMessageSyncDecision::AppendNewMessages
-    ) {
-        // Upsert existing rows that got results attached by the transcript parser.
-        // Without this, tool rows persisted before their result arrived would
-        // permanently lack output data for the REST content endpoint.
-        for entry in plan.updated_rows {
-            let _ = persist_tx
-                .send(
-                    crate::infrastructure::persistence::PersistCommand::RowUpsert {
-                        session_id: session_id.clone(),
-                        entry: entry.clone(),
-                    },
-                )
-                .await;
-            actor
-                .send(SessionCommand::AddRowAndBroadcast { entry })
-                .await;
-        }
+    match plan.message_sync_decision {
+        TranscriptMessageSyncDecision::AppendNewMessages => {
+            // Upsert existing rows that got results attached by the transcript parser.
+            for entry in plan.updated_rows {
+                let _ = persist_tx
+                    .send(
+                        crate::infrastructure::persistence::PersistCommand::RowUpsert {
+                            session_id: session_id.clone(),
+                            entry: entry.clone(),
+                        },
+                    )
+                    .await;
+                actor
+                    .send(SessionCommand::UpsertRowAndBroadcast { entry })
+                    .await;
+            }
 
-        for entry in plan.new_rows {
-            let _ = persist_tx
-                .send(
-                    crate::infrastructure::persistence::PersistCommand::RowAppend {
-                        session_id: session_id.clone(),
-                        entry: entry.clone(),
-                    },
-                )
-                .await;
+            for entry in plan.new_rows {
+                let _ = persist_tx
+                    .send(
+                        crate::infrastructure::persistence::PersistCommand::RowAppend {
+                            session_id: session_id.clone(),
+                            entry: entry.clone(),
+                        },
+                    )
+                    .await;
+                actor
+                    .send(SessionCommand::AddRowAndBroadcast { entry })
+                    .await;
+            }
+        }
+        TranscriptMessageSyncDecision::ForceResync => {
+            // Full resync — replace all rows in-memory and broadcast
+            for entry in &plan.new_rows {
+                let _ = persist_tx
+                    .send(
+                        crate::infrastructure::persistence::PersistCommand::RowUpsert {
+                            session_id: session_id.clone(),
+                            entry: entry.clone(),
+                        },
+                    )
+                    .await;
+            }
             actor
-                .send(SessionCommand::AddRowAndBroadcast { entry })
+                .send(SessionCommand::ReplaceRows {
+                    rows: plan.new_rows,
+                })
                 .await;
         }
+        TranscriptMessageSyncDecision::SkipNoNewMessages => {}
     }
 }

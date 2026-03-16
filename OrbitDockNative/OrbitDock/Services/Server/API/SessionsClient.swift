@@ -226,12 +226,12 @@ struct SessionsClient: Sendable {
     return response.tools
   }
 
-  func getSubagentMessages(sessionId: String, subagentId: String) async throws -> [ServerMessage] {
-    struct Response: Decodable { let messages: [ServerMessage] }
+  func getSubagentMessages(sessionId: String, subagentId: String) async throws -> [ServerConversationRowEntry] {
+    struct Response: Decodable { let rows: [ServerConversationRowEntry] }
     let response: Response = try await http.get(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/subagents/\(requestBuilder.encodePathComponent(subagentId))/messages"
     )
-    return response.messages
+    return response.rows
   }
 
   func markSessionRead(_ sessionId: String) async throws -> UInt64 {

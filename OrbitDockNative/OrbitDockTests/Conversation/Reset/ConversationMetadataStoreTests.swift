@@ -59,20 +59,11 @@ final class ConversationMetadataStoreTests: XCTestCase {
         ],
         messagesByWorker: [
           "worker-1": [
-            ServerMessage(
+            makeRowEntry(
               id: "msg-1",
               sessionId: session.sessionId,
               sequence: 1,
-              type: .assistant,
-              content: "I found the auth entrypoint.",
-              toolName: nil,
-              toolInput: nil,
-              toolOutput: nil,
-              isError: false,
-              isInProgress: false,
-              timestamp: "2026-03-12T12:05:00Z",
-              durationMs: nil,
-              images: []
+              content: "I found the auth entrypoint."
             )
           ]
         ],
@@ -143,20 +134,11 @@ final class ConversationMetadataStoreTests: XCTestCase {
         ],
         messagesByWorker: [
           "worker-2": [
-            ServerMessage(
+            makeRowEntry(
               id: "msg-2",
               sessionId: session.sessionId,
               sequence: 2,
-              type: .assistant,
-              content: "Auth state looks good.",
-              toolName: nil,
-              toolInput: nil,
-              toolOutput: nil,
-              isError: false,
-              isInProgress: false,
-              timestamp: "2026-03-12T12:03:00Z",
-              durationMs: nil,
-              images: []
+              content: "Auth state looks good."
             )
           ]
         ],
@@ -170,5 +152,28 @@ final class ConversationMetadataStoreTests: XCTestCase {
     XCTAssertEqual(store.snapshot.workerInspector.selectedWorker?.title, "Grace")
     XCTAssertEqual(store.snapshot.workerInspector.tools.first?.toolName, "Search")
     XCTAssertEqual(store.snapshot.workerInspector.threadEntries.first?.body, "Auth state looks good.")
+  }
+
+  private func makeRowEntry(
+    id: String,
+    sessionId: String,
+    sequence: UInt64,
+    content: String
+  ) -> ServerConversationRowEntry {
+    ServerConversationRowEntry(
+      sessionId: sessionId,
+      sequence: sequence,
+      turnId: nil,
+      row: .assistant(
+        ServerConversationMessageRow(
+          id: id,
+          content: content,
+          turnId: nil,
+          timestamp: nil,
+          isStreaming: false,
+          images: nil
+        )
+      )
+    )
   }
 }

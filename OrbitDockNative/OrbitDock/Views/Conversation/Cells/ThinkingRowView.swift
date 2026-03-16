@@ -11,7 +11,6 @@ struct ThinkingRowView: View {
   let content: String
   let isStreaming: Bool
   let isExpanded: Bool
-  let availableWidth: CGFloat
   var onToggle: (() -> Void)?
 
   var body: some View {
@@ -37,7 +36,7 @@ struct ThinkingRowView: View {
       .onTapGesture { onToggle?() }
 
       if isExpanded, !content.isEmpty {
-        MarkdownContentRepresentable(content: content, style: .thinking, availableWidth: availableWidth)
+        MarkdownContentView(content: content, style: .thinking)
           .opacity(0.7)
       }
     }

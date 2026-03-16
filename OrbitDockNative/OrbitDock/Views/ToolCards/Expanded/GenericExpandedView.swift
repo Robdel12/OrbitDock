@@ -40,7 +40,7 @@ struct GenericExpandedView: View {
   @ViewBuilder
   private func smartContent(_ text: String, language: String?) -> some View {
     if looksLikeJSON(text) {
-      JSONTreeView(jsonString: text)
+      SmartJSONView(jsonString: text)
     } else {
       Text(text)
         .font(.system(size: TypeScale.code, design: .monospaced))

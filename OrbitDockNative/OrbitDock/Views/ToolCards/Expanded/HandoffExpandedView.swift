@@ -2,7 +2,7 @@
 //  HandoffExpandedView.swift
 //  OrbitDock
 //
-//  Handoff expanded view with target badge and markdown body.
+//  Handoff expanded view with flow arrow, target badge, and transcript excerpt.
 //
 
 import SwiftUI
@@ -12,20 +12,21 @@ struct HandoffExpandedView: View {
   let toolRow: ServerConversationToolRow
 
   private var targetName: String? {
-    guard let dict = toolRow.invocation.value as? [String: Any] else { return nil }
-    return dict["target"] as? String ?? dict["to"] as? String
+    // Extract from tool_display subtitle (server computes "target_name" as subtitle)
+    toolRow.toolDisplay.subtitle
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
+      // Flow: Current -> Target
       HStack(spacing: Spacing.sm) {
-        Image(systemName: "arrow.triangle.branch")
-          .font(.system(size: IconScale.sm))
-          .foregroundStyle(Color.statusReply)
-
-        Text("Handoff")
+        Text("Agent")
           .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.textTertiary)
+
+        Image(systemName: "arrow.right")
+          .font(.system(size: IconScale.xs))
+          .foregroundStyle(Color.statusReply)
 
         if let target = targetName {
           Text(target)
@@ -41,6 +42,26 @@ struct HandoffExpandedView: View {
         Text(input)
           .font(.system(size: TypeScale.body))
           .foregroundStyle(Color.textSecondary)
+      }
+
+      // Transcript excerpt as muted quote
+      if let excerpt = content.outputDisplay, !excerpt.isEmpty {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          Text("Context")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+          Text(excerpt)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textQuaternary)
+            .padding(Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .leading) {
+              Rectangle()
+                .fill(Color.textQuaternary.opacity(0.2))
+                .frame(width: 2)
+            }
+            .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
+        }
       }
 
       if let output = content.outputDisplay, !output.isEmpty {

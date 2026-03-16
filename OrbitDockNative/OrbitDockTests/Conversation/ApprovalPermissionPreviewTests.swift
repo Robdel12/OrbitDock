@@ -150,7 +150,14 @@ struct ApprovalPermissionPreviewTests {
       approvalType: .exec,
       projectPath: "/tmp/OrbitDock",
       approvalId: "req-preview",
-      sessionId: "session-preview"
+      sessionId: "session-preview",
+      elicitationMode: nil,
+      elicitationSchema: nil,
+      elicitationUrl: nil,
+      elicitationMessage: nil,
+      mcpServerName: nil,
+      networkHost: nil,
+      networkProtocol: nil
     )
   }
 }

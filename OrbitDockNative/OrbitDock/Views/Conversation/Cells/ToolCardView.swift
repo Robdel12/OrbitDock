@@ -289,6 +289,8 @@ struct ToolCardView: View {
         ReadExpandedView(content: content)
       case "edit":
         EditExpandedView(content: content, toolType: toolType)
+      case "write":
+        WriteExpandedView(content: content)
       case "glob":
         GlobExpandedView(content: content)
       case "grep":
@@ -344,29 +346,11 @@ struct ToolCardView: View {
   @ViewBuilder
   private var fallbackBody: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
-      if let json = toolRow.invocation.jsonString, !json.isEmpty {
-        if looksLikeJSON(json) {
-          VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text("Input")
-              .font(.system(size: TypeScale.caption, weight: .semibold))
-              .foregroundStyle(Color.textTertiary)
-            JSONTreeView(jsonString: json)
-          }
-        } else {
-          codeBlock(label: "Input", text: json, language: nil)
-        }
+      if let input = toolRow.toolDisplay.inputDisplay, !input.isEmpty {
+        codeBlock(label: "Input", text: input, language: nil)
       }
-      if let json = toolRow.result?.jsonString, !json.isEmpty {
-        if looksLikeJSON(json) {
-          VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text("Output")
-              .font(.system(size: TypeScale.caption, weight: .semibold))
-              .foregroundStyle(Color.textTertiary)
-            JSONTreeView(jsonString: json)
-          }
-        } else {
-          codeBlock(label: "Output", text: json, language: nil)
-        }
+      if let output = toolRow.toolDisplay.outputDisplay, !output.isEmpty {
+        codeBlock(label: "Output", text: output, language: toolRow.toolDisplay.language)
       }
     }
     .padding(Spacing.md)

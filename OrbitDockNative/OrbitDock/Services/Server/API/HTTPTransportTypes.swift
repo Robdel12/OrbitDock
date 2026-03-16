@@ -19,6 +19,7 @@ enum HTTPTransportError: LocalizedError, Equatable, Sendable {
   case cancelled
   case timedOut
   case unreachable(String)
+  case serverUnreachable
   case transport(String)
   case invalidResponse
 
@@ -49,6 +50,8 @@ enum HTTPTransportError: LocalizedError, Equatable, Sendable {
       message
     case let .transport(message):
       message
+    case .serverUnreachable:
+      "Server is not reachable."
     case .invalidResponse:
       "Server returned an invalid response."
     }

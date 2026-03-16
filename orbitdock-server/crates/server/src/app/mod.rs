@@ -54,6 +54,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     let logging = init_logging()?;
     let run_id = logging.run_id.clone();
     let _log_guard = logging.guard;
+    let _stderr_guard = logging._stderr_guard;
     let root_span =
         tracing::info_span!("orbitdock_server", service = "orbitdock", run_id = %run_id);
     let _root_span_guard = root_span.enter();

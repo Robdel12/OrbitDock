@@ -458,15 +458,15 @@ pub enum PersistOp {
 /// `Completed`, and returns Persist + Emit effects for each. Called on
 /// TurnCompleted, TurnAborted, and SessionEnded to prevent tool rows stuck
 /// at "running...".
-fn finalize_in_progress_rows(sid: &str, rows: &mut [ConversationRowEntry]) -> Vec<Effect> {
+fn finalize_in_progress_rows(sid: &str, rows: &mut [ConversationRowEntry], total_row_count: u64) -> Vec<Effect> {
     let mut effects = Vec::new();
-    let mut upserted = Vec::new();
+    let mut finalized_entries = Vec::new();
     for entry in rows.iter_mut() {
         match &mut entry.row {
             ConversationRow::Tool(ref mut tool) => {
                 if tool.status == ToolStatus::Running {
                     tool.status = ToolStatus::Completed;
-                    upserted.push(entry.clone());
+                    finalized_entries.push(entry.clone());
                     effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
                         session_id: sid.to_string(),
                         entry: entry.clone(),
@@ -478,7 +478,7 @@ fn finalize_in_progress_rows(sid: &str, rows: &mut [ConversationRowEntry]) -> Ve
             | ConversationRow::System(ref mut msg) => {
                 if msg.is_streaming {
                     msg.is_streaming = false;
-                    upserted.push(entry.clone());
+                    finalized_entries.push(entry.clone());
                     effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
                         session_id: sid.to_string(),
                         entry: entry.clone(),
@@ -488,14 +488,13 @@ fn finalize_in_progress_rows(sid: &str, rows: &mut [ConversationRowEntry]) -> Ve
             _ => {}
         }
     }
-    if !upserted.is_empty() {
-        let total = rows.len() as u64;
+    if !finalized_entries.is_empty() {
         effects.push(Effect::Emit(Box::new(
             ServerMessage::ConversationRowsChanged {
                 session_id: sid.to_string(),
-                upserted,
+                upserted: finalized_entries.iter().map(|e| e.to_summary()).collect(),
                 removed_row_ids: vec![],
-                total_row_count: total,
+                total_row_count,
             },
         )));
     }
@@ -582,7 +581,7 @@ pub fn transition(
             }
 
             // Finalize any tool messages stuck at is_in_progress before status change
-            effects.extend(finalize_in_progress_rows(&sid, &mut state.rows));
+            effects.extend(finalize_in_progress_rows(&sid, &mut state.rows, state.total_row_count));
 
             // Only transition if we're actually working
             if matches!(state.phase, WorkPhase::Working) {
@@ -613,7 +612,7 @@ pub fn transition(
             // A second TurnAborted (e.g. from watchdog after provider already aborted) is a no-op.
             if !matches!(state.phase, WorkPhase::Idle | WorkPhase::Ended { .. }) {
                 // Finalize any tool messages stuck at is_in_progress before status change
-                effects.extend(finalize_in_progress_rows(&sid, &mut state.rows));
+                effects.extend(finalize_in_progress_rows(&sid, &mut state.rows, state.total_row_count));
 
                 state.phase = WorkPhase::Idle;
                 state.last_activity_at = Some(now.to_string());
@@ -642,7 +641,7 @@ pub fn transition(
             state.last_activity_at = Some(now.to_string());
 
             // Create an error row so the user sees what happened
-            let seq = state.total_row_count.saturating_add(1);
+            let seq = state.rows.last().map(|r| r.sequence + 1).unwrap_or(0);
             let entry = ConversationRowEntry {
                 session_id: sid.clone(),
                 sequence: seq,
@@ -657,7 +656,7 @@ pub fn transition(
                 }),
             };
             state.rows.push(entry.clone());
-            state.total_row_count = seq;
+            state.total_row_count = seq + 1;
 
             effects.push(Effect::Persist(Box::new(PersistOp::RowAppend {
                 session_id: sid.clone(),
@@ -666,7 +665,7 @@ pub fn transition(
             effects.push(Effect::Emit(Box::new(
                 ServerMessage::ConversationRowsChanged {
                     session_id: sid.clone(),
-                    upserted: vec![entry],
+                    upserted: vec![entry.to_summary()],
                     removed_row_ids: vec![],
                     total_row_count: state.total_row_count,
                 },
@@ -699,12 +698,12 @@ pub fn transition(
             });
 
             if !is_dup {
-                // Assign sequence if not set
+                // Assign sequence from rows vec, not the inflatable counter
                 if entry.sequence == 0 {
-                    state.total_row_count = state.total_row_count.saturating_add(1);
-                    entry.sequence = state.total_row_count;
+                    entry.sequence = state.rows.last().map(|r| r.sequence + 1).unwrap_or(0);
                 }
                 state.rows.push(entry.clone());
+                state.total_row_count = entry.sequence + 1;
                 state.last_activity_at = Some(now.to_string());
 
                 effects.push(Effect::Persist(Box::new(PersistOp::RowAppend {
@@ -722,7 +721,7 @@ pub fn transition(
                 effects.push(Effect::Emit(Box::new(
                     ServerMessage::ConversationRowsChanged {
                         session_id: sid,
-                        upserted: vec![entry],
+                        upserted: vec![entry.to_summary()],
                         removed_row_ids: vec![],
                         total_row_count: state.total_row_count,
                     },
@@ -756,7 +755,7 @@ pub fn transition(
             effects.push(Effect::Emit(Box::new(
                 ServerMessage::ConversationRowsChanged {
                     session_id: sid,
-                    upserted: vec![entry],
+                    upserted: vec![entry.to_summary()],
                     removed_row_ids: vec![],
                     total_row_count: state.total_row_count,
                 },
@@ -1000,7 +999,7 @@ pub fn transition(
         // -- Lifecycle --------------------------------------------------------
         Input::SessionEnded { reason } => {
             // Finalize any tool messages stuck at is_in_progress before ending
-            effects.extend(finalize_in_progress_rows(&sid, &mut state.rows));
+            effects.extend(finalize_in_progress_rows(&sid, &mut state.rows, state.total_row_count));
 
             state.phase = WorkPhase::Ended {
                 reason: reason.clone(),
@@ -1210,10 +1209,10 @@ pub fn transition(
 
             // Record compaction as a first-class transcript event so it is visible
             // in chat history and persisted in SQLite for reloads.
-            state.total_row_count = state.total_row_count.saturating_add(1);
+            let compact_seq = state.rows.last().map(|r| r.sequence + 1).unwrap_or(0);
             let compact_entry = ConversationRowEntry {
                 session_id: sid.clone(),
-                sequence: state.total_row_count,
+                sequence: compact_seq,
                 turn_id: state.current_turn_id.clone(),
                 row: ConversationRow::System(MessageRowContent {
                     id: format!("context-compacted-{}", uuid::Uuid::new_v4()),
@@ -1227,6 +1226,7 @@ pub fn transition(
                 }),
             };
             state.rows.push(compact_entry.clone());
+            state.total_row_count = compact_seq + 1;
 
             effects.push(Effect::Persist(Box::new(PersistOp::RowAppend {
                 session_id: sid.clone(),
@@ -1235,7 +1235,7 @@ pub fn transition(
             effects.push(Effect::Emit(Box::new(
                 ServerMessage::ConversationRowsChanged {
                     session_id: sid.clone(),
-                    upserted: vec![compact_entry],
+                    upserted: vec![compact_entry.to_summary()],
                     removed_row_ids: vec![],
                     total_row_count: state.total_row_count,
                 },
@@ -2670,6 +2670,13 @@ mod tests {
                 requested_permissions: None,
                 proposed_amendment: None,
                 permission_suggestions: None,
+                elicitation_mode: None,
+                elicitation_schema: None,
+                elicitation_url: None,
+                elicitation_message: None,
+                mcp_server_name: None,
+                network_host: None,
+                network_protocol: None,
             },
             NOW,
         );
@@ -2730,6 +2737,13 @@ mod tests {
                 requested_permissions: None,
                 proposed_amendment: None,
                 permission_suggestions: None,
+                elicitation_mode: None,
+                elicitation_schema: None,
+                elicitation_url: None,
+                elicitation_message: None,
+                mcp_server_name: None,
+                network_host: None,
+                network_protocol: None,
             },
             NOW,
         );
@@ -2787,6 +2801,13 @@ mod tests {
                 requested_permissions: None,
                 proposed_amendment: None,
                 permission_suggestions: None,
+                elicitation_mode: None,
+                elicitation_schema: None,
+                elicitation_url: None,
+                elicitation_message: None,
+                mcp_server_name: None,
+                network_host: None,
+                network_protocol: None,
             },
             NOW,
         );
@@ -2833,6 +2854,13 @@ mod tests {
                 requested_permissions: None,
                 proposed_amendment: None,
                 permission_suggestions: None,
+                elicitation_mode: None,
+                elicitation_schema: None,
+                elicitation_url: None,
+                elicitation_message: None,
+                mcp_server_name: None,
+                network_host: None,
+                network_protocol: None,
             },
             NOW,
         );
@@ -3017,6 +3045,13 @@ mod tests {
                 requested_permissions: None,
                 proposed_amendment: None,
                 permission_suggestions: None,
+                elicitation_mode: None,
+                elicitation_schema: None,
+                elicitation_url: None,
+                elicitation_message: None,
+                mcp_server_name: None,
+                network_host: None,
+                network_protocol: None,
             },
             NOW,
         );

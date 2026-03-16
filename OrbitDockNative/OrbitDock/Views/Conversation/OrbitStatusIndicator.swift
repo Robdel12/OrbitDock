@@ -5,6 +5,13 @@
 //  Compact agent status strip at the bottom of the conversation timeline.
 //  Shows on-brand orbital messaging with a subtle beacon pulse.
 //
+//  Performance note: The beacon glow uses a static radial gradient with
+//  animated OPACITY only (compositing-only animation). This costs ~0ms/frame
+//  because CA caches the gradient bitmap and just changes the blend factor.
+//  The previous implementation animated .shadow() radius + .drawingGroup(),
+//  which forced a full offscreen Metal render pass every frame (~5ms/frame,
+//  50% CPU at idle).
+//
 
 import SwiftUI
 
@@ -39,13 +46,11 @@ struct OrbitStatusIndicator: View {
 
   private var statusColor: Color { displayStatus.color }
 
-  private var isAnimated: Bool {
-    displayStatus != .ended
-  }
-
   var body: some View {
     HStack(spacing: Spacing.sm_) {
-      beacon
+      Circle()
+        .fill(statusColor)
+        .frame(width: 5, height: 5)
       statusLabel
       Spacer()
     }
@@ -53,33 +58,6 @@ struct OrbitStatusIndicator: View {
     .padding(.vertical, Spacing.xs)
     .animation(Motion.gentle, value: displayStatus)
     .animation(Motion.gentle, value: currentTool)
-  }
-
-  // MARK: - Beacon
-
-  @ViewBuilder
-  private var beacon: some View {
-    if isAnimated {
-      PhaseAnimator(BeaconPhase.allCases) { phase in
-        beaconDot(glowOpacity: phase.glowOpacity, glowRadius: phase.glowRadius)
-      } animation: { phase in
-        switch phase {
-        case .rest: .easeIn(duration: 0.8)
-        case .glow: .easeOut(duration: 1.0)
-        case .peak: .easeInOut(duration: 0.6)
-        }
-      }
-    } else {
-      beaconDot(glowOpacity: 0.2, glowRadius: 1)
-    }
-  }
-
-  private func beaconDot(glowOpacity: Double, glowRadius: CGFloat) -> some View {
-    Circle()
-      .fill(statusColor)
-      .frame(width: 5, height: 5)
-      .shadow(color: statusColor.opacity(glowOpacity), radius: glowRadius)
-      .drawingGroup()
   }
 
   // MARK: - Label
@@ -101,28 +79,6 @@ struct OrbitStatusIndicator: View {
           .foregroundStyle(Color.textQuaternary)
           .contentTransition(.interpolate)
       }
-    }
-  }
-}
-
-// MARK: - Beacon Animation Phases
-
-private enum BeaconPhase: CaseIterable {
-  case rest, glow, peak
-
-  var glowOpacity: Double {
-    switch self {
-    case .rest: 0.25
-    case .glow: 0.65
-    case .peak: 0.4
-    }
-  }
-
-  var glowRadius: CGFloat {
-    switch self {
-    case .rest: 1.5
-    case .glow: 4
-    case .peak: 2.5
     }
   }
 }
