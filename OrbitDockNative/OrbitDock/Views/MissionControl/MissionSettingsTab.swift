@@ -38,6 +38,22 @@ struct MissionSettingsTab: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xl) {
+      // Source control context
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: "doc.text")
+          .font(.system(size: 10, weight: .medium))
+          .foregroundStyle(Color.textQuaternary)
+        Text("These settings are saved to WORKFLOW.md in your repo — committed to source control and shared with your team.")
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textTertiary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .padding(Spacing.md)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(Color.backgroundTertiary.opacity(0.5))
+      )
+
       if isCompact {
         // Mobile: everything stacks
         providerSection

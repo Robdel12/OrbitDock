@@ -530,6 +530,10 @@ struct MissionOverviewTab: View {
           await onUpdateMission(!mission.enabled, nil)
         }
       }
+
+      Text("Operational state — not saved to WORKFLOW.md")
+        .font(.system(size: TypeScale.micro))
+        .foregroundStyle(Color.textQuaternary)
     }
     .padding(Spacing.lg)
     .background(
