@@ -10,7 +10,8 @@ use tracing::info;
 use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, Provider};
 
 use crate::domain::mission_control::config::{
-    parse_mission_file, try_parse_symphony_workflow, MissionConfig,
+    parse_mission_file, try_parse_symphony_workflow, ClaudeAgentConfig, CodexAgentConfig,
+    MissionConfig,
 };
 use crate::domain::mission_control::template::default_mission_template;
 use crate::infrastructure::persistence::{
@@ -42,10 +43,41 @@ pub struct MissionDetailResponse {
 #[derive(Serialize)]
 pub struct MissionSettingsResponse {
     pub provider: ProviderSettingsResponse,
+    pub agent: AgentSettingsResponse,
     pub trigger: TriggerSettingsResponse,
     pub orchestration: OrchestrationSettingsResponse,
     pub prompt_template: String,
     pub tracker: String,
+}
+
+#[derive(Serialize)]
+pub struct AgentSettingsResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude: Option<ClaudeAgentSettingsResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codex: Option<CodexAgentSettingsResponse>,
+}
+
+#[derive(Serialize)]
+pub struct ClaudeAgentSettingsResponse {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub permission_mode: Option<String>,
+    pub allowed_tools: Vec<String>,
+    pub disallowed_tools: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct CodexAgentSettingsResponse {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub approval_policy: Option<String>,
+    pub sandbox_mode: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -116,6 +148,22 @@ pub struct UpdateMissionSettingsRequest {
     pub secondary_provider: Option<Option<String>>,
     pub max_concurrent: Option<u32>,
     pub max_concurrent_primary: Option<Option<u32>>,
+    // Agent — Claude
+    pub agent_claude_model: Option<Option<String>>,
+    pub agent_claude_effort: Option<Option<String>>,
+    pub agent_claude_permission_mode: Option<Option<String>>,
+    pub agent_claude_allowed_tools: Option<Vec<String>>,
+    pub agent_claude_disallowed_tools: Option<Vec<String>>,
+    // Agent — Codex
+    pub agent_codex_model: Option<Option<String>>,
+    pub agent_codex_effort: Option<Option<String>>,
+    pub agent_codex_approval_policy: Option<Option<String>>,
+    pub agent_codex_sandbox_mode: Option<Option<String>>,
+    pub agent_codex_collaboration_mode: Option<Option<String>>,
+    pub agent_codex_multi_agent: Option<Option<bool>>,
+    pub agent_codex_personality: Option<Option<String>>,
+    pub agent_codex_service_tier: Option<Option<String>>,
+    pub agent_codex_developer_instructions: Option<Option<String>>,
     // Trigger
     pub trigger_kind: Option<String>,
     pub poll_interval: Option<u64>,
@@ -933,6 +981,80 @@ pub async fn update_mission_settings(
         config.provider.max_concurrent_primary = v;
     }
 
+    // Agent — Claude
+    let has_claude_update = req.agent_claude_model.is_some()
+        || req.agent_claude_effort.is_some()
+        || req.agent_claude_permission_mode.is_some()
+        || req.agent_claude_allowed_tools.is_some()
+        || req.agent_claude_disallowed_tools.is_some();
+
+    if has_claude_update {
+        let claude = config
+            .agent
+            .claude
+            .get_or_insert_with(ClaudeAgentConfig::default);
+        if let Some(v) = req.agent_claude_model {
+            claude.model = v;
+        }
+        if let Some(v) = req.agent_claude_effort {
+            claude.effort = v;
+        }
+        if let Some(v) = req.agent_claude_permission_mode {
+            claude.permission_mode = v;
+        }
+        if let Some(v) = req.agent_claude_allowed_tools {
+            claude.allowed_tools = v;
+        }
+        if let Some(v) = req.agent_claude_disallowed_tools {
+            claude.disallowed_tools = v;
+        }
+    }
+
+    // Agent — Codex
+    let has_codex_update = req.agent_codex_model.is_some()
+        || req.agent_codex_effort.is_some()
+        || req.agent_codex_approval_policy.is_some()
+        || req.agent_codex_sandbox_mode.is_some()
+        || req.agent_codex_collaboration_mode.is_some()
+        || req.agent_codex_multi_agent.is_some()
+        || req.agent_codex_personality.is_some()
+        || req.agent_codex_service_tier.is_some()
+        || req.agent_codex_developer_instructions.is_some();
+
+    if has_codex_update {
+        let codex = config
+            .agent
+            .codex
+            .get_or_insert_with(CodexAgentConfig::default);
+        if let Some(v) = req.agent_codex_model {
+            codex.model = v;
+        }
+        if let Some(v) = req.agent_codex_effort {
+            codex.effort = v;
+        }
+        if let Some(v) = req.agent_codex_approval_policy {
+            codex.approval_policy = v;
+        }
+        if let Some(v) = req.agent_codex_sandbox_mode {
+            codex.sandbox_mode = v;
+        }
+        if let Some(v) = req.agent_codex_collaboration_mode {
+            codex.collaboration_mode = v;
+        }
+        if let Some(v) = req.agent_codex_multi_agent {
+            codex.multi_agent = v;
+        }
+        if let Some(v) = req.agent_codex_personality {
+            codex.personality = v;
+        }
+        if let Some(v) = req.agent_codex_service_tier {
+            codex.service_tier = v;
+        }
+        if let Some(v) = req.agent_codex_developer_instructions {
+            codex.developer_instructions = v;
+        }
+    }
+
     // Trigger
     if let Some(v) = req.trigger_kind {
         config.trigger.kind = v;
@@ -1058,6 +1180,34 @@ fn config_to_settings_response(
             secondary: config.provider.secondary.clone(),
             max_concurrent: config.provider.max_concurrent,
             max_concurrent_primary: config.provider.max_concurrent_primary,
+        },
+        agent: AgentSettingsResponse {
+            claude: config
+                .agent
+                .claude
+                .as_ref()
+                .map(|c| ClaudeAgentSettingsResponse {
+                    model: c.model.clone(),
+                    effort: c.effort.clone(),
+                    permission_mode: c.permission_mode.clone(),
+                    allowed_tools: c.allowed_tools.clone(),
+                    disallowed_tools: c.disallowed_tools.clone(),
+                }),
+            codex: config
+                .agent
+                .codex
+                .as_ref()
+                .map(|x| CodexAgentSettingsResponse {
+                    model: x.model.clone(),
+                    effort: x.effort.clone(),
+                    approval_policy: x.approval_policy.clone(),
+                    sandbox_mode: x.sandbox_mode.clone(),
+                    collaboration_mode: x.collaboration_mode.clone(),
+                    multi_agent: x.multi_agent,
+                    personality: x.personality.clone(),
+                    service_tier: x.service_tier.clone(),
+                    developer_instructions: x.developer_instructions.clone(),
+                }),
         },
         trigger: TriggerSettingsResponse {
             kind: config.trigger.kind.clone(),

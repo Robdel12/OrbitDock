@@ -12,6 +12,17 @@ provider:
   primary: PROVIDER_PLACEHOLDER
   max_concurrent: 3
 
+# agent:
+#   claude:
+#     # model: claude-sonnet-4-6
+#     # effort: high
+#     permission_mode: auto-edit       # mission-safe default (agents run headless)
+#   codex:
+#     # model: gpt-5.3-codex
+#     # effort: medium
+#     approval_policy: on-request      # mission-safe default
+#     sandbox_mode: workspace-write    # mission-safe default
+
 trigger:
   kind: polling
   interval: 60

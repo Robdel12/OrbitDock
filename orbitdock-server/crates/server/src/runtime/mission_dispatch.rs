@@ -7,6 +7,7 @@ use tracing::{info, warn};
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
+use crate::domain::mission_control::config::AgentConfig;
 use crate::domain::mission_control::prompt::render_prompt;
 use crate::domain::mission_control::tracker::TrackerIssue;
 use crate::infrastructure::persistence::PersistCommand;
@@ -16,6 +17,7 @@ use crate::runtime::session_creation::{
 use crate::runtime::session_registry::SessionRegistry;
 
 /// Dispatch a single issue: create worktree, create session, send prompt.
+#[allow(clippy::too_many_arguments)]
 pub async fn dispatch_issue(
     registry: &Arc<SessionRegistry>,
     mission_id: &str,
@@ -24,6 +26,7 @@ pub async fn dispatch_issue(
     repo_root: &str,
     prompt_template: &str,
     base_branch: &str,
+    agent_config: &AgentConfig,
 ) -> anyhow::Result<()> {
     let branch_name = format!(
         "mission/{}",
@@ -97,22 +100,25 @@ pub async fn dispatch_issue(
         _ => Provider::Claude,
     };
 
+    // Resolve agent settings for the chosen provider
+    let resolved = agent_config.resolve_for_provider(provider_str);
+
     let session_id = orbitdock_protocol::new_id();
     let request = DirectSessionRequest {
         provider,
         cwd: worktree_path,
-        model: None,
-        approval_policy: None,
-        sandbox_mode: None,
-        permission_mode: None,
-        allowed_tools: vec![],
-        disallowed_tools: vec![],
-        effort: None,
-        collaboration_mode: None,
-        multi_agent: None,
-        personality: None,
-        service_tier: None,
-        developer_instructions: None,
+        model: resolved.model.clone(),
+        approval_policy: resolved.approval_policy,
+        sandbox_mode: resolved.sandbox_mode,
+        permission_mode: resolved.permission_mode,
+        allowed_tools: resolved.allowed_tools,
+        disallowed_tools: resolved.disallowed_tools,
+        effort: resolved.effort.clone(),
+        collaboration_mode: resolved.collaboration_mode,
+        multi_agent: resolved.multi_agent,
+        personality: resolved.personality,
+        service_tier: resolved.service_tier,
+        developer_instructions: resolved.developer_instructions,
     };
 
     let persisted = prepare_persist_direct_session(registry, session_id.clone(), request).await;
@@ -142,8 +148,8 @@ pub async fn dispatch_issue(
                 let _ = tx
                     .send(CodexAction::SendMessage {
                         content: prompt,
-                        model: None,
-                        effort: None,
+                        model: resolved.model,
+                        effort: resolved.effort,
                         skills: vec![],
                         images: vec![],
                         mentions: vec![],
@@ -156,8 +162,8 @@ pub async fn dispatch_issue(
                 let _ = tx
                     .send(ClaudeAction::SendMessage {
                         content: prompt,
-                        model: None,
-                        effort: None,
+                        model: resolved.model,
+                        effort: resolved.effort,
                         images: vec![],
                     })
                     .await;

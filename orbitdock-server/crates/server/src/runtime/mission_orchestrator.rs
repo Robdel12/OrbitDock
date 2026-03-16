@@ -308,6 +308,7 @@ async fn process_mission(
         let repo_root = mission.repo_root.clone();
         let prompt_template = workflow.prompt_template.clone();
         let base_branch = workflow.config.orchestration.base_branch.clone();
+        let agent_config = workflow.config.agent.clone();
 
         tokio::spawn(async move {
             if let Err(err) = dispatch_issue(
@@ -318,6 +319,7 @@ async fn process_mission(
                 &repo_root,
                 &prompt_template,
                 &base_branch,
+                &agent_config,
             )
             .await
             {

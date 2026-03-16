@@ -28,6 +28,21 @@ struct MissionSettingsTab: View {
   @State private var maxConcurrent: UInt32 = 3
   @State private var maxConcurrentPrimary: UInt32 = 2
 
+  // Agent — Claude (default to mission-safe: acceptEdits)
+  @State private var claudeModel = ""
+  @State private var claudeEffort: EffortLevel = .default
+  @State private var claudePermission: ClaudePermissionMode = .acceptEdits
+  @State private var claudeAllowedTools = ""
+  @State private var claudeDisallowedTools = ""
+
+  // Agent — Codex (default to mission-safe: autonomous)
+  @State private var codexModel = ""
+  @State private var codexEffort: EffortLevel = .default
+  @State private var codexAutonomy: AutonomyLevel = .autonomous
+  @State private var codexMultiAgent = false
+  @State private var codexCollaboration: CodexCollaborationMode = .default
+  @State private var codexDevInstructions = ""
+
   // Orchestration
   @State private var maxRetries: UInt32 = 3
   @State private var stallTimeout: UInt64 = 600
@@ -37,18 +52,20 @@ struct MissionSettingsTab: View {
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
 
   var body: some View {
-    VStack(alignment: .leading, spacing: Spacing.xl) {
+    VStack(alignment: .leading, spacing: isCompact ? Spacing.lg : Spacing.xl) {
       // Source control context
       HStack(spacing: Spacing.sm_) {
         Image(systemName: "doc.text")
           .font(.system(size: 10, weight: .medium))
           .foregroundStyle(Color.textQuaternary)
-        Text("These settings are saved to MISSION.md in your repo — committed to source control and shared with your team.")
+        Text(isCompact
+          ? "Saved to MISSION.md in your repo."
+          : "These settings are saved to MISSION.md in your repo — committed to source control and shared with your team.")
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textTertiary)
           .fixedSize(horizontal: false, vertical: true)
       }
-      .padding(Spacing.md)
+      .padding(isCompact ? Spacing.sm : Spacing.md)
       .background(
         RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
           .fill(Color.backgroundTertiary.opacity(0.5))
@@ -57,16 +74,22 @@ struct MissionSettingsTab: View {
       if isCompact {
         // Mobile: everything stacks
         providerSection
+        agentSection
         triggerSection
+        orchestrationSection
       } else {
-        // Desktop: Provider + Trigger side by side
+        // Desktop row 1: Provider + Agent
         HStack(alignment: .top, spacing: Spacing.sm) {
           providerSection
+          agentSection
+        }
+
+        // Desktop row 2: Trigger + Orchestration
+        HStack(alignment: .top, spacing: Spacing.sm) {
           triggerSection
+          orchestrationSection
         }
       }
-
-      orchestrationSection
 
       promptSection
 
@@ -140,6 +163,357 @@ struct MissionSettingsTab: View {
     }
   }
 
+  // MARK: - Agent Section
+
+  private var isClaudeActive: Bool {
+    primaryProvider == "claude" || providerStrategy != "single"
+  }
+
+  private var isCodexActive: Bool {
+    primaryProvider == "codex" || providerStrategy != "single"
+  }
+
+  private var agentSection: some View {
+    instrumentPanel(
+      title: "Agent",
+      icon: "gearshape",
+      description: "Model, effort, and permissions for dispatched agents"
+    ) {
+      VStack(alignment: .leading, spacing: Spacing.lg) {
+        // Headless context hint
+        HStack(spacing: Spacing.sm_) {
+          Image(systemName: "bolt.circle.fill")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Color.feedbackCaution)
+          Text("Mission agents run autonomously — only headless-safe permission modes are available.")
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
+        claudeAgentSubsection
+          .opacity(isClaudeActive ? 1 : 0.4)
+          .allowsHitTesting(isClaudeActive)
+          .overlay(alignment: .topTrailing) {
+            if !isClaudeActive {
+              inactiveProviderBadge
+            }
+          }
+
+        // Divider between provider subsections
+        HStack(spacing: Spacing.md) {
+          Rectangle()
+            .fill(Color.surfaceBorder.opacity(OpacityTier.medium))
+            .frame(height: 1)
+        }
+        .padding(.vertical, Spacing.xs)
+
+        codexAgentSubsection
+          .opacity(isCodexActive ? 1 : 0.4)
+          .allowsHitTesting(isCodexActive)
+          .overlay(alignment: .topTrailing) {
+            if !isCodexActive {
+              inactiveProviderBadge
+            }
+          }
+      }
+    }
+  }
+
+  private var inactiveProviderBadge: some View {
+    Text("Not dispatched")
+      .font(.system(size: TypeScale.micro, weight: .medium))
+      .foregroundStyle(Color.textQuaternary)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xxs)
+      .background(Color.backgroundTertiary.opacity(0.6), in: Capsule())
+  }
+
+  // MARK: Claude Agent Subsection
+
+  private var claudeAgentSubsection: some View {
+    VStack(alignment: .leading, spacing: Spacing.lg) {
+      // Subsection header
+      providerSubheader("Claude", icon: "cpu", color: .providerClaude)
+
+      compactField("Model", placeholder: "claude-sonnet-4-6", text: $claudeModel)
+
+      // Effort + Permission side by side on desktop
+      if isCompact {
+        effortRow("Effort", binding: $claudeEffort)
+        permissionRow
+      } else {
+        HStack(alignment: .top, spacing: Spacing.lg) {
+          effortRow("Effort", binding: $claudeEffort)
+          permissionRow
+        }
+      }
+
+      // Tool restrictions side by side on desktop
+      if isCompact {
+        compactField("Allowed Tools", placeholder: "Read, Edit, Bash(git:*)", text: $claudeAllowedTools)
+        compactField("Disallowed Tools", placeholder: "Bash(rm:*)", text: $claudeDisallowedTools)
+      } else {
+        HStack(alignment: .top, spacing: Spacing.sm) {
+          compactField("Allowed Tools", placeholder: "Read, Edit, Bash(git:*)", text: $claudeAllowedTools)
+          compactField("Disallowed Tools", placeholder: "Bash(rm:*)", text: $claudeDisallowedTools)
+        }
+      }
+    }
+  }
+
+  private var permissionRow: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      sectionLabel("Permission")
+
+      // Only mission-safe modes — plan/default/don't-ask would stall headless agents
+      WrappingFlowLayout(spacing: Spacing.xs) {
+        permissionChip(.acceptEdits)
+        permissionChip(.bypassPermissions)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  // MARK: Codex Agent Subsection
+
+  private var codexAgentSubsection: some View {
+    VStack(alignment: .leading, spacing: Spacing.lg) {
+      // Subsection header
+      providerSubheader("Codex", icon: "terminal", color: .providerCodex)
+
+      compactField("Model", placeholder: "gpt-5.3-codex", text: $codexModel)
+
+      // Effort + Autonomy side by side on desktop
+      if isCompact {
+        effortRow("Effort", binding: $codexEffort)
+        autonomyRow
+      } else {
+        HStack(alignment: .top, spacing: Spacing.lg) {
+          effortRow("Effort", binding: $codexEffort)
+          autonomyRow
+        }
+      }
+
+      // Multi-agent + Collaboration on same row
+      if isCompact {
+        multiAgentToggleRow
+        collaborationRow
+      } else {
+        HStack(alignment: .top, spacing: Spacing.lg) {
+          collaborationRow
+          multiAgentToggleRow
+        }
+      }
+
+      compactField("Developer Instructions", placeholder: "Be concise and pragmatic", text: $codexDevInstructions)
+    }
+  }
+
+  private var autonomyRow: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      sectionLabel("Autonomy")
+
+      // Only mission-safe levels — locked/guarded would stall headless agents
+      WrappingFlowLayout(spacing: Spacing.xs) {
+        autonomyChip(.autonomous)
+        autonomyChip(.fullAuto)
+        autonomyChip(.open)
+        autonomyChip(.unrestricted)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var multiAgentToggleRow: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      sectionLabel("Multi-Agent")
+
+      HStack(spacing: Spacing.sm) {
+        Toggle("", isOn: $codexMultiAgent)
+          .labelsHidden()
+          .toggleStyle(.switch)
+          .controlSize(.mini)
+
+        Text(codexMultiAgent ? "Enabled" : "Disabled")
+          .font(.system(size: TypeScale.caption, weight: .medium))
+          .foregroundStyle(codexMultiAgent ? Color.accent : Color.textQuaternary)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var collaborationRow: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      sectionLabel("Collaboration")
+
+      HStack(spacing: Spacing.sm) {
+        collaborationButton(.default)
+        collaborationButton(.plan)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  // MARK: - Agent Component Helpers
+
+  private func providerSubheader(_ name: String, icon: String, color: Color) -> some View {
+    HStack(spacing: Spacing.sm_) {
+      RoundedRectangle(cornerRadius: 1, style: .continuous)
+        .fill(color)
+        .frame(width: 2, height: 12)
+
+      Image(systemName: icon)
+        .font(.system(size: 10, weight: .bold))
+        .foregroundStyle(color)
+      Text(name)
+        .font(.system(size: TypeScale.caption, weight: .bold))
+        .foregroundStyle(color)
+    }
+  }
+
+  private func effortRow(_ label: String, binding: Binding<EffortLevel>) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      sectionLabel(label)
+
+      WrappingFlowLayout(spacing: Spacing.xs) {
+        effortChip(.default, binding: binding)
+        effortChip(.low, binding: binding)
+        effortChip(.medium, binding: binding)
+        effortChip(.high, binding: binding)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func permissionChip(_ mode: ClaudePermissionMode) -> some View {
+    let isSelected = claudePermission == mode
+
+    // Compact labels for mobile
+    let label: String = isCompact ? {
+      switch mode {
+        case .plan: "Plan"
+        case .dontAsk: "Don't Ask"
+        case .default: "Default"
+        case .acceptEdits: "Edits"
+        case .bypassPermissions: "Bypass"
+      }
+    }() : mode.displayName
+
+    return Button {
+      claudePermission = mode
+    } label: {
+      HStack(spacing: Spacing.xxs) {
+        Image(systemName: mode.icon)
+          .font(.system(size: 8, weight: .bold))
+        Text(label)
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+      }
+      .foregroundStyle(isSelected ? mode.color : Color.textTertiary)
+      .padding(.horizontal, isCompact ? Spacing.sm_ : Spacing.sm)
+      .padding(.vertical, Spacing.sm_)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(isSelected ? mode.color.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+              .strokeBorder(isSelected ? mode.color.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
+          )
+      )
+    }
+    .buttonStyle(.plain)
+  }
+
+  private func autonomyChip(_ level: AutonomyLevel) -> some View {
+    let isSelected = codexAutonomy == level
+
+    // Compact labels for mobile
+    let label: String = isCompact ? {
+      switch level {
+        case .locked: "Locked"
+        case .guarded: "Guard"
+        case .autonomous: "Auto"
+        case .fullAuto: "Full"
+        case .open: "Open"
+        case .unrestricted: "None"
+      }
+    }() : level.displayName
+
+    return Button {
+      codexAutonomy = level
+    } label: {
+      HStack(spacing: Spacing.xxs) {
+        Image(systemName: level.icon)
+          .font(.system(size: 8, weight: .bold))
+        Text(label)
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+      }
+      .foregroundStyle(isSelected ? level.color : Color.textTertiary)
+      .padding(.horizontal, isCompact ? Spacing.sm_ : Spacing.sm)
+      .padding(.vertical, Spacing.sm_)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(isSelected ? level.color.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+              .strokeBorder(isSelected ? level.color.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
+          )
+      )
+    }
+    .buttonStyle(.plain)
+  }
+
+  private func effortChip(_ level: EffortLevel, binding: Binding<EffortLevel>) -> some View {
+    let isSelected = binding.wrappedValue == level
+    let tint = level == .default ? Color.accent : level.color
+
+    return Button {
+      binding.wrappedValue = level
+    } label: {
+      Text(level.displayName)
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(isSelected ? tint : Color.textTertiary)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm_)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            .fill(isSelected ? tint.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
+            .overlay(
+              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                .strokeBorder(isSelected ? tint.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
+            )
+        )
+    }
+    .buttonStyle(.plain)
+  }
+
+  private func collaborationButton(_ mode: CodexCollaborationMode) -> some View {
+    let isSelected = codexCollaboration == mode
+
+    return Button {
+      withAnimation(Motion.snappy) { codexCollaboration = mode }
+    } label: {
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: mode.icon)
+          .font(.system(size: 11, weight: .semibold))
+        Text(mode.displayName)
+          .font(.system(size: TypeScale.caption, weight: .medium))
+      }
+      .foregroundStyle(isSelected ? mode.color : Color.textSecondary)
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, Spacing.sm)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(isSelected ? mode.color.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+              .strokeBorder(isSelected ? mode.color.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
+          )
+      )
+    }
+    .buttonStyle(.plain)
+  }
+
   // MARK: - Trigger Section
 
   private var triggerSection: some View {
@@ -209,58 +583,46 @@ struct MissionSettingsTab: View {
       icon: "gearshape.2",
       description: "Retry, timeout, and branch settings"
     ) {
-      let orchestrationLayout = isCompact
-        ? AnyLayout(VStackLayout(alignment: .leading, spacing: Spacing.lg))
-        : AnyLayout(HStackLayout(alignment: .top, spacing: Spacing.xl))
+      VStack(alignment: .leading, spacing: Spacing.lg) {
+        concurrencyStepper("Max Retries", value: $maxRetries, range: 0 ... 10)
 
-      orchestrationLayout {
-        // Retries + timeout
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-          concurrencyStepper("Max Retries", value: $maxRetries, range: 0 ... 10)
+        VStack(alignment: .leading, spacing: Spacing.sm_) {
+          sectionLabel("Stall Timeout")
 
-          VStack(alignment: .leading, spacing: Spacing.sm_) {
-            sectionLabel("Stall Timeout")
+          WrappingFlowLayout(spacing: Spacing.xs) {
+            intervalChip("5m", seconds: 300, current: stallTimeout) { stallTimeout = 300 }
+            intervalChip("10m", seconds: 600, current: stallTimeout) { stallTimeout = 600 }
+            intervalChip("30m", seconds: 1_800, current: stallTimeout) { stallTimeout = 1_800 }
+            intervalChip("1h", seconds: 3_600, current: stallTimeout) { stallTimeout = 3_600 }
+          }
+        }
 
-            WrappingFlowLayout(spacing: Spacing.xs) {
-              intervalChip("5m", seconds: 300, current: stallTimeout) { stallTimeout = 300 }
-              intervalChip("10m", seconds: 600, current: stallTimeout) { stallTimeout = 600 }
-              intervalChip("30m", seconds: 1_800, current: stallTimeout) { stallTimeout = 1_800 }
-              intervalChip("1h", seconds: 3_600, current: stallTimeout) { stallTimeout = 3_600 }
+        compactField("Base Branch", placeholder: "main", text: $baseBranch)
+
+        HStack(spacing: Spacing.sm_) {
+          Image(systemName: "folder")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+
+          Text(repoRoot)
+            .font(.system(size: TypeScale.micro, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+            .fixedSize(horizontal: false, vertical: true)
+
+          #if os(macOS)
+            Spacer()
+
+            Button {
+              NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: repoRoot)
+            } label: {
+              Image(systemName: "arrow.up.right.square")
+                .font(.system(size: 9))
+                .foregroundStyle(Color.textQuaternary)
             }
-          }
+            .buttonStyle(.plain)
+            .help("Reveal in Finder")
+          #endif
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-
-        // Branch + repo
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-          compactField("Base Branch", placeholder: "main", text: $baseBranch)
-
-          HStack(spacing: Spacing.sm_) {
-            Image(systemName: "folder")
-              .font(.system(size: 10, weight: .medium))
-              .foregroundStyle(Color.textQuaternary)
-
-            Text(repoRoot)
-              .font(.system(size: TypeScale.micro, design: .monospaced))
-              .foregroundStyle(Color.textQuaternary)
-              .fixedSize(horizontal: false, vertical: true)
-
-            #if os(macOS)
-              Spacer()
-
-              Button {
-                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: repoRoot)
-              } label: {
-                Image(systemName: "arrow.up.right.square")
-                  .font(.system(size: 9))
-                  .foregroundStyle(Color.textQuaternary)
-              }
-              .buttonStyle(.plain)
-              .help("Reveal in Finder")
-            #endif
-          }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
   }
@@ -527,22 +889,25 @@ struct MissionSettingsTab: View {
               .foregroundStyle(Color.textPrimary)
           }
 
-          Text(description)
-            .font(.system(size: TypeScale.micro))
-            .foregroundStyle(Color.textQuaternary)
+          if !isCompact {
+            Text(description)
+              .font(.system(size: TypeScale.micro))
+              .foregroundStyle(Color.textQuaternary)
+          }
         }
         .padding(.leading, Spacing.md)
       }
-      .padding(.horizontal, Spacing.lg)
-      .padding(.vertical, Spacing.md)
+      .padding(.horizontal, isCompact ? Spacing.md : Spacing.lg)
+      .padding(.vertical, isCompact ? Spacing.sm : Spacing.md)
 
       Divider()
         .foregroundStyle(Color.surfaceBorder.opacity(OpacityTier.subtle))
 
       // Content
       content()
-        .padding(Spacing.lg)
+        .padding(isCompact ? Spacing.md : Spacing.lg)
     }
+    .fixedSize(horizontal: false, vertical: true)
     .background(
       RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
         .fill(Color.backgroundSecondary)
@@ -805,9 +1170,63 @@ struct MissionSettingsTab: View {
     secondaryProvider = s.provider.secondary ?? ""
     maxConcurrent = s.provider.maxConcurrent
     maxConcurrentPrimary = s.provider.maxConcurrentPrimary ?? 2
+
+    // Agent — Claude
+    if let claude = s.agent.claude {
+      claudeModel = claude.model ?? ""
+      claudeEffort = effortFromString(claude.effort)
+      claudePermission = permissionFromString(claude.permissionMode)
+      claudeAllowedTools = claude.allowedTools.joined(separator: ", ")
+      claudeDisallowedTools = claude.disallowedTools.joined(separator: ", ")
+    } else {
+      claudeModel = ""
+      claudeEffort = .default
+      claudePermission = .acceptEdits // mission-safe default
+      claudeAllowedTools = ""
+      claudeDisallowedTools = ""
+    }
+
+    // Agent — Codex
+    if let codex = s.agent.codex {
+      codexModel = codex.model ?? ""
+      codexEffort = effortFromString(codex.effort)
+      codexAutonomy = AutonomyLevel.from(
+        approvalPolicy: codex.approvalPolicy,
+        sandboxMode: codex.sandboxMode
+      )
+      codexMultiAgent = codex.multiAgent ?? false
+      codexCollaboration = CodexCollaborationMode.from(rawValue: codex.collaborationMode)
+      codexDevInstructions = codex.developerInstructions ?? ""
+    } else {
+      codexModel = ""
+      codexEffort = .default
+      codexAutonomy = .autonomous // mission-safe default
+      codexMultiAgent = false
+      codexCollaboration = .default
+      codexDevInstructions = ""
+    }
+
     maxRetries = s.orchestration.maxRetries
     stallTimeout = s.orchestration.stallTimeout
     baseBranch = s.orchestration.baseBranch
+  }
+
+  private func effortFromString(_ value: String?) -> EffortLevel {
+    guard let value, !value.isEmpty else { return .default }
+    return EffortLevel(rawValue: value) ?? .default
+  }
+
+  private func permissionFromString(_ value: String?) -> ClaudePermissionMode {
+    guard let value, !value.isEmpty else { return .default }
+    // Map wire values to enum cases
+    switch value {
+      case "plan": return .plan
+      case "dont-ask": return .dontAsk
+      case "default": return .default
+      case "auto-edit", "acceptEdits": return .acceptEdits
+      case "bypass", "bypassPermissions": return .bypassPermissions
+      default: return .default
+    }
   }
 
   private func parseCSV(_ text: String) -> [String] {
@@ -824,12 +1243,35 @@ struct MissionSettingsTab: View {
     saveError = nil
     showSaveConfirmation = false
 
+    // Map permission mode to wire value
+    let permissionWire: String? = claudePermission == .default ? nil : {
+      switch claudePermission {
+        case .plan: return "plan"
+        case .dontAsk: return "dont-ask"
+        case .default: return "default"
+        case .acceptEdits: return "auto-edit"
+        case .bypassPermissions: return "bypass"
+      }
+    }()
+
     let body = UpdateSettingsBody(
       providerStrategy: providerStrategy,
       primaryProvider: primaryProvider,
       secondaryProvider: secondaryProvider.isEmpty ? .some(nil) : .some(secondaryProvider),
       maxConcurrent: maxConcurrent,
       maxConcurrentPrimary: providerStrategy == "priority" ? .some(maxConcurrentPrimary) : .some(nil),
+      agentClaudeModel: .some(claudeModel.isEmpty ? nil : claudeModel),
+      agentClaudeEffort: .some(claudeEffort.serialized),
+      agentClaudePermissionMode: .some(permissionWire),
+      agentClaudeAllowedTools: parseCSV(claudeAllowedTools),
+      agentClaudeDisallowedTools: parseCSV(claudeDisallowedTools),
+      agentCodexModel: .some(codexModel.isEmpty ? nil : codexModel),
+      agentCodexEffort: .some(codexEffort.serialized),
+      agentCodexApprovalPolicy: .some(codexAutonomy.approvalPolicy),
+      agentCodexSandboxMode: .some(codexAutonomy.sandboxMode),
+      agentCodexCollaborationMode: .some(codexCollaboration == .default ? nil : codexCollaboration.rawValue),
+      agentCodexMultiAgent: .some(codexMultiAgent ? true : nil),
+      agentCodexDevInstructions: .some(codexDevInstructions.isEmpty ? nil : codexDevInstructions),
       triggerKind: triggerKind,
       pollInterval: pollInterval,
       labelFilter: parseCSV(editLabels),
@@ -877,6 +1319,21 @@ private struct UpdateSettingsBody: Encodable {
   let secondaryProvider: OptionalString?
   let maxConcurrent: UInt32?
   let maxConcurrentPrimary: OptionalUInt32?
+  // Agent — Claude
+  let agentClaudeModel: OptionalString?
+  let agentClaudeEffort: OptionalString?
+  let agentClaudePermissionMode: OptionalString?
+  let agentClaudeAllowedTools: [String]?
+  let agentClaudeDisallowedTools: [String]?
+  // Agent — Codex
+  let agentCodexModel: OptionalString?
+  let agentCodexEffort: OptionalString?
+  let agentCodexApprovalPolicy: OptionalString?
+  let agentCodexSandboxMode: OptionalString?
+  let agentCodexCollaborationMode: OptionalString?
+  let agentCodexMultiAgent: OptionalBool?
+  let agentCodexDevInstructions: OptionalString?
+  // Trigger + rest
   let triggerKind: String?
   let pollInterval: UInt64?
   let labelFilter: [String]?
@@ -894,6 +1351,18 @@ private struct UpdateSettingsBody: Encodable {
     case secondaryProvider = "secondary_provider"
     case maxConcurrent = "max_concurrent"
     case maxConcurrentPrimary = "max_concurrent_primary"
+    case agentClaudeModel = "agent_claude_model"
+    case agentClaudeEffort = "agent_claude_effort"
+    case agentClaudePermissionMode = "agent_claude_permission_mode"
+    case agentClaudeAllowedTools = "agent_claude_allowed_tools"
+    case agentClaudeDisallowedTools = "agent_claude_disallowed_tools"
+    case agentCodexModel = "agent_codex_model"
+    case agentCodexEffort = "agent_codex_effort"
+    case agentCodexApprovalPolicy = "agent_codex_approval_policy"
+    case agentCodexSandboxMode = "agent_codex_sandbox_mode"
+    case agentCodexCollaborationMode = "agent_codex_collaboration_mode"
+    case agentCodexMultiAgent = "agent_codex_multi_agent"
+    case agentCodexDevInstructions = "agent_codex_developer_instructions"
     case triggerKind = "trigger_kind"
     case pollInterval = "poll_interval"
     case labelFilter = "label_filter"
@@ -912,6 +1381,23 @@ private enum OptionalString: Encodable {
   case none
 
   static func some(_ value: String?) -> OptionalString {
+    if let value { .some(value) } else { .none }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    switch self {
+      case let .some(value): try container.encode(value)
+      case .none: try container.encodeNil()
+    }
+  }
+}
+
+private enum OptionalBool: Encodable {
+  case some(Bool)
+  case none
+
+  static func some(_ value: Bool?) -> OptionalBool {
     if let value { .some(value) } else { .none }
   }
 

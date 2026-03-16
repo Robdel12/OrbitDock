@@ -44,6 +44,8 @@ pub struct MissionConfig {
     #[serde(default)]
     pub provider: ProviderConfig,
     #[serde(default)]
+    pub agent: AgentConfig,
+    #[serde(default)]
     pub trigger: TriggerConfig,
     #[serde(default)]
     pub orchestration: OrchestrationConfig,
@@ -54,6 +56,7 @@ impl Default for MissionConfig {
         Self {
             tracker: default_tracker(),
             provider: ProviderConfig::default(),
+            agent: AgentConfig::default(),
             trigger: TriggerConfig::default(),
             orchestration: OrchestrationConfig::default(),
         }
@@ -138,6 +141,139 @@ impl Default for OrchestrationConfig {
             max_retries: default_max_retries(),
             stall_timeout: default_stall_timeout(),
             base_branch: default_base_branch(),
+        }
+    }
+}
+
+// ── Agent config (per-provider overrides) ────────────────────────────
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude: Option<ClaudeAgentConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codex: Option<CodexAgentConfig>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ClaudeAgentConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_tools: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disallowed_tools: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CodexAgentConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collaboration_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multi_agent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub personality: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub developer_instructions: Option<String>,
+}
+
+/// Resolved agent settings that map 1:1 to `DirectSessionRequest` fields.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedAgentSettings {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub permission_mode: Option<String>,
+    pub approval_policy: Option<String>,
+    pub sandbox_mode: Option<String>,
+    pub allowed_tools: Vec<String>,
+    pub disallowed_tools: Vec<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
+}
+
+impl AgentConfig {
+    /// Resolve agent settings for the given provider name.
+    ///
+    /// Mission agents run headless — defaults ensure agents can operate
+    /// autonomously without stalling on permission prompts:
+    /// - Claude: `permission_mode` defaults to `"auto-edit"`
+    /// - Codex: `approval_policy` defaults to `"on-request"`, `sandbox_mode` to `"workspace-write"`
+    pub fn resolve_for_provider(&self, provider: &str) -> ResolvedAgentSettings {
+        match provider {
+            "claude" => {
+                if let Some(c) = &self.claude {
+                    ResolvedAgentSettings {
+                        model: c.model.clone(),
+                        effort: c.effort.clone(),
+                        permission_mode: Some(
+                            c.permission_mode
+                                .clone()
+                                .unwrap_or_else(|| "auto-edit".to_string()),
+                        ),
+                        allowed_tools: c.allowed_tools.clone(),
+                        disallowed_tools: c.disallowed_tools.clone(),
+                        ..Default::default()
+                    }
+                } else {
+                    // No claude config at all — still apply mission-safe default
+                    ResolvedAgentSettings {
+                        permission_mode: Some("auto-edit".to_string()),
+                        ..Default::default()
+                    }
+                }
+            }
+            "codex" => {
+                if let Some(x) = &self.codex {
+                    ResolvedAgentSettings {
+                        model: x.model.clone(),
+                        effort: x.effort.clone(),
+                        approval_policy: Some(
+                            x.approval_policy
+                                .clone()
+                                .unwrap_or_else(|| "on-request".to_string()),
+                        ),
+                        sandbox_mode: Some(
+                            x.sandbox_mode
+                                .clone()
+                                .unwrap_or_else(|| "workspace-write".to_string()),
+                        ),
+                        collaboration_mode: x.collaboration_mode.clone(),
+                        multi_agent: x.multi_agent,
+                        personality: x.personality.clone(),
+                        service_tier: x.service_tier.clone(),
+                        developer_instructions: x.developer_instructions.clone(),
+                        ..Default::default()
+                    }
+                } else {
+                    // No codex config at all — still apply mission-safe defaults
+                    ResolvedAgentSettings {
+                        approval_policy: Some("on-request".to_string()),
+                        sandbox_mode: Some("workspace-write".to_string()),
+                        ..Default::default()
+                    }
+                }
+            }
+            _ => ResolvedAgentSettings::default(),
         }
     }
 }
@@ -255,6 +391,7 @@ pub fn try_parse_symphony_workflow(content: &str) -> Option<MissionConfig> {
             max_concurrent,
             max_concurrent_primary: None,
         },
+        agent: AgentConfig::default(),
         trigger: TriggerConfig {
             kind: "polling".to_string(),
             interval,
@@ -345,6 +482,7 @@ pub fn parse_mission_file(content: &str) -> Result<MissionDefinition> {
         // recognized MissionConfig top-level keys (even with default values).
         let has_recognized_keys = yaml_block.contains("tracker:")
             || yaml_block.contains("provider:")
+            || yaml_block.contains("agent:")
             || yaml_block.contains("trigger:")
             || yaml_block.contains("orchestration:");
 
@@ -635,6 +773,7 @@ Some prompt body
                 max_concurrent: 5,
                 max_concurrent_primary: Some(3),
             },
+            agent: AgentConfig::default(),
             trigger: TriggerConfig {
                 kind: "polling".to_string(),
                 interval: 30,
@@ -670,5 +809,228 @@ Some prompt body
         );
         assert_eq!(parsed.config.orchestration.base_branch, "develop");
         assert!(parsed.prompt_template.contains("{{ issue.identifier }}"));
+    }
+
+    // ── AgentConfig tests ────────────────────────────────────────────
+
+    #[test]
+    fn resolve_claude_agent_settings() {
+        let agent = AgentConfig {
+            claude: Some(ClaudeAgentConfig {
+                model: Some("claude-sonnet-4-6".to_string()),
+                effort: Some("high".to_string()),
+                permission_mode: Some("auto-edit".to_string()),
+                allowed_tools: vec!["Bash".to_string()],
+                disallowed_tools: vec![],
+            }),
+            codex: None,
+        };
+        let resolved = agent.resolve_for_provider("claude");
+        assert_eq!(resolved.model.as_deref(), Some("claude-sonnet-4-6"));
+        assert_eq!(resolved.effort.as_deref(), Some("high"));
+        assert_eq!(resolved.permission_mode.as_deref(), Some("auto-edit"));
+        assert_eq!(resolved.allowed_tools, vec!["Bash"]);
+        // Claude resolve doesn't set codex-specific fields
+        assert!(resolved.approval_policy.is_none());
+        assert!(resolved.sandbox_mode.is_none());
+    }
+
+    #[test]
+    fn resolve_codex_agent_settings() {
+        let agent = AgentConfig {
+            claude: None,
+            codex: Some(CodexAgentConfig {
+                model: Some("gpt-5.3-codex".to_string()),
+                effort: Some("medium".to_string()),
+                approval_policy: Some("on-request".to_string()),
+                sandbox_mode: Some("workspace-write".to_string()),
+                multi_agent: Some(true),
+                collaboration_mode: Some("plan".to_string()),
+                personality: Some("pragmatic".to_string()),
+                service_tier: Some("fast".to_string()),
+                developer_instructions: Some("Be concise".to_string()),
+            }),
+        };
+        let resolved = agent.resolve_for_provider("codex");
+        assert_eq!(resolved.model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(resolved.effort.as_deref(), Some("medium"));
+        assert_eq!(resolved.approval_policy.as_deref(), Some("on-request"));
+        assert_eq!(resolved.sandbox_mode.as_deref(), Some("workspace-write"));
+        assert_eq!(resolved.multi_agent, Some(true));
+        assert_eq!(resolved.collaboration_mode.as_deref(), Some("plan"));
+        assert_eq!(resolved.personality.as_deref(), Some("pragmatic"));
+        assert_eq!(resolved.service_tier.as_deref(), Some("fast"));
+        assert_eq!(
+            resolved.developer_instructions.as_deref(),
+            Some("Be concise")
+        );
+        // Codex resolve doesn't set claude-specific fields
+        assert!(resolved.permission_mode.is_none());
+        assert!(resolved.allowed_tools.is_empty());
+    }
+
+    #[test]
+    fn resolve_empty_claude_gets_mission_safe_defaults() {
+        let agent = AgentConfig::default();
+        let resolved = agent.resolve_for_provider("claude");
+        assert!(resolved.model.is_none());
+        assert!(resolved.effort.is_none());
+        // Mission-safe: auto-edit even with no config
+        assert_eq!(resolved.permission_mode.as_deref(), Some("auto-edit"));
+    }
+
+    #[test]
+    fn resolve_empty_codex_gets_mission_safe_defaults() {
+        let agent = AgentConfig::default();
+        let resolved = agent.resolve_for_provider("codex");
+        assert!(resolved.model.is_none());
+        // Mission-safe: autonomous level (on-request + workspace-write)
+        assert_eq!(resolved.approval_policy.as_deref(), Some("on-request"));
+        assert_eq!(resolved.sandbox_mode.as_deref(), Some("workspace-write"));
+    }
+
+    #[test]
+    fn resolve_claude_without_permission_gets_safe_default() {
+        let agent = AgentConfig {
+            claude: Some(ClaudeAgentConfig {
+                model: Some("test-model".to_string()),
+                permission_mode: None,
+                ..Default::default()
+            }),
+            codex: None,
+        };
+        let resolved = agent.resolve_for_provider("claude");
+        assert_eq!(resolved.model.as_deref(), Some("test-model"));
+        assert_eq!(resolved.permission_mode.as_deref(), Some("auto-edit"));
+    }
+
+    #[test]
+    fn resolve_codex_without_policy_gets_safe_default() {
+        let agent = AgentConfig {
+            claude: None,
+            codex: Some(CodexAgentConfig {
+                model: Some("test-model".to_string()),
+                approval_policy: None,
+                sandbox_mode: None,
+                ..Default::default()
+            }),
+        };
+        let resolved = agent.resolve_for_provider("codex");
+        assert_eq!(resolved.model.as_deref(), Some("test-model"));
+        assert_eq!(resolved.approval_policy.as_deref(), Some("on-request"));
+        assert_eq!(resolved.sandbox_mode.as_deref(), Some("workspace-write"));
+    }
+
+    #[test]
+    fn resolve_explicit_permission_overrides_default() {
+        let agent = AgentConfig {
+            claude: Some(ClaudeAgentConfig {
+                permission_mode: Some("bypass".to_string()),
+                ..Default::default()
+            }),
+            codex: None,
+        };
+        let resolved = agent.resolve_for_provider("claude");
+        assert_eq!(resolved.permission_mode.as_deref(), Some("bypass"));
+    }
+
+    #[test]
+    fn resolve_unknown_provider_returns_defaults() {
+        let agent = AgentConfig {
+            claude: Some(ClaudeAgentConfig {
+                model: Some("test".to_string()),
+                ..Default::default()
+            }),
+            codex: None,
+        };
+        let resolved = agent.resolve_for_provider("gemini");
+        assert!(resolved.model.is_none());
+    }
+
+    #[test]
+    fn parse_mission_with_agent_config() {
+        let content = r#"---
+tracker: linear
+provider:
+  strategy: single
+  primary: claude
+agent:
+  claude:
+    model: claude-sonnet-4-6
+    effort: high
+    permission_mode: auto-edit
+  codex:
+    model: gpt-5.3-codex
+    approval_policy: on-request
+trigger:
+  kind: polling
+---
+Hello
+"#;
+        let def = parse_mission_file(content).unwrap();
+        assert_eq!(def.config.tracker, "linear");
+
+        let claude = def.config.agent.claude.as_ref().unwrap();
+        assert_eq!(claude.model.as_deref(), Some("claude-sonnet-4-6"));
+        assert_eq!(claude.effort.as_deref(), Some("high"));
+        assert_eq!(claude.permission_mode.as_deref(), Some("auto-edit"));
+
+        let codex = def.config.agent.codex.as_ref().unwrap();
+        assert_eq!(codex.model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(codex.approval_policy.as_deref(), Some("on-request"));
+    }
+
+    #[test]
+    fn yaml_roundtrip_with_agent_config() {
+        let config = MissionConfig {
+            agent: AgentConfig {
+                claude: Some(ClaudeAgentConfig {
+                    model: Some("claude-sonnet-4-6".to_string()),
+                    effort: Some("high".to_string()),
+                    permission_mode: Some("auto-edit".to_string()),
+                    allowed_tools: vec!["Read".to_string(), "Edit".to_string()],
+                    disallowed_tools: vec![],
+                }),
+                codex: Some(CodexAgentConfig {
+                    model: Some("gpt-5.3-codex".to_string()),
+                    effort: Some("medium".to_string()),
+                    approval_policy: Some("never".to_string()),
+                    sandbox_mode: Some("danger-full-access".to_string()),
+                    multi_agent: Some(true),
+                    ..Default::default()
+                }),
+            },
+            ..Default::default()
+        };
+
+        let content = serialize_mission_file(&config, "Test prompt").unwrap();
+        assert!(content.contains("agent:"));
+
+        let parsed = parse_mission_file(&content).unwrap();
+        let claude = parsed.config.agent.claude.as_ref().unwrap();
+        assert_eq!(claude.model.as_deref(), Some("claude-sonnet-4-6"));
+        assert_eq!(claude.effort.as_deref(), Some("high"));
+        assert_eq!(claude.allowed_tools, vec!["Read", "Edit"]);
+
+        let codex = parsed.config.agent.codex.as_ref().unwrap();
+        assert_eq!(codex.model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(codex.approval_policy.as_deref(), Some("never"));
+        assert_eq!(codex.multi_agent, Some(true));
+    }
+
+    #[test]
+    fn parse_mission_without_agent_still_works() {
+        let content = "---\ntracker: linear\nprovider:\n  strategy: single\n---\nHello";
+        let def = parse_mission_file(content).unwrap();
+        assert!(def.config.agent.claude.is_none());
+        assert!(def.config.agent.codex.is_none());
+    }
+
+    #[test]
+    fn parse_agent_only_key_recognized() {
+        let content = "---\nagent:\n  claude:\n    model: test-model\n---\nHello";
+        let def = parse_mission_file(content).unwrap();
+        let claude = def.config.agent.claude.as_ref().unwrap();
+        assert_eq!(claude.model.as_deref(), Some("test-model"));
     }
 }
