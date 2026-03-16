@@ -467,7 +467,12 @@ mod tests {
     use super::*;
     use crate::domain::mission_control::config::{MissionConfig, ProviderConfig};
 
-    fn config_with(strategy: &str, primary: &str, secondary: Option<&str>, max_primary: Option<u32>) -> MissionConfig {
+    fn config_with(
+        strategy: &str,
+        primary: &str,
+        secondary: Option<&str>,
+        max_primary: Option<u32>,
+    ) -> MissionConfig {
         MissionConfig {
             provider: ProviderConfig {
                 strategy: strategy.to_string(),

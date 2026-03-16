@@ -27,10 +27,7 @@ pub async fn dispatch_issue(
 ) -> anyhow::Result<()> {
     let branch_name = format!(
         "mission/{}",
-        issue
-            .identifier
-            .to_lowercase()
-            .replace([' ', '/'], "-")
+        issue.identifier.to_lowercase().replace([' ', '/'], "-")
     );
 
     info!(
