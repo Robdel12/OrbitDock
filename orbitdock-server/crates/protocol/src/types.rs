@@ -471,12 +471,23 @@ impl SessionSummary {
             return custom_name;
         }
 
-        let first_prompt_clean = first_prompt
-            .map(clean_display_text)
-            .filter(|value| !value.is_empty());
         let summary_clean = summary
             .map(clean_display_text)
             .filter(|value| !value.is_empty());
+        let first_prompt_clean = first_prompt
+            .map(clean_display_text)
+            .filter(|value| !value.is_empty());
+
+        // Prefer the conversation summary (title) over the first prompt.
+        if let Some(summary) = summary_clean.as_ref() {
+            if !matches_project_label(
+                summary,
+                project_name_clean.as_deref(),
+                project_leaf_clean.as_deref(),
+            ) {
+                return summary.clone();
+            }
+        }
 
         if let Some(first_prompt) = first_prompt_clean.as_ref() {
             if !matches_project_label(
@@ -488,18 +499,8 @@ impl SessionSummary {
             }
         }
 
-        if let Some(summary) = summary_clean.as_ref() {
-            if !matches_project_label(
-                summary,
-                project_name_clean.as_deref(),
-                project_leaf_clean.as_deref(),
-            ) {
-                return summary.clone();
-            }
-        }
-
-        first_prompt_clean
-            .or(summary_clean)
+        summary_clean
+            .or(first_prompt_clean)
             .unwrap_or(project_fallback)
     }
 
@@ -515,20 +516,21 @@ impl SessionSummary {
             return last_message_clean;
         }
 
-        let summary_clean = summary
-            .map(clean_display_text)
-            .filter(|value| !value.is_empty());
+        // Prefer first_prompt as fallback (summary is now shown in the title).
         let first_prompt_clean = first_prompt
             .map(clean_display_text)
             .filter(|value| !value.is_empty());
+        let summary_clean = summary
+            .map(clean_display_text)
+            .filter(|value| !value.is_empty());
 
-        if let Some(summary) = summary_clean.as_ref() {
-            if first_prompt_clean.as_ref() != Some(summary) {
-                return Some(summary.clone());
+        if let Some(prompt) = first_prompt_clean.as_ref() {
+            if summary_clean.as_ref() != Some(prompt) {
+                return Some(prompt.clone());
             }
         }
 
-        first_prompt_clean
+        first_prompt_clean.or(summary_clean)
     }
 
     pub fn list_status_from_parts(
@@ -1463,7 +1465,20 @@ mod tests {
     };
 
     #[test]
-    fn display_title_prefers_prompt_over_project_like_summary() {
+    fn display_title_prefers_summary_over_prompt() {
+        let title = SessionSummary::display_title_from_parts(
+            None,
+            Some("Dashboard polish and cleanup"),
+            Some("Add a calmer dashboard shell"),
+            Some("OrbitDock"),
+            "/Users/robert/OrbitDock",
+        );
+
+        assert_eq!(title, "Dashboard polish and cleanup");
+    }
+
+    #[test]
+    fn display_title_falls_back_to_prompt_when_summary_matches_project() {
         let title = SessionSummary::display_title_from_parts(
             None,
             Some("OrbitDock"),
@@ -1476,16 +1491,14 @@ mod tests {
     }
 
     #[test]
-    fn context_line_prefers_last_message_then_distinct_summary() {
+    fn context_line_prefers_last_message_then_distinct_prompt() {
+        // No last_message → falls back to first_prompt (distinct from summary)
         let context = SessionSummary::context_line_from_parts(
             Some("Project-level cleanup is in flight"),
             Some("Tighten the root shell"),
             None,
         );
-        assert_eq!(
-            context.as_deref(),
-            Some("Project-level cleanup is in flight")
-        );
+        assert_eq!(context.as_deref(), Some("Tighten the root shell"));
 
         let duplicate = SessionSummary::context_line_from_parts(
             Some("Tighten the root shell"),

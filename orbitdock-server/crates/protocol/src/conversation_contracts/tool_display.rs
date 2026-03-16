@@ -539,16 +539,13 @@ fn compute_output_preview(kind: ToolKind, result_output: Option<&str>) -> Option
     match kind {
         // Shell: single meaningful output line, skip noise
         ToolKind::Bash => {
-            let first_meaningful = output
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .find(|l| {
-                    let lower = l.trim().to_lowercase();
-                    // Skip status messages that add no value in preview
-                    !lower.starts_with("(bash completed")
-                        && !lower.starts_with("bash completed")
-                        && !lower.starts_with("command completed")
-                });
+            let first_meaningful = output.lines().filter(|l| !l.trim().is_empty()).find(|l| {
+                let lower = l.trim().to_lowercase();
+                // Skip status messages that add no value in preview
+                !lower.starts_with("(bash completed")
+                    && !lower.starts_with("bash completed")
+                    && !lower.starts_with("command completed")
+            });
             first_meaningful.map(|l| truncate(l.trim(), 120).to_string())
         }
         // Search: summary line
