@@ -430,12 +430,12 @@ enum SessionWorkerRosterPlanner {
       guard matchesWorker(message, workerID: subagentID) else { continue }
 
       if derivedAssignmentPreview == nil {
-        if let prompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-          derivedAssignmentPreview = prompt
-        } else if let description = message.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let description = message.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
           .nilIfEmpty
         {
           derivedAssignmentPreview = description
+        } else if let prompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+          derivedAssignmentPreview = prompt
         } else {
           let trimmedContent = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
           if !trimmedContent.isEmpty {
@@ -567,14 +567,14 @@ enum SessionWorkerRosterPlanner {
       return taskDescription
     }
 
-    if let taskPrompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-      return taskPrompt
-    }
-
     if let output = (message.toolDisplay?.outputDisplay ?? message.toolDisplay?.outputPreview)?
       .trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     {
       return cleanedReportPreview(output)
+    }
+
+    if let taskPrompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
+      return taskPrompt
     }
 
     let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
