@@ -146,7 +146,7 @@ final class ServerConnection {
   private let authToken: String?
   private var serverURL: URL?
   private var webSocket: URLSessionWebSocketTask?
-  private var wsSession: URLSession
+  private let wsSession: URLSession
   private let httpSession: URLSession
   private var receiveTask: Task<Void, Never>?
   private var connectTask: Task<Void, Never>?
@@ -165,18 +165,14 @@ final class ServerConnection {
     return host != "127.0.0.1" && host != "localhost" && host != "::1"
   }
 
-  private static func makeWSSession() -> URLSession {
-    let config = URLSessionConfiguration.default
-    config.timeoutIntervalForRequest = 10
-    config.timeoutIntervalForResource = 0
-    return URLSession(configuration: config)
-  }
-
   init(authToken: String?) {
     self.authToken = authToken
 
     // WS session: unlimited resource timeout for long-lived connection
-    self.wsSession = Self.makeWSSession()
+    let wsConfig = URLSessionConfiguration.default
+    wsConfig.timeoutIntervalForRequest = 10
+    wsConfig.timeoutIntervalForResource = 0
+    self.wsSession = URLSession(configuration: wsConfig)
 
     // HTTP session: bounded timeouts for data requests
     let httpConfig = URLSessionConfiguration.default
@@ -441,12 +437,6 @@ final class ServerConnection {
     webSocket?.cancel(with: .goingAway, reason: nil)
     webSocket = nil
     lastConnectedAt = nil
-
-    // Invalidate the WS session so Network.framework drops all lingering
-    // TCP connections from previous attempts. A fresh session is created
-    // on the next attemptConnect().
-    wsSession.invalidateAndCancel()
-    wsSession = Self.makeWSSession()
 
     circuitBreaker.recordFailure()
     netLog(.warning, cat: .circuit, "Circuit breaker recorded failure", data: [

@@ -680,7 +680,7 @@ pub(super) fn execute_command(
                     transcript_path = COALESCE(excluded.transcript_path, sessions.transcript_path),
                     provider = 'claude',
                     codex_integration_mode = NULL,
-                    claude_integration_mode = COALESCE(sessions.claude_integration_mode, 'passive'),
+                    claude_integration_mode = 'passive',
                     source = COALESCE(excluded.source, sessions.source),
                     agent_type = COALESCE(excluded.agent_type, sessions.agent_type),
                     permission_mode = COALESCE(excluded.permission_mode, sessions.permission_mode),
