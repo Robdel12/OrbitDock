@@ -108,7 +108,7 @@ fn choose_provider(
         }
         "round_robin" => {
             if let Some(secondary_name) = secondary {
-                if dispatch_index % 2 == 0 {
+                if dispatch_index.is_multiple_of(2) {
                     primary.clone()
                 } else {
                     secondary_name.to_string()

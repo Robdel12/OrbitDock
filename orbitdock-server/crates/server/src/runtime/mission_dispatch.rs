@@ -30,8 +30,7 @@ pub async fn dispatch_issue(
         issue
             .identifier
             .to_lowercase()
-            .replace(' ', "-")
-            .replace('/', "-")
+            .replace([' ', '/'], "-")
     );
 
     info!(

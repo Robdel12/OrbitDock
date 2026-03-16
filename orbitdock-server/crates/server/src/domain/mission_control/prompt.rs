@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use liquid::ParserBuilder;
 
 /// Render a Liquid prompt template with issue context.
+#[allow(clippy::too_many_arguments)]
 pub fn render_prompt(
     template_source: &str,
     issue_id: &str,
