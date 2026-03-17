@@ -16,7 +16,7 @@ provider:
 #   claude:
 #     # model: claude-sonnet-4-6
 #     # effort: high
-#     permission_mode: auto-edit       # mission-safe default (agents run headless)
+#     permission_mode: auto            # mission-safe default (agents run headless)
 #   codex:
 #     # model: gpt-5.3-codex
 #     # effort: medium

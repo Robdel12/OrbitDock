@@ -28,10 +28,10 @@ struct MissionSettingsTab: View {
   @State private var maxConcurrent: UInt32 = 3
   @State private var maxConcurrentPrimary: UInt32 = 2
 
-  // Agent — Claude (default to mission-safe: acceptEdits)
+  // Agent — Claude (default to mission-safe: auto)
   @State private var claudeModel = ""
   @State private var claudeEffort: EffortLevel = .default
-  @State private var claudePermission: ClaudePermissionMode = .acceptEdits
+  @State private var claudePermission: ClaudePermissionMode = .auto
   @State private var claudeAllowedTools = ""
   @State private var claudeDisallowedTools = ""
 
@@ -430,6 +430,7 @@ struct MissionSettingsTab: View {
       // Only mission-safe modes — plan/default/don't-ask would stall headless agents
       WrappingFlowLayout(spacing: Spacing.xs) {
         permissionChip(.acceptEdits)
+        permissionChip(.auto)
         permissionChip(.bypassPermissions)
       }
     }
@@ -556,6 +557,7 @@ struct MissionSettingsTab: View {
         case .dontAsk: "Don't Ask"
         case .default: "Default"
         case .acceptEdits: "Edits"
+        case .auto: "Auto"
         case .bypassPermissions: "Bypass"
       }
     }() : mode.displayName
@@ -1303,10 +1305,11 @@ struct MissionSettingsTab: View {
     // Map wire values to enum cases
     switch value {
       case "plan": return .plan
-      case "dont-ask": return .dontAsk
+      case "dontAsk": return .dontAsk
       case "default": return .default
-      case "auto-edit", "acceptEdits": return .acceptEdits
-      case "bypass", "bypassPermissions": return .bypassPermissions
+      case "acceptEdits": return .acceptEdits
+      case "auto": return .auto
+      case "bypassPermissions": return .bypassPermissions
       default: return .default
     }
   }
@@ -1325,14 +1328,15 @@ struct MissionSettingsTab: View {
     saveError = nil
     showSaveConfirmation = false
 
-    // Map permission mode to wire value
+    // Map permission mode to wire value (must match Claude CLI --permission-mode choices)
     let permissionWire: String? = claudePermission == .default ? nil : {
       switch claudePermission {
         case .plan: return "plan"
-        case .dontAsk: return "dont-ask"
+        case .dontAsk: return "dontAsk"
         case .default: return "default"
-        case .acceptEdits: return "auto-edit"
-        case .bypassPermissions: return "bypass"
+        case .acceptEdits: return "acceptEdits"
+        case .auto: return "auto"
+        case .bypassPermissions: return "bypassPermissions"
       }
     }()
 
