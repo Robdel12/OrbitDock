@@ -83,7 +83,8 @@ struct GenericExpandedView: View {
   private func inputSectionHeader(_ input: String) -> String {
     if ToolCardStyle.looksLikeJSON(input),
        let data = input.data(using: .utf8),
-       let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+       let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    {
       if dict["command"] != nil { return "Command" }
       if dict["query"] != nil { return "Query" }
       if let path = dict["file_path"] as? String ?? dict["path"] as? String {

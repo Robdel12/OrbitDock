@@ -48,7 +48,7 @@ struct ConversationDetailRuntimeResetTests {
     )
     runtime.applyStreaming(.begin(messageID: "message-1", content: "Hello"))
 
-    #expect(runtime.renderStore.rows.map { $0.id } == ["message-1"])
+    #expect(runtime.renderStore.rows.map(\.id) == ["message-1"])
     #expect(runtime.renderStore.metadata.workStatus == .working)
     #expect(runtime.renderStore.metadata.currentTool == "bash")
     #expect(runtime.renderStore.streamingMessages["message-1"]?.content == "Hello")
@@ -142,8 +142,8 @@ struct ConversationDetailRuntimeResetTests {
     #expect(metadata.activeWorkerIDs == ["worker-1"])
     #expect(metadata.selectedWorkerID == "worker-1")
     #expect(metadata.workerInspector.selectedWorker?.title == "Descartes")
-    #expect(metadata.workerInspector.tools.map { $0.toolName } == ["Read"])
-    #expect(metadata.workerInspector.threadEntries.map { $0.body } == ["I found the auth entrypoint."])
+    #expect(metadata.workerInspector.tools.map(\.toolName) == ["Read"])
+    #expect(metadata.workerInspector.threadEntries.map(\.body) == ["I found the auth entrypoint."])
     #expect(metadata.workerInspector.childWorkerIDs == ["worker-2"])
   }
 }

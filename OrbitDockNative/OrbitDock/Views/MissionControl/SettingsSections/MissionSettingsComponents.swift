@@ -1,11 +1,11 @@
 import SwiftUI
 
-func missionInstrumentPanel<Content: View>(
+func missionInstrumentPanel(
   title: String,
   icon: String,
   description: String,
   isCompact: Bool,
-  @ViewBuilder content: () -> Content
+  @ViewBuilder content: () -> some View
 ) -> some View {
   VStack(alignment: .leading, spacing: 0) {
     HStack(spacing: 0) {

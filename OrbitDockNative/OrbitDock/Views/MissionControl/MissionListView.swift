@@ -337,7 +337,6 @@ private struct MissionRowView: View {
 
   // MARK: - Stat Pills
 
-
   // MARK: - Actions Menu
 
   private var missionActions: some View {
@@ -405,7 +404,7 @@ private struct MissionRowView: View {
 
   private func updateMission(enabled: Bool? = nil, paused: Bool? = nil) async {
     do {
-      let _ = try await missionsClient.updateMission(mission.id, enabled: enabled, paused: paused)
+      _ = try await missionsClient.updateMission(mission.id, enabled: enabled, paused: paused)
       await onRefresh()
     } catch {
       actionError = error.localizedDescription
@@ -421,4 +420,3 @@ private struct MissionRowView: View {
     }
   }
 }
-

@@ -57,13 +57,13 @@ struct ConversationRenderStoreTests {
       StreamingMessageState(session: session, messageID: "message-1", content: "Hello"),
     ])
     #expect(store.streamingMessages["message-1"]?.content == "Hello")
-    #expect(store.rows.map { $0.id } == ["message-1"])
+    #expect(store.rows.map(\.id) == ["message-1"])
 
     store.applyStreaming([
       StreamingMessageState(session: session, messageID: "message-1", content: "Hello world", isFinal: true),
     ])
 
     #expect(store.streamingMessages["message-1"] == nil)
-    #expect(store.rows.map { $0.id } == ["message-1"])
+    #expect(store.rows.map(\.id) == ["message-1"])
   }
 }

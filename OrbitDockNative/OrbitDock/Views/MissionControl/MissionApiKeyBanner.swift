@@ -64,7 +64,7 @@ struct MissionApiKeyBanner: View {
         Text("Stored encrypted on the server — never saved to MISSION.md or source control.")
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textQuaternary)
-        .fixedSize(horizontal: false, vertical: true)
+          .fixedSize(horizontal: false, vertical: true)
 
         HStack(spacing: Spacing.sm) {
           SecureField("lin_api_...", text: $apiKey)
@@ -152,4 +152,3 @@ struct MissionApiKeyBanner: View {
     isStartingOrchestrator = false
   }
 }
-

@@ -6,8 +6,8 @@ struct MissionSectionHeader: View {
   let title: String
   let icon: String
   var color: Color = .accent
-  var count: Int? = nil
-  var trailing: String? = nil
+  var count: Int?
+  var trailing: String?
 
   var body: some View {
     HStack(spacing: Spacing.sm_) {
@@ -62,7 +62,7 @@ struct MissionStatChip: View {
           Circle()
             .fill(color)
             .frame(width: 5, height: 5)
-        case .icon(let name):
+        case let .icon(name):
           Image(systemName: name)
             .font(.system(size: 9, weight: .bold))
             .foregroundStyle(count > 0 ? color : Color.textQuaternary)

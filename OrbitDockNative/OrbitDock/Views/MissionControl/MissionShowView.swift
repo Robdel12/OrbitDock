@@ -283,7 +283,7 @@ struct MissionShowView: View {
   // MARK: - Helpers
 
   private func statusCapsule(_ mission: MissionSummary) -> some View {
-    let icon: String = if !mission.enabled {
+    let icon = if !mission.enabled {
       "circle"
     } else if mission.paused {
       "pause.circle.fill"
@@ -400,5 +400,3 @@ enum MissionTab: String, CaseIterable {
     }
   }
 }
-
-

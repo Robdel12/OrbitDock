@@ -66,7 +66,7 @@ struct ConversationStructureStoreTests {
       hasMoreHistoryBefore: false
     ))
 
-    #expect(store.snapshot.rows.map { $0.id } == ["message-1", "message-2", "message-3"])
+    #expect(store.snapshot.rows.map(\.id) == ["message-1", "message-2", "message-3"])
     #expect(store.snapshot.oldestLoadedSequence == 1)
     #expect(store.snapshot.newestLoadedSequence == 3)
     #expect(store.snapshot.hasMoreHistoryBefore == false)
@@ -120,7 +120,7 @@ struct ConversationStructureStoreTests {
     ))
     store.apply(.remove(rowID: "message-1"))
 
-    #expect(store.snapshot.rows.map { $0.id } == ["worker-2"])
+    #expect(store.snapshot.rows.map(\.id) == ["worker-2"])
     #expect(store.snapshot.rows.first?.revision == 1)
     #expect(store.snapshot.oldestLoadedSequence == 1)
     #expect(store.snapshot.newestLoadedSequence == 2)

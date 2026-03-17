@@ -427,12 +427,12 @@ struct MissionSettingsTab: View {
 
     let permissionWire: String? = claudePermission == .default ? nil : {
       switch claudePermission {
-        case .plan: return "plan"
-        case .dontAsk: return "dontAsk"
-        case .default: return "default"
-        case .acceptEdits: return "acceptEdits"
-        case .auto: return "auto"
-        case .bypassPermissions: return "bypassPermissions"
+        case .plan: "plan"
+        case .dontAsk: "dontAsk"
+        case .default: "default"
+        case .acceptEdits: "acceptEdits"
+        case .auto: "auto"
+        case .bypassPermissions: "bypassPermissions"
       }
     }()
 

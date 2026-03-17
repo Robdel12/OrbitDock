@@ -85,9 +85,24 @@ struct MissionCommandCenter: View {
       // Row 2: Telemetry counters
       HStack(spacing: isCompact ? Spacing.md : Spacing.xl) {
         MissionStatChip(count: mission.activeCount, label: "active", color: .statusWorking, style: .icon("bolt.fill"))
-        MissionStatChip(count: mission.queuedCount, label: "queued", color: .feedbackCaution, style: .icon("clock.fill"))
-        MissionStatChip(count: mission.completedCount, label: "done", color: .feedbackPositive, style: .icon("checkmark.circle.fill"))
-        MissionStatChip(count: mission.failedCount, label: "failed", color: .feedbackNegative, style: .icon("xmark.circle.fill"))
+        MissionStatChip(
+          count: mission.queuedCount,
+          label: "queued",
+          color: .feedbackCaution,
+          style: .icon("clock.fill")
+        )
+        MissionStatChip(
+          count: mission.completedCount,
+          label: "done",
+          color: .feedbackPositive,
+          style: .icon("checkmark.circle.fill")
+        )
+        MissionStatChip(
+          count: mission.failedCount,
+          label: "failed",
+          color: .feedbackNegative,
+          style: .icon("xmark.circle.fill")
+        )
         Spacer()
       }
       .padding(.horizontal, Spacing.lg)
@@ -304,7 +319,7 @@ struct MissionCommandCenter: View {
     let elapsed = Date().timeIntervalSince(date)
     if elapsed < 5 { return "just now" }
     if elapsed < 60 { return "\(Int(elapsed))s ago" }
-    if elapsed < 3600 { return "\(Int(elapsed / 60))m ago" }
-    return "\(Int(elapsed / 3600))h ago"
+    if elapsed < 3_600 { return "\(Int(elapsed / 60))m ago" }
+    return "\(Int(elapsed / 3_600))h ago"
   }
 }

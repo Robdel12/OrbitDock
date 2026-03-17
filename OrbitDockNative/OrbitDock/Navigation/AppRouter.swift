@@ -25,6 +25,13 @@ enum AppRoute: Equatable {
   case mission(MissionRef)
 }
 
+/// The destinations that can be pushed onto the navigation stack.
+/// `AppRoute.dashboard` is the root and never appears in the stack.
+enum AppNavDestination: Hashable, Sendable {
+  case session(SessionRef)
+  case mission(MissionRef)
+}
+
 struct SessionContinuation: Hashable, Sendable {
   let endpointId: UUID
   let sessionId: String
@@ -69,12 +76,26 @@ struct SessionContinuation: Hashable, Sendable {
 @MainActor
 @Observable
 final class AppRouter {
-  var route: AppRoute = .dashboard(.missionControl)
+  /// The iOS NavigationStack path — the single source of truth for navigation.
+  /// macOS ContentView derives its displayed view from `route` (computed below).
+  var navigationStack: [AppNavDestination] = []
+  var dashboardTab: DashboardTab = .missionControl
+
   var showQuickSwitcher = false
   var showNewSessionSheet = false
   var newSessionProvider: SessionProvider = .claude
   var newSessionContinuation: SessionContinuation?
   var dashboardScrollAnchorID: String?
+
+  /// Computed from `navigationStack` and `dashboardTab`. All existing read
+  /// sites continue to work unchanged; macOS ContentView switches on this.
+  var route: AppRoute {
+    switch navigationStack.last {
+      case let .session(ref): .session(ref)
+      case let .mission(ref): .mission(ref)
+      case nil: .dashboard(dashboardTab)
+    }
+  }
 
   /// Navigate to a session by scopedID (for toast taps, etc.)
   func navigateToSession(scopedID: String, source: NavigationSource = .external) {
@@ -90,11 +111,11 @@ final class AppRouter {
       outcome: "applied",
       details: "missionId=\(missionId) from=\(routeSummary)"
     )
-    route = .mission(ref)
+    navigationStack = [.mission(ref)]
   }
 
   func selectSession(_ ref: SessionRef, source: NavigationSource = .unspecified) {
-    guard selectedSessionRef != ref else {
+    guard navigationStack.last != .session(ref) else {
       logNavigation(
         action: "selectSession",
         source: source,
@@ -110,11 +131,11 @@ final class AppRouter {
       outcome: "applied",
       details: "scopedID=\(ref.scopedID) from=\(routeSummary)"
     )
-    route = .session(ref)
+    navigationStack = [.session(ref)]
   }
 
   func goToDashboard(source: NavigationSource = .unspecified) {
-    guard route != .dashboard(.missionControl) else {
+    guard !navigationStack.isEmpty || dashboardTab != .missionControl else {
       logNavigation(
         action: "goToDashboard",
         source: source,
@@ -130,7 +151,12 @@ final class AppRouter {
       outcome: "applied",
       details: "from=\(routeSummary)"
     )
-    route = .dashboard(.missionControl)
+    var t = Transaction(animation: nil)
+    t.disablesAnimations = true
+    withTransaction(t) {
+      navigationStack = []
+      dashboardTab = .missionControl
+    }
   }
 
   func goToLibrary() {
@@ -138,7 +164,7 @@ final class AppRouter {
   }
 
   func selectDashboardTab(_ tab: DashboardTab, source: NavigationSource = .unspecified) {
-    guard route != .dashboard(tab) else {
+    guard !navigationStack.isEmpty || dashboardTab != tab else {
       logNavigation(
         action: "selectDashboardTab",
         source: source,
@@ -154,7 +180,8 @@ final class AppRouter {
       outcome: "applied",
       details: "tab=\(tab.rawValue) from=\(routeSummary)"
     )
-    route = .dashboard(tab)
+    navigationStack = []
+    dashboardTab = tab
   }
 
   func openQuickSwitcher() {
@@ -188,16 +215,6 @@ final class AppRouter {
 
   var selectedEndpointId: UUID? {
     selectedSessionRef?.endpointId ?? selectedMissionRef?.endpointId
-  }
-
-  var dashboardTab: DashboardTab {
-    get {
-      guard case let .dashboard(tab) = route else { return .missionControl }
-      return tab
-    }
-    set {
-      selectDashboardTab(newValue)
-    }
   }
 
   private var routeSummary: String {

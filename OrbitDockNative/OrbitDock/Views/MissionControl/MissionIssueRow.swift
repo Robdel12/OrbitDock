@@ -1,8 +1,8 @@
 import SwiftUI
 
 enum MissionIssueRowStyle {
-  case compact  // Used in overview — single line, no context menu
-  case full     // Used in issues tab — multi-row with context menu
+  case compact // Used in overview — single line, no context menu
+  case full // Used in issues tab — multi-row with context menu
 }
 
 struct MissionIssueRow: View {
@@ -12,8 +12,8 @@ struct MissionIssueRow: View {
   let http: ServerHTTPClient?
   var style: MissionIssueRowStyle = .full
   var accentColor: Color = .accent
-  var onNavigateToSession: ((String) -> Void)? = nil
-  var onRefresh: (() async -> Void)? = nil
+  var onNavigateToSession: ((String) -> Void)?
+  var onRefresh: (() async -> Void)?
 
   @Environment(AppRouter.self) private var router
   @State private var actionError: String?

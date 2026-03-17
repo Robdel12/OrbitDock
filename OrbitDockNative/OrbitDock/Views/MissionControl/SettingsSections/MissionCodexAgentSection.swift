@@ -35,7 +35,11 @@ struct MissionCodexAgentSection: View {
         }
       }
 
-      missionCompactField("Developer Instructions", placeholder: "Be concise and pragmatic", text: $codexDevInstructions)
+      missionCompactField(
+        "Developer Instructions",
+        placeholder: "Be concise and pragmatic",
+        text: $codexDevInstructions
+      )
     }
   }
 

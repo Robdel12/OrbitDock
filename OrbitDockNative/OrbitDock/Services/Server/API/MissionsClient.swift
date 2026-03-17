@@ -101,9 +101,9 @@ struct MissionsClient: Sendable {
 
   // MARK: - Mission Settings
 
-  func updateSettings<Body: Encodable>(
+  func updateSettings(
     _ missionId: String,
-    body: Body
+    body: some Encodable
   ) async throws -> MissionSettingsUpdateResponse {
     try await http.request(
       path: "/api/missions/\(requestBuilder.encodePathComponent(missionId))/settings",

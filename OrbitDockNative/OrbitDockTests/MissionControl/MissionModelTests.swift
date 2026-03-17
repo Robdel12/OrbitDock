@@ -1,9 +1,9 @@
 import Foundation
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct MissionModelTests {
-  // Models use custom CodingKeys, so no keyDecodingStrategy needed.
+  /// Models use custom CodingKeys, so no keyDecodingStrategy needed.
   let decoder = JSONDecoder()
 
   // MARK: - MissionSummary
@@ -299,7 +299,7 @@ struct MissionModelTests {
     ]
 
     for (jsonString, expected) in cases {
-      let data = jsonString.data(using: .utf8)!
+      let data = try #require(jsonString.data(using: .utf8))
       let state = try decoder.decode(OrchestrationState.self, from: data)
       #expect(state == expected)
     }

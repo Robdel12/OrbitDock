@@ -310,7 +310,6 @@ struct SessionDetailView: View {
 
   // MARK: - Mission Context Banner
 
-  @ViewBuilder
   func missionContextBanner(issueIdentifier: String) -> some View {
     HStack(spacing: Spacing.sm) {
       Image(systemName: "target")

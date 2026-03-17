@@ -20,10 +20,21 @@ struct MissionOverviewTab: View {
   @State private var isStartingOrchestrator = false
   @State private var actionError: String?
 
-  private var runningIssues: [MissionIssueItem] { issues.running }
-  private var failedIssues: [MissionIssueItem] { issues.failed }
-  private var queuedIssues: [MissionIssueItem] { issues.queued }
-  private var completedIssues: [MissionIssueItem] { issues.completed }
+  private var runningIssues: [MissionIssueItem] {
+    issues.running
+  }
+
+  private var failedIssues: [MissionIssueItem] {
+    issues.failed
+  }
+
+  private var queuedIssues: [MissionIssueItem] {
+    issues.queued
+  }
+
+  private var completedIssues: [MissionIssueItem] {
+    issues.completed
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xl) {

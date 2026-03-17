@@ -5,7 +5,6 @@ struct OrbitDockWindowRoot: View {
   @State private var appStore: AppStore
   @State private var router = AppRouter()
   @State private var toastManager = ToastManager()
-  @State private var navigationPath = NavigationPath()
 
   init(appRuntime: OrbitDockAppRuntime) {
     self.appRuntime = appRuntime
@@ -14,25 +13,27 @@ struct OrbitDockWindowRoot: View {
 
   var body: some View {
     ZStack {
-      NavigationStack(path: $navigationPath) {
+      NavigationStack(path: Binding(get: { router.navigationStack }, set: { router.navigationStack = $0 })) {
         DashboardView(
           isInitialLoading: false,
           isRefreshingCachedSessions: false
         )
-        .navigationDestination(for: SessionRef.self) { ref in
-          SessionDetailView(
-            sessionId: ref.sessionId,
-            endpointId: ref.endpointId
-          )
-          .environment(detailSessionStore(for: ref.endpointId))
-          .id(ref.scopedID)
-        }
-        .navigationDestination(for: MissionRef.self) { ref in
-          MissionShowView(
-            missionId: ref.missionId,
-            endpointId: ref.endpointId
-          )
-          .id(ref.id)
+        .navigationDestination(for: AppNavDestination.self) { destination in
+          switch destination {
+            case let .session(ref):
+              SessionDetailView(
+                sessionId: ref.sessionId,
+                endpointId: ref.endpointId
+              )
+              .environment(detailSessionStore(for: ref.endpointId))
+              .id(ref.scopedID)
+            case let .mission(ref):
+              MissionShowView(
+                missionId: ref.missionId,
+                endpointId: ref.endpointId
+              )
+              .id(ref.id)
+          }
         }
       }
 
@@ -72,26 +73,18 @@ struct OrbitDockWindowRoot: View {
             detailSessionStore(for: oldRef.endpointId)
               .unsubscribeFromSession(oldRef.sessionId)
           }
-          navigationPath = NavigationPath([ref])
           detailSessionStore(for: ref.endpointId)
             .subscribeToSession(ref.sessionId)
 
-        case let .mission(ref):
+        case .mission:
           if case let .session(oldRef) = oldRoute {
             detailSessionStore(for: oldRef.endpointId)
               .unsubscribeFromSession(oldRef.sessionId)
           }
-          navigationPath = NavigationPath([ref])
 
         case .dashboard:
-          // Pop instantly — no slide animation. Unsubscribe after the view
-          // is removed so clearing the store doesn't trigger competing
-          // animations inside the outgoing ConversationView.
-          var t = Transaction(animation: nil)
-          t.disablesAnimations = true
-          withTransaction(t) {
-            navigationPath = NavigationPath()
-          }
+          // Unsubscribe after the view is removed so clearing the store
+          // doesn't trigger competing animations in the outgoing ConversationView.
           if case let .session(oldRef) = oldRoute {
             Task { @MainActor in
               detailSessionStore(for: oldRef.endpointId)

@@ -144,7 +144,7 @@ extension View {
 
 struct SelectableOptionChip: View {
   let label: String
-  var icon: String? = nil
+  var icon: String?
   let isSelected: Bool
   var tint: Color = .accent
   var isCompact: Bool = false

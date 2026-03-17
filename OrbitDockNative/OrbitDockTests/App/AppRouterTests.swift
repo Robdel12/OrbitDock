@@ -22,7 +22,7 @@ struct AppRouterTests {
 
   @Test func goToDashboardDoesNotRewriteMissionControlRoute() {
     let router = AppRouter()
-    router.route = .dashboard(.missionControl)
+    // Starting state is already dashboard missionControl (empty stack)
 
     router.goToDashboard(source: .commandMenu)
 
