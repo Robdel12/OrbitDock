@@ -50,4 +50,16 @@ pub trait Tracker: Send + Sync {
     /// Returns the tracker kind string (e.g. "linear", "github").
     #[allow(dead_code)]
     fn kind(&self) -> &str;
+
+    /// Post a comment on an issue. No-op for trackers without write support.
+    async fn create_comment(&self, _issue_id: &str, _body: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Move an issue to a named workflow state (e.g. "In Progress", "Done").
+    /// The implementation resolves human-readable names to internal IDs.
+    /// No-op for trackers without write support.
+    async fn update_issue_state(&self, _issue_id: &str, _state_name: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
 }

@@ -126,6 +126,7 @@ struct MissionShowView: View {
                 http: http,
                 isCompact: isCompact,
                 endpointId: endpointId,
+                sessionStore: sessionStore,
                 onRefresh: { await fetchDetail() },
                 onApplyDetail: { applyDetail($0) },
                 onSelectTab: { tab in

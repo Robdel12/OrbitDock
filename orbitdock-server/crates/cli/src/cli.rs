@@ -948,6 +948,19 @@ pub enum MissionAction {
         /// Mission ID
         mission_id: String,
     },
+
+    /// Manually dispatch a specific issue to a mission
+    Dispatch {
+        /// Mission ID
+        mission_id: String,
+
+        /// Issue identifier (e.g. "VIZ-240")
+        issue: String,
+
+        /// Provider override (claude or codex)
+        #[arg(long, short = 'p')]
+        provider: Option<String>,
+    },
 }
 
 // ── MCP ──────────────────────────────────────────────────────

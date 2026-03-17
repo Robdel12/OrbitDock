@@ -49,6 +49,11 @@ pub async fn run(action: &MissionAction, rest: &RestClient, output: &Output) -> 
         MissionAction::Pause { mission_id } => pause(rest, output, mission_id).await,
         MissionAction::Resume { mission_id } => resume(rest, output, mission_id).await,
         MissionAction::Disable { mission_id } => disable(rest, output, mission_id).await,
+        MissionAction::Dispatch {
+            mission_id,
+            issue,
+            provider,
+        } => dispatch(rest, output, mission_id, issue, provider.as_deref()).await,
     }
 }
 
@@ -252,6 +257,55 @@ async fn disable(rest: &RestClient, output: &Output, mission_id: &str) -> i32 {
                 output.print_json(&serde_json::json!({ "ok": true, "action": "disabled" }));
             } else {
                 println!("Mission {mission_id} disabled and removed.");
+            }
+            EXIT_SUCCESS
+        }
+        Err((code, err)) => {
+            output.print_error(&err);
+            code
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct DispatchRequest {
+    issue_identifier: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    provider: Option<String>,
+}
+
+async fn dispatch(
+    rest: &RestClient,
+    output: &Output,
+    mission_id: &str,
+    issue_identifier: &str,
+    provider: Option<&str>,
+) -> i32 {
+    let body = DispatchRequest {
+        issue_identifier: issue_identifier.to_string(),
+        provider: provider.map(|p| p.to_string()),
+    };
+
+    match rest
+        .post_json::<_, MissionDetailResponse>(
+            &format!("/api/missions/{mission_id}/dispatch"),
+            &body,
+        )
+        .await
+        .into_result()
+    {
+        Ok(resp) => {
+            if output.json {
+                output.print_json(&resp);
+            } else {
+                println!("Dispatched {issue_identifier} to mission {mission_id}");
+                println!(
+                    "  Issues: {} active, {} queued, {} completed, {} failed",
+                    resp.summary.active_count,
+                    resp.summary.queued_count,
+                    resp.summary.completed_count,
+                    resp.summary.failed_count,
+                );
             }
             EXIT_SUCCESS
         }

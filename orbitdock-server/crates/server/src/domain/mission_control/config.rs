@@ -32,6 +32,12 @@ fn default_stall_timeout() -> u64 {
 fn default_base_branch() -> String {
     "main".to_string()
 }
+fn default_state_on_dispatch() -> String {
+    "In Progress".to_string()
+}
+fn default_state_on_complete() -> String {
+    "Done".to_string()
+}
 
 // ── Config types ─────────────────────────────────────────────────────
 
@@ -135,6 +141,12 @@ pub struct OrchestrationConfig {
     pub base_branch: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree_root_dir: Option<String>,
+    /// Tracker state to set when an issue is dispatched (default: "In Progress").
+    #[serde(default = "default_state_on_dispatch")]
+    pub state_on_dispatch: String,
+    /// Tracker state to set when a session completes (default: "Done").
+    #[serde(default = "default_state_on_complete")]
+    pub state_on_complete: String,
 }
 
 impl Default for OrchestrationConfig {
@@ -144,6 +156,8 @@ impl Default for OrchestrationConfig {
             stall_timeout: default_stall_timeout(),
             base_branch: default_base_branch(),
             worktree_root_dir: None,
+            state_on_dispatch: default_state_on_dispatch(),
+            state_on_complete: default_state_on_complete(),
         }
     }
 }

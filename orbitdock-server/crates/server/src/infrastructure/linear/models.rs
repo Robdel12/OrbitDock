@@ -98,6 +98,66 @@ pub struct IssueStateNode {
     pub state: LinearState,
 }
 
+// ── Mutation response models ────────────────────────────────────────
+
+/// Response for state ID resolution query.
+#[derive(Debug, Deserialize)]
+pub struct ResolveStateData {
+    pub issue: ResolveStateIssue,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResolveStateIssue {
+    pub team: ResolveStateTeam,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResolveStateTeam {
+    pub states: ResolveStateConnection,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResolveStateConnection {
+    pub nodes: Vec<ResolveStateNode>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResolveStateNode {
+    pub id: String,
+}
+
+/// Generic response for mutations returning `{ success: bool }`.
+#[derive(Debug, Deserialize)]
+pub struct CommentCreateData {
+    #[serde(rename = "commentCreate")]
+    pub comment_create: SuccessPayload,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IssueUpdateData {
+    #[serde(rename = "issueUpdate")]
+    pub issue_update: SuccessPayload,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SuccessPayload {
+    pub success: bool,
+}
+
+// ── Single-issue lookup (for manual dispatch) ──────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct SingleIssueData {
+    pub issues: SingleIssueConnection,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SingleIssueConnection {
+    pub nodes: Vec<LinearIssue>,
+}
+
+// ── Existing models ────────────────────────────────────────────────
+
 impl LinearIssue {
     pub fn into_tracker_issue(self) -> TrackerIssue {
         let labels = self.labels.nodes.into_iter().map(|l| l.name).collect();

@@ -107,7 +107,15 @@ pub async fn reconcile_mission(
             None => true, // Session no longer in registry
             Some(actor) => {
                 let snap = actor.snapshot();
+                // Ended status is obvious. Also treat Waiting/Reply work_status
+                // as "ended" for mission purposes — the agent finished its turn
+                // and is idle (no longer actively working on the issue).
                 snap.status == orbitdock_protocol::SessionStatus::Ended
+                    || matches!(
+                        snap.work_status,
+                        orbitdock_protocol::WorkStatus::Waiting
+                            | orbitdock_protocol::WorkStatus::Ended
+                    )
             }
         };
 
@@ -136,6 +144,37 @@ pub async fn reconcile_mission(
                 })
                 .await;
 
+            // Best-effort: move issue to configured completion state in tracker
+            if let Err(err) = tracker
+                .update_issue_state(&issue_row.issue_id, &config.orchestration.state_on_complete)
+                .await
+            {
+                warn!(
+                    component = "mission_control",
+                    event = "reconciliation.tracker_write_failed",
+                    issue_id = %issue_row.issue_id,
+                    error = %err,
+                    "Failed to move issue to Done in tracker"
+                );
+            }
+
+            // Best-effort: post completion comment
+            if let Err(err) = tracker
+                .create_comment(
+                    &issue_row.issue_id,
+                    &format!("OrbitDock session `{session_id}` completed successfully."),
+                )
+                .await
+            {
+                warn!(
+                    component = "mission_control",
+                    event = "reconciliation.tracker_comment_failed",
+                    issue_id = %issue_row.issue_id,
+                    error = %err,
+                    "Failed to post completion comment to tracker"
+                );
+            }
+
             handled_issue_ids.insert(issue_row.issue_id.clone());
         }
     }
@@ -161,17 +200,30 @@ pub async fn reconcile_mission(
         };
 
         let snap = actor.snapshot();
-        // Use last_activity_at from session, fall back to started_at from issue row
-        let last_active = snap
+        // Use last_activity_at from session, fall back to started_at from issue row.
+        // Try parsing each — skip malformed session timestamps and try the fallback.
+        let parsed = snap
             .last_activity_at
             .as_deref()
-            .or(issue_row.started_at.as_deref());
+            .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+            .or_else(|| {
+                issue_row
+                    .started_at
+                    .as_deref()
+                    .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+            });
 
-        let Some(ts) = last_active else {
-            continue;
-        };
-
-        let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(ts) else {
+        let Some(parsed) = parsed else {
+            warn!(
+                component = "mission_control",
+                event = "reconciliation.no_valid_timestamp",
+                mission_id = %mission.id,
+                issue_id = %issue_row.issue_id,
+                session_id = %session_id,
+                last_activity_at = ?snap.last_activity_at,
+                started_at = ?issue_row.started_at,
+                "No valid timestamp for stall detection"
+            );
             continue;
         };
 
@@ -207,6 +259,26 @@ pub async fn reconcile_mission(
                     completed_at: Some(Some(chrono::Utc::now().to_rfc3339())),
                 })
                 .await;
+
+            // Best-effort: post failure comment
+            if let Err(err) = tracker
+                .create_comment(
+                    &issue_row.issue_id,
+                    &format!(
+                        "OrbitDock session `{session_id}` stalled after {}s of inactivity and was terminated.",
+                        elapsed.num_seconds()
+                    ),
+                )
+                .await
+            {
+                warn!(
+                    component = "mission_control",
+                    event = "reconciliation.tracker_comment_failed",
+                    issue_id = %issue_row.issue_id,
+                    error = %err,
+                    "Failed to post stall comment to tracker"
+                );
+            }
         }
     }
 }

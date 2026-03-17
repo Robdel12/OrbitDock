@@ -153,8 +153,9 @@ mod tests {
 
     #[test]
     fn plan_tracked_worktree_normalizes_inputs_and_builds_path() {
-        let planned = plan_tracked_worktree(" /repo/path/ ", " feature/refactor ", Some(" main "), None)
-            .expect("planned");
+        let planned =
+            plan_tracked_worktree(" /repo/path/ ", " feature/refactor ", Some(" main "), None)
+                .expect("planned");
 
         assert_eq!(planned.repo_root, "/repo/path");
         assert_eq!(planned.branch, "feature/refactor");
@@ -179,7 +180,8 @@ mod tests {
 
     #[test]
     fn plan_tracked_worktree_drops_empty_base_branch() {
-        let planned = plan_tracked_worktree("/repo", "feature", Some("   "), None).expect("planned");
+        let planned =
+            plan_tracked_worktree("/repo", "feature", Some("   "), None).expect("planned");
         assert_eq!(planned.base_branch, None);
     }
 }

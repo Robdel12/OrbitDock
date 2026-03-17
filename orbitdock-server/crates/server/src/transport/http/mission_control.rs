@@ -942,6 +942,160 @@ pub async fn start_mission_orchestrator_endpoint(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+// ── Manual dispatch endpoint ─────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ManualDispatchRequest {
+    /// Linear issue identifier (e.g. "VIZ-240")
+    pub issue_identifier: String,
+    /// Optional provider override (defaults to mission's primary)
+    pub provider: Option<String>,
+}
+
+/// POST /api/missions/:id/dispatch
+///
+/// Manually dispatch a specific issue from the tracker to a mission.
+pub async fn dispatch_mission_issue(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path(mission_id): Path<String>,
+    Json(req): Json<ManualDispatchRequest>,
+) -> ApiResult<MissionDetailResponse> {
+    // 1. Load mission
+    let mid = mission_id.clone();
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+
+    // 2. Resolve Linear API key
+    let api_key = crate::support::api_keys::resolve_linear_api_key().ok_or_else(|| {
+        bad_request(
+            "no_api_key",
+            "Linear API key not configured".to_string(),
+        )
+    })?;
+
+    // 3. Parse MISSION.md
+    let mission_file_path = mission.resolved_mission_path();
+    let mission_content = tokio::fs::read_to_string(&mission_file_path)
+        .await
+        .map_err(|e| bad_request("mission_file", format!("Cannot read MISSION.md: {e}")))?;
+    let workflow = parse_mission_file(&mission_content)
+        .map_err(|e| bad_request("parse_error", format!("MISSION.md parse error: {e}")))?;
+
+    // 4. Fetch issue from Linear
+    let linear_client =
+        crate::infrastructure::linear::client::LinearClient::new(api_key.clone());
+    let issue = linear_client
+        .fetch_issue_by_identifier(&req.issue_identifier)
+        .await
+        .map_err(|e| internal("linear_error", format!("Linear query failed: {e}")))?
+        .ok_or_else(|| {
+            not_found(
+                "issue_not_found",
+                format!("Issue {} not found in Linear", req.issue_identifier),
+            )
+        })?;
+
+    // 5. Upsert into mission_issues
+    let issue_row_id = orbitdock_protocol::new_id();
+    let provider_str = req
+        .provider
+        .unwrap_or_else(|| workflow.config.provider.primary.clone());
+    let _ = registry
+        .persist()
+        .send(PersistCommand::MissionIssueUpsert {
+            id: issue_row_id,
+            mission_id: mission.id.clone(),
+            issue_id: issue.id.clone(),
+            issue_identifier: issue.identifier.clone(),
+            issue_title: Some(issue.title.clone()),
+            issue_state: Some(issue.state.clone()),
+            orchestration_state: "queued".to_string(),
+            provider: Some(provider_str.clone()),
+            url: issue.url.clone(),
+        })
+        .await
+        .map_err(|e| internal("persist_error", format!("Failed to upsert issue: {e}")))?;
+
+    // 6. Spawn dispatch
+    let tracker: std::sync::Arc<dyn crate::domain::mission_control::tracker::Tracker> =
+        std::sync::Arc::new(
+            crate::infrastructure::linear::client::LinearClient::new(api_key),
+        );
+
+    let reg = registry.clone();
+    let mid_dispatch = mission.id.clone();
+    let repo_root = mission.repo_root.clone();
+    let prompt_template = workflow.prompt_template.clone();
+    let base_branch = workflow.config.orchestration.base_branch.clone();
+    let agent_config = workflow.config.agent.clone();
+    let wt_root = workflow.config.orchestration.worktree_root_dir.clone();
+    let dispatch_state = workflow.config.orchestration.state_on_dispatch.clone();
+
+    tokio::spawn(async move {
+        let result = crate::runtime::mission_dispatch::dispatch_issue(
+            &reg,
+            &mid_dispatch,
+            &issue,
+            &provider_str,
+            &repo_root,
+            &prompt_template,
+            &base_branch,
+            &agent_config,
+            1,
+            wt_root.as_deref(),
+            &tracker,
+            &dispatch_state,
+        )
+        .await;
+
+        if let Err(ref err) = result {
+            tracing::error!(
+                component = "mission_control",
+                event = "dispatch.manual_failed",
+                mission_id = %mid_dispatch,
+                error = %err,
+                "Manual dispatch failed"
+            );
+        }
+
+        crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id(&reg, &mid_dispatch)
+            .await;
+    });
+
+    info!(
+        component = "mission_control",
+        event = "dispatch.manual_started",
+        mission_id = %mission.id,
+        issue_identifier = %req.issue_identifier,
+        "Manual dispatch started"
+    );
+
+    // 7. Return fresh detail
+    let mid3 = mission.id.clone();
+    let mid4 = mission.id.clone();
+    let mission_row = db_read(&registry, move |conn| load_mission_by_id(conn, &mid3))
+        .await?
+        .ok_or_else(|| not_found("not_found", "Mission not found"))?;
+    let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid4)).await?;
+    let orchestrator_running = registry.is_orchestrator_running();
+    let summary =
+        mission_row_to_summary_with_issues(&mission_row, &issue_rows, orchestrator_running);
+    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
+    let settings = build_settings_response(&mission_row);
+    let mission_file_exists =
+        tokio::fs::metadata(mission_row.resolved_mission_path()).await.is_ok();
+
+    Ok(Json(MissionDetailResponse {
+        summary,
+        issues,
+        settings,
+        mission_file_exists,
+        mission_file_path: mission_row.mission_file_path.clone(),
+        workflow_migration_available: false,
+    }))
+}
+
 // ── Settings write-back endpoint ─────────────────────────────────────
 
 /// PUT /api/missions/:id/settings

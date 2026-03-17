@@ -322,6 +322,8 @@ async fn process_mission(
         let base_branch = workflow.config.orchestration.base_branch.clone();
         let agent_config = workflow.config.agent.clone();
         let wt_root = workflow.config.orchestration.worktree_root_dir.clone();
+        let tracker = tracker.clone();
+        let dispatch_state = workflow.config.orchestration.state_on_dispatch.clone();
 
         tokio::spawn(async move {
             let result = dispatch_issue(
@@ -335,6 +337,8 @@ async fn process_mission(
                 &agent_config,
                 1, // first attempt for new candidates
                 wt_root.as_deref(),
+                &tracker,
+                &dispatch_state,
             )
             .await;
 
@@ -402,6 +406,8 @@ async fn process_mission(
         let base_branch = workflow.config.orchestration.base_branch.clone();
         let agent_config = workflow.config.agent.clone();
         let wt_root = workflow.config.orchestration.worktree_root_dir.clone();
+        let tracker = tracker.clone();
+        let dispatch_state = workflow.config.orchestration.state_on_dispatch.clone();
 
         tokio::spawn(async move {
             let result = dispatch_issue(
@@ -415,6 +421,8 @@ async fn process_mission(
                 &agent_config,
                 attempt,
                 wt_root.as_deref(),
+                &tracker,
+                &dispatch_state,
             )
             .await;
 

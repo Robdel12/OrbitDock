@@ -10,6 +10,7 @@ struct MissionOverviewTab: View {
   let http: ServerHTTPClient?
   let isCompact: Bool
   let endpointId: UUID
+  let sessionStore: SessionStore?
   let onRefresh: () async -> Void
   let onApplyDetail: (MissionDetailResponse) -> Void
   let onSelectTab: (MissionTab) -> Void
@@ -17,11 +18,31 @@ struct MissionOverviewTab: View {
   let onNavigateToSession: (String) -> Void
 
   @State private var isStartingOrchestrator = false
-  @State private var tick = 0 // Forces re-render for live timestamps
+
+  // Computed issue groups — filtered once, used everywhere
+  private var runningIssues: [MissionIssueItem] {
+    issues.filter { $0.orchestrationState == .running || $0.orchestrationState == .claimed }
+  }
+
+  private var failedIssues: [MissionIssueItem] {
+    issues.filter { $0.orchestrationState == .failed }
+  }
+
+  private var queuedIssues: [MissionIssueItem] {
+    issues.filter { $0.orchestrationState == .queued || $0.orchestrationState == .retryQueued }
+  }
+
+  private var completedIssues: [MissionIssueItem] {
+    issues.filter { $0.orchestrationState == .completed }
+  }
+
+  private var totalIssueCount: UInt32 {
+    mission.activeCount + mission.queuedCount + mission.completedCount + mission.failedCount
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xl) {
-      // Setup flow — unified when migration is available
+      // Setup flows (unchanged)
       if !missionFileExists, settings == nil {
         if workflowMigrationAvailable {
           missionSetupWithMigration
@@ -43,225 +64,314 @@ struct MissionOverviewTab: View {
       }
 
       if mission.orchestratorStatus == "no_api_key" {
-        MissionApiKeyBanner(
-          missionId: missionId,
-          http: http
-        ) {
+        MissionApiKeyBanner(missionId: missionId, http: http) {
           await onRefresh()
         }
       }
 
-      telemetryStrip
+      // ── Command Center ─────────────────────────────────────
+      // Unified status + telemetry + controls + config context
+      commandCenter
 
-      // Mission Controls (always visible when configured)
-      missionControlsSection
-
-      if let settings {
-        configReadout(settings)
+      // ── Active Threads ─────────────────────────────────────
+      // Running agent cards — the hero of the dashboard
+      if !runningIssues.isEmpty {
+        activeThreadsSection
       }
 
-      if !issues.isEmpty {
-        recentActivitySection
-      } else {
+      // ── Needs Attention ────────────────────────────────────
+      // Failed issues — only shown when there ARE failures
+      if !failedIssues.isEmpty {
+        attentionSection
+      }
+
+      // ── Queued ─────────────────────────────────────────────
+      if !queuedIssues.isEmpty {
+        queueSection
+      }
+
+      // ── Completed ──────────────────────────────────────────
+      if !completedIssues.isEmpty {
+        completedSection
+      }
+
+      // ── Empty State ────────────────────────────────────────
+      if issues.isEmpty {
         waitingState
       }
     }
-    .task(id: "poll-timer") {
-      // Tick every 5 seconds to keep relative timestamps live
-      while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(5))
-        tick += 1
-      }
-    }
   }
 
-  // MARK: - Telemetry Strip
+  // MARK: - Command Center
 
-  private var telemetryStrip: some View {
-    let gauges = [
-      ("Active", mission.activeCount, Color.statusWorking, "bolt.fill"),
-      ("Queued", mission.queuedCount, Color.feedbackCaution, "clock.fill"),
-      ("Done", mission.completedCount, Color.feedbackPositive, "checkmark.circle.fill"),
-      ("Failed", mission.failedCount, Color.feedbackNegative, "xmark.circle.fill"),
-    ]
+  private var commandCenter: some View {
+    let isPolling = mission.orchestratorStatus == "polling"
+    let isIdle = mission.orchestratorStatus == "idle" || mission.orchestratorStatus == nil
+    let canStart = mission.enabled && !mission.paused && isIdle
+    let canPause = mission.enabled && isPolling && !mission.paused
+    let canResume = mission.enabled && mission.paused
 
-    return Group {
-      if isCompact {
-        // 2x2 grid on phone
-        VStack(spacing: Spacing.sm) {
-          HStack(spacing: Spacing.sm) {
-            telemetryGauge(label: gauges[0].0, count: gauges[0].1, color: gauges[0].2, icon: gauges[0].3)
-            telemetryGauge(label: gauges[1].0, count: gauges[1].1, color: gauges[1].2, icon: gauges[1].3)
+    return VStack(alignment: .leading, spacing: 0) {
+      // Row 1: Status + Controls
+      HStack(spacing: Spacing.sm) {
+        // Status signal
+        ZStack {
+          if isPolling {
+            Circle()
+              .fill(Color.feedbackPositive.opacity(OpacityTier.light))
+              .frame(width: 18, height: 18)
           }
-          HStack(spacing: Spacing.sm) {
-            telemetryGauge(label: gauges[2].0, count: gauges[2].1, color: gauges[2].2, icon: gauges[2].3)
-            telemetryGauge(label: gauges[3].0, count: gauges[3].1, color: gauges[3].2, icon: gauges[3].3)
-          }
+          Circle()
+            .fill(mission.statusColor)
+            .frame(width: 7, height: 7)
         }
-      } else {
-        // Single row on desktop
-        HStack(spacing: Spacing.sm) {
-          ForEach(Array(gauges.enumerated()), id: \.offset) { _, gauge in
-            telemetryGauge(label: gauge.0, count: gauge.1, color: gauge.2, icon: gauge.3)
+        .frame(width: 18, height: 18)
+
+        Text(mission.statusLabel)
+          .font(.system(size: TypeScale.caption, weight: .bold))
+          .foregroundStyle(mission.statusColor)
+
+        Spacer()
+
+        // Compact control buttons
+        HStack(spacing: Spacing.xs) {
+          controlIcon(
+            icon: "play.fill",
+            color: Color.feedbackPositive,
+            enabled: canStart
+          ) {
+            await startOrchestrator()
+          }
+
+          controlIcon(
+            icon: canResume ? "play.fill" : "pause.fill",
+            color: canResume ? Color.accent : Color.feedbackCaution,
+            enabled: canPause || canResume
+          ) {
+            if canResume {
+              await onUpdateMission(nil, false)
+            } else {
+              await onUpdateMission(nil, true)
+            }
+          }
+
+          controlIcon(
+            icon: mission.enabled ? "stop.fill" : "power",
+            color: mission.enabled ? Color.feedbackNegative : Color.feedbackPositive,
+            enabled: true
+          ) {
+            await onUpdateMission(!mission.enabled, nil)
           }
         }
       }
-    }
-  }
+      .padding(Spacing.lg)
 
-  private func telemetryGauge(label: String, count: UInt32, color: Color, icon: String) -> some View {
-    VStack(spacing: Spacing.sm_) {
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: icon)
-          .font(.system(size: 9, weight: .bold))
-          .foregroundStyle(count > 0 ? color : Color.textQuaternary)
-
-        Text("\(count)")
-          .font(.system(size: TypeScale.large, weight: .bold, design: .monospaced))
-          .foregroundStyle(count > 0 ? color : Color.textQuaternary)
+      // Progress segment bar
+      if totalIssueCount > 0 {
+        pipelineBar
+          .padding(.horizontal, Spacing.lg)
+          .padding(.bottom, Spacing.sm)
       }
 
-      Text(label.uppercased())
-        .font(.system(size: TypeScale.micro, weight: .bold))
-        .foregroundStyle(Color.textQuaternary)
-        .tracking(0.8)
+      Divider().foregroundStyle(Color.surfaceBorder)
+
+      // Row 2: Telemetry counters
+      HStack(spacing: isCompact ? Spacing.md : Spacing.xl) {
+        telemetryChip(icon: "bolt.fill", count: mission.activeCount, color: .statusWorking, label: "active")
+        telemetryChip(icon: "clock.fill", count: mission.queuedCount, color: .feedbackCaution, label: "queued")
+        telemetryChip(icon: "checkmark.circle.fill", count: mission.completedCount, color: .feedbackPositive, label: "done")
+        telemetryChip(icon: "xmark.circle.fill", count: mission.failedCount, color: .feedbackNegative, label: "failed")
+        Spacer()
+      }
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
+
+      // Row 3: Config context
+      if let settings {
+        Divider().foregroundStyle(Color.surfaceBorder)
+        configContextRows(settings)
+          .padding(.horizontal, Spacing.lg)
+          .padding(.vertical, Spacing.md)
+      }
     }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, Spacing.md)
     .background(
       RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
         .fill(Color.backgroundSecondary)
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-            .strokeBorder(
-              count > 0 ? color.opacity(OpacityTier.subtle) : Color.surfaceBorder,
-              lineWidth: 1
-            )
-        )
     )
+    .overlay(alignment: .top) {
+      // Status-colored top glow edge
+      UnevenRoundedRectangle(
+        cornerRadii: .init(topLeading: CGFloat(Radius.ml), topTrailing: CGFloat(Radius.ml)),
+        style: .continuous
+      )
+      .fill(
+        LinearGradient(
+          colors: [mission.statusColor.opacity(OpacityTier.medium), .clear],
+          startPoint: .top,
+          endPoint: .bottom
+        )
+      )
+      .frame(height: 3)
+    }
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+        .strokeBorder(Color.surfaceBorder, lineWidth: 1)
+    )
+    .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
   }
 
-  // MARK: - Config Readout
+  private func controlIcon(
+    icon: String,
+    color: Color,
+    enabled: Bool,
+    action: @escaping () async -> Void
+  ) -> some View {
+    Button {
+      Task { await action() }
+    } label: {
+      Image(systemName: icon)
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(enabled ? color : Color.textQuaternary)
+        .frame(width: 28, height: 28)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
+            .fill(enabled ? color.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
+        )
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled)
+  }
 
-  private func configReadout(_ settings: MissionSettings) -> some View {
-    let layout = isCompact
-      ? AnyLayout(VStackLayout(alignment: .leading, spacing: Spacing.sm))
-      : AnyLayout(HStackLayout(alignment: .top, spacing: Spacing.sm))
+  // Segmented progress bar showing pipeline proportions
+  private var pipelineBar: some View {
+    let total = totalIssueCount
 
-    return layout {
-      // Left: Orchestrator status
-      VStack(alignment: .leading, spacing: Spacing.md) {
-        HStack(spacing: Spacing.sm_) {
-          signalIndicator
-          Text("Orchestrator")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
+    return GeometryReader { geo in
+      let w = geo.size.width
+      let fTotal = CGFloat(total)
+
+      HStack(spacing: 0) {
+        if mission.completedCount > 0 {
+          Rectangle()
+            .fill(Color.feedbackPositive)
+            .frame(width: max(3, w * CGFloat(mission.completedCount) / fTotal))
         }
-
-        VStack(alignment: .leading, spacing: Spacing.sm_) {
-          readoutLine(
-            icon: "clock",
-            label: "Interval",
-            value: settings.trigger.kind == "polling"
-              ? formatInterval(settings.trigger.interval)
-              : "Manual"
-          )
-          readoutLine(icon: "person.2", label: "Agents", value: "\(settings.provider.maxConcurrent) max")
-          readoutLine(icon: "arrow.clockwise", label: "Retries", value: "\(settings.orchestration.maxRetries)x")
-          readoutLine(
-            icon: "exclamationmark.triangle",
-            label: "Stall",
-            value: formatInterval(settings.orchestration.stallTimeout)
-          )
-
-          if let polledAt = mission.lastPolledAt {
-            // tick forces re-render every 5s for live timestamps
-            let _ = tick
-            readoutLine(
-              icon: "antenna.radiowaves.left.and.right",
-              label: "Last Poll",
-              value: relativeTime(polledAt)
-            )
-          }
+        if mission.activeCount > 0 {
+          Rectangle()
+            .fill(Color.statusWorking)
+            .frame(width: max(3, w * CGFloat(mission.activeCount) / fTotal))
         }
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(Spacing.lg)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-          .fill(Color.backgroundSecondary)
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-              .strokeBorder(Color.surfaceBorder, lineWidth: 1)
-          )
-      )
-
-      // Right: Filter summary
-      VStack(alignment: .leading, spacing: Spacing.md) {
-        HStack(spacing: Spacing.sm_) {
-          Image(systemName: "line.3.horizontal.decrease")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(Color.accent)
-          Text("Filters")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
+        if mission.queuedCount > 0 {
+          Rectangle()
+            .fill(Color.feedbackCaution)
+            .frame(width: max(3, w * CGFloat(mission.queuedCount) / fTotal))
         }
-
-        if settings.trigger.filters.labels.isEmpty,
-           settings.trigger.filters.states.isEmpty,
-           settings.trigger.filters.project == nil,
-           settings.trigger.filters.team == nil
-        {
-          Text("All issues")
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
-        } else {
-          VStack(alignment: .leading, spacing: Spacing.sm_) {
-            if let project = settings.trigger.filters.project {
-              readoutLine(icon: "folder", label: "Project", value: project)
-            }
-            if let team = settings.trigger.filters.team {
-              readoutLine(icon: "person.3", label: "Team", value: team)
-            }
-            if !settings.trigger.filters.labels.isEmpty {
-              filterTags(settings.trigger.filters.labels)
-            }
-            if !settings.trigger.filters.states.isEmpty {
-              filterTags(settings.trigger.filters.states)
-            }
-          }
+        if mission.failedCount > 0 {
+          Rectangle()
+            .fill(Color.feedbackNegative)
+            .frame(width: max(3, w * CGFloat(mission.failedCount) / fTotal))
         }
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(Spacing.lg)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-          .fill(Color.backgroundSecondary)
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-              .strokeBorder(Color.surfaceBorder, lineWidth: 1)
-          )
-      )
+    }
+    .frame(height: 3)
+    .clipShape(Capsule())
+  }
+
+  private func telemetryChip(icon: String, count: UInt32, color: Color, label: String) -> some View {
+    HStack(spacing: Spacing.xs) {
+      Image(systemName: icon)
+        .font(.system(size: 9, weight: .bold))
+        .foregroundStyle(count > 0 ? color : Color.textQuaternary)
+
+      Text("\(count)")
+        .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+        .foregroundStyle(count > 0 ? color : Color.textQuaternary)
+
+      Text(label)
+        .font(.system(size: TypeScale.micro, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
     }
   }
 
-  private func readoutLine(icon: String, label: String, value: String) -> some View {
-    HStack(spacing: Spacing.sm_) {
+  // Compact config context — replaces the full Orchestrator + Filters cards
+  private func configContextRows(_ settings: MissionSettings) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      // Row 1: Trigger + Agents + Retries
+      HStack(spacing: Spacing.lg) {
+        configItem(
+          icon: "antenna.radiowaves.left.and.right",
+          value: settings.trigger.kind == "polling"
+            ? "Every \(formatInterval(settings.trigger.interval))"
+            : "Manual"
+        )
+
+        if let polledAt = mission.lastPolledAt {
+          configItem(icon: "clock", value: relativeTime(polledAt))
+        }
+
+        configItem(icon: "person.2", value: "\(settings.provider.maxConcurrent) max")
+        configItem(icon: "arrow.clockwise", value: "\(settings.orchestration.maxRetries)x")
+
+        Spacer()
+      }
+
+      // Row 2: Filters (only if any configured)
+      let filters = settings.trigger.filters
+      if filters.project != nil || filters.team != nil
+        || !filters.labels.isEmpty || !filters.states.isEmpty
+      {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "line.3.horizontal.decrease")
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+
+          if let project = filters.project {
+            filterBadge(icon: "folder", text: project)
+          }
+
+          if let team = filters.team {
+            filterBadge(icon: "person.3", text: team)
+          }
+
+          if !filters.states.isEmpty {
+            filterTags(filters.states)
+          }
+
+          if !filters.labels.isEmpty {
+            filterTags(filters.labels)
+          }
+        }
+      }
+    }
+  }
+
+  private func configItem(icon: String, value: String) -> some View {
+    HStack(spacing: Spacing.xs) {
       Image(systemName: icon)
         .font(.system(size: 9, weight: .medium))
         .foregroundStyle(Color.textQuaternary)
-        .frame(width: 14)
-
-      Text(label)
-        .font(.system(size: TypeScale.micro))
-        .foregroundStyle(Color.textTertiary)
-
-      Spacer()
 
       Text(value)
-        .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
-        .foregroundStyle(Color.textSecondary)
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
     }
+  }
+
+  private func filterBadge(icon: String, text: String) -> some View {
+    HStack(spacing: Spacing.xxs) {
+      Image(systemName: icon)
+        .font(.system(size: 8, weight: .medium))
+      Text(text)
+        .lineLimit(1)
+    }
+    .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+    .foregroundStyle(Color.textTertiary)
+    .padding(.horizontal, Spacing.sm_)
+    .padding(.vertical, 2)
+    .background(
+      Color.backgroundTertiary,
+      in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+    )
   }
 
   private func filterTags(_ tags: [String]) -> some View {
@@ -280,94 +390,330 @@ struct MissionOverviewTab: View {
     }
   }
 
-  @ViewBuilder
-  private var signalIndicator: some View {
-    let isPolling = mission.orchestratorStatus == "polling"
-    let color: Color = isPolling ? Color.feedbackPositive
-      : mission.orchestratorStatus == "paused" ? Color.feedbackCaution
-      : mission.orchestratorStatus == "no_api_key" ? Color.feedbackCaution
-      : mission.orchestratorStatus == "config_error" ? Color.feedbackNegative
-      : Color.textQuaternary
+  // MARK: - Active Threads
 
-    Circle()
-      .fill(color)
-      .frame(width: 6, height: 6)
-  }
-
-  // MARK: - Recent Activity
-
-  private var recentActivitySection: some View {
-    let running = issues.filter { $0.orchestrationState == .running || $0.orchestrationState == .claimed }
-    let queued = issues.filter { $0.orchestrationState == .queued || $0.orchestrationState == .retryQueued }
-    let failed = issues.filter { $0.orchestrationState == .failed }
-    let completed = issues.filter { $0.orchestrationState == .completed }
-
-    return VStack(alignment: .leading, spacing: Spacing.lg) {
-      // Running
-      issueGroup(
-        "Running", icon: "bolt.fill", color: Color.statusWorking,
-        count: running.count, issues: running
-      )
-
-      // Failed
-      issueGroup(
-        "Needs Attention", icon: "exclamationmark.circle.fill", color: Color.feedbackNegative,
-        count: failed.count, issues: failed
-      )
-
-      // Queued
-      issueGroup(
-        "Queued", icon: "clock.fill", color: Color.feedbackCaution,
-        count: queued.count, issues: queued
-      )
-
-      // Completed (show last 5)
-      if !completed.isEmpty {
-        issueGroup(
-          "Completed", icon: "checkmark.circle.fill", color: Color.feedbackPositive,
-          count: completed.count, issues: Array(completed.prefix(5))
-        )
-      }
-    }
-  }
-
-  private func issueGroup(_ title: String, icon: String, color: Color, count: Int, issues: [MissionIssueItem]) -> some View {
+  private var activeThreadsSection: some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
-      HStack(spacing: Spacing.sm_) {
-        Image(systemName: icon)
-          .font(.system(size: 10, weight: .bold))
-          .foregroundStyle(count > 0 ? color : Color.textQuaternary)
-        Text(title)
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(count > 0 ? Color.textPrimary : Color.textTertiary)
+      sectionHeader(
+        title: "Active Threads",
+        icon: "bolt.fill",
+        color: Color.statusWorking,
+        trailing: settings.map { "\(runningIssues.count) of \($0.provider.maxConcurrent)" }
+      )
 
-        if count > 0 {
-          Text("\(count)")
-            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-            .foregroundStyle(color)
-            .padding(.horizontal, Spacing.xs)
-            .padding(.vertical, 1)
-            .background(
-              color.opacity(OpacityTier.subtle),
-              in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-            )
-        }
-      }
+      let layout = isCompact
+        ? AnyLayout(VStackLayout(spacing: Spacing.sm))
+        : AnyLayout(HStackLayout(alignment: .top, spacing: Spacing.sm))
 
-      if issues.isEmpty {
-        Text("None")
-          .font(.system(size: TypeScale.micro))
-          .foregroundStyle(Color.textQuaternary)
-          .padding(.leading, Spacing.lg)
-      } else {
-        ForEach(issues) { issue in
-          issueDetailRow(issue, accent: color)
+      layout {
+        ForEach(runningIssues) { issue in
+          agentCard(issue)
         }
       }
     }
   }
 
-  private func issueDetailRow(_ issue: MissionIssueItem, accent: Color) -> some View {
+  private func agentCard(_ issue: MissionIssueItem) -> some View {
+    let session = issue.sessionId.flatMap { sessionStore?.session($0) }
+    let hasSessionData = session?.model != nil
+    let sessionStatus = hasSessionData ? session?.displayStatus : nil
+    let cardAccent: Color = sessionStatus?.color ?? Color.statusWorking
+    let providerColor: Color = issue.provider == "codex" ? Color.feedbackPositive : Color.accent
+
+    return VStack(alignment: .leading, spacing: Spacing.sm) {
+      // Header: identifier + provider badge
+      HStack(spacing: Spacing.sm_) {
+        Circle()
+          .fill(cardAccent)
+          .frame(width: 6, height: 6)
+
+        Text(issue.identifier)
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.accent)
+
+        Spacer()
+
+        Text(issue.provider.capitalized)
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(providerColor)
+          .padding(.horizontal, Spacing.sm_)
+          .padding(.vertical, 2)
+          .background(
+            providerColor.opacity(OpacityTier.subtle),
+            in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+          )
+      }
+
+      // Title
+      Text(issue.title)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(2)
+
+      // Tracker state + attempt
+      HStack(spacing: Spacing.sm_) {
+        Text(issue.trackerState)
+          .font(.system(size: TypeScale.micro, weight: .medium))
+          .foregroundStyle(Color.textQuaternary)
+          .padding(.horizontal, Spacing.xs)
+          .padding(.vertical, 1)
+          .background(
+            Color.backgroundTertiary,
+            in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+          )
+
+        if issue.attempt > 1 {
+          Text("attempt #\(issue.attempt)")
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.feedbackCaution)
+        }
+
+        Spacer()
+      }
+
+      // ── Actions ──────────────────────────────────────────
+      Divider().foregroundStyle(Color.surfaceBorder)
+
+      HStack(spacing: Spacing.sm) {
+        Button {
+          Task { await retryIssue(issue) }
+        } label: {
+          HStack(spacing: Spacing.xxs) {
+            Image(systemName: "arrow.clockwise")
+              .font(.system(size: 9, weight: .bold))
+            Text("Restart")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+          }
+          .foregroundStyle(Color.feedbackCaution)
+        }
+        .buttonStyle(.plain)
+
+        Spacer()
+
+        // ── Session Preview ──────────────────────────────────
+        if let session, hasSessionData {
+          sessionPreview(session)
+        } else if issue.sessionId != nil {
+          HStack(spacing: Spacing.xxs) {
+            Text("Session")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+            Image(systemName: "arrow.right")
+              .font(.system(size: 8, weight: .bold))
+          }
+          .foregroundStyle(Color.accent)
+        }
+      }
+    }
+    .padding(Spacing.md)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+        .fill(Color.backgroundSecondary)
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+            .strokeBorder(cardAccent.opacity(OpacityTier.light), lineWidth: 1)
+        )
+    )
+    .shadow(color: cardAccent.opacity(OpacityTier.subtle), radius: 8, y: 2)
+    .contentShape(Rectangle())
+    .onTapGesture {
+      if let sessionId = issue.sessionId {
+        onNavigateToSession(sessionId)
+      } else if let url = issue.url, let link = URL(string: url) {
+        #if os(macOS)
+          NSWorkspace.shared.open(link)
+        #endif
+      }
+    }
+  }
+
+  // MARK: - Session Preview
+
+  private func sessionPreview(_ session: SessionObservable) -> some View {
+    let status = session.displayStatus
+
+    return VStack(alignment: .leading, spacing: Spacing.sm_) {
+      // Row 1: Status badge + Branch + Model
+      HStack(spacing: Spacing.sm) {
+        SessionStatusBadge(status: status, showIcon: true, size: .compact)
+
+        if let branch = session.branch {
+          HStack(spacing: Spacing.xxs) {
+            Image(systemName: "arrow.triangle.branch")
+              .font(.system(size: 8, weight: .medium))
+            Text(branch.count > 20 ? String(branch.prefix(18)) + "\u{2026}" : branch)
+          }
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
+        }
+
+        Spacer()
+
+        UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+      }
+
+      // Row 2: Tool activity + Tokens
+      HStack(spacing: Spacing.sm) {
+        if status == .permission, let tool = session.pendingToolName {
+          // Permission needed — urgent
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "lock.fill")
+              .font(.system(size: 8, weight: .bold))
+            Text(tool)
+              .lineLimit(1)
+          }
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(status.color)
+        } else if status == .question {
+          // Question asked — urgent
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "questionmark.bubble")
+              .font(.system(size: 8, weight: .bold))
+            Text(session.pendingQuestion.map { String($0.prefix(50)) } ?? "Question")
+              .lineLimit(1)
+          }
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(status.color)
+        } else if let tool = session.lastTool {
+          // Active tool
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "wrench.fill")
+              .font(.system(size: 8, weight: .medium))
+            Text(tool)
+              .lineLimit(1)
+          }
+          .font(.system(size: TypeScale.micro, weight: .medium))
+          .foregroundStyle(Color.textTertiary)
+        }
+
+        Spacer()
+
+        if session.totalTokens > 0 {
+          Text(formatTokenCount(session.totalTokens))
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+        }
+      }
+    }
+  }
+
+  private func formatTokenCount(_ tokens: Int) -> String {
+    if tokens >= 1_000_000 {
+      return String(format: "%.1fM tok", Double(tokens) / 1_000_000)
+    } else if tokens >= 1_000 {
+      return String(format: "%.1fk tok", Double(tokens) / 1_000)
+    }
+    return "\(tokens) tok"
+  }
+
+  // MARK: - Attention Section
+
+  private var attentionSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      sectionHeader(
+        title: "Needs Attention",
+        icon: "exclamationmark.triangle.fill",
+        color: Color.feedbackNegative,
+        count: failedIssues.count
+      )
+
+      ForEach(failedIssues) { issue in
+        issueRow(issue, accent: Color.feedbackNegative)
+      }
+    }
+  }
+
+  // MARK: - Queue Section
+
+  private var queueSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      sectionHeader(
+        title: "Queued",
+        icon: "clock.fill",
+        color: Color.feedbackCaution,
+        count: queuedIssues.count
+      )
+
+      ForEach(queuedIssues) { issue in
+        issueRow(issue, accent: Color.feedbackCaution)
+      }
+    }
+  }
+
+  // MARK: - Completed Section
+
+  private var completedSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      sectionHeader(
+        title: "Completed",
+        icon: "checkmark.circle.fill",
+        color: Color.feedbackPositive,
+        count: completedIssues.count
+      )
+
+      ForEach(Array(completedIssues.prefix(5))) { issue in
+        issueRow(issue, accent: Color.feedbackPositive)
+      }
+
+      if completedIssues.count > 5 {
+        Button {
+          onSelectTab(.issues)
+        } label: {
+          HStack(spacing: Spacing.xs) {
+            Text("View all \(completedIssues.count) completed")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+            Image(systemName: "arrow.right")
+              .font(.system(size: 8, weight: .bold))
+          }
+          .foregroundStyle(Color.accent)
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, Spacing.lg)
+      }
+    }
+  }
+
+  // MARK: - Shared Components
+
+  private func sectionHeader(
+    title: String,
+    icon: String,
+    color: Color,
+    count: Int? = nil,
+    trailing: String? = nil
+  ) -> some View {
+    HStack(spacing: Spacing.sm_) {
+      Image(systemName: icon)
+        .font(.system(size: 10, weight: .bold))
+        .foregroundStyle(color)
+
+      Text(title)
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
+
+      if let count {
+        Text("\(count)")
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+          .foregroundStyle(color)
+          .padding(.horizontal, Spacing.xs)
+          .padding(.vertical, 1)
+          .background(
+            color.opacity(OpacityTier.subtle),
+            in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+          )
+      }
+
+      Spacer()
+
+      if let trailing {
+        Text(trailing)
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
+      }
+    }
+  }
+
+  private func issueRow(_ issue: MissionIssueItem, accent: Color) -> some View {
     HStack(spacing: Spacing.sm) {
       RoundedRectangle(cornerRadius: 1.5, style: .continuous)
         .fill(accent)
@@ -392,12 +738,10 @@ struct MissionOverviewTab: View {
               .foregroundStyle(Color.feedbackCaution)
           }
 
-          // Provider badge
           Text(issue.provider.capitalized)
             .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(Color.textTertiary)
 
-          // Tracker state
           Text(issue.trackerState)
             .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(Color.textQuaternary)
@@ -408,7 +752,18 @@ struct MissionOverviewTab: View {
               in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
             )
 
-          // Session link
+          if issue.orchestrationState != .queued {
+            Button {
+              Task { await retryIssue(issue) }
+            } label: {
+              Image(systemName: "arrow.clockwise")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.accent)
+            }
+            .buttonStyle(.plain)
+            .help(issue.orchestrationState == .failed ? "Retry" : "Restart")
+          }
+
           if issue.sessionId != nil {
             Image(systemName: "arrow.right.circle")
               .font(.system(size: 12, weight: .medium))
@@ -416,7 +771,6 @@ struct MissionOverviewTab: View {
           }
         }
 
-        // Error message if failed
         if let error = issue.error, !error.isEmpty {
           Text(error)
             .font(.system(size: TypeScale.micro, design: .monospaced))
@@ -452,7 +806,6 @@ struct MissionOverviewTab: View {
 
     return VStack(spacing: Spacing.lg) {
       ZStack {
-        // Outer ring
         Circle()
           .strokeBorder(
             (isPolling ? Color.accent : Color.textQuaternary).opacity(OpacityTier.subtle),
@@ -460,7 +813,6 @@ struct MissionOverviewTab: View {
           )
           .frame(width: 56, height: 56)
 
-        // Inner ring
         Circle()
           .strokeBorder(
             (isPolling ? Color.accent : Color.textQuaternary).opacity(OpacityTier.medium),
@@ -510,13 +862,13 @@ struct MissionOverviewTab: View {
       case "config_error":
         "There's a problem with your MISSION.md configuration. Check the Settings tab for details."
       case "paused":
-        "Resume the orchestrator from the actions menu to continue processing issues."
+        "Resume the orchestrator to continue processing issues."
       case "disabled":
-        "Enable the mission from the actions menu to start processing issues."
+        "Enable the mission to start processing issues."
       case "idle":
         "Configuration looks good. Start the orchestrator to begin polling for issues."
       default:
-        "Start the orchestrator from the actions menu to begin polling for issues."
+        "Start the orchestrator to begin polling for issues."
     }
   }
 
@@ -524,11 +876,8 @@ struct MissionOverviewTab: View {
 
   @State private var isScaffoldingFresh = false
 
-  /// When a WORKFLOW.md exists, migration is the hero action.
-  /// "Start fresh" is a compact secondary option at the bottom.
   private var missionSetupWithMigration: some View {
     VStack(alignment: .leading, spacing: 0) {
-      // Header
       HStack(spacing: Spacing.md) {
         ZStack {
           RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
@@ -555,7 +904,6 @@ struct MissionOverviewTab: View {
 
       Divider().foregroundStyle(Color.surfaceBorder)
 
-      // Import action
       VStack(alignment: .leading, spacing: Spacing.md) {
         HStack(spacing: Spacing.sm_) {
           Image(systemName: "doc.text")
@@ -590,7 +938,6 @@ struct MissionOverviewTab: View {
 
       Divider().foregroundStyle(Color.surfaceBorder)
 
-      // Secondary: start fresh
       HStack(spacing: Spacing.sm_) {
         Text("Or")
           .font(.system(size: TypeScale.micro))
@@ -655,7 +1002,7 @@ struct MissionOverviewTab: View {
     isScaffoldingFresh = false
   }
 
-  // MARK: - Workflow Migration Banner (standalone, when MISSION.md already exists)
+  // MARK: - Workflow Migration Banner
 
   @State private var isMigrating = false
 
@@ -746,126 +1093,7 @@ struct MissionOverviewTab: View {
     .statusBanner(color: Color.feedbackCaution)
   }
 
-  // MARK: - Mission Controls
-
-  private var missionControlsSection: some View {
-    let isPolling = mission.orchestratorStatus == "polling"
-    let isIdle = mission.orchestratorStatus == "idle" || mission.orchestratorStatus == nil
-    let canStart = mission.enabled && !mission.paused && isIdle
-    let canPause = mission.enabled && isPolling && !mission.paused
-    let canResume = mission.enabled && mission.paused
-
-    return VStack(alignment: .leading, spacing: Spacing.md) {
-      HStack(spacing: Spacing.sm_) {
-        signalIndicator
-        Text("Mission Controls")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.textPrimary)
-        Spacer()
-        Text(mission.statusLabel)
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-          .foregroundStyle(mission.statusColor)
-      }
-
-      let layout = isCompact
-        ? AnyLayout(VStackLayout(spacing: Spacing.sm))
-        : AnyLayout(HStackLayout(spacing: Spacing.sm))
-
-      layout {
-        controlButton(
-          "Start",
-          icon: "play.fill",
-          style: .primary,
-          enabled: canStart
-        ) {
-          await startOrchestrator()
-        }
-
-        controlButton(
-          canResume ? "Resume" : "Pause",
-          icon: canResume ? "play.fill" : "pause.fill",
-          style: .secondary,
-          enabled: canPause || canResume
-        ) {
-          if canResume {
-            await onUpdateMission(nil, false)
-          } else {
-            await onUpdateMission(nil, true)
-          }
-        }
-
-        controlButton(
-          mission.enabled ? "Disable" : "Enable",
-          icon: mission.enabled ? "stop.circle" : "play.circle",
-          style: mission.enabled ? .destructive : .primary,
-          enabled: true
-        ) {
-          await onUpdateMission(!mission.enabled, nil)
-        }
-      }
-
-      Text("Operational state — not saved to MISSION.md")
-        .font(.system(size: TypeScale.micro))
-        .foregroundStyle(Color.textQuaternary)
-    }
-    .padding(Spacing.lg)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-        .fill(Color.backgroundSecondary)
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-            .strokeBorder(Color.surfaceBorder, lineWidth: 1)
-        )
-    )
-  }
-
-  private enum ControlButtonStyle { case primary, secondary, destructive }
-
-  private func controlButton(
-    _ title: String,
-    icon: String,
-    style: ControlButtonStyle,
-    enabled: Bool,
-    action: @escaping () async -> Void
-  ) -> some View {
-    let fgColor: Color = if !enabled {
-      Color.textQuaternary
-    } else if style == .primary {
-      .white
-    } else if style == .destructive {
-      Color.feedbackNegative
-    } else {
-      Color.textSecondary
-    }
-
-    let bgColor: Color = if !enabled {
-      Color.backgroundTertiary.opacity(0.5)
-    } else if style == .primary {
-      Color.accent
-    } else {
-      Color.backgroundTertiary
-    }
-
-    return Button {
-      Task { await action() }
-    } label: {
-      HStack(spacing: Spacing.sm_) {
-        Image(systemName: icon)
-          .font(.system(size: 11, weight: .semibold))
-        Text(title)
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-      }
-      .foregroundStyle(fgColor)
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, Spacing.md_)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .fill(bgColor)
-      )
-    }
-    .buttonStyle(.plain)
-    .disabled(!enabled)
-  }
+  // MARK: - Networking
 
   private func startOrchestrator() async {
     guard let http else { return }
@@ -880,6 +1108,21 @@ struct MissionOverviewTab: View {
     }
     isStartingOrchestrator = false
     await onRefresh()
+  }
+
+  // MARK: - Issue Actions
+
+  private func retryIssue(_ issue: MissionIssueItem) async {
+    guard let http else { return }
+    do {
+      let _: MissionOkResponse = try await http.request(
+        path: "/api/missions/\(missionId)/issues/\(issue.issueId)/retry",
+        method: "POST"
+      )
+      await onRefresh()
+    } catch {
+      print("[OrbitDock] Failed to retry issue: \(error)")
+    }
   }
 
   // MARK: - Helpers
@@ -900,7 +1143,6 @@ struct MissionOverviewTab: View {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     guard let date = formatter.date(from: iso8601) else {
-      // Try without fractional seconds
       formatter.formatOptions = [.withInternetDateTime]
       guard let date = formatter.date(from: iso8601) else { return iso8601 }
       return relativeTimeFromDate(date)
@@ -916,4 +1158,3 @@ struct MissionOverviewTab: View {
     return "\(Int(elapsed / 3600))h ago"
   }
 }
-

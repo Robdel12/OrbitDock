@@ -200,7 +200,11 @@ Server-driven architecture — orchestration state lives in Rust, client renders
 
 **Key paths:** `domain/mission_control/`, `infrastructure/linear/`, `runtime/mission_orchestrator.rs`, `runtime/mission_dispatch.rs`, `transport/http/mission_control.rs`, `Views/MissionControl/`, `Models/MissionControl/`
 
-**REST:** `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `PUT /api/missions/:id/settings`, `POST /api/missions/:id/scaffold`, `GET /api/missions/:id/default-template`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`
+**REST:** `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `POST /api/missions/:id/issues/:issue_id/retry`, `PUT /api/missions/:id/settings`, `POST /api/missions/:id/scaffold`, `POST /api/missions/:id/dispatch`, `GET /api/missions/:id/default-template`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`
+
+**Tracker writes:** The server writes back to the tracker (Linear) at lifecycle points — `state_on_dispatch` (default "In Progress") when an issue is claimed, `state_on_complete` (default "Done") when a session finishes, plus comments on completion/failure. All writes are best-effort (logged, never block the pipeline). Configure via `orchestration.state_on_dispatch` / `orchestration.state_on_complete` in MISSION.md.
+
+**CLI dispatch:** `orbitdock mission dispatch <mission_id> <issue_identifier> [-p provider]` — manually dispatch a specific Linear issue to a mission without waiting for the polling loop.
 
 **Swift models:** `MissionSettings.swift` (ProviderSettings, TriggerSettings, TriggerFilters, OrchestrationSettings), `MissionSummary.swift` (includes providerStrategy, primaryProvider, secondaryProvider)
 

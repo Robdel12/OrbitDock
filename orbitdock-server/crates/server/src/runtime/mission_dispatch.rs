@@ -9,7 +9,7 @@ use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::domain::mission_control::config::AgentConfig;
 use crate::domain::mission_control::prompt::render_prompt;
-use crate::domain::mission_control::tracker::TrackerIssue;
+use crate::domain::mission_control::tracker::{Tracker, TrackerIssue};
 use crate::infrastructure::persistence::mission_control::update_mission_issue_state_sync;
 use crate::runtime::session_creation::{
     launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
@@ -29,6 +29,8 @@ pub async fn dispatch_issue(
     agent_config: &AgentConfig,
     attempt: u32,
     worktree_root_dir: Option<&str>,
+    tracker: &Arc<dyn Tracker>,
+    state_on_dispatch: &str,
 ) -> anyhow::Result<()> {
     let branch_name = format!(
         "mission/{}",
@@ -54,11 +56,31 @@ pub async fn dispatch_issue(
     let _ = tokio::task::spawn_blocking(move || {
         let conn = rusqlite::Connection::open(&db_path).ok()?;
         update_mission_issue_state_sync(
-            &conn, &mid, &iid, "claimed",
-            None, None, Some(None), Some(Some(&now)), None,
-        ).ok()
+            &conn,
+            &mid,
+            &iid,
+            "claimed",
+            None,
+            None,
+            Some(None),
+            Some(Some(&now)),
+            None,
+        )
+        .ok()
     })
     .await;
+
+    // Best-effort: move issue to configured dispatch state in tracker
+    if let Err(err) = tracker.update_issue_state(&issue.id, state_on_dispatch).await {
+        warn!(
+            component = "mission_control",
+            event = "dispatch.tracker_write_failed",
+            issue_id = %issue.id,
+            target_state = %state_on_dispatch,
+            error = %err,
+            "Failed to update issue state in tracker"
+        );
+    }
 
     // Create worktree via the runtime helper (also persists the record)
     let worktree_path = match crate::runtime::worktree_creation::create_tracked_worktree(
@@ -90,10 +112,17 @@ pub async fn dispatch_issue(
             let _ = tokio::task::spawn_blocking(move || {
                 let conn = rusqlite::Connection::open(&db_path).ok()?;
                 update_mission_issue_state_sync(
-                    &conn, &mid, &iid, "failed",
-                    None, Some(attempt), Some(Some(&err_msg)),
-                    None, Some(Some(&now)),
-                ).ok()
+                    &conn,
+                    &mid,
+                    &iid,
+                    "failed",
+                    None,
+                    Some(attempt),
+                    Some(Some(&err_msg)),
+                    None,
+                    Some(Some(&now)),
+                )
+                .ok()
             })
             .await;
             return Err(anyhow::anyhow!("Worktree creation failed: {err}"));
@@ -119,6 +148,13 @@ pub async fn dispatch_issue(
     // Resolve agent settings for the chosen provider
     let resolved = agent_config.resolve_for_provider(provider_str);
 
+    // Merge OrbitDock CLI reference into developer_instructions
+    let cli_ref = crate::domain::instructions::orbitdock_system_instructions();
+    let developer_instructions = match resolved.developer_instructions {
+        Some(ref existing) => Some(format!("{existing}\n\n{cli_ref}")),
+        None => Some(cli_ref),
+    };
+
     let session_id = orbitdock_protocol::new_id();
     let request = DirectSessionRequest {
         provider,
@@ -134,7 +170,7 @@ pub async fn dispatch_issue(
         multi_agent: resolved.multi_agent,
         personality: resolved.personality,
         service_tier: resolved.service_tier,
-        developer_instructions: resolved.developer_instructions,
+        developer_instructions,
     };
 
     let persisted = prepare_persist_direct_session(registry, session_id.clone(), request).await;
@@ -150,10 +186,17 @@ pub async fn dispatch_issue(
     let _ = tokio::task::spawn_blocking(move || {
         let conn = rusqlite::Connection::open(&db_path).ok()?;
         update_mission_issue_state_sync(
-            &conn, &mid, &iid, "running",
-            Some(&sid), Some(attempt), Some(None),
-            None, None,
-        ).ok()
+            &conn,
+            &mid,
+            &iid,
+            "running",
+            Some(&sid),
+            Some(attempt),
+            Some(None),
+            None,
+            None,
+        )
+        .ok()
     })
     .await;
 

@@ -71,14 +71,16 @@ mod tests {
     #[test]
     fn render_with_attempt() {
         let template = "{% if attempt > 1 %}Retry attempt {{ attempt }}. {% endif %}Fix {{ issue.identifier }}";
-        let result = render_prompt(template, "id-1", "PROJ-1", "Bug", None, None, None, &[], 3).unwrap();
+        let result =
+            render_prompt(template, "id-1", "PROJ-1", "Bug", None, None, None, &[], 3).unwrap();
         assert!(result.contains("Retry attempt 3"));
     }
 
     #[test]
     fn render_empty_description() {
         let template = "{{ issue.description }}";
-        let result = render_prompt(template, "id-1", "PROJ-1", "Bug", None, None, None, &[], 1).unwrap();
+        let result =
+            render_prompt(template, "id-1", "PROJ-1", "Bug", None, None, None, &[], 1).unwrap();
         assert_eq!(result.trim(), "");
     }
 

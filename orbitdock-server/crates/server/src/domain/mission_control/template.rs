@@ -36,6 +36,8 @@ orchestration:
   max_retries: 3
   stall_timeout: 600
   base_branch: main
+  # state_on_dispatch: "In Progress"   # tracker state when issue is dispatched
+  # state_on_complete: Done            # tracker state when session completes
 ---
 
 You are working on Linear issue `{{ issue.identifier }}`: {{ issue.title }}

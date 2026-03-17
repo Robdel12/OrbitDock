@@ -1634,8 +1634,7 @@ pub(super) fn execute_command(
                 "orchestration_state = ?1".to_string(),
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')".to_string(),
             ];
-            let mut param_values: Vec<rusqlite::types::Value> =
-                vec![orchestration_state.into()];
+            let mut param_values: Vec<rusqlite::types::Value> = vec![orchestration_state.into()];
 
             let mut idx = 1u32; // ?1 = orchestration_state
             if let Some(ref val) = session_id {
@@ -1651,22 +1650,34 @@ pub(super) fn execute_command(
             if let Some(ref val) = last_error {
                 idx += 1;
                 sets.push(format!("last_error = ?{idx}"));
-                param_values.push(val.clone().map_or(rusqlite::types::Value::Null, |v| v.into()));
+                param_values.push(
+                    val.clone()
+                        .map_or(rusqlite::types::Value::Null, |v| v.into()),
+                );
             }
             if let Some(ref val) = retry_due_at {
                 idx += 1;
                 sets.push(format!("retry_due_at = ?{idx}"));
-                param_values.push(val.clone().map_or(rusqlite::types::Value::Null, |v| v.into()));
+                param_values.push(
+                    val.clone()
+                        .map_or(rusqlite::types::Value::Null, |v| v.into()),
+                );
             }
             if let Some(ref val) = started_at {
                 idx += 1;
                 sets.push(format!("started_at = ?{idx}"));
-                param_values.push(val.clone().map_or(rusqlite::types::Value::Null, |v| v.into()));
+                param_values.push(
+                    val.clone()
+                        .map_or(rusqlite::types::Value::Null, |v| v.into()),
+                );
             }
             if let Some(ref val) = completed_at {
                 idx += 1;
                 sets.push(format!("completed_at = ?{idx}"));
-                param_values.push(val.clone().map_or(rusqlite::types::Value::Null, |v| v.into()));
+                param_values.push(
+                    val.clone()
+                        .map_or(rusqlite::types::Value::Null, |v| v.into()),
+                );
             }
 
             // WHERE clause params
@@ -1679,8 +1690,10 @@ pub(super) fn execute_command(
                 "UPDATE mission_issues SET {} WHERE mission_id = ?{mid_idx} AND issue_id = ?{iid_idx}",
                 sets.join(", ")
             );
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
-                param_values.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values
+                .iter()
+                .map(|v| v as &dyn rusqlite::types::ToSql)
+                .collect();
             conn.execute(&sql, param_refs.as_slice())?;
         }
     }

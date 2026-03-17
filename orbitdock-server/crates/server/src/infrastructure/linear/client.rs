@@ -4,7 +4,10 @@ use async_trait::async_trait;
 use reqwest::Client;
 use tracing::debug;
 
-use super::models::{GraphQLResponse, IssueStatesData, IssuesData};
+use super::models::{
+    CommentCreateData, GraphQLResponse, IssueStatesData, IssueUpdateData, IssuesData,
+    ResolveStateData, SingleIssueData,
+};
 use crate::domain::mission_control::tracker::{Tracker, TrackerConfig, TrackerIssue};
 
 pub struct LinearClient {
@@ -64,9 +67,7 @@ impl LinearClient {
         let mut filter_parts = Vec::new();
 
         if let Some(ref project) = config.project_key {
-            filter_parts.push(format!(
-                r#"project: {{ slugId: {{ eq: "{project}" }} }}"#
-            ));
+            filter_parts.push(format!(r#"project: {{ slugId: {{ eq: "{project}" }} }}"#));
         }
 
         if let Some(ref team) = config.team_key {
@@ -131,6 +132,69 @@ impl LinearClient {
         );
 
         self.graphql(&query, serde_json::json!({})).await
+    }
+
+    /// Resolve a human-readable state name to the Linear internal state ID.
+    async fn resolve_state_id(&self, issue_id: &str, state_name: &str) -> anyhow::Result<String> {
+        let query = r#"
+            query OrbitDockResolveStateId($issueId: String!, $stateName: String!) {
+                issue(id: $issueId) {
+                    team {
+                        states(filter: {name: {eq: $stateName}}, first: 1) {
+                            nodes { id }
+                        }
+                    }
+                }
+            }
+        "#;
+
+        let data: ResolveStateData = self
+            .graphql(
+                query,
+                serde_json::json!({ "issueId": issue_id, "stateName": state_name }),
+            )
+            .await?;
+
+        data.issue
+            .team
+            .states
+            .nodes
+            .into_iter()
+            .next()
+            .map(|n| n.id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Linear state '{state_name}' not found for issue {issue_id}"
+                )
+            })
+    }
+
+    /// Fetch a single issue by its human-readable identifier (e.g. "VIZ-240").
+    pub async fn fetch_issue_by_identifier(
+        &self,
+        identifier: &str,
+    ) -> anyhow::Result<Option<TrackerIssue>> {
+        let query = format!(
+            r#"query {{
+                issues(filter: {{ identifier: {{ eq: "{identifier}" }} }}, first: 1) {{
+                    nodes {{
+                        id
+                        identifier
+                        title
+                        description
+                        priority
+                        url
+                        createdAt
+                        state {{ name }}
+                        labels {{ nodes {{ name }} }}
+                        relations {{ nodes {{ type relatedIssue {{ id identifier }} }} }}
+                    }}
+                }}
+            }}"#
+        );
+
+        let data: SingleIssueData = self.graphql(&query, serde_json::json!({})).await?;
+        Ok(data.issues.nodes.into_iter().next().map(|n| n.into_tracker_issue()))
     }
 }
 
@@ -201,5 +265,51 @@ impl Tracker for LinearClient {
 
     fn kind(&self) -> &str {
         "linear"
+    }
+
+    async fn create_comment(&self, issue_id: &str, body: &str) -> anyhow::Result<()> {
+        let query = r#"
+            mutation OrbitDockCreateComment($issueId: String!, $body: String!) {
+                commentCreate(input: {issueId: $issueId, body: $body}) {
+                    success
+                }
+            }
+        "#;
+
+        let data: CommentCreateData = self
+            .graphql(
+                query,
+                serde_json::json!({ "issueId": issue_id, "body": body }),
+            )
+            .await?;
+
+        if !data.comment_create.success {
+            anyhow::bail!("Linear commentCreate returned success=false for issue {issue_id}");
+        }
+        Ok(())
+    }
+
+    async fn update_issue_state(&self, issue_id: &str, state_name: &str) -> anyhow::Result<()> {
+        let state_id = self.resolve_state_id(issue_id, state_name).await?;
+
+        let query = r#"
+            mutation OrbitDockUpdateIssueState($issueId: String!, $stateId: String!) {
+                issueUpdate(id: $issueId, input: {stateId: $stateId}) {
+                    success
+                }
+            }
+        "#;
+
+        let data: IssueUpdateData = self
+            .graphql(
+                query,
+                serde_json::json!({ "issueId": issue_id, "stateId": state_id }),
+            )
+            .await?;
+
+        if !data.issue_update.success {
+            anyhow::bail!("Linear issueUpdate returned success=false for issue {issue_id}");
+        }
+        Ok(())
     }
 }
