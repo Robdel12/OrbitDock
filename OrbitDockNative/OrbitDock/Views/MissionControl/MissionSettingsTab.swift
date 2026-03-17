@@ -48,12 +48,22 @@ struct MissionSettingsTab: View {
   @State private var stallTimeout: UInt64 = 600
   @State private var baseBranch = "main"
   @State private var worktreeRootDir = ""
+  @State private var showFullTemplate = false
 
   /// Prompt (read-only preview)
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
 
+  @State private var trackerKeyConfigured = false
+  @State private var trackerKeySource: String?
+  @State private var newApiKey = ""
+  @State private var isSavingKey = false
+  @State private var keyError: String?
+
   var body: some View {
     VStack(alignment: .leading, spacing: isCompact ? Spacing.lg : Spacing.xl) {
+      // Tracker connection — server-side, not in MISSION.md
+      trackerConnectionSection
+
       // Source control context
       HStack(spacing: Spacing.sm_) {
         Image(systemName: "doc.text")
@@ -61,7 +71,7 @@ struct MissionSettingsTab: View {
           .foregroundStyle(Color.textQuaternary)
         Text(isCompact
           ? "Saved to MISSION.md in your repo."
-          : "These settings are saved to MISSION.md in your repo — committed to source control and shared with your team.")
+          : "Settings below are saved to MISSION.md — committed to source control and shared with your team.")
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textTertiary)
           .fixedSize(horizontal: false, vertical: true)
@@ -96,8 +106,172 @@ struct MissionSettingsTab: View {
 
       saveFooter
     }
-    .onAppear { populateFromSettings() }
+    .onAppear {
+      populateFromSettings()
+      Task { await fetchTrackerKeyStatus() }
+    }
     .onChange(of: settings) { _, _ in populateFromSettings() }
+  }
+
+  // MARK: - Tracker Connection
+
+  private var trackerConnectionSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: "link")
+          .font(.system(size: 10, weight: .bold))
+          .foregroundStyle(Color.accent)
+        Text("Tracker Connection")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+        Spacer()
+        Text("Stored on server")
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textQuaternary)
+      }
+
+      if trackerKeyConfigured {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 12))
+            .foregroundStyle(Color.feedbackPositive)
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Linear API key configured")
+              .font(.system(size: TypeScale.caption, weight: .medium))
+              .foregroundStyle(Color.textPrimary)
+
+            if let source = trackerKeySource {
+              Text("Source: \(source == "env" ? "LINEAR_API_KEY environment variable" : "saved in OrbitDock")")
+                .font(.system(size: TypeScale.micro))
+                .foregroundStyle(Color.textTertiary)
+            }
+          }
+
+          Spacer()
+
+          if trackerKeySource != "env" {
+            Button {
+              Task { await deleteTrackerKey() }
+            } label: {
+              Text("Remove")
+                .font(.system(size: TypeScale.micro, weight: .medium))
+                .foregroundStyle(Color.feedbackNegative)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      } else {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 12))
+            .foregroundStyle(Color.feedbackCaution)
+          Text("Linear API key required to poll for issues")
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textSecondary)
+        }
+
+        HStack(spacing: Spacing.sm) {
+          SecureField("lin_api_...", text: $newApiKey)
+            .textFieldStyle(.plain)
+            .font(.system(size: TypeScale.caption, design: .monospaced))
+            .padding(Spacing.sm)
+            .background(
+              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                .fill(Color.backgroundTertiary)
+            )
+
+          Button {
+            Task { await saveTrackerKey() }
+          } label: {
+            Group {
+              if isSavingKey {
+                ProgressView().controlSize(.small)
+              } else {
+                Text("Save")
+                  .font(.system(size: TypeScale.caption, weight: .semibold))
+              }
+            }
+            .foregroundStyle(newApiKey.isEmpty ? Color.textTertiary : .white)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.vertical, Spacing.sm)
+            .background(
+              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                .fill(newApiKey.isEmpty ? Color.backgroundTertiary : Color.accent)
+            )
+          }
+          .buttonStyle(.plain)
+          .disabled(newApiKey.isEmpty || isSavingKey)
+        }
+      }
+
+      if let keyError {
+        Text(keyError)
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.feedbackNegative)
+      }
+    }
+    .padding(Spacing.lg)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+        .fill(Color.backgroundSecondary)
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+            .strokeBorder(Color.surfaceBorder, lineWidth: 1)
+        )
+    )
+  }
+
+  private func fetchTrackerKeyStatus() async {
+    guard let http else { return }
+    struct TrackerKeysResponse: Decodable {
+      let linear: TrackerKeyInfo
+      struct TrackerKeyInfo: Decodable {
+        let configured: Bool
+        let source: String?
+      }
+    }
+    do {
+      let response: TrackerKeysResponse = try await http.get("/api/server/tracker-keys")
+      trackerKeyConfigured = response.linear.configured
+      trackerKeySource = response.linear.source
+    } catch {
+      // Non-critical — status just won't show
+    }
+  }
+
+  private func saveTrackerKey() async {
+    guard let http, !newApiKey.isEmpty else { return }
+    isSavingKey = true
+    keyError = nil
+    do {
+      let _: LinearKeyResponse = try await http.post(
+        "/api/server/linear-key",
+        body: SetLinearKeyBody(key: newApiKey)
+      )
+      newApiKey = ""
+      trackerKeyConfigured = true
+      trackerKeySource = "settings"
+      await onUpdated()
+    } catch {
+      keyError = "Failed to save: \(error.localizedDescription)"
+    }
+    isSavingKey = false
+  }
+
+  private func deleteTrackerKey() async {
+    guard let http else { return }
+    do {
+      let _: LinearKeyResponse = try await http.request(
+        path: "/api/server/linear-key",
+        method: "DELETE"
+      )
+      trackerKeyConfigured = false
+      trackerKeySource = nil
+      await onUpdated()
+    } catch {
+      keyError = "Failed to remove: \(error.localizedDescription)"
+    }
   }
 
   // MARK: - Provider Section
@@ -581,6 +755,9 @@ struct MissionSettingsTab: View {
     let previewLines = templateText.split(separator: "\n", omittingEmptySubsequences: false).prefix(6)
     let hasContent = !templateText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
+    let totalLines = templateText.split(separator: "\n", omittingEmptySubsequences: false).count
+    let isLong = totalLines > 6
+
     return instrumentPanel(
       title: "Agent Instructions",
       icon: "text.bubble",
@@ -588,22 +765,54 @@ struct MissionSettingsTab: View {
     ) {
       VStack(alignment: .leading, spacing: Spacing.md) {
         if hasContent {
-          // Read-only preview of first few lines
-          VStack(alignment: .leading, spacing: 2) {
-            ForEach(Array(previewLines.enumerated()), id: \.offset) { _, line in
-              Text(String(line).isEmpty ? " " : String(line))
-                .font(.system(size: TypeScale.micro, design: .monospaced))
-                .foregroundStyle(Color.textTertiary)
-            }
+          // Line count badge
+          HStack(spacing: Spacing.sm_) {
+            Image(systemName: "doc.text")
+              .font(.system(size: 9, weight: .semibold))
+              .foregroundStyle(Color.textQuaternary)
+            Text("\(totalLines) lines")
+              .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
+              .foregroundStyle(Color.textTertiary)
 
-            if templateText.split(separator: "\n").count > 6 {
-              Text("...")
-                .font(.system(size: TypeScale.micro, design: .monospaced))
+            if isLong {
+              Text("·")
                 .foregroundStyle(Color.textQuaternary)
+              Button {
+                withAnimation(Motion.standard) {
+                  showFullTemplate.toggle()
+                }
+              } label: {
+                Text(showFullTemplate ? "Collapse" : "Expand preview")
+                  .font(.system(size: TypeScale.micro, weight: .medium))
+                  .foregroundStyle(Color.accent)
+              }
+              .buttonStyle(.plain)
             }
           }
+
+          // Template preview
+          ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+              let lines = showFullTemplate
+                ? templateText.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+                : previewLines.map(String.init)
+
+              ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                Text(line.isEmpty ? " " : line)
+                  .font(.system(size: TypeScale.micro, design: .monospaced))
+                  .foregroundStyle(Color.textSecondary)
+              }
+
+              if !showFullTemplate, isLong {
+                Text("...")
+                  .font(.system(size: TypeScale.micro, design: .monospaced))
+                  .foregroundStyle(Color.textQuaternary)
+              }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .frame(maxHeight: showFullTemplate ? 400 : nil)
           .padding(Spacing.md)
-          .frame(maxWidth: .infinity, alignment: .leading)
           .background(
             RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
               .fill(Color.backgroundPrimary)
@@ -659,7 +868,6 @@ struct MissionSettingsTab: View {
           Spacer()
 
           if !isCompact {
-            // Variable reference — desktop only, too wide for phone
             HStack(spacing: Spacing.sm) {
               variableTag("issue.identifier")
               variableTag("issue.title")
@@ -671,24 +879,15 @@ struct MissionSettingsTab: View {
           }
         }
 
-        #if os(iOS)
-          HStack(spacing: Spacing.sm_) {
-            Image(systemName: "doc.text")
-              .font(.system(size: 10, weight: .medium))
-              .foregroundStyle(Color.textQuaternary)
-            Text("Edit MISSION.md in your editor — agent instructions are stored as a file in your repo.")
-              .font(.system(size: TypeScale.micro))
-              .foregroundStyle(Color.textTertiary)
-              .fixedSize(horizontal: false, vertical: true)
-          }
-        #else
-          Text(
-            "Agent instructions live in MISSION.md. They include issue context (title, description, URL) and workflow guidance. Supports Liquid syntax for dynamic values."
-          )
-          .font(.system(size: TypeScale.micro))
-          .foregroundStyle(Color.textQuaternary)
-          .fixedSize(horizontal: false, vertical: true)
-        #endif
+        HStack(spacing: Spacing.sm_) {
+          Image(systemName: "info.circle")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+          Text("This is what each agent receives when dispatched to an issue. Review before starting the orchestrator.")
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textQuaternary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
     }
   }

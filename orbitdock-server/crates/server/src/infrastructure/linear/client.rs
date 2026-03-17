@@ -63,6 +63,12 @@ impl LinearClient {
     ) -> anyhow::Result<IssuesData> {
         let mut filter_parts = Vec::new();
 
+        if let Some(ref project) = config.project_key {
+            filter_parts.push(format!(
+                r#"project: {{ slugId: {{ eq: "{project}" }} }}"#
+            ));
+        }
+
         if let Some(ref team) = config.team_key {
             filter_parts.push(format!(r#"team: {{ key: {{ eq: "{team}" }} }}"#));
         }

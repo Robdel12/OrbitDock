@@ -3,6 +3,7 @@ import SwiftUI
 
 struct MissionSummary: Codable, Identifiable, Equatable {
   let id: String
+  let name: String
   let repoRoot: String
   let enabled: Bool
   let paused: Bool
@@ -17,9 +18,11 @@ struct MissionSummary: Codable, Identifiable, Equatable {
   let failedCount: UInt32
   let parseError: String?
   let orchestratorStatus: String?
+  let lastPolledAt: String?
+  let pollInterval: UInt64?
 
   enum CodingKeys: String, CodingKey {
-    case id
+    case id, name
     case repoRoot = "repo_root"
     case enabled
     case paused
@@ -34,6 +37,8 @@ struct MissionSummary: Codable, Identifiable, Equatable {
     case failedCount = "failed_count"
     case parseError = "parse_error"
     case orchestratorStatus = "orchestrator_status"
+    case lastPolledAt = "last_polled_at"
+    case pollInterval = "poll_interval"
   }
 }
 

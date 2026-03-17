@@ -15,6 +15,7 @@ struct MissionShowView: View {
   @State private var issues: [MissionIssueItem] = []
   @State private var settings: MissionSettings?
   @State private var missionFileExists = true
+  @State private var missionFilePath: String?
   @State private var workflowMigrationAvailable = false
   @State private var isLoading = true
   @State private var error: String?
@@ -124,12 +125,18 @@ struct MissionShowView: View {
                 workflowMigrationAvailable: workflowMigrationAvailable,
                 http: http,
                 isCompact: isCompact,
+                endpointId: endpointId,
                 onRefresh: { await fetchDetail() },
+                onApplyDetail: { applyDetail($0) },
                 onSelectTab: { tab in
                   withAnimation(Motion.standard) { selectedTab = tab }
                 },
                 onUpdateMission: { enabled, paused in
                   await updateMission(enabled: enabled, paused: paused)
+                },
+                onNavigateToSession: { sessionId in
+                  let ref = SessionRef(endpointId: endpointId, sessionId: sessionId)
+                  router.selectSession(ref, source: .external)
                 }
               )
             case .settings:
@@ -210,7 +217,7 @@ struct MissionShowView: View {
       }
 
       VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text(mission.repoName)
+        Text(mission.name)
           .font(.system(size: isCompact ? TypeScale.large : TypeScale.headline, weight: .bold))
           .foregroundStyle(Color.textPrimary)
 
@@ -305,6 +312,16 @@ struct MissionShowView: View {
 
   // MARK: - Networking
 
+  private func applyDetail(_ response: MissionDetailResponse) {
+    summary = response.summary
+    issues = response.issues
+    settings = response.settings
+    missionFileExists = response.missionFileExists
+    missionFilePath = response.missionFilePath
+    workflowMigrationAvailable = response.workflowMigrationAvailable
+    error = nil
+  }
+
   private func fetchDetail() async {
     guard let http else {
       error = "No server connection"
@@ -316,12 +333,7 @@ struct MissionShowView: View {
     if isInitialLoad { isLoading = true }
     do {
       let response: MissionDetailResponse = try await http.get("/api/missions/\(missionId)")
-      summary = response.summary
-      issues = response.issues
-      settings = response.settings
-      missionFileExists = response.missionFileExists
-      workflowMigrationAvailable = response.workflowMigrationAvailable
-      error = nil
+      applyDetail(response)
     } catch {
       self.error = error.localizedDescription
     }
@@ -330,14 +342,14 @@ struct MissionShowView: View {
 
   private func updateMission(enabled: Bool? = nil, paused: Bool? = nil) async {
     guard let http else { return }
-    let body = MissionUpdateBody(enabled: enabled, paused: paused)
+    let body = MissionUpdateBody(name: nil, enabled: enabled, paused: paused)
     do {
-      let _: MissionOkResponse = try await http.request(
+      let response: MissionDetailResponse = try await http.request(
         path: "/api/missions/\(missionId)",
         method: "PUT",
         body: body
       )
-      await fetchDetail()
+      applyDetail(response)
     } catch {
       print("[OrbitDock] Failed to update mission: \(error)")
     }

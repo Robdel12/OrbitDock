@@ -6,7 +6,6 @@
 //! 3. Broadcast MissionDelta on state changes
 
 use std::collections::HashSet;
-use std::path::Path;
 use std::sync::Arc;
 
 use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, Provider};
@@ -16,7 +15,8 @@ use crate::domain::mission_control::config::{parse_mission_file, MissionConfig};
 use crate::domain::mission_control::eligibility::{is_eligible, sort_candidates};
 use crate::domain::mission_control::tracker::Tracker;
 use crate::infrastructure::persistence::mission_control::{
-    load_mission_issues, load_missions, load_retry_ready_issues, MissionIssueRow, MissionRow,
+    load_mission_by_id, load_mission_issues, load_missions, load_retry_ready_issues,
+    MissionIssueRow, MissionRow,
 };
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_registry::SessionRegistry;
@@ -148,8 +148,8 @@ async fn process_mission(
     tracker: &Arc<dyn Tracker>,
     mission: &MissionRow,
 ) -> anyhow::Result<()> {
-    // Load and parse MISSION.md
-    let mission_file_path = Path::new(&mission.repo_root).join("MISSION.md");
+    // Load and parse mission file (MISSION.md or custom path)
+    let mission_file_path = mission.resolved_mission_path();
     let mission_content = match tokio::fs::read_to_string(&mission_file_path).await {
         Ok(content) => content,
         Err(err) => {
@@ -164,11 +164,13 @@ async fn process_mission(
                 .persist()
                 .send(PersistCommand::MissionUpdate {
                     id: mission.id.clone(),
+                    name: None,
                     enabled: None,
                     paused: None,
                     config_json: None,
                     prompt_template: None,
                     parse_error: Some(Some("MISSION.md not found in repository".to_string())),
+                    mission_file_path: None,
                 })
                 .await;
             return Ok(());
@@ -182,11 +184,13 @@ async fn process_mission(
                 .persist()
                 .send(PersistCommand::MissionUpdate {
                     id: mission.id.clone(),
+                    name: None,
                     enabled: None,
                     paused: None,
                     config_json: None,
                     prompt_template: None,
                     parse_error: Some(Some(err.to_string())),
+                    mission_file_path: None,
                 })
                 .await;
             return Ok(());
@@ -198,11 +202,13 @@ async fn process_mission(
         .persist()
         .send(PersistCommand::MissionUpdate {
             id: mission.id.clone(),
+            name: None,
             enabled: None,
             paused: None,
             config_json: Some(serde_json::to_string(&workflow.config).unwrap_or_default()),
             prompt_template: Some(workflow.prompt_template.clone()),
             parse_error: Some(None),
+            mission_file_path: None,
         })
         .await;
 
@@ -318,7 +324,7 @@ async fn process_mission(
         let wt_root = workflow.config.orchestration.worktree_root_dir.clone();
 
         tokio::spawn(async move {
-            if let Err(err) = dispatch_issue(
+            let result = dispatch_issue(
                 &registry,
                 &mission_id,
                 &candidate,
@@ -330,8 +336,9 @@ async fn process_mission(
                 1, // first attempt for new candidates
                 wt_root.as_deref(),
             )
-            .await
-            {
+            .await;
+
+            if let Err(ref err) = result {
                 error!(
                     component = "mission_control",
                     event = "dispatch.failed",
@@ -341,6 +348,9 @@ async fn process_mission(
                     "Failed to dispatch issue"
                 );
             }
+
+            // Broadcast updated state immediately so the UI reflects the change
+            broadcast_mission_delta_by_id(&registry, &mission_id).await;
         });
     }
 
@@ -394,7 +404,7 @@ async fn process_mission(
         let wt_root = workflow.config.orchestration.worktree_root_dir.clone();
 
         tokio::spawn(async move {
-            if let Err(err) = dispatch_issue(
+            let result = dispatch_issue(
                 &registry,
                 &mission_id,
                 &retry_issue,
@@ -406,8 +416,9 @@ async fn process_mission(
                 attempt,
                 wt_root.as_deref(),
             )
-            .await
-            {
+            .await;
+
+            if let Err(ref err) = result {
                 error!(
                     component = "mission_control",
                     event = "dispatch.retry_failed",
@@ -418,6 +429,8 @@ async fn process_mission(
                     "Failed to dispatch retry issue"
                 );
             }
+
+            broadcast_mission_delta_by_id(&registry, &mission_id).await;
         });
     }
 
@@ -529,6 +542,7 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
 
     let summary = MissionSummary {
         id: mission.id.clone(),
+        name: mission.name.clone(),
         repo_root: mission.repo_root.clone(),
         enabled: mission.enabled,
         paused: mission.paused,
@@ -543,6 +557,15 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
         failed_count,
         parse_error: mission.parse_error.clone(),
         orchestrator_status,
+        last_polled_at: Some(chrono::Utc::now().to_rfc3339()),
+        poll_interval: {
+            // Try to extract interval from config_json
+            mission.config_json.as_ref().and_then(|json| {
+                serde_json::from_str::<crate::domain::mission_control::config::MissionConfig>(json)
+                    .ok()
+                    .map(|c| c.trigger.interval)
+            })
+        },
     };
 
     let msg = orbitdock_protocol::ServerMessage::MissionDelta {
@@ -552,6 +575,28 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
     };
 
     let _ = registry.list_tx().send(msg);
+}
+
+/// Broadcast a MissionDelta by loading the mission from DB.
+/// Used by spawned dispatch tasks that don't have the MissionRow in scope.
+pub async fn broadcast_mission_delta_by_id(registry: &Arc<SessionRegistry>, mission_id: &str) {
+    let db_path = registry.db_path().clone();
+    let mid = mission_id.to_string();
+    let mission = {
+        let path = db_path;
+        let id = mid;
+        tokio::task::spawn_blocking(move || {
+            let conn = rusqlite::Connection::open(&path)?;
+            load_mission_by_id(&conn, &id)
+        })
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("join error: {e}")))
+    };
+
+    match mission {
+        Ok(Some(row)) => broadcast_mission_delta(registry, &row).await,
+        _ => {}
+    }
 }
 
 #[cfg(test)]

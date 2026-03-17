@@ -5,6 +5,7 @@ struct MissionOkResponse: Decodable {
 }
 
 struct MissionUpdateBody: Encodable {
+  let name: String?
   let enabled: Bool?
   let paused: Bool?
 }
@@ -16,11 +17,13 @@ struct MissionDetailResponse: Codable {
   let issues: [MissionIssueItem]
   let settings: MissionSettings?
   let missionFileExists: Bool
+  let missionFilePath: String?
   let workflowMigrationAvailable: Bool
 
   enum CodingKeys: String, CodingKey {
     case summary, issues, settings
     case missionFileExists = "mission_file_exists"
+    case missionFilePath = "mission_file_path"
     case workflowMigrationAvailable = "workflow_migration_available"
   }
 }
@@ -54,6 +57,7 @@ struct MissionsListResponse: Codable {
 }
 
 struct CreateMissionRequest: Encodable {
+  let name: String
   let repoRoot: String
   let trackerKind: String
   let provider: String

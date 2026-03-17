@@ -9,26 +9,31 @@ struct MissionOverviewTab: View {
   let workflowMigrationAvailable: Bool
   let http: ServerHTTPClient?
   let isCompact: Bool
+  let endpointId: UUID
   let onRefresh: () async -> Void
+  let onApplyDetail: (MissionDetailResponse) -> Void
   let onSelectTab: (MissionTab) -> Void
   let onUpdateMission: (Bool?, Bool?) async -> Void
+  let onNavigateToSession: (String) -> Void
 
   @State private var isStartingOrchestrator = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xl) {
-      // Setup banners (contextual)
+      // Setup flow — unified when migration is available
       if !missionFileExists, settings == nil {
-        MissionSetupCard(
-          missionId: missionId,
-          repoRoot: mission.repoRoot,
-          http: http
-        ) {
-          await onRefresh()
+        if workflowMigrationAvailable {
+          missionSetupWithMigration
+        } else {
+          MissionSetupCard(
+            missionId: missionId,
+            repoRoot: mission.repoRoot,
+            http: http,
+            onApplyDetail: onApplyDetail,
+            onRefresh: onRefresh
+          )
         }
-      }
-
-      if workflowMigrationAvailable {
+      } else if workflowMigrationAvailable {
         workflowMigrationBanner
       }
 
@@ -160,6 +165,14 @@ struct MissionOverviewTab: View {
             label: "Stall",
             value: formatInterval(settings.orchestration.stallTimeout)
           )
+
+          if let polledAt = mission.lastPolledAt {
+            readoutLine(
+              icon: "antenna.radiowaves.left.and.right",
+              label: "Last Poll",
+              value: relativeTime(polledAt)
+            )
+          }
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -274,86 +287,151 @@ struct MissionOverviewTab: View {
   // MARK: - Recent Activity
 
   private var recentActivitySection: some View {
-    VStack(alignment: .leading, spacing: Spacing.md) {
-      let running = issues.filter { $0.orchestrationState == .running || $0.orchestrationState == .claimed }
-      let recentCompleted = issues.filter { $0.orchestrationState == .completed }.prefix(3)
-      let failed = issues.filter { $0.orchestrationState == .failed }
+    let running = issues.filter { $0.orchestrationState == .running || $0.orchestrationState == .claimed }
+    let queued = issues.filter { $0.orchestrationState == .queued || $0.orchestrationState == .retryQueued }
+    let failed = issues.filter { $0.orchestrationState == .failed }
+    let completed = issues.filter { $0.orchestrationState == .completed }
 
-      if !running.isEmpty {
-        HStack(spacing: Spacing.sm_) {
-          Image(systemName: "bolt.fill")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(Color.statusWorking)
-          Text("Running Now")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-        }
+    return VStack(alignment: .leading, spacing: Spacing.lg) {
+      // Running
+      issueGroup(
+        "Running", icon: "bolt.fill", color: Color.statusWorking,
+        count: running.count, issues: running
+      )
 
-        ForEach(running) { issue in
-          compactIssueRow(issue, accent: Color.statusWorking)
+      // Failed
+      issueGroup(
+        "Needs Attention", icon: "exclamationmark.circle.fill", color: Color.feedbackNegative,
+        count: failed.count, issues: failed
+      )
+
+      // Queued
+      issueGroup(
+        "Queued", icon: "clock.fill", color: Color.feedbackCaution,
+        count: queued.count, issues: queued
+      )
+
+      // Completed (show last 5)
+      if !completed.isEmpty {
+        issueGroup(
+          "Completed", icon: "checkmark.circle.fill", color: Color.feedbackPositive,
+          count: completed.count, issues: Array(completed.prefix(5))
+        )
+      }
+    }
+  }
+
+  private func issueGroup(_ title: String, icon: String, color: Color, count: Int, issues: [MissionIssueItem]) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: icon)
+          .font(.system(size: 10, weight: .bold))
+          .foregroundStyle(count > 0 ? color : Color.textQuaternary)
+        Text(title)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(count > 0 ? Color.textPrimary : Color.textTertiary)
+
+        if count > 0 {
+          Text("\(count)")
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+            .foregroundStyle(color)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, 1)
+            .background(
+              color.opacity(OpacityTier.subtle),
+              in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+            )
         }
       }
 
-      if !failed.isEmpty {
-        HStack(spacing: Spacing.sm_) {
-          Image(systemName: "exclamationmark.circle.fill")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(Color.feedbackNegative)
-          Text("Needs Attention")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-        }
-
-        ForEach(failed) { issue in
-          compactIssueRow(issue, accent: Color.feedbackNegative)
-        }
-      }
-
-      if !recentCompleted.isEmpty {
-        HStack(spacing: Spacing.sm_) {
-          Image(systemName: "checkmark.circle.fill")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(Color.feedbackPositive)
-          Text("Recently Completed")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-        }
-
-        ForEach(recentCompleted) { issue in
-          compactIssueRow(issue, accent: Color.feedbackPositive)
+      if issues.isEmpty {
+        Text("None")
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textQuaternary)
+          .padding(.leading, Spacing.lg)
+      } else {
+        ForEach(issues) { issue in
+          issueDetailRow(issue, accent: color)
         }
       }
     }
   }
 
-  private func compactIssueRow(_ issue: MissionIssueItem, accent: Color) -> some View {
-    HStack(spacing: Spacing.md) {
+  private func issueDetailRow(_ issue: MissionIssueItem, accent: Color) -> some View {
+    HStack(spacing: Spacing.sm) {
       RoundedRectangle(cornerRadius: 1.5, style: .continuous)
         .fill(accent)
-        .frame(width: EdgeBar.width, height: 24)
+        .frame(width: EdgeBar.width)
 
-      Text(issue.identifier)
-        .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-        .foregroundStyle(Color.textTertiary)
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        HStack(spacing: Spacing.sm_) {
+          Text(issue.identifier)
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+            .foregroundStyle(accent)
 
-      Text(issue.title)
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textSecondary)
+          Text(issue.title)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textPrimary)
+            .lineLimit(1)
 
-      Spacer()
+          Spacer()
 
-      if issue.attempt > 1 {
-        Text("#\(issue.attempt)")
-          .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-          .foregroundStyle(Color.feedbackCaution)
+          if issue.attempt > 1 {
+            Text("attempt #\(issue.attempt)")
+              .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+              .foregroundStyle(Color.feedbackCaution)
+          }
+
+          // Provider badge
+          Text(issue.provider.capitalized)
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.textTertiary)
+
+          // Tracker state
+          Text(issue.trackerState)
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, 1)
+            .background(
+              Color.backgroundTertiary,
+              in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+            )
+
+          // Session link
+          if issue.sessionId != nil {
+            Image(systemName: "arrow.right.circle")
+              .font(.system(size: 12, weight: .medium))
+              .foregroundStyle(Color.accent)
+          }
+        }
+
+        // Error message if failed
+        if let error = issue.error, !error.isEmpty {
+          Text(error)
+            .font(.system(size: TypeScale.micro, design: .monospaced))
+            .foregroundStyle(Color.feedbackNegative.opacity(0.8))
+            .lineLimit(2)
+        }
       }
     }
     .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm_)
+    .padding(.vertical, Spacing.sm)
+    .frame(minHeight: 36)
     .background(
       RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
         .fill(Color.backgroundSecondary)
     )
+    .contentShape(Rectangle())
+    .onTapGesture {
+      if let sessionId = issue.sessionId {
+        onNavigateToSession(sessionId)
+      } else if let url = issue.url, let link = URL(string: url) {
+        #if os(macOS)
+          NSWorkspace.shared.open(link)
+        #endif
+      }
+    }
   }
 
   // MARK: - Waiting State
@@ -432,7 +510,142 @@ struct MissionOverviewTab: View {
     }
   }
 
-  // MARK: - Workflow Migration Banner
+  // MARK: - Unified Setup (WORKFLOW.md exists)
+
+  @State private var isScaffoldingFresh = false
+
+  /// When a WORKFLOW.md exists, migration is the hero action.
+  /// "Start fresh" is a compact secondary option at the bottom.
+  private var missionSetupWithMigration: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      // Header
+      HStack(spacing: Spacing.md) {
+        ZStack {
+          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+            .fill(Color.accent.opacity(OpacityTier.light))
+
+          Image(systemName: "arrow.right.doc.on.clipboard")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(Color.accent)
+        }
+        .frame(width: 36, height: 36)
+
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          Text("Existing Workflow Found")
+            .font(.system(size: TypeScale.large, weight: .bold))
+            .foregroundStyle(Color.textPrimary)
+
+          Text("Import your WORKFLOW.md config into a MISSION.md")
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textSecondary)
+        }
+      }
+      .padding(Spacing.lg)
+      .padding(.top, Spacing.xs)
+
+      Divider().foregroundStyle(Color.surfaceBorder)
+
+      // Import action
+      VStack(alignment: .leading, spacing: Spacing.md) {
+        HStack(spacing: Spacing.sm_) {
+          Image(systemName: "doc.text")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(Color.textQuaternary)
+
+          Text(mission.repoRoot + "/WORKFLOW.md")
+            .font(.system(size: TypeScale.micro, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+        }
+
+        Button {
+          Task { await migrateWorkflow() }
+        } label: {
+          HStack(spacing: Spacing.sm) {
+            if isMigrating {
+              ProgressView()
+                .controlSize(.small)
+            } else {
+              Image(systemName: "arrow.right.doc")
+            }
+            Text("Import Settings")
+          }
+          .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(CosmicButtonStyle(color: .accent, size: .large))
+        .disabled(isMigrating)
+      }
+      .padding(Spacing.lg)
+
+      Divider().foregroundStyle(Color.surfaceBorder)
+
+      // Secondary: start fresh
+      HStack(spacing: Spacing.sm_) {
+        Text("Or")
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textQuaternary)
+
+        Button {
+          Task { await scaffoldFresh() }
+        } label: {
+          HStack(spacing: Spacing.xs) {
+            if isScaffoldingFresh {
+              ProgressView()
+                .controlSize(.mini)
+            } else {
+              Image(systemName: "wand.and.stars")
+                .font(.system(size: 9))
+            }
+            Text("start fresh with a blank MISSION.md")
+              .font(.system(size: TypeScale.micro))
+          }
+          .foregroundStyle(Color.accent)
+        }
+        .buttonStyle(.plain)
+        .disabled(isScaffoldingFresh)
+      }
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
+    }
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundSecondary)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(
+          LinearGradient(
+            colors: [
+              Color.accent.opacity(OpacityTier.medium),
+              Color.accent.opacity(OpacityTier.subtle),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          ),
+          lineWidth: 1
+        )
+    )
+    .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+  }
+
+  private func scaffoldFresh() async {
+    guard let http else { return }
+    isScaffoldingFresh = true
+    do {
+      let response: MissionDetailResponse = try await http.post(
+        "/api/missions/\(missionId)/scaffold",
+        body: EmptyBody()
+      )
+      onApplyDetail(response)
+    } catch {
+      print("[OrbitDock] Failed to scaffold: \(error)")
+      await onRefresh()
+    }
+    isScaffoldingFresh = false
+  }
+
+  // MARK: - Workflow Migration Banner (standalone, when MISSION.md already exists)
 
   @State private var isMigrating = false
 
@@ -478,15 +691,16 @@ struct MissionOverviewTab: View {
     guard let http else { return }
     isMigrating = true
     do {
-      let _: MigrateResponse = try await http.post(
+      let response: MissionDetailResponse = try await http.post(
         "/api/missions/\(missionId)/migrate-workflow",
         body: EmptyBody()
       )
+      onApplyDetail(response)
     } catch {
       print("[OrbitDock] Failed to migrate workflow: \(error)")
+      await onRefresh()
     }
     isMigrating = false
-    await onRefresh()
   }
 
   // MARK: - Config Needed Banner
@@ -670,6 +884,26 @@ struct MissionOverviewTab: View {
     } else {
       return "\(seconds)s"
     }
+  }
+
+  private func relativeTime(_ iso8601: String) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    guard let date = formatter.date(from: iso8601) else {
+      // Try without fractional seconds
+      formatter.formatOptions = [.withInternetDateTime]
+      guard let date = formatter.date(from: iso8601) else { return iso8601 }
+      return relativeTimeFromDate(date)
+    }
+    return relativeTimeFromDate(date)
+  }
+
+  private func relativeTimeFromDate(_ date: Date) -> String {
+    let elapsed = Date().timeIntervalSince(date)
+    if elapsed < 5 { return "just now" }
+    if elapsed < 60 { return "\(Int(elapsed))s ago" }
+    if elapsed < 3600 { return "\(Int(elapsed / 60))m ago" }
+    return "\(Int(elapsed / 3600))h ago"
   }
 }
 

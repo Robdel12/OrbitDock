@@ -36,6 +36,7 @@ pub struct MissionDetailResponse {
     pub issues: Vec<MissionIssueItem>,
     pub settings: Option<MissionSettingsResponse>,
     pub mission_file_exists: bool,
+    pub mission_file_path: Option<String>,
     /// True when a WORKFLOW.md with Symphony-compatible settings exists
     /// and can be migrated to MISSION.md.
     pub workflow_migration_available: bool,
@@ -52,6 +53,7 @@ pub struct MissionSettingsResponse {
 
 #[derive(Deserialize)]
 pub struct CreateMissionRequest {
+    pub name: String,
     pub repo_root: String,
     #[serde(default = "default_tracker")]
     pub tracker_kind: String,
@@ -69,8 +71,10 @@ fn default_provider() -> String {
 
 #[derive(Deserialize)]
 pub struct UpdateMissionRequest {
+    pub name: Option<String>,
     pub enabled: Option<bool>,
     pub paused: Option<bool>,
+    pub mission_file_path: Option<Option<String>>,
 }
 
 #[derive(Deserialize)]
@@ -154,11 +158,13 @@ pub async fn create_mission(
         .persist()
         .send(PersistCommand::MissionCreate {
             id: id.clone(),
+            name: req.name.clone(),
             repo_root: req.repo_root.clone(),
             tracker_kind: req.tracker_kind.clone(),
             provider: req.provider.clone(),
             config_json: None,
             prompt_template: None,
+            mission_file_path: None,
         })
         .await;
 
@@ -180,6 +186,7 @@ pub async fn create_mission(
 
     Ok(Json(MissionSummary {
         id,
+        name: req.name,
         repo_root: req.repo_root,
         enabled: true,
         paused: false,
@@ -194,6 +201,8 @@ pub async fn create_mission(
         failed_count: 0,
         parse_error: None,
         orchestrator_status,
+        last_polled_at: None,
+        poll_interval: None,
     }))
 }
 
@@ -218,7 +227,7 @@ pub async fn get_mission(
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
     let mission_file_exists =
-        tokio::fs::metadata(StdPath::new(&mission.repo_root).join("MISSION.md"))
+        tokio::fs::metadata(mission.resolved_mission_path())
             .await
             .is_ok();
 
@@ -247,6 +256,7 @@ pub async fn get_mission(
         issues,
         settings,
         mission_file_exists,
+        mission_file_path: mission.mission_file_path.clone(),
         workflow_migration_available,
     }))
 }
@@ -256,27 +266,67 @@ pub async fn update_mission(
     State(registry): State<Arc<SessionRegistry>>,
     Path(mission_id): Path<String>,
     Json(req): Json<UpdateMissionRequest>,
-) -> ApiResult<serde_json::Value> {
+) -> ApiResult<MissionDetailResponse> {
+    // Read current mission state
+    let mid = mission_id.clone();
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+
+    // Apply changes in memory for the response (avoids async persist race)
+    let mut updated = mission.clone();
+    if let Some(name) = &req.name {
+        updated.name = name.clone();
+    }
+    if let Some(enabled) = req.enabled {
+        updated.enabled = enabled;
+    }
+    if let Some(paused) = req.paused {
+        updated.paused = paused;
+    }
+
+    // Persist asynchronously
     let _ = registry
         .persist()
         .send(PersistCommand::MissionUpdate {
             id: mission_id.clone(),
+            name: req.name,
             enabled: req.enabled,
             paused: req.paused,
             config_json: None,
             prompt_template: None,
             parse_error: None,
+            mission_file_path: req.mission_file_path,
         })
         .await;
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    // Build response from the in-memory updated state
+    let mid2 = mission_id.clone();
+    let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
+    let orchestrator_running = registry.is_orchestrator_running();
+    let summary = mission_row_to_summary_with_issues(&updated, &issue_rows, orchestrator_running);
+    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
+    let settings = build_settings_response(&updated);
+
+    let mission_file_exists = tokio::fs::metadata(updated.resolved_mission_path())
+        .await
+        .is_ok();
+
+    Ok(Json(MissionDetailResponse {
+        summary,
+        issues,
+        settings,
+        mission_file_exists,
+        mission_file_path: updated.mission_file_path.clone(),
+        workflow_migration_available: false,
+    }))
 }
 
 /// DELETE /api/missions/:id
 pub async fn delete_mission(
     State(registry): State<Arc<SessionRegistry>>,
     Path(mission_id): Path<String>,
-) -> ApiResult<serde_json::Value> {
+) -> ApiResult<MissionsListResponse> {
     let _ = registry
         .persist()
         .send(PersistCommand::MissionDelete {
@@ -284,7 +334,19 @@ pub async fn delete_mission(
         })
         .await;
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    // Return the updated missions list, excluding the just-deleted mission.
+    // The persist is async so the DB may still include it — filter client-side.
+    let orchestrator_running = registry.is_orchestrator_running();
+    let rows = db_read(&registry, |conn| load_missions_with_counts(conn)).await?;
+    let missions: Vec<MissionSummary> = rows
+        .into_iter()
+        .filter(|(row, _)| row.id != mission_id)
+        .map(|(row, (active, queued, completed, failed))| {
+            summary_from_row(&row, active, queued, completed, failed, orchestrator_running)
+        })
+        .collect();
+
+    Ok(Json(MissionsListResponse { missions }))
 }
 
 /// GET /api/missions/:id/issues
@@ -385,7 +447,7 @@ pub async fn scaffold_mission_file(
         .await?
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let mission_file_path = StdPath::new(&mission.repo_root).join("MISSION.md");
+    let mission_file_path = mission.resolved_mission_path();
 
     // Don't overwrite an existing MISSION.md
     if tokio::fs::metadata(&mission_file_path).await.is_ok() {
@@ -424,11 +486,13 @@ pub async fn scaffold_mission_file(
         .persist()
         .send(PersistCommand::MissionUpdate {
             id: mission_id.clone(),
+            name: None,
             enabled: None,
             paused: None,
             config_json: Some(config_json.clone()),
             prompt_template: Some(prompt_template.clone()),
             parse_error: Some(None),
+            mission_file_path: None,
         })
         .await;
 
@@ -450,6 +514,7 @@ pub async fn scaffold_mission_file(
         issues,
         settings: Some(settings),
         mission_file_exists: true,
+        mission_file_path: mission.mission_file_path.clone(),
         workflow_migration_available: false,
     }))
 }
@@ -469,7 +534,7 @@ pub async fn migrate_workflow_to_mission(
         .await?
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let mission_path = StdPath::new(&mission.repo_root).join("MISSION.md");
+    let mission_path = mission.resolved_mission_path();
     if tokio::fs::metadata(&mission_path).await.is_ok() {
         return Err(conflict(
             "mission_file_exists",
@@ -489,11 +554,37 @@ pub async fn migrate_workflow_to_mission(
         )
     })?;
 
-    // Get the default agent instructions template
-    let full_template = default_mission_template(&mission.provider);
-    let prompt_template = parse_mission_file(&full_template)
-        .map(|def| def.prompt_template)
-        .unwrap_or_default();
+    // Extract the prompt template body from the WORKFLOW.md (everything after the YAML front matter).
+    // We can't use parse_mission_file() here because the YAML has Symphony-specific keys that
+    // don't match MissionConfig. Instead, extract the body directly by splitting on --- markers.
+    let prompt_template = {
+        let trimmed = workflow_content.trim();
+        let body = if trimmed.starts_with("---") {
+            let after_first = &trimmed[3..];
+            if let Some(end_idx) = after_first.find("\n---") {
+                let prompt_start = 3 + end_idx + 4; // skip past "\n---"
+                if prompt_start < trimmed.len() {
+                    trimmed[prompt_start..].trim()
+                } else {
+                    ""
+                }
+            } else {
+                ""
+            }
+        } else {
+            ""
+        };
+
+        if body.is_empty() {
+            // No body in WORKFLOW.md — use the default template
+            let full_template = default_mission_template(&mission.provider);
+            parse_mission_file(&full_template)
+                .map(|def| def.prompt_template)
+                .unwrap_or_default()
+        } else {
+            body.to_string()
+        }
+    };
 
     let mission_content =
         crate::domain::mission_control::config::serialize_mission_file(&config, &prompt_template)
@@ -509,11 +600,13 @@ pub async fn migrate_workflow_to_mission(
         .persist()
         .send(PersistCommand::MissionUpdate {
             id: mission_id.clone(),
+            name: None,
             enabled: None,
             paused: None,
             config_json: Some(config_json),
             prompt_template: Some(prompt_template.clone()),
             parse_error: Some(None),
+            mission_file_path: None,
         })
         .await;
 
@@ -541,6 +634,7 @@ pub async fn migrate_workflow_to_mission(
         issues,
         settings: Some(settings),
         mission_file_exists: true,
+        mission_file_path: mission.mission_file_path.clone(),
         workflow_migration_available: false,
     }))
 }
@@ -829,7 +923,7 @@ pub async fn update_mission_settings(
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
     // Read + parse current MISSION.md (or use defaults)
-    let mission_file_path = StdPath::new(&mission.repo_root).join("MISSION.md");
+    let mission_file_path = mission.resolved_mission_path();
     let existing_file_content = tokio::fs::read_to_string(&mission_file_path).await.ok();
     let (mut config, mut prompt_tmpl) = if let Some(ref content) = existing_file_content {
         match parse_mission_file(content) {
@@ -999,11 +1093,13 @@ pub async fn update_mission_settings(
         .persist()
         .send(PersistCommand::MissionUpdate {
             id: mission_id.clone(),
+            name: None,
             enabled: None,
             paused: None,
             config_json: Some(config_json.clone()),
             prompt_template: Some(prompt_tmpl.clone()),
             parse_error: Some(None),
+            mission_file_path: None,
         })
         .await;
 
@@ -1031,6 +1127,7 @@ pub async fn update_mission_settings(
         issues,
         settings: Some(settings),
         mission_file_exists: true,
+        mission_file_path: mission.mission_file_path.clone(),
         workflow_migration_available: false,
     }))
 }
@@ -1056,13 +1153,15 @@ fn summary_from_row(
     failed: u32,
     orchestrator_running: bool,
 ) -> MissionSummary {
-    let primary_provider = row.provider.parse::<Provider>().unwrap();
     let orchestrator_status = compute_orchestrator_status(row, orchestrator_running);
 
-    // Try to pull strategy from parsed config
-    let (strategy, secondary) = if let Some(ref json) = row.config_json {
+    // Pull provider details from parsed config (source of truth), fall back to row
+    let (primary_provider, strategy, secondary) = if let Some(ref json) = row.config_json {
         if let Ok(config) = serde_json::from_str::<MissionConfig>(json) {
             (
+                config.provider.primary.parse::<Provider>().unwrap_or_else(|_| {
+                    row.provider.parse::<Provider>().unwrap()
+                }),
                 config.provider.strategy.clone(),
                 config
                     .provider
@@ -1071,14 +1170,15 @@ fn summary_from_row(
                     .map(|s| s.parse::<Provider>().unwrap()),
             )
         } else {
-            ("single".to_string(), None)
+            (row.provider.parse::<Provider>().unwrap(), "single".to_string(), None)
         }
     } else {
-        ("single".to_string(), None)
+        (row.provider.parse::<Provider>().unwrap(), "single".to_string(), None)
     };
 
     MissionSummary {
         id: row.id.clone(),
+        name: row.name.clone(),
         repo_root: row.repo_root.clone(),
         enabled: row.enabled,
         paused: row.paused,
@@ -1093,6 +1193,8 @@ fn summary_from_row(
         failed_count: failed,
         parse_error: row.parse_error.clone(),
         orchestrator_status,
+        last_polled_at: None,
+        poll_interval: None,
     }
 }
 

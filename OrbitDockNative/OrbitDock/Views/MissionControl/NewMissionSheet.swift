@@ -7,6 +7,7 @@ struct NewMissionSheet: View {
   let http: ServerHTTPClient
   let onCreated: (MissionSummary) -> Void
 
+  @State private var missionName = ""
   @State private var selectedPath = ""
   @State private var selectedPathIsGit = false
   @State private var provider: SessionProvider = .claude
@@ -21,7 +22,7 @@ struct NewMissionSheet: View {
   }
 
   private var canCreate: Bool {
-    !selectedPath.isEmpty && selectedPathIsGit && !isCreating
+    !missionName.isEmpty && !selectedPath.isEmpty && selectedPathIsGit && !isCreating
   }
 
   var body: some View {
@@ -65,6 +66,8 @@ struct NewMissionSheet: View {
   private var formContent: some View {
     NewSessionFormShell {
       VStack(alignment: .leading, spacing: Spacing.lg) {
+        nameSection
+
         directorySection
 
         if !selectedPath.isEmpty, !selectedPathIsGit {
@@ -91,6 +94,29 @@ struct NewMissionSheet: View {
         infoSection
       }
       .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private var nameSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      Text("Mission Name")
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
+
+      TextField("e.g. Bug Patrol, Feature Factory", text: $missionName)
+        .textFieldStyle(.plain)
+        .font(.system(size: TypeScale.body))
+        .foregroundStyle(Color.textPrimary)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.md_)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            .fill(Color.backgroundTertiary)
+            .overlay(
+              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                .strokeBorder(Color.surfaceBorder, lineWidth: 1)
+            )
+        )
     }
   }
 
@@ -246,6 +272,7 @@ struct NewMissionSheet: View {
 
     let providerString = provider == .codex ? "codex" : "claude"
     let body = CreateMissionRequest(
+      name: missionName,
       repoRoot: selectedPath,
       trackerKind: trackerKind,
       provider: providerString

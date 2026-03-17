@@ -211,8 +211,14 @@ pub async fn create_worktree(
     if let Some(base) = base_ref {
         args.push(base);
     }
-    run_git_checked(&args, repo_path).await?;
-    Ok(branch.to_string())
+    match run_git_checked(&args, repo_path).await {
+        Ok(()) => Ok(branch.to_string()),
+        Err(e) if e.contains("already exists") => Err(format!(
+            "Branch '{branch}' already exists (likely from a prior run). \
+             Delete it with: git branch -D {branch}"
+        )),
+        Err(e) => Err(e),
+    }
 }
 
 /// Remove a git worktree.

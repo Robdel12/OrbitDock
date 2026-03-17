@@ -4,7 +4,8 @@ struct MissionSetupCard: View {
   let missionId: String
   let repoRoot: String
   let http: ServerHTTPClient?
-  let onComplete: () async -> Void
+  let onApplyDetail: (MissionDetailResponse) -> Void
+  let onRefresh: () async -> Void
 
   @State private var isScaffolding = false
   @State private var scaffoldError: String?
@@ -185,11 +186,11 @@ struct MissionSetupCard: View {
     scaffoldError = nil
 
     do {
-      let _: ScaffoldResponse = try await http.post(
+      let response: MissionDetailResponse = try await http.post(
         "/api/missions/\(missionId)/scaffold",
         body: EmptyBody()
       )
-      await onComplete()
+      onApplyDetail(response)
     } catch {
       scaffoldError = "Failed to generate template: \(error.localizedDescription)"
     }

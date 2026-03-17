@@ -385,21 +385,25 @@ pub enum PersistCommand {
     /// Create a new mission
     MissionCreate {
         id: String,
+        name: String,
         repo_root: String,
         tracker_kind: String,
         provider: String,
         config_json: Option<String>,
         prompt_template: Option<String>,
+        mission_file_path: Option<String>,
     },
 
     /// Update mission settings
     MissionUpdate {
         id: String,
+        name: Option<String>,
         enabled: Option<bool>,
         paused: Option<bool>,
         config_json: Option<String>,
         prompt_template: Option<String>,
         parse_error: Option<Option<String>>,
+        mission_file_path: Option<Option<String>>,
     },
 
     /// Delete a mission

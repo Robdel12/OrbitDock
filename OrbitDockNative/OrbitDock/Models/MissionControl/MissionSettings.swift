@@ -141,6 +141,21 @@ struct TriggerFilters: Codable, Equatable {
   let states: [String]
   let project: String?
   let team: String?
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    labels = try container.decodeIfPresent([String].self, forKey: .labels) ?? []
+    states = try container.decodeIfPresent([String].self, forKey: .states) ?? []
+    project = try container.decodeIfPresent(String.self, forKey: .project)
+    team = try container.decodeIfPresent(String.self, forKey: .team)
+  }
+
+  init(labels: [String] = [], states: [String] = [], project: String? = nil, team: String? = nil) {
+    self.labels = labels
+    self.states = states
+    self.project = project
+    self.team = team
+  }
 }
 
 struct OrchestrationSettings: Codable, Equatable {

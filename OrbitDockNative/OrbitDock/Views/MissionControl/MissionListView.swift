@@ -114,9 +114,16 @@ struct MissionListView: View {
           Button {
             router.navigateToMission(missionId: mission.id, endpointId: endpointId)
           } label: {
-            MissionRowView(mission: mission, http: http) {
-              await fetchMissions()
-            }
+            MissionRowView(
+              mission: mission,
+              http: http,
+              onRefresh: { await fetchMissions() },
+              onApplyList: { response in
+                withAnimation(Motion.standard) {
+                  missions = response.missions
+                }
+              }
+            )
           }
           .buttonStyle(.plain)
         }
@@ -144,6 +151,7 @@ private struct MissionRowView: View {
   let mission: MissionSummary
   let http: ServerHTTPClient
   let onRefresh: () async -> Void
+  let onApplyList: (MissionsListResponse) -> Void
 
   @State private var isHovering = false
   @State private var showDeleteConfirmation = false
@@ -177,7 +185,7 @@ private struct MissionRowView: View {
       VStack(alignment: .leading, spacing: Spacing.sm) {
         // Top row: name + badges + actions
         HStack(alignment: .center) {
-          Text(mission.repoName)
+          Text(mission.name)
             .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.textPrimary)
 
@@ -388,14 +396,14 @@ private struct MissionRowView: View {
       }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text("Are you sure you want to delete the mission for \(mission.repoName)? This cannot be undone.")
+      Text("Are you sure you want to delete \"\(mission.name)\"? This cannot be undone.")
     }
   }
 
   // MARK: - Helpers
 
   private func updateMission(enabled: Bool? = nil, paused: Bool? = nil) async {
-    let body = MissionUpdateBody(enabled: enabled, paused: paused)
+    let body = MissionUpdateBody(name: nil, enabled: enabled, paused: paused)
     do {
       let _: MissionOkResponse = try await http.request(
         path: "/api/missions/\(mission.id)",
@@ -410,11 +418,11 @@ private struct MissionRowView: View {
 
   private func deleteMission() async {
     do {
-      let _: MissionOkResponse = try await http.request(
+      let response: MissionsListResponse = try await http.request(
         path: "/api/missions/\(mission.id)",
         method: "DELETE"
       )
-      await onRefresh()
+      onApplyList(response)
     } catch {
       print("[OrbitDock] Failed to delete mission: \(error)")
     }

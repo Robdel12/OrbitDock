@@ -1473,6 +1473,7 @@ pub enum OrchestrationState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MissionSummary {
     pub id: String,
+    pub name: String,
     pub repo_root: String,
     pub enabled: bool,
     pub paused: bool,
@@ -1491,6 +1492,12 @@ pub struct MissionSummary {
     pub parse_error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub orchestrator_status: Option<String>,
+    /// ISO-8601 timestamp of the last orchestrator poll for this mission.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_polled_at: Option<String>,
+    /// Configured poll interval in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub poll_interval: Option<u64>,
 }
 
 /// A single issue tracked by a mission.

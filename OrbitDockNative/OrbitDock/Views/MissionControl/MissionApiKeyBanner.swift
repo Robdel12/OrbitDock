@@ -11,10 +11,6 @@ struct MissionApiKeyBanner: View {
   @State private var keySaved = false
   @State private var error: String?
 
-  #if os(macOS)
-    @Environment(\.openSettings) private var openSettings
-  #endif
-
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.lg) {
       if keySaved {
@@ -104,14 +100,8 @@ struct MissionApiKeyBanner: View {
           .disabled(apiKey.isEmpty || isSaving)
         }
 
-        #if os(macOS)
-          Button {
-            openSettings()
-          } label: {
-            Label("Configure in Settings", systemImage: "gearshape")
-          }
-          .buttonStyle(GhostButtonStyle(color: .accent))
-        #endif
+        // API key can also be managed in app Settings > Mission Control,
+        // or via the LINEAR_API_KEY environment variable.
       }
 
       if let error {

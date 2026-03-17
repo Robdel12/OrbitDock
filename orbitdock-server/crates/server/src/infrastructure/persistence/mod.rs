@@ -1523,26 +1523,36 @@ pub(super) fn execute_command(
 
         PersistCommand::MissionCreate {
             id,
+            name,
             repo_root,
             tracker_kind,
             provider,
             config_json,
             prompt_template,
+            mission_file_path,
         } => {
             conn.execute(
-                "INSERT INTO missions (id, repo_root, tracker_kind, provider, config_json, prompt_template)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![id, repo_root, tracker_kind, provider, config_json, prompt_template],
+                "INSERT INTO missions (id, name, repo_root, tracker_kind, provider, config_json, prompt_template, mission_file_path)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![id, name, repo_root, tracker_kind, provider, config_json, prompt_template, mission_file_path],
             )?;
         }
         PersistCommand::MissionUpdate {
             id,
+            name,
             enabled,
             paused,
             config_json,
             prompt_template,
             parse_error,
+            mission_file_path,
         } => {
+            if let Some(ref name) = name {
+                conn.execute(
+                    "UPDATE missions SET name = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![name, id],
+                )?;
+            }
             if let Some(enabled) = enabled {
                 conn.execute(
                     "UPDATE missions SET enabled = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
@@ -1571,6 +1581,12 @@ pub(super) fn execute_command(
                 conn.execute(
                     "UPDATE missions SET parse_error = ?1, last_parsed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
                     params![parse_error, id],
+                )?;
+            }
+            if let Some(ref mission_file_path) = mission_file_path {
+                conn.execute(
+                    "UPDATE missions SET mission_file_path = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![mission_file_path, id],
                 )?;
             }
         }
@@ -1621,7 +1637,7 @@ pub(super) fn execute_command(
             let mut param_values: Vec<rusqlite::types::Value> =
                 vec![orchestration_state.into()];
 
-            let mut idx = 2u32;
+            let mut idx = 1u32; // ?1 = orchestration_state
             if let Some(ref val) = session_id {
                 idx += 1;
                 sets.push(format!("session_id = ?{idx}"));

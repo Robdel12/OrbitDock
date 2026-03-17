@@ -11,6 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 #[allow(dead_code)]
 pub struct MissionRow {
     pub id: String,
+    pub name: String,
     pub repo_root: String,
     pub tracker_kind: String,
     pub provider: String,
@@ -20,8 +21,21 @@ pub struct MissionRow {
     pub paused: bool,
     pub last_parsed_at: Option<String>,
     pub parse_error: Option<String>,
+    pub mission_file_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl MissionRow {
+    /// Resolve the full path to the mission file (MISSION.md or custom path).
+    pub fn resolved_mission_path(&self) -> std::path::PathBuf {
+        let file_name = self
+            .mission_file_path
+            .as_deref()
+            .filter(|p| !p.is_empty())
+            .unwrap_or("MISSION.md");
+        std::path::Path::new(&self.repo_root).join(file_name)
+    }
 }
 
 /// A mission issue row loaded from the database.
@@ -50,8 +64,9 @@ pub struct MissionIssueRow {
 pub fn load_missions(conn: &Connection) -> Result<Vec<MissionRow>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, repo_root, tracker_kind, provider, config_json, prompt_template,
-                    enabled, paused, last_parsed_at, parse_error, created_at, updated_at
+            "SELECT id, name, repo_root, tracker_kind, provider, config_json, prompt_template,
+                    enabled, paused, last_parsed_at, parse_error, mission_file_path,
+                    created_at, updated_at
              FROM missions
              ORDER BY created_at DESC",
         )
@@ -61,17 +76,19 @@ pub fn load_missions(conn: &Connection) -> Result<Vec<MissionRow>> {
         .query_map([], |row| {
             Ok(MissionRow {
                 id: row.get(0)?,
-                repo_root: row.get(1)?,
-                tracker_kind: row.get(2)?,
-                provider: row.get(3)?,
-                config_json: row.get(4)?,
-                prompt_template: row.get(5)?,
-                enabled: row.get::<_, i64>(6)? != 0,
-                paused: row.get::<_, i64>(7)? != 0,
-                last_parsed_at: row.get(8)?,
-                parse_error: row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
+                name: row.get(1)?,
+                repo_root: row.get(2)?,
+                tracker_kind: row.get(3)?,
+                provider: row.get(4)?,
+                config_json: row.get(5)?,
+                prompt_template: row.get(6)?,
+                enabled: row.get::<_, i64>(7)? != 0,
+                paused: row.get::<_, i64>(8)? != 0,
+                last_parsed_at: row.get(9)?,
+                parse_error: row.get(10)?,
+                mission_file_path: row.get(11)?,
+                created_at: row.get(12)?,
+                updated_at: row.get(13)?,
             })
         })
         .context("query load_missions")?
@@ -89,9 +106,9 @@ pub fn load_missions_with_counts(
 ) -> Result<Vec<(MissionRow, MissionIssueCounts)>> {
     let mut stmt = conn
         .prepare(
-            "SELECT m.id, m.repo_root, m.tracker_kind, m.provider, m.config_json,
+            "SELECT m.id, m.name, m.repo_root, m.tracker_kind, m.provider, m.config_json,
                     m.prompt_template, m.enabled, m.paused, m.last_parsed_at, m.parse_error,
-                    m.created_at, m.updated_at,
+                    m.mission_file_path, m.created_at, m.updated_at,
                     COUNT(CASE WHEN mi.orchestration_state IN ('running','claimed') THEN 1 END),
                     COUNT(CASE WHEN mi.orchestration_state IN ('queued','retry_queued') THEN 1 END),
                     COUNT(CASE WHEN mi.orchestration_state = 'completed' THEN 1 END),
@@ -107,22 +124,24 @@ pub fn load_missions_with_counts(
         .query_map([], |row| {
             let mission = MissionRow {
                 id: row.get(0)?,
-                repo_root: row.get(1)?,
-                tracker_kind: row.get(2)?,
-                provider: row.get(3)?,
-                config_json: row.get(4)?,
-                prompt_template: row.get(5)?,
-                enabled: row.get::<_, i64>(6)? != 0,
-                paused: row.get::<_, i64>(7)? != 0,
-                last_parsed_at: row.get(8)?,
-                parse_error: row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
+                name: row.get(1)?,
+                repo_root: row.get(2)?,
+                tracker_kind: row.get(3)?,
+                provider: row.get(4)?,
+                config_json: row.get(5)?,
+                prompt_template: row.get(6)?,
+                enabled: row.get::<_, i64>(7)? != 0,
+                paused: row.get::<_, i64>(8)? != 0,
+                last_parsed_at: row.get(9)?,
+                parse_error: row.get(10)?,
+                mission_file_path: row.get(11)?,
+                created_at: row.get(12)?,
+                updated_at: row.get(13)?,
             };
-            let active: u32 = row.get::<_, Option<u32>>(12)?.unwrap_or(0);
-            let queued: u32 = row.get::<_, Option<u32>>(13)?.unwrap_or(0);
-            let completed: u32 = row.get::<_, Option<u32>>(14)?.unwrap_or(0);
-            let failed: u32 = row.get::<_, Option<u32>>(15)?.unwrap_or(0);
+            let active: u32 = row.get::<_, Option<u32>>(14)?.unwrap_or(0);
+            let queued: u32 = row.get::<_, Option<u32>>(15)?.unwrap_or(0);
+            let completed: u32 = row.get::<_, Option<u32>>(16)?.unwrap_or(0);
+            let failed: u32 = row.get::<_, Option<u32>>(17)?.unwrap_or(0);
             Ok((mission, (active, queued, completed, failed)))
         })
         .context("query load_missions_with_counts")?
@@ -135,24 +154,27 @@ pub fn load_missions_with_counts(
 pub fn load_mission_by_id(conn: &Connection, id: &str) -> Result<Option<MissionRow>> {
     let row = conn
         .query_row(
-            "SELECT id, repo_root, tracker_kind, provider, config_json, prompt_template,
-                    enabled, paused, last_parsed_at, parse_error, created_at, updated_at
+            "SELECT id, name, repo_root, tracker_kind, provider, config_json, prompt_template,
+                    enabled, paused, last_parsed_at, parse_error, mission_file_path,
+                    created_at, updated_at
              FROM missions WHERE id = ?1",
             params![id],
             |row| {
                 Ok(MissionRow {
                     id: row.get(0)?,
-                    repo_root: row.get(1)?,
-                    tracker_kind: row.get(2)?,
-                    provider: row.get(3)?,
-                    config_json: row.get(4)?,
-                    prompt_template: row.get(5)?,
-                    enabled: row.get::<_, i64>(6)? != 0,
-                    paused: row.get::<_, i64>(7)? != 0,
-                    last_parsed_at: row.get(8)?,
-                    parse_error: row.get(9)?,
-                    created_at: row.get(10)?,
-                    updated_at: row.get(11)?,
+                    name: row.get(1)?,
+                    repo_root: row.get(2)?,
+                    tracker_kind: row.get(3)?,
+                    provider: row.get(4)?,
+                    config_json: row.get(5)?,
+                    prompt_template: row.get(6)?,
+                    enabled: row.get::<_, i64>(7)? != 0,
+                    paused: row.get::<_, i64>(8)? != 0,
+                    last_parsed_at: row.get(9)?,
+                    parse_error: row.get(10)?,
+                    mission_file_path: row.get(11)?,
+                    created_at: row.get(12)?,
+                    updated_at: row.get(13)?,
                 })
             },
         )
