@@ -107,6 +107,11 @@ fn main() -> anyhow::Result<()> {
         Some(Command::RemoteSetup) => {
             return orbitdock_server::admin::guide_remote_setup(&data_dir);
         }
+        None => {
+            use clap::CommandFactory;
+            Cli::command().print_help()?;
+            return Ok(());
+        }
         _ => {}
     }
 
