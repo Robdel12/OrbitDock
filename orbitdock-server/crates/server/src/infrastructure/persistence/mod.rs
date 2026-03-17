@@ -388,7 +388,8 @@ pub(super) fn execute_command(
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(id) DO UPDATE SET
                    content = excluded.content,
-                   row_data = excluded.row_data",
+                   row_data = excluded.row_data,
+                   sequence = excluded.sequence",
                 params![
                     row_id,
                     session_id,

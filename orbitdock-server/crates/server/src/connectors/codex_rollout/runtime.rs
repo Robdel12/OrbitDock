@@ -699,14 +699,7 @@ impl WatcherRuntime {
         };
 
         actor
-            .send(SessionCommand::AddRowAndBroadcast {
-                entry: entry.clone(),
-            })
-            .await;
-
-        let _ = self
-            .persist_tx
-            .send(PersistCommand::RowAppend { session_id, entry })
+            .send(SessionCommand::AddRowAndBroadcast { entry })
             .await;
     }
 
@@ -817,19 +810,9 @@ impl WatcherRuntime {
 
         if let Some(actor) = self.app_state.get_session(session_id) {
             actor
-                .send(SessionCommand::AddRowAndBroadcast {
-                    entry: entry.clone(),
-                })
+                .send(SessionCommand::AddRowAndBroadcast { entry })
                 .await;
         }
-
-        let _ = self
-            .persist_tx
-            .send(PersistCommand::RowAppend {
-                session_id: session_id.to_string(),
-                entry,
-            })
-            .await;
     }
 
     async fn finish_rollout_shell_message(

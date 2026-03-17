@@ -149,6 +149,7 @@ The server–client protocol uses strongly-typed Swift structs that mirror Rust 
 - The Rust server persistence layer (`infrastructure/persistence/`) is the sole SQLite writer
 - All connections use WAL mode (`journal_mode = WAL`), `busy_timeout = 5000`, `synchronous = NORMAL`
 - The migration runner sets these pragmas at startup
+- Conversation rows follow the single-writer principle — see "Row Persistence: Single-Writer Principle" under Message Storage Architecture
 
 ### Animations
 - Use `.spring(response: 0.35, dampingFraction: 0.8)` for message animations
@@ -545,9 +546,21 @@ Migrations run when: the Rust server starts through `crates/server/src/app/mod.r
 
 - Rust server receives events via HTTP hooks (CLI) or codex-core (Codex)
 - `infrastructure/persistence/` batches writes through the `PersistCommand` channel
-- Messages stored in SQLite `messages` table
+- Messages stored in SQLite `messages` table with monotonic `sequence` numbers per session
 - Swift app receives messages in real-time via WebSocket push — does NOT read SQLite directly
 - Client-initiated reads (session snapshot, approvals, etc.) use REST endpoints
+
+#### Row Persistence: Single-Writer Principle
+
+**All conversation row writes MUST flow through one of two paths:**
+
+1. **`AddRowAndBroadcast` / `UpsertRowAndBroadcast`** session commands — the handler in `session_command_handler.rs` calls `add_row()`/`upsert_row()` (which assigns the correct sequence), then sends `PersistCommand::RowAppend`/`RowUpsert` with the correctly-sequenced entry, then broadcasts to WebSocket.
+
+2. **Transition state machine** — `dispatch_transition_input()` runs the pure `transition()` function which assigns sequences before creating `PersistOp::RowAppend`/`RowUpsert` effects. Effects are processed after `apply_state()`.
+
+**Never send `PersistCommand::RowAppend`/`RowUpsert` directly from a callsite that also uses the session actor.** This causes a dual-write race where the DB gets the wrong sequence (typically 0) because the persist command is created before the actor assigns the correct sequence. The only exceptions are bootstrap paths where no actor exists yet (e.g., session fork, startup backfill).
+
+Key files: `runtime/session_command_handler.rs` (command handlers), `connector-core/src/transition.rs` (state machine), `infrastructure/persistence/writer.rs` (batched writer)
 
 ## Database Conventions
 
