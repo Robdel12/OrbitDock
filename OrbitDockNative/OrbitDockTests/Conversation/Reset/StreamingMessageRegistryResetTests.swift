@@ -1,8 +1,11 @@
+import Foundation
 @testable import OrbitDock
-import XCTest
+import Testing
 
-final class StreamingMessageRegistryResetTests: XCTestCase {
-  func testStreamingRegistryCoalescesAndFinalizesMessage() {
+@Suite("StreamingMessageRegistry")
+@MainActor
+struct StreamingMessageRegistryResetTests {
+  @Test func streamingRegistryCoalescesAndFinalizesMessage() {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-1")
     var registry = StreamingMessageRegistry(session: session)
 
@@ -10,20 +13,20 @@ final class StreamingMessageRegistryResetTests: XCTestCase {
     registry.apply(.append(messageID: "assistant-1", content: "lo", invalidatesHeight: false))
 
     let firstDrain = registry.drainPendingPatches()
-    XCTAssertEqual(firstDrain.count, 1)
-    XCTAssertEqual(firstDrain.first?.content, "Hello")
-    XCTAssertFalse(firstDrain.first?.isFinal ?? true)
+    #expect(firstDrain.count == 1)
+    #expect(firstDrain.first?.content == "Hello")
+    #expect(firstDrain.first?.isFinal == false)
 
     registry.apply(.finalize(messageID: "assistant-1", content: "Hello world", invalidatesHeight: true))
     let finalDrain = registry.drainPendingPatches()
 
-    XCTAssertEqual(finalDrain.count, 1)
-    XCTAssertEqual(finalDrain.first?.content, "Hello world")
-    XCTAssertTrue(finalDrain.first?.isFinal ?? false)
-    XCTAssertTrue(registry.messagesByID["assistant-1"]?.isFinal ?? false)
+    #expect(finalDrain.count == 1)
+    #expect(finalDrain.first?.content == "Hello world")
+    #expect(finalDrain.first?.isFinal == true)
+    #expect(registry.messagesByID["assistant-1"]?.isFinal == true)
   }
 
-  func testRemovingStreamDropsPendingPatchAndHotState() {
+  @Test func removingStreamDropsPendingPatchAndHotState() {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-2")
     var registry = StreamingMessageRegistry(session: session)
 
@@ -33,7 +36,7 @@ final class StreamingMessageRegistryResetTests: XCTestCase {
     registry.apply(.append(messageID: "assistant-2", content: " reply", invalidatesHeight: true))
     registry.apply(.remove(messageID: "assistant-2"))
 
-    XCTAssertTrue(registry.drainPendingPatches().isEmpty)
-    XCTAssertNil(registry.messagesByID["assistant-2"])
+    #expect(registry.drainPendingPatches().isEmpty)
+    #expect(registry.messagesByID["assistant-2"] == nil)
   }
 }

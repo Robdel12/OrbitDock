@@ -1,12 +1,14 @@
+import Foundation
 @testable import OrbitDock
-import XCTest
+import Testing
 
+@Suite("ConversationDetailRuntime – reset coordination")
 @MainActor
-final class ConversationDetailRuntimeResetTests: XCTestCase {
-  func testRuntimeKeepsStructureMetadataAndStreamingSeparated() throws {
+struct ConversationDetailRuntimeResetTests {
+  @Test func runtimeKeepsStructureMetadataAndStreamingSeparated() throws {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-1")
     let clients = try ServerClients(
-      serverURL: XCTUnwrap(URL(string: "http://127.0.0.1:4000")),
+      serverURL: #require(URL(string: "http://127.0.0.1:4000")),
       authToken: nil,
       dataLoader: { _ in throw HTTPTransportError.serverUnreachable }
     )
@@ -46,16 +48,16 @@ final class ConversationDetailRuntimeResetTests: XCTestCase {
     )
     runtime.applyStreaming(.begin(messageID: "message-1", content: "Hello"))
 
-    XCTAssertEqual(runtime.renderStore.rows.map(\.id), ["message-1"])
-    XCTAssertEqual(runtime.renderStore.metadata.workStatus, .working)
-    XCTAssertEqual(runtime.renderStore.metadata.currentTool, "bash")
-    XCTAssertEqual(runtime.renderStore.streamingMessages["message-1"]?.content, "Hello")
+    #expect(runtime.renderStore.rows.map { $0.id } == ["message-1"])
+    #expect(runtime.renderStore.metadata.workStatus == .working)
+    #expect(runtime.renderStore.metadata.currentTool == "bash")
+    #expect(runtime.renderStore.streamingMessages["message-1"]?.content == "Hello")
   }
 
-  func testRuntimeBuildsWorkerInspectorWithoutTranscriptScanning() throws {
+  @Test func runtimeBuildsWorkerInspectorWithoutTranscriptScanning() throws {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-2")
     let clients = try ServerClients(
-      serverURL: XCTUnwrap(URL(string: "http://127.0.0.1:4000")),
+      serverURL: #require(URL(string: "http://127.0.0.1:4000")),
       authToken: nil,
       dataLoader: { _ in throw HTTPTransportError.serverUnreachable }
     )
@@ -136,12 +138,12 @@ final class ConversationDetailRuntimeResetTests: XCTestCase {
     )
 
     let metadata = runtime.renderStore.metadata
-    XCTAssertEqual(metadata.workerCount, 2)
-    XCTAssertEqual(metadata.activeWorkerIDs, ["worker-1"])
-    XCTAssertEqual(metadata.selectedWorkerID, "worker-1")
-    XCTAssertEqual(metadata.workerInspector.selectedWorker?.title, "Descartes")
-    XCTAssertEqual(metadata.workerInspector.tools.map(\.toolName), ["Read"])
-    XCTAssertEqual(metadata.workerInspector.threadEntries.map(\.body), ["I found the auth entrypoint."])
-    XCTAssertEqual(metadata.workerInspector.childWorkerIDs, ["worker-2"])
+    #expect(metadata.workerCount == 2)
+    #expect(metadata.activeWorkerIDs == ["worker-1"])
+    #expect(metadata.selectedWorkerID == "worker-1")
+    #expect(metadata.workerInspector.selectedWorker?.title == "Descartes")
+    #expect(metadata.workerInspector.tools.map { $0.toolName } == ["Read"])
+    #expect(metadata.workerInspector.threadEntries.map { $0.body } == ["I found the auth entrypoint."])
+    #expect(metadata.workerInspector.childWorkerIDs == ["worker-2"])
   }
 }
