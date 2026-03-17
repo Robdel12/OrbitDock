@@ -1,0 +1,27 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid var(--color-surface-border);
+  background: var(--color-bg-secondary);
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.label {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+}

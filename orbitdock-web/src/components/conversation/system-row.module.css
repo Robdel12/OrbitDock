@@ -1,0 +1,9 @@
+.row {
+  padding: var(--space-xs) 0;
+}
+
+.content {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}

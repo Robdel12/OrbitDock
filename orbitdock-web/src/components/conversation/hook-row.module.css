@@ -1,0 +1,13 @@
+.row {
+  padding: var(--space-xxs) 0;
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+}
+
+.title {
+  font-weight: 500;
+}
+
+.subtitle {
+  font-style: italic;
+}

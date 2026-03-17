@@ -1,0 +1,5 @@
+.bar {
+  width: var(--edge-bar-width);
+  flex-shrink: 0;
+  border-radius: var(--radius-xs) 0 0 var(--radius-xs);
+}

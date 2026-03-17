@@ -1,0 +1,29 @@
+.container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xxl);
+  height: 100%;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  text-align: center;
+}
+
+.title {
+  font-size: var(--type-title);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.message {
+  font-size: var(--type-body);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  max-width: 500px;
+  word-break: break-word;
+}

@@ -1,0 +1,108 @@
+.page {
+  padding: var(--space-xl) var(--space-xxl);
+  max-width: 800px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-xxl);
+}
+
+.title {
+  font-size: var(--type-headline);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-xl);
+}
+
+.section {
+  margin-bottom: var(--space-xl);
+}
+
+.sectionTitle {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-md);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: var(--type-caption);
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-xs) 0;
+}
+
+.row + .row {
+  border-top: 1px solid var(--color-surface-border);
+}
+
+.label {
+  font-size: var(--type-body);
+  color: var(--color-text-secondary);
+}
+
+.value {
+  font-size: var(--type-body);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+}
+
+.modelGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-sm);
+}
+
+.modelName {
+  font-size: var(--type-body);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-xxs);
+}
+
+.modelDesc {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-sm);
+}
+
+.usageGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-sm);
+}
+
+.usageHeader {
+  margin-bottom: var(--space-sm);
+}
+
+.usageData {
+  font-family: var(--font-mono);
+  font-size: var(--type-micro);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-code);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.usageError {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+}
+
+.empty {
+  font-size: var(--type-body);
+  color: var(--color-text-tertiary);
+  padding: var(--space-md);
+}

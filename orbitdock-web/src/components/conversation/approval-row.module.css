@@ -1,0 +1,15 @@
+.card {
+  margin: var(--space-xxs) 0;
+}
+
+.title {
+  font-size: var(--type-body);
+  color: var(--color-status-permission);
+  font-weight: 500;
+}
+
+.subtitle {
+  font-size: var(--type-meta);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xxs);
+}

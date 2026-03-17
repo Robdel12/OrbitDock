@@ -1,0 +1,12 @@
+.card {
+  display: flex;
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-ml);
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-sm) var(--space-md);
+}

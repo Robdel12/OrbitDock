@@ -1,0 +1,28 @@
+{
+  "name": "orbitdock-web",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.1.0",
+    "lucide-preact": "^0.511.0",
+    "marked": "^15.0.7",
+    "preact": "^10.26.6",
+    "wouter-preact": "^3.7.2",
+    "xstate": "^5.19.4"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.1",
+    "@testing-library/preact": "^3.2.4",
+    "happy-dom": "^18.0.1",
+    "vite": "^8.0.0",
+    "vitest": "^3.2.1"
+  }
+}

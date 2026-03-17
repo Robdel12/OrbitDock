@@ -1,0 +1,37 @@
+import { Component } from 'preact'
+import { Button } from './button.jsx'
+import styles from './error-boundary.module.css'
+
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidCatch(error, info) {
+    console.error('[ErrorBoundary]', error, info)
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div class={styles.container}>
+          <div class={styles.content}>
+            <h2 class={styles.title}>Something went wrong</h2>
+            <p class={styles.message}>{this.state.error.message}</p>
+            <Button variant="secondary" size="sm" onClick={() => this.setState({ error: null })}>
+              Try Again
+            </Button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+export { ErrorBoundary }

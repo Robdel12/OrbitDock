@@ -1,0 +1,44 @@
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--color-surface-border);
+  background: var(--color-bg-secondary);
+}
+
+.input {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-text-primary);
+  font-size: var(--type-body);
+  font-family: var(--font-system);
+  line-height: 1.5;
+  min-height: 36px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.input::placeholder {
+  color: var(--color-text-quaternary);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.input:disabled {
+  opacity: 0.5;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
