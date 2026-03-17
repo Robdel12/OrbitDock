@@ -22,7 +22,7 @@ use tracing::{debug, error, info, warn};
 use orbitdock_connector_core::{ApprovalType, ConnectorError, ConnectorEvent};
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::{
-    ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
+    classify_tool_name, ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 
@@ -31,28 +31,27 @@ use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 // ---------------------------------------------------------------------------
 
 /// Classify a raw tool name from the Claude CLI into (ToolFamily, ToolKind).
+///
+/// Delegates to the shared `classify_tool_name` in orbitdock_protocol, with
+/// additional Claude-specific aliases (MultiEdit, FileRead, etc.).
 fn classify_tool(name: &str) -> (ToolFamily, ToolKind) {
+    // Claude-specific aliases not in the shared classifier
     match name {
-        "Bash" | "bash" => (ToolFamily::Shell, ToolKind::Bash),
-        "Read" | "read" | "FileRead" => (ToolFamily::FileRead, ToolKind::Read),
-        "Edit" | "edit" | "FileEdit" | "MultiEdit" => (ToolFamily::FileChange, ToolKind::Edit),
-        "Write" | "write" | "FileWrite" => (ToolFamily::FileChange, ToolKind::Write),
-        "NotebookEdit" => (ToolFamily::FileChange, ToolKind::NotebookEdit),
-        "Glob" | "glob" => (ToolFamily::Search, ToolKind::Glob),
-        "Grep" | "grep" => (ToolFamily::Search, ToolKind::Grep),
-        "ToolSearch" => (ToolFamily::Search, ToolKind::ToolSearch),
-        "WebSearch" | "websearch" => (ToolFamily::Web, ToolKind::WebSearch),
-        "WebFetch" | "webfetch" => (ToolFamily::Web, ToolKind::WebFetch),
-        "Agent" | "agent" => (ToolFamily::Agent, ToolKind::SpawnAgent),
-        "AskUserQuestion" => (ToolFamily::Question, ToolKind::AskUserQuestion),
-        "EnterPlanMode" => (ToolFamily::Plan, ToolKind::EnterPlanMode),
-        "ExitPlanMode" => (ToolFamily::Plan, ToolKind::ExitPlanMode),
-        "TodoWrite" => (ToolFamily::Todo, ToolKind::TodoWrite),
-        "CompactContext" => (ToolFamily::Context, ToolKind::CompactContext),
-        "task" => (ToolFamily::Agent, ToolKind::SpawnAgent),
-        n if n.starts_with("mcp__") => (ToolFamily::Mcp, ToolKind::McpToolCall),
-        _ => (ToolFamily::Generic, ToolKind::Generic),
+        "FileEdit" | "MultiEdit" => return (ToolFamily::FileChange, ToolKind::Edit),
+        "FileRead" => return (ToolFamily::FileRead, ToolKind::Read),
+        "FileWrite" => return (ToolFamily::FileChange, ToolKind::Write),
+        "SendMessage" => return (ToolFamily::Agent, ToolKind::SendAgentInput),
+        "TaskCreate" | "TaskUpdate" | "TaskList" | "TaskGet" => {
+            return (ToolFamily::Todo, ToolKind::TodoWrite)
+        }
+        "TaskOutput" => return (ToolFamily::Agent, ToolKind::TaskOutput),
+        "TaskStop" => return (ToolFamily::Agent, ToolKind::TaskStop),
+        "Skill" => return (ToolFamily::Mcp, ToolKind::McpToolCall),
+        "ReadMcpResourceTool" => return (ToolFamily::Mcp, ToolKind::ReadMcpResource),
+        "ListMcpResourcesTool" => return (ToolFamily::Mcp, ToolKind::ListMcpResources),
+        _ => {}
     }
+    classify_tool_name(name)
 }
 
 /// Build a flat JSON invocation value from a tool name and optional raw JSON input.

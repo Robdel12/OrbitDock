@@ -802,4 +802,11 @@ struct ServerToolDiffPreview: Codable {
 struct ServerToolTodoItem: Codable {
   let status: String
   let content: String?
+  let activeForm: String?
+
+  enum CodingKeys: String, CodingKey {
+    case status
+    case content
+    case activeForm = "active_form"
+  }
 }

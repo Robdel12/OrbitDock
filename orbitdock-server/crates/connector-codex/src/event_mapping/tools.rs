@@ -1,4 +1,4 @@
-use super::{SharedEnvironmentTracker, SharedStringBuffers};
+use super::{SharedEnvironmentTracker, SharedPatchContexts, SharedStringBuffers};
 use crate::runtime::row_entry;
 use crate::timeline::dynamic_tool_output_to_text;
 use crate::workers::iso_now;
@@ -215,7 +215,10 @@ pub(crate) async fn handle_exec_command_end(
     }]
 }
 
-pub(crate) fn handle_patch_apply_begin(event: PatchApplyBeginEvent) -> Vec<ConnectorEvent> {
+pub(crate) async fn handle_patch_apply_begin(
+    event: PatchApplyBeginEvent,
+    patch_contexts: &SharedPatchContexts,
+) -> Vec<ConnectorEvent> {
     let files: Vec<String> = event
         .changes
         .keys()
@@ -261,6 +264,17 @@ pub(crate) fn handle_patch_apply_begin(event: PatchApplyBeginEvent) -> Vec<Conne
         .collect::<Vec<_>>()
         .join("\n\n");
 
+    let invocation = json!({
+        "path": first_file,
+        "diff": unified_diff,
+    });
+
+    // Store for the end handler to merge
+    {
+        let mut contexts = patch_contexts.lock().await;
+        contexts.insert(event.call_id.clone(), invocation.clone());
+    }
+
     vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
         ToolRow {
             id: event.call_id.clone(),
@@ -276,10 +290,7 @@ pub(crate) fn handle_patch_apply_begin(event: PatchApplyBeginEvent) -> Vec<Conne
             ended_at: None,
             duration_ms: None,
             grouping_key: None,
-            invocation: json!({
-                "path": first_file,
-                "diff": unified_diff,
-            }),
+            invocation,
             result: None,
             render_hints: Default::default(),
             tool_display: None,
@@ -287,7 +298,16 @@ pub(crate) fn handle_patch_apply_begin(event: PatchApplyBeginEvent) -> Vec<Conne
     ))]
 }
 
-pub(crate) fn handle_patch_apply_end(event: PatchApplyEndEvent) -> Vec<ConnectorEvent> {
+pub(crate) async fn handle_patch_apply_end(
+    event: PatchApplyEndEvent,
+    patch_contexts: &SharedPatchContexts,
+) -> Vec<ConnectorEvent> {
+    // Retrieve the begin context (removes it from the map)
+    let begin_context = {
+        let mut contexts = patch_contexts.lock().await;
+        contexts.remove(&event.call_id)
+    };
+
     let mut output_lines: Vec<String> = Vec::new();
     output_lines.push(format!("status: {:?}", event.status));
     if event.success {
@@ -313,6 +333,19 @@ pub(crate) fn handle_patch_apply_end(event: PatchApplyEndEvent) -> Vec<Connector
         ToolStatus::Failed
     };
 
+    // Merge begin context (path + diff) into the end invocation
+    let invocation = if let Some(ctx) = begin_context {
+        json!({
+            "path": ctx.get("path").and_then(|v| v.as_str()).unwrap_or(""),
+            "diff": ctx.get("diff").and_then(|v| v.as_str()).unwrap_or(""),
+            "summary": output.clone(),
+        })
+    } else {
+        json!({
+            "summary": output.clone(),
+        })
+    };
+
     let entry = tool_row_entry(ToolRow {
         id: event.call_id.clone(),
         provider: Provider::Codex,
@@ -327,9 +360,7 @@ pub(crate) fn handle_patch_apply_end(event: PatchApplyEndEvent) -> Vec<Connector
         ended_at: Some(iso_now()),
         duration_ms: None,
         grouping_key: None,
-        invocation: json!({
-            "summary": output.clone(),
-        }),
+        invocation,
         result: Some(json!({
             "tool_name": "Edit",
             "output": output,

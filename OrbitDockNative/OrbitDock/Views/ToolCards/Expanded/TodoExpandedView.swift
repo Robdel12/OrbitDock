@@ -40,18 +40,16 @@ struct TodoExpandedView: View {
           return order(a.status) < order(b.status)
         }
 
-        VStack(alignment: .leading, spacing: Spacing.xs) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
           ForEach(Array(sortedItems.enumerated()), id: \.offset) { _, item in
             todoItemRow(item)
           }
         }
       }
 
-      if let input = content.inputDisplay, !input.isEmpty {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          Text("Input")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
+      // Minimal fallback when todoItems is empty but content exists
+      if display == nil || display?.todoItems.isEmpty == true {
+        if let input = content.inputDisplay, !input.isEmpty {
           Text(input)
             .font(.system(size: TypeScale.code, design: .monospaced))
             .foregroundStyle(Color.textSecondary)
@@ -59,13 +57,8 @@ struct TodoExpandedView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
         }
-      }
 
-      if let output = content.outputDisplay, !output.isEmpty {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          Text("Output")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
+        if let output = content.outputDisplay, !output.isEmpty {
           Text(output)
             .font(.system(size: TypeScale.code, design: .monospaced))
             .foregroundStyle(Color.textSecondary)
@@ -87,20 +80,31 @@ struct TodoExpandedView: View {
     let isCompleted = item.status == "completed"
     let isInProgress = item.status == "in_progress"
 
-    return HStack(spacing: Spacing.sm) {
-      Image(systemName: isCompleted
-        ? "checkmark.circle.fill"
-        : isInProgress ? "circle.dotted" : "circle")
-        .font(.system(size: IconScale.md))
-        .foregroundStyle(
-          isCompleted ? Color.feedbackPositive
-            : isInProgress ? Color.accent
-            : Color.textQuaternary
-        )
+    return VStack(alignment: .leading, spacing: Spacing.xxs) {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: isCompleted
+          ? "checkmark.circle.fill"
+          : isInProgress ? "circle.dotted" : "circle")
+          .font(.system(size: IconScale.md))
+          .foregroundStyle(
+            isCompleted ? Color.feedbackPositive
+              : isInProgress ? Color.accent
+              : Color.textQuaternary
+          )
 
-      Text(item.content ?? item.status)
-        .font(.system(size: TypeScale.body))
-        .foregroundStyle(isCompleted ? Color.textTertiary : Color.textSecondary)
+        Text(item.content ?? item.status)
+          .font(.system(size: TypeScale.body))
+          .foregroundStyle(isCompleted ? Color.textQuaternary : Color.textSecondary)
+          .strikethrough(isCompleted, color: Color.textQuaternary)
+      }
+
+      // Show activeForm as secondary line for in-progress items
+      if isInProgress, let activeForm = item.activeForm, !activeForm.isEmpty {
+        Text(activeForm)
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+          .padding(.leading, IconScale.md + Spacing.sm)
+      }
     }
   }
 }

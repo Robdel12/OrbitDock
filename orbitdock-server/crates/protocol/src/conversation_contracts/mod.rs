@@ -21,9 +21,9 @@ pub use rows::{
     ToolRowSummary, UserRow,
 };
 pub use tool_display::{
-    compute_diff_display, compute_expanded_output, compute_input_display, compute_tool_display,
-    detect_language, extract_start_line, DiffLine, DiffLineKind, ToolDiffPreview, ToolDisplay,
-    ToolTodoItem,
+    classify_tool_name, compute_diff_display, compute_expanded_output, compute_input_display,
+    compute_tool_display, detect_language, extract_start_line, DiffLine, DiffLineKind,
+    ToolDiffPreview, ToolDisplay, ToolTodoItem,
 };
 pub use tool_payloads::{ToolInvocationPayloadContract, ToolPreview, ToolResultPayloadContract};
 pub use workers::WorkerRow;

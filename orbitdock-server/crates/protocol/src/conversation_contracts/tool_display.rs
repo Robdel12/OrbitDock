@@ -97,6 +97,8 @@ pub struct ToolTodoItem {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_form: Option<String>,
 }
 
 /// A single line in a structured diff.
@@ -459,15 +461,30 @@ fn extract_subtitle_from_input(
                 .and_then(|v| v.as_str())
                 .map(String::from)
         }
-        ToolKind::ViewImage => file_name_from_input(input),
+        ToolKind::ViewImage => file_name_from_input(input).or_else(|| {
+            input
+                .get("image_paths")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+                .and_then(|v| v.as_str())
+                .and_then(|p| p.rsplit('/').next())
+                .map(String::from)
+        }),
         ToolKind::Config => input.get("key").and_then(|v| v.as_str()).map(String::from),
+        ToolKind::ToolSearch => input
+            .get("query")
+            .and_then(|v| v.as_str())
+            .map(|q| truncate(q, 80)),
         _ => None,
     };
     result.filter(|s| !s.trim().is_empty())
 }
 
 fn file_name_from_input(input: &serde_json::Value) -> Option<String> {
-    let path = input.get("file_path").and_then(|v| v.as_str())?;
+    let path = input
+        .get("file_path")
+        .or_else(|| input.get("path"))
+        .and_then(|v| v.as_str())?;
     // Extract just the filename
     path.rsplit('/').next().map(String::from)
 }
@@ -599,7 +616,10 @@ pub fn detect_language(kind: ToolKind, input: Option<&serde_json::Value>) -> Opt
     ) {
         return None;
     }
-    let path = input?.get("file_path").and_then(|v| v.as_str())?;
+    let path = input?
+        .get("file_path")
+        .or_else(|| input?.get("path"))
+        .and_then(|v| v.as_str())?;
     let ext = path.rsplit('.').next()?;
     let lang = match ext {
         "swift" => "Swift",
@@ -683,7 +703,48 @@ fn compute_diff_preview(
                 deletions: 0,
             })
         }
-        _ => None,
+        _ => {
+            // Fallback: try parsing a unified diff (Codex sends "diff" or "unified_diff")
+            let diff_str = input
+                .get("unified_diff")
+                .or_else(|| input.get("diff"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())?;
+            let parsed = parse_unified_diff_string(diff_str);
+            if parsed.is_empty() {
+                return None;
+            }
+            let mut additions: u32 = 0;
+            let mut deletions: u32 = 0;
+            let mut first_changed: Option<(&str, bool)> = None;
+            for line in &parsed {
+                match line.kind {
+                    DiffLineKind::Addition => {
+                        additions += 1;
+                        if first_changed.is_none() {
+                            first_changed = Some((&line.content, true));
+                        }
+                    }
+                    DiffLineKind::Deletion => {
+                        deletions += 1;
+                        if first_changed.is_none() {
+                            first_changed = Some((&line.content, false));
+                        }
+                    }
+                    DiffLineKind::Context => {}
+                }
+            }
+            let (snippet, is_addition) = first_changed.unwrap_or(("", true));
+            let prefix = if is_addition { "+" } else { "-" };
+            Some(ToolDiffPreview {
+                context_line: None,
+                snippet_text: truncate(snippet, 80),
+                snippet_prefix: prefix.to_string(),
+                is_addition,
+                additions,
+                deletions,
+            })
+        }
     }
 }
 
@@ -705,7 +766,19 @@ pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) 
         }
         ToolKind::Read | ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit => input
             .get("file_path")
+            .or_else(|| input.get("path"))
             .and_then(|v| v.as_str())
+            .map(String::from),
+        ToolKind::ViewImage => input
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                input
+                    .get("image_paths")
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_str())
+            })
             .map(String::from),
         ToolKind::Glob | ToolKind::Grep => input
             .get("pattern")
@@ -727,6 +800,27 @@ pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) 
                 None if !label.is_empty() => Some(label.to_string()),
                 _ => None,
             }
+        }
+        ToolKind::ToolSearch => input
+            .get("query")
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        ToolKind::ExitPlanMode => {
+            // ExitPlanMode carries allowedPrompts (internal) — don't display.
+            // If there's a plan field, extract the first heading as summary.
+            None
+        }
+        ToolKind::EnterPlanMode | ToolKind::UpdatePlan => {
+            // Show the plan explanation or title, not the raw JSON
+            input
+                .get("plan")
+                .and_then(|v| v.as_str())
+                .or_else(|| input.get("explanation").and_then(|v| v.as_str()))
+                .map(String::from)
+        }
+        ToolKind::TodoWrite => {
+            // Todo input isn't useful for expanded display — the items are shown via todoItems
+            None
         }
         ToolKind::McpToolCall | ToolKind::DynamicToolCall => {
             serde_json::to_string_pretty(input).ok()
@@ -888,7 +982,11 @@ pub fn compute_diff_display(
     let input = input?;
 
     // Check for pre-computed unified_diff first — parse it into structured lines
-    if let Some(diff_str) = input.get("unified_diff").and_then(|v| v.as_str()) {
+    if let Some(diff_str) = input
+        .get("unified_diff")
+        .or_else(|| input.get("diff"))
+        .and_then(|v| v.as_str())
+    {
         if !diff_str.is_empty() {
             return Some(parse_unified_diff_string(diff_str));
         }
@@ -1058,8 +1156,12 @@ fn extract_todo_items(kind: ToolKind, input: Option<&serde_json::Value>) -> Vec<
         Some(v) => v,
         None => return vec![],
     };
-    // TodoWrite input shape: {"tasks": [{"content": "...", "status": "completed"}, ...]}
-    let items = match input.get("tasks").and_then(|v| v.as_array()) {
+    // TodoWrite input shape: {"tasks": [...]} (Claude) or {"todos": [...]} (Codex)
+    let items = match input
+        .get("tasks")
+        .or_else(|| input.get("todos"))
+        .and_then(|v| v.as_array())
+    {
         Some(arr) => arr,
         None => return vec![],
     };
@@ -1075,7 +1177,47 @@ fn extract_todo_items(kind: ToolKind, input: Option<&serde_json::Value>) -> Vec<
                 .get("content")
                 .and_then(|v| v.as_str())
                 .map(|s| truncate(s, 200));
-            ToolTodoItem { status, content }
+            let active_form = item
+                .get("activeForm")
+                .and_then(|v| v.as_str())
+                .map(|s| truncate(s, 200));
+            ToolTodoItem {
+                status,
+                content,
+                active_form,
+            }
         })
         .collect()
+}
+
+/// Classify a tool name into (ToolFamily, ToolKind).
+/// Shared logic so both the connector and the legacy-unwrap path use the same mapping.
+pub fn classify_tool_name(name: &str) -> (ToolFamily, ToolKind) {
+    match name {
+        "Bash" | "bash" => (ToolFamily::Shell, ToolKind::Bash),
+        "Read" | "read" | "FileRead" => (ToolFamily::FileRead, ToolKind::Read),
+        "Edit" | "edit" | "FileEdit" | "MultiEdit" => (ToolFamily::FileChange, ToolKind::Edit),
+        "Write" | "write" | "FileWrite" => (ToolFamily::FileChange, ToolKind::Write),
+        "NotebookEdit" => (ToolFamily::FileChange, ToolKind::NotebookEdit),
+        "Glob" | "glob" => (ToolFamily::Search, ToolKind::Glob),
+        "Grep" | "grep" => (ToolFamily::Search, ToolKind::Grep),
+        "ToolSearch" => (ToolFamily::Search, ToolKind::ToolSearch),
+        "WebSearch" | "websearch" => (ToolFamily::Web, ToolKind::WebSearch),
+        "WebFetch" | "webfetch" => (ToolFamily::Web, ToolKind::WebFetch),
+        "Agent" | "agent" | "task" => (ToolFamily::Agent, ToolKind::SpawnAgent),
+        "AskUserQuestion" => (ToolFamily::Question, ToolKind::AskUserQuestion),
+        "EnterPlanMode" => (ToolFamily::Plan, ToolKind::EnterPlanMode),
+        "ExitPlanMode" => (ToolFamily::Plan, ToolKind::ExitPlanMode),
+        "UpdatePlan" => (ToolFamily::Plan, ToolKind::UpdatePlan),
+        "TodoWrite" | "todo_write" => (ToolFamily::Todo, ToolKind::TodoWrite),
+        "CompactContext" => (ToolFamily::Context, ToolKind::CompactContext),
+        "Config" => (ToolFamily::Generic, ToolKind::Config),
+        "EnterWorktree" => (ToolFamily::Generic, ToolKind::EnterWorktree),
+        "ViewImage" | "view_image" => (ToolFamily::Image, ToolKind::ViewImage),
+        "ImageGeneration" => (ToolFamily::Image, ToolKind::ImageGeneration),
+        "HookNotification" => (ToolFamily::Hook, ToolKind::HookNotification),
+        "HandoffRequested" => (ToolFamily::Agent, ToolKind::HandoffRequested),
+        n if n.starts_with("mcp__") => (ToolFamily::Mcp, ToolKind::McpToolCall),
+        _ => (ToolFamily::Generic, ToolKind::Generic),
+    }
 }

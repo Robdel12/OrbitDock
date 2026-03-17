@@ -30,7 +30,7 @@ struct ActivityGroupRowView: View {
         .onTapGesture { onToggle?(group.id) }
 
       if isExpanded {
-        VStack(spacing: Spacing.xxs) {
+        VStack(spacing: Spacing.xs) {
           ForEach(group.children, id: \.id) { child in
             ToolCardView(
               toolRow: child,

@@ -133,6 +133,9 @@ impl CodexConnector {
         let current_model = Arc::new(tokio::sync::Mutex::new(Option::<String>::None));
         let current_reasoning_effort =
             Arc::new(tokio::sync::Mutex::new(Option::<ReasoningEffort>::None));
+        let patch_contexts = Arc::new(tokio::sync::Mutex::new(
+            HashMap::<String, serde_json::Value>::new(),
+        ));
 
         let tx = event_tx.clone();
         let thread_for_loop = thread.clone();
@@ -144,6 +147,7 @@ impl CodexConnector {
         let reasoning = reasoning_tracker.clone();
         let model = current_model.clone();
         let effort = current_reasoning_effort.clone();
+        let patches = patch_contexts.clone();
         tokio::spawn(async move {
             Self::event_loop(
                 thread_for_loop,
@@ -156,6 +160,7 @@ impl CodexConnector {
                 reasoning,
                 model,
                 effort,
+                patches,
             )
             .await;
         });
@@ -184,6 +189,7 @@ impl CodexConnector {
         reasoning_tracker: Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
         current_model: Arc<tokio::sync::Mutex<Option<String>>>,
         current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
+        patch_contexts: Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>,
     ) {
         loop {
             match thread.next_event().await {
@@ -198,6 +204,7 @@ impl CodexConnector {
                         &reasoning_tracker,
                         &current_model,
                         &current_reasoning_effort,
+                        &patch_contexts,
                     ))
                     .await;
                     for event in events {
