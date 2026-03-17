@@ -138,7 +138,7 @@ extension DirectSessionComposer {
         }
       }
     }
-    .buttonStyle(.plain)
+    .menuStyle(.borderlessButton)
     .help("More actions")
   }
 
@@ -188,7 +188,7 @@ extension DirectSessionComposer {
         isActive: hasActiveState
       )
     }
-    .buttonStyle(.plain)
+    .menuStyle(.borderlessButton)
     .help("More actions")
   }
 }

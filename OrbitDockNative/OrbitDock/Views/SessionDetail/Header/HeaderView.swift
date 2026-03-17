@@ -214,6 +214,7 @@ struct HeaderView: View {
         .frame(width: 26, height: 26)
         .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     }
+    .menuStyle(.borderlessButton)
     .help("More options")
   }
 
@@ -399,6 +400,7 @@ struct HeaderView: View {
         .frame(width: 26, height: 26)
         .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     }
+    .menuStyle(.borderlessButton)
     .help("More")
   }
 
