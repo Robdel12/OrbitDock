@@ -160,6 +160,17 @@ struct FlatSessionRow: View {
             WorktreeBadge()
           }
 
+          // Issue identifier badge (mission context)
+          if let issueId = session.issueIdentifier {
+            Text(issueId)
+              .font(.system(size: TypeScale.micro, weight: .bold))
+              .padding(.horizontal, 6)
+              .padding(.vertical, Spacing.xxs)
+              .background(Color.blue.opacity(0.15))
+              .foregroundStyle(.blue)
+              .clipShape(Capsule())
+          }
+
           // Attention context (inline pill)
           if displayStatus == .permission, let tool = session.pendingToolName {
             attentionPill(icon: "lock.fill", text: tool, color: .statusPermission)

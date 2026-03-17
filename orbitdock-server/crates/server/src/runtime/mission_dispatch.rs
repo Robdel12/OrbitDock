@@ -171,6 +171,8 @@ pub async fn dispatch_issue(
         personality: resolved.personality,
         service_tier: resolved.service_tier,
         developer_instructions,
+        mission_id: Some(mission_id.to_string()),
+        issue_identifier: Some(issue.identifier.clone()),
     };
 
     let persisted = prepare_persist_direct_session(registry, session_id.clone(), request).await;

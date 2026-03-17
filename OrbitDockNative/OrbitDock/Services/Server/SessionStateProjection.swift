@@ -74,6 +74,8 @@ struct SessionDetailSnapshotProjection {
   let isWorktree: Bool
   let worktreeId: String?
   let unreadCount: UInt64
+  let missionId: String?
+  let issueIdentifier: String?
 
   static func from(_ session: Session) -> SessionDetailSnapshotProjection {
     SessionDetailSnapshotProjection(
@@ -127,7 +129,9 @@ struct SessionDetailSnapshotProjection {
       repositoryRoot: session.repositoryRoot,
       isWorktree: session.isWorktree,
       worktreeId: session.worktreeId,
-      unreadCount: session.unreadCount
+      unreadCount: session.unreadCount,
+      missionId: session.missionId,
+      issueIdentifier: session.issueIdentifier
     )
   }
 }
@@ -416,6 +420,8 @@ extension SessionObservable {
     isWorktree = projection.isWorktree
     worktreeId = projection.worktreeId
     unreadCount = projection.unreadCount
+    missionId = projection.missionId
+    issueIdentifier = projection.issueIdentifier
   }
 
   func applyProjection(_ projection: SessionStateProjection) {

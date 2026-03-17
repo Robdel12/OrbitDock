@@ -170,6 +170,8 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         is_worktree: false,
         worktree_id: None,
         unread_count: restored.unread_count,
+        mission_id: restored.mission_id,
+        issue_identifier: restored.issue_identifier,
     }
 }
 
@@ -184,7 +186,10 @@ pub(crate) fn restored_session_to_handle(
         .parse::<Provider>()
         .unwrap();
 
-    SessionHandle::restore(
+    let mission_id = restored.mission_id.clone();
+    let issue_identifier = restored.issue_identifier.clone();
+
+    let mut handle = SessionHandle::restore(
         restored.id,
         provider,
         restored.project_path,
@@ -261,7 +266,9 @@ pub(crate) fn restored_session_to_handle(
         restored.terminal_app,
         restored.approval_version,
         restored.unread_count,
-    )
+    );
+    handle.set_mission_context(mission_id, issue_identifier);
+    handle
 }
 
 pub(crate) fn prepare_restored_session_for_direct_resume(

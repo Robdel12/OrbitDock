@@ -26,6 +26,8 @@ pub enum PersistCommand {
         service_tier: Option<String>,
         developer_instructions: Option<String>,
         forked_from_session_id: Option<String>,
+        mission_id: Option<String>,
+        issue_identifier: Option<String>,
     },
 
     /// Update session status/work_status

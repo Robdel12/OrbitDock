@@ -80,7 +80,9 @@ extension ServerSessionState {
       repositoryRoot: repositoryRoot,
       isWorktree: isWorktree ?? false,
       worktreeId: worktreeId,
-      unreadCount: unreadCount ?? 0
+      unreadCount: unreadCount ?? 0,
+      missionId: missionId,
+      issueIdentifier: issueIdentifier
     )
   }
 

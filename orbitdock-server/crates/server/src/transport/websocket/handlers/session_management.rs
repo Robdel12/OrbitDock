@@ -70,6 +70,8 @@ pub(crate) async fn handle_create_session(
             personality: request.personality.clone(),
             service_tier: request.service_tier.clone(),
             developer_instructions: request.developer_instructions.clone(),
+            mission_id: None,
+            issue_identifier: None,
         },
     )
     .await;

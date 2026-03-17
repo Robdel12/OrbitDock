@@ -177,6 +177,8 @@ struct Session: Identifiable, Hashable, Sendable {
   // MARK: - Unread Tracking
 
   var unreadCount: UInt64 = 0 // Server-backed unread message count
+  var missionId: String?
+  var issueIdentifier: String?
   var displayName: String = "Unknown"
   var normalizedDisplayName: String = "unknown"
   var displaySearchText: String = "unknown"

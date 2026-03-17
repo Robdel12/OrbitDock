@@ -507,6 +507,8 @@ struct ServerSessionState: Codable, Identifiable {
   let isWorktree: Bool?
   let worktreeId: String?
   let unreadCount: UInt64?
+  let missionId: String?
+  let issueIdentifier: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -566,6 +568,8 @@ struct ServerSessionState: Codable, Identifiable {
     case isWorktree = "is_worktree"
     case worktreeId = "worktree_id"
     case unreadCount = "unread_count"
+    case missionId = "mission_id"
+    case issueIdentifier = "issue_identifier"
   }
 
   init(from decoder: Decoder) throws {
@@ -632,6 +636,8 @@ struct ServerSessionState: Codable, Identifiable {
     isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree)
     worktreeId = try container.decodeIfPresent(String.self, forKey: .worktreeId)
     unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount)
+    missionId = try container.decodeIfPresent(String.self, forKey: .missionId)
+    issueIdentifier = try container.decodeIfPresent(String.self, forKey: .issueIdentifier)
   }
 
   func encode(to encoder: Encoder) throws {
@@ -691,6 +697,8 @@ struct ServerSessionState: Codable, Identifiable {
     try container.encodeIfPresent(isWorktree, forKey: .isWorktree)
     try container.encodeIfPresent(worktreeId, forKey: .worktreeId)
     try container.encodeIfPresent(unreadCount, forKey: .unreadCount)
+    try container.encodeIfPresent(missionId, forKey: .missionId)
+    try container.encodeIfPresent(issueIdentifier, forKey: .issueIdentifier)
   }
 }
 

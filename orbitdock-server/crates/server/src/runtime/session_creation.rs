@@ -28,6 +28,8 @@ pub(crate) struct DirectSessionCreationInputs {
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
     pub effort: Option<String>,
+    pub mission_id: Option<String>,
+    pub issue_identifier: Option<String>,
 }
 
 pub(crate) struct PreparedDirectSession {
@@ -53,6 +55,8 @@ pub(crate) struct DirectSessionRequest {
     pub personality: Option<String>,
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
+    pub mission_id: Option<String>,
+    pub issue_identifier: Option<String>,
 }
 
 pub(crate) struct PreparedPersistedDirectSession {
@@ -79,6 +83,8 @@ struct PersistDirectSessionCreate {
     service_tier: Option<String>,
     developer_instructions: Option<String>,
     effort: Option<String>,
+    mission_id: Option<String>,
+    issue_identifier: Option<String>,
 }
 
 pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> PreparedDirectSession {
@@ -108,6 +114,10 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
         });
     } else if input.provider == Provider::Claude {
         handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
+    }
+
+    if input.mission_id.is_some() || input.issue_identifier.is_some() {
+        handle.set_mission_context(input.mission_id, input.issue_identifier);
     }
 
     let summary = handle.summary();
@@ -141,6 +151,8 @@ async fn persist_direct_session_create(
         service_tier,
         developer_instructions,
         effort,
+        mission_id,
+        issue_identifier,
     } = request;
     let _ = persist_tx
         .send(PersistCommand::SessionCreate {
@@ -159,6 +171,8 @@ async fn persist_direct_session_create(
             service_tier,
             developer_instructions,
             forked_from_session_id: None,
+            mission_id,
+            issue_identifier,
         })
         .await;
 
@@ -192,6 +206,8 @@ pub(crate) async fn prepare_persist_direct_session(
         service_tier: request.service_tier.clone(),
         developer_instructions: request.developer_instructions.clone(),
         effort: request.effort.clone(),
+        mission_id: request.mission_id.clone(),
+        issue_identifier: request.issue_identifier.clone(),
     });
 
     let persist_tx = state.persist().clone();
@@ -213,6 +229,8 @@ pub(crate) async fn prepare_persist_direct_session(
             service_tier: request.service_tier.clone(),
             developer_instructions: request.developer_instructions.clone(),
             effort: request.effort.clone(),
+            mission_id: request.mission_id.clone(),
+            issue_identifier: request.issue_identifier.clone(),
         },
     )
     .await;
@@ -303,6 +321,8 @@ mod tests {
             service_tier: Some("priority".into()),
             developer_instructions: Some("Stay focused".into()),
             effort: Some("high".into()),
+            mission_id: None,
+            issue_identifier: None,
         });
 
         assert_eq!(prepared.project_name.as_deref(), Some("project"));
@@ -345,6 +365,8 @@ mod tests {
             service_tier: Some("ignored".into()),
             developer_instructions: Some("ignored".into()),
             effort: Some("medium".into()),
+            mission_id: None,
+            issue_identifier: None,
         });
 
         assert_eq!(
@@ -372,6 +394,8 @@ mod tests {
             personality: Some("mentor".into()),
             service_tier: Some("priority".into()),
             developer_instructions: Some("Stay focused".into()),
+            mission_id: None,
+            issue_identifier: None,
         };
         let prepared = prepare_direct_session(DirectSessionCreationInputs {
             id: "session-3".into(),
@@ -387,6 +411,8 @@ mod tests {
             service_tier: request.service_tier.clone(),
             developer_instructions: request.developer_instructions.clone(),
             effort: request.effort.clone(),
+            mission_id: None,
+            issue_identifier: None,
         });
 
         let persisted = PreparedPersistedDirectSession {

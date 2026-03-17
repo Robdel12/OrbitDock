@@ -258,6 +258,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     terminal_app,
                     approval_version,
                     unread_count,
+                    mission_id,
+                    issue_identifier,
                 } = rs;
                 let msg_count = rows.len();
 
@@ -379,6 +381,9 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                 }
                 if let Some(source_id) = forked_from_session_id {
                     handle.set_forked_from(source_id);
+                }
+                if mission_id.is_some() || issue_identifier.is_some() {
+                    handle.set_mission_context(mission_id, issue_identifier);
                 }
 
                 if is_codex {

@@ -68,6 +68,8 @@ pub struct RestoredSession {
     pub terminal_app: Option<String>,
     pub approval_version: u64,
     pub unread_count: u64,
+    pub mission_id: Option<String>,
+    pub issue_identifier: Option<String>,
 }
 
 fn resolve_custom_name_from_first_prompt(
@@ -463,6 +465,14 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     )
                     .unwrap_or(0);
 
+                let (mission_id, issue_identifier): (Option<String>, Option<String>) = conn
+                    .query_row(
+                        "SELECT mission_id, issue_identifier FROM sessions WHERE id = ?1",
+                        params![id],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .unwrap_or((None, None));
+
                 let end_reason = end_reason_val;
 
                 let mut summary: Option<String> = conn
@@ -535,6 +545,8 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     terminal_app,
                     approval_version,
                     unread_count,
+                    mission_id,
+                    issue_identifier,
                 });
             }
 
@@ -767,6 +779,14 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 )
                 .unwrap_or(0);
 
+            let (mission_id, issue_identifier): (Option<String>, Option<String>) = conn
+                .query_row(
+                    "SELECT mission_id, issue_identifier FROM sessions WHERE id = ?1",
+                    params![&id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap_or((None, None));
+
             Ok(Some(RestoredSession {
                 id,
                 provider,
@@ -817,6 +837,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 terminal_app,
                 approval_version,
                 unread_count,
+                mission_id,
+                issue_identifier,
             }))
         },
     )

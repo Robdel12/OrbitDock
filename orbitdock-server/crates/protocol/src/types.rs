@@ -832,6 +832,13 @@ pub struct SessionState {
     #[serde(default)]
     pub unread_count: u64,
 
+    /// Mission ID if this session is orchestrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission_id: Option<String>,
+    /// Issue identifier (e.g. "PROJ-123") if this session is orchestrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_identifier: Option<String>,
+
     // -- Conversation row payload (server-populated) --
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rows: Vec<crate::conversation_contracts::ConversationRowEntry>,
