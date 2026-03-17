@@ -101,6 +101,10 @@ pub enum BinaryCommand {
         auth_token: Option<String>,
     },
 
+    /// Internal: MCP stdio server providing mission tools to agents
+    #[command(name = "mcp-mission-tools", hide = true)]
+    McpMissionTools,
+
     /// Generate and install a launchd/systemd service file
     InstallService {
         #[arg(long, default_value = "127.0.0.1:4000")]
@@ -219,6 +223,12 @@ pub enum BinaryCommand {
         action: WorktreeAction,
     },
 
+    /// Mission Control — autonomous issue-driven orchestration
+    Mission {
+        #[command(subcommand)]
+        action: MissionAction,
+    },
+
     /// MCP tools and resources
     Mcp {
         #[command(subcommand)]
@@ -263,6 +273,9 @@ pub fn binary_to_client_command(command: &BinaryCommand) -> Option<Command> {
             action: action.clone(),
         }),
         BinaryCommand::Worktree { action } => Some(Command::Worktree {
+            action: action.clone(),
+        }),
+        BinaryCommand::Mission { action } => Some(Command::Mission {
             action: action.clone(),
         }),
         BinaryCommand::Mcp { action } => Some(Command::Mcp {
@@ -356,6 +369,12 @@ pub enum Command {
     Worktree {
         #[command(subcommand)]
         action: WorktreeAction,
+    },
+
+    /// Mission Control — autonomous issue-driven orchestration
+    Mission {
+        #[command(subcommand)]
+        action: MissionAction,
     },
 
     /// MCP tools and resources
@@ -888,6 +907,66 @@ pub enum WorktreeAction {
     },
 }
 
+// ── Mission ─────────────────────────────────────────────────
+
+#[derive(Clone, Debug, Subcommand)]
+pub enum MissionAction {
+    /// Enable mission control for a repository
+    Enable {
+        /// Repository path (defaults to current directory)
+        #[arg(default_value = ".")]
+        repo_path: String,
+
+        /// Provider (claude or codex)
+        #[arg(long, short = 'p', default_value = "claude")]
+        provider: String,
+
+        /// Tracker kind
+        #[arg(long, default_value = "linear")]
+        tracker: String,
+    },
+
+    /// List configured missions
+    List,
+
+    /// Show mission status
+    Status {
+        /// Mission ID
+        mission_id: String,
+    },
+
+    /// Pause a mission
+    Pause {
+        /// Mission ID
+        mission_id: String,
+    },
+
+    /// Resume a paused mission
+    Resume {
+        /// Mission ID
+        mission_id: String,
+    },
+
+    /// Disable and remove a mission
+    Disable {
+        /// Mission ID
+        mission_id: String,
+    },
+
+    /// Manually dispatch a specific issue to a mission
+    Dispatch {
+        /// Mission ID
+        mission_id: String,
+
+        /// Issue identifier (e.g. "VIZ-240")
+        issue: String,
+
+        /// Provider override (claude or codex)
+        #[arg(long, short = 'p')]
+        provider: Option<String>,
+    },
+}
+
 // ── MCP ──────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, Subcommand)]
@@ -978,7 +1057,10 @@ mod tests {
 
         match cli.command {
             Some(BinaryCommand::Start { bind, .. }) => {
-                assert_eq!(bind, "0.0.0.0:4000".parse().unwrap());
+                assert_eq!(
+                    bind,
+                    "0.0.0.0:4000".parse::<std::net::SocketAddr>().unwrap()
+                );
             }
             other => panic!("expected start command, got {other:?}"),
         }

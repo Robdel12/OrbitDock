@@ -145,6 +145,8 @@ struct RootSessionNode: Identifiable, Sendable {
   let codexIntegrationMode: CodexIntegrationMode?
   let claudeIntegrationMode: ClaudeIntegrationMode?
   let effort: String?
+  let missionId: String?
+  let issueIdentifier: String?
   let totalTokens: Int
   let totalCostUSD: Double
   let isActive: Bool
@@ -276,6 +278,8 @@ extension RootSessionNode: Equatable {
       && lhs.codexIntegrationMode == rhs.codexIntegrationMode
       && lhs.claudeIntegrationMode == rhs.claudeIntegrationMode
       && lhs.effort == rhs.effort
+      && lhs.missionId == rhs.missionId
+      && lhs.issueIdentifier == rhs.issueIdentifier
       && lhs.totalTokens == rhs.totalTokens
       && lhs.totalCostUSD == rhs.totalCostUSD
       && lhs.isActive == rhs.isActive
@@ -369,6 +373,8 @@ extension RootSessionNode {
       mode: session.claudeIntegrationMode
     )
     self.effort = session.effort
+    self.missionId = session.missionId
+    self.issueIdentifier = session.issueIdentifier
     self.totalTokens = Int(session.totalTokens ?? 0)
     self.totalCostUSD = session.totalCostUSD ?? 0
     self.isActive = status == .active
@@ -426,6 +432,8 @@ extension RootSessionNode {
       codexIntegrationMode: codexIntegrationMode,
       claudeIntegrationMode: claudeIntegrationMode,
       effort: effort,
+      missionId: missionId,
+      issueIdentifier: issueIdentifier,
       totalTokens: totalTokens,
       totalCostUSD: totalCostUSD,
       isActive: self.status == .active,
@@ -475,6 +483,8 @@ extension RootSessionNode {
       codexIntegrationMode: codexIntegrationMode,
       claudeIntegrationMode: claudeIntegrationMode,
       effort: effort,
+      missionId: missionId,
+      issueIdentifier: issueIdentifier,
       totalTokens: totalTokens,
       totalCostUSD: totalCostUSD,
       isActive: false,

@@ -370,6 +370,8 @@ mod tests {
                 service_tier: None,
                 developer_instructions: None,
                 forked_from_session_id: None,
+                mission_id: None,
+                issue_identifier: None,
             }],
         )
         .expect("persist session row for review comment contract test");

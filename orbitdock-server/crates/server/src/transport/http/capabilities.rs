@@ -126,6 +126,8 @@ pub async fn get_session_instructions(
             )
         })?;
 
+    let system_prompt = Some(crate::domain::instructions::orbitdock_system_instructions());
+
     let instructions = match session.provider {
         orbitdock_protocol::Provider::Claude => {
             let home = std::env::var("HOME").ok().map(PathBuf::from);
@@ -146,13 +148,13 @@ pub async fn get_session_instructions(
 
             SessionInstructionsPayload {
                 claude_md,
-                system_prompt: None,
+                system_prompt: system_prompt.clone(),
                 developer_instructions: session.developer_instructions.clone(),
             }
         }
         orbitdock_protocol::Provider::Codex => SessionInstructionsPayload {
             claude_md: None,
-            system_prompt: None,
+            system_prompt,
             developer_instructions: session.developer_instructions.clone(),
         },
     };

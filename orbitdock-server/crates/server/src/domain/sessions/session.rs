@@ -365,6 +365,10 @@ pub struct SessionSnapshot {
     pub subscriber_count: usize,
     /// Cached count of unread messages.
     pub unread_count: u64,
+    /// Mission ID if this session is orchestrated.
+    pub mission_id: Option<String>,
+    /// Issue identifier (e.g. "PROJ-123") if this session is orchestrated.
+    pub issue_identifier: Option<String>,
     /// ID of the newest row that has been synced from the transcript.
     /// Used for sequence-based sync comparison (immune to count inflation).
     pub newest_synced_row_id: Option<String>,
@@ -459,6 +463,10 @@ pub struct SessionHandle {
     worktree_id: Option<String>,
     /// Cached count of unread rows (non-user with sequence > last_read).
     unread_count: u64,
+    /// Mission ID if this session is orchestrated.
+    mission_id: Option<String>,
+    /// Issue identifier (e.g. "PROJ-123") if this session is orchestrated.
+    issue_identifier: Option<String>,
     /// ID of the newest row synced from transcript (for sequence-based sync).
     newest_synced_row_id: Option<String>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
@@ -681,6 +689,8 @@ impl SessionHandle {
             has_turn_diff: false,
             subscriber_count: 0,
             unread_count: 0,
+            mission_id: None,
+            issue_identifier: None,
             newest_synced_row_id: None,
         };
         Self {
@@ -737,6 +747,8 @@ impl SessionHandle {
             is_worktree: false,
             worktree_id: None,
             unread_count: 0,
+            mission_id: None,
+            issue_identifier: None,
             newest_synced_row_id: None,
             broadcast_tx,
             list_tx: None,
@@ -842,6 +854,8 @@ impl SessionHandle {
             has_turn_diff: current_diff.is_some() || !turn_diffs.is_empty(),
             subscriber_count: 0,
             unread_count,
+            mission_id: None,
+            issue_identifier: None,
             newest_synced_row_id: None, // Will be derived from rows below
         };
 
@@ -899,6 +913,8 @@ impl SessionHandle {
             is_worktree: false,
             worktree_id: None,
             unread_count,
+            mission_id: None,
+            issue_identifier: None,
             newest_synced_row_id: None,
             broadcast_tx,
             list_tx: None,
@@ -1013,6 +1029,8 @@ impl SessionHandle {
                 self.pending_question.as_deref(),
             ),
             forked_from_session_id: self.forked_from_session_id.clone(),
+            mission_id: self.mission_id.clone(),
+            issue_identifier: self.issue_identifier.clone(),
         }
     }
 
@@ -1072,6 +1090,8 @@ impl SessionHandle {
             is_worktree: self.is_worktree,
             worktree_id: self.worktree_id.clone(),
             unread_count: self.unread_count,
+            mission_id: self.mission_id.clone(),
+            issue_identifier: self.issue_identifier.clone(),
             rows: vec![],
             total_row_count: 0,
             has_more_before: false,
@@ -1109,6 +1129,17 @@ impl SessionHandle {
     /// Subscribe to session updates
     pub fn subscribe(&self) -> broadcast::Receiver<orbitdock_protocol::ServerMessage> {
         self.broadcast_tx.subscribe()
+    }
+
+    /// Set mission context (immutable — set once at session creation)
+    pub fn set_mission_context(
+        &mut self,
+        mission_id: Option<String>,
+        issue_identifier: Option<String>,
+    ) {
+        self.mission_id = mission_id;
+        self.issue_identifier = issue_identifier;
+        self.refresh_snapshot();
     }
 
     /// Set the custom name for this session
@@ -1979,6 +2010,8 @@ impl SessionHandle {
             has_turn_diff: self.current_diff.is_some() || !self.turn_diffs.is_empty(),
             subscriber_count: self.broadcast_tx.receiver_count(),
             unread_count: self.unread_count,
+            mission_id: self.mission_id.clone(),
+            issue_identifier: self.issue_identifier.clone(),
             newest_synced_row_id: self.newest_synced_row_id.clone(),
         }
     }

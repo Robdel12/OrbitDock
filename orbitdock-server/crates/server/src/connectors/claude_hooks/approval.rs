@@ -235,6 +235,8 @@ mod tests {
             has_turn_diff: false,
             subscriber_count: 0,
             unread_count: 0,
+            mission_id: None,
+            issue_identifier: None,
             newest_synced_row_id: None,
         }
     }

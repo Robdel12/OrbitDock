@@ -1,12 +1,14 @@
+import Foundation
 @testable import OrbitDock
-import XCTest
+import Testing
 
+@Suite("ConversationDetailRuntime – metadata hydration")
 @MainActor
-final class ConversationDetailRuntimeMetadataTests: XCTestCase {
-  func testHydratedApprovalStateCarriesQuestionAndPermissionDetail() throws {
+struct ConversationDetailRuntimeMetadataTests {
+  @Test func hydratedApprovalStateCarriesQuestionAndPermissionDetail() throws {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-approval")
     let clients = try ServerClients(
-      serverURL: XCTUnwrap(URL(string: "http://127.0.0.1:4000")),
+      serverURL: #require(URL(string: "http://127.0.0.1:4000")),
       authToken: nil,
       dataLoader: { _ in throw HTTPTransportError.serverUnreachable }
     )
@@ -35,17 +37,17 @@ final class ConversationDetailRuntimeMetadataTests: XCTestCase {
     )
 
     let approval = runtime.renderStore.metadata.approval
-    XCTAssertEqual(approval?.id, "approval-1")
-    XCTAssertEqual(approval?.version, 7)
-    XCTAssertEqual(approval?.pendingQuestion, "Allow write access?")
-    XCTAssertEqual(approval?.pendingToolName, "Bash")
-    XCTAssertEqual(approval?.currentPrompt, "Need permission to patch a file.")
+    #expect(approval?.id == "approval-1")
+    #expect(approval?.version == 7)
+    #expect(approval?.pendingQuestion == "Allow write access?")
+    #expect(approval?.pendingToolName == "Bash")
+    #expect(approval?.currentPrompt == "Need permission to patch a file.")
   }
 
-  func testSelectingWorkerPreservesInspectorStateFromWorkerPayloads() throws {
+  @Test func selectingWorkerPreservesInspectorStateFromWorkerPayloads() throws {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-worker")
     let clients = try ServerClients(
-      serverURL: XCTUnwrap(URL(string: "http://127.0.0.1:4000")),
+      serverURL: #require(URL(string: "http://127.0.0.1:4000")),
       authToken: nil,
       dataLoader: { _ in throw HTTPTransportError.serverUnreachable }
     )
@@ -124,9 +126,9 @@ final class ConversationDetailRuntimeMetadataTests: XCTestCase {
     )
 
     let metadata = runtime.renderStore.metadata
-    XCTAssertEqual(metadata.selectedWorkerID, "worker-b")
-    XCTAssertEqual(metadata.workerInspector.selectedWorker?.title, "Babbage")
-    XCTAssertEqual(metadata.workerInspector.tools.first?.toolName, "Read")
-    XCTAssertEqual(metadata.workerInspector.threadEntries.first?.body, "Auth state is stable.")
+    #expect(metadata.selectedWorkerID == "worker-b")
+    #expect(metadata.workerInspector.selectedWorker?.title == "Babbage")
+    #expect(metadata.workerInspector.tools.first?.toolName == "Read")
+    #expect(metadata.workerInspector.threadEntries.first?.body == "Auth state is stable.")
   }
 }

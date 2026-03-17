@@ -27,6 +27,13 @@ struct OrbitDockWindowRoot: View {
           .environment(detailSessionStore(for: ref.endpointId))
           .id(ref.scopedID)
         }
+        .navigationDestination(for: MissionRef.self) { ref in
+          MissionShowView(
+            missionId: ref.missionId,
+            endpointId: ref.endpointId
+          )
+          .id(ref.id)
+        }
       }
 
       if router.showQuickSwitcher {
@@ -68,6 +75,13 @@ struct OrbitDockWindowRoot: View {
           navigationPath = NavigationPath([ref])
           detailSessionStore(for: ref.endpointId)
             .subscribeToSession(ref.sessionId)
+
+        case let .mission(ref):
+          if case let .session(oldRef) = oldRoute {
+            detailSessionStore(for: oldRef.endpointId)
+              .unsubscribeFromSession(oldRef.sessionId)
+          }
+          navigationPath = NavigationPath([ref])
 
         case .dashboard:
           // Pop instantly — no slide animation. Unsubscribe after the view

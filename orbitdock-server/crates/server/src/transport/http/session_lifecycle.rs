@@ -223,6 +223,9 @@ pub async fn create_session(
             personality: body.personality.clone(),
             service_tier: body.service_tier.clone(),
             developer_instructions,
+            mission_id: None,
+            issue_identifier: None,
+            dynamic_tools: Vec::new(),
         },
     )
     .await;

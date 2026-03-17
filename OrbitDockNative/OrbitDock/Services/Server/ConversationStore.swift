@@ -367,13 +367,21 @@ final class ConversationStore {
   private func applyRowEntries(upserted: [ServerConversationRowEntry], removedRowIds: [String]) {
     guard !upserted.isEmpty || !removedRowIds.isEmpty else { return }
 
+    // Build a mutable lookup from existing entries. When duplicates already
+    // exist (shouldn't happen, but guard against it) keep the last index so
+    // the upsert overwrites the freshest copy.
+    var idToIndex: [String: Int] = [:]
+    for (idx, entry) in rowEntries.enumerated() {
+      idToIndex[entry.id] = idx
+    }
+
     var merged = rowEntries
-    let existingIDs = Dictionary(merged.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { _, last in last })
 
     for entry in upserted {
-      if let existingIdx = existingIDs[entry.id] {
+      if let existingIdx = idToIndex[entry.id] {
         merged[existingIdx] = entry
       } else {
+        idToIndex[entry.id] = merged.count
         merged.append(entry)
       }
     }
@@ -387,7 +395,20 @@ final class ConversationStore {
       lhs.sequence < rhs.sequence
     }
 
-    rowEntries = merged
+    // Final dedup — if duplicates slipped in (e.g. server sent the same ID
+    // twice in one batch before we tracked it), keep only the last occurrence
+    // (highest sequence after the sort).
+    var seen = Set<String>()
+    var deduped: [ServerConversationRowEntry] = []
+    deduped.reserveCapacity(merged.count)
+    for entry in merged.reversed() {
+      if seen.insert(entry.id).inserted {
+        deduped.append(entry)
+      }
+    }
+    deduped.reverse()
+
+    rowEntries = deduped
     rowEntriesRevision += 1
   }
 

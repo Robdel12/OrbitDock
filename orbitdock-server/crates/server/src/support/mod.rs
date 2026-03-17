@@ -1,4 +1,5 @@
 pub(crate) mod ai_naming;
+pub(crate) mod api_keys;
 pub(crate) mod normalization;
 pub(crate) mod session_modes;
 pub(crate) mod session_paths;

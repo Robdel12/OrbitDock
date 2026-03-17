@@ -12,6 +12,7 @@ mod approvals;
 mod commands;
 mod config;
 mod messages;
+pub(crate) mod mission_control;
 mod review_comments;
 mod session_reads;
 mod startup_cleanup;
@@ -40,6 +41,11 @@ pub(crate) use config::{
 };
 pub(crate) use messages::{
     load_message_page_for_session, load_messages_for_session, load_row_by_id_async,
+};
+#[allow(unused_imports)]
+pub(crate) use mission_control::{
+    load_all_active_mission_issues, load_mission_by_id, load_mission_issues, load_missions,
+    load_missions_with_counts, MissionIssueRow, MissionRow,
 };
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
 pub(crate) use session_reads::{
@@ -201,6 +207,8 @@ pub(super) fn execute_command(
             service_tier,
             developer_instructions,
             forked_from_session_id,
+            mission_id,
+            issue_identifier,
         } => {
             let provider_str = match provider {
                 Provider::Claude => "claude",
@@ -218,14 +226,14 @@ pub(super) fn execute_command(
             };
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, started_at, last_activity_at, forked_from_session_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?7, ?7, ?11)
+                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, started_at, last_activity_at, forked_from_session_id, mission_id, issue_identifier)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?7, ?7, ?11, ?19, ?20)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    branch = COALESCE(?4, branch),
                    model = COALESCE(?5, model),
                    last_activity_at = ?7",
-                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions],
+                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, mission_id, issue_identifier],
             )?;
         }
 
@@ -1513,6 +1521,182 @@ pub(super) fn execute_command(
                 "UPDATE worktrees SET status = ?1, last_session_ended_at = COALESCE(?2, last_session_ended_at) WHERE id = ?3",
                 params![status, last_session_ended_at, id],
             )?;
+        }
+
+        PersistCommand::MissionCreate {
+            id,
+            name,
+            repo_root,
+            tracker_kind,
+            provider,
+            config_json,
+            prompt_template,
+            mission_file_path,
+        } => {
+            conn.execute(
+                "INSERT INTO missions (id, name, repo_root, tracker_kind, provider, config_json, prompt_template, mission_file_path)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![id, name, repo_root, tracker_kind, provider, config_json, prompt_template, mission_file_path],
+            )?;
+        }
+        PersistCommand::MissionUpdate {
+            id,
+            name,
+            enabled,
+            paused,
+            config_json,
+            prompt_template,
+            parse_error,
+            mission_file_path,
+        } => {
+            if let Some(ref name) = name {
+                conn.execute(
+                    "UPDATE missions SET name = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![name, id],
+                )?;
+            }
+            if let Some(enabled) = enabled {
+                conn.execute(
+                    "UPDATE missions SET enabled = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![enabled as i64, id],
+                )?;
+            }
+            if let Some(paused) = paused {
+                conn.execute(
+                    "UPDATE missions SET paused = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![paused as i64, id],
+                )?;
+            }
+            if let Some(ref config_json) = config_json {
+                conn.execute(
+                    "UPDATE missions SET config_json = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![config_json, id],
+                )?;
+            }
+            if let Some(ref prompt_template) = prompt_template {
+                conn.execute(
+                    "UPDATE missions SET prompt_template = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![prompt_template, id],
+                )?;
+            }
+            if let Some(ref parse_error) = parse_error {
+                conn.execute(
+                    "UPDATE missions SET parse_error = ?1, last_parsed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![parse_error, id],
+                )?;
+            }
+            if let Some(ref mission_file_path) = mission_file_path {
+                conn.execute(
+                    "UPDATE missions SET mission_file_path = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![mission_file_path, id],
+                )?;
+            }
+        }
+        PersistCommand::MissionDelete { id } => {
+            conn.execute(
+                "DELETE FROM mission_issues WHERE mission_id = ?1",
+                params![id],
+            )?;
+            conn.execute("DELETE FROM missions WHERE id = ?1", params![id])?;
+        }
+        PersistCommand::MissionIssueUpsert {
+            id,
+            mission_id,
+            issue_id,
+            issue_identifier,
+            issue_title,
+            issue_state,
+            orchestration_state,
+            provider,
+            url,
+        } => {
+            conn.execute(
+                "INSERT INTO mission_issues (id, mission_id, issue_id, issue_identifier, issue_title, issue_state, orchestration_state, provider, url)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(mission_id, issue_id) DO UPDATE SET
+                   issue_title = excluded.issue_title,
+                   issue_state = excluded.issue_state,
+                   url = excluded.url,
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+                params![id, mission_id, issue_id, issue_identifier, issue_title, issue_state, orchestration_state, provider, url],
+            )?;
+        }
+        PersistCommand::MissionIssueUpdateState {
+            mission_id,
+            issue_id,
+            orchestration_state,
+            session_id,
+            attempt,
+            last_error,
+            retry_due_at,
+            started_at,
+            completed_at,
+        } => {
+            let mut sets = vec![
+                "orchestration_state = ?1".to_string(),
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')".to_string(),
+            ];
+            let mut param_values: Vec<rusqlite::types::Value> = vec![orchestration_state.into()];
+
+            let mut idx = 1u32; // ?1 = orchestration_state
+            if let Some(ref val) = session_id {
+                idx += 1;
+                sets.push(format!("session_id = ?{idx}"));
+                param_values.push(val.clone().into());
+            }
+            if let Some(val) = attempt {
+                idx += 1;
+                sets.push(format!("attempt = ?{idx}"));
+                param_values.push((val as i64).into());
+            }
+            if let Some(ref val) = last_error {
+                idx += 1;
+                sets.push(format!("last_error = ?{idx}"));
+                param_values.push(
+                    val.clone()
+                        .map_or(rusqlite::types::Value::Null, |v| v.into()),
+                );
+            }
+            if let Some(ref val) = retry_due_at {
+                idx += 1;
+                sets.push(format!("retry_due_at = ?{idx}"));
+                param_values.push(
+                    val.clone()
+                        .map_or(rusqlite::types::Value::Null, |v| v.into()),
+                );
+            }
+            if let Some(ref val) = started_at {
+                idx += 1;
+                sets.push(format!("started_at = ?{idx}"));
+                param_values.push(
+                    val.clone()
+                        .map_or(rusqlite::types::Value::Null, |v| v.into()),
+                );
+            }
+            if let Some(ref val) = completed_at {
+                idx += 1;
+                sets.push(format!("completed_at = ?{idx}"));
+                param_values.push(
+                    val.clone()
+                        .map_or(rusqlite::types::Value::Null, |v| v.into()),
+                );
+            }
+
+            // WHERE clause params
+            let mid_idx = idx + 1;
+            let iid_idx = idx + 2;
+            param_values.push(mission_id.into());
+            param_values.push(issue_id.into());
+
+            let sql = format!(
+                "UPDATE mission_issues SET {} WHERE mission_id = ?{mid_idx} AND issue_id = ?{iid_idx}",
+                sets.join(", ")
+            );
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> = param_values
+                .iter()
+                .map(|v| v as &dyn rusqlite::types::ToSql)
+                .collect();
+            conn.execute(&sql, param_refs.as_slice())?;
         }
     }
 

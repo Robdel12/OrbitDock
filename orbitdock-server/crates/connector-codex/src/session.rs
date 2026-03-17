@@ -245,12 +245,43 @@ impl CodexSession {
         sandbox_mode: Option<&str>,
         control_plane: CodexControlPlane,
     ) -> Result<Self, ConnectorError> {
-        let connector = CodexConnector::new_with_control_plane(
+        Self::new_with_control_plane_and_tools(
+            session_id,
             cwd,
             model,
             approval_policy,
             sandbox_mode,
             control_plane,
+            Vec::new(),
+        )
+        .await
+    }
+
+    /// Create a new Codex session with control-plane settings and dynamic tools.
+    ///
+    /// Accepts `Vec<serde_json::Value>` for cross-crate flexibility — converts to
+    /// `DynamicToolSpec` internally.
+    pub async fn new_with_control_plane_and_tools(
+        session_id: String,
+        cwd: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        control_plane: CodexControlPlane,
+        dynamic_tools_json: Vec<serde_json::Value>,
+    ) -> Result<Self, ConnectorError> {
+        let dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec> = dynamic_tools_json
+            .into_iter()
+            .filter_map(|v| serde_json::from_value(v).ok())
+            .collect();
+
+        let connector = CodexConnector::new_with_control_plane_and_tools(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            control_plane,
+            dynamic_tools,
         )
         .await?;
 

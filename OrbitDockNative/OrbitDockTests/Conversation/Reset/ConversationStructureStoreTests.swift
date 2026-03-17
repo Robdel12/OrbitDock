@@ -1,8 +1,11 @@
+import Foundation
 @testable import OrbitDock
-import XCTest
+import Testing
 
-final class ConversationStructureStoreTests: XCTestCase {
-  func testBootstrapAndPrependPreserveOrderedRows() {
+@Suite("ConversationStructureStore")
+@MainActor
+struct ConversationStructureStoreTests {
+  @Test func bootstrapAndPrependPreserveOrderedRows() {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-1")
     var store = ConversationStructureStore(session: session)
 
@@ -63,13 +66,13 @@ final class ConversationStructureStoreTests: XCTestCase {
       hasMoreHistoryBefore: false
     ))
 
-    XCTAssertEqual(store.snapshot.rows.map(\.id), ["message-1", "message-2", "message-3"])
-    XCTAssertEqual(store.snapshot.oldestLoadedSequence, 1)
-    XCTAssertEqual(store.snapshot.newestLoadedSequence, 3)
-    XCTAssertFalse(store.snapshot.hasMoreHistoryBefore)
+    #expect(store.snapshot.rows.map { $0.id } == ["message-1", "message-2", "message-3"])
+    #expect(store.snapshot.oldestLoadedSequence == 1)
+    #expect(store.snapshot.newestLoadedSequence == 3)
+    #expect(store.snapshot.hasMoreHistoryBefore == false)
   }
 
-  func testAppendReplaceRemoveAndClearKeepVisibleConversationStateCoherent() {
+  @Test func appendReplaceRemoveAndClearKeepVisibleConversationStateCoherent() {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-2")
     var store = ConversationStructureStore(session: session)
 
@@ -117,17 +120,17 @@ final class ConversationStructureStoreTests: XCTestCase {
     ))
     store.apply(.remove(rowID: "message-1"))
 
-    XCTAssertEqual(store.snapshot.rows.map(\.id), ["worker-2"])
-    XCTAssertEqual(store.snapshot.rows.first?.revision, 1)
-    XCTAssertEqual(store.snapshot.oldestLoadedSequence, 1)
-    XCTAssertEqual(store.snapshot.newestLoadedSequence, 2)
-    XCTAssertTrue(store.snapshot.hasMoreHistoryBefore)
+    #expect(store.snapshot.rows.map { $0.id } == ["worker-2"])
+    #expect(store.snapshot.rows.first?.revision == 1)
+    #expect(store.snapshot.oldestLoadedSequence == 1)
+    #expect(store.snapshot.newestLoadedSequence == 2)
+    #expect(store.snapshot.hasMoreHistoryBefore == true)
 
     store.apply(.clear)
 
-    XCTAssertTrue(store.snapshot.rows.isEmpty)
-    XCTAssertNil(store.snapshot.oldestLoadedSequence)
-    XCTAssertNil(store.snapshot.newestLoadedSequence)
-    XCTAssertFalse(store.snapshot.hasMoreHistoryBefore)
+    #expect(store.snapshot.rows.isEmpty)
+    #expect(store.snapshot.oldestLoadedSequence == nil)
+    #expect(store.snapshot.newestLoadedSequence == nil)
+    #expect(store.snapshot.hasMoreHistoryBefore == false)
   }
 }

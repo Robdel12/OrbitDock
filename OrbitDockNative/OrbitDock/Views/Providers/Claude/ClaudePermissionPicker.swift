@@ -15,6 +15,7 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
   case dontAsk
   case `default`
   case acceptEdits
+  case auto
   case bypassPermissions
 
   var id: String {
@@ -27,6 +28,7 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
       case .dontAsk: "Don't Ask"
       case .default: "Default"
       case .acceptEdits: "Accept Edits"
+      case .auto: "Auto"
       case .bypassPermissions: "Bypass Permissions"
     }
   }
@@ -37,6 +39,7 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
       case .dontAsk: "hand.raised.fill"
       case .default: "shield.lefthalf.filled"
       case .acceptEdits: "pencil.and.outline"
+      case .auto: "bolt.circle.fill"
       case .bypassPermissions: "bolt.fill"
     }
   }
@@ -47,6 +50,7 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
       case .dontAsk: "Deny tools not pre-approved — no prompts"
       case .default: "Ask permission for file writes and commands"
       case .acceptEdits: "Auto-approve file edits, ask for commands"
+      case .auto: "Auto-approve edits and safe commands"
       case .bypassPermissions: "Auto-approve everything"
     }
   }
@@ -57,6 +61,7 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
       case .dontAsk: .feedbackCaution
       case .default: .autonomyGuarded
       case .acceptEdits: .autonomyAutonomous
+      case .auto: .autonomyAutonomous
       case .bypassPermissions: .autonomyUnrestricted
     }
   }

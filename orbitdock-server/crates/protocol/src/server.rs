@@ -338,6 +338,16 @@ pub enum ServerMessage {
         rules: crate::SessionPermissionRules,
     },
 
+    // Mission Control
+    MissionsList {
+        missions: Vec<MissionSummary>,
+    },
+    MissionDelta {
+        mission_id: String,
+        issues: Vec<MissionIssueItem>,
+        summary: MissionSummary,
+    },
+
     // Errors
     Error {
         code: String,

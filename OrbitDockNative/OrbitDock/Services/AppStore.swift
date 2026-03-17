@@ -29,6 +29,9 @@ final class AppStore {
   func resolveSessionRef(sessionID: String) -> SessionRef? {
     // Check preview/test data first
     if let previewIndex = previewSessionsByID {
+      if let node = previewIndex[sessionID] {
+        return node.sessionRef
+      }
       if let node = previewIndex.values.first(where: { $0.sessionId == sessionID }) {
         return node.sessionRef
       }

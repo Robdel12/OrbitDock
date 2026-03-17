@@ -83,6 +83,8 @@ private func quickSwitcherPreviewNode(
     codexIntegrationMode: nil,
     claudeIntegrationMode: .direct,
     effort: nil,
+    missionId: nil,
+    issueIdentifier: nil,
     totalTokens: 0,
     totalCostUSD: 0,
     isActive: status == .active,

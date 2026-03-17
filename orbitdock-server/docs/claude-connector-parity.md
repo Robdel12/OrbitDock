@@ -131,7 +131,7 @@ These flags exist in the CLI (verified in SDK source) and could be useful:
 | `--fallback-model <model>` | model ID | Automatic fallback on overload |
 | `--system-prompt <prompt>` | string | Custom system prompt (hidden flag) |
 | `--append-system-prompt <prompt>` | string | Append to default system prompt (hidden flag) |
-| `--mcp-config <configs...>` | JSON file(s) | Load MCP servers at spawn time |
+| `--mcp-config <configs...>` | JSON file(s) | Load MCP servers at spawn time. **Note:** Mission sessions use `.mcp.json` auto-discovery instead (file written to worktree at dispatch time). |
 | `--add-dir <dirs...>` | path(s) | Additional directories for tool access |
 | `--tools <tools...>` | tool list | Restrict base tool set (`""` = none, `"default"` = all) |
 | `--betas <betas...>` | beta IDs | Enable beta features (e.g. `context-1m-2025-08-07`) |

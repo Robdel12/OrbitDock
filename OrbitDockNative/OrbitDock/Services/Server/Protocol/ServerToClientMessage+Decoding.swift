@@ -383,6 +383,16 @@ extension ServerToClientMessage {
         let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
         self = .error(code: code, message: message, sessionId: sessionId)
 
+      case "missions_list":
+        let missions = try container.decode([MissionSummary].self, forKey: .missions)
+        self = .missionsList(missions: missions)
+
+      case "mission_delta":
+        let missionId = try container.decode(String.self, forKey: .missionId)
+        let issues = try container.decode([MissionIssueItem].self, forKey: .issues)
+        let summary = try container.decode(MissionSummary.self, forKey: .summary)
+        self = .missionDelta(missionId: missionId, issues: issues, summary: summary)
+
       default:
         netLog(.error, cat: .ws, "Unknown server message type: \(type)")
         self = .unknown(type: type)

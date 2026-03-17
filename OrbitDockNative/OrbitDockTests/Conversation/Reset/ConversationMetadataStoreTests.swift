@@ -1,8 +1,11 @@
+import Foundation
 @testable import OrbitDock
-import XCTest
+import Testing
 
-final class ConversationMetadataStoreTests: XCTestCase {
-  func testHydrateBuildsWorkerApprovalAndInspectorStateTogether() {
+@Suite("ConversationMetadataStore")
+@MainActor
+struct ConversationMetadataStoreTests {
+  @Test func hydrateBuildsWorkerApprovalAndInspectorStateTogether() {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-1")
     var store = ConversationMetadataStore(session: session, provider: .codex, model: "gpt-5.4")
 
@@ -72,21 +75,21 @@ final class ConversationMetadataStoreTests: XCTestCase {
       )
     ))
 
-    XCTAssertEqual(store.snapshot.workerIDs, ["worker-1", "worker-2"])
-    XCTAssertEqual(store.snapshot.activeWorkerIDs, ["worker-1"])
-    XCTAssertEqual(store.snapshot.approvalID, "approval-1")
-    XCTAssertEqual(store.snapshot.approvalVersion, 7)
-    XCTAssertEqual(store.snapshot.pendingQuestion, "Ship it?")
-    XCTAssertEqual(store.snapshot.workStatus, .working)
-    XCTAssertEqual(store.snapshot.currentTool, "bash")
-    XCTAssertEqual(store.snapshot.provider, .codex)
-    XCTAssertEqual(store.snapshot.model, "gpt-5.4")
-    XCTAssertEqual(store.snapshot.workerInspector.selectedWorker?.title, "Descartes")
-    XCTAssertEqual(store.snapshot.workerInspector.tools.first?.toolName, "Read")
-    XCTAssertEqual(store.snapshot.workerInspector.threadEntries.first?.body, "I found the auth entrypoint.")
+    #expect(store.snapshot.workerIDs == ["worker-1", "worker-2"])
+    #expect(store.snapshot.activeWorkerIDs == ["worker-1"])
+    #expect(store.snapshot.approvalID == "approval-1")
+    #expect(store.snapshot.approvalVersion == 7)
+    #expect(store.snapshot.pendingQuestion == "Ship it?")
+    #expect(store.snapshot.workStatus == .working)
+    #expect(store.snapshot.currentTool == "bash")
+    #expect(store.snapshot.provider == .codex)
+    #expect(store.snapshot.model == "gpt-5.4")
+    #expect(store.snapshot.workerInspector.selectedWorker?.title == "Descartes")
+    #expect(store.snapshot.workerInspector.tools.first?.toolName == "Read")
+    #expect(store.snapshot.workerInspector.threadEntries.first?.body == "I found the auth entrypoint.")
   }
 
-  func testSelectingWorkerUsesStoredInspectorPayloadWithoutRehydratingTranscript() {
+  @Test func selectingWorkerUsesStoredInspectorPayloadWithoutRehydratingTranscript() {
     let session = ScopedSessionID(endpointId: UUID(), sessionId: "session-2")
     var store = ConversationMetadataStore(session: session)
 
@@ -154,10 +157,10 @@ final class ConversationMetadataStoreTests: XCTestCase {
 
     store.apply(.selectWorker("worker-2"))
 
-    XCTAssertEqual(store.snapshot.selectedWorkerID, "worker-2")
-    XCTAssertEqual(store.snapshot.workerInspector.selectedWorker?.title, "Grace")
-    XCTAssertEqual(store.snapshot.workerInspector.tools.first?.toolName, "Search")
-    XCTAssertEqual(store.snapshot.workerInspector.threadEntries.first?.body, "Auth state looks good.")
+    #expect(store.snapshot.selectedWorkerID == "worker-2")
+    #expect(store.snapshot.workerInspector.selectedWorker?.title == "Grace")
+    #expect(store.snapshot.workerInspector.tools.first?.toolName == "Search")
+    #expect(store.snapshot.workerInspector.threadEntries.first?.body == "Auth state looks good.")
   }
 
   private func makeRowEntry(

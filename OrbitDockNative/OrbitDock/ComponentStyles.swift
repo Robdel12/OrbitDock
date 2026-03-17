@@ -122,6 +122,7 @@ struct DestructiveButtonStyle: ButtonStyle {
 extension View {
   func cosmicCard(
     cornerRadius: CGFloat = Radius.lg,
+    fillColor: Color = .backgroundTertiary,
     fillOpacity: Double = 0.5,
     borderColor: Color = .surfaceBorder,
     borderOpacity: Double = OpacityTier.subtle
@@ -130,12 +131,44 @@ extension View {
       .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
       .background(
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-          .fill(Color.backgroundTertiary.opacity(fillOpacity))
+          .fill(fillColor.opacity(fillOpacity))
       )
       .overlay(
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
           .strokeBorder(borderColor.opacity(borderOpacity), lineWidth: 1)
       )
+  }
+}
+
+// MARK: - Selectable Option Chip
+
+struct SelectableOptionChip: View {
+  let label: String
+  var icon: String? = nil
+  let isSelected: Bool
+  var tint: Color = .accent
+  var isCompact: Bool = false
+
+  var body: some View {
+    HStack(spacing: Spacing.xxs) {
+      if let icon {
+        Image(systemName: icon)
+          .font(.system(size: 8, weight: .bold))
+      }
+      Text(label)
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+    }
+    .foregroundStyle(isSelected ? tint : Color.textTertiary)
+    .padding(.horizontal, isCompact ? Spacing.sm_ : Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+        .fill(isSelected ? tint.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            .strokeBorder(isSelected ? tint.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
+        )
+    )
   }
 }
 
@@ -236,5 +269,22 @@ extension View {
         RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
           .fill(color.opacity(opacity))
     }
+  }
+}
+
+// MARK: - Status Banner Modifier
+
+extension View {
+  func statusBanner(color: Color) -> some View {
+    self
+      .padding(Spacing.lg)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+          .fill(color.opacity(OpacityTier.light))
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+              .stroke(color.opacity(OpacityTier.subtle), lineWidth: 1)
+          )
+      )
   }
 }

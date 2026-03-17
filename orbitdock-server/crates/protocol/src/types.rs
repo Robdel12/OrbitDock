@@ -11,6 +11,16 @@ pub enum Provider {
     Codex,
 }
 
+impl std::str::FromStr for Provider {
+    type Err = std::convert::Infallible;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "codex" => Provider::Codex,
+            _ => Provider::Claude,
+        })
+    }
+}
+
 /// Codex integration mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -441,6 +451,12 @@ pub struct SessionSummary {
     /// Session this was forked from (fork lineage).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forked_from_session_id: Option<String>,
+    /// Mission ID if this session is orchestrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission_id: Option<String>,
+    /// Issue identifier (e.g. "PROJ-123") if this session is orchestrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_identifier: Option<String>,
 }
 
 impl SessionSummary {
@@ -614,6 +630,8 @@ impl SessionSummary {
             active_worker_count: self.active_worker_count,
             pending_tool_family: self.pending_tool_family,
             forked_from_session_id: self.forked_from_session_id.clone(),
+            mission_id: self.mission_id.clone(),
+            issue_identifier: self.issue_identifier.clone(),
         }
     }
 }
@@ -649,6 +667,8 @@ impl From<SessionSummary> for SessionListItem {
             active_worker_count: summary.active_worker_count,
             pending_tool_family: summary.pending_tool_family,
             forked_from_session_id: summary.forked_from_session_id,
+            mission_id: summary.mission_id,
+            issue_identifier: summary.issue_identifier,
         }
     }
 }
@@ -812,6 +832,13 @@ pub struct SessionState {
     #[serde(default)]
     pub unread_count: u64,
 
+    /// Mission ID if this session is orchestrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission_id: Option<String>,
+    /// Issue identifier (e.g. "PROJ-123") if this session is orchestrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_identifier: Option<String>,
+
     // -- Conversation row payload (server-populated) --
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rows: Vec<crate::conversation_contracts::ConversationRowEntry>,
@@ -878,6 +905,12 @@ pub struct SessionListItem {
     /// Session this was forked from (fork lineage).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub forked_from_session_id: Option<String>,
+    /// Mission ID if this session is orchestrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mission_id: Option<String>,
+    /// Issue identifier (e.g. "PROJ-123") if this session is orchestrated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_identifier: Option<String>,
 }
 
 impl SessionListItem {
@@ -911,6 +944,8 @@ impl SessionListItem {
             active_worker_count: summary.active_worker_count,
             pending_tool_family: summary.pending_tool_family,
             forked_from_session_id: summary.forked_from_session_id.clone(),
+            mission_id: summary.mission_id.clone(),
+            issue_identifier: summary.issue_identifier.clone(),
         }
     }
 }
@@ -1426,6 +1461,73 @@ pub struct WorktreeSummary {
 }
 
 // ---------------------------------------------------------------------------
+// Mission Control
+// ---------------------------------------------------------------------------
+
+/// Orchestration state for a mission issue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OrchestrationState {
+    Queued,
+    Claimed,
+    Running,
+    RetryQueued,
+    Completed,
+    Failed,
+}
+
+/// Summary of a configured mission.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissionSummary {
+    pub id: String,
+    pub name: String,
+    pub repo_root: String,
+    pub enabled: bool,
+    pub paused: bool,
+    pub tracker_kind: String,
+    /// Primary provider (backward compat — same as primary_provider).
+    pub provider: Provider,
+    pub provider_strategy: String,
+    pub primary_provider: Provider,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secondary_provider: Option<Provider>,
+    pub active_count: u32,
+    pub queued_count: u32,
+    pub completed_count: u32,
+    pub failed_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parse_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orchestrator_status: Option<String>,
+    /// ISO-8601 timestamp of the last orchestrator poll for this mission.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_polled_at: Option<String>,
+    /// Configured poll interval in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub poll_interval: Option<u64>,
+}
+
+/// A single issue tracked by a mission.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissionIssueItem {
+    pub issue_id: String,
+    pub identifier: String,
+    pub title: String,
+    pub tracker_state: String,
+    pub orchestration_state: OrchestrationState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub provider: Provider,
+    pub attempt: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_activity: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Permission Rules (returned by GET /api/sessions/{id}/permissions)
 // ---------------------------------------------------------------------------
 
@@ -1569,6 +1671,8 @@ mod tests {
             active_worker_count: 3,
             pending_tool_family: Some(crate::domain_events::ToolFamily::Shell),
             forked_from_session_id: Some("sess-0".to_string()),
+            mission_id: None,
+            issue_identifier: None,
         };
 
         let item = SessionListItem::from_summary(&summary);

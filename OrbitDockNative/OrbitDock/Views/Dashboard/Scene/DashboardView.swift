@@ -97,6 +97,8 @@ struct DashboardView: View {
               layoutMode: layoutMode,
               containerWidth: containerWidth
             )
+          case .missions:
+            missionsTab
           case .library:
             LibraryView(
               sessions: librarySessions,
@@ -106,6 +108,22 @@ struct DashboardView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .background(Color.backgroundPrimary)
+    }
+  }
+
+  // MARK: - Missions Tab
+
+  @ViewBuilder
+  private var missionsTab: some View {
+    let registry = appStore.runtimeRegistry
+    if let clients = (registry.primaryRuntime ?? registry.activeRuntime)?.clients {
+      MissionListView(missionsClient: clients.missions)
+    } else {
+      ContentUnavailableView(
+        "No Server Connected",
+        systemImage: "server.rack",
+        description: Text("Connect to a server to view missions")
+      )
     }
   }
 

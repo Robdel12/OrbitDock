@@ -1312,6 +1312,8 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
         ServerMessage::DirectoryListing { .. } => "directory_listing",
         ServerMessage::RecentProjectsList { .. } => "recent_projects_list",
         ServerMessage::PermissionRules { .. } => "permission_rules",
+        ServerMessage::MissionsList { .. } => "missions_list",
+        ServerMessage::MissionDelta { .. } => "mission_delta",
     }
 }
 

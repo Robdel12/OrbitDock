@@ -188,6 +188,28 @@ The server–client protocol uses strongly-typed Swift structs that mirror Rust 
 - Put small shared pure helpers in `orbitdock-server/crates/server/src/support/`
 - Put server-admin capabilities exposed through the binary in `orbitdock-server/crates/server/src/admin/`
 
+### Mission Control
+
+Autonomous issue-driven agent orchestration. Polls issue trackers (Linear first), creates per-issue git worktrees, and launches coding sessions. Configured via repo-local `MISSION.md` with YAML front matter + Liquid agent instructions template.
+
+Server-driven architecture — orchestration state lives in Rust, client renders via REST + WebSocket deltas. No MissionControlStore. Orchestrator starts only when `LINEAR_API_KEY` env var is set (or saved in settings).
+
+**MISSION.md schema** — top-level YAML with sections for `provider` (strategy: single/priority/round_robin, primary/secondary, max_concurrent), `trigger` (kind: polling/manual_only, interval, filters), and `orchestration` (max_retries, stall_timeout, base_branch).
+
+**Provider strategies** — `single` (all issues → primary), `priority` (primary up to max_concurrent_primary, overflow → secondary), `round_robin` (alternate between primary and secondary).
+
+**Key paths:** `domain/mission_control/`, `infrastructure/linear/`, `runtime/mission_orchestrator.rs`, `runtime/mission_dispatch.rs`, `transport/http/mission_control.rs`, `Views/MissionControl/`, `Models/MissionControl/`
+
+**REST + API detail:** See `orbitdock-server/docs/API.md` § Mission Control for full route contracts. Key route groups: `/api/missions`, `/api/missions/:id/issues`, `/api/missions/:id/settings`, `/api/server/linear-key`, `/api/server/tracker-keys`, `/api/server/mission-defaults`.
+
+**Mission tools:** 8 tools injected into every dispatched session (`mission_get_issue`, `mission_post_update`, `mission_update_comment`, `mission_get_comments`, `mission_set_status`, `mission_link_pr`, `mission_create_followup`, `mission_report_blocked`). Claude gets `.mcp.json` → `orbitdock mcp-mission-tools`; Codex gets `DynamicToolSpec`. Definitions in `domain/mission_control/tools.rs`, executor in `domain/mission_control/executor.rs`.
+
+**Tracker writes:** Best-effort state transitions at dispatch (`state_on_dispatch`, default "In Progress") and completion (`state_on_complete`, default "In Review"), plus comments. Configure in MISSION.md `orchestration` section.
+
+**Swift models:** `MissionSettings.swift`, `MissionSummary.swift`. **UI:** Tab bar (Overview | Settings | Issues) + global Settings pane for API keys.
+
+**Migration:** `V025__mission_control.sql`, `V026__mission_issue_url.sql`, `V027__mission_name.sql`, `V028__mission_file_path.sql`
+
 ### Cosmic Harbor Theme & Design System
 - Design tokens in `Theme.swift`, `DesignTokens.swift`, `ComponentStyles.swift`
 - Use custom colors from Theme.swift - deep space backgrounds with indigo undertones
@@ -468,6 +490,15 @@ orbitdock session rollback <ID> --turns N
 orbitdock session rename <ID> --name "name"
 orbitdock session resume <ID>
 
+# Mission Control
+orbitdock mission enable <repo-path>        # Enable mission for repo with MISSION.md
+orbitdock mission list                      # List configured missions
+orbitdock mission status <id>               # Show mission detail + issue pipeline
+orbitdock mission pause <id>                # Pause orchestration
+orbitdock mission resume <id>               # Resume orchestration
+orbitdock mission dispatch <id> <issue> [-p provider]  # Manually dispatch a specific issue
+orbitdock mission disable <id>              # Disable mission
+
 # Supporting
 orbitdock approval list [--session ID]
 orbitdock review list <SESSION_ID>
@@ -545,6 +576,8 @@ Follow the migration steps above. The extra rule here is simple: keep schema cha
 | `approval_history` | Tool approval requests and decisions |
 | `review_comments` | Code review annotations for workbench |
 | `worktrees` | Git worktree lifecycle tracking (status, health, auto-prune). Independent of sessions. |
+| `missions` | Mission Control — configured repo + tracker + provider combos for autonomous orchestration |
+| `mission_issues` | Per-issue orchestration state for each mission (queued → claimed → running → completed/failed) |
 | `config` | Key-value settings (API keys stored encrypted) |
 | `refinery_schema_history` | Active migration tracking (`schema_versions` may remain on upgraded installs as legacy history) |
 

@@ -206,13 +206,32 @@ pub async fn create_worktree(
     worktree_path: &str,
     branch: &str,
     base_ref: Option<&str>,
+    cleanup_existing: bool,
 ) -> Result<String, String> {
     let mut args = vec!["worktree", "add", "-b", branch, worktree_path];
     if let Some(base) = base_ref {
         args.push(base);
     }
-    run_git_checked(&args, repo_path).await?;
-    Ok(branch.to_string())
+    match run_git_checked(&args, repo_path).await {
+        Ok(()) => Ok(branch.to_string()),
+        Err(e) if e.contains("already exists") && cleanup_existing => {
+            // Clean up stale worktree + branch from a prior run, then retry
+            let _ = remove_worktree(repo_path, worktree_path, true).await;
+            let _ = run_git_checked(&["branch", "-D", branch], repo_path).await;
+
+            let mut retry_args = vec!["worktree", "add", "-b", branch, worktree_path];
+            if let Some(base) = base_ref {
+                retry_args.push(base);
+            }
+            run_git_checked(&retry_args, repo_path).await?;
+            Ok(branch.to_string())
+        }
+        Err(e) if e.contains("already exists") => Err(format!(
+            "Branch '{branch}' already exists from a prior run. \
+             Clean up with: git worktree remove {worktree_path} --force && git branch -D {branch}"
+        )),
+        Err(e) => Err(e),
+    }
 }
 
 /// Remove a git worktree.
@@ -542,7 +561,7 @@ branch refs/heads/main";
             .unwrap();
 
         // Create worktree
-        let branch = create_worktree(repo, wt, "test-branch", None)
+        let branch = create_worktree(repo, wt, "test-branch", None, false)
             .await
             .unwrap();
         assert_eq!(branch, "test-branch");

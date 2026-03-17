@@ -124,6 +124,11 @@ enum ServerToClientMessage: Codable {
 
   case error(code: String, message: String, sessionId: String?)
 
+  // MARK: Mission Control
+
+  case missionsList(missions: [MissionSummary])
+  case missionDelta(missionId: String, issues: [MissionIssueItem], summary: MissionSummary)
+
   // MARK: Unknown (resilience)
 
   /// Server sent a message type the client doesn't recognize.

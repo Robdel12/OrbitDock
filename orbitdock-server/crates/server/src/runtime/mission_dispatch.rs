@@ -1,0 +1,302 @@
+//! Per-issue dispatch: create worktree -> create session -> send prompt.
+
+use std::sync::Arc;
+
+use orbitdock_protocol::Provider;
+use tracing::{info, warn};
+
+use crate::connectors::claude_session::ClaudeAction;
+use crate::connectors::codex_session::CodexAction;
+use crate::domain::mission_control::config::AgentConfig;
+use crate::domain::mission_control::prompt::render_prompt;
+use crate::domain::mission_control::tracker::{Tracker, TrackerIssue};
+use crate::infrastructure::persistence::mission_control::update_mission_issue_state_sync;
+use crate::runtime::session_creation::{
+    launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
+};
+use crate::runtime::session_registry::SessionRegistry;
+
+/// Mission-level configuration shared across all issue dispatches.
+pub struct DispatchContext {
+    pub repo_root: String,
+    pub prompt_template: String,
+    pub base_branch: String,
+    pub agent_config: AgentConfig,
+    pub worktree_root_dir: Option<String>,
+    pub state_on_dispatch: String,
+}
+
+/// Dispatch a single issue: create worktree, create session, send prompt.
+pub async fn dispatch_issue(
+    registry: &Arc<SessionRegistry>,
+    mission_id: &str,
+    issue: &TrackerIssue,
+    provider_str: &str,
+    ctx: &DispatchContext,
+    attempt: u32,
+    tracker: &Arc<dyn Tracker>,
+) -> anyhow::Result<()> {
+    let branch_name = format!(
+        "mission/{}",
+        issue.identifier.to_lowercase().replace([' ', '/'], "-")
+    );
+
+    info!(
+        component = "mission_control",
+        event = "dispatch.start",
+        mission_id = %mission_id,
+        issue_id = %issue.id,
+        issue_identifier = %issue.identifier,
+        branch = %branch_name,
+        attempt = attempt,
+        "Dispatching issue"
+    );
+
+    // Update orchestration state to claimed (synchronous — must be visible before broadcast)
+    let db_path = registry.db_path().clone();
+    let mid = mission_id.to_string();
+    let iid = issue.id.clone();
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path).ok()?;
+        update_mission_issue_state_sync(
+            &conn,
+            &mid,
+            &iid,
+            "claimed",
+            None,
+            None,
+            Some(None),
+            Some(Some(&now)),
+            None,
+        )
+        .ok()
+    })
+    .await;
+
+    // Best-effort: move issue to configured dispatch state in tracker
+    if let Err(err) = tracker
+        .update_issue_state(&issue.id, &ctx.state_on_dispatch)
+        .await
+    {
+        warn!(
+            component = "mission_control",
+            event = "dispatch.tracker_write_failed",
+            issue_id = %issue.id,
+            target_state = %ctx.state_on_dispatch,
+            error = %err,
+            "Failed to update issue state in tracker"
+        );
+    }
+
+    // Create worktree via the runtime helper (also persists the record)
+    let worktree_path = match crate::runtime::worktree_creation::create_tracked_worktree(
+        registry,
+        &ctx.repo_root,
+        &branch_name,
+        Some(&ctx.base_branch),
+        orbitdock_protocol::WorktreeOrigin::Agent,
+        ctx.worktree_root_dir.as_deref(),
+        true, // always clean up stale worktrees — if we're dispatching, no active session owns them
+    )
+    .await
+    {
+        Ok(summary) => summary.worktree_path,
+        Err(err) => {
+            warn!(
+                component = "mission_control",
+                event = "dispatch.worktree_failed",
+                mission_id = %mission_id,
+                issue_id = %issue.id,
+                error = %err,
+                "Worktree creation failed, marking issue as failed"
+            );
+            let db_path = registry.db_path().clone();
+            let mid = mission_id.to_string();
+            let iid = issue.id.clone();
+            let err_msg = format!("Worktree creation failed: {err}");
+            let now = chrono::Utc::now().to_rfc3339();
+            let _ = tokio::task::spawn_blocking(move || {
+                let conn = rusqlite::Connection::open(&db_path).ok()?;
+                update_mission_issue_state_sync(
+                    &conn,
+                    &mid,
+                    &iid,
+                    "failed",
+                    None,
+                    Some(attempt),
+                    Some(Some(&err_msg)),
+                    None,
+                    Some(Some(&now)),
+                )
+                .ok()
+            })
+            .await;
+            return Err(anyhow::anyhow!("Worktree creation failed: {err}"));
+        }
+    };
+
+    // Write .mcp.json for mission tools (Claude auto-discovers this at startup)
+    if let Some(linear_api_key) = crate::support::api_keys::resolve_linear_api_key() {
+        let orbitdock_bin = std::env::current_exe()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "orbitdock".to_string());
+
+        let mcp_config = serde_json::json!({
+            "mcpServers": {
+                "orbitdock-mission": {
+                    "command": orbitdock_bin,
+                    "args": ["mcp-mission-tools"],
+                    "env": {
+                        "LINEAR_API_KEY": linear_api_key,
+                        "ORBITDOCK_ISSUE_ID": issue.id,
+                        "ORBITDOCK_ISSUE_IDENTIFIER": issue.identifier,
+                        "ORBITDOCK_MISSION_ID": mission_id,
+                    }
+                }
+            }
+        });
+
+        let mcp_path = format!("{worktree_path}/.mcp.json");
+        if let Err(err) = tokio::fs::write(
+            &mcp_path,
+            serde_json::to_string_pretty(&mcp_config).unwrap_or_default(),
+        )
+        .await
+        {
+            warn!(
+                component = "mission_control",
+                event = "dispatch.mcp_write_failed",
+                worktree_path = %worktree_path,
+                error = %err,
+                "Failed to write .mcp.json for mission tools; continuing without"
+            );
+        }
+    }
+
+    // Render prompt
+    let prompt = render_prompt(
+        &ctx.prompt_template,
+        &issue.id,
+        &issue.identifier,
+        &issue.title,
+        issue.description.as_deref(),
+        issue.url.as_deref(),
+        Some(&issue.state),
+        &issue.labels,
+        attempt,
+    )?;
+
+    // Create session
+    let provider: Provider = provider_str.parse().unwrap();
+
+    // Resolve agent settings for the chosen provider
+    let resolved = ctx.agent_config.resolve_for_provider(provider_str);
+
+    // Merge OrbitDock CLI reference into developer_instructions
+    let cli_ref = crate::domain::instructions::orbitdock_system_instructions();
+    let developer_instructions = match resolved.developer_instructions {
+        Some(ref existing) => Some(format!("{existing}\n\n{cli_ref}")),
+        None => Some(cli_ref),
+    };
+
+    // Build dynamic tool specs for Codex sessions
+    let dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec> =
+        crate::domain::mission_control::tools::mission_tool_definitions()
+            .into_iter()
+            .map(|t| codex_protocol::dynamic_tools::DynamicToolSpec {
+                name: t.name,
+                description: t.description,
+                input_schema: t.input_schema,
+            })
+            .collect();
+
+    let session_id = orbitdock_protocol::new_id();
+    let request = DirectSessionRequest {
+        provider,
+        cwd: worktree_path,
+        model: resolved.model.clone(),
+        approval_policy: resolved.approval_policy,
+        sandbox_mode: resolved.sandbox_mode,
+        permission_mode: resolved.permission_mode,
+        allowed_tools: resolved.allowed_tools,
+        disallowed_tools: resolved.disallowed_tools,
+        effort: resolved.effort.clone(),
+        collaboration_mode: resolved.collaboration_mode,
+        multi_agent: resolved.multi_agent,
+        personality: resolved.personality,
+        service_tier: resolved.service_tier,
+        developer_instructions,
+        mission_id: Some(mission_id.to_string()),
+        issue_identifier: Some(issue.identifier.clone()),
+        dynamic_tools,
+    };
+
+    let persisted = prepare_persist_direct_session(registry, session_id.clone(), request).await;
+    launch_prepared_direct_session(registry, persisted)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to launch session: {e}"))?;
+
+    // Update mission issue with session link (synchronous)
+    let db_path = registry.db_path().clone();
+    let mid = mission_id.to_string();
+    let iid = issue.id.clone();
+    let sid = session_id.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path).ok()?;
+        update_mission_issue_state_sync(
+            &conn,
+            &mid,
+            &iid,
+            "running",
+            Some(&sid),
+            Some(attempt),
+            Some(None),
+            None,
+            None,
+        )
+        .ok()
+    })
+    .await;
+
+    // Send the prompt as the first message via the connector action channel
+    match provider {
+        Provider::Codex => {
+            if let Some(tx) = registry.get_codex_action_tx(&session_id) {
+                let _ = tx
+                    .send(CodexAction::SendMessage {
+                        content: prompt,
+                        model: resolved.model,
+                        effort: resolved.effort,
+                        skills: vec![],
+                        images: vec![],
+                        mentions: vec![],
+                    })
+                    .await;
+            }
+        }
+        Provider::Claude => {
+            if let Some(tx) = registry.get_claude_action_tx(&session_id) {
+                let _ = tx
+                    .send(ClaudeAction::SendMessage {
+                        content: prompt,
+                        model: resolved.model,
+                        effort: resolved.effort,
+                        images: vec![],
+                    })
+                    .await;
+            }
+        }
+    }
+
+    info!(
+        component = "mission_control",
+        event = "dispatch.complete",
+        mission_id = %mission_id,
+        issue_id = %issue.id,
+        session_id = %session_id,
+        "Issue dispatched to session"
+    );
+
+    Ok(())
+}

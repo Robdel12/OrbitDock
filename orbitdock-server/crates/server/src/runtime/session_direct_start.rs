@@ -24,6 +24,7 @@ pub(crate) struct StartDirectCodexRequest<'a> {
     pub personality: Option<&'a str>,
     pub service_tier: Option<&'a str>,
     pub developer_instructions: Option<&'a str>,
+    pub dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
 }
 
 pub(crate) async fn start_direct_codex_session(
@@ -42,6 +43,7 @@ pub(crate) async fn start_direct_codex_session(
         personality,
         service_tier,
         developer_instructions,
+        dynamic_tools,
     } = request;
     let session_id = session_id.to_string();
     let cwd = cwd.to_string();
@@ -56,8 +58,13 @@ pub(crate) async fn start_direct_codex_session(
     let connector_timeout = Duration::from_secs(15);
     let task_session_id = session_id.clone();
 
+    let dynamic_tools_json: Vec<serde_json::Value> = dynamic_tools
+        .iter()
+        .filter_map(|t| serde_json::to_value(t).ok())
+        .collect();
+
     let mut connector_task = tokio::spawn(async move {
-        CodexSession::new_with_control_plane(
+        CodexSession::new_with_control_plane_and_tools(
             task_session_id,
             &cwd,
             model.as_deref(),
@@ -70,6 +77,7 @@ pub(crate) async fn start_direct_codex_session(
                 service_tier,
                 developer_instructions,
             },
+            dynamic_tools_json,
         )
         .await
     });

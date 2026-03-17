@@ -48,6 +48,25 @@ impl CodexConnector {
         sandbox_mode: Option<&str>,
         control_plane: CodexControlPlane,
     ) -> Result<Self, ConnectorError> {
+        Self::new_with_control_plane_and_tools(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            control_plane,
+            Vec::new(),
+        )
+        .await
+    }
+
+    pub async fn new_with_control_plane_and_tools(
+        cwd: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        control_plane: CodexControlPlane,
+        dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
+    ) -> Result<Self, ConnectorError> {
         info!("Creating codex-core connector for {}", cwd);
 
         let codex_home = find_codex_home().map_err(|e| {
@@ -73,7 +92,7 @@ impl CodexConnector {
 
         let configured_model = config.model.clone();
         let new_thread = thread_manager
-            .start_thread(config)
+            .start_thread_with_tools(config, dynamic_tools, false)
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to start thread: {}", e)))?;
 

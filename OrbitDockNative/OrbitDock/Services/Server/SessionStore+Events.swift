@@ -168,6 +168,13 @@ extension SessionStore {
         handleError(code, message, sessionId)
       case let .connectionStatusChanged(status):
         handleConnectionStatusChanged(status)
+      case let .missionsList(missions):
+        missionListSnapshot = missions
+      case let .missionDelta(missionId, issues, summary):
+        missionDeltaMissionId = missionId
+        missionDeltaSummary = summary
+        missionDeltaIssues = issues
+        missionDeltaRevision &+= 1
       case let .revision(sessionId, revision):
         lastRevision[sessionId] = revision
     }
@@ -190,6 +197,8 @@ extension SessionStore {
       case let .connectionStatusChanged(status): "connectionStatus(\(status))"
       case let .revision(sid, rev): "revision(\(sid), \(rev))"
       case let .error(code, msg, sid): "error(\(code), \(msg), \(sid ?? "nil"))"
+      case .missionsList: "missionsList"
+      case .missionDelta: "missionDelta"
       default: String(describing: event).prefix(80).description
     }
   }

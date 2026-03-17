@@ -76,9 +76,11 @@ extension TranscriptMessage {
     toolKind.colorName
   }
 
-  /// File path extracted from toolDisplay subtitle (server now provides this).
+  /// File path extracted from toolDisplay — prefers subtitle, falls back to summary for read tools.
   var filePath: String? {
-    toolDisplay?.subtitle
+    if let subtitle = toolDisplay?.subtitle { return subtitle }
+    if toolKind == .read { return toolDisplay?.summary }
+    return nil
   }
 
   /// Bash command extracted from toolDisplay summary.

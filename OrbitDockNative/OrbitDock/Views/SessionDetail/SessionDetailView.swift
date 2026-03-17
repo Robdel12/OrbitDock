@@ -111,6 +111,11 @@ struct SessionDetailView: View {
         worktreeCleanupBanner
       }
 
+      // Mission context banner
+      if let issueId = obs.issueIdentifier {
+        missionContextBanner(issueIdentifier: issueId)
+      }
+
       SessionDetailMainContentArea(layoutConfig: layoutConfig) {
         conversationContent
       } review: {
@@ -302,6 +307,41 @@ struct SessionDetailView: View {
 
   // Remaining sections and imperative handlers live in companion files so this root
   // stays focused on feature composition and lifecycle wiring.
+
+  // MARK: - Mission Context Banner
+
+  @ViewBuilder
+  func missionContextBanner(issueIdentifier: String) -> some View {
+    HStack(spacing: Spacing.sm) {
+      Image(systemName: "target")
+        .font(.system(size: TypeScale.caption, weight: .bold))
+        .foregroundStyle(.blue)
+
+      Text(issueIdentifier)
+        .font(.system(size: TypeScale.caption, weight: .bold))
+        .foregroundStyle(.blue)
+
+      Text("Mission session")
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textSecondary)
+
+      Spacer()
+
+      if let missionId = obs.missionId {
+        Button {
+          router.navigateToMission(missionId: missionId, endpointId: endpointId)
+        } label: {
+          Text("View Mission")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(.blue)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(Color.blue.opacity(0.08))
+  }
 
   // MARK: - Helpers
 

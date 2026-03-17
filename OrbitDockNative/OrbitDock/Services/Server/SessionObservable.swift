@@ -129,6 +129,8 @@ final class SessionObservable {
   var isWorktree: Bool = false
   var worktreeId: String?
   var unreadCount: UInt64 = 0
+  var missionId: String?
+  var issueIdentifier: String?
 
   init(id: String) {
     self.id = id

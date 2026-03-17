@@ -87,5 +87,9 @@ extension ServerToClientMessage {
     case worktreeRevision = "worktree_revision"
     case reviewRevision = "review_revision"
     case rules
+    case missions
+    case missionId = "mission_id"
+    case issues
+    case summary
   }
 }

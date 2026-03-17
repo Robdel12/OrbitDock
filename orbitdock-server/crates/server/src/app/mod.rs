@@ -258,6 +258,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     terminal_app,
                     approval_version,
                     unread_count,
+                    mission_id,
+                    issue_identifier,
                 } = rs;
                 let msg_count = rows.len();
 
@@ -267,10 +269,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     }
                 }
 
-                let provider = match provider.as_str() {
-                    "codex" => Provider::Codex,
-                    _ => Provider::Claude,
-                };
+                let provider: Provider = provider.parse().unwrap();
 
                 let mut handle = crate::domain::sessions::session::SessionHandle::restore(
                     id.clone(),
@@ -382,6 +381,9 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                 }
                 if let Some(source_id) = forked_from_session_id {
                     handle.set_forked_from(source_id);
+                }
+                if mission_id.is_some() || issue_identifier.is_some() {
+                    handle.set_mission_context(mission_id, issue_identifier);
                 }
 
                 if is_codex {
@@ -548,6 +550,13 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
 
     let git_state = state.clone();
     tokio::spawn(crate::runtime::background::git_refresh::start_git_refresh_loop(git_state));
+
+    // Mission Control orchestrator — user-started via POST /api/missions/:id/start-orchestrator
+    info!(
+        component = "mission_control",
+        event = "mission_control.ready",
+        "Mission Control ready (start orchestrator via API)"
+    );
 
     let shutdown_state = state.clone();
     let shutdown_persist = persist_tx.clone();

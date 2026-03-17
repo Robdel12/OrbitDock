@@ -3,6 +3,8 @@ mod codex;
 mod fs;
 mod health;
 mod mcp;
+pub mod mcp_mission_tools;
+mod mission;
 mod model;
 mod review;
 mod server;
@@ -32,6 +34,7 @@ pub async fn dispatch(command: &Command, config: &ClientConfig) -> i32 {
         Command::Server { action } => server::run(action, &rest, &output).await,
         Command::Codex { action } => codex::run(action, &rest, &output).await,
         Command::Worktree { action } => worktree::run(action, &rest, &output).await,
+        Command::Mission { action } => mission::run(action, &rest, &output).await,
         Command::Mcp { action } => mcp::run(action, &rest, &output).await,
         Command::Fs { action } => fs::run(action, &rest, &output).await,
         Command::Shell { action } => shell::run(action, &output, config).await,

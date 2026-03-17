@@ -10,6 +10,7 @@ import SwiftUI
 private enum SettingsPane: String, CaseIterable, Identifiable {
   case workspace
   case integrations
+  case missionControl
   case servers
   case notifications
   case diagnostics
@@ -24,6 +25,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         "Workspace"
       case .integrations:
         "Integrations"
+      case .missionControl:
+        "Mission Control"
       case .servers:
         "Servers"
       case .notifications:
@@ -39,6 +42,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         "Editor, naming, and local dictation"
       case .integrations:
         "Claude hooks and Codex account"
+      case .missionControl:
+        "API keys, provider defaults"
       case .servers:
         "Endpoints, runtime, and connection"
       case .notifications:
@@ -54,6 +59,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         "slider.horizontal.3"
       case .integrations:
         "puzzlepiece.extension"
+      case .missionControl:
+        "antenna.radiowaves.left.and.right"
       case .servers:
         "server.rack"
       case .notifications:
@@ -267,6 +274,8 @@ struct SettingsView: View {
             GeneralSettingsView()
           case .integrations:
             SetupSettingsView()
+          case .missionControl:
+            MissionControlDefaultsView()
           case .servers:
             DebugSettingsView()
           case .notifications:
@@ -313,6 +322,8 @@ struct SettingsView: View {
             GeneralSettingsView()
           case .integrations:
             SetupSettingsView()
+          case .missionControl:
+            MissionControlDefaultsView()
           case .servers:
             DebugSettingsView()
           case .notifications:

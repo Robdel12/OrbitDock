@@ -3,6 +3,7 @@ import SwiftUI
 enum AppContentDestination: Equatable {
   case setup
   case session(SessionRef)
+  case mission(MissionRef)
   case dashboard
 }
 
@@ -37,6 +38,8 @@ enum AppWindowPlanner {
         return .dashboard
       case let .session(ref):
         return .session(ref)
+      case let .mission(ref):
+        return .mission(ref)
     }
   }
 

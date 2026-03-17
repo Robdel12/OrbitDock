@@ -57,6 +57,8 @@ final class ConversationDetailRuntime {
   private(set) var metadataStore: ConversationMetadataStore
   private(set) var streamingRegistry: StreamingMessageRegistry
 
+  nonisolated deinit {}
+
   init(session: ScopedSessionID, clients: ServerClients, provider: Provider = .claude, model: String? = nil) {
     self.session = session
     self.clients = clients

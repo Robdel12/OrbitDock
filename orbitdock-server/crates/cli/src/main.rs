@@ -50,6 +50,9 @@ fn main() -> anyhow::Result<()> {
                 auth_token.as_deref(),
             );
         }
+        Some(Command::McpMissionTools) => {
+            return orbitdock_cli::commands::mcp_mission_tools::run();
+        }
         Some(Command::InstallService {
             bind,
             enable,
@@ -106,6 +109,11 @@ fn main() -> anyhow::Result<()> {
         }
         Some(Command::RemoteSetup) => {
             return orbitdock_server::admin::guide_remote_setup(&data_dir);
+        }
+        None => {
+            use clap::CommandFactory;
+            Cli::command().print_help()?;
+            return Ok(());
         }
         _ => {}
     }

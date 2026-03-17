@@ -97,6 +97,8 @@ pub(crate) async fn start_claude_fork_session(
             service_tier: None,
             developer_instructions: None,
             forked_from_session_id: Some(source_session_id.to_string()),
+            mission_id: None,
+            issue_identifier: None,
         })
         .await;
 
@@ -192,6 +194,8 @@ pub(crate) async fn finalize_codex_fork_session(
             service_tier: None,
             developer_instructions: None,
             forked_from_session_id: Some(source_session_id.to_string()),
+            mission_id: None,
+            issue_identifier: None,
         })
         .await;
 

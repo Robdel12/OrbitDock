@@ -30,6 +30,14 @@ final class SessionStore {
 
   // MARK: - Observable state
 
+  // MARK: - Mission Control live updates
+
+  var missionListSnapshot: [MissionSummary] = []
+  var missionDeltaMissionId: String?
+  var missionDeltaSummary: MissionSummary?
+  var missionDeltaIssues: [MissionIssueItem] = []
+  var missionDeltaRevision: UInt64 = 0
+
   var codexModels: [ServerCodexModelOption] = []
   var claudeModels: [ServerClaudeModelOption] = []
   var codexAccountStatus: ServerCodexAccountStatus?

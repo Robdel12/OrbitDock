@@ -57,6 +57,9 @@ Owns business concepts and state transitions.
 - conversation/session domain models
 - worktree domain behavior
 - git domain operations that are not just background runtime plumbing
+- mission control: config parsing, tool definitions (`tools.rs`), shared tool executor (`executor.rs`), prompt rendering, eligibility, and retry policy
+
+`domain/mission_control/tools.rs` defines the 8 mission tools. `domain/mission_control/executor.rs` provides the shared executor used by both the MCP server (Claude) and the dynamic tool handler (Codex). The dispatch flow in `runtime/mission_dispatch.rs` writes `.mcp.json` to the worktree for Claude sessions and passes `DynamicToolSpec` entries for Codex sessions.
 
 `domain` should be the least transport-aware part of the server.
 
@@ -295,6 +298,7 @@ Recommended grouping:
 - server routes
 - filesystem routes
 - worktree routes
+- mission routes
 
 ## Runtime Operation Contract
 

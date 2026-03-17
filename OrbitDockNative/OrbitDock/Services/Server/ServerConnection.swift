@@ -130,6 +130,10 @@ enum ServerEvent: Sendable {
   /// Permission rules
   case permissionRules(sessionId: String, rules: ServerSessionPermissionRules)
 
+  // Mission Control
+  case missionsList(missions: [MissionSummary])
+  case missionDelta(missionId: String, issues: [MissionIssueItem], summary: MissionSummary)
+
   /// Connection lifecycle
   case connectionStatusChanged(ConnectionStatus)
 
@@ -687,6 +691,10 @@ final class ServerConnection {
       case let .serverInfo(isPrimary, claims): emit(.serverInfo(isPrimary: isPrimary, claims: claims))
       case let .permissionRules(sessionId, rules): emit(.permissionRules(sessionId: sessionId, rules: rules))
       case let .error(code, message, sessionId): emit(.error(code: code, message: message, sessionId: sessionId))
+      case let .missionsList(missions):
+        emit(.missionsList(missions: missions))
+      case let .missionDelta(missionId, issues, summary):
+        emit(.missionDelta(missionId: missionId, issues: issues, summary: summary))
       case .directoryListing, .recentProjectsList, .openAiKeyStatus,
            .codexUsageResult, .claudeUsageResult:
         break

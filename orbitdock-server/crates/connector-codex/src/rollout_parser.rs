@@ -17,7 +17,7 @@ use codex_protocol::protocol::{
 };
 
 // Re-export SessionSource so the server crate can use it without depending on codex-protocol
-pub use codex_protocol::protocol::SessionSource;
+pub use codex_protocol::protocol::{SessionSource, SubAgentSource};
 use notify::EventKind;
 use orbitdock_protocol::provider_normalization::shared::{
     NormalizedApprovalKind, NormalizedApprovalRequest, NormalizedHandoff, NormalizedHandoffKind,

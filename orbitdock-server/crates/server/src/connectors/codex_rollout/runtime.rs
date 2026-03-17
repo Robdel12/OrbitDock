@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use orbitdock_connector_codex::rollout_parser::{
     self, current_time_rfc3339, current_time_unix_z, rollout_session_id_hint, RolloutEvent,
-    RolloutFileProcessor, SessionSource, DEBOUNCE_MS, SESSION_TIMEOUT_SECS,
+    RolloutFileProcessor, SessionSource, SubAgentSource, DEBOUNCE_MS, SESSION_TIMEOUT_SECS,
     STARTUP_SEED_RECENT_SECS,
 };
 use orbitdock_protocol::conversation_contracts::RowPageSummary;
@@ -484,6 +484,31 @@ impl WatcherRuntime {
                 .send(PersistCommand::CleanupThreadShadowSession {
                     thread_id: session_id.clone(),
                     reason: "mcp_shadow_session_ignored".into(),
+                })
+                .await;
+
+            return;
+        }
+
+        // Guardian / compact / memory-consolidation subagent sessions are
+        // internal housekeeping — skip them like we skip MCP shadow sessions.
+        if matches!(
+            &source,
+            SessionSource::SubAgent(s) if !matches!(s, SubAgentSource::ThreadSpawn { .. })
+        ) {
+            self.subagent_cache.remove(&session_id);
+            if self.app_state.remove_session(&session_id).is_some() {
+                self.app_state
+                    .broadcast_to_list(ServerMessage::SessionListItemRemoved {
+                        session_id: session_id.clone(),
+                    });
+            }
+
+            let _ = self
+                .persist_tx
+                .send(PersistCommand::CleanupThreadShadowSession {
+                    thread_id: session_id.clone(),
+                    reason: "internal_subagent_ignored".into(),
                 })
                 .await;
 

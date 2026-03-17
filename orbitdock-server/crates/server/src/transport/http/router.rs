@@ -21,6 +21,7 @@ pub fn build_router() -> Router<Arc<SessionRegistry>> {
         .merge(server_routes())
         .merge(filesystem_routes())
         .merge(worktree_routes())
+        .merge(mission_routes())
 }
 
 fn hook_routes() -> Router<Arc<SessionRegistry>> {
@@ -286,5 +287,66 @@ fn worktree_routes() -> Router<Arc<SessionRegistry>> {
         .route(
             "/api/worktrees/{worktree_id}",
             delete(super::remove_worktree),
+        )
+}
+
+fn mission_routes() -> Router<Arc<SessionRegistry>> {
+    Router::new()
+        .route(
+            "/api/missions",
+            get(super::list_missions).post(super::create_mission),
+        )
+        .route(
+            "/api/missions/{mission_id}",
+            get(super::get_mission)
+                .put(super::update_mission)
+                .delete(super::delete_mission),
+        )
+        .route(
+            "/api/missions/{mission_id}/issues",
+            get(super::list_mission_issues),
+        )
+        .route(
+            "/api/missions/{mission_id}/issues/{issue_id}/retry",
+            post(super::retry_mission_issue),
+        )
+        .route(
+            "/api/missions/{mission_id}/issues/{issue_id}/blocked",
+            post(super::report_issue_blocked),
+        )
+        .route(
+            "/api/missions/{mission_id}/scaffold",
+            post(super::scaffold_mission_file),
+        )
+        .route(
+            "/api/missions/{mission_id}/migrate-workflow",
+            post(super::migrate_workflow_to_mission),
+        )
+        .route(
+            "/api/missions/{mission_id}/settings",
+            put(super::update_mission_settings),
+        )
+        .route(
+            "/api/missions/{mission_id}/default-template",
+            get(super::get_default_template),
+        )
+        .route(
+            "/api/missions/{mission_id}/start-orchestrator",
+            post(super::start_mission_orchestrator_endpoint),
+        )
+        .route(
+            "/api/missions/{mission_id}/dispatch",
+            post(super::dispatch_mission_issue),
+        )
+        .route(
+            "/api/server/linear-key",
+            get(super::check_linear_key)
+                .post(super::set_linear_key)
+                .delete(super::delete_linear_key),
+        )
+        .route("/api/server/tracker-keys", get(super::get_tracker_keys))
+        .route(
+            "/api/server/mission-defaults",
+            get(super::get_mission_defaults).put(super::update_mission_defaults),
         )
 }
