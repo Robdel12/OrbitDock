@@ -200,19 +200,15 @@ Server-driven architecture — orchestration state lives in Rust, client renders
 
 **Key paths:** `domain/mission_control/`, `infrastructure/linear/`, `runtime/mission_orchestrator.rs`, `runtime/mission_dispatch.rs`, `transport/http/mission_control.rs`, `Views/MissionControl/`, `Models/MissionControl/`
 
-**REST:** `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `POST /api/missions/:id/issues/:issue_id/retry`, `PUT /api/missions/:id/settings`, `POST /api/missions/:id/scaffold`, `POST /api/missions/:id/dispatch`, `GET /api/missions/:id/default-template`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`
+**REST + API detail:** See `orbitdock-server/docs/API.md` § Mission Control for full route contracts. Key route groups: `/api/missions`, `/api/missions/:id/issues`, `/api/missions/:id/settings`, `/api/server/linear-key`, `/api/server/tracker-keys`, `/api/server/mission-defaults`.
 
-**Tracker writes:** The server writes back to the tracker (Linear) at lifecycle points — `state_on_dispatch` (default "In Progress") when an issue is claimed, `state_on_complete` (default "In Review") when a session finishes, plus comments on completion/failure. All writes are best-effort (logged, never block the pipeline). Configure via `orchestration.state_on_dispatch` / `orchestration.state_on_complete` in MISSION.md.
+**Mission tools:** 8 tools injected into every dispatched session (`mission_get_issue`, `mission_post_update`, `mission_update_comment`, `mission_get_comments`, `mission_set_status`, `mission_link_pr`, `mission_create_followup`, `mission_report_blocked`). Claude gets `.mcp.json` → `orbitdock mcp-mission-tools`; Codex gets `DynamicToolSpec`. Definitions in `domain/mission_control/tools.rs`, executor in `domain/mission_control/executor.rs`.
 
-**Mission tools:** Each dispatched session gets 8 mission-specific tools injected automatically. For Claude sessions, an `.mcp.json` is written to the worktree pointing to `orbitdock mcp-mission-tools` (stdio MCP server). Tools: `mission_get_issue`, `mission_post_update`, `mission_update_comment`, `mission_get_comments`, `mission_set_status`, `mission_link_pr`, `mission_create_followup`, `mission_report_blocked`. Definitions in `domain/mission_control/tools.rs`, execution in `domain/mission_control/executor.rs`, MCP server in `cli/src/commands/mcp_mission_tools.rs`.
+**Tracker writes:** Best-effort state transitions at dispatch (`state_on_dispatch`, default "In Progress") and completion (`state_on_complete`, default "In Review"), plus comments. Configure in MISSION.md `orchestration` section.
 
-**CLI dispatch:** `orbitdock mission dispatch <mission_id> <issue_identifier> [-p provider]` — manually dispatch a specific Linear issue to a mission without waiting for the polling loop.
+**Swift models:** `MissionSettings.swift`, `MissionSummary.swift`. **UI:** Tab bar (Overview | Settings | Issues) + global Settings pane for API keys.
 
-**Swift models:** `MissionSettings.swift` (ProviderSettings, TriggerSettings, TriggerFilters, OrchestrationSettings), `MissionSummary.swift` (includes providerStrategy, primaryProvider, secondaryProvider)
-
-**UI:** Mission detail uses tab bar (Overview | Settings | Issues). Global Mission Control pane in Settings window for API keys + provider defaults.
-
-**Migration:** `V025__mission_control.sql`, `V026__mission_issue_url.sql`
+**Migration:** `V025__mission_control.sql`, `V026__mission_issue_url.sql`, `V027__mission_name.sql`, `V028__mission_file_path.sql`
 
 ### Cosmic Harbor Theme & Design System
 - Design tokens in `Theme.swift`, `DesignTokens.swift`, `ComponentStyles.swift`
@@ -500,6 +496,7 @@ orbitdock mission list                      # List configured missions
 orbitdock mission status <id>               # Show mission detail + issue pipeline
 orbitdock mission pause <id>                # Pause orchestration
 orbitdock mission resume <id>               # Resume orchestration
+orbitdock mission dispatch <id> <issue> [-p provider]  # Manually dispatch a specific issue
 orbitdock mission disable <id>              # Disable mission
 
 # Supporting

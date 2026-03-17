@@ -2042,7 +2042,7 @@ Response:
       "paused": false,
       "tracker_kind": "linear",
       "provider": "claude",
-      "provider_strategy": "primary_only",
+      "provider_strategy": "single",
       "primary_provider": "claude",
       "secondary_provider": null,
       "active_count": 2,
@@ -2091,7 +2091,7 @@ Response:
     "paused": false,
     "tracker_kind": "linear",
     "provider": "claude",
-    "provider_strategy": "primary_only",
+    "provider_strategy": "single",
     "primary_provider": "claude",
     "secondary_provider": null,
     "active_count": 2,
@@ -2118,7 +2118,7 @@ Response:
   ],
   "settings": {
     "provider": {
-      "strategy": "primary_only",
+      "strategy": "single",
       "primary": "claude",
       "secondary": null,
       "max_concurrent": 3,
@@ -2145,8 +2145,8 @@ Response:
       }
     },
     "trigger": {
-      "kind": "poll",
-      "interval": 30000,
+      "kind": "polling",
+      "interval": 30,
       "filters": {
         "labels": [],
         "states": [],
@@ -2156,9 +2156,11 @@ Response:
     },
     "orchestration": {
       "max_retries": 3,
-      "stall_timeout": 600000,
+      "stall_timeout": 600,
       "base_branch": "main",
-      "worktree_root_dir": null
+      "worktree_root_dir": null,
+      "state_on_dispatch": "In Progress",
+      "state_on_complete": "In Review"
     },
     "prompt_template": "You are working on {{ issue.identifier }}...",
     "tracker": "linear"
@@ -2292,7 +2294,7 @@ Request:
 
 ```json
 {
-  "provider_strategy": "primary_only",
+  "provider_strategy": "single",
   "primary_provider": "claude",
   "secondary_provider": null,
   "max_concurrent": 3,
@@ -2314,15 +2316,15 @@ Request:
   "agent_codex_service_tier": null,
   "agent_codex_developer_instructions": null,
 
-  "trigger_kind": "poll",
-  "poll_interval": 30000,
+  "trigger_kind": "polling",
+  "poll_interval": 30,
   "label_filter": [],
   "state_filter": [],
   "project_key": "ENG",
   "team_key": null,
 
   "max_retries": 3,
-  "stall_timeout": 600000,
+  "stall_timeout": 600,
   "base_branch": "main",
   "worktree_root_dir": null,
 
@@ -2452,7 +2454,7 @@ Response:
 
 ```json
 {
-  "provider_strategy": "primary_only",
+  "provider_strategy": "single",
   "primary_provider": "claude",
   "secondary_provider": null
 }

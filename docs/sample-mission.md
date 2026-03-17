@@ -123,7 +123,7 @@ Disables automatic polling. Issues are only dispatched when manually triggered.
 | `provider` | `max_concurrent_primary` | — | Max sessions on primary before overflow (priority only) |
 | `agent.claude` | `model` | — | Claude model ID |
 | `agent.claude` | `effort` | — | Reasoning effort (low/medium/high) |
-| `agent.claude` | `permission_mode` | — | Permission mode (plan/default/auto-edit/bypass) |
+| `agent.claude` | `permission_mode` | — | Permission mode (plan/default/auto-edit/auto/bypass) |
 | `agent.claude` | `allowed_tools` | `[]` | Only allow these tools |
 | `agent.claude` | `disallowed_tools` | `[]` | Block these tools |
 | `agent.codex` | `model` | — | Codex model ID |
@@ -144,6 +144,9 @@ Disables automatic polling. Issues are only dispatched when manually triggered.
 | `orchestration` | `max_retries` | `3` | Max retry attempts per issue |
 | `orchestration` | `stall_timeout` | `600` | Kill + retry after this many seconds of inactivity |
 | `orchestration` | `base_branch` | `main` | Base branch for worktrees |
+| `orchestration` | `worktree_root_dir` | — | Optional override for worktree location |
+| `orchestration` | `state_on_dispatch` | `In Progress` | Tracker state when issue is dispatched |
+| `orchestration` | `state_on_complete` | `In Review` | Tracker state when session completes |
 
 ## Template Variables
 

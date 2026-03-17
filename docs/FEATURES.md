@@ -216,7 +216,7 @@ Autonomous issue-driven agent orchestration. Poll issue trackers, create per-iss
 - **Trigger configuration** — Polling with configurable interval, label/state/project/team filters, or manual-only mode
 - **Orchestration pipeline** — Issues flow through Queued → Claimed → Running → Completed/Failed states
 - **Per-provider agent settings** — Configure model, effort, and permission/autonomy level per provider under `agent.claude` / `agent.codex` in MISSION.md
-- **Mission-safe defaults** — Agents default to headless-safe permission modes (Accept Edits for Claude, Autonomous for Codex) to prevent stalling
+- **Mission-safe defaults** — Agents default to headless-safe permission modes (Auto for Claude, On-Request/Workspace-Write for Codex) to prevent stalling
 - **Agent dispatch** — Creates OrbitDock sessions with worktrees, provider selection based on strategy, configured model/effort/permissions
 - **Eligibility engine** — Priority + date sorting, concurrency gating, retry queue with exponential backoff
 - **Dashboard tab** — Missions tab in the dashboard shows all configured missions with status capsules (Active/Paused/Disabled)
@@ -226,8 +226,8 @@ Autonomous issue-driven agent orchestration. Poll issue trackers, create per-iss
 - **Settings write-back** — Edits in the Settings tab write back to MISSION.md on disk via `PUT /api/missions/:id/settings`
 - **Global settings pane** — Mission Control pane in the Settings window for tracker API keys (Linear status + source indicator) and default provider strategy/primary/secondary
 - **Issue badges** — Mission-spawned sessions show issue identifier badges in the activity stream
-- **REST API** — `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `PUT /api/missions/:id/settings`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`
-- **CLI** — `orbitdock mission enable/list/status/pause/resume/disable`
+- **REST API** — `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `POST /api/missions/:id/issues/:issue_id/retry`, `POST /api/missions/:id/issues/:issue_id/blocked`, `POST /api/missions/:id/scaffold`, `POST /api/missions/:id/migrate-workflow`, `GET /api/missions/:id/default-template`, `POST /api/missions/:id/start-orchestrator`, `POST /api/missions/:id/dispatch`, `PUT /api/missions/:id/settings`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`, `GET/POST/DELETE /api/server/linear-key`
+- **CLI** — `orbitdock mission enable/list/status/pause/resume/disable/dispatch`
 - **Cross-platform** — Works on both macOS and iOS
 
 ## Platforms

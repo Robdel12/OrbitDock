@@ -298,6 +298,7 @@ Recommended grouping:
 - server routes
 - filesystem routes
 - worktree routes
+- mission routes
 
 ## Runtime Operation Contract
 
