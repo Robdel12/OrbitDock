@@ -197,8 +197,6 @@ pub struct ToolRowSummary {
 }
 
 impl ToolRow {
-    /// Convert to wire-safe summary, stripping raw invocation/result.
-    /// Guarantees `tool_display` is populated — computes it on the fly if missing.
     pub fn to_summary(&self) -> ToolRowSummary {
         let display = self.tool_display.clone().unwrap_or_else(|| {
             let result_str = self.result.as_ref().and_then(|v| v.as_str());
@@ -366,8 +364,10 @@ pub fn extract_row_content_str_summary(row: &ConversationRowSummary) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConversationRow, ConversationRowEntry, MessageRowContent};
-    use crate::ImageInput;
+    use super::{ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow};
+    use crate::conversation_contracts::render_hints::RenderHints;
+    use crate::domain_events::{ToolFamily, ToolKind, ToolStatus};
+    use crate::{ImageInput, Provider};
 
     #[test]
     fn message_row_content_round_trips_streaming_images_and_turn_id() {
@@ -415,5 +415,34 @@ mod tests {
         let decoded: ConversationRowEntry =
             serde_json::from_value(json).expect("deserialize conversation row");
         assert_eq!(decoded, entry);
+    }
+
+    #[test]
+    fn flat_invocation_passes_through_unchanged() {
+        // Current format: flat JSON, correct kind — should not be affected
+        let row = ToolRow {
+            id: "toolu_abc".into(),
+            provider: Provider::Claude,
+            family: ToolFamily::Shell,
+            kind: ToolKind::Bash,
+            status: ToolStatus::Completed,
+            title: "Bash".into(),
+            subtitle: None,
+            summary: None,
+            preview: None,
+            started_at: None,
+            ended_at: None,
+            duration_ms: None,
+            grouping_key: None,
+            invocation: serde_json::json!({"command": "ls -la"}),
+            result: Some(serde_json::json!({"output": "file1\nfile2"})),
+            render_hints: RenderHints::default(),
+            tool_display: None,
+        };
+
+        let summary = row.to_summary();
+        assert_eq!(summary.kind, ToolKind::Bash);
+        assert_eq!(summary.family, ToolFamily::Shell);
+        assert_eq!(summary.tool_display.tool_type, "bash");
     }
 }

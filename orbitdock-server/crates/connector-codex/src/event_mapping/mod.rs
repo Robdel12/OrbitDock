@@ -13,3 +13,4 @@ pub(super) mod tools;
 
 pub(super) type SharedStringBuffers = Arc<tokio::sync::Mutex<HashMap<String, String>>>;
 pub(super) type SharedEnvironmentTracker = Arc<tokio::sync::Mutex<EnvironmentTracker>>;
+pub(super) type SharedPatchContexts = Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>;

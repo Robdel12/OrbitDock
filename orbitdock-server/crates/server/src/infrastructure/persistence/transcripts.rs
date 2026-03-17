@@ -3,7 +3,9 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
-use orbitdock_protocol::conversation_contracts::tool_display::compute_tool_display;
+use orbitdock_protocol::conversation_contracts::tool_display::{
+    classify_tool_name, compute_tool_display,
+};
 use orbitdock_protocol::conversation_contracts::{
     ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
 };
@@ -40,20 +42,9 @@ fn role_from_str(role: &str) -> ParsedRole {
     }
 }
 
+/// Classify a tool name — delegates to the shared classifier in orbitdock_protocol.
 fn classify_tool(name: &str) -> (ToolFamily, ToolKind) {
-    match name {
-        "Bash" | "bash" => (ToolFamily::Shell, ToolKind::Bash),
-        "Read" | "read" | "FileRead" => (ToolFamily::FileRead, ToolKind::Read),
-        "Edit" | "edit" | "FileEdit" => (ToolFamily::FileChange, ToolKind::Edit),
-        "Write" | "write" | "FileWrite" => (ToolFamily::FileChange, ToolKind::Write),
-        "Glob" | "glob" => (ToolFamily::Search, ToolKind::Glob),
-        "Grep" | "grep" => (ToolFamily::Search, ToolKind::Grep),
-        "WebSearch" | "websearch" => (ToolFamily::Web, ToolKind::WebSearch),
-        "WebFetch" | "webfetch" => (ToolFamily::Web, ToolKind::WebFetch),
-        "Agent" | "agent" => (ToolFamily::Agent, ToolKind::SpawnAgent),
-        n if n.starts_with("mcp__") => (ToolFamily::Mcp, ToolKind::McpToolCall),
-        _ => (ToolFamily::Generic, ToolKind::Generic),
-    }
+    classify_tool_name(name)
 }
 
 fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {

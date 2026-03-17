@@ -3,8 +3,9 @@
 //  OrbitDock
 //
 //  Adaptive JSON renderer that auto-selects the best display format:
-//  - Simple flat objects (<5 keys, no nesting) → key-value field list
-//  - Complex JSON (nested, arrays, >5 keys) → JSONTreeView
+//  - Simple flat objects (<10 keys, no nesting) → key-value field list
+//  - Uniform array of flat objects (<=10 items) → separated card list
+//  - Complex JSON (nested, arrays, >10 keys) → JSONTreeView
 //  - Plain text / single string → body text
 //
 
@@ -23,6 +24,9 @@ struct SmartJSONView: View {
 
       case let .keyValuePairs(pairs):
         keyValueList(pairs)
+
+      case let .uniformArray(items):
+        uniformArrayList(items)
 
       case .complexJSON:
         JSONTreeView(jsonString: jsonString)
@@ -72,10 +76,24 @@ struct SmartJSONView: View {
           .foregroundStyle(Color.accent)
       }
     } else if let string = value as? String {
-      Text(string)
-        .font(.system(size: TypeScale.code, design: .monospaced))
-        .foregroundStyle(Color.textSecondary)
-        .lineLimit(3)
+      if looksLikeURL(string) {
+        Text(string.count > 80 ? String(string.prefix(77)) + "..." : string)
+          .font(.system(size: TypeScale.code, design: .monospaced))
+          .foregroundStyle(Color.accent)
+      } else if looksLikePath(string) {
+        HStack(spacing: Spacing.xs) {
+          Image(systemName: "doc.plaintext")
+            .font(.system(size: 8))
+            .foregroundStyle(Color.toolRead)
+          Text(string.count > 80 ? String(string.prefix(77)) + "..." : string)
+            .font(.system(size: TypeScale.code, design: .monospaced))
+            .foregroundStyle(Color.textSecondary)
+        }
+      } else {
+        Text(string.count > 80 ? String(string.prefix(77)) + "..." : string)
+          .font(.system(size: TypeScale.code, design: .monospaced))
+          .foregroundStyle(Color.textSecondary)
+      }
     } else {
       Text(String(describing: value))
         .font(.system(size: TypeScale.code, design: .monospaced))
@@ -88,6 +106,7 @@ struct SmartJSONView: View {
   private enum JSONShape {
     case plainText(String)
     case keyValuePairs([(key: String, value: Any)])
+    case uniformArray([[String: Any]])
     case complexJSON
   }
 
@@ -106,10 +125,10 @@ struct SmartJSONView: View {
       return .plainText(single)
     }
 
-    // Flat object with <5 keys and no nested objects/arrays
+    // Flat object with <10 keys and no nested objects/arrays
     if let dict = parsed as? [String: Any] {
       let keys = dict.keys.sorted()
-      if keys.count > 0, keys.count < 5 {
+      if keys.count > 0, keys.count < 10 {
         let hasNesting = dict.values.contains { $0 is [String: Any] || $0 is [Any] }
         if !hasNesting {
           let pairs = keys.map { (key: $0, value: dict[$0]!) }
@@ -118,7 +137,57 @@ struct SmartJSONView: View {
       }
     }
 
+    // Array of uniform flat objects
+    if let array = parsed as? [[String: Any]] {
+      let allFlat = array.allSatisfy { dict in
+        dict.count < 10 && !dict.values.contains { $0 is [String: Any] || $0 is [Any] }
+      }
+      if allFlat, !array.isEmpty, array.count <= 10 {
+        return .uniformArray(array)
+      }
+    }
+
     // Everything else: complex JSON
     return .complexJSON
+  }
+
+  // MARK: - Uniform Array List
+
+  private func uniformArrayList(_ items: [[String: Any]]) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+        let keys = item.keys.sorted()
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
+            HStack(alignment: .top, spacing: Spacing.sm) {
+              Text(key)
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+                .foregroundStyle(Color.textTertiary)
+                .frame(width: labelWidth, alignment: .trailing)
+              valueView(item[key]!)
+            }
+          }
+        }
+        .padding(Spacing.sm)
+
+        if index < items.count - 1 {
+          Rectangle()
+            .fill(Color.textQuaternary.opacity(0.08))
+            .frame(height: 1)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
+  }
+
+  // MARK: - String Helpers
+
+  private func looksLikePath(_ s: String) -> Bool {
+    s.hasPrefix("/") || s.hasPrefix("./") || s.hasPrefix("~/")
+  }
+
+  private func looksLikeURL(_ s: String) -> Bool {
+    s.hasPrefix("http://") || s.hasPrefix("https://")
   }
 }

@@ -2,8 +2,9 @@
 //  BashExpandedView.swift
 //  OrbitDock
 //
-//  Terminal emulator feel for bash tool output.
-//  Features: slim terminal chrome, ANSI color parsing, scrollable capped output, exit status.
+//  Unified terminal block for bash tool output.
+//  Features: single terminal chrome + command + output block, ANSI color parsing,
+//  scrollable capped output viewport, footer bar with exit status + expand/collapse.
 //
 
 import SwiftUI
@@ -28,139 +29,70 @@ struct BashExpandedView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      if let input = content.inputDisplay, !input.isEmpty {
-        let command = input.hasPrefix("$ ") ? String(input.dropFirst(2)) : input
+      // Single unified terminal block
+      VStack(alignment: .leading, spacing: 0) {
+        TerminalChrome(path: nil)
 
-        // Terminal chrome + command as a single block
-        VStack(alignment: .leading, spacing: 0) {
-          TerminalChrome(path: nil)
-
-          // Command line
+        // Command line
+        if let input = content.inputDisplay, !input.isEmpty {
+          let command = input.hasPrefix("$ ") ? String(input.dropFirst(2)) : input
           HStack(alignment: .top, spacing: Spacing.xs) {
             Text("$")
               .font(.system(size: TypeScale.code, weight: .bold, design: .monospaced))
               .foregroundStyle(Color.toolBash)
-
             let highlighted = SyntaxHighlighter.highlightLine(command, language: "bash")
             Text(highlighted)
           }
-          .padding(Spacing.sm)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.sm)
         }
-        .background(Color.backgroundCode)
-        .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
-      }
 
-      if let output = content.outputDisplay, !output.isEmpty {
-        let lineCount = output.components(separatedBy: "\n").count
-        let parsed = ANSIColorParser.parse(output)
-        let useViewport = lineCount > inlineThreshold && !isFullyExpanded
+        // Output flows directly below — no gap, no header
+        if let output = content.outputDisplay, !output.isEmpty {
+          // Thin separator between command and output
+          Rectangle()
+            .fill(Color.textQuaternary.opacity(0.06))
+            .frame(height: 1)
+            .padding(.horizontal, Spacing.sm)
 
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          // Output header
-          HStack(spacing: Spacing.sm) {
-            Text("Output")
-              .font(.system(size: TypeScale.caption, weight: .semibold))
-              .foregroundStyle(Color.textTertiary)
+          outputContent(output)
 
-            Spacer()
-
-            Text("\(lineCount) lines")
-              .font(.system(size: TypeScale.mini, design: .monospaced))
-              .foregroundStyle(Color.textQuaternary)
-              .padding(.horizontal, Spacing.sm_)
-              .padding(.vertical, Spacing.xxs)
-              .background(Color.backgroundSecondary, in: Capsule())
-
-            exitCodePill(failed: isFailed)
-          }
-          .padding(.top, Spacing.sm)
-
-          // Output content — viewport or inline
-          if useViewport {
-            // Scrollable capped viewport
-            VStack(spacing: 0) {
-              ScrollView(.vertical, showsIndicators: false) {
-                Text(parsed)
-                  .padding(Spacing.sm)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-              }
-              .frame(maxHeight: maxOutputHeight)
-              .mask(edgeFadeMask)
-
-              // Footer
-              HStack {
-                Text("\(lineCount) lines")
-                  .font(.system(size: TypeScale.mini, design: .monospaced))
-                  .foregroundStyle(Color.textQuaternary)
-                Spacer()
-                Button {
-                  withAnimation(Motion.standard) {
-                    isFullyExpanded = true
-                  }
-                } label: {
-                  HStack(spacing: Spacing.xs) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                      .font(.system(size: 8))
-                    Text("Expand to full")
-                      .font(.system(size: TypeScale.mini, weight: .medium))
-                  }
-                  .foregroundStyle(Color.toolBash)
-                }
-                .buttonStyle(.plain)
-              }
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.sm_)
-              .overlay(alignment: .top) {
-                Rectangle()
-                  .fill(Color.textQuaternary.opacity(0.06))
-                  .frame(height: 1)
-              }
-            }
-            .background(
-              isFailed
-                ? Color.feedbackNegative.opacity(OpacityTier.tint)
-                : Color.backgroundCode,
-              in: RoundedRectangle(cornerRadius: Radius.sm)
-            )
-          } else {
-            // Inline (small output or fully expanded)
-            VStack(alignment: .leading, spacing: 0) {
-              Text(parsed)
-                .padding(Spacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-              if lineCount > inlineThreshold {
-                // Collapse button
-                HStack {
-                  Spacer()
-                  Button {
-                    withAnimation(Motion.standard) {
-                      isFullyExpanded = false
-                    }
-                  } label: {
-                    HStack(spacing: Spacing.xs) {
-                      Image(systemName: "arrow.down.right.and.arrow.up.left")
-                        .font(.system(size: 8))
-                      Text("Collapse to viewport")
-                        .font(.system(size: TypeScale.mini, weight: .medium))
-                    }
-                    .foregroundStyle(Color.toolBash)
-                  }
-                  .buttonStyle(.plain)
-                }
-                .padding(.horizontal, Spacing.sm)
-                .padding(.bottom, Spacing.sm)
-              }
-            }
-            .background(
-              isFailed
-                ? Color.feedbackNegative.opacity(OpacityTier.tint)
-                : Color.backgroundCode,
-              in: RoundedRectangle(cornerRadius: Radius.sm)
-            )
-          }
+          // Footer bar
+          footerBar(lineCount: output.components(separatedBy: "\n").count)
         }
       }
+      .background(
+        isFailed
+          ? Color.feedbackNegative.opacity(OpacityTier.tint)
+          : Color.backgroundCode,
+        in: RoundedRectangle(cornerRadius: Radius.sm)
+      )
+    }
+  }
+
+  // MARK: - Output Content
+
+  /// Output content — viewport or inline depending on line count
+  @ViewBuilder
+  private func outputContent(_ output: String) -> some View {
+    let lineCount = output.components(separatedBy: "\n").count
+    let parsed = ANSIColorParser.parse(output)
+    let useViewport = lineCount > inlineThreshold && !isFullyExpanded
+
+    if useViewport {
+      ScrollView(.vertical, showsIndicators: false) {
+        Text(parsed)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .frame(maxHeight: maxOutputHeight)
+      .mask(edgeFadeMask)
+    } else {
+      Text(parsed)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
 
@@ -176,7 +108,48 @@ struct BashExpandedView: View {
     }
   }
 
-  // MARK: - Exit Code
+  // MARK: - Footer Bar
+
+  /// Unified footer bar with line count, exit code pill, and expand/collapse
+  private func footerBar(lineCount: Int) -> some View {
+    HStack(spacing: Spacing.sm) {
+      Text("\(lineCount) lines")
+        .font(.system(size: TypeScale.mini, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+
+      exitCodePill(failed: isFailed)
+
+      Spacer()
+
+      if lineCount > inlineThreshold {
+        Button {
+          withAnimation(Motion.standard) {
+            isFullyExpanded.toggle()
+          }
+        } label: {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: isFullyExpanded
+              ? "arrow.down.right.and.arrow.up.left"
+              : "arrow.up.left.and.arrow.down.right")
+              .font(.system(size: 8))
+            Text(isFullyExpanded ? "Collapse" : "Expand")
+              .font(.system(size: TypeScale.mini, weight: .medium))
+          }
+          .foregroundStyle(Color.toolBash)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .overlay(alignment: .top) {
+      Rectangle()
+        .fill(Color.textQuaternary.opacity(0.06))
+        .frame(height: 1)
+    }
+  }
+
+  // MARK: - Exit Code Pill
 
   private func exitCodePill(failed: Bool) -> some View {
     let color: Color = failed ? .feedbackNegative : .feedbackPositive

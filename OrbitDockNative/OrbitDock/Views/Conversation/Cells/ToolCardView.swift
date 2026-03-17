@@ -75,7 +75,7 @@ struct ToolCardView: View {
     .background(cardBackground)
     .overlay(alignment: .leading) { accentEdge }
     //  horizontal padding handled by TimelineRowContent
-    .padding(.vertical, Spacing.xxs)
+    .padding(.vertical, Spacing.xs)
     .contentShape(Rectangle())
     .onTapGesture { onToggle?() }
   }
@@ -246,29 +246,63 @@ struct ToolCardView: View {
         .font(.system(size: TypeScale.meta, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
     }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.xs))
     .padding(.horizontal, Spacing.md)
     .padding(.bottom, Spacing.sm_)
   }
 
   private func outputPreviewStrip(_ preview: String) -> some View {
     let firstLine = preview.components(separatedBy: "\n").first(where: { !$0.isEmpty }) ?? preview
-    return Text(firstLine)
-      .font(.system(size: TypeScale.meta, design: .monospaced))
-      .foregroundStyle(Color.textQuaternary)
-      .padding(.horizontal, Spacing.md)
-      .padding(.bottom, Spacing.sm_)
+    let isBash = toolType == "bash"
+
+    return HStack(spacing: Spacing.xs) {
+      if isBash {
+        Text("$")
+          .font(.system(size: TypeScale.meta, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.toolBash.opacity(0.3))
+      }
+      Text(firstLine)
+        .font(.system(size: TypeScale.meta, design: .monospaced))
+        .foregroundStyle(isBash ? Color.textTertiary : Color.textQuaternary)
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.xs))
+    .padding(.horizontal, Spacing.md)
+    .padding(.bottom, Spacing.sm_)
   }
 
   private func todoPreviewStrip(_ items: [ServerToolTodoItem]) -> some View {
     let completed = items.filter { $0.status == "completed" }.count
-    return HStack(spacing: Spacing.xs) {
+    let total = items.count
+    let fraction = total > 0 ? CGFloat(completed) / CGFloat(total) : 0
+
+    return HStack(spacing: Spacing.sm_) {
       Image(systemName: "checklist")
         .font(.system(size: 8))
         .foregroundStyle(Color.toolTodo)
-      Text("\(completed)/\(items.count) done")
+      Text("\(completed)/\(total) done")
         .font(.system(size: TypeScale.meta))
         .foregroundStyle(Color.textTertiary)
+
+      // Inline micro progress bar
+      GeometryReader { geo in
+        ZStack(alignment: .leading) {
+          RoundedRectangle(cornerRadius: Radius.xs)
+            .fill(Color.feedbackPositive.opacity(OpacityTier.subtle))
+            .frame(height: 3)
+          RoundedRectangle(cornerRadius: Radius.xs)
+            .fill(Color.feedbackPositive)
+            .frame(width: geo.size.width * fraction, height: 3)
+        }
+      }
+      .frame(width: 40, height: 3)
     }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.xs))
     .padding(.horizontal, Spacing.md)
     .padding(.bottom, Spacing.sm_)
   }

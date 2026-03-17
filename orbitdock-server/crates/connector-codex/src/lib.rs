@@ -87,6 +87,7 @@ impl CodexConnector {
         reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
         current_model: &Arc<tokio::sync::Mutex<Option<String>>>,
         current_reasoning_effort: &Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
+        patch_contexts: &Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>,
     ) -> Vec<ConnectorEvent> {
         #[allow(unreachable_patterns)]
         match event.msg {
@@ -146,9 +147,13 @@ impl CodexConnector {
                 event_mapping::tools::handle_exec_command_end(e, output_buffers).await
             }
 
-            EventMsg::PatchApplyBegin(e) => event_mapping::tools::handle_patch_apply_begin(e),
+            EventMsg::PatchApplyBegin(e) => {
+                event_mapping::tools::handle_patch_apply_begin(e, patch_contexts).await
+            }
 
-            EventMsg::PatchApplyEnd(e) => event_mapping::tools::handle_patch_apply_end(e),
+            EventMsg::PatchApplyEnd(e) => {
+                event_mapping::tools::handle_patch_apply_end(e, patch_contexts).await
+            }
 
             EventMsg::McpToolCallBegin(e) => event_mapping::tools::handle_mcp_tool_call_begin(e),
 
