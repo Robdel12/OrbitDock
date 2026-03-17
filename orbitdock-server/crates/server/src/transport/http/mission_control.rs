@@ -362,22 +362,28 @@ pub async fn list_mission_issues(
 }
 
 /// POST /api/missions/:mission_id/issues/:issue_id/retry
+///
+/// Re-queues an issue for dispatch. Works from any state:
+/// - If running/claimed: ends the active session first
+/// - Resets to "queued" with attempt reset to 0
+/// - The orchestrator will pick it up on the next tick
 pub async fn retry_mission_issue(
     State(registry): State<Arc<SessionRegistry>>,
     Path((mission_id, issue_id)): Path<(String, String)>,
-) -> ApiResult<serde_json::Value> {
+) -> ApiResult<MissionDetailResponse> {
     let mid = mission_id.clone();
     let iid = issue_id.clone();
 
     let issue_row = db_read(&registry, move |conn| {
         let mut stmt = conn.prepare(
-            "SELECT id, orchestration_state, attempt FROM mission_issues WHERE mission_id = ?1 AND issue_id = ?2",
+            "SELECT id, orchestration_state, attempt, session_id FROM mission_issues WHERE mission_id = ?1 AND issue_id = ?2",
         )?;
         let row = stmt.query_row(params![mid, iid], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, u32>(2)?,
+                row.get::<_, Option<String>>(3)?,
             ))
         });
         match row {
@@ -388,50 +394,64 @@ pub async fn retry_mission_issue(
     })
     .await?;
 
-    let (_row_id, state, attempt) = issue_row.ok_or_else(|| {
+    let (_row_id, state, _attempt, session_id) = issue_row.ok_or_else(|| {
         not_found(
             "not_found",
             format!("Issue {issue_id} not found in mission {mission_id}"),
         )
     })?;
 
-    if state != "failed" {
-        return Err(super::errors::bad_request(
-            "invalid_state",
-            format!("Issue is in state '{state}', can only retry failed issues"),
-        ));
+    // End any active session before re-queuing
+    if (state == "running" || state == "claimed") {
+        if let Some(ref sid) = session_id {
+            crate::runtime::session_mutations::end_session(&registry, sid).await;
+        }
     }
 
-    let next_attempt = attempt + 1;
-    let delay = crate::domain::mission_control::retry::compute_delay(next_attempt, 300_000);
-    let retry_at = chrono::Utc::now()
-        + chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::seconds(10));
-
-    let _ = registry
-        .persist()
-        .send(PersistCommand::MissionIssueUpdateState {
-            mission_id: mission_id.clone(),
-            issue_id: issue_id.clone(),
-            orchestration_state: "retry_queued".to_string(),
-            session_id: None,
-            attempt: Some(next_attempt),
-            last_error: Some(None),
-            retry_due_at: Some(Some(retry_at.to_rfc3339())),
-            started_at: Some(None),
-            completed_at: Some(None),
-        })
-        .await;
+    // Reset to queued — synchronous write so the response is authoritative
+    let db_path = registry.db_path().clone();
+    let mid2 = mission_id.clone();
+    let iid2 = issue_id.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path).ok()?;
+        use crate::infrastructure::persistence::mission_control::update_mission_issue_state_sync;
+        update_mission_issue_state_sync(
+            &conn, &mid2, &iid2, "queued",
+            None, Some(0), Some(None), Some(None), Some(None),
+        ).ok()
+    })
+    .await;
 
     info!(
         component = "mission_control",
-        event = "issue.retry_queued",
+        event = "issue.requeued",
         mission_id = %mission_id,
         issue_id = %issue_id,
-        attempt = attempt + 1,
-        "Issue queued for retry"
+        previous_state = %state,
+        "Issue re-queued for dispatch"
     );
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    // Return fresh detail
+    let mid3 = mission_id.clone();
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid3))
+        .await?
+        .ok_or_else(|| not_found("not_found", "Mission not found"))?;
+    let mid4 = mission_id.clone();
+    let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid4)).await?;
+    let orchestrator_running = registry.is_orchestrator_running();
+    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
+    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
+    let settings = build_settings_response(&mission);
+    let mission_file_exists = tokio::fs::metadata(mission.resolved_mission_path()).await.is_ok();
+
+    Ok(Json(MissionDetailResponse {
+        summary,
+        issues,
+        settings,
+        mission_file_exists,
+        mission_file_path: mission.mission_file_path.clone(),
+        workflow_migration_available: false,
+    }))
 }
 
 /// POST /api/missions/:id/scaffold

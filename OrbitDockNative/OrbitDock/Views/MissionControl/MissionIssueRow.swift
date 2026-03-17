@@ -46,13 +46,16 @@ struct MissionIssueRow: View {
 
         Spacer()
 
-        if issue.orchestrationState == .failed {
+        if issue.orchestrationState != .queued {
           Button {
             Task { await retryIssue() }
           } label: {
-            Label("Retry", systemImage: "arrow.clockwise")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.accent)
+            Label(
+              issue.orchestrationState == .failed ? "Retry" : "Restart",
+              systemImage: "arrow.clockwise"
+            )
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.accent)
           }
           .buttonStyle(.plain)
         }
@@ -116,11 +119,14 @@ struct MissionIssueRow: View {
         }
       }
 
-      if issue.orchestrationState == .failed {
+      if issue.orchestrationState != .queued {
         Button {
           Task { await retryIssue() }
         } label: {
-          Label("Retry", systemImage: "arrow.clockwise")
+          Label(
+            issue.orchestrationState == .failed ? "Retry" : "Restart",
+            systemImage: "arrow.clockwise"
+          )
         }
       }
     }

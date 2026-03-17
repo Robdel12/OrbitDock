@@ -17,6 +17,7 @@ struct MissionOverviewTab: View {
   let onNavigateToSession: (String) -> Void
 
   @State private var isStartingOrchestrator = false
+  @State private var tick = 0 // Forces re-render for live timestamps
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xl) {
@@ -63,6 +64,13 @@ struct MissionOverviewTab: View {
         recentActivitySection
       } else {
         waitingState
+      }
+    }
+    .task(id: "poll-timer") {
+      // Tick every 5 seconds to keep relative timestamps live
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(5))
+        tick += 1
       }
     }
   }
@@ -167,6 +175,8 @@ struct MissionOverviewTab: View {
           )
 
           if let polledAt = mission.lastPolledAt {
+            // tick forces re-render every 5s for live timestamps
+            let _ = tick
             readoutLine(
               icon: "antenna.radiowaves.left.and.right",
               label: "Last Poll",

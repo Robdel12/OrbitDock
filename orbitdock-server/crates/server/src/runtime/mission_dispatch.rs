@@ -68,7 +68,7 @@ pub async fn dispatch_issue(
         Some(base_branch),
         orbitdock_protocol::WorktreeOrigin::Agent,
         worktree_root_dir,
-        attempt == 1, // clean up stale worktrees on first attempt only
+        true, // always clean up stale worktrees — if we're dispatching, no active session owns them
     )
     .await
     {
