@@ -6,7 +6,8 @@ use std::time::Duration;
 /// Attempt 1 → 10s, attempt 2 → 20s, attempt 3 → 40s, ...
 ///
 /// Used by the retry queue to calculate backoff between attempts.
-pub fn compute_delay(attempt: u32, max_backoff_ms: u64) -> Duration {
+#[allow(dead_code)]
+pub(crate) fn compute_delay(attempt: u32, max_backoff_ms: u64) -> Duration {
     if attempt == 0 {
         return Duration::from_millis(0);
     }

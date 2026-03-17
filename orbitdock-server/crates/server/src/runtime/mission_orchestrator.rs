@@ -507,7 +507,12 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                 tracker_state: row.issue_state.clone().unwrap_or_default(),
                 orchestration_state: state,
                 session_id: row.session_id.clone(),
-                provider: row.provider.as_deref().unwrap_or("claude").parse::<Provider>().unwrap(),
+                provider: row
+                    .provider
+                    .as_deref()
+                    .unwrap_or("claude")
+                    .parse::<Provider>()
+                    .unwrap(),
                 attempt: row.attempt,
                 error: row.last_error.clone(),
                 url: row.url.clone(),
@@ -593,9 +598,8 @@ pub async fn broadcast_mission_delta_by_id(registry: &Arc<SessionRegistry>, miss
         .unwrap_or_else(|e| Err(anyhow::anyhow!("join error: {e}")))
     };
 
-    match mission {
-        Ok(Some(row)) => broadcast_mission_delta(registry, &row).await,
-        _ => {}
+    if let Ok(Some(row)) = mission {
+        broadcast_mission_delta(registry, &row).await;
     }
 }
 

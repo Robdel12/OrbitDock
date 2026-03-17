@@ -278,6 +278,7 @@ pub fn load_retry_ready_issues(
 
 /// Synchronously update a mission issue's orchestration state.
 /// Used by dispatch paths that need the write to be visible before broadcasting.
+#[allow(clippy::too_many_arguments)]
 pub fn update_mission_issue_state_sync(
     conn: &Connection,
     mission_id: &str,
@@ -298,31 +299,36 @@ pub fn update_mission_issue_state_sync(
         conn.execute(
             "UPDATE mission_issues SET session_id = ?1 WHERE mission_id = ?2 AND issue_id = ?3",
             params![sid, mission_id, issue_id],
-        ).context("update session_id")?;
+        )
+        .context("update session_id")?;
     }
     if let Some(a) = attempt {
         conn.execute(
             "UPDATE mission_issues SET attempt = ?1 WHERE mission_id = ?2 AND issue_id = ?3",
             params![a, mission_id, issue_id],
-        ).context("update attempt")?;
+        )
+        .context("update attempt")?;
     }
     if let Some(err) = last_error {
         conn.execute(
             "UPDATE mission_issues SET last_error = ?1 WHERE mission_id = ?2 AND issue_id = ?3",
             params![err, mission_id, issue_id],
-        ).context("update last_error")?;
+        )
+        .context("update last_error")?;
     }
     if let Some(sa) = started_at {
         conn.execute(
             "UPDATE mission_issues SET started_at = ?1 WHERE mission_id = ?2 AND issue_id = ?3",
             params![sa, mission_id, issue_id],
-        ).context("update started_at")?;
+        )
+        .context("update started_at")?;
     }
     if let Some(ca) = completed_at {
         conn.execute(
             "UPDATE mission_issues SET completed_at = ?1 WHERE mission_id = ?2 AND issue_id = ?3",
             params![ca, mission_id, issue_id],
-        ).context("update completed_at")?;
+        )
+        .context("update completed_at")?;
     }
     Ok(())
 }

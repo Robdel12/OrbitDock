@@ -561,7 +561,7 @@ branch refs/heads/main";
             .unwrap();
 
         // Create worktree
-        let branch = create_worktree(repo, wt, "test-branch", None)
+        let branch = create_worktree(repo, wt, "test-branch", None, false)
             .await
             .unwrap();
         assert_eq!(branch, "test-branch");

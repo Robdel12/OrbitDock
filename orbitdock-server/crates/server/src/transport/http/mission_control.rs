@@ -126,7 +126,7 @@ pub async fn list_missions(
     State(registry): State<Arc<SessionRegistry>>,
 ) -> ApiResult<MissionsListResponse> {
     let orchestrator_running = registry.is_orchestrator_running();
-    let rows = db_read(&registry, |conn| load_missions_with_counts(conn)).await?;
+    let rows = db_read(&registry, load_missions_with_counts).await?;
 
     let missions = rows
         .into_iter()
@@ -226,10 +226,9 @@ pub async fn get_mission(
     let mission = mission_row
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let mission_file_exists =
-        tokio::fs::metadata(mission.resolved_mission_path())
-            .await
-            .is_ok();
+    let mission_file_exists = tokio::fs::metadata(mission.resolved_mission_path())
+        .await
+        .is_ok();
 
     // Check if a Symphony WORKFLOW.md exists that can be migrated
     let workflow_migration_available = if !mission_file_exists {
@@ -337,12 +336,19 @@ pub async fn delete_mission(
     // Return the updated missions list, excluding the just-deleted mission.
     // The persist is async so the DB may still include it — filter client-side.
     let orchestrator_running = registry.is_orchestrator_running();
-    let rows = db_read(&registry, |conn| load_missions_with_counts(conn)).await?;
+    let rows = db_read(&registry, load_missions_with_counts).await?;
     let missions: Vec<MissionSummary> = rows
         .into_iter()
         .filter(|(row, _)| row.id != mission_id)
         .map(|(row, (active, queued, completed, failed))| {
-            summary_from_row(&row, active, queued, completed, failed, orchestrator_running)
+            summary_from_row(
+                &row,
+                active,
+                queued,
+                completed,
+                failed,
+                orchestrator_running,
+            )
         })
         .collect();
 
@@ -416,9 +422,17 @@ pub async fn retry_mission_issue(
         let conn = rusqlite::Connection::open(&db_path).ok()?;
         use crate::infrastructure::persistence::mission_control::update_mission_issue_state_sync;
         update_mission_issue_state_sync(
-            &conn, &mid2, &iid2, "queued",
-            None, Some(0), Some(None), Some(None), Some(None),
-        ).ok()
+            &conn,
+            &mid2,
+            &iid2,
+            "queued",
+            None,
+            Some(0),
+            Some(None),
+            Some(None),
+            Some(None),
+        )
+        .ok()
     })
     .await;
 
@@ -442,7 +456,9 @@ pub async fn retry_mission_issue(
     let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
     let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
     let settings = build_settings_response(&mission);
-    let mission_file_exists = tokio::fs::metadata(mission.resolved_mission_path()).await.is_ok();
+    let mission_file_exists = tokio::fs::metadata(mission.resolved_mission_path())
+        .await
+        .is_ok();
 
     Ok(Json(MissionDetailResponse {
         summary,
@@ -579,12 +595,11 @@ pub async fn migrate_workflow_to_mission(
     // don't match MissionConfig. Instead, extract the body directly by splitting on --- markers.
     let prompt_template = {
         let trimmed = workflow_content.trim();
-        let body = if trimmed.starts_with("---") {
-            let after_first = &trimmed[3..];
+        let body = if let Some(after_first) = trimmed.strip_prefix("---") {
             if let Some(end_idx) = after_first.find("\n---") {
-                let prompt_start = 3 + end_idx + 4; // skip past "\n---"
-                if prompt_start < trimmed.len() {
-                    trimmed[prompt_start..].trim()
+                let prompt_start = end_idx + 4; // skip past "\n---"
+                if prompt_start < after_first.len() {
+                    after_first[prompt_start..].trim()
                 } else {
                     ""
                 }
@@ -1179,9 +1194,11 @@ fn summary_from_row(
     let (primary_provider, strategy, secondary) = if let Some(ref json) = row.config_json {
         if let Ok(config) = serde_json::from_str::<MissionConfig>(json) {
             (
-                config.provider.primary.parse::<Provider>().unwrap_or_else(|_| {
-                    row.provider.parse::<Provider>().unwrap()
-                }),
+                config
+                    .provider
+                    .primary
+                    .parse::<Provider>()
+                    .unwrap_or_else(|_| row.provider.parse::<Provider>().unwrap()),
                 config.provider.strategy.clone(),
                 config
                     .provider
@@ -1190,10 +1207,18 @@ fn summary_from_row(
                     .map(|s| s.parse::<Provider>().unwrap()),
             )
         } else {
-            (row.provider.parse::<Provider>().unwrap(), "single".to_string(), None)
+            (
+                row.provider.parse::<Provider>().unwrap(),
+                "single".to_string(),
+                None,
+            )
         }
     } else {
-        (row.provider.parse::<Provider>().unwrap(), "single".to_string(), None)
+        (
+            row.provider.parse::<Provider>().unwrap(),
+            "single".to_string(),
+            None,
+        )
     };
 
     MissionSummary {

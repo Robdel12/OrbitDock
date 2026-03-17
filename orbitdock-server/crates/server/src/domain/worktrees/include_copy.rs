@@ -331,6 +331,7 @@ mod tests {
             &worktree,
             branch,
             Some("HEAD"),
+            false,
         )
         .await
         .expect("create worktree");

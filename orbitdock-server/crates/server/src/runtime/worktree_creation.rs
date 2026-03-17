@@ -109,6 +109,7 @@ mod tests {
             Some("HEAD"),
             WorktreeOrigin::User,
             None,
+            false,
         )
         .await
         .expect("create tracked worktree");
