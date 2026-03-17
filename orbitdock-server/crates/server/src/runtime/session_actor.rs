@@ -303,6 +303,200 @@ mod tests {
         assert_eq!(snap.work_status, WorkStatus::Working);
     }
 
+    fn user_row(id: &str) -> ConversationRowEntry {
+        ConversationRowEntry {
+            session_id: "test-session".to_string(),
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::User(MessageRowContent {
+                id: id.to_string(),
+                content: format!("msg-{id}"),
+                turn_id: None,
+                timestamp: None,
+                is_streaming: false,
+                images: vec![],
+            }),
+        }
+    }
+
+    fn assistant_row(id: &str) -> ConversationRowEntry {
+        ConversationRowEntry {
+            session_id: "test-session".to_string(),
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::Assistant(MessageRowContent {
+                id: id.to_string(),
+                content: format!("response-{id}"),
+                turn_id: None,
+                timestamp: None,
+                is_streaming: false,
+                images: vec![],
+            }),
+        }
+    }
+
+    /// Extracts (row_id, sequence) from RowAppend persist commands on the channel.
+    fn drain_row_appends(persist_rx: &mut mpsc::Receiver<PersistCommand>) -> Vec<(String, u64)> {
+        let mut result = Vec::new();
+        while let Ok(cmd) = persist_rx.try_recv() {
+            if let PersistCommand::RowAppend { entry, .. } = cmd {
+                result.push((entry.id().to_string(), entry.sequence));
+            }
+        }
+        result
+    }
+
+    /// Extracts (row_id, sequence) from RowUpsert persist commands on the channel.
+    fn drain_row_upserts(persist_rx: &mut mpsc::Receiver<PersistCommand>) -> Vec<(String, u64)> {
+        let mut result = Vec::new();
+        while let Ok(cmd) = persist_rx.try_recv() {
+            if let PersistCommand::RowUpsert { entry, .. } = cmd {
+                result.push((entry.id().to_string(), entry.sequence));
+            }
+        }
+        result
+    }
+
+    #[tokio::test]
+    async fn add_row_and_broadcast_persists_with_correct_sequences() {
+        let (persist_tx, mut persist_rx) = mpsc::channel(64);
+        let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
+
+        // Send a burst of rows all with sequence=0 (the pattern that caused the bug)
+        for i in 0..5 {
+            actor
+                .send(SessionCommand::AddRowAndBroadcast {
+                    entry: user_row(&format!("row-{i}")),
+                })
+                .await;
+        }
+
+        // Let the actor process all commands
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let persisted = drain_row_appends(&mut persist_rx);
+
+        // Every row should arrive at persistence with a unique, monotonically
+        // increasing sequence — never the original 0 (except the very first row)
+        assert_eq!(persisted.len(), 5);
+        for (i, (id, seq)) in persisted.iter().enumerate() {
+            assert_eq!(id, &format!("row-{i}"));
+            assert_eq!(*seq, i as u64, "row {id} should have sequence {i}");
+        }
+    }
+
+    #[tokio::test]
+    async fn burst_of_mixed_row_types_persists_monotonic_sequences() {
+        let (persist_tx, mut persist_rx) = mpsc::channel(64);
+        let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
+
+        // Simulate a realistic burst: user message, then rapid assistant + user
+        actor
+            .send(SessionCommand::AddRowAndBroadcast {
+                entry: user_row("user-1"),
+            })
+            .await;
+        for i in 0..3 {
+            actor
+                .send(SessionCommand::AddRowAndBroadcast {
+                    entry: assistant_row(&format!("assistant-{i}")),
+                })
+                .await;
+        }
+        actor
+            .send(SessionCommand::AddRowAndBroadcast {
+                entry: user_row("user-2"),
+            })
+            .await;
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let persisted = drain_row_appends(&mut persist_rx);
+        assert_eq!(persisted.len(), 5);
+
+        // Verify strictly increasing sequences
+        let sequences: Vec<u64> = persisted.iter().map(|(_, seq)| *seq).collect();
+        for pair in sequences.windows(2) {
+            assert!(
+                pair[1] > pair[0],
+                "sequences must be strictly increasing: got {:?}",
+                sequences
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn upsert_row_and_broadcast_persists_with_correct_sequence() {
+        let (persist_tx, mut persist_rx) = mpsc::channel(64);
+        let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
+
+        // First add two rows so we have something to upsert
+        actor
+            .send(SessionCommand::AddRowAndBroadcast {
+                entry: user_row("row-0"),
+            })
+            .await;
+        actor
+            .send(SessionCommand::AddRowAndBroadcast {
+                entry: assistant_row("asst-1"),
+            })
+            .await;
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        // Drain the appends
+        let _ = drain_row_appends(&mut persist_rx);
+
+        // Now upsert asst-1 with sequence=0 (simulating transcript sync)
+        let mut updated = assistant_row("asst-1");
+        updated.sequence = 0; // Callers don't know the correct sequence
+        actor
+            .send(SessionCommand::UpsertRowAndBroadcast { entry: updated })
+            .await;
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let upserted = drain_row_upserts(&mut persist_rx);
+        assert_eq!(upserted.len(), 1);
+
+        // The upsert should preserve the original sequence (1), not persist 0
+        let (id, seq) = &upserted[0];
+        assert_eq!(id, "asst-1");
+        assert_eq!(*seq, 1, "upserted row should keep its assigned sequence");
+    }
+
+    #[tokio::test]
+    async fn in_memory_and_persisted_sequences_agree() {
+        let (persist_tx, mut persist_rx) = mpsc::channel(64);
+        let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
+
+        for i in 0..3 {
+            actor
+                .send(SessionCommand::AddRowAndBroadcast {
+                    entry: user_row(&format!("row-{i}")),
+                })
+                .await;
+        }
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let persisted = drain_row_appends(&mut persist_rx);
+        let page = actor.conversation_page(None, 100).await.unwrap();
+        let in_memory: Vec<(String, u64)> = page
+            .rows
+            .iter()
+            .map(|r| (r.id().to_string(), r.sequence))
+            .collect();
+
+        // In-memory and persisted must be identical
+        assert_eq!(in_memory, persisted);
+    }
+
     #[tokio::test]
     async fn actor_throttles_streaming_row_update_broadcasts_but_emits_final_row() {
         let (persist_tx, _persist_rx) = mpsc::channel(64);

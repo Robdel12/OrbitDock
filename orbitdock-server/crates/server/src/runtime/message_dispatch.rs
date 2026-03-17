@@ -166,13 +166,6 @@ pub(crate) async fn dispatch_send_message(
         persisted_images.clone(),
     );
 
-    let _ = state
-        .persist()
-        .send(PersistCommand::RowAppend {
-            session_id: session_id.clone(),
-            entry: user_entry.clone(),
-        })
-        .await;
     actor
         .send(SessionCommand::AddRowAndBroadcast {
             entry: user_entry.clone(),
@@ -262,13 +255,6 @@ pub(crate) async fn dispatch_steer_turn(
         persisted_images.clone(),
     );
 
-    let _ = state
-        .persist()
-        .send(PersistCommand::RowAppend {
-            session_id: session_id.clone(),
-            entry: steer_entry.clone(),
-        })
-        .await;
     actor
         .send(SessionCommand::AddRowAndBroadcast { entry: steer_entry })
         .await;

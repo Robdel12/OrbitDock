@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use super::PersistCommand;
 
@@ -123,7 +123,7 @@ pub(crate) fn flush_batch(
 
     for cmd in batch {
         if let Err(error) = super::execute_command(&tx, cmd) {
-            warn!(
+            error!(
                 component = "persistence",
                 event = "persistence.command.failed",
                 error = %error,

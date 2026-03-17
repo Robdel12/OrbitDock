@@ -332,6 +332,15 @@ pub async fn handle_session_command(
             let previous_last_message = handle.to_snapshot().last_message.clone();
 
             let entry = handle.add_row(entry);
+
+            // Persist with the correctly-sequenced entry (single-writer principle)
+            let _ = persist_tx
+                .send(PersistCommand::RowAppend {
+                    session_id: session_id.clone(),
+                    entry: entry.clone(),
+                })
+                .await;
+
             let observability_changes = row_append_delta(
                 previous_last_message.as_deref(),
                 &entry,
@@ -362,6 +371,15 @@ pub async fn handle_session_command(
         SessionCommand::UpsertRowAndBroadcast { entry } => {
             let session_id = handle.id().to_string();
             let entry = handle.upsert_row(entry);
+
+            // Persist with the correctly-sequenced entry (single-writer principle)
+            let _ = persist_tx
+                .send(PersistCommand::RowUpsert {
+                    session_id: session_id.clone(),
+                    entry: entry.clone(),
+                })
+                .await;
+
             let rows_changed = ServerMessage::ConversationRowsChanged {
                 session_id,
                 upserted: vec![entry.to_summary()],

@@ -435,8 +435,15 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                         )
                         .await
                         {
-                            Ok(rows) if !rows.is_empty() => {
+                            Ok(mut rows) if !rows.is_empty() => {
                                 let count = rows.len();
+
+                                // Normalize sequences before persisting (matching
+                                // what replace_rows() does internally) to keep
+                                // DB and in-memory state consistent.
+                                for (i, entry) in rows.iter_mut().enumerate() {
+                                    entry.sequence = i as u64;
+                                }
                                 for entry in &rows {
                                     let _ = backfill_persist_tx
                                         .send(crate::infrastructure::persistence::PersistCommand::RowAppend {

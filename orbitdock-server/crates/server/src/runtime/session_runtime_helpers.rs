@@ -367,37 +367,28 @@ pub(crate) async fn sync_transcript_messages(
     match plan.message_sync_decision {
         TranscriptMessageSyncDecision::AppendNewMessages => {
             // Upsert existing rows that got results attached by the transcript parser.
+            // UpsertRowAndBroadcast handles persistence internally.
             for entry in plan.updated_rows {
-                let _ = persist_tx
-                    .send(
-                        crate::infrastructure::persistence::PersistCommand::RowUpsert {
-                            session_id: session_id.clone(),
-                            entry: entry.clone(),
-                        },
-                    )
-                    .await;
                 actor
                     .send(SessionCommand::UpsertRowAndBroadcast { entry })
                     .await;
             }
 
+            // AddRowAndBroadcast handles persistence internally.
             for entry in plan.new_rows {
-                let _ = persist_tx
-                    .send(
-                        crate::infrastructure::persistence::PersistCommand::RowAppend {
-                            session_id: session_id.clone(),
-                            entry: entry.clone(),
-                        },
-                    )
-                    .await;
                 actor
                     .send(SessionCommand::AddRowAndBroadcast { entry })
                     .await;
             }
         }
         TranscriptMessageSyncDecision::ForceResync => {
-            // Full resync — replace all rows in-memory and broadcast
-            for entry in &plan.new_rows {
+            // Full resync — normalize sequences before persisting (matching
+            // what replace_rows() does internally), then replace in-memory.
+            let mut rows = plan.new_rows;
+            for (i, entry) in rows.iter_mut().enumerate() {
+                entry.sequence = i as u64;
+            }
+            for entry in &rows {
                 let _ = persist_tx
                     .send(
                         crate::infrastructure::persistence::PersistCommand::RowUpsert {
@@ -407,11 +398,7 @@ pub(crate) async fn sync_transcript_messages(
                     )
                     .await;
             }
-            actor
-                .send(SessionCommand::ReplaceRows {
-                    rows: plan.new_rows,
-                })
-                .await;
+            actor.send(SessionCommand::ReplaceRows { rows }).await;
         }
         TranscriptMessageSyncDecision::SkipNoNewMessages => {}
     }
