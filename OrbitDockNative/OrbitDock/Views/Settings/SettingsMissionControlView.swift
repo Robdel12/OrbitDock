@@ -179,47 +179,11 @@ struct SettingsMissionControlView: View {
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textTertiary)
 
-      // Strategy
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text("Strategy")
-          .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(Color.textTertiary)
-
-        HStack(spacing: Spacing.sm) {
-          providerOption("Single", value: "single", selected: defaultStrategy) { defaultStrategy = "single" }
-          providerOption("Priority", value: "priority", selected: defaultStrategy) { defaultStrategy = "priority" }
-          providerOption("Round Robin", value: "round_robin", selected: defaultStrategy) {
-            defaultStrategy = "round_robin"
-          }
-        }
-      }
-
-      // Primary
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text("Primary Provider")
-          .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(Color.textTertiary)
-
-        HStack(spacing: Spacing.sm) {
-          providerOption("Claude", value: "claude", selected: defaultPrimary) { defaultPrimary = "claude" }
-          providerOption("Codex", value: "codex", selected: defaultPrimary) { defaultPrimary = "codex" }
-        }
-      }
-
-      // Secondary (shown for priority / round-robin)
-      if defaultStrategy != "single" {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          Text("Secondary Provider")
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(Color.textTertiary)
-
-          HStack(spacing: Spacing.sm) {
-            providerOption("Claude", value: "claude", selected: defaultSecondary) { defaultSecondary = "claude" }
-            providerOption("Codex", value: "codex", selected: defaultSecondary) { defaultSecondary = "codex" }
-            providerOption("None", value: "", selected: defaultSecondary) { defaultSecondary = "" }
-          }
-        }
-      }
+      ProviderSelectionGroup(
+        strategy: $defaultStrategy,
+        primary: $defaultPrimary,
+        secondary: $defaultSecondary
+      )
 
       // Save
       HStack {
@@ -227,21 +191,14 @@ struct SettingsMissionControlView: View {
         Button {
           Task { await saveDefaults() }
         } label: {
-          Group {
-            if isSavingDefaults {
-              ProgressView()
-                .controlSize(.mini)
-            } else {
-              Text("Save Defaults")
-                .font(.system(size: TypeScale.caption, weight: .semibold))
-            }
+          if isSavingDefaults {
+            ProgressView()
+              .controlSize(.mini)
+          } else {
+            Text("Save Defaults")
           }
-          .foregroundStyle(.white)
-          .padding(.horizontal, Spacing.lg)
-          .padding(.vertical, Spacing.sm)
-          .background(Color.accent, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(CosmicButtonStyle(color: .accent))
         .disabled(isSavingDefaults)
       }
     }
@@ -267,30 +224,6 @@ struct SettingsMissionControlView: View {
         .font(.system(size: TypeScale.large, weight: .semibold))
         .foregroundStyle(Color.textPrimary)
     }
-  }
-
-  private func providerOption(
-    _ label: String,
-    value: String,
-    selected: String,
-    action: @escaping () -> Void
-  ) -> some View {
-    Button(action: action) {
-      Text(label)
-        .font(.system(size: TypeScale.caption, weight: .medium))
-        .foregroundStyle(selected == value ? Color.accent : Color.textSecondary)
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            .fill(selected == value ? Color.accent.opacity(OpacityTier.light) : Color.backgroundTertiary)
-            .overlay(
-              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                .strokeBorder(selected == value ? Color.accent.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
-            )
-        )
-    }
-    .buttonStyle(.plain)
   }
 
   // MARK: - Networking

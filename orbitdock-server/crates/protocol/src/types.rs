@@ -11,6 +11,16 @@ pub enum Provider {
     Codex,
 }
 
+impl std::str::FromStr for Provider {
+    type Err = std::convert::Infallible;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "codex" => Provider::Codex,
+            _ => Provider::Claude,
+        })
+    }
+}
+
 /// Codex integration mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

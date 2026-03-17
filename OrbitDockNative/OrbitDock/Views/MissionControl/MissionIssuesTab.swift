@@ -147,34 +147,10 @@ struct MissionIssuesTab: View {
   // MARK: - Empty State
 
   private var emptyState: some View {
-    VStack(spacing: Spacing.lg) {
-      ZStack {
-        Circle()
-          .strokeBorder(Color.textQuaternary.opacity(OpacityTier.subtle), lineWidth: 2)
-          .frame(width: 64, height: 64)
-
-        Circle()
-          .strokeBorder(Color.textQuaternary.opacity(OpacityTier.medium), lineWidth: 1.5)
-          .frame(width: 40, height: 40)
-
-        Image(systemName: "tray")
-          .font(.system(size: 16, weight: .medium))
-          .foregroundStyle(Color.textQuaternary)
-      }
-
-      VStack(spacing: Spacing.sm_) {
-        Text("No issues tracked yet")
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.textSecondary)
-
-        Text("Issues matching your trigger filters will appear here as the orchestrator polls your tracker.")
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textTertiary)
-          .multilineTextAlignment(.center)
-          .fixedSize(horizontal: false, vertical: true)
-      }
-    }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, Spacing.xxl)
+    MissionEmptyState(
+      icon: "tray",
+      title: "No issues tracked yet",
+      subtitle: "Issues matching your trigger filters will appear here as the orchestrator polls your tracker."
+    )
   }
 }

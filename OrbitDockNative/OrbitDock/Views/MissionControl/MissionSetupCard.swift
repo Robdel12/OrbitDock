@@ -145,21 +145,13 @@ struct MissionSetupCard: View {
               .controlSize(.small)
           } else {
             Image(systemName: "wand.and.stars")
-              .font(.system(size: 12, weight: .semibold))
           }
           Text("Generate MISSION.md")
-            .font(.system(size: TypeScale.body, weight: .semibold))
         }
-        .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, Spacing.md_)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .fill(Color.accent)
-            .shadow(color: isHovering ? Color.accent.opacity(0.3) : .clear, radius: 8, y: 2)
-        )
       }
-      .buttonStyle(.plain)
+      .buttonStyle(CosmicButtonStyle(color: .accent, size: .large))
+      .shadow(color: isHovering ? Color.accent.opacity(0.3) : .clear, radius: 8, y: 2)
       .disabled(isScaffolding)
       .onHover { hovering in
         withAnimation(Motion.hover) { isHovering = hovering }
@@ -205,17 +197,3 @@ struct MissionSetupCard: View {
     isScaffolding = false
   }
 }
-
-private struct ScaffoldResponse: Codable {
-  let summary: MissionSummary
-  let issues: [MissionIssueItem]
-  let settings: MissionSettings?
-  let missionFileExists: Bool
-
-  enum CodingKeys: String, CodingKey {
-    case summary, issues, settings
-    case missionFileExists = "mission_file_exists"
-  }
-}
-
-private struct EmptyBody: Encodable {}

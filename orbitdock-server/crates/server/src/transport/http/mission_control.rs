@@ -9,6 +9,7 @@ use tracing::info;
 
 use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, Provider};
 
+use crate::domain::mission_control::compute_orchestrator_status;
 use crate::domain::mission_control::config::{
     parse_mission_file, try_parse_symphony_workflow, ClaudeAgentConfig, CodexAgentConfig,
     MissionConfig,
@@ -42,77 +43,9 @@ pub struct MissionDetailResponse {
 
 #[derive(Serialize)]
 pub struct MissionSettingsResponse {
-    pub provider: ProviderSettingsResponse,
-    pub agent: AgentSettingsResponse,
-    pub trigger: TriggerSettingsResponse,
-    pub orchestration: OrchestrationSettingsResponse,
+    #[serde(flatten)]
+    pub config: MissionConfig,
     pub prompt_template: String,
-    pub tracker: String,
-}
-
-#[derive(Serialize)]
-pub struct AgentSettingsResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub claude: Option<ClaudeAgentSettingsResponse>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub codex: Option<CodexAgentSettingsResponse>,
-}
-
-#[derive(Serialize)]
-pub struct ClaudeAgentSettingsResponse {
-    pub model: Option<String>,
-    pub effort: Option<String>,
-    pub permission_mode: Option<String>,
-    pub allowed_tools: Vec<String>,
-    pub disallowed_tools: Vec<String>,
-}
-
-#[derive(Serialize)]
-pub struct CodexAgentSettingsResponse {
-    pub model: Option<String>,
-    pub effort: Option<String>,
-    pub approval_policy: Option<String>,
-    pub sandbox_mode: Option<String>,
-    pub collaboration_mode: Option<String>,
-    pub multi_agent: Option<bool>,
-    pub personality: Option<String>,
-    pub service_tier: Option<String>,
-    pub developer_instructions: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct ProviderSettingsResponse {
-    pub strategy: String,
-    pub primary: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub secondary: Option<String>,
-    pub max_concurrent: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_concurrent_primary: Option<u32>,
-}
-
-#[derive(Serialize)]
-pub struct TriggerSettingsResponse {
-    pub kind: String,
-    pub interval: u64,
-    pub filters: TriggerFiltersResponse,
-}
-
-#[derive(Serialize)]
-pub struct TriggerFiltersResponse {
-    pub labels: Vec<String>,
-    pub states: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub team: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct OrchestrationSettingsResponse {
-    pub max_retries: u32,
-    pub stall_timeout: u64,
-    pub base_branch: String,
 }
 
 // ── Request types ────────────────────────────────────────────────────
@@ -187,15 +120,8 @@ pub struct UpdateMissionSettingsRequest {
 pub async fn list_missions(
     State(registry): State<Arc<SessionRegistry>>,
 ) -> ApiResult<MissionsListResponse> {
-    let db_path = registry.db_path().clone();
     let orchestrator_running = registry.is_orchestrator_running();
-    let rows = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        load_missions_with_counts(&conn)
-    })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?;
+    let rows = db_read(&registry, |conn| load_missions_with_counts(conn)).await?;
 
     let missions = rows
         .into_iter()
@@ -243,7 +169,7 @@ pub async fn create_mission(
         "Mission created"
     );
 
-    let primary_provider = parse_provider(&req.provider);
+    let primary_provider = req.provider.parse::<Provider>().unwrap();
 
     let orchestrator_status = if crate::support::api_keys::resolve_linear_api_key().is_none() {
         Some("no_api_key".to_string())
@@ -275,22 +201,17 @@ pub async fn get_mission(
     State(registry): State<Arc<SessionRegistry>>,
     Path(mission_id): Path<String>,
 ) -> ApiResult<MissionDetailResponse> {
-    let db_path = registry.db_path().clone();
     let mid = mission_id.clone();
-
-    let (mission_row, issue_rows) = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        let mission = load_mission_by_id(&conn, &mid)?;
+    let (mission_row, issue_rows) = db_read(&registry, move |conn| {
+        let mission = load_mission_by_id(conn, &mid)?;
         let issues = if mission.is_some() {
-            load_mission_issues(&conn, &mid)?
+            load_mission_issues(conn, &mid)?
         } else {
             vec![]
         };
-        Ok::<_, anyhow::Error>((mission, issues))
+        Ok((mission, issues))
     })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?;
+    .await?;
 
     let mission = mission_row
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
@@ -370,16 +291,8 @@ pub async fn list_mission_issues(
     State(registry): State<Arc<SessionRegistry>>,
     Path(mission_id): Path<String>,
 ) -> ApiResult<Vec<MissionIssueItem>> {
-    let db_path = registry.db_path().clone();
     let mid = mission_id.clone();
-
-    let issue_rows = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        load_mission_issues(&conn, &mid)
-    })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?;
+    let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid)).await?;
 
     let items: Vec<MissionIssueItem> = issue_rows.into_iter().map(issue_row_to_item).collect();
     Ok(Json(items))
@@ -390,12 +303,10 @@ pub async fn retry_mission_issue(
     State(registry): State<Arc<SessionRegistry>>,
     Path((mission_id, issue_id)): Path<(String, String)>,
 ) -> ApiResult<serde_json::Value> {
-    let db_path = registry.db_path().clone();
     let mid = mission_id.clone();
     let iid = issue_id.clone();
 
-    let issue_row = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
+    let issue_row = db_read(&registry, move |conn| {
         let mut stmt = conn.prepare(
             "SELECT id, orchestration_state, attempt FROM mission_issues WHERE mission_id = ?1 AND issue_id = ?2",
         )?;
@@ -412,9 +323,7 @@ pub async fn retry_mission_issue(
             Err(e) => Err(anyhow::anyhow!(e)),
         }
     })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?;
+    .await?;
 
     let (row_id, state, attempt) = issue_row.ok_or_else(|| {
         not_found(
@@ -464,17 +373,10 @@ pub async fn scaffold_mission_file(
     State(registry): State<Arc<SessionRegistry>>,
     Path(mission_id): Path<String>,
 ) -> ApiResult<MissionDetailResponse> {
-    let db_path = registry.db_path().clone();
     let mid = mission_id.clone();
-
-    let mission = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        load_mission_by_id(&conn, &mid)
-    })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?
-    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
     let mission_file_path = StdPath::new(&mission.repo_root).join("MISSION.md");
 
@@ -524,21 +426,17 @@ pub async fn scaffold_mission_file(
         .await;
 
     // Build response matching get_mission format
-    let db_path = registry.db_path().clone();
     let mid2 = mission_id.clone();
-    let issue_rows = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        load_mission_issues(&conn, &mid2)
-    })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?;
+    let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
 
     let orchestrator_running = registry.is_orchestrator_running();
     let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
     let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
 
-    let settings = config_to_settings_response(&parsed.config, &prompt_template);
+    let settings = MissionSettingsResponse {
+        config: parsed.config,
+        prompt_template,
+    };
 
     Ok(Json(MissionDetailResponse {
         summary,
@@ -559,16 +457,10 @@ pub async fn migrate_workflow_to_mission(
     State(registry): State<Arc<SessionRegistry>>,
     Path(mission_id): Path<String>,
 ) -> ApiResult<MissionDetailResponse> {
-    let db_path = registry.db_path().clone();
     let mid = mission_id.clone();
-    let mission = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        load_mission_by_id(&conn, &mid)
-    })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?
-    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
     let mission_path = StdPath::new(&mission.repo_root).join("MISSION.md");
     if tokio::fs::metadata(&mission_path).await.is_ok() {
@@ -626,20 +518,16 @@ pub async fn migrate_workflow_to_mission(
     );
 
     // Return fresh detail
-    let db_path = registry.db_path().clone();
     let mid2 = mission_id.clone();
-    let issue_rows = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        load_mission_issues(&conn, &mid2)
-    })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?;
+    let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
 
     let orchestrator_running = registry.is_orchestrator_running();
     let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
     let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
-    let settings = config_to_settings_response(&config, &prompt_template);
+    let settings = MissionSettingsResponse {
+        config,
+        prompt_template,
+    };
 
     Ok(Json(MissionDetailResponse {
         summary,
@@ -662,16 +550,10 @@ pub async fn get_default_template(
     State(registry): State<Arc<SessionRegistry>>,
     Path(mission_id): Path<String>,
 ) -> ApiResult<DefaultTemplateResponse> {
-    let db_path = registry.db_path().clone();
     let mid = mission_id.clone();
-    let mission = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        load_mission_by_id(&conn, &mid)
-    })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?
-    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
     let full_template = default_mission_template(&mission.provider);
     let template_body = parse_mission_file(&full_template)
@@ -887,16 +769,10 @@ pub async fn start_mission_orchestrator_endpoint(
     State(registry): State<Arc<SessionRegistry>>,
     Path(mission_id): Path<String>,
 ) -> ApiResult<serde_json::Value> {
-    let db_path = registry.db_path().clone();
     let mid = mission_id.clone();
-    let mission = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        load_mission_by_id(&conn, &mid)
-    })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?
-    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
     let api_key = crate::support::api_keys::resolve_linear_api_key()
         .ok_or_else(|| bad_request("no_api_key", "Linear API key not configured. Set it via POST /api/server/linear-key or LINEAR_API_KEY env var.".to_string()))?;
@@ -940,17 +816,10 @@ pub async fn update_mission_settings(
     Path(mission_id): Path<String>,
     Json(req): Json<UpdateMissionSettingsRequest>,
 ) -> ApiResult<MissionDetailResponse> {
-    let db_path = registry.db_path().clone();
     let mid = mission_id.clone();
-
-    let mission = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        load_mission_by_id(&conn, &mid)
-    })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?
-    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
     // Read + parse current MISSION.md (or use defaults)
     let mission_file_path = StdPath::new(&mission.repo_root).join("MISSION.md");
@@ -1136,20 +1005,16 @@ pub async fn update_mission_settings(
     );
 
     // Return fresh detail response
-    let db_path = registry.db_path().clone();
     let mid2 = mission_id.clone();
-    let issue_rows = tokio::task::spawn_blocking(move || {
-        let conn = rusqlite::Connection::open(&db_path)?;
-        load_mission_issues(&conn, &mid2)
-    })
-    .await
-    .map_err(|e| internal("join_error", format!("join: {e}")))?
-    .map_err(|e| internal("db_error", format!("db: {e}")))?;
+    let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
 
     let orchestrator_running = registry.is_orchestrator_running();
     let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
     let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
-    let settings = config_to_settings_response(&config, &prompt_tmpl);
+    let settings = MissionSettingsResponse {
+        config,
+        prompt_template: prompt_tmpl,
+    };
 
     Ok(Json(MissionDetailResponse {
         summary,
@@ -1162,97 +1027,14 @@ pub async fn update_mission_settings(
 
 // ── Internal helpers ─────────────────────────────────────────────────
 
-fn parse_provider(s: &str) -> Provider {
-    match s {
-        "codex" => Provider::Codex,
-        _ => Provider::Claude,
-    }
-}
-
-fn config_to_settings_response(
-    config: &MissionConfig,
-    prompt_template: &str,
-) -> MissionSettingsResponse {
-    MissionSettingsResponse {
-        provider: ProviderSettingsResponse {
-            strategy: config.provider.strategy.clone(),
-            primary: config.provider.primary.clone(),
-            secondary: config.provider.secondary.clone(),
-            max_concurrent: config.provider.max_concurrent,
-            max_concurrent_primary: config.provider.max_concurrent_primary,
-        },
-        agent: AgentSettingsResponse {
-            claude: config
-                .agent
-                .claude
-                .as_ref()
-                .map(|c| ClaudeAgentSettingsResponse {
-                    model: c.model.clone(),
-                    effort: c.effort.clone(),
-                    permission_mode: c.permission_mode.clone(),
-                    allowed_tools: c.allowed_tools.clone(),
-                    disallowed_tools: c.disallowed_tools.clone(),
-                }),
-            codex: config
-                .agent
-                .codex
-                .as_ref()
-                .map(|x| CodexAgentSettingsResponse {
-                    model: x.model.clone(),
-                    effort: x.effort.clone(),
-                    approval_policy: x.approval_policy.clone(),
-                    sandbox_mode: x.sandbox_mode.clone(),
-                    collaboration_mode: x.collaboration_mode.clone(),
-                    multi_agent: x.multi_agent,
-                    personality: x.personality.clone(),
-                    service_tier: x.service_tier.clone(),
-                    developer_instructions: x.developer_instructions.clone(),
-                }),
-        },
-        trigger: TriggerSettingsResponse {
-            kind: config.trigger.kind.clone(),
-            interval: config.trigger.interval,
-            filters: TriggerFiltersResponse {
-                labels: config.trigger.filters.labels.clone(),
-                states: config.trigger.filters.states.clone(),
-                project: config.trigger.filters.project.clone(),
-                team: config.trigger.filters.team.clone(),
-            },
-        },
-        orchestration: OrchestrationSettingsResponse {
-            max_retries: config.orchestration.max_retries,
-            stall_timeout: config.orchestration.stall_timeout,
-            base_branch: config.orchestration.base_branch.clone(),
-        },
-        prompt_template: prompt_template.to_string(),
-        tracker: config.tracker.clone(),
-    }
-}
-
 fn build_settings_response(mission: &MissionRow) -> Option<MissionSettingsResponse> {
     let config_json = mission.config_json.as_ref()?;
     let config: MissionConfig = serde_json::from_str(config_json).ok()?;
     let prompt_template = mission.prompt_template.clone().unwrap_or_default();
-    Some(config_to_settings_response(&config, &prompt_template))
-}
-
-fn compute_orchestrator_status(row: &MissionRow, orchestrator_running: bool) -> Option<String> {
-    if !row.enabled {
-        return Some("disabled".to_string());
-    }
-    if row.paused {
-        return Some("paused".to_string());
-    }
-    if row.parse_error.is_some() {
-        return Some("config_error".to_string());
-    }
-    if crate::support::api_keys::resolve_linear_api_key().is_none() {
-        return Some("no_api_key".to_string());
-    }
-    if !orchestrator_running {
-        return Some("idle".to_string());
-    }
-    Some("polling".to_string())
+    Some(MissionSettingsResponse {
+        config,
+        prompt_template,
+    })
 }
 
 /// Build MissionSummary from row, pulling provider strategy from config_json if available.
@@ -1264,7 +1046,7 @@ fn summary_from_row(
     failed: u32,
     orchestrator_running: bool,
 ) -> MissionSummary {
-    let primary_provider = parse_provider(&row.provider);
+    let primary_provider = row.provider.parse::<Provider>().unwrap();
     let orchestrator_status = compute_orchestrator_status(row, orchestrator_running);
 
     // Try to pull strategy from parsed config
@@ -1276,7 +1058,7 @@ fn summary_from_row(
                     .provider
                     .secondary
                     .as_ref()
-                    .map(|s| parse_provider(s)),
+                    .map(|s| s.parse::<Provider>().unwrap()),
             )
         } else {
             ("single".to_string(), None)
@@ -1334,6 +1116,21 @@ fn mission_row_to_summary_with_issues(
     )
 }
 
+async fn db_read<T, F>(registry: &Arc<SessionRegistry>, f: F) -> Result<T, super::errors::ApiError>
+where
+    T: Send + 'static,
+    F: FnOnce(&rusqlite::Connection) -> anyhow::Result<T> + Send + 'static,
+{
+    let db_path = registry.db_path().clone();
+    tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path)?;
+        f(&conn)
+    })
+    .await
+    .map_err(|e| internal("join_error", format!("join: {e}")))?
+    .map_err(|e| internal("db_error", format!("db: {e}")))
+}
+
 fn issue_row_to_item(row: MissionIssueRow) -> MissionIssueItem {
     let orchestration_state = match row.orchestration_state.as_str() {
         "queued" => OrchestrationState::Queued,
@@ -1345,10 +1142,7 @@ fn issue_row_to_item(row: MissionIssueRow) -> MissionIssueItem {
         _ => OrchestrationState::Queued,
     };
 
-    let provider = match row.provider.as_deref() {
-        Some("codex") => Provider::Codex,
-        _ => Provider::Claude,
-    };
+    let provider: Provider = row.provider.as_deref().unwrap_or("claude").parse().unwrap();
 
     MissionIssueItem {
         issue_id: row.issue_id,

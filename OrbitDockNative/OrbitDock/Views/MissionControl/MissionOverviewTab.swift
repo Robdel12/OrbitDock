@@ -463,28 +463,15 @@ struct MissionOverviewTab: View {
               .controlSize(.small)
           } else {
             Image(systemName: "arrow.right.doc")
-              .font(.system(size: 11, weight: .semibold))
           }
           Text("Import Settings")
-            .font(.system(size: TypeScale.body, weight: .semibold))
         }
-        .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, Spacing.md_)
-        .background(Color.accent, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
       }
-      .buttonStyle(.plain)
+      .buttonStyle(CosmicButtonStyle(color: .accent, size: .large))
       .disabled(isMigrating)
     }
-    .padding(Spacing.lg)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-        .fill(Color.accent.opacity(OpacityTier.light))
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-            .stroke(Color.accent.opacity(OpacityTier.subtle), lineWidth: 1)
-        )
-    )
+    .statusBanner(color: Color.accent)
   }
 
   private func migrateWorkflow() async {
@@ -493,7 +480,7 @@ struct MissionOverviewTab: View {
     do {
       let _: MigrateResponse = try await http.post(
         "/api/missions/\(missionId)/migrate-workflow",
-        body: EmptyMigrateBody()
+        body: EmptyBody()
       )
     } catch {
       print("[OrbitDock] Failed to migrate workflow: \(error)")
@@ -526,26 +513,13 @@ struct MissionOverviewTab: View {
       } label: {
         HStack(spacing: Spacing.sm_) {
           Image(systemName: "gearshape")
-            .font(.system(size: 11, weight: .semibold))
           Text("Open Settings")
-            .font(.system(size: TypeScale.body, weight: .semibold))
         }
-        .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, Spacing.md_)
-        .background(Color.accent, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
       }
-      .buttonStyle(.plain)
+      .buttonStyle(CosmicButtonStyle(color: .accent, size: .large))
     }
-    .padding(Spacing.lg)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-        .fill(Color.feedbackCaution.opacity(OpacityTier.light))
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-            .stroke(Color.feedbackCaution.opacity(OpacityTier.subtle), lineWidth: 1)
-        )
-    )
+    .statusBanner(color: Color.feedbackCaution)
   }
 
   // MARK: - Mission Controls
@@ -564,9 +538,9 @@ struct MissionOverviewTab: View {
           .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.textPrimary)
         Spacer()
-        Text(missionStatusLabel)
+        Text(mission.statusLabel)
           .font(.system(size: TypeScale.micro, weight: .semibold))
-          .foregroundStyle(missionStatusColor)
+          .foregroundStyle(mission.statusColor)
       }
 
       let layout = isCompact
@@ -621,29 +595,6 @@ struct MissionOverviewTab: View {
     )
   }
 
-  private var missionStatusLabel: String {
-    if !mission.enabled { return "Disabled" }
-    if mission.paused { return "Paused" }
-    switch mission.orchestratorStatus {
-      case "polling": return "Polling"
-      case "no_api_key": return "No API Key"
-      case "config_error": return "Config Error"
-      case "idle": return "Idle"
-      default: return "Not Started"
-    }
-  }
-
-  private var missionStatusColor: Color {
-    if !mission.enabled { return Color.textQuaternary }
-    if mission.paused { return Color.feedbackCaution }
-    switch mission.orchestratorStatus {
-      case "polling": return Color.feedbackPositive
-      case "no_api_key": return Color.feedbackCaution
-      case "config_error": return Color.feedbackNegative
-      default: return Color.textTertiary
-    }
-  }
-
   private enum ControlButtonStyle { case primary, secondary, destructive }
 
   private func controlButton(
@@ -696,9 +647,9 @@ struct MissionOverviewTab: View {
     guard let http else { return }
     isStartingOrchestrator = true
     do {
-      let _: StartOrchestratorResponse = try await http.post(
+      let _: MissionOkResponse = try await http.post(
         "/api/missions/\(missionId)/start-orchestrator",
-        body: EmptyStartBody()
+        body: EmptyBody()
       )
     } catch {
       print("[OrbitDock] Failed to start orchestrator: \(error)")
@@ -722,14 +673,3 @@ struct MissionOverviewTab: View {
   }
 }
 
-private struct StartOrchestratorResponse: Decodable {
-  let ok: Bool?
-}
-
-private struct EmptyStartBody: Encodable {}
-
-private struct EmptyMigrateBody: Encodable {}
-
-private struct MigrateResponse: Decodable {
-  let summary: MissionSummary
-}

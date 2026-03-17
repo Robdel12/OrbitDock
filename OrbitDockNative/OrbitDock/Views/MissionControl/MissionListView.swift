@@ -56,29 +56,12 @@ struct MissionListView: View {
       Spacer()
 
       VStack(spacing: Spacing.lg) {
-        ZStack {
-          Circle()
-            .fill(Color.accent.opacity(OpacityTier.subtle))
-            .frame(width: 64, height: 64)
-
-          Image(systemName: "antenna.radiowaves.left.and.right")
-            .font(.system(size: 24, weight: .medium))
-            .foregroundStyle(Color.accent)
-        }
-
-        VStack(spacing: Spacing.sm_) {
-          Text("Mission Control")
-            .font(.system(size: TypeScale.large, weight: .bold))
-            .foregroundStyle(Color.textPrimary)
-
-          Text(
-            "Autonomous issue-driven agent orchestration.\nPoint a mission at a repository and let agents work through your backlog."
-          )
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textTertiary)
-          .multilineTextAlignment(.center)
-          .fixedSize(horizontal: false, vertical: true)
-        }
+        MissionEmptyState(
+          icon: "antenna.radiowaves.left.and.right",
+          title: "Mission Control",
+          subtitle: "Autonomous issue-driven agent orchestration.\nPoint a mission at a repository and let agents work through your backlog.",
+          iconColor: .accent
+        )
 
         Button {
           showNewMission = true
@@ -155,10 +138,6 @@ struct MissionListView: View {
   }
 }
 
-private struct MissionsListResponse: Codable {
-  let missions: [MissionSummary]
-}
-
 // MARK: - Mission Row
 
 private struct MissionRowView: View {
@@ -198,21 +177,21 @@ private struct MissionRowView: View {
       VStack(alignment: .leading, spacing: Spacing.sm) {
         // Top row: name + badges + actions
         HStack(alignment: .center) {
-          Text(repoName)
+          Text(mission.repoName)
             .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.textPrimary)
 
           // Provider tag
           HStack(spacing: Spacing.gap) {
-            Image(systemName: providerIcon)
+            Image(systemName: mission.resolvedProvider.icon)
               .font(.system(size: IconScale.xs, weight: .semibold))
-            Text(mission.provider.capitalized)
+            Text(mission.resolvedProvider.displayName)
               .font(.system(size: TypeScale.mini, weight: .semibold))
           }
-          .foregroundStyle(providerColor)
+          .foregroundStyle(mission.resolvedProvider.accentColor)
           .padding(.horizontal, Spacing.sm_)
           .padding(.vertical, Spacing.xxs)
-          .background(providerColor.opacity(OpacityTier.subtle), in: Capsule())
+          .background(mission.resolvedProvider.accentColor.opacity(OpacityTier.subtle), in: Capsule())
 
           // Tracker tag
           HStack(spacing: Spacing.gap) {
@@ -409,37 +388,16 @@ private struct MissionRowView: View {
       }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text("Are you sure you want to delete the mission for \(repoName)? This cannot be undone.")
+      Text("Are you sure you want to delete the mission for \(mission.repoName)? This cannot be undone.")
     }
   }
 
   // MARK: - Helpers
 
-  private var providerIcon: String {
-    switch mission.provider.lowercased() {
-      case "codex": "terminal"
-      default: "cpu"
-    }
-  }
-
-  private var providerColor: Color {
-    switch mission.provider.lowercased() {
-      case "codex": Color.providerCodex
-      default: Color.providerClaude
-    }
-  }
-
-  private var repoName: String {
-    mission.repoRoot
-      .split(separator: "/")
-      .last
-      .map(String.init) ?? mission.repoRoot
-  }
-
   private func updateMission(enabled: Bool? = nil, paused: Bool? = nil) async {
-    let body = UpdateMissionBody(enabled: enabled, paused: paused)
+    let body = MissionUpdateBody(enabled: enabled, paused: paused)
     do {
-      let _: GenericOkResponse = try await http.request(
+      let _: MissionOkResponse = try await http.request(
         path: "/api/missions/\(mission.id)",
         method: "PUT",
         body: body
@@ -452,7 +410,7 @@ private struct MissionRowView: View {
 
   private func deleteMission() async {
     do {
-      let _: GenericOkResponse = try await http.request(
+      let _: MissionOkResponse = try await http.request(
         path: "/api/missions/\(mission.id)",
         method: "DELETE"
       )
@@ -463,11 +421,3 @@ private struct MissionRowView: View {
   }
 }
 
-private struct UpdateMissionBody: Encodable {
-  let enabled: Bool?
-  let paused: Bool?
-}
-
-private struct GenericOkResponse: Decodable {
-  let ok: Bool?
-}

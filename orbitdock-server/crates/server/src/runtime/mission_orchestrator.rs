@@ -408,10 +408,7 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                 tracker_state: row.issue_state.clone().unwrap_or_default(),
                 orchestration_state: state,
                 session_id: row.session_id.clone(),
-                provider: match row.provider.as_deref() {
-                    Some("codex") => Provider::Codex,
-                    _ => Provider::Claude,
-                },
+                provider: row.provider.as_deref().unwrap_or("claude").parse::<Provider>().unwrap(),
                 attempt: row.attempt,
                 error: row.last_error.clone(),
                 url: None,
@@ -420,25 +417,11 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
         })
         .collect();
 
-    let primary_provider = match mission.provider.as_str() {
-        "codex" => Provider::Codex,
-        _ => Provider::Claude,
-    };
+    let primary_provider: Provider = mission.provider.parse().unwrap();
 
     let orchestrator_running = registry.is_orchestrator_running();
-    let orchestrator_status = if !mission.enabled {
-        Some("disabled".to_string())
-    } else if mission.paused {
-        Some("paused".to_string())
-    } else if mission.parse_error.is_some() {
-        Some("config_error".to_string())
-    } else if crate::support::api_keys::resolve_linear_api_key().is_none() {
-        Some("no_api_key".to_string())
-    } else if !orchestrator_running {
-        Some("idle".to_string())
-    } else {
-        Some("polling".to_string())
-    };
+    let orchestrator_status =
+        crate::domain::mission_control::compute_orchestrator_status(mission, orchestrator_running);
 
     // Read strategy from config_json if available
     let (provider_strategy, secondary_provider) = if let Some(ref json) = mission.config_json {
@@ -449,10 +432,7 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                 .provider
                 .secondary
                 .as_ref()
-                .map(|s| match s.as_str() {
-                    "codex" => Provider::Codex,
-                    _ => Provider::Claude,
-                });
+                .map(|s| s.parse::<Provider>().unwrap());
             (config.provider.strategy, secondary)
         } else {
             ("single".to_string(), None)

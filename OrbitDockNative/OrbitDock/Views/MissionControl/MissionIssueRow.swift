@@ -161,7 +161,7 @@ struct MissionIssueRow: View {
   private func retryIssue() async {
     guard let http else { return }
     do {
-      let _: MissionIssueRetryResponse = try await http.request(
+      let _: MissionOkResponse = try await http.request(
         path: "/api/missions/\(missionId)/issues/\(issue.issueId)/retry",
         method: "POST"
       )
@@ -169,8 +169,4 @@ struct MissionIssueRow: View {
       print("[OrbitDock] Failed to retry issue: \(error)")
     }
   }
-}
-
-private struct MissionIssueRetryResponse: Decodable {
-  let ok: Bool?
 }

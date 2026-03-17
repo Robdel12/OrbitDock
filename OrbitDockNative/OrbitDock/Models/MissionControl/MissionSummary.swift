@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 struct MissionSummary: Codable, Identifiable, Equatable {
   let id: String
@@ -33,5 +34,41 @@ struct MissionSummary: Codable, Identifiable, Equatable {
     case failedCount = "failed_count"
     case parseError = "parse_error"
     case orchestratorStatus = "orchestrator_status"
+  }
+}
+
+extension MissionSummary {
+  var statusLabel: String {
+    if !enabled { return "Disabled" }
+    if paused { return "Paused" }
+    switch orchestratorStatus {
+      case "polling": return "Polling"
+      case "no_api_key": return "No API Key"
+      case "config_error": return "Config Error"
+      case "idle": return "Idle"
+      default: return "Not Started"
+    }
+  }
+
+  var statusColor: Color {
+    if !enabled { return Color.textQuaternary }
+    if paused { return Color.feedbackCaution }
+    switch orchestratorStatus {
+      case "polling": return Color.feedbackPositive
+      case "no_api_key": return Color.feedbackCaution
+      case "config_error": return Color.feedbackNegative
+      default: return Color.textTertiary
+    }
+  }
+
+  var repoName: String {
+    repoRoot
+      .split(separator: "/")
+      .last
+      .map(String.init) ?? repoRoot
+  }
+
+  var resolvedProvider: Provider {
+    Provider(rawValue: primaryProvider) ?? .claude
   }
 }

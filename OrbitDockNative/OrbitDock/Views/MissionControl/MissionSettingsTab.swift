@@ -131,27 +131,13 @@ struct MissionSettingsTab: View {
           }
         }
 
-        // Provider cards
-        VStack(alignment: .leading, spacing: Spacing.sm_) {
-          sectionLabel("Primary")
-
-          HStack(spacing: Spacing.sm) {
-            providerCard("Claude", value: "claude", icon: "cpu", binding: $primaryProvider)
-            providerCard("Codex", value: "codex", icon: "terminal", binding: $primaryProvider)
-          }
-        }
-
-        if providerStrategy != "single" {
-          VStack(alignment: .leading, spacing: Spacing.sm_) {
-            sectionLabel("Secondary")
-
-            HStack(spacing: Spacing.sm) {
-              providerCard("Claude", value: "claude", icon: "cpu", binding: $secondaryProvider)
-              providerCard("Codex", value: "codex", icon: "terminal", binding: $secondaryProvider)
-              providerCard("None", value: "", icon: "minus", binding: $secondaryProvider)
-            }
-          }
-        }
+        ProviderSelectionGroup(
+          strategy: $providerStrategy,
+          primary: $primaryProvider,
+          secondary: $secondaryProvider,
+          includeStrategy: false,
+          useCardStyle: true
+        )
 
         // Concurrency
         concurrencyStepper("Max Concurrent", value: $maxConcurrent, range: 1 ... 20)
@@ -389,7 +375,6 @@ struct MissionSettingsTab: View {
   private func permissionChip(_ mode: ClaudePermissionMode) -> some View {
     let isSelected = claudePermission == mode
 
-    // Compact labels for mobile
     let label: String = isCompact ? {
       switch mode {
         case .plan: "Plan"
@@ -403,22 +388,12 @@ struct MissionSettingsTab: View {
     return Button {
       claudePermission = mode
     } label: {
-      HStack(spacing: Spacing.xxs) {
-        Image(systemName: mode.icon)
-          .font(.system(size: 8, weight: .bold))
-        Text(label)
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-      }
-      .foregroundStyle(isSelected ? mode.color : Color.textTertiary)
-      .padding(.horizontal, isCompact ? Spacing.sm_ : Spacing.sm)
-      .padding(.vertical, Spacing.sm_)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          .fill(isSelected ? mode.color.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              .strokeBorder(isSelected ? mode.color.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
-          )
+      SelectableOptionChip(
+        label: label,
+        icon: mode.icon,
+        isSelected: isSelected,
+        tint: mode.color,
+        isCompact: isCompact
       )
     }
     .buttonStyle(.plain)
@@ -427,7 +402,6 @@ struct MissionSettingsTab: View {
   private func autonomyChip(_ level: AutonomyLevel) -> some View {
     let isSelected = codexAutonomy == level
 
-    // Compact labels for mobile
     let label: String = isCompact ? {
       switch level {
         case .locked: "Locked"
@@ -442,22 +416,12 @@ struct MissionSettingsTab: View {
     return Button {
       codexAutonomy = level
     } label: {
-      HStack(spacing: Spacing.xxs) {
-        Image(systemName: level.icon)
-          .font(.system(size: 8, weight: .bold))
-        Text(label)
-          .font(.system(size: TypeScale.micro, weight: .semibold))
-      }
-      .foregroundStyle(isSelected ? level.color : Color.textTertiary)
-      .padding(.horizontal, isCompact ? Spacing.sm_ : Spacing.sm)
-      .padding(.vertical, Spacing.sm_)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          .fill(isSelected ? level.color.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              .strokeBorder(isSelected ? level.color.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
-          )
+      SelectableOptionChip(
+        label: label,
+        icon: level.icon,
+        isSelected: isSelected,
+        tint: level.color,
+        isCompact: isCompact
       )
     }
     .buttonStyle(.plain)
@@ -470,19 +434,11 @@ struct MissionSettingsTab: View {
     return Button {
       binding.wrappedValue = level
     } label: {
-      Text(level.displayName)
-        .font(.system(size: TypeScale.micro, weight: .semibold))
-        .foregroundStyle(isSelected ? tint : Color.textTertiary)
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm_)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            .fill(isSelected ? tint.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
-            .overlay(
-              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                .strokeBorder(isSelected ? tint.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
-            )
-        )
+      SelectableOptionChip(
+        label: level.displayName,
+        isSelected: isSelected,
+        tint: tint
+      )
     }
     .buttonStyle(.plain)
   }
@@ -493,22 +449,11 @@ struct MissionSettingsTab: View {
     return Button {
       withAnimation(Motion.snappy) { codexCollaboration = mode }
     } label: {
-      HStack(spacing: Spacing.sm_) {
-        Image(systemName: mode.icon)
-          .font(.system(size: 11, weight: .semibold))
-        Text(mode.displayName)
-          .font(.system(size: TypeScale.caption, weight: .medium))
-      }
-      .foregroundStyle(isSelected ? mode.color : Color.textSecondary)
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, Spacing.sm)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          .fill(isSelected ? mode.color.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              .strokeBorder(isSelected ? mode.color.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
-          )
+      SelectableOptionChip(
+        label: mode.displayName,
+        icon: mode.icon,
+        isSelected: isSelected,
+        tint: mode.color
       )
     }
     .buttonStyle(.plain)
@@ -971,38 +916,6 @@ struct MissionSettingsTab: View {
     .buttonStyle(.plain)
   }
 
-  private func providerCard(_ label: String, value: String, icon: String, binding: Binding<String>) -> some View {
-    let isSelected = binding.wrappedValue == value
-
-    return Button {
-      withAnimation(Motion.snappy) { binding.wrappedValue = value }
-    } label: {
-      VStack(spacing: Spacing.sm_) {
-        Image(systemName: icon)
-          .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(isSelected ? Color.accent : Color.textTertiary)
-
-        Text(label)
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
-      }
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, Spacing.md)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          .fill(isSelected ? Color.accent.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              .strokeBorder(
-                isSelected ? Color.accent.opacity(OpacityTier.medium) : Color.surfaceBorder.opacity(OpacityTier.subtle),
-                lineWidth: 1
-              )
-          )
-      )
-    }
-    .buttonStyle(.plain)
-  }
-
   private func modeButton(
     _ label: String,
     icon: String,
@@ -1011,22 +924,10 @@ struct MissionSettingsTab: View {
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
-      HStack(spacing: Spacing.sm_) {
-        Image(systemName: icon)
-          .font(.system(size: 11, weight: .semibold))
-        Text(label)
-          .font(.system(size: TypeScale.caption, weight: .medium))
-      }
-      .foregroundStyle(selected == value ? Color.accent : Color.textSecondary)
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, Spacing.sm)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          .fill(selected == value ? Color.accent.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              .strokeBorder(selected == value ? Color.accent.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
-          )
+      SelectableOptionChip(
+        label: label,
+        icon: icon,
+        isSelected: selected == value
       )
     }
     .buttonStyle(.plain)
@@ -1103,30 +1004,18 @@ struct MissionSettingsTab: View {
     }
   }
 
-  /// Interval chips — for poll interval (uses @State binding)
   private func intervalChip(_ label: String, seconds: UInt64) -> some View {
     Button {
       pollInterval = seconds
     } label: {
-      Text(label)
-        .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
-        .foregroundStyle(pollInterval == seconds ? Color.accent : Color.textTertiary)
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm_)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            .fill(pollInterval == seconds ? Color.accent.opacity(OpacityTier.subtle) : Color.backgroundTertiary
-              .opacity(0.5))
-            .overlay(
-              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                .strokeBorder(pollInterval == seconds ? Color.accent.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
-            )
-        )
+      SelectableOptionChip(
+        label: label,
+        isSelected: pollInterval == seconds
+      )
     }
     .buttonStyle(.plain)
   }
 
-  /// Interval chips — for arbitrary UInt64 values (stall timeout, etc.)
   private func intervalChip(
     _ label: String,
     seconds: UInt64,
@@ -1134,19 +1023,10 @@ struct MissionSettingsTab: View {
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
-      Text(label)
-        .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
-        .foregroundStyle(current == seconds ? Color.accent : Color.textTertiary)
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm_)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            .fill(current == seconds ? Color.accent.opacity(OpacityTier.subtle) : Color.backgroundTertiary.opacity(0.5))
-            .overlay(
-              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                .strokeBorder(current == seconds ? Color.accent.opacity(OpacityTier.medium) : .clear, lineWidth: 1)
-            )
-        )
+      SelectableOptionChip(
+        label: label,
+        isSelected: current == seconds
+      )
     }
     .buttonStyle(.plain)
   }

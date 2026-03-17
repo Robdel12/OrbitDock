@@ -95,10 +95,7 @@ pub async fn dispatch_issue(
     )?;
 
     // Create session
-    let provider = match provider_str {
-        "codex" => Provider::Codex,
-        _ => Provider::Claude,
-    };
+    let provider: Provider = provider_str.parse().unwrap();
 
     // Resolve agent settings for the chosen provider
     let resolved = agent_config.resolve_for_provider(provider_str);

@@ -267,10 +267,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     }
                 }
 
-                let provider = match provider.as_str() {
-                    "codex" => Provider::Codex,
-                    _ => Provider::Claude,
-                };
+                let provider: Provider = provider.parse().unwrap();
 
                 let mut handle = crate::domain::sessions::session::SessionHandle::restore(
                     id.clone(),

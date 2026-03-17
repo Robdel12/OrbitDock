@@ -41,17 +41,12 @@ struct MissionApiKeyBanner: View {
                 .controlSize(.small)
             } else {
               Image(systemName: "play.fill")
-                .font(.system(size: 11, weight: .semibold))
             }
             Text("Start Orchestrator")
-              .font(.system(size: TypeScale.body, weight: .semibold))
           }
-          .foregroundStyle(.white)
           .frame(maxWidth: .infinity)
-          .padding(.vertical, Spacing.md_)
-          .background(Color.accent, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(CosmicButtonStyle(color: .accent, size: .large))
         .disabled(isStartingOrchestrator)
       } else {
         // Key not saved — show input
@@ -114,10 +109,8 @@ struct MissionApiKeyBanner: View {
             openSettings()
           } label: {
             Label("Configure in Settings", systemImage: "gearshape")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(Color.accent)
           }
-          .buttonStyle(.plain)
+          .buttonStyle(GhostButtonStyle(color: .accent))
         #endif
       }
 
@@ -127,18 +120,7 @@ struct MissionApiKeyBanner: View {
           .foregroundStyle(Color.feedbackNegative)
       }
     }
-    .padding(Spacing.lg)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-        .fill((keySaved ? Color.accent : Color.feedbackCaution).opacity(OpacityTier.light))
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-            .stroke(
-              (keySaved ? Color.accent : Color.feedbackCaution).opacity(OpacityTier.subtle),
-              lineWidth: 1
-            )
-        )
-    )
+    .statusBanner(color: keySaved ? Color.accent : Color.feedbackCaution)
   }
 
   private func saveKey() async {
@@ -168,9 +150,9 @@ struct MissionApiKeyBanner: View {
     error = nil
 
     do {
-      let _: OrchestratorResponse = try await http.post(
+      let _: MissionOkResponse = try await http.post(
         "/api/missions/\(missionId)/start-orchestrator",
-        body: EmptyOrchestratorBody()
+        body: EmptyBody()
       )
       await onKeySet()
     } catch {
@@ -181,16 +163,3 @@ struct MissionApiKeyBanner: View {
   }
 }
 
-private struct SetLinearKeyBody: Encodable {
-  let key: String
-}
-
-private struct LinearKeyResponse: Decodable {
-  let configured: Bool
-}
-
-private struct OrchestratorResponse: Decodable {
-  let ok: Bool?
-}
-
-private struct EmptyOrchestratorBody: Encodable {}

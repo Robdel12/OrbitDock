@@ -199,19 +199,18 @@ struct MissionShowView: View {
 
   private func missionHeader(_ mission: MissionSummary) -> some View {
     HStack(alignment: .center, spacing: Spacing.md) {
-      // Status indicator dot with glow
       ZStack {
         Circle()
-          .fill(headerStatusColor(mission).opacity(OpacityTier.light))
+          .fill(mission.statusColor.opacity(OpacityTier.light))
           .frame(width: 32, height: 32)
 
         Circle()
-          .fill(headerStatusColor(mission))
+          .fill(mission.statusColor)
           .frame(width: 8, height: 8)
       }
 
       VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text(repoName(mission.repoRoot))
+        Text(mission.repoName)
           .font(.system(size: isCompact ? TypeScale.large : TypeScale.headline, weight: .bold))
           .foregroundStyle(Color.textPrimary)
 
@@ -221,7 +220,7 @@ struct MissionShowView: View {
 
         tagLayout {
           capsuleTag(mission.trackerKind.capitalized, icon: "link")
-          capsuleTag(mission.primaryProvider.capitalized, icon: providerIcon(mission.primaryProvider))
+          capsuleTag(mission.resolvedProvider.displayName, icon: mission.resolvedProvider.icon)
           if mission.providerStrategy != "single", mission.secondaryProvider != nil {
             capsuleTag(
               mission.providerStrategy.replacingOccurrences(of: "_", with: " ").capitalized,
@@ -233,25 +232,6 @@ struct MissionShowView: View {
       }
 
       Spacer()
-    }
-  }
-
-  private func headerStatusColor(_ mission: MissionSummary) -> Color {
-    if !mission.enabled { return Color.textQuaternary }
-    if mission.paused { return Color.feedbackCaution }
-
-    switch mission.orchestratorStatus {
-      case "no_api_key": return Color.feedbackCaution
-      case "config_error": return Color.feedbackNegative
-      case "polling": return Color.feedbackPositive
-      default: return Color.textTertiary
-    }
-  }
-
-  private func providerIcon(_ provider: String) -> String {
-    switch provider.lowercased() {
-      case "codex": "terminal"
-      default: "cpu"
     }
   }
 
@@ -289,26 +269,20 @@ struct MissionShowView: View {
   // MARK: - Helpers
 
   private func statusCapsule(_ mission: MissionSummary) -> some View {
-    Group {
-      if !mission.enabled {
-        capsuleStatus("Disabled", icon: "circle", color: Color.textQuaternary)
-      } else if mission.paused {
-        capsuleStatus("Paused", icon: "pause.circle.fill", color: Color.feedbackCaution)
-      } else {
-        switch mission.orchestratorStatus {
-          case "no_api_key":
-            capsuleStatus("No API Key", icon: "key", color: Color.feedbackCaution)
-          case "config_error":
-            capsuleStatus("Config Error", icon: "exclamationmark.triangle.fill", color: Color.feedbackNegative)
-          case "polling":
-            capsuleStatus("Polling", icon: "antenna.radiowaves.left.and.right", color: Color.feedbackPositive)
-          case "idle":
-            capsuleStatus("Idle", icon: "circle", color: Color.textTertiary)
-          default:
-            capsuleStatus("Not Started", icon: "circle", color: Color.textQuaternary)
-        }
+    let icon: String = if !mission.enabled {
+      "circle"
+    } else if mission.paused {
+      "pause.circle.fill"
+    } else {
+      switch mission.orchestratorStatus {
+        case "no_api_key": "key"
+        case "config_error": "exclamationmark.triangle.fill"
+        case "polling": "antenna.radiowaves.left.and.right"
+        default: "circle"
       }
     }
+
+    return capsuleStatus(mission.statusLabel, icon: icon, color: mission.statusColor)
   }
 
   private func capsuleTag(_ text: String, icon: String) -> some View {
@@ -327,13 +301,6 @@ struct MissionShowView: View {
       .padding(.horizontal, Spacing.sm)
       .padding(.vertical, Spacing.xs)
       .background(color.opacity(OpacityTier.light), in: Capsule())
-  }
-
-  private func repoName(_ repoRoot: String) -> String {
-    repoRoot
-      .split(separator: "/")
-      .last
-      .map(String.init) ?? repoRoot
   }
 
   // MARK: - Networking
@@ -415,28 +382,4 @@ enum MissionTab: String, CaseIterable {
   }
 }
 
-// MARK: - Response Types
-
-private struct MissionDetailResponse: Codable {
-  let summary: MissionSummary
-  let issues: [MissionIssueItem]
-  let settings: MissionSettings?
-  let missionFileExists: Bool
-  let workflowMigrationAvailable: Bool
-
-  enum CodingKeys: String, CodingKey {
-    case summary, issues, settings
-    case missionFileExists = "mission_file_exists"
-    case workflowMigrationAvailable = "workflow_migration_available"
-  }
-}
-
-private struct MissionUpdateBody: Encodable {
-  let enabled: Bool?
-  let paused: Bool?
-}
-
-private struct MissionOkResponse: Decodable {
-  let ok: Bool?
-}
 

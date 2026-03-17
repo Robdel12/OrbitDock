@@ -45,13 +45,6 @@ pub(crate) async fn hydrate_restored_rows_if_missing(
     }
 }
 
-pub(crate) fn parse_provider(value: &str) -> Provider {
-    match value.to_ascii_lowercase().as_str() {
-        "claude" => Provider::Claude,
-        "codex" => Provider::Codex,
-        _ => Provider::Claude,
-    }
-}
 
 pub(crate) fn parse_session_status(end_reason: Option<&String>, value: &str) -> SessionStatus {
     if end_reason.is_some() {
@@ -82,7 +75,7 @@ pub(crate) fn parse_work_status(status: SessionStatus, value: &str) -> WorkStatu
 }
 
 pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionState {
-    let provider = parse_provider(&restored.provider);
+    let provider = restored.provider.to_ascii_lowercase().parse::<Provider>().unwrap();
     let status = parse_session_status(restored.end_reason.as_ref(), &restored.status);
     let work_status = parse_work_status(status, &restored.work_status);
     let total_row_count = restored.rows.len() as u64;
@@ -182,7 +175,7 @@ pub(crate) fn restored_session_to_handle(
     status: SessionStatus,
     work_status: WorkStatus,
 ) -> SessionHandle {
-    let provider = parse_provider(&restored.provider);
+    let provider = restored.provider.to_ascii_lowercase().parse::<Provider>().unwrap();
 
     SessionHandle::restore(
         restored.id,
@@ -268,7 +261,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     restored: RestoredSession,
     transcript_loaded: bool,
 ) -> PreparedResumeSession {
-    let provider = parse_provider(&restored.provider);
+    let provider = restored.provider.to_ascii_lowercase().parse::<Provider>().unwrap();
     let project_path = restored.project_path.clone();
     let transcript_path = restored.transcript_path.clone();
     let model = restored.model.clone();

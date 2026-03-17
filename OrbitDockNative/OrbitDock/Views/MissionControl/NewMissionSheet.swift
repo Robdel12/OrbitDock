@@ -203,19 +203,11 @@ struct NewMissionSheet: View {
   private var cancelButton: some View {
     Button(action: { dismiss() }) {
       Text("Cancel")
-        .font(.system(size: TypeScale.body, weight: .medium))
-        .foregroundStyle(Color.textSecondary)
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.md_)
       #if os(iOS)
         .frame(maxWidth: .infinity)
       #endif
-        .background(
-          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            .fill(Color.backgroundTertiary)
-        )
     }
-    .buttonStyle(.plain)
+    .buttonStyle(GhostButtonStyle(color: .textSecondary, size: .large))
   }
 
   private var createButton: some View {
@@ -269,10 +261,4 @@ struct NewMissionSheet: View {
 
     isCreating = false
   }
-}
-
-private struct CreateMissionRequest: Encodable {
-  let repoRoot: String
-  let trackerKind: String
-  let provider: String
 }
