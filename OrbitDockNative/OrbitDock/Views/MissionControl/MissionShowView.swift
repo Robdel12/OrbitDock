@@ -67,9 +67,9 @@ struct MissionShowView: View {
     .task {
       await fetchDetail()
     }
-    .onChange(of: sessionStore?.missionDeltaMissionId) { _, newId in
-      guard newId == missionId,
-            let store = sessionStore,
+    .onChange(of: sessionStore?.missionDeltaRevision) { _, _ in
+      guard let store = sessionStore,
+            store.missionDeltaMissionId == missionId,
             let deltaSummary = store.missionDeltaSummary
       else { return }
       summary = deltaSummary

@@ -174,6 +174,7 @@ extension SessionStore {
         missionDeltaMissionId = missionId
         missionDeltaSummary = summary
         missionDeltaIssues = issues
+        missionDeltaRevision &+= 1
       case let .revision(sessionId, revision):
         lastRevision[sessionId] = revision
     }

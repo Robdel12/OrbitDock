@@ -36,6 +36,7 @@ final class SessionStore {
   var missionDeltaMissionId: String?
   var missionDeltaSummary: MissionSummary?
   var missionDeltaIssues: [MissionIssueItem] = []
+  var missionDeltaRevision: UInt64 = 0
 
   var codexModels: [ServerCodexModelOption] = []
   var claudeModels: [ServerClaudeModelOption] = []

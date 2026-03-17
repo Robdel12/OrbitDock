@@ -402,7 +402,7 @@ pub async fn retry_mission_issue(
     })?;
 
     // End any active session before re-queuing
-    if (state == "running" || state == "claimed") {
+    if state == "running" || state == "claimed" {
         if let Some(ref sid) = session_id {
             crate::runtime::session_mutations::end_session(&registry, sid).await;
         }
