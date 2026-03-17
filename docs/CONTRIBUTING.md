@@ -4,8 +4,8 @@ Thanks for your interest in contributing. OrbitDock has two main codebases: Swif
 
 ## Prerequisites
 
-- macOS 14+
-- Xcode 15+
+- macOS 15.0+
+- Xcode 16+
 - Rust toolchain (`rustup` — install from [rustup.rs](https://rustup.rs))
 - At least one CLI installed (Claude Code or Codex CLI)
 
@@ -40,12 +40,13 @@ make rust-test
 
 By default the server listens on `ws://127.0.0.1:4000/ws`. For development, run it standalone and add it as an endpoint in app settings.
 
-### CLI (standalone)
+### Hook transport (testing)
+
+With the server running (`make rust-run`), test hook forwarding directly:
 
 ```bash
-cd OrbitDockNative/OrbitDockCore
-swift build
-echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock hook-forward claude_status_event
+echo '{"session_id":"test","cwd":"/tmp","model":"claude-opus-4-6","source":"startup"}' \
+  | orbitdock hook-forward claude_session_start
 ```
 
 ## Project Layout
@@ -75,10 +76,7 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock h
 │   │   ├── Services/            # Endpoint runtimes, transport, session orchestration
 │   │   │   └── Server/          # Typed clients, EventStream, SessionStore, runtime registry
 │   │   └── Models/              # Data models + protocol types
-│   └── OrbitDockCore/           # Swift Package (shared code)
-│       └── Sources/
-│           ├── OrbitDockCore/   # Database, git ops, shared models
-│           └── OrbitDockCLI/    # CLI hook handlers
+│   └── OrbitDockCore/           # Swift Package (shared models)
 ├── migrations/                  # Database migrations (SQL)
 └── plans/                       # Living design docs and roadmaps
 ```
@@ -147,9 +145,6 @@ make lint         # Lint Swift + Rust
 ## Debugging
 
 ```bash
-# CLI logs
-tail -f ~/.orbitdock/cli.log
-
 # Codex integration logs (structured JSON)
 tail -f ~/.orbitdock/logs/codex.log | jq .
 tail -f ~/.orbitdock/logs/codex.log | jq 'select(.level == "error")'
