@@ -582,6 +582,21 @@ impl CodexConnector {
         Ok(())
     }
 
+    pub async fn submit_dynamic_tool_response(
+        &self,
+        call_id: String,
+        response: codex_protocol::dynamic_tools::DynamicToolResponse,
+    ) -> Result<(), ConnectorError> {
+        let op = Op::DynamicToolResponse {
+            id: call_id,
+            response,
+        };
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to submit dynamic tool response: {}", e))
+        })?;
+        Ok(())
+    }
+
     pub async fn shutdown(&self) -> Result<(), ConnectorError> {
         self.thread
             .submit(Op::Shutdown)

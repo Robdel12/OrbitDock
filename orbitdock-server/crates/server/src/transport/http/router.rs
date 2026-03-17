@@ -311,6 +311,10 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
             post(super::retry_mission_issue),
         )
         .route(
+            "/api/missions/{mission_id}/issues/{issue_id}/blocked",
+            post(super::report_issue_blocked),
+        )
+        .route(
             "/api/missions/{mission_id}/scaffold",
             post(super::scaffold_mission_file),
         )

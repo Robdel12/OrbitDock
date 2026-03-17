@@ -57,6 +57,8 @@ pub(crate) struct DirectSessionRequest {
     pub developer_instructions: Option<String>,
     pub mission_id: Option<String>,
     pub issue_identifier: Option<String>,
+    /// Dynamic tool specs for Codex sessions (mission tools).
+    pub dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
 }
 
 pub(crate) struct PreparedPersistedDirectSession {
@@ -268,6 +270,7 @@ pub(crate) async fn launch_prepared_direct_session(
                     personality: request.personality.as_deref(),
                     service_tier: request.service_tier.as_deref(),
                     developer_instructions: request.developer_instructions.as_deref(),
+                    dynamic_tools: request.dynamic_tools.clone(),
                 },
             )
             .await
@@ -396,6 +399,7 @@ mod tests {
             developer_instructions: Some("Stay focused".into()),
             mission_id: None,
             issue_identifier: None,
+            dynamic_tools: Vec::new(),
         };
         let prepared = prepare_direct_session(DirectSessionCreationInputs {
             id: "session-3".into(),

@@ -113,6 +113,8 @@ pub struct UpdateMissionSettingsRequest {
     pub stall_timeout: Option<u64>,
     pub base_branch: Option<String>,
     pub worktree_root_dir: Option<Option<String>>,
+    pub state_on_dispatch: Option<String>,
+    pub state_on_complete: Option<String>,
     // Prompt
     pub prompt_template: Option<String>,
     // Tracker
@@ -967,12 +969,8 @@ pub async fn dispatch_mission_issue(
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
     // 2. Resolve Linear API key
-    let api_key = crate::support::api_keys::resolve_linear_api_key().ok_or_else(|| {
-        bad_request(
-            "no_api_key",
-            "Linear API key not configured".to_string(),
-        )
-    })?;
+    let api_key = crate::support::api_keys::resolve_linear_api_key()
+        .ok_or_else(|| bad_request("no_api_key", "Linear API key not configured".to_string()))?;
 
     // 3. Parse MISSION.md
     let mission_file_path = mission.resolved_mission_path();
@@ -983,8 +981,7 @@ pub async fn dispatch_mission_issue(
         .map_err(|e| bad_request("parse_error", format!("MISSION.md parse error: {e}")))?;
 
     // 4. Fetch issue from Linear
-    let linear_client =
-        crate::infrastructure::linear::client::LinearClient::new(api_key.clone());
+    let linear_client = crate::infrastructure::linear::client::LinearClient::new(api_key.clone());
     let issue = linear_client
         .fetch_issue_by_identifier(&req.issue_identifier)
         .await
@@ -1001,7 +998,7 @@ pub async fn dispatch_mission_issue(
     let provider_str = req
         .provider
         .unwrap_or_else(|| workflow.config.provider.primary.clone());
-    let _ = registry
+    registry
         .persist()
         .send(PersistCommand::MissionIssueUpsert {
             id: issue_row_id,
@@ -1019,9 +1016,9 @@ pub async fn dispatch_mission_issue(
 
     // 6. Spawn dispatch
     let tracker: std::sync::Arc<dyn crate::domain::mission_control::tracker::Tracker> =
-        std::sync::Arc::new(
-            crate::infrastructure::linear::client::LinearClient::new(api_key),
-        );
+        std::sync::Arc::new(crate::infrastructure::linear::client::LinearClient::new(
+            api_key,
+        ));
 
     let reg = registry.clone();
     let mid_dispatch = mission.id.clone();
@@ -1083,8 +1080,9 @@ pub async fn dispatch_mission_issue(
         mission_row_to_summary_with_issues(&mission_row, &issue_rows, orchestrator_running);
     let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
     let settings = build_settings_response(&mission_row);
-    let mission_file_exists =
-        tokio::fs::metadata(mission_row.resolved_mission_path()).await.is_ok();
+    let mission_file_exists = tokio::fs::metadata(mission_row.resolved_mission_path())
+        .await
+        .is_ok();
 
     Ok(Json(MissionDetailResponse {
         summary,
@@ -1247,6 +1245,12 @@ pub async fn update_mission_settings(
     if let Some(v) = req.worktree_root_dir {
         config.orchestration.worktree_root_dir = v;
     }
+    if let Some(v) = req.state_on_dispatch {
+        config.orchestration.state_on_dispatch = v;
+    }
+    if let Some(v) = req.state_on_complete {
+        config.orchestration.state_on_complete = v;
+    }
 
     // Tracker
     if let Some(v) = req.tracker {
@@ -1319,6 +1323,55 @@ pub async fn update_mission_settings(
         mission_file_path: mission.mission_file_path.clone(),
         workflow_migration_available: false,
     }))
+}
+
+// ── Mission issue blocked signal ─────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ReportBlockedRequest {
+    pub reason: String,
+}
+
+/// POST /api/missions/:mission_id/issues/:issue_id/blocked
+///
+/// Called by mission tools (MCP server or dynamic tool handler) when the
+/// agent signals it cannot continue.
+pub async fn report_issue_blocked(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path((mission_id, issue_id)): Path<(String, String)>,
+    Json(body): Json<ReportBlockedRequest>,
+) -> ApiResult<serde_json::Value> {
+    let mid = mission_id.clone();
+    let iid = issue_id.clone();
+    let reason = body.reason.clone();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Update orchestration state to blocked
+    let _ = registry
+        .persist()
+        .send(PersistCommand::MissionIssueUpdateState {
+            mission_id: mid.clone(),
+            issue_id: iid.clone(),
+            orchestration_state: "blocked".to_string(),
+            session_id: None,
+            attempt: None,
+            last_error: Some(Some(reason.clone())),
+            retry_due_at: None,
+            started_at: None,
+            completed_at: Some(Some(now)),
+        })
+        .await;
+
+    info!(
+        component = "mission_control",
+        event = "issue.blocked",
+        mission_id = %mid,
+        issue_id = %iid,
+        reason = %reason,
+        "Agent reported issue blocked"
+    );
+
+    Ok(Json(serde_json::json!({ "blocked": true })))
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────

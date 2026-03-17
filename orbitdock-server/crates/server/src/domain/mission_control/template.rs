@@ -37,7 +37,7 @@ orchestration:
   stall_timeout: 600
   base_branch: main
   # state_on_dispatch: "In Progress"   # tracker state when issue is dispatched
-  # state_on_complete: Done            # tracker state when session completes
+  # state_on_complete: "In Review"     # tracker state when session completes (PR awaits human review)
 ---
 
 You are working on Linear issue `{{ issue.identifier }}`: {{ issue.title }}

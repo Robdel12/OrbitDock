@@ -50,6 +50,9 @@ fn main() -> anyhow::Result<()> {
                 auth_token.as_deref(),
             );
         }
+        Some(Command::McpMissionTools) => {
+            return orbitdock_cli::commands::mcp_mission_tools::run();
+        }
         Some(Command::InstallService {
             bind,
             enable,

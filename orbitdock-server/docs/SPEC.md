@@ -493,16 +493,38 @@ orchestration:
   stall_timeout: 600
   base_branch: main
   state_on_dispatch: "In Progress"   # tracker state when issue is dispatched
-  state_on_complete: Done            # tracker state when session completes
+  state_on_complete: "In Review"     # tracker state when session completes
 ```
 
 The state lifecycle flows through the trigger filters:
 
 1. `trigger.filters.states` defines which states to poll for candidates (e.g. `[Todo, Next]`)
 2. `state_on_dispatch` — issue moves to this state when claimed by a session (default: "In Progress")
-3. `state_on_complete` — issue moves to this state when a session finishes (default: "Done")
+3. `state_on_complete` — issue moves to this state when a session finishes (default: "In Review")
 
 Tracker writes (state transitions and comments) are best-effort — failures are logged but never block the dispatch or reconciliation pipeline.
+
+##### Mission Tools
+
+Every dispatched session receives 8 mission-specific tools that let the agent interact with the issue tracker during execution:
+
+| Tool | Description |
+|---|---|
+| `mission_get_issue` | Fetch current issue details (title, description, status, labels, URL) |
+| `mission_post_update` | Post a comment on the current issue |
+| `mission_update_comment` | Edit an existing comment by ID |
+| `mission_get_comments` | List comments on the current issue |
+| `mission_set_status` | Move the issue to a workflow state (e.g. "In Review") |
+| `mission_link_pr` | Attach a pull request URL to the issue |
+| `mission_create_followup` | Create a backlog issue for out-of-scope work |
+| `mission_report_blocked` | Signal that the agent is blocked and needs human intervention |
+
+Tool injection differs by provider:
+
+- **Claude**: A `.mcp.json` file is written to the worktree root at dispatch time. It configures an `orbitdock-mission` MCP server (`orbitdock mcp-mission-tools` subcommand) that Claude auto-discovers at startup. Environment variables (`LINEAR_API_KEY`, `ORBITDOCK_ISSUE_ID`, `ORBITDOCK_ISSUE_IDENTIFIER`, `ORBITDOCK_MISSION_ID`) are injected into the MCP server config.
+- **Codex**: Tools are registered as `DynamicToolSpec` entries passed via `start_thread_with_tools`. The server handles tool execution directly.
+
+Tool definitions live in `domain/mission_control/tools.rs`. The shared executor in `domain/mission_control/executor.rs` handles all tool calls against the Linear API for both paths. `mission_report_blocked` sets the issue's orchestration state to `blocked` and posts a comment — the orchestrator will not retry blocked issues.
 
 #### Server-Level Mission Config
 

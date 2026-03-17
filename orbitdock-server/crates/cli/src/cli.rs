@@ -101,6 +101,10 @@ pub enum BinaryCommand {
         auth_token: Option<String>,
     },
 
+    /// Internal: MCP stdio server providing mission tools to agents
+    #[command(name = "mcp-mission-tools", hide = true)]
+    McpMissionTools,
+
     /// Generate and install a launchd/systemd service file
     InstallService {
         #[arg(long, default_value = "127.0.0.1:4000")]
@@ -1053,7 +1057,10 @@ mod tests {
 
         match cli.command {
             Some(BinaryCommand::Start { bind, .. }) => {
-                assert_eq!(bind, "0.0.0.0:4000".parse().unwrap());
+                assert_eq!(
+                    bind,
+                    "0.0.0.0:4000".parse::<std::net::SocketAddr>().unwrap()
+                );
             }
             other => panic!("expected start command, got {other:?}"),
         }

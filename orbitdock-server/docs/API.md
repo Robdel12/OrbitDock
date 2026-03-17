@@ -2172,7 +2172,7 @@ Response:
 Notes:
 
 - `settings` is `null` when the mission file cannot be parsed.
-- `orchestration_state` is one of: `queued`, `claimed`, `running`, `retry_queued`, `completed`, `failed`.
+- `orchestration_state` is one of: `queued`, `claimed`, `running`, `retry_queued`, `completed`, `failed`, `blocked`.
 
 #### `PUT /api/missions/{mission_id}`
 
@@ -2229,6 +2229,27 @@ Notes:
 
 - Increments the attempt counter.
 - Schedules the next retry with exponential backoff (max 300s).
+
+#### `POST /api/missions/{mission_id}/issues/{issue_id}/blocked`
+
+Reports that the agent working on this issue is blocked. Called by mission tools (`mission_report_blocked`).
+
+Request body:
+
+```json
+{"reason": "Missing LINEAR_API_KEY — cannot interact with tracker"}
+```
+
+Response:
+
+```json
+{"blocked": true}
+```
+
+Notes:
+
+- Updates `orchestration_state` to `"blocked"` with the reason in `last_error`.
+- The mission orchestrator will not retry blocked issues automatically.
 
 #### `POST /api/missions/{mission_id}/scaffold`
 
@@ -2350,6 +2371,17 @@ Error responses:
 
 - `400 bad_request` if tracker API key is not configured or MISSION.md cannot be parsed
 - `404 not_found` if mission or issue not found
+
+#### Mission Tools
+
+Dispatched sessions automatically receive 8 `mission_*` tools for tracker interaction (`mission_get_issue`, `mission_post_update`, `mission_update_comment`, `mission_get_comments`, `mission_set_status`, `mission_link_pr`, `mission_create_followup`, `mission_report_blocked`).
+
+Tool injection is provider-dependent:
+
+- **Claude sessions**: A `.mcp.json` file is auto-generated in the worktree root, configuring an `orbitdock-mission` MCP server via the `orbitdock mcp-mission-tools` subcommand. Claude discovers this at startup.
+- **Codex sessions**: Tools are registered as `DynamicToolSpec` entries and passed to the thread at creation time.
+
+The `blocked` endpoint above (`POST .../blocked`) is called by the `mission_report_blocked` tool executor.
 
 ### Mission Control: Server Configuration
 

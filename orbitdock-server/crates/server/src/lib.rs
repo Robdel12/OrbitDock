@@ -22,3 +22,19 @@ pub use app::{run_server, ServerRunOptions};
 pub fn init_data_dir(explicit: Option<&Path>) -> PathBuf {
     infrastructure::paths::init_data_dir(explicit)
 }
+
+// ── Public re-exports for CLI subcommands ───────────────────────────
+
+/// Mission tool definitions (shared schemas used by MCP server and Codex dynamic tools).
+pub mod mission_tools {
+    pub use crate::domain::mission_control::executor::execute_mission_tool;
+    pub use crate::domain::mission_control::executor::MissionToolResult;
+    pub use crate::domain::mission_control::tools::{
+        mission_tool_definitions, MissionToolContext, MissionToolDef,
+    };
+}
+
+/// Linear client for direct API access (used by the MCP mission-tools server).
+pub mod linear {
+    pub use crate::infrastructure::linear::client::LinearClient;
+}

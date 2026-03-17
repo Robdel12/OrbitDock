@@ -156,6 +156,89 @@ pub struct SingleIssueConnection {
     pub nodes: Vec<LinearIssue>,
 }
 
+// ── Comment models ─────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct CommentsData {
+    pub issue: CommentsIssue,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommentsIssue {
+    pub comments: CommentConnection,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommentConnection {
+    pub nodes: Vec<LinearComment>,
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct LinearComment {
+    pub id: String,
+    pub body: String,
+    #[serde(rename = "createdAt")]
+    pub created_at: Option<String>,
+    pub user: Option<LinearCommentUser>,
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct LinearCommentUser {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommentUpdateData {
+    #[serde(rename = "commentUpdate")]
+    pub comment_update: SuccessPayload,
+}
+
+// ── Issue creation models ──────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct IssueCreateData {
+    #[serde(rename = "issueCreate")]
+    pub issue_create: IssueCreatePayload,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IssueCreatePayload {
+    pub success: bool,
+    pub issue: Option<CreatedIssue>,
+}
+
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+pub struct CreatedIssue {
+    pub id: String,
+    pub identifier: String,
+    pub url: String,
+}
+
+// ── Attachment models ──────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct AttachmentCreateData {
+    #[serde(rename = "attachmentCreate")]
+    pub attachment_create: SuccessPayload,
+}
+
+// ── Team resolution ────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct IssueTeamData {
+    pub issue: IssueTeamNode,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IssueTeamNode {
+    pub team: IssueTeamRef,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IssueTeamRef {
+    pub id: String,
+}
+
 // ── Existing models ────────────────────────────────────────────────
 
 impl LinearIssue {

@@ -163,11 +163,15 @@ struct OrchestrationSettings: Codable, Equatable {
   let stallTimeout: UInt64
   let baseBranch: String
   let worktreeRootDir: String?
+  let stateOnDispatch: String
+  let stateOnComplete: String
 
   enum CodingKeys: String, CodingKey {
     case maxRetries = "max_retries"
     case stallTimeout = "stall_timeout"
     case baseBranch = "base_branch"
     case worktreeRootDir = "worktree_root_dir"
+    case stateOnDispatch = "state_on_dispatch"
+    case stateOnComplete = "state_on_complete"
   }
 }

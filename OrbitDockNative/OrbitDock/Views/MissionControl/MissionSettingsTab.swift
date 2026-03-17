@@ -48,6 +48,8 @@ struct MissionSettingsTab: View {
   @State private var stallTimeout: UInt64 = 600
   @State private var baseBranch = "main"
   @State private var worktreeRootDir = ""
+  @State private var stateOnDispatch = "In Progress"
+  @State private var stateOnComplete = "In Review"
   @State private var showFullTemplate = false
 
   /// Prompt (read-only preview)
@@ -721,6 +723,8 @@ struct MissionSettingsTab: View {
 
         compactField("Base Branch", placeholder: "main", text: $baseBranch)
         compactField("Worktree Root", placeholder: ".orbitdock-worktrees (default)", text: $worktreeRootDir)
+        compactField("State on Dispatch", placeholder: "In Progress", text: $stateOnDispatch)
+        compactField("State on Complete", placeholder: "In Review", text: $stateOnComplete)
 
         HStack(spacing: Spacing.sm_) {
           Image(systemName: "folder")
@@ -1293,6 +1297,8 @@ struct MissionSettingsTab: View {
     stallTimeout = s.orchestration.stallTimeout
     baseBranch = s.orchestration.baseBranch
     worktreeRootDir = s.orchestration.worktreeRootDir ?? ""
+    stateOnDispatch = s.orchestration.stateOnDispatch
+    stateOnComplete = s.orchestration.stateOnComplete
   }
 
   private func effortFromString(_ value: String?) -> EffortLevel {
@@ -1368,6 +1374,8 @@ struct MissionSettingsTab: View {
       stallTimeout: stallTimeout,
       baseBranch: baseBranch,
       worktreeRootDir: worktreeRootDir.isEmpty ? .some(nil) : .some(worktreeRootDir),
+      stateOnDispatch: stateOnDispatch,
+      stateOnComplete: stateOnComplete,
       promptTemplate: nil
     )
 
@@ -1431,6 +1439,8 @@ private struct UpdateSettingsBody: Encodable {
   let stallTimeout: UInt64?
   let baseBranch: String?
   let worktreeRootDir: OptionalString?
+  let stateOnDispatch: String?
+  let stateOnComplete: String?
   let promptTemplate: String?
 
   enum CodingKeys: String, CodingKey {
@@ -1461,6 +1471,8 @@ private struct UpdateSettingsBody: Encodable {
     case stallTimeout = "stall_timeout"
     case baseBranch = "base_branch"
     case worktreeRootDir = "worktree_root_dir"
+    case stateOnDispatch = "state_on_dispatch"
+    case stateOnComplete = "state_on_complete"
     case promptTemplate = "prompt_template"
   }
 }

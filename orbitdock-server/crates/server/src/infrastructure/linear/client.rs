@@ -5,8 +5,9 @@ use reqwest::Client;
 use tracing::debug;
 
 use super::models::{
-    CommentCreateData, GraphQLResponse, IssueStatesData, IssueUpdateData, IssuesData,
-    ResolveStateData, SingleIssueData,
+    AttachmentCreateData, CommentCreateData, CommentUpdateData, CommentsData, CreatedIssue,
+    GraphQLResponse, IssueCreateData, IssueStatesData, IssueTeamData, IssueUpdateData, IssuesData,
+    LinearComment, ResolveStateData, SingleIssueData,
 };
 use crate::domain::mission_control::tracker::{Tracker, TrackerConfig, TrackerIssue};
 
@@ -163,10 +164,139 @@ impl LinearClient {
             .next()
             .map(|n| n.id)
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Linear state '{state_name}' not found for issue {issue_id}"
-                )
+                anyhow::anyhow!("Linear state '{state_name}' not found for issue {issue_id}")
             })
+    }
+
+    // ── Mission tool methods ───────────────────────────────────────────
+
+    /// List comments on an issue.
+    pub async fn list_comments(
+        &self,
+        issue_id: &str,
+        first: u32,
+    ) -> anyhow::Result<Vec<LinearComment>> {
+        let query = r#"
+            query OrbitDockListComments($issueId: String!, $first: Int!) {
+                issue(id: $issueId) {
+                    comments(first: $first) {
+                        nodes { id body createdAt user { name } }
+                    }
+                }
+            }
+        "#;
+
+        let data: CommentsData = self
+            .graphql(
+                query,
+                serde_json::json!({ "issueId": issue_id, "first": first }),
+            )
+            .await?;
+
+        Ok(data.issue.comments.nodes)
+    }
+
+    /// Update an existing comment body.
+    pub async fn update_comment(&self, comment_id: &str, body: &str) -> anyhow::Result<()> {
+        let query = r#"
+            mutation OrbitDockUpdateComment($id: String!, $body: String!) {
+                commentUpdate(id: $id, input: {body: $body}) {
+                    success
+                }
+            }
+        "#;
+
+        let data: CommentUpdateData = self
+            .graphql(query, serde_json::json!({ "id": comment_id, "body": body }))
+            .await?;
+
+        if !data.comment_update.success {
+            anyhow::bail!("Linear commentUpdate returned success=false for comment {comment_id}");
+        }
+        Ok(())
+    }
+
+    /// Create a new issue in the given team.
+    pub async fn create_issue(
+        &self,
+        team_id: &str,
+        title: &str,
+        description: &str,
+        parent_id: Option<&str>,
+    ) -> anyhow::Result<CreatedIssue> {
+        let query = r#"
+            mutation OrbitDockCreateIssue($teamId: String!, $title: String!, $description: String!, $parentId: String) {
+                issueCreate(input: {teamId: $teamId, title: $title, description: $description, parentId: $parentId}) {
+                    success
+                    issue { id identifier url }
+                }
+            }
+        "#;
+
+        let data: IssueCreateData = self
+            .graphql(
+                query,
+                serde_json::json!({
+                    "teamId": team_id,
+                    "title": title,
+                    "description": description,
+                    "parentId": parent_id,
+                }),
+            )
+            .await?;
+
+        if !data.issue_create.success {
+            anyhow::bail!("Linear issueCreate returned success=false");
+        }
+
+        data.issue_create
+            .issue
+            .ok_or_else(|| anyhow::anyhow!("Linear issueCreate returned no issue"))
+    }
+
+    /// Attach a URL (e.g. PR link) to an issue.
+    pub async fn create_attachment(
+        &self,
+        issue_id: &str,
+        url: &str,
+        title: &str,
+    ) -> anyhow::Result<()> {
+        let query = r#"
+            mutation OrbitDockCreateAttachment($issueId: String!, $url: String!, $title: String!) {
+                attachmentCreate(input: {issueId: $issueId, url: $url, title: $title}) {
+                    success
+                }
+            }
+        "#;
+
+        let data: AttachmentCreateData = self
+            .graphql(
+                query,
+                serde_json::json!({ "issueId": issue_id, "url": url, "title": title }),
+            )
+            .await?;
+
+        if !data.attachment_create.success {
+            anyhow::bail!("Linear attachmentCreate returned success=false for issue {issue_id}");
+        }
+        Ok(())
+    }
+
+    /// Resolve the team ID for an issue (needed for creating follow-up issues).
+    pub async fn resolve_team_id(&self, issue_id: &str) -> anyhow::Result<String> {
+        let query = r#"
+            query OrbitDockResolveTeam($issueId: String!) {
+                issue(id: $issueId) {
+                    team { id }
+                }
+            }
+        "#;
+
+        let data: IssueTeamData = self
+            .graphql(query, serde_json::json!({ "issueId": issue_id }))
+            .await?;
+
+        Ok(data.issue.team.id)
     }
 
     /// Fetch a single issue by its human-readable identifier (e.g. "VIZ-240").
@@ -194,7 +324,12 @@ impl LinearClient {
         );
 
         let data: SingleIssueData = self.graphql(&query, serde_json::json!({})).await?;
-        Ok(data.issues.nodes.into_iter().next().map(|n| n.into_tracker_issue()))
+        Ok(data
+            .issues
+            .nodes
+            .into_iter()
+            .next()
+            .map(|n| n.into_tracker_issue()))
     }
 }
 

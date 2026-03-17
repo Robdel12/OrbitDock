@@ -36,7 +36,7 @@ fn default_state_on_dispatch() -> String {
     "In Progress".to_string()
 }
 fn default_state_on_complete() -> String {
-    "Done".to_string()
+    "In Review".to_string()
 }
 
 // ── Config types ─────────────────────────────────────────────────────

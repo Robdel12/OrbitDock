@@ -30,7 +30,6 @@ struct ConversationClient: Sendable {
   ) async throws -> ServerConversationBootstrap {
     let path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation"
     let message = "GET \(path)?limit=\(limit) session=\(sessionId)"
-    print("[OrbitDock][ConversationClient] \(message)")
     NSLog("[OrbitDock][ConversationClient] %@", message)
     return try await http.get(
       path,
@@ -46,7 +45,6 @@ struct ConversationClient: Sendable {
     let path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/messages"
     let message =
       "GET \(path)?limit=\(limit)&before_sequence=\(beforeSequence) session=\(sessionId)"
-    print("[OrbitDock][ConversationClient] \(message)")
     NSLog("[OrbitDock][ConversationClient] %@", message)
     return try await http.get(
       path,

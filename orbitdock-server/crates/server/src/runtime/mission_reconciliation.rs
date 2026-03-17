@@ -154,7 +154,7 @@ pub async fn reconcile_mission(
                     event = "reconciliation.tracker_write_failed",
                     issue_id = %issue_row.issue_id,
                     error = %err,
-                    "Failed to move issue to Done in tracker"
+                    "Failed to move issue to completion state in tracker"
                 );
             }
 

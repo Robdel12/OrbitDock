@@ -3,6 +3,7 @@ mod codex;
 mod fs;
 mod health;
 mod mcp;
+pub mod mcp_mission_tools;
 mod mission;
 mod model;
 mod review;

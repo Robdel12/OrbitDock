@@ -71,7 +71,10 @@ pub async fn dispatch_issue(
     .await;
 
     // Best-effort: move issue to configured dispatch state in tracker
-    if let Err(err) = tracker.update_issue_state(&issue.id, state_on_dispatch).await {
+    if let Err(err) = tracker
+        .update_issue_state(&issue.id, state_on_dispatch)
+        .await
+    {
         warn!(
             component = "mission_control",
             event = "dispatch.tracker_write_failed",
@@ -129,6 +132,44 @@ pub async fn dispatch_issue(
         }
     };
 
+    // Write .mcp.json for mission tools (Claude auto-discovers this at startup)
+    if let Some(linear_api_key) = crate::support::api_keys::resolve_linear_api_key() {
+        let orbitdock_bin = std::env::current_exe()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "orbitdock".to_string());
+
+        let mcp_config = serde_json::json!({
+            "mcpServers": {
+                "orbitdock-mission": {
+                    "command": orbitdock_bin,
+                    "args": ["mcp-mission-tools"],
+                    "env": {
+                        "LINEAR_API_KEY": linear_api_key,
+                        "ORBITDOCK_ISSUE_ID": issue.id,
+                        "ORBITDOCK_ISSUE_IDENTIFIER": issue.identifier,
+                        "ORBITDOCK_MISSION_ID": mission_id,
+                    }
+                }
+            }
+        });
+
+        let mcp_path = format!("{worktree_path}/.mcp.json");
+        if let Err(err) = tokio::fs::write(
+            &mcp_path,
+            serde_json::to_string_pretty(&mcp_config).unwrap_or_default(),
+        )
+        .await
+        {
+            warn!(
+                component = "mission_control",
+                event = "dispatch.mcp_write_failed",
+                worktree_path = %worktree_path,
+                error = %err,
+                "Failed to write .mcp.json for mission tools; continuing without"
+            );
+        }
+    }
+
     // Render prompt
     let prompt = render_prompt(
         prompt_template,
@@ -155,6 +196,17 @@ pub async fn dispatch_issue(
         None => Some(cli_ref),
     };
 
+    // Build dynamic tool specs for Codex sessions
+    let dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec> =
+        crate::domain::mission_control::tools::mission_tool_definitions()
+            .into_iter()
+            .map(|t| codex_protocol::dynamic_tools::DynamicToolSpec {
+                name: t.name,
+                description: t.description,
+                input_schema: t.input_schema,
+            })
+            .collect();
+
     let session_id = orbitdock_protocol::new_id();
     let request = DirectSessionRequest {
         provider,
@@ -173,6 +225,7 @@ pub async fn dispatch_issue(
         developer_instructions,
         mission_id: Some(mission_id.to_string()),
         issue_identifier: Some(issue.identifier.clone()),
+        dynamic_tools,
     };
 
     let persisted = prepare_persist_direct_session(registry, session_id.clone(), request).await;

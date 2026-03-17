@@ -225,6 +225,7 @@ pub async fn create_session(
             developer_instructions,
             mission_id: None,
             issue_identifier: None,
+            dynamic_tools: Vec::new(),
         },
     )
     .await;

@@ -2,7 +2,8 @@ use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRo
 use rusqlite::{params, Connection, OptionalExtension};
 
 /// Deserialize a ConversationRowEntry from a database row.
-/// Requires `row_data` JSON column — rows without it are skipped.
+/// Prefers `row_data` JSON column; falls back to legacy flat columns for
+/// messages written before V022 added `row_data`.
 fn row_entry_from_db(
     row: &rusqlite::Row<'_>,
     session_id: &str,
@@ -10,12 +11,17 @@ fn row_entry_from_db(
     let sequence: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
     let row_data: Option<String> = row.get(5)?;
 
-    let Some(json) = row_data else {
-        return Ok(None);
-    };
-
-    let Ok(conversation_row) = serde_json::from_str::<ConversationRow>(&json) else {
-        return Ok(None);
+    let conversation_row = if let Some(json) = row_data {
+        match serde_json::from_str::<ConversationRow>(&json) {
+            Ok(cr) => cr,
+            Err(_) => return Ok(None),
+        }
+    } else {
+        // Legacy fallback: reconstruct from flat columns (id, type, content, timestamp).
+        match legacy_row_from_db(row) {
+            Some(cr) => cr,
+            None => return Ok(None),
+        }
     };
 
     Ok(Some(ConversationRowEntry {
@@ -24,6 +30,32 @@ fn row_entry_from_db(
         turn_id: None,
         row: conversation_row,
     }))
+}
+
+/// Build a ConversationRow from the legacy flat columns for pre-V022 messages.
+fn legacy_row_from_db(row: &rusqlite::Row<'_>) -> Option<ConversationRow> {
+    let id: String = row.get(0).ok()?;
+    let msg_type: String = row.get(1).ok()?;
+    let content: String = row.get::<_, Option<String>>(2).ok()?.unwrap_or_default();
+    let timestamp: Option<String> = row.get(3).ok()?;
+
+    let msg = orbitdock_protocol::conversation_contracts::MessageRowContent {
+        id,
+        content,
+        turn_id: None,
+        timestamp,
+        is_streaming: false,
+        images: Vec::new(),
+    };
+
+    match msg_type.as_str() {
+        "user" => Some(ConversationRow::User(msg)),
+        "assistant" => Some(ConversationRow::Assistant(msg)),
+        "thinking" => Some(ConversationRow::Thinking(msg)),
+        "system" => Some(ConversationRow::System(msg)),
+        // Tool, approval, question, etc. — render as system messages so they're visible
+        _ => Some(ConversationRow::System(msg)),
+    }
 }
 
 pub(super) fn load_messages_from_db(

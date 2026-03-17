@@ -202,7 +202,9 @@ Server-driven architecture — orchestration state lives in Rust, client renders
 
 **REST:** `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `POST /api/missions/:id/issues/:issue_id/retry`, `PUT /api/missions/:id/settings`, `POST /api/missions/:id/scaffold`, `POST /api/missions/:id/dispatch`, `GET /api/missions/:id/default-template`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`
 
-**Tracker writes:** The server writes back to the tracker (Linear) at lifecycle points — `state_on_dispatch` (default "In Progress") when an issue is claimed, `state_on_complete` (default "Done") when a session finishes, plus comments on completion/failure. All writes are best-effort (logged, never block the pipeline). Configure via `orchestration.state_on_dispatch` / `orchestration.state_on_complete` in MISSION.md.
+**Tracker writes:** The server writes back to the tracker (Linear) at lifecycle points — `state_on_dispatch` (default "In Progress") when an issue is claimed, `state_on_complete` (default "In Review") when a session finishes, plus comments on completion/failure. All writes are best-effort (logged, never block the pipeline). Configure via `orchestration.state_on_dispatch` / `orchestration.state_on_complete` in MISSION.md.
+
+**Mission tools:** Each dispatched session gets 8 mission-specific tools injected automatically. For Claude sessions, an `.mcp.json` is written to the worktree pointing to `orbitdock mcp-mission-tools` (stdio MCP server). Tools: `mission_get_issue`, `mission_post_update`, `mission_update_comment`, `mission_get_comments`, `mission_set_status`, `mission_link_pr`, `mission_create_followup`, `mission_report_blocked`. Definitions in `domain/mission_control/tools.rs`, execution in `domain/mission_control/executor.rs`, MCP server in `cli/src/commands/mcp_mission_tools.rs`.
 
 **CLI dispatch:** `orbitdock mission dispatch <mission_id> <issue_identifier> [-p provider]` — manually dispatch a specific Linear issue to a mission without waiting for the polling loop.
 

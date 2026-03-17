@@ -1,8 +1,10 @@
 pub(crate) mod config;
 pub(crate) mod eligibility;
+pub mod executor;
 pub(crate) mod prompt;
 pub(crate) mod retry;
 pub(crate) mod template;
+pub mod tools;
 pub(crate) mod tracker;
 
 use crate::infrastructure::persistence::MissionRow;
