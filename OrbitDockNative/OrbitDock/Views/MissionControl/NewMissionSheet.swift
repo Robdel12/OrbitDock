@@ -4,7 +4,7 @@ struct NewMissionSheet: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  let http: ServerHTTPClient
+  let missionsClient: MissionsClient
   let onCreated: (MissionSummary) -> Void
 
   @State private var missionName = ""
@@ -271,15 +271,14 @@ struct NewMissionSheet: View {
     error = nil
 
     let providerString = provider == .codex ? "codex" : "claude"
-    let body = CreateMissionRequest(
-      name: missionName,
-      repoRoot: selectedPath,
-      trackerKind: trackerKind,
-      provider: providerString
-    )
 
     do {
-      let mission: MissionSummary = try await http.post("/api/missions", body: body)
+      let mission = try await missionsClient.createMission(
+        name: missionName,
+        repoRoot: selectedPath,
+        trackerKind: trackerKind,
+        provider: providerString
+      )
       onCreated(mission)
       dismiss()
     } catch {

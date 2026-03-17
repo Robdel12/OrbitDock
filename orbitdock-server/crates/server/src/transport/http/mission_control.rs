@@ -11,8 +11,8 @@ use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, P
 
 use crate::domain::mission_control::compute_orchestrator_status;
 use crate::domain::mission_control::config::{
-    parse_mission_file, try_parse_symphony_workflow, ClaudeAgentConfig, CodexAgentConfig,
-    MissionConfig,
+    generate_scaffold, migrate_workflow_content, parse_mission_file, try_parse_symphony_workflow,
+    MissionConfig, MissionConfigUpdate,
 };
 use crate::domain::mission_control::template::default_mission_template;
 use crate::infrastructure::persistence::{
@@ -228,38 +228,10 @@ pub async fn get_mission(
     let mission = mission_row
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let mission_file_exists = tokio::fs::metadata(mission.resolved_mission_path())
-        .await
-        .is_ok();
-
-    // Check if a Symphony WORKFLOW.md exists that can be migrated
-    let workflow_migration_available = if !mission_file_exists {
-        if let Ok(content) =
-            tokio::fs::read_to_string(StdPath::new(&mission.repo_root).join("WORKFLOW.md")).await
-        {
-            try_parse_symphony_workflow(&content).is_some()
-        } else {
-            false
-        }
-    } else {
-        false
-    };
-
     let orchestrator_running = registry.is_orchestrator_running();
-    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
-    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
-
-    // Build settings from config_json + prompt_template
-    let settings = build_settings_response(&mission);
-
-    Ok(Json(MissionDetailResponse {
-        summary,
-        issues,
-        settings,
-        mission_file_exists,
-        mission_file_path: mission.mission_file_path.clone(),
-        workflow_migration_available,
-    }))
+    let response =
+        build_detail_response(&mission, issue_rows, orchestrator_running, None, true).await;
+    Ok(Json(response))
 }
 
 /// PUT /api/missions/:id
@@ -305,22 +277,9 @@ pub async fn update_mission(
     let mid2 = mission_id.clone();
     let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
     let orchestrator_running = registry.is_orchestrator_running();
-    let summary = mission_row_to_summary_with_issues(&updated, &issue_rows, orchestrator_running);
-    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
-    let settings = build_settings_response(&updated);
-
-    let mission_file_exists = tokio::fs::metadata(updated.resolved_mission_path())
-        .await
-        .is_ok();
-
-    Ok(Json(MissionDetailResponse {
-        summary,
-        issues,
-        settings,
-        mission_file_exists,
-        mission_file_path: updated.mission_file_path.clone(),
-        workflow_migration_available: false,
-    }))
+    let response =
+        build_detail_response(&updated, issue_rows, orchestrator_running, None, false).await;
+    Ok(Json(response))
 }
 
 /// DELETE /api/missions/:id
@@ -455,21 +414,9 @@ pub async fn retry_mission_issue(
     let mid4 = mission_id.clone();
     let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid4)).await?;
     let orchestrator_running = registry.is_orchestrator_running();
-    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
-    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
-    let settings = build_settings_response(&mission);
-    let mission_file_exists = tokio::fs::metadata(mission.resolved_mission_path())
-        .await
-        .is_ok();
-
-    Ok(Json(MissionDetailResponse {
-        summary,
-        issues,
-        settings,
-        mission_file_exists,
-        mission_file_path: mission.mission_file_path.clone(),
-        workflow_migration_available: false,
-    }))
+    let response =
+        build_detail_response(&mission, issue_rows, orchestrator_running, None, false).await;
+    Ok(Json(response))
 }
 
 /// POST /api/missions/:id/scaffold
@@ -495,9 +442,17 @@ pub async fn scaffold_mission_file(
         ));
     }
 
-    // Generate and write the template
-    let template_content = default_mission_template(&mission.provider);
-    tokio::fs::write(&mission_file_path, &template_content)
+    // Generate scaffold via domain logic
+    let (file_content, config, prompt_template) =
+        generate_scaffold(&mission.provider).map_err(|e| {
+            internal(
+                "scaffold_error",
+                format!("Failed to generate scaffold: {e}"),
+            )
+        })?;
+
+    // Write to disk
+    tokio::fs::write(&mission_file_path, &file_content)
         .await
         .map_err(|e| internal("write_error", format!("Failed to write MISSION.md: {e}")))?;
 
@@ -509,17 +464,8 @@ pub async fn scaffold_mission_file(
         "Scaffolded MISSION.md"
     );
 
-    // Parse the template immediately and persist
-    let parsed = parse_mission_file(&template_content).map_err(|e| {
-        internal(
-            "parse_error",
-            format!("Failed to parse scaffolded template: {e}"),
-        )
-    })?;
-
-    let config_json = serde_json::to_string(&parsed.config).unwrap_or_default();
-    let prompt_template = parsed.prompt_template.clone();
-
+    // Persist to DB
+    let config_json = serde_json::to_string(&config).unwrap_or_default();
     let _ = registry
         .persist()
         .send(PersistCommand::MissionUpdate {
@@ -527,7 +473,7 @@ pub async fn scaffold_mission_file(
             name: None,
             enabled: None,
             paused: None,
-            config_json: Some(config_json.clone()),
+            config_json: Some(config_json),
             prompt_template: Some(prompt_template.clone()),
             parse_error: Some(None),
             mission_file_path: None,
@@ -537,24 +483,20 @@ pub async fn scaffold_mission_file(
     // Build response matching get_mission format
     let mid2 = mission_id.clone();
     let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
-
     let orchestrator_running = registry.is_orchestrator_running();
-    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
-    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
-
     let settings = MissionSettingsResponse {
-        config: parsed.config,
+        config,
         prompt_template,
     };
-
-    Ok(Json(MissionDetailResponse {
-        summary,
-        issues,
-        settings: Some(settings),
-        mission_file_exists: true,
-        mission_file_path: mission.mission_file_path.clone(),
-        workflow_migration_available: false,
-    }))
+    let response = build_detail_response(
+        &mission,
+        issue_rows,
+        orchestrator_running,
+        Some(settings),
+        false,
+    )
+    .await;
+    Ok(Json(response))
 }
 
 // ── Workflow migration endpoint ──────────────────────────────────────
@@ -585,53 +527,17 @@ pub async fn migrate_workflow_to_mission(
         .await
         .map_err(|_| not_found("no_workflow", "No WORKFLOW.md found to migrate"))?;
 
-    let config = try_parse_symphony_workflow(&workflow_content).ok_or_else(|| {
-        bad_request(
-            "no_symphony_config",
-            "WORKFLOW.md does not contain recognized Symphony configuration".to_string(),
-        )
-    })?;
+    // Convert via domain logic
+    let (file_content, config, prompt_template) =
+        migrate_workflow_content(&workflow_content, &mission.provider)
+            .map_err(|e| bad_request("no_symphony_config", format!("{e}")))?;
 
-    // Extract the prompt template body from the WORKFLOW.md (everything after the YAML front matter).
-    // We can't use parse_mission_file() here because the YAML has Symphony-specific keys that
-    // don't match MissionConfig. Instead, extract the body directly by splitting on --- markers.
-    let prompt_template = {
-        let trimmed = workflow_content.trim();
-        let body = if let Some(after_first) = trimmed.strip_prefix("---") {
-            if let Some(end_idx) = after_first.find("\n---") {
-                let prompt_start = end_idx + 4; // skip past "\n---"
-                if prompt_start < after_first.len() {
-                    after_first[prompt_start..].trim()
-                } else {
-                    ""
-                }
-            } else {
-                ""
-            }
-        } else {
-            ""
-        };
-
-        if body.is_empty() {
-            // No body in WORKFLOW.md — use the default template
-            let full_template = default_mission_template(&mission.provider);
-            parse_mission_file(&full_template)
-                .map(|def| def.prompt_template)
-                .unwrap_or_default()
-        } else {
-            body.to_string()
-        }
-    };
-
-    let mission_content =
-        crate::domain::mission_control::config::serialize_mission_file(&config, &prompt_template)
-            .map_err(|e| internal("serialize_error", format!("Failed to serialize: {e}")))?;
-
-    tokio::fs::write(&mission_path, &mission_content)
+    // Write to disk
+    tokio::fs::write(&mission_path, &file_content)
         .await
         .map_err(|e| internal("write_error", format!("Failed to write MISSION.md: {e}")))?;
 
-    // Persist config to DB
+    // Persist to DB
     let config_json = serde_json::to_string(&config).unwrap_or_default();
     let _ = registry
         .persist()
@@ -657,23 +563,20 @@ pub async fn migrate_workflow_to_mission(
     // Return fresh detail
     let mid2 = mission_id.clone();
     let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
-
     let orchestrator_running = registry.is_orchestrator_running();
-    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
-    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
     let settings = MissionSettingsResponse {
         config,
         prompt_template,
     };
-
-    Ok(Json(MissionDetailResponse {
-        summary,
-        issues,
-        settings: Some(settings),
-        mission_file_exists: true,
-        mission_file_path: mission.mission_file_path.clone(),
-        workflow_migration_available: false,
-    }))
+    let response = build_detail_response(
+        &mission,
+        issue_rows,
+        orchestrator_running,
+        Some(settings),
+        false,
+    )
+    .await;
+    Ok(Json(response))
 }
 
 // ── Default template endpoint ────────────────────────────────────────
@@ -1022,12 +925,14 @@ pub async fn dispatch_mission_issue(
 
     let reg = registry.clone();
     let mid_dispatch = mission.id.clone();
-    let repo_root = mission.repo_root.clone();
-    let prompt_template = workflow.prompt_template.clone();
-    let base_branch = workflow.config.orchestration.base_branch.clone();
-    let agent_config = workflow.config.agent.clone();
-    let wt_root = workflow.config.orchestration.worktree_root_dir.clone();
-    let dispatch_state = workflow.config.orchestration.state_on_dispatch.clone();
+    let ctx = crate::runtime::mission_dispatch::DispatchContext {
+        repo_root: mission.repo_root.clone(),
+        prompt_template: workflow.prompt_template.clone(),
+        base_branch: workflow.config.orchestration.base_branch.clone(),
+        agent_config: workflow.config.agent.clone(),
+        worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
+        state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
+    };
 
     tokio::spawn(async move {
         let result = crate::runtime::mission_dispatch::dispatch_issue(
@@ -1035,14 +940,9 @@ pub async fn dispatch_mission_issue(
             &mid_dispatch,
             &issue,
             &provider_str,
-            &repo_root,
-            &prompt_template,
-            &base_branch,
-            &agent_config,
+            &ctx,
             1,
-            wt_root.as_deref(),
             &tracker,
-            &dispatch_state,
         )
         .await;
 
@@ -1076,22 +976,9 @@ pub async fn dispatch_mission_issue(
         .ok_or_else(|| not_found("not_found", "Mission not found"))?;
     let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid4)).await?;
     let orchestrator_running = registry.is_orchestrator_running();
-    let summary =
-        mission_row_to_summary_with_issues(&mission_row, &issue_rows, orchestrator_running);
-    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
-    let settings = build_settings_response(&mission_row);
-    let mission_file_exists = tokio::fs::metadata(mission_row.resolved_mission_path())
-        .await
-        .is_ok();
-
-    Ok(Json(MissionDetailResponse {
-        summary,
-        issues,
-        settings,
-        mission_file_exists,
-        mission_file_path: mission_row.mission_file_path.clone(),
-        workflow_migration_available: false,
-    }))
+    let response =
+        build_detail_response(&mission_row, issue_rows, orchestrator_running, None, false).await;
+    Ok(Json(response))
 }
 
 // ── Settings write-back endpoint ─────────────────────────────────────
@@ -1121,141 +1008,41 @@ pub async fn update_mission_settings(
         (MissionConfig::default(), String::new())
     };
 
-    // Merge request fields — Provider
-    if let Some(v) = req.provider_strategy {
-        config.provider.strategy = v;
-    }
-    if let Some(v) = req.primary_provider {
-        config.provider.primary = v;
-    }
-    if let Some(v) = req.secondary_provider {
-        config.provider.secondary = v;
-    }
-    if let Some(v) = req.max_concurrent {
-        config.provider.max_concurrent = v;
-    }
-    if let Some(v) = req.max_concurrent_primary {
-        config.provider.max_concurrent_primary = v;
-    }
-
-    // Agent — Claude
-    let has_claude_update = req.agent_claude_model.is_some()
-        || req.agent_claude_effort.is_some()
-        || req.agent_claude_permission_mode.is_some()
-        || req.agent_claude_allowed_tools.is_some()
-        || req.agent_claude_disallowed_tools.is_some();
-
-    if has_claude_update {
-        let claude = config
-            .agent
-            .claude
-            .get_or_insert_with(ClaudeAgentConfig::default);
-        if let Some(v) = req.agent_claude_model {
-            claude.model = v;
-        }
-        if let Some(v) = req.agent_claude_effort {
-            claude.effort = v;
-        }
-        if let Some(v) = req.agent_claude_permission_mode {
-            claude.permission_mode = v;
-        }
-        if let Some(v) = req.agent_claude_allowed_tools {
-            claude.allowed_tools = v;
-        }
-        if let Some(v) = req.agent_claude_disallowed_tools {
-            claude.disallowed_tools = v;
-        }
-    }
-
-    // Agent — Codex
-    let has_codex_update = req.agent_codex_model.is_some()
-        || req.agent_codex_effort.is_some()
-        || req.agent_codex_approval_policy.is_some()
-        || req.agent_codex_sandbox_mode.is_some()
-        || req.agent_codex_collaboration_mode.is_some()
-        || req.agent_codex_multi_agent.is_some()
-        || req.agent_codex_personality.is_some()
-        || req.agent_codex_service_tier.is_some()
-        || req.agent_codex_developer_instructions.is_some();
-
-    if has_codex_update {
-        let codex = config
-            .agent
-            .codex
-            .get_or_insert_with(CodexAgentConfig::default);
-        if let Some(v) = req.agent_codex_model {
-            codex.model = v;
-        }
-        if let Some(v) = req.agent_codex_effort {
-            codex.effort = v;
-        }
-        if let Some(v) = req.agent_codex_approval_policy {
-            codex.approval_policy = v;
-        }
-        if let Some(v) = req.agent_codex_sandbox_mode {
-            codex.sandbox_mode = v;
-        }
-        if let Some(v) = req.agent_codex_collaboration_mode {
-            codex.collaboration_mode = v;
-        }
-        if let Some(v) = req.agent_codex_multi_agent {
-            codex.multi_agent = v;
-        }
-        if let Some(v) = req.agent_codex_personality {
-            codex.personality = v;
-        }
-        if let Some(v) = req.agent_codex_service_tier {
-            codex.service_tier = v;
-        }
-        if let Some(v) = req.agent_codex_developer_instructions {
-            codex.developer_instructions = v;
-        }
-    }
-
-    // Trigger
-    if let Some(v) = req.trigger_kind {
-        config.trigger.kind = v;
-    }
-    if let Some(v) = req.poll_interval {
-        config.trigger.interval = v;
-    }
-    if let Some(v) = req.label_filter {
-        config.trigger.filters.labels = v;
-    }
-    if let Some(v) = req.state_filter {
-        config.trigger.filters.states = v;
-    }
-    if let Some(v) = req.project_key {
-        config.trigger.filters.project = v;
-    }
-    if let Some(v) = req.team_key {
-        config.trigger.filters.team = v;
-    }
-
-    // Orchestration
-    if let Some(v) = req.max_retries {
-        config.orchestration.max_retries = v;
-    }
-    if let Some(v) = req.stall_timeout {
-        config.orchestration.stall_timeout = v;
-    }
-    if let Some(v) = req.base_branch {
-        config.orchestration.base_branch = v;
-    }
-    if let Some(v) = req.worktree_root_dir {
-        config.orchestration.worktree_root_dir = v;
-    }
-    if let Some(v) = req.state_on_dispatch {
-        config.orchestration.state_on_dispatch = v;
-    }
-    if let Some(v) = req.state_on_complete {
-        config.orchestration.state_on_complete = v;
-    }
-
-    // Tracker
-    if let Some(v) = req.tracker {
-        config.tracker = v;
-    }
+    // Merge request fields into config
+    config.apply_update(MissionConfigUpdate {
+        provider_strategy: req.provider_strategy,
+        primary_provider: req.primary_provider,
+        secondary_provider: req.secondary_provider,
+        max_concurrent: req.max_concurrent,
+        max_concurrent_primary: req.max_concurrent_primary,
+        agent_claude_model: req.agent_claude_model,
+        agent_claude_effort: req.agent_claude_effort,
+        agent_claude_permission_mode: req.agent_claude_permission_mode,
+        agent_claude_allowed_tools: req.agent_claude_allowed_tools,
+        agent_claude_disallowed_tools: req.agent_claude_disallowed_tools,
+        agent_codex_model: req.agent_codex_model,
+        agent_codex_effort: req.agent_codex_effort,
+        agent_codex_approval_policy: req.agent_codex_approval_policy,
+        agent_codex_sandbox_mode: req.agent_codex_sandbox_mode,
+        agent_codex_collaboration_mode: req.agent_codex_collaboration_mode,
+        agent_codex_multi_agent: req.agent_codex_multi_agent,
+        agent_codex_personality: req.agent_codex_personality,
+        agent_codex_service_tier: req.agent_codex_service_tier,
+        agent_codex_developer_instructions: req.agent_codex_developer_instructions,
+        trigger_kind: req.trigger_kind,
+        poll_interval: req.poll_interval,
+        label_filter: req.label_filter,
+        state_filter: req.state_filter,
+        project_key: req.project_key,
+        team_key: req.team_key,
+        max_retries: req.max_retries,
+        stall_timeout: req.stall_timeout,
+        base_branch: req.base_branch,
+        worktree_root_dir: req.worktree_root_dir,
+        state_on_dispatch: req.state_on_dispatch,
+        state_on_complete: req.state_on_complete,
+        tracker: req.tracker,
+    });
 
     // Prompt
     if let Some(v) = req.prompt_template {
@@ -1306,23 +1093,20 @@ pub async fn update_mission_settings(
     // Return fresh detail response
     let mid2 = mission_id.clone();
     let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
-
     let orchestrator_running = registry.is_orchestrator_running();
-    let summary = mission_row_to_summary_with_issues(&mission, &issue_rows, orchestrator_running);
-    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
     let settings = MissionSettingsResponse {
         config,
         prompt_template: prompt_tmpl,
     };
-
-    Ok(Json(MissionDetailResponse {
-        summary,
-        issues,
-        settings: Some(settings),
-        mission_file_exists: true,
-        mission_file_path: mission.mission_file_path.clone(),
-        workflow_migration_available: false,
-    }))
+    let response = build_detail_response(
+        &mission,
+        issue_rows,
+        orchestrator_running,
+        Some(settings),
+        false,
+    )
+    .await;
+    Ok(Json(response))
 }
 
 // ── Mission issue blocked signal ─────────────────────────────────────
@@ -1384,6 +1168,55 @@ fn build_settings_response(mission: &MissionRow) -> Option<MissionSettingsRespon
         config,
         prompt_template,
     })
+}
+
+/// Build a full MissionDetailResponse from a mission row + issue rows.
+///
+/// If `settings_override` is provided, it is used directly and
+/// `mission_file_exists` is forced to `true`. Otherwise settings
+/// are derived from the row's `config_json` / `prompt_template`.
+///
+/// Set `check_workflow_migration` to `true` only for the detail GET
+/// endpoint — all mutation responses skip the check.
+async fn build_detail_response(
+    mission: &MissionRow,
+    issue_rows: Vec<MissionIssueRow>,
+    orchestrator_running: bool,
+    settings_override: Option<MissionSettingsResponse>,
+    check_workflow_migration: bool,
+) -> MissionDetailResponse {
+    let summary = mission_row_to_summary_with_issues(mission, &issue_rows, orchestrator_running);
+    let issues = issue_rows.into_iter().map(issue_row_to_item).collect();
+
+    let (settings, mission_file_exists) = if let Some(s) = settings_override {
+        (Some(s), true)
+    } else {
+        let exists = tokio::fs::metadata(mission.resolved_mission_path())
+            .await
+            .is_ok();
+        (build_settings_response(mission), exists)
+    };
+
+    let workflow_migration_available = if check_workflow_migration && !mission_file_exists {
+        if let Ok(content) =
+            tokio::fs::read_to_string(StdPath::new(&mission.repo_root).join("WORKFLOW.md")).await
+        {
+            try_parse_symphony_workflow(&content).is_some()
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
+    MissionDetailResponse {
+        summary,
+        issues,
+        settings,
+        mission_file_exists,
+        mission_file_path: mission.mission_file_path.clone(),
+        workflow_migration_available,
+    }
 }
 
 /// Build MissionSummary from row, pulling provider strategy from config_json if available.

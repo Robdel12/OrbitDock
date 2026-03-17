@@ -20,10 +20,10 @@ struct MissionIssuesTab: View {
   // MARK: - Summary Bar
 
   private var issuesSummaryBar: some View {
-    let running = issues.filter { $0.orchestrationState == .running || $0.orchestrationState == .claimed }.count
-    let queued = issues.filter { $0.orchestrationState == .queued || $0.orchestrationState == .retryQueued }.count
-    let completed = issues.filter { $0.orchestrationState == .completed }.count
-    let failed = issues.filter { $0.orchestrationState == .failed }.count
+    let running = UInt32(issues.running.count)
+    let queued = UInt32(issues.queued.count)
+    let completed = UInt32(issues.completed.count)
+    let failed = UInt32(issues.failed.count)
 
     return HStack(spacing: Spacing.lg) {
       HStack(spacing: Spacing.sm_) {
@@ -38,22 +38,11 @@ struct MissionIssuesTab: View {
       Spacer()
 
       HStack(spacing: Spacing.md) {
-        if running > 0 { miniStat("\(running) running", color: Color.statusWorking) }
-        if queued > 0 { miniStat("\(queued) queued", color: Color.feedbackCaution) }
-        if failed > 0 { miniStat("\(failed) failed", color: Color.feedbackNegative) }
-        if completed > 0 { miniStat("\(completed) done", color: Color.feedbackPositive) }
+        if running > 0 { MissionStatChip(count: running, label: "running", color: .statusWorking) }
+        if queued > 0 { MissionStatChip(count: queued, label: "queued", color: .feedbackCaution) }
+        if failed > 0 { MissionStatChip(count: failed, label: "failed", color: .feedbackNegative) }
+        if completed > 0 { MissionStatChip(count: completed, label: "done", color: .feedbackPositive) }
       }
-    }
-  }
-
-  private func miniStat(_ text: String, color: Color) -> some View {
-    HStack(spacing: Spacing.xs) {
-      Circle()
-        .fill(color)
-        .frame(width: 5, height: 5)
-      Text(text)
-        .font(.system(size: TypeScale.micro, weight: .medium))
-        .foregroundStyle(color)
     }
   }
 
@@ -61,10 +50,10 @@ struct MissionIssuesTab: View {
 
   private var pipelineContent: some View {
     VStack(alignment: .leading, spacing: Spacing.lg) {
-      let running = issues.filter { $0.orchestrationState == .running || $0.orchestrationState == .claimed }
-      let queued = issues.filter { $0.orchestrationState == .queued || $0.orchestrationState == .retryQueued }
-      let failed = issues.filter { $0.orchestrationState == .failed }
-      let completed = issues.filter { $0.orchestrationState == .completed }
+      let running = issues.running
+      let queued = issues.queued
+      let failed = issues.failed
+      let completed = issues.completed
 
       if !running.isEmpty {
         issueGroup("Running", count: running.count, color: Color.statusWorking, icon: "bolt.fill", issues: running)
@@ -132,15 +121,7 @@ struct MissionIssuesTab: View {
           )
         }
       }
-      .background(
-        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-          .fill(Color.backgroundSecondary)
-      )
-      .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-          .strokeBorder(color.opacity(OpacityTier.subtle), lineWidth: 1)
-      )
+      .cosmicCard(cornerRadius: Radius.ml, fillColor: .backgroundSecondary, fillOpacity: 1.0, borderColor: color)
     }
   }
 

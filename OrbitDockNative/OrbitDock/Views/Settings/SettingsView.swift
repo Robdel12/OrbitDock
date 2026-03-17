@@ -275,7 +275,7 @@ struct SettingsView: View {
           case .integrations:
             SetupSettingsView()
           case .missionControl:
-            SettingsMissionControlView()
+            MissionControlDefaultsView()
           case .servers:
             DebugSettingsView()
           case .notifications:
@@ -323,7 +323,7 @@ struct SettingsView: View {
           case .integrations:
             SetupSettingsView()
           case .missionControl:
-            SettingsMissionControlView()
+            MissionControlDefaultsView()
           case .servers:
             DebugSettingsView()
           case .notifications:

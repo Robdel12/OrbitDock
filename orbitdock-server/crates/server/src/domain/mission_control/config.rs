@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+use super::template::default_mission_template;
 use super::tracker::TrackerConfig;
 
 // ── Default-value helpers ────────────────────────────────────────────
@@ -586,6 +587,244 @@ pub fn serialize_mission_file_preserving(
     };
 
     Ok(format!("---\n{}---\n\n{}", yaml, body))
+}
+
+/// Flat partial-update for mission configuration — mirrors the REST request
+/// but lives in the domain so it can be tested independently.
+#[derive(Default)]
+pub struct MissionConfigUpdate {
+    // Provider
+    pub provider_strategy: Option<String>,
+    pub primary_provider: Option<String>,
+    pub secondary_provider: Option<Option<String>>,
+    pub max_concurrent: Option<u32>,
+    pub max_concurrent_primary: Option<Option<u32>>,
+    // Agent — Claude
+    pub agent_claude_model: Option<Option<String>>,
+    pub agent_claude_effort: Option<Option<String>>,
+    pub agent_claude_permission_mode: Option<Option<String>>,
+    pub agent_claude_allowed_tools: Option<Vec<String>>,
+    pub agent_claude_disallowed_tools: Option<Vec<String>>,
+    // Agent — Codex
+    pub agent_codex_model: Option<Option<String>>,
+    pub agent_codex_effort: Option<Option<String>>,
+    pub agent_codex_approval_policy: Option<Option<String>>,
+    pub agent_codex_sandbox_mode: Option<Option<String>>,
+    pub agent_codex_collaboration_mode: Option<Option<String>>,
+    pub agent_codex_multi_agent: Option<Option<bool>>,
+    pub agent_codex_personality: Option<Option<String>>,
+    pub agent_codex_service_tier: Option<Option<String>>,
+    pub agent_codex_developer_instructions: Option<Option<String>>,
+    // Trigger
+    pub trigger_kind: Option<String>,
+    pub poll_interval: Option<u64>,
+    pub label_filter: Option<Vec<String>>,
+    pub state_filter: Option<Vec<String>>,
+    pub project_key: Option<Option<String>>,
+    pub team_key: Option<Option<String>>,
+    // Orchestration
+    pub max_retries: Option<u32>,
+    pub stall_timeout: Option<u64>,
+    pub base_branch: Option<String>,
+    pub worktree_root_dir: Option<Option<String>>,
+    pub state_on_dispatch: Option<String>,
+    pub state_on_complete: Option<String>,
+    // Tracker
+    pub tracker: Option<String>,
+}
+
+impl MissionConfig {
+    /// Apply a partial update, merging only the fields that are `Some`.
+    pub fn apply_update(&mut self, u: MissionConfigUpdate) {
+        // Provider
+        if let Some(v) = u.provider_strategy {
+            self.provider.strategy = v;
+        }
+        if let Some(v) = u.primary_provider {
+            self.provider.primary = v;
+        }
+        if let Some(v) = u.secondary_provider {
+            self.provider.secondary = v;
+        }
+        if let Some(v) = u.max_concurrent {
+            self.provider.max_concurrent = v;
+        }
+        if let Some(v) = u.max_concurrent_primary {
+            self.provider.max_concurrent_primary = v;
+        }
+
+        // Agent — Claude
+        let has_claude = u.agent_claude_model.is_some()
+            || u.agent_claude_effort.is_some()
+            || u.agent_claude_permission_mode.is_some()
+            || u.agent_claude_allowed_tools.is_some()
+            || u.agent_claude_disallowed_tools.is_some();
+        if has_claude {
+            let claude = self
+                .agent
+                .claude
+                .get_or_insert_with(ClaudeAgentConfig::default);
+            if let Some(v) = u.agent_claude_model {
+                claude.model = v;
+            }
+            if let Some(v) = u.agent_claude_effort {
+                claude.effort = v;
+            }
+            if let Some(v) = u.agent_claude_permission_mode {
+                claude.permission_mode = v;
+            }
+            if let Some(v) = u.agent_claude_allowed_tools {
+                claude.allowed_tools = v;
+            }
+            if let Some(v) = u.agent_claude_disallowed_tools {
+                claude.disallowed_tools = v;
+            }
+        }
+
+        // Agent — Codex
+        let has_codex = u.agent_codex_model.is_some()
+            || u.agent_codex_effort.is_some()
+            || u.agent_codex_approval_policy.is_some()
+            || u.agent_codex_sandbox_mode.is_some()
+            || u.agent_codex_collaboration_mode.is_some()
+            || u.agent_codex_multi_agent.is_some()
+            || u.agent_codex_personality.is_some()
+            || u.agent_codex_service_tier.is_some()
+            || u.agent_codex_developer_instructions.is_some();
+        if has_codex {
+            let codex = self
+                .agent
+                .codex
+                .get_or_insert_with(CodexAgentConfig::default);
+            if let Some(v) = u.agent_codex_model {
+                codex.model = v;
+            }
+            if let Some(v) = u.agent_codex_effort {
+                codex.effort = v;
+            }
+            if let Some(v) = u.agent_codex_approval_policy {
+                codex.approval_policy = v;
+            }
+            if let Some(v) = u.agent_codex_sandbox_mode {
+                codex.sandbox_mode = v;
+            }
+            if let Some(v) = u.agent_codex_collaboration_mode {
+                codex.collaboration_mode = v;
+            }
+            if let Some(v) = u.agent_codex_multi_agent {
+                codex.multi_agent = v;
+            }
+            if let Some(v) = u.agent_codex_personality {
+                codex.personality = v;
+            }
+            if let Some(v) = u.agent_codex_service_tier {
+                codex.service_tier = v;
+            }
+            if let Some(v) = u.agent_codex_developer_instructions {
+                codex.developer_instructions = v;
+            }
+        }
+
+        // Trigger
+        if let Some(v) = u.trigger_kind {
+            self.trigger.kind = v;
+        }
+        if let Some(v) = u.poll_interval {
+            self.trigger.interval = v;
+        }
+        if let Some(v) = u.label_filter {
+            self.trigger.filters.labels = v;
+        }
+        if let Some(v) = u.state_filter {
+            self.trigger.filters.states = v;
+        }
+        if let Some(v) = u.project_key {
+            self.trigger.filters.project = v;
+        }
+        if let Some(v) = u.team_key {
+            self.trigger.filters.team = v;
+        }
+
+        // Orchestration
+        if let Some(v) = u.max_retries {
+            self.orchestration.max_retries = v;
+        }
+        if let Some(v) = u.stall_timeout {
+            self.orchestration.stall_timeout = v;
+        }
+        if let Some(v) = u.base_branch {
+            self.orchestration.base_branch = v;
+        }
+        if let Some(v) = u.worktree_root_dir {
+            self.orchestration.worktree_root_dir = v;
+        }
+        if let Some(v) = u.state_on_dispatch {
+            self.orchestration.state_on_dispatch = v;
+        }
+        if let Some(v) = u.state_on_complete {
+            self.orchestration.state_on_complete = v;
+        }
+
+        // Tracker
+        if let Some(v) = u.tracker {
+            self.tracker = v;
+        }
+    }
+}
+
+// ── Scaffold & migration ─────────────────────────────────────────────
+
+/// Generate a scaffold MISSION.md for a given provider.
+///
+/// Returns `(file_content, parsed_config, prompt_template)`.
+pub fn generate_scaffold(provider: &str) -> Result<(String, MissionConfig, String)> {
+    let file_content = default_mission_template(provider);
+    let parsed = parse_mission_file(&file_content).context("parse scaffolded template")?;
+    let prompt_template = parsed.prompt_template.clone();
+    Ok((file_content, parsed.config, prompt_template))
+}
+
+/// Convert a Symphony WORKFLOW.md content string into MISSION.md format.
+///
+/// Returns `(file_content, parsed_config, prompt_template)`.
+pub fn migrate_workflow_content(
+    workflow_content: &str,
+    fallback_provider: &str,
+) -> Result<(String, MissionConfig, String)> {
+    let config = try_parse_symphony_workflow(workflow_content)
+        .context("WORKFLOW.md does not contain recognized Symphony configuration")?;
+
+    // Extract body from the WORKFLOW.md (everything after the YAML front matter).
+    let prompt_template = {
+        let trimmed = workflow_content.trim();
+        let body = if let Some(after_first) = trimmed.strip_prefix("---") {
+            if let Some(end_idx) = after_first.find("\n---") {
+                let prompt_start = end_idx + 4; // skip past "\n---"
+                if prompt_start < after_first.len() {
+                    after_first[prompt_start..].trim()
+                } else {
+                    ""
+                }
+            } else {
+                ""
+            }
+        } else {
+            ""
+        };
+
+        if body.is_empty() {
+            let full_template = default_mission_template(fallback_provider);
+            parse_mission_file(&full_template)
+                .map(|def| def.prompt_template)
+                .unwrap_or_default()
+        } else {
+            body.to_string()
+        }
+    };
+
+    let file_content = serialize_mission_file(&config, &prompt_template)
+        .context("serialize migrated MISSION.md")?;
+    Ok((file_content, config, prompt_template))
 }
 
 #[cfg(test)]

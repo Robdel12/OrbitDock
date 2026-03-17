@@ -15,6 +15,45 @@ use crate::runtime::session_registry::SessionRegistry;
 /// Terminal tracker states — if an issue moves to one of these, stop working.
 const TERMINAL_STATES: &[&str] = &["Done", "Canceled", "Cancelled", "Duplicate", "Won't Fix"];
 
+/// Check if a tracker state string is terminal (case-insensitive).
+pub(crate) fn is_terminal_tracker_state(state: &str) -> bool {
+    TERMINAL_STATES
+        .iter()
+        .any(|s| s.eq_ignore_ascii_case(state))
+}
+
+/// Check if an orchestration state represents an in-progress issue.
+pub(crate) fn is_active_orchestration_state(state: &str) -> bool {
+    state == "running" || state == "claimed"
+}
+
+/// Determine whether a session has stalled based on the last activity timestamp
+/// and the configured timeout.
+///
+/// Returns `Some(elapsed_secs)` if stalled, `None` if not stalled or timestamps
+/// cannot be parsed.
+pub(crate) fn stall_elapsed_secs(
+    last_activity_at: Option<&str>,
+    started_at: Option<&str>,
+    now: chrono::DateTime<chrono::Utc>,
+    stall_timeout_secs: u64,
+) -> Option<i64> {
+    if stall_timeout_secs == 0 {
+        return None;
+    }
+
+    let parsed = last_activity_at
+        .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+        .or_else(|| started_at.and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok()))?;
+
+    let elapsed = now - parsed.with_timezone(&chrono::Utc);
+    if elapsed.num_seconds() > stall_timeout_secs as i64 {
+        Some(elapsed.num_seconds())
+    } else {
+        None
+    }
+}
+
 /// Reconcile a mission's running issues:
 /// - Check if tracker state moved to terminal -> mark completed
 /// - Check if agent session ended -> mark completed/failed
@@ -28,7 +67,7 @@ pub async fn reconcile_mission(
 ) {
     let running_issues: Vec<&MissionIssueRow> = existing_issues
         .iter()
-        .filter(|i| i.orchestration_state == "running" || i.orchestration_state == "claimed")
+        .filter(|i| is_active_orchestration_state(&i.orchestration_state))
         .collect();
 
     if running_issues.is_empty() {
@@ -56,10 +95,7 @@ pub async fn reconcile_mission(
 
     for issue_row in &running_issues {
         if let Some(tracker_state) = tracker_states.get(&issue_row.issue_id) {
-            if TERMINAL_STATES
-                .iter()
-                .any(|s| s.eq_ignore_ascii_case(tracker_state))
-            {
+            if is_terminal_tracker_state(tracker_state) {
                 info!(
                     component = "mission_control",
                     event = "reconciliation.terminal_state",
@@ -200,42 +236,34 @@ pub async fn reconcile_mission(
         };
 
         let snap = actor.snapshot();
-        // Use last_activity_at from session, fall back to started_at from issue row.
-        // Try parsing each — skip malformed session timestamps and try the fallback.
-        let parsed = snap
-            .last_activity_at
-            .as_deref()
-            .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
-            .or_else(|| {
-                issue_row
-                    .started_at
-                    .as_deref()
-                    .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
-            });
-
-        let Some(parsed) = parsed else {
-            warn!(
-                component = "mission_control",
-                event = "reconciliation.no_valid_timestamp",
-                mission_id = %mission.id,
-                issue_id = %issue_row.issue_id,
-                session_id = %session_id,
-                last_activity_at = ?snap.last_activity_at,
-                started_at = ?issue_row.started_at,
-                "No valid timestamp for stall detection"
-            );
+        let now = chrono::Utc::now();
+        let Some(elapsed_secs) = stall_elapsed_secs(
+            snap.last_activity_at.as_deref(),
+            issue_row.started_at.as_deref(),
+            now,
+            stall_timeout_secs,
+        ) else {
+            if snap.last_activity_at.is_none() && issue_row.started_at.is_none() {
+                warn!(
+                    component = "mission_control",
+                    event = "reconciliation.no_valid_timestamp",
+                    mission_id = %mission.id,
+                    issue_id = %issue_row.issue_id,
+                    session_id = %session_id,
+                    "No valid timestamp for stall detection"
+                );
+            }
             continue;
         };
 
-        let elapsed = chrono::Utc::now() - parsed.with_timezone(&chrono::Utc);
-        if elapsed.num_seconds() > stall_timeout_secs as i64 {
+        {
             warn!(
                 component = "mission_control",
                 event = "reconciliation.stall_detected",
                 mission_id = %mission.id,
                 issue_id = %issue_row.issue_id,
                 session_id = %session_id,
-                elapsed_secs = elapsed.num_seconds(),
+                elapsed_secs = elapsed_secs,
                 stall_timeout = stall_timeout_secs,
                 "Session stalled, ending and marking failed"
             );
@@ -252,7 +280,7 @@ pub async fn reconcile_mission(
                     attempt: None,
                     last_error: Some(Some(format!(
                         "Session stalled after {}s of inactivity",
-                        elapsed.num_seconds()
+                        elapsed_secs
                     ))),
                     retry_due_at: None,
                     started_at: None,
@@ -266,7 +294,7 @@ pub async fn reconcile_mission(
                     &issue_row.issue_id,
                     &format!(
                         "OrbitDock session `{session_id}` stalled after {}s of inactivity and was terminated.",
-                        elapsed.num_seconds()
+                        elapsed_secs
                     ),
                 )
                 .await
@@ -279,6 +307,152 @@ pub async fn reconcile_mission(
                     "Failed to post stall comment to tracker"
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── is_terminal_tracker_state ─────────────────────────────────────
+
+    #[test]
+    fn terminal_states_recognized_exact_case() {
+        assert!(is_terminal_tracker_state("Done"));
+        assert!(is_terminal_tracker_state("Canceled"));
+        assert!(is_terminal_tracker_state("Cancelled"));
+        assert!(is_terminal_tracker_state("Duplicate"));
+        assert!(is_terminal_tracker_state("Won't Fix"));
+    }
+
+    #[test]
+    fn terminal_states_recognized_case_insensitive() {
+        assert!(is_terminal_tracker_state("done"));
+        assert!(is_terminal_tracker_state("DONE"));
+        assert!(is_terminal_tracker_state("canceled"));
+        assert!(is_terminal_tracker_state("CANCELLED"));
+        assert!(is_terminal_tracker_state("duplicate"));
+        assert!(is_terminal_tracker_state("won't fix"));
+        assert!(is_terminal_tracker_state("WON'T FIX"));
+    }
+
+    #[test]
+    fn non_terminal_states_rejected() {
+        assert!(!is_terminal_tracker_state("In Progress"));
+        assert!(!is_terminal_tracker_state("Todo"));
+        assert!(!is_terminal_tracker_state("In Review"));
+        assert!(!is_terminal_tracker_state("Backlog"));
+        assert!(!is_terminal_tracker_state(""));
+        assert!(!is_terminal_tracker_state("Doing"));
+    }
+
+    // ── is_active_orchestration_state ─────────────────────────────────
+
+    #[test]
+    fn active_states_recognized() {
+        assert!(is_active_orchestration_state("running"));
+        assert!(is_active_orchestration_state("claimed"));
+    }
+
+    #[test]
+    fn non_active_states_rejected() {
+        assert!(!is_active_orchestration_state("queued"));
+        assert!(!is_active_orchestration_state("retry_queued"));
+        assert!(!is_active_orchestration_state("completed"));
+        assert!(!is_active_orchestration_state("failed"));
+        assert!(!is_active_orchestration_state(""));
+    }
+
+    // ── stall_elapsed_secs ────────────────────────────────────────────
+
+    #[test]
+    fn stall_detected_when_past_timeout() {
+        let now = chrono::Utc::now();
+        let old = (now - chrono::Duration::seconds(600)).to_rfc3339();
+
+        let result = stall_elapsed_secs(Some(&old), None, now, 300);
+        assert!(result.is_some());
+        let secs = result.unwrap();
+        assert!(secs >= 600, "expected >= 600s, got {secs}");
+    }
+
+    #[test]
+    fn no_stall_when_within_timeout() {
+        let now = chrono::Utc::now();
+        let recent = (now - chrono::Duration::seconds(60)).to_rfc3339();
+
+        let result = stall_elapsed_secs(Some(&recent), None, now, 300);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn stall_falls_back_to_started_at() {
+        let now = chrono::Utc::now();
+        let old = (now - chrono::Duration::seconds(600)).to_rfc3339();
+
+        // last_activity_at is None, should fall back to started_at
+        let result = stall_elapsed_secs(None, Some(&old), now, 300);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn stall_prefers_last_activity_over_started_at() {
+        let now = chrono::Utc::now();
+        let recent = (now - chrono::Duration::seconds(60)).to_rfc3339();
+        let old = (now - chrono::Duration::seconds(600)).to_rfc3339();
+
+        // last_activity_at is recent (within timeout), started_at is old
+        // Should use last_activity_at and return None (not stalled)
+        let result = stall_elapsed_secs(Some(&recent), Some(&old), now, 300);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn stall_returns_none_when_no_timestamps() {
+        let now = chrono::Utc::now();
+        let result = stall_elapsed_secs(None, None, now, 300);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn stall_returns_none_when_timeout_is_zero() {
+        let now = chrono::Utc::now();
+        let old = (now - chrono::Duration::seconds(600)).to_rfc3339();
+
+        let result = stall_elapsed_secs(Some(&old), None, now, 0);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn stall_skips_malformed_last_activity_falls_back() {
+        let now = chrono::Utc::now();
+        let old = (now - chrono::Duration::seconds(600)).to_rfc3339();
+
+        // Malformed last_activity_at, valid started_at
+        let result = stall_elapsed_secs(Some("not-a-date"), Some(&old), now, 300);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn stall_returns_none_when_both_timestamps_malformed() {
+        let now = chrono::Utc::now();
+        let result = stall_elapsed_secs(Some("nope"), Some("also-nope"), now, 300);
+        assert!(result.is_none());
+    }
+
+    // ── TERMINAL_STATES constant ──────────────────────────────────────
+
+    #[test]
+    fn terminal_states_covers_expected_set() {
+        // Verify the constant contains exactly the expected states
+        let expected = vec!["Done", "Canceled", "Cancelled", "Duplicate", "Won't Fix"];
+        assert_eq!(TERMINAL_STATES.len(), expected.len());
+        for state in &expected {
+            assert!(
+                TERMINAL_STATES.contains(state),
+                "Expected TERMINAL_STATES to contain {state:?}"
+            );
         }
     }
 }

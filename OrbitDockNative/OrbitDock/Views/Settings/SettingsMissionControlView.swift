@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct SettingsMissionControlView: View {
+struct MissionControlDefaultsView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   @State private var linearKeyConfigured = false
@@ -316,17 +316,7 @@ struct SettingsMissionControlView: View {
   }
 }
 
-// MARK: - Network Types
-
-private struct TrackerKeysResponse: Decodable {
-  let linear: TrackerKeyInfoResponse
-  let github: TrackerKeyInfoResponse
-}
-
-private struct TrackerKeyInfoResponse: Decodable {
-  let configured: Bool
-  let source: String?
-}
+// MARK: - Network Types (local-only)
 
 private struct LinearKeyStatus: Decodable {
   let configured: Bool
@@ -334,18 +324,6 @@ private struct LinearKeyStatus: Decodable {
 
 private struct SetKeyBody: Encodable {
   let key: String
-}
-
-private struct MissionDefaultsResponse: Codable {
-  let providerStrategy: String
-  let primaryProvider: String
-  let secondaryProvider: String?
-
-  enum CodingKeys: String, CodingKey {
-    case providerStrategy = "provider_strategy"
-    case primaryProvider = "primary_provider"
-    case secondaryProvider = "secondary_provider"
-  }
 }
 
 private struct UpdateDefaultsBody: Encodable {

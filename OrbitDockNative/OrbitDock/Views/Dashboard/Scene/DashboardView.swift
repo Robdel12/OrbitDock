@@ -116,8 +116,8 @@ struct DashboardView: View {
   @ViewBuilder
   private var missionsTab: some View {
     let registry = appStore.runtimeRegistry
-    if let http = (registry.primaryRuntime ?? registry.activeRuntime)?.clients.http {
-      MissionListView(http: http)
+    if let clients = (registry.primaryRuntime ?? registry.activeRuntime)?.clients {
+      MissionListView(missionsClient: clients.missions)
     } else {
       ContentUnavailableView(
         "No Server Connected",

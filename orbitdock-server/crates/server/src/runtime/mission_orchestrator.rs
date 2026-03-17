@@ -21,7 +21,7 @@ use crate::infrastructure::persistence::mission_control::{
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_registry::SessionRegistry;
 
-use super::mission_dispatch::dispatch_issue;
+use super::mission_dispatch::{dispatch_issue, DispatchContext};
 use super::mission_reconciliation::reconcile_mission;
 
 /// Start the mission orchestrator loop.
@@ -317,13 +317,15 @@ async fn process_mission(
         let candidate = candidate.clone();
         let mission_id = mission.id.clone();
         let provider_str = chosen_provider;
-        let repo_root = mission.repo_root.clone();
-        let prompt_template = workflow.prompt_template.clone();
-        let base_branch = workflow.config.orchestration.base_branch.clone();
-        let agent_config = workflow.config.agent.clone();
-        let wt_root = workflow.config.orchestration.worktree_root_dir.clone();
         let tracker = tracker.clone();
-        let dispatch_state = workflow.config.orchestration.state_on_dispatch.clone();
+        let ctx = DispatchContext {
+            repo_root: mission.repo_root.clone(),
+            prompt_template: workflow.prompt_template.clone(),
+            base_branch: workflow.config.orchestration.base_branch.clone(),
+            agent_config: workflow.config.agent.clone(),
+            worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
+            state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
+        };
 
         tokio::spawn(async move {
             let result = dispatch_issue(
@@ -331,14 +333,9 @@ async fn process_mission(
                 &mission_id,
                 &candidate,
                 &provider_str,
-                &repo_root,
-                &prompt_template,
-                &base_branch,
-                &agent_config,
+                &ctx,
                 1, // first attempt for new candidates
-                wt_root.as_deref(),
                 &tracker,
-                &dispatch_state,
             )
             .await;
 
@@ -401,13 +398,15 @@ async fn process_mission(
         let registry = registry.clone();
         let mission_id = mission.id.clone();
         let provider_str = chosen_provider;
-        let repo_root = mission.repo_root.clone();
-        let prompt_template = workflow.prompt_template.clone();
-        let base_branch = workflow.config.orchestration.base_branch.clone();
-        let agent_config = workflow.config.agent.clone();
-        let wt_root = workflow.config.orchestration.worktree_root_dir.clone();
         let tracker = tracker.clone();
-        let dispatch_state = workflow.config.orchestration.state_on_dispatch.clone();
+        let ctx = DispatchContext {
+            repo_root: mission.repo_root.clone(),
+            prompt_template: workflow.prompt_template.clone(),
+            base_branch: workflow.config.orchestration.base_branch.clone(),
+            agent_config: workflow.config.agent.clone(),
+            worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
+            state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
+        };
 
         tokio::spawn(async move {
             let result = dispatch_issue(
@@ -415,14 +414,9 @@ async fn process_mission(
                 &mission_id,
                 &retry_issue,
                 &provider_str,
-                &repo_root,
-                &prompt_template,
-                &base_branch,
-                &agent_config,
+                &ctx,
                 attempt,
-                wt_root.as_deref(),
                 &tracker,
-                &dispatch_state,
             )
             .await;
 

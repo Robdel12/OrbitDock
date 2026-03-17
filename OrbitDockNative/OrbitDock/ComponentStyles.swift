@@ -122,6 +122,7 @@ struct DestructiveButtonStyle: ButtonStyle {
 extension View {
   func cosmicCard(
     cornerRadius: CGFloat = Radius.lg,
+    fillColor: Color = .backgroundTertiary,
     fillOpacity: Double = 0.5,
     borderColor: Color = .surfaceBorder,
     borderOpacity: Double = OpacityTier.subtle
@@ -130,7 +131,7 @@ extension View {
       .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
       .background(
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-          .fill(Color.backgroundTertiary.opacity(fillOpacity))
+          .fill(fillColor.opacity(fillOpacity))
       )
       .overlay(
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)

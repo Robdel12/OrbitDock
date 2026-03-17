@@ -5,11 +5,12 @@ struct MissionListView: View {
   @State private var isLoading = true
   @State private var error: String?
   @State private var showNewMission = false
+  @State private var actionError: String?
 
   @Environment(AppRouter.self) private var router
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  let http: ServerHTTPClient
+  let missionsClient: MissionsClient
 
   private var sessionStore: SessionStore? {
     (runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime)?.sessionStore
@@ -42,10 +43,15 @@ struct MissionListView: View {
       missions = newSnapshot
     }
     .sheet(isPresented: $showNewMission) {
-      NewMissionSheet(http: http) { newMission in
+      NewMissionSheet(missionsClient: missionsClient) { newMission in
         missions.insert(newMission, at: 0)
         router.navigateToMission(missionId: newMission.id, endpointId: endpointId)
       }
+    }
+    .alert("Error", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(actionError ?? "")
     }
   }
 
@@ -116,7 +122,7 @@ struct MissionListView: View {
           } label: {
             MissionRowView(
               mission: mission,
-              http: http,
+              missionsClient: missionsClient,
               onRefresh: { await fetchMissions() },
               onApplyList: { response in
                 withAnimation(Motion.standard) {
@@ -135,8 +141,8 @@ struct MissionListView: View {
   private func fetchMissions() async {
     isLoading = true
     do {
-      let response: MissionsListResponse = try await http.get("/api/missions")
-      missions = response.missions
+      let response = try await missionsClient.listMissions()
+      self.missions = response.missions
       error = nil
     } catch {
       self.error = error.localizedDescription
@@ -149,12 +155,13 @@ struct MissionListView: View {
 
 private struct MissionRowView: View {
   let mission: MissionSummary
-  let http: ServerHTTPClient
+  let missionsClient: MissionsClient
   let onRefresh: () async -> Void
   let onApplyList: (MissionsListResponse) -> Void
 
   @State private var isHovering = false
   @State private var showDeleteConfirmation = false
+  @State private var actionError: String?
 
   private var statusColor: Color {
     if mission.paused { return Color.feedbackCaution }
@@ -253,12 +260,12 @@ private struct MissionRowView: View {
         } else if hasAnyIssues {
           // Has real data — show stats
           HStack(spacing: Spacing.lg_) {
-            statPill(count: mission.activeCount, label: "Active", color: Color.statusWorking)
-            statPill(count: mission.queuedCount, label: "Queued", color: Color.feedbackCaution)
-            statPill(count: mission.completedCount, label: "Done", color: Color.feedbackPositive)
+            MissionStatChip(count: mission.activeCount, label: "Active", color: Color.statusWorking)
+            MissionStatChip(count: mission.queuedCount, label: "Queued", color: Color.feedbackCaution)
+            MissionStatChip(count: mission.completedCount, label: "Done", color: Color.feedbackPositive)
 
             if mission.failedCount > 0 {
-              statPill(count: mission.failedCount, label: "Failed", color: Color.feedbackNegative)
+              MissionStatChip(count: mission.failedCount, label: "Failed", color: Color.feedbackNegative)
             }
           }
         } else if mission.orchestratorStatus == "no_api_key" {
@@ -298,6 +305,11 @@ private struct MissionRowView: View {
     .onHover { hovering in
       withAnimation(Motion.hover) { isHovering = hovering }
     }
+    .alert("Error", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(actionError ?? "")
+    }
   }
 
   // MARK: - Status Badge
@@ -325,17 +337,6 @@ private struct MissionRowView: View {
 
   // MARK: - Stat Pills
 
-  private func statPill(count: UInt32, label: String, color: Color) -> some View {
-    HStack(spacing: Spacing.xs) {
-      Text("\(count)")
-        .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
-        .foregroundStyle(count > 0 ? color : Color.textQuaternary)
-
-      Text(label)
-        .font(.system(size: TypeScale.micro, weight: .medium))
-        .foregroundStyle(Color.textTertiary)
-    }
-  }
 
   // MARK: - Actions Menu
 
@@ -403,28 +404,20 @@ private struct MissionRowView: View {
   // MARK: - Helpers
 
   private func updateMission(enabled: Bool? = nil, paused: Bool? = nil) async {
-    let body = MissionUpdateBody(name: nil, enabled: enabled, paused: paused)
     do {
-      let _: MissionOkResponse = try await http.request(
-        path: "/api/missions/\(mission.id)",
-        method: "PUT",
-        body: body
-      )
+      let _ = try await missionsClient.updateMission(mission.id, enabled: enabled, paused: paused)
       await onRefresh()
     } catch {
-      print("[OrbitDock] Failed to update mission: \(error)")
+      actionError = error.localizedDescription
     }
   }
 
   private func deleteMission() async {
     do {
-      let response: MissionsListResponse = try await http.request(
-        path: "/api/missions/\(mission.id)",
-        method: "DELETE"
-      )
+      let response = try await missionsClient.deleteMission(mission.id)
       onApplyList(response)
     } catch {
-      print("[OrbitDock] Failed to delete mission: \(error)")
+      actionError = error.localizedDescription
     }
   }
 }

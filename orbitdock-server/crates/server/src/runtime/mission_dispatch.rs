@@ -16,21 +16,25 @@ use crate::runtime::session_creation::{
 };
 use crate::runtime::session_registry::SessionRegistry;
 
+/// Mission-level configuration shared across all issue dispatches.
+pub struct DispatchContext {
+    pub repo_root: String,
+    pub prompt_template: String,
+    pub base_branch: String,
+    pub agent_config: AgentConfig,
+    pub worktree_root_dir: Option<String>,
+    pub state_on_dispatch: String,
+}
+
 /// Dispatch a single issue: create worktree, create session, send prompt.
-#[allow(clippy::too_many_arguments)]
 pub async fn dispatch_issue(
     registry: &Arc<SessionRegistry>,
     mission_id: &str,
     issue: &TrackerIssue,
     provider_str: &str,
-    repo_root: &str,
-    prompt_template: &str,
-    base_branch: &str,
-    agent_config: &AgentConfig,
+    ctx: &DispatchContext,
     attempt: u32,
-    worktree_root_dir: Option<&str>,
     tracker: &Arc<dyn Tracker>,
-    state_on_dispatch: &str,
 ) -> anyhow::Result<()> {
     let branch_name = format!(
         "mission/{}",
@@ -72,14 +76,14 @@ pub async fn dispatch_issue(
 
     // Best-effort: move issue to configured dispatch state in tracker
     if let Err(err) = tracker
-        .update_issue_state(&issue.id, state_on_dispatch)
+        .update_issue_state(&issue.id, &ctx.state_on_dispatch)
         .await
     {
         warn!(
             component = "mission_control",
             event = "dispatch.tracker_write_failed",
             issue_id = %issue.id,
-            target_state = %state_on_dispatch,
+            target_state = %ctx.state_on_dispatch,
             error = %err,
             "Failed to update issue state in tracker"
         );
@@ -88,11 +92,11 @@ pub async fn dispatch_issue(
     // Create worktree via the runtime helper (also persists the record)
     let worktree_path = match crate::runtime::worktree_creation::create_tracked_worktree(
         registry,
-        repo_root,
+        &ctx.repo_root,
         &branch_name,
-        Some(base_branch),
+        Some(&ctx.base_branch),
         orbitdock_protocol::WorktreeOrigin::Agent,
-        worktree_root_dir,
+        ctx.worktree_root_dir.as_deref(),
         true, // always clean up stale worktrees — if we're dispatching, no active session owns them
     )
     .await
@@ -172,7 +176,7 @@ pub async fn dispatch_issue(
 
     // Render prompt
     let prompt = render_prompt(
-        prompt_template,
+        &ctx.prompt_template,
         &issue.id,
         &issue.identifier,
         &issue.title,
@@ -187,7 +191,7 @@ pub async fn dispatch_issue(
     let provider: Provider = provider_str.parse().unwrap();
 
     // Resolve agent settings for the chosen provider
-    let resolved = agent_config.resolve_for_provider(provider_str);
+    let resolved = ctx.agent_config.resolve_for_provider(provider_str);
 
     // Merge OrbitDock CLI reference into developer_instructions
     let cli_ref = crate::domain::instructions::orbitdock_system_instructions();

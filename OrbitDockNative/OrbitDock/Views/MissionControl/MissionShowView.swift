@@ -21,6 +21,7 @@ struct MissionShowView: View {
   @State private var error: String?
   @State private var selectedTab: MissionTab = .overview
   @State private var showDeleteConfirmation = false
+  @State private var actionError: String?
 
   private var isCompact: Bool {
     #if os(iOS)
@@ -74,6 +75,11 @@ struct MissionShowView: View {
       else { return }
       summary = deltaSummary
       issues = store.missionDeltaIssues
+    }
+    .alert("Error", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(actionError ?? "")
     }
   }
 
@@ -352,7 +358,7 @@ struct MissionShowView: View {
       )
       applyDetail(response)
     } catch {
-      print("[OrbitDock] Failed to update mission: \(error)")
+      actionError = error.localizedDescription
     }
   }
 
@@ -365,7 +371,7 @@ struct MissionShowView: View {
       )
       router.selectDashboardTab(.missions)
     } catch {
-      print("[OrbitDock] Failed to delete mission: \(error)")
+      actionError = error.localizedDescription
     }
   }
 
