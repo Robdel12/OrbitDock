@@ -5,8 +5,7 @@ use std::time::Duration;
 /// Formula: min(10_000 * 2^min(attempt-1, 10), max_backoff_ms)
 /// Attempt 1 → 10s, attempt 2 → 20s, attempt 3 → 40s, ...
 ///
-/// Used by Phase 3 retry queue.
-#[allow(dead_code)]
+/// Used by the retry queue to calculate backoff between attempts.
 pub fn compute_delay(attempt: u32, max_backoff_ms: u64) -> Duration {
     if attempt == 0 {
         return Duration::from_millis(0);

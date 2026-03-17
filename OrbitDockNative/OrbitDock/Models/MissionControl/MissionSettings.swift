@@ -147,10 +147,12 @@ struct OrchestrationSettings: Codable, Equatable {
   let maxRetries: UInt32
   let stallTimeout: UInt64
   let baseBranch: String
+  let worktreeRootDir: String?
 
   enum CodingKeys: String, CodingKey {
     case maxRetries = "max_retries"
     case stallTimeout = "stall_timeout"
     case baseBranch = "base_branch"
+    case worktreeRootDir = "worktree_root_dir"
   }
 }

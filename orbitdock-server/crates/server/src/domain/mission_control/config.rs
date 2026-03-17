@@ -133,6 +133,8 @@ pub struct OrchestrationConfig {
     pub stall_timeout: u64,
     #[serde(default = "default_base_branch")]
     pub base_branch: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_root_dir: Option<String>,
 }
 
 impl Default for OrchestrationConfig {
@@ -141,6 +143,7 @@ impl Default for OrchestrationConfig {
             max_retries: default_max_retries(),
             stall_timeout: default_stall_timeout(),
             base_branch: default_base_branch(),
+            worktree_root_dir: None,
         }
     }
 }

@@ -110,6 +110,7 @@ pub(crate) async fn create_fork_target_worktree(
         &trimmed_branch,
         base_branch,
         WorktreeOrigin::User,
+        None,
     )
     .await
     .map_err(|error| ForkTargetError {

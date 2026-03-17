@@ -11,12 +11,14 @@ pub(crate) async fn create_tracked_worktree(
     branch_name: &str,
     base_branch: Option<&str>,
     created_by: WorktreeOrigin,
+    worktree_root: Option<&str>,
 ) -> Result<WorktreeSummary, String> {
     let created = crate::domain::worktrees::service::create_tracked_worktree(
         repo_path,
         branch_name,
         base_branch,
         created_by,
+        worktree_root,
     )
     .await?;
 
@@ -104,6 +106,7 @@ mod tests {
             "feature/runtime-boundary",
             Some("HEAD"),
             WorktreeOrigin::User,
+            None,
         )
         .await
         .expect("create tracked worktree");

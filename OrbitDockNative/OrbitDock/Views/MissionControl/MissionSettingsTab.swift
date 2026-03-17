@@ -47,6 +47,7 @@ struct MissionSettingsTab: View {
   @State private var maxRetries: UInt32 = 3
   @State private var stallTimeout: UInt64 = 600
   @State private var baseBranch = "main"
+  @State private var worktreeRootDir = ""
 
   /// Prompt (read-only preview)
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
@@ -543,6 +544,7 @@ struct MissionSettingsTab: View {
         }
 
         compactField("Base Branch", placeholder: "main", text: $baseBranch)
+        compactField("Worktree Root", placeholder: ".orbitdock-worktrees (default)", text: $worktreeRootDir)
 
         HStack(spacing: Spacing.sm_) {
           Image(systemName: "folder")
@@ -1089,6 +1091,7 @@ struct MissionSettingsTab: View {
     maxRetries = s.orchestration.maxRetries
     stallTimeout = s.orchestration.stallTimeout
     baseBranch = s.orchestration.baseBranch
+    worktreeRootDir = s.orchestration.worktreeRootDir ?? ""
   }
 
   private func effortFromString(_ value: String?) -> EffortLevel {
@@ -1161,6 +1164,7 @@ struct MissionSettingsTab: View {
       maxRetries: maxRetries,
       stallTimeout: stallTimeout,
       baseBranch: baseBranch,
+      worktreeRootDir: worktreeRootDir.isEmpty ? .some(nil) : .some(worktreeRootDir),
       promptTemplate: nil
     )
 
@@ -1223,6 +1227,7 @@ private struct UpdateSettingsBody: Encodable {
   let maxRetries: UInt32?
   let stallTimeout: UInt64?
   let baseBranch: String?
+  let worktreeRootDir: OptionalString?
   let promptTemplate: String?
 
   enum CodingKeys: String, CodingKey {
@@ -1252,6 +1257,7 @@ private struct UpdateSettingsBody: Encodable {
     case maxRetries = "max_retries"
     case stallTimeout = "stall_timeout"
     case baseBranch = "base_branch"
+    case worktreeRootDir = "worktree_root_dir"
     case promptTemplate = "prompt_template"
   }
 }

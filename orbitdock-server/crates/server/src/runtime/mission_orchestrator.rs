@@ -16,7 +16,7 @@ use crate::domain::mission_control::config::{parse_mission_file, MissionConfig};
 use crate::domain::mission_control::eligibility::{is_eligible, sort_candidates};
 use crate::domain::mission_control::tracker::Tracker;
 use crate::infrastructure::persistence::mission_control::{
-    load_mission_issues, load_missions, MissionIssueRow, MissionRow,
+    load_mission_issues, load_missions, load_retry_ready_issues, MissionIssueRow, MissionRow,
 };
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_registry::SessionRegistry;
@@ -206,11 +206,7 @@ async fn process_mission(
         })
         .await;
 
-    // Fetch candidates from tracker
-    let tracker_config = workflow.config.to_tracker_config();
-    let mut candidates = tracker.fetch_candidates(&tracker_config).await?;
-
-    // Load existing mission issues from DB
+    // Load existing mission issues from DB (before candidate fetch so reconciliation runs first)
     let db_path = registry.db_path().clone();
     let mission_id = mission.id.clone();
     let existing_issues: Vec<MissionIssueRow> = {
@@ -248,7 +244,7 @@ async fn process_mission(
         }
     }
 
-    // Reconcile existing issues (stall detection, tracker state check)
+    // Reconcile existing issues (session completion, stall detection, tracker state check)
     reconcile_mission(
         registry,
         tracker,
@@ -257,6 +253,16 @@ async fn process_mission(
         &workflow.config,
     )
     .await;
+
+    // Skip candidate fetch + dispatch for manual-only missions
+    if workflow.config.trigger.kind == "manual_only" {
+        broadcast_mission_delta(registry, mission).await;
+        return Ok(());
+    }
+
+    // Fetch candidates from tracker
+    let tracker_config = workflow.config.to_tracker_config();
+    let mut candidates = tracker.fetch_candidates(&tracker_config).await?;
 
     // Upsert all tracker candidates into mission_issues
     for candidate in &candidates {
@@ -309,6 +315,7 @@ async fn process_mission(
         let prompt_template = workflow.prompt_template.clone();
         let base_branch = workflow.config.orchestration.base_branch.clone();
         let agent_config = workflow.config.agent.clone();
+        let wt_root = workflow.config.orchestration.worktree_root_dir.clone();
 
         tokio::spawn(async move {
             if let Err(err) = dispatch_issue(
@@ -320,6 +327,8 @@ async fn process_mission(
                 &prompt_template,
                 &base_branch,
                 &agent_config,
+                1, // first attempt for new candidates
+                wt_root.as_deref(),
             )
             .await
             {
@@ -330,6 +339,83 @@ async fn process_mission(
                     issue_id = %candidate.id,
                     error = %err,
                     "Failed to dispatch issue"
+                );
+            }
+        });
+    }
+
+    // Dispatch retry-ready issues
+    let mission_id_retry = mission.id.clone();
+    let now_str = chrono::Utc::now().to_rfc3339();
+    let max_retries = workflow.config.orchestration.max_retries;
+    let retry_issues: Vec<MissionIssueRow> = {
+        let path = db_path;
+        let mid = mission_id_retry;
+        let now = now_str;
+        tokio::task::spawn_blocking(move || {
+            let conn = rusqlite::Connection::open(&path)?;
+            load_retry_ready_issues(&conn, &mid, &now, max_retries)
+        })
+        .await??
+    };
+
+    for retry_row in retry_issues {
+        if current_running >= workflow.config.provider.max_concurrent {
+            break;
+        }
+
+        // Build a TrackerIssue from the row to reuse dispatch
+        let retry_issue = crate::domain::mission_control::tracker::TrackerIssue {
+            id: retry_row.issue_id.clone(),
+            identifier: retry_row.issue_identifier.clone(),
+            title: retry_row.issue_title.clone().unwrap_or_default(),
+            description: None,
+            priority: None,
+            state: retry_row.issue_state.clone().unwrap_or_default(),
+            url: retry_row.url.clone(),
+            labels: vec![],
+            blocked_by: vec![],
+            created_at: Some(retry_row.created_at.clone()),
+        };
+
+        let chosen_provider = choose_provider(&workflow.config, &provider_counts, dispatch_index);
+        current_running += 1;
+        provider_counts.increment(&chosen_provider);
+        dispatch_index += 1;
+
+        let attempt = retry_row.attempt;
+        let registry = registry.clone();
+        let mission_id = mission.id.clone();
+        let provider_str = chosen_provider;
+        let repo_root = mission.repo_root.clone();
+        let prompt_template = workflow.prompt_template.clone();
+        let base_branch = workflow.config.orchestration.base_branch.clone();
+        let agent_config = workflow.config.agent.clone();
+        let wt_root = workflow.config.orchestration.worktree_root_dir.clone();
+
+        tokio::spawn(async move {
+            if let Err(err) = dispatch_issue(
+                &registry,
+                &mission_id,
+                &retry_issue,
+                &provider_str,
+                &repo_root,
+                &prompt_template,
+                &base_branch,
+                &agent_config,
+                attempt,
+                wt_root.as_deref(),
+            )
+            .await
+            {
+                error!(
+                    component = "mission_control",
+                    event = "dispatch.retry_failed",
+                    mission_id = %mission_id,
+                    issue_id = %retry_issue.id,
+                    attempt = attempt,
+                    error = %err,
+                    "Failed to dispatch retry issue"
                 );
             }
         });
@@ -411,7 +497,7 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                 provider: row.provider.as_deref().unwrap_or("claude").parse::<Provider>().unwrap(),
                 attempt: row.attempt,
                 error: row.last_error.clone(),
-                url: None,
+                url: row.url.clone(),
                 last_activity: None,
             }
         })

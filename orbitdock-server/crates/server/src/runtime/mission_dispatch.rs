@@ -27,6 +27,8 @@ pub async fn dispatch_issue(
     prompt_template: &str,
     base_branch: &str,
     agent_config: &AgentConfig,
+    attempt: u32,
+    worktree_root_dir: Option<&str>,
 ) -> anyhow::Result<()> {
     let branch_name = format!(
         "mission/{}",
@@ -40,15 +42,16 @@ pub async fn dispatch_issue(
         issue_id = %issue.id,
         issue_identifier = %issue.identifier,
         branch = %branch_name,
+        attempt = attempt,
         "Dispatching issue"
     );
 
     // Update orchestration state to claimed
-    let issue_row_id = orbitdock_protocol::new_id();
     let _ = registry
         .persist()
         .send(PersistCommand::MissionIssueUpdateState {
-            id: issue_row_id.clone(),
+            mission_id: mission_id.to_string(),
+            issue_id: issue.id.clone(),
             orchestration_state: "claimed".to_string(),
             session_id: None,
             attempt: None,
@@ -66,6 +69,7 @@ pub async fn dispatch_issue(
         &branch_name,
         Some(base_branch),
         orbitdock_protocol::WorktreeOrigin::Agent,
+        worktree_root_dir,
     )
     .await
     {
@@ -74,11 +78,26 @@ pub async fn dispatch_issue(
             warn!(
                 component = "mission_control",
                 event = "dispatch.worktree_failed",
+                mission_id = %mission_id,
                 issue_id = %issue.id,
                 error = %err,
-                "Worktree creation failed, using repo root"
+                "Worktree creation failed, marking issue as failed"
             );
-            repo_root.to_string()
+            let _ = registry
+                .persist()
+                .send(PersistCommand::MissionIssueUpdateState {
+                    mission_id: mission_id.to_string(),
+                    issue_id: issue.id.clone(),
+                    orchestration_state: "failed".to_string(),
+                    session_id: None,
+                    attempt: Some(attempt),
+                    last_error: Some(Some(format!("Worktree creation failed: {err}"))),
+                    retry_due_at: None,
+                    started_at: None,
+                    completed_at: Some(Some(chrono::Utc::now().to_rfc3339())),
+                })
+                .await;
+            return Err(anyhow::anyhow!("Worktree creation failed: {err}"));
         }
     };
 
@@ -91,7 +110,7 @@ pub async fn dispatch_issue(
         issue.description.as_deref(),
         issue.url.as_deref(),
         Some(&issue.state),
-        1,
+        attempt,
     )?;
 
     // Create session
@@ -127,10 +146,11 @@ pub async fn dispatch_issue(
     let _ = registry
         .persist()
         .send(PersistCommand::MissionIssueUpdateState {
-            id: issue_row_id,
+            mission_id: mission_id.to_string(),
+            issue_id: issue.id.clone(),
             orchestration_state: "running".to_string(),
             session_id: Some(session_id.clone()),
-            attempt: Some(1),
+            attempt: Some(attempt),
             last_error: Some(None),
             retry_due_at: None,
             started_at: None,

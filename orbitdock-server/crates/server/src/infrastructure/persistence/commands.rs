@@ -418,9 +418,10 @@ pub enum PersistCommand {
         url: Option<String>,
     },
 
-    /// Update mission issue orchestration state
+    /// Update mission issue orchestration state (keyed on mission_id + issue_id)
     MissionIssueUpdateState {
-        id: String,
+        mission_id: String,
+        issue_id: String,
         orchestration_state: String,
         session_id: Option<String>,
         attempt: Option<u32>,

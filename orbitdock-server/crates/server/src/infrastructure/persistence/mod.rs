@@ -1604,7 +1604,8 @@ pub(super) fn execute_command(
             )?;
         }
         PersistCommand::MissionIssueUpdateState {
-            id,
+            mission_id,
+            issue_id,
             orchestration_state,
             session_id,
             attempt,
@@ -1613,46 +1614,58 @@ pub(super) fn execute_command(
             started_at,
             completed_at,
         } => {
-            conn.execute(
-                "UPDATE mission_issues SET orchestration_state = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
-                params![orchestration_state, id],
-            )?;
-            if let Some(ref session_id) = session_id {
-                conn.execute(
-                    "UPDATE mission_issues SET session_id = ?1 WHERE id = ?2",
-                    params![session_id, id],
-                )?;
+            let mut sets = vec![
+                "orchestration_state = ?1".to_string(),
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')".to_string(),
+            ];
+            let mut param_values: Vec<rusqlite::types::Value> =
+                vec![orchestration_state.into()];
+
+            let mut idx = 2u32;
+            if let Some(ref val) = session_id {
+                idx += 1;
+                sets.push(format!("session_id = ?{idx}"));
+                param_values.push(val.clone().into());
             }
-            if let Some(attempt) = attempt {
-                conn.execute(
-                    "UPDATE mission_issues SET attempt = ?1 WHERE id = ?2",
-                    params![attempt, id],
-                )?;
+            if let Some(val) = attempt {
+                idx += 1;
+                sets.push(format!("attempt = ?{idx}"));
+                param_values.push((val as i64).into());
             }
-            if let Some(ref last_error) = last_error {
-                conn.execute(
-                    "UPDATE mission_issues SET last_error = ?1 WHERE id = ?2",
-                    params![last_error, id],
-                )?;
+            if let Some(ref val) = last_error {
+                idx += 1;
+                sets.push(format!("last_error = ?{idx}"));
+                param_values.push(val.clone().map_or(rusqlite::types::Value::Null, |v| v.into()));
             }
-            if let Some(ref retry_due_at) = retry_due_at {
-                conn.execute(
-                    "UPDATE mission_issues SET retry_due_at = ?1 WHERE id = ?2",
-                    params![retry_due_at, id],
-                )?;
+            if let Some(ref val) = retry_due_at {
+                idx += 1;
+                sets.push(format!("retry_due_at = ?{idx}"));
+                param_values.push(val.clone().map_or(rusqlite::types::Value::Null, |v| v.into()));
             }
-            if let Some(ref started_at) = started_at {
-                conn.execute(
-                    "UPDATE mission_issues SET started_at = ?1 WHERE id = ?2",
-                    params![started_at, id],
-                )?;
+            if let Some(ref val) = started_at {
+                idx += 1;
+                sets.push(format!("started_at = ?{idx}"));
+                param_values.push(val.clone().map_or(rusqlite::types::Value::Null, |v| v.into()));
             }
-            if let Some(ref completed_at) = completed_at {
-                conn.execute(
-                    "UPDATE mission_issues SET completed_at = ?1 WHERE id = ?2",
-                    params![completed_at, id],
-                )?;
+            if let Some(ref val) = completed_at {
+                idx += 1;
+                sets.push(format!("completed_at = ?{idx}"));
+                param_values.push(val.clone().map_or(rusqlite::types::Value::Null, |v| v.into()));
             }
+
+            // WHERE clause params
+            let mid_idx = idx + 1;
+            let iid_idx = idx + 2;
+            param_values.push(mission_id.into());
+            param_values.push(issue_id.into());
+
+            let sql = format!(
+                "UPDATE mission_issues SET {} WHERE mission_id = ?{mid_idx} AND issue_id = ?{iid_idx}",
+                sets.join(", ")
+            );
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                param_values.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+            conn.execute(&sql, param_refs.as_slice())?;
         }
     }
 

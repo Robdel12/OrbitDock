@@ -30,8 +30,9 @@ pub(crate) async fn create_tracked_worktree(
     branch_name: &str,
     base_branch: Option<&str>,
     created_by: WorktreeOrigin,
+    worktree_root: Option<&str>,
 ) -> Result<TrackedWorktreeCreation, String> {
-    let planned = plan_tracked_worktree(repo_path, branch_name, base_branch)?;
+    let planned = plan_tracked_worktree(repo_path, branch_name, base_branch, worktree_root)?;
 
     crate::domain::git::repo::create_worktree(
         &planned.repo_root,
@@ -107,6 +108,7 @@ fn plan_tracked_worktree(
     repo_path: &str,
     branch_name: &str,
     base_branch: Option<&str>,
+    worktree_root: Option<&str>,
 ) -> Result<PlannedTrackedWorktree, String> {
     let normalized_repo = repo_path.trim().trim_end_matches('/').to_string();
     let normalized_branch = branch_name.trim().to_string();
@@ -122,10 +124,18 @@ fn plan_tracked_worktree(
         .filter(|base| !base.is_empty())
         .map(str::to_string);
 
-    let worktree_path = format!(
-        "{}/.orbitdock-worktrees/{}",
-        normalized_repo, normalized_branch
-    );
+    let worktree_path = if let Some(root) = worktree_root.filter(|r| !r.trim().is_empty()) {
+        format!(
+            "{}/{}",
+            root.trim().trim_end_matches('/'),
+            normalized_branch
+        )
+    } else {
+        format!(
+            "{}/.orbitdock-worktrees/{}",
+            normalized_repo, normalized_branch
+        )
+    };
 
     Ok(PlannedTrackedWorktree {
         repo_root: normalized_repo,
@@ -141,7 +151,7 @@ mod tests {
 
     #[test]
     fn plan_tracked_worktree_normalizes_inputs_and_builds_path() {
-        let planned = plan_tracked_worktree(" /repo/path/ ", " feature/refactor ", Some(" main "))
+        let planned = plan_tracked_worktree(" /repo/path/ ", " feature/refactor ", Some(" main "), None)
             .expect("planned");
 
         assert_eq!(planned.repo_root, "/repo/path");
@@ -156,18 +166,18 @@ mod tests {
     #[test]
     fn plan_tracked_worktree_rejects_missing_required_fields() {
         assert_eq!(
-            plan_tracked_worktree("   ", "feature", None).unwrap_err(),
+            plan_tracked_worktree("   ", "feature", None, None).unwrap_err(),
             "Repository path is required"
         );
         assert_eq!(
-            plan_tracked_worktree("/repo", "   ", None).unwrap_err(),
+            plan_tracked_worktree("/repo", "   ", None, None).unwrap_err(),
             "Branch name is required"
         );
     }
 
     #[test]
     fn plan_tracked_worktree_drops_empty_base_branch() {
-        let planned = plan_tracked_worktree("/repo", "feature", Some("   ")).expect("planned");
+        let planned = plan_tracked_worktree("/repo", "feature", Some("   "), None).expect("planned");
         assert_eq!(planned.base_branch, None);
     }
 }

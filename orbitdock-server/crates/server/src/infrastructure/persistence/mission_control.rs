@@ -203,6 +203,57 @@ pub fn load_mission_issues(conn: &Connection, mission_id: &str) -> Result<Vec<Mi
     Ok(rows)
 }
 
+/// Load retry-ready issues: state = 'retry_queued', retry_due_at <= now, attempt <= max_retries.
+pub fn load_retry_ready_issues(
+    conn: &Connection,
+    mission_id: &str,
+    now: &str,
+    max_retries: u32,
+) -> Result<Vec<MissionIssueRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
+                    orchestration_state, session_id, provider, attempt, last_error,
+                    retry_due_at, started_at, completed_at, url, created_at, updated_at
+             FROM mission_issues
+             WHERE mission_id = ?1
+               AND orchestration_state = 'retry_queued'
+               AND retry_due_at IS NOT NULL
+               AND retry_due_at <= ?2
+               AND attempt <= ?3
+             ORDER BY retry_due_at ASC",
+        )
+        .context("prepare load_retry_ready_issues")?;
+
+    let rows = stmt
+        .query_map(params![mission_id, now, max_retries], |row| {
+            Ok(MissionIssueRow {
+                id: row.get(0)?,
+                mission_id: row.get(1)?,
+                issue_id: row.get(2)?,
+                issue_identifier: row.get(3)?,
+                issue_title: row.get(4)?,
+                issue_state: row.get(5)?,
+                orchestration_state: row.get(6)?,
+                session_id: row.get(7)?,
+                provider: row.get(8)?,
+                attempt: row.get::<_, u32>(9)?,
+                last_error: row.get(10)?,
+                retry_due_at: row.get(11)?,
+                started_at: row.get(12)?,
+                completed_at: row.get(13)?,
+                url: row.get(14)?,
+                created_at: row.get(15)?,
+                updated_at: row.get(16)?,
+            })
+        })
+        .context("query load_retry_ready_issues")?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
 #[allow(dead_code)]
 pub fn load_all_active_mission_issues(conn: &Connection) -> Result<Vec<MissionIssueRow>> {
     let mut stmt = conn

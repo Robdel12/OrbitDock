@@ -108,6 +108,7 @@ pub struct UpdateMissionSettingsRequest {
     pub max_retries: Option<u32>,
     pub stall_timeout: Option<u64>,
     pub base_branch: Option<String>,
+    pub worktree_root_dir: Option<Option<String>>,
     // Prompt
     pub prompt_template: Option<String>,
     // Tracker
@@ -325,7 +326,7 @@ pub async fn retry_mission_issue(
     })
     .await?;
 
-    let (row_id, state, attempt) = issue_row.ok_or_else(|| {
+    let (_row_id, state, attempt) = issue_row.ok_or_else(|| {
         not_found(
             "not_found",
             format!("Issue {issue_id} not found in mission {mission_id}"),
@@ -339,15 +340,21 @@ pub async fn retry_mission_issue(
         ));
     }
 
+    let next_attempt = attempt + 1;
+    let delay = crate::domain::mission_control::retry::compute_delay(next_attempt, 300_000);
+    let retry_at = chrono::Utc::now()
+        + chrono::Duration::from_std(delay).unwrap_or(chrono::Duration::seconds(10));
+
     let _ = registry
         .persist()
         .send(PersistCommand::MissionIssueUpdateState {
-            id: row_id,
+            mission_id: mission_id.clone(),
+            issue_id: issue_id.clone(),
             orchestration_state: "retry_queued".to_string(),
             session_id: None,
-            attempt: Some(attempt + 1),
+            attempt: Some(next_attempt),
             last_error: Some(None),
-            retry_due_at: None,
+            retry_due_at: Some(Some(retry_at.to_rfc3339())),
             started_at: Some(None),
             completed_at: Some(None),
         })
@@ -953,6 +960,9 @@ pub async fn update_mission_settings(
     }
     if let Some(v) = req.base_branch {
         config.orchestration.base_branch = v;
+    }
+    if let Some(v) = req.worktree_root_dir {
+        config.orchestration.worktree_root_dir = v;
     }
 
     // Tracker
