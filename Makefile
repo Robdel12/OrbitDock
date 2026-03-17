@@ -86,7 +86,8 @@ RUST_CARGO = $(RUST_WORKSPACE_PREFIX) cargo
 	cli \
 	rust-env rust-lock-status rust-unlock rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache \
 	rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 \
-	xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
+	xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist \
+	web-install web-dev web-build web-test
 
 define run_xcode_logged
 @$(MAKE) xcode-cache-dirs
@@ -480,3 +481,15 @@ claude-sdk-audit-checklist:
 	@echo "3. Record findings in a local ignored note if needed"
 	@echo "4. Generated metadata is local-only: orbitdock-server/docs/claude-agent-sdk-version.json"
 	@echo "5. If official docs differ, treat local source as truth"
+
+web-install:
+	cd orbitdock-web && npm install
+
+web-dev:
+	cd orbitdock-web && npm run dev
+
+web-build:
+	cd orbitdock-web && npm run build
+
+web-test:
+	cd orbitdock-web && npm test

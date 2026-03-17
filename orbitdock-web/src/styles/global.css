@@ -1,0 +1,53 @@
+@import './reset.css';
+@import './tokens.css';
+
+body {
+  font-family: var(--font-system);
+  font-size: var(--type-body);
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+
+#app {
+  height: 100vh;
+  display: flex;
+}
+
+::selection {
+  background: rgba(84, 174, 229, 0.3);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+code, pre {
+  font-family: var(--font-mono);
+  font-size: var(--type-code);
+}
+
+pre {
+  background: var(--color-bg-code);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}

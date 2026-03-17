@@ -1,0 +1,114 @@
+:root {
+  /* Backgrounds */
+  --color-bg-primary: #0F0E11;
+  --color-bg-secondary: #151416;
+  --color-bg-tertiary: #1C1B1F;
+  --color-bg-code: #0A0A0D;
+
+  /* Text */
+  --color-text-primary: rgba(255,255,255,0.92);
+  --color-text-secondary: rgba(255,255,255,0.65);
+  --color-text-tertiary: rgba(255,255,255,0.50);
+  --color-text-quaternary: rgba(255,255,255,0.38);
+
+  /* Accent */
+  --color-accent: #54AEE5;
+  --color-accent-glow: #59CCFA;
+  --color-accent-muted: #338099;
+
+  /* Status */
+  --color-status-working: #54AEE5;
+  --color-status-permission: #F28C6B;
+  --color-status-question: #BF80F2;
+  --color-status-reply: #73B2FF;
+  --color-status-ended: #6B6673;
+
+  /* Feedback */
+  --color-feedback-positive: #59D18C;
+  --color-feedback-caution: #F2BF4D;
+  --color-feedback-warning: #FF994D;
+  --color-feedback-negative: #F26673;
+
+  /* Tool colors */
+  --color-tool-read: #73B2FF;
+  --color-tool-write: #FF994D;
+  --color-tool-bash: #59D88C;
+  --color-tool-search: #A680F2;
+  --color-tool-task: #808CFF;
+  --color-tool-question: #FFB24D;
+  --color-tool-mcp: #8CB2D9;
+  --color-tool-skill: #D98CE5;
+  --color-tool-plan: #66BF8C;
+  --color-tool-todo: #B2CC73;
+
+  /* Diff colors */
+  --color-diff-added-bg: rgba(31,66,38,0.30);
+  --color-diff-removed-bg: rgba(77,31,31,0.30);
+  --color-diff-added-edge: #4DC766;
+  --color-diff-removed-edge: #D95A5A;
+  --color-diff-added-accent: #66F280;
+  --color-diff-removed-accent: #FF8080;
+
+  /* Surfaces */
+  --color-surface-hover: rgba(84,174,229,0.06);
+  --color-surface-selected: rgba(84,174,229,0.12);
+  --color-surface-border: rgba(84,174,229,0.10);
+  --color-surface-elevated: rgba(255,255,255,0.04);
+
+  /* Provider */
+  --color-provider-claude: #54AEE5;
+  --color-provider-codex: #4AC68E;
+
+  /* Spacing (4pt base grid) */
+  --space-xxs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-xxl: 32px;
+
+  /* Radii */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-ml: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+
+  /* Type scale */
+  --type-mini: 9px;
+  --type-micro: 10px;
+  --type-caption: 11px;
+  --type-meta: 12px;
+  --type-body: 13px;
+  --type-code: 13px;
+  --type-subhead: 14px;
+  --type-reading: 15px;
+  --type-title: 17px;
+  --type-large: 20px;
+  --type-headline: 24px;
+
+  /* Edge bar */
+  --edge-bar-width: 3px;
+
+  /* Glow effects */
+  --glow-accent: 0 0 20px rgba(84, 174, 229, 0.15);
+  --glow-accent-strong: 0 0 30px rgba(84, 174, 229, 0.25);
+  --glow-permission: 0 0 20px rgba(242, 140, 107, 0.15);
+  --glow-question: 0 0 20px rgba(191, 128, 242, 0.15);
+  --glow-positive: 0 0 20px rgba(89, 209, 140, 0.15);
+
+  /* Gradients */
+  --gradient-surface: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0) 100%);
+  --gradient-accent-subtle: linear-gradient(135deg, rgba(84,174,229,0.05) 0%, rgba(84,174,229,0) 100%);
+
+  /* Transitions */
+  --transition-fast: 0.1s ease;
+  --transition-normal: 0.2s ease;
+  --transition-slow: 0.3s ease;
+
+  /* Font stacks */
+  --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+}

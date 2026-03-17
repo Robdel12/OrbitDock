@@ -1,0 +1,37 @@
+.group {
+  padding: var(--space-xxs) 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-body);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.header:hover {
+  color: var(--color-text-primary);
+}
+
+.icon {
+  font-size: var(--type-micro);
+  color: var(--color-text-tertiary);
+}
+
+.title {
+  font-weight: 500;
+}
+
+.children {
+  padding-left: var(--space-lg);
+  border-left: 1px solid var(--color-surface-border);
+  margin-left: var(--space-xs);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+}

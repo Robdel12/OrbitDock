@@ -1,0 +1,29 @@
+.skeleton {
+  background: var(--color-surface-elevated);
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.sm { border-radius: var(--radius-sm); }
+.md { border-radius: var(--radius-md); }
+.lg { border-radius: var(--radius-lg); }
+
+@keyframes shimmer {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) 0;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-ml);
+}

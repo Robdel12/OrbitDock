@@ -1,0 +1,28 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--space-md);
+}
+
+.code {
+  font-size: 64px;
+  font-weight: 700;
+  color: var(--color-text-quaternary);
+}
+
+.message {
+  font-size: var(--type-title);
+  color: var(--color-text-secondary);
+}
+
+.link {
+  font-size: var(--type-body);
+  color: var(--color-accent);
+}
+
+.link:hover {
+  text-decoration: underline;
+}

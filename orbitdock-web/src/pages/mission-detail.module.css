@@ -1,0 +1,112 @@
+.page {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-xl);
+  max-width: 900px;
+}
+
+.loading, .empty {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-xxl);
+  color: var(--color-text-tertiary);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-lg);
+}
+
+.headerInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: var(--type-headline);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.headerActions {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.repo {
+  font-size: var(--type-caption);
+  font-family: var(--font-mono);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-xl);
+}
+
+.section {
+  margin-bottom: var(--space-xl);
+}
+
+.sectionTitle {
+  font-size: var(--type-caption);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-md);
+}
+
+.issueList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.issueRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.issueInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.issueTitle {
+  font-size: var(--type-body);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issueMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.attempt {
+  font-size: var(--type-micro);
+  color: var(--color-text-tertiary);
+}
+
+.issueError {
+  font-size: var(--type-caption);
+  color: var(--color-feedback-negative);
+  margin-top: var(--space-xs);
+}
+
+.settingsJson {
+  font-family: var(--font-mono);
+  font-size: var(--type-micro);
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}

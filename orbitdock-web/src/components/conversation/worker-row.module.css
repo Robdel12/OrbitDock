@@ -1,0 +1,36 @@
+.card {
+  margin: var(--space-xxs) 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.titleGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.title {
+  font-size: var(--type-body);
+  color: var(--color-text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle {
+  font-size: var(--type-meta);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xxs);
+}
+
+.meta {
+  margin-top: var(--space-xs);
+}
