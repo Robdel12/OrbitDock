@@ -1,7 +1,6 @@
 # OrbitDock
 
-Mission control for AI coding agents. Manage Claude Code and Codex sessions from your Mac or
-your phone — create sessions, review diffs, approve tools, and steer agents from anywhere.
+Mission control for AI coding agents.
 
 ![macOS](https://img.shields.io/badge/macOS-15.0+-blue)
 ![iOS](https://img.shields.io/badge/iOS-18.0+-blue)
@@ -25,6 +24,34 @@ Code terminal sessions through hooks. Run a server on your laptop, your work mac
 wherever your agents are. The macOS and iOS apps connect to all of them at once, so you get one
 unified view no matter where your sessions are running or what device you're on.
 
+## Beyond basic hooks
+
+Most Claude Code setups pipe hooks into a script and call it a day. OrbitDock goes further.
+
+**Bidirectional, not just passive.** Hooks tell you what's happening. OrbitDock lets you act on
+it. Send messages, steer mid-turn, fork conversations, roll back turns — all from the app. You
+can also take over a passive hook-monitored session and convert it to full direct control
+without interrupting it.
+
+**Both providers, one place.** Claude Code and Codex from the same dashboard, same approval
+flow, same review canvas. Pick whichever agent fits the task and manage them the same way.
+
+**Code review that feeds back.** A magit-style diff view shows exactly what the agent changed.
+Add inline comments on specific lines, then send them as structured feedback. The agent gets
+your context and corrects course — no copy-pasting out of a terminal.
+
+**Approve from anywhere.** Tool calls, permission requests, and questions don't wait for you to
+be at your desk. The iOS app puts approvals, diffs, and session status in your pocket. Unblock
+an agent from your phone and it keeps going.
+
+**Mission Control.** Point it at a Linear project and it pulls issues, creates per-issue git
+worktrees, dispatches agents automatically, and reports back. Configurable provider strategy,
+retry logic, and a Liquid prompt template so each agent knows what it's working on. Hands-off
+orchestration with human-in-the-loop controls when you need them.
+
+**Multi-server.** Your laptop, your VPS, a Raspberry Pi in a drawer — connect all of them at
+once. Sessions from every endpoint merge into one dashboard so nothing slips through the cracks.
+
 ## What You Get
 
 - **Run agents from anywhere** — Create Claude and Codex sessions from Mac or iOS, no terminal needed
@@ -34,12 +61,11 @@ unified view no matter where your sessions are running or what device you're on.
 - **Direct control** — Send messages, approve tools, interrupt, run shell commands
 - **Usage tracking** — Rate limit monitoring for Claude and Codex
 - **Multi-server** — Connect to local, remote, and cloud endpoints at once
+- **Mission Control** — Autonomous issue-driven orchestration via Linear
 
 See [FEATURES.md](docs/FEATURES.md) for the full list.
 
 ## Quickstart
-
-Get this running locally in a few minutes.
 
 ### 1. Install the server
 
@@ -57,7 +83,7 @@ orbitdock status
 orbitdock doctor
 ```
 
-If you skipped the background service during install, start OrbitDock manually with:
+If you skipped the background service during install, start it manually:
 
 ```bash
 orbitdock start
@@ -117,20 +143,17 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, reverse pro
 ## Requirements
 
 - macOS 15.0+ (iOS 18.0+ for mobile)
-- **Codex** — Built in. The server embeds codex-core. Authenticate with ChatGPT sign-in or API key
-- **Claude Code** — Requires the `claude` CLI installed and logged in. OrbitDock creates sessions directly or monitors existing ones via hooks
+- Codex — built in, authenticates with ChatGPT sign-in or API key
+- Claude Code — requires the `claude` CLI installed and logged in
 - Xcode 16+ and Rust stable toolchain if building from source
 
 ## Documentation
 
 - [FEATURES.md](docs/FEATURES.md) — Full feature list with keyboard shortcuts
-- [DEPLOYMENT.md](docs/DEPLOYMENT.md) — Server deployment guide (remote, TLS, tunnels)
+- [DEPLOYMENT.md](docs/DEPLOYMENT.md) — Server deployment (remote, TLS, tunnels)
 - [CONTRIBUTING.md](docs/CONTRIBUTING.md) — Development setup and architecture
-- [OrbitDockNative/README.md](OrbitDockNative/README.md) — Swift client overview and placement guide
-- [SWIFT_CLIENT_ARCHITECTURE.md](docs/SWIFT_CLIENT_ARCHITECTURE.md) — Swift client layer boundaries and state ownership guardrails
-- [CLIENT_DESIGN_PRINCIPLES.md](docs/CLIENT_DESIGN_PRINCIPLES.md) — Short guide to the client patterns and habits we want to keep
 - [orbitdock-server/README.md](orbitdock-server/README.md) — Server CLI reference
-- [orbitdock-server/docs/API.md](orbitdock-server/docs/API.md) — Server HTTP and WebSocket contract
+- [orbitdock-server/docs/API.md](orbitdock-server/docs/API.md) — HTTP and WebSocket contract
 
 ## License
 
