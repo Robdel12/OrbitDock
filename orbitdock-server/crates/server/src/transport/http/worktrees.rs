@@ -182,6 +182,7 @@ pub async fn create_worktree(
         body.base_branch.as_deref(),
         WorktreeOrigin::User,
         None,
+        false,
     )
     .await
     {

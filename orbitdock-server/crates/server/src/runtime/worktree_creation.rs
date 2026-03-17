@@ -12,6 +12,7 @@ pub(crate) async fn create_tracked_worktree(
     base_branch: Option<&str>,
     created_by: WorktreeOrigin,
     worktree_root: Option<&str>,
+    cleanup_existing: bool,
 ) -> Result<WorktreeSummary, String> {
     let created = crate::domain::worktrees::service::create_tracked_worktree(
         repo_path,
@@ -19,6 +20,7 @@ pub(crate) async fn create_tracked_worktree(
         base_branch,
         created_by,
         worktree_root,
+        cleanup_existing,
     )
     .await?;
 

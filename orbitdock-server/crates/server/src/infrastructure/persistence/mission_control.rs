@@ -276,6 +276,57 @@ pub fn load_retry_ready_issues(
     Ok(rows)
 }
 
+/// Synchronously update a mission issue's orchestration state.
+/// Used by dispatch paths that need the write to be visible before broadcasting.
+pub fn update_mission_issue_state_sync(
+    conn: &Connection,
+    mission_id: &str,
+    issue_id: &str,
+    orchestration_state: &str,
+    session_id: Option<&str>,
+    attempt: Option<u32>,
+    last_error: Option<Option<&str>>,
+    started_at: Option<Option<&str>>,
+    completed_at: Option<Option<&str>>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE mission_issues SET orchestration_state = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mission_id = ?2 AND issue_id = ?3",
+        params![orchestration_state, mission_id, issue_id],
+    ).context("update orchestration_state")?;
+
+    if let Some(sid) = session_id {
+        conn.execute(
+            "UPDATE mission_issues SET session_id = ?1 WHERE mission_id = ?2 AND issue_id = ?3",
+            params![sid, mission_id, issue_id],
+        ).context("update session_id")?;
+    }
+    if let Some(a) = attempt {
+        conn.execute(
+            "UPDATE mission_issues SET attempt = ?1 WHERE mission_id = ?2 AND issue_id = ?3",
+            params![a, mission_id, issue_id],
+        ).context("update attempt")?;
+    }
+    if let Some(err) = last_error {
+        conn.execute(
+            "UPDATE mission_issues SET last_error = ?1 WHERE mission_id = ?2 AND issue_id = ?3",
+            params![err, mission_id, issue_id],
+        ).context("update last_error")?;
+    }
+    if let Some(sa) = started_at {
+        conn.execute(
+            "UPDATE mission_issues SET started_at = ?1 WHERE mission_id = ?2 AND issue_id = ?3",
+            params![sa, mission_id, issue_id],
+        ).context("update started_at")?;
+    }
+    if let Some(ca) = completed_at {
+        conn.execute(
+            "UPDATE mission_issues SET completed_at = ?1 WHERE mission_id = ?2 AND issue_id = ?3",
+            params![ca, mission_id, issue_id],
+        ).context("update completed_at")?;
+    }
+    Ok(())
+}
+
 #[allow(dead_code)]
 pub fn load_all_active_mission_issues(conn: &Connection) -> Result<Vec<MissionIssueRow>> {
     let mut stmt = conn

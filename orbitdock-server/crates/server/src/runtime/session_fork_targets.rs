@@ -111,6 +111,7 @@ pub(crate) async fn create_fork_target_worktree(
         base_branch,
         WorktreeOrigin::User,
         None,
+        false,
     )
     .await
     .map_err(|error| ForkTargetError {

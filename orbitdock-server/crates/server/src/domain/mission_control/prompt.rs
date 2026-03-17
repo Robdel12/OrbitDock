@@ -11,6 +11,7 @@ pub fn render_prompt(
     issue_description: Option<&str>,
     issue_url: Option<&str>,
     issue_state: Option<&str>,
+    issue_labels: &[String],
     attempt: u32,
 ) -> Result<String> {
     let parser = ParserBuilder::with_stdlib()
@@ -20,6 +21,8 @@ pub fn render_prompt(
         .parse(template_source)
         .context("parse Liquid prompt template")?;
 
+    let labels_str = issue_labels.join(", ");
+
     let globals = liquid::object!({
         "issue": {
             "id": issue_id,
@@ -28,6 +31,7 @@ pub fn render_prompt(
             "description": issue_description.unwrap_or(""),
             "url": issue_url.unwrap_or(""),
             "state": issue_state.unwrap_or(""),
+            "labels": labels_str,
         },
         "attempt": attempt,
     });
@@ -54,6 +58,7 @@ mod tests {
             Some("Users can't log in with Google OAuth"),
             None,
             None,
+            &[],
             1,
         )
         .unwrap();
@@ -66,14 +71,14 @@ mod tests {
     #[test]
     fn render_with_attempt() {
         let template = "{% if attempt > 1 %}Retry attempt {{ attempt }}. {% endif %}Fix {{ issue.identifier }}";
-        let result = render_prompt(template, "id-1", "PROJ-1", "Bug", None, None, None, 3).unwrap();
+        let result = render_prompt(template, "id-1", "PROJ-1", "Bug", None, None, None, &[], 3).unwrap();
         assert!(result.contains("Retry attempt 3"));
     }
 
     #[test]
     fn render_empty_description() {
         let template = "{{ issue.description }}";
-        let result = render_prompt(template, "id-1", "PROJ-1", "Bug", None, None, None, 1).unwrap();
+        let result = render_prompt(template, "id-1", "PROJ-1", "Bug", None, None, None, &[], 1).unwrap();
         assert_eq!(result.trim(), "");
     }
 
@@ -88,6 +93,7 @@ mod tests {
             None,
             Some("https://linear.app/team/PROJ-1"),
             Some("In Progress"),
+            &[],
             1,
         )
         .unwrap();

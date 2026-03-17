@@ -31,6 +31,7 @@ pub(crate) async fn create_tracked_worktree(
     base_branch: Option<&str>,
     created_by: WorktreeOrigin,
     worktree_root: Option<&str>,
+    cleanup_existing: bool,
 ) -> Result<TrackedWorktreeCreation, String> {
     let planned = plan_tracked_worktree(repo_path, branch_name, base_branch, worktree_root)?;
 
@@ -39,6 +40,7 @@ pub(crate) async fn create_tracked_worktree(
         &planned.worktree_path,
         &planned.branch,
         planned.base_branch.as_deref(),
+        cleanup_existing,
     )
     .await?;
 

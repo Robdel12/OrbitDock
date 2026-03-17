@@ -10,7 +10,7 @@ use crate::connectors::codex_session::CodexAction;
 use crate::domain::mission_control::config::AgentConfig;
 use crate::domain::mission_control::prompt::render_prompt;
 use crate::domain::mission_control::tracker::TrackerIssue;
-use crate::infrastructure::persistence::PersistCommand;
+use crate::infrastructure::persistence::mission_control::update_mission_issue_state_sync;
 use crate::runtime::session_creation::{
     launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
 };
@@ -46,21 +46,19 @@ pub async fn dispatch_issue(
         "Dispatching issue"
     );
 
-    // Update orchestration state to claimed
-    let _ = registry
-        .persist()
-        .send(PersistCommand::MissionIssueUpdateState {
-            mission_id: mission_id.to_string(),
-            issue_id: issue.id.clone(),
-            orchestration_state: "claimed".to_string(),
-            session_id: None,
-            attempt: None,
-            last_error: Some(None),
-            retry_due_at: None,
-            started_at: Some(Some(chrono::Utc::now().to_rfc3339())),
-            completed_at: None,
-        })
-        .await;
+    // Update orchestration state to claimed (synchronous — must be visible before broadcast)
+    let db_path = registry.db_path().clone();
+    let mid = mission_id.to_string();
+    let iid = issue.id.clone();
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path).ok()?;
+        update_mission_issue_state_sync(
+            &conn, &mid, &iid, "claimed",
+            None, None, Some(None), Some(Some(&now)), None,
+        ).ok()
+    })
+    .await;
 
     // Create worktree via the runtime helper (also persists the record)
     let worktree_path = match crate::runtime::worktree_creation::create_tracked_worktree(
@@ -70,6 +68,7 @@ pub async fn dispatch_issue(
         Some(base_branch),
         orbitdock_protocol::WorktreeOrigin::Agent,
         worktree_root_dir,
+        attempt == 1, // clean up stale worktrees on first attempt only
     )
     .await
     {
@@ -83,20 +82,20 @@ pub async fn dispatch_issue(
                 error = %err,
                 "Worktree creation failed, marking issue as failed"
             );
-            let _ = registry
-                .persist()
-                .send(PersistCommand::MissionIssueUpdateState {
-                    mission_id: mission_id.to_string(),
-                    issue_id: issue.id.clone(),
-                    orchestration_state: "failed".to_string(),
-                    session_id: None,
-                    attempt: Some(attempt),
-                    last_error: Some(Some(format!("Worktree creation failed: {err}"))),
-                    retry_due_at: None,
-                    started_at: None,
-                    completed_at: Some(Some(chrono::Utc::now().to_rfc3339())),
-                })
-                .await;
+            let db_path = registry.db_path().clone();
+            let mid = mission_id.to_string();
+            let iid = issue.id.clone();
+            let err_msg = format!("Worktree creation failed: {err}");
+            let now = chrono::Utc::now().to_rfc3339();
+            let _ = tokio::task::spawn_blocking(move || {
+                let conn = rusqlite::Connection::open(&db_path).ok()?;
+                update_mission_issue_state_sync(
+                    &conn, &mid, &iid, "failed",
+                    None, Some(attempt), Some(Some(&err_msg)),
+                    None, Some(Some(&now)),
+                ).ok()
+            })
+            .await;
             return Err(anyhow::anyhow!("Worktree creation failed: {err}"));
         }
     };
@@ -110,6 +109,7 @@ pub async fn dispatch_issue(
         issue.description.as_deref(),
         issue.url.as_deref(),
         Some(&issue.state),
+        &issue.labels,
         attempt,
     )?;
 
@@ -142,21 +142,20 @@ pub async fn dispatch_issue(
         .await
         .map_err(|e| anyhow::anyhow!("Failed to launch session: {e}"))?;
 
-    // Update mission issue with session link
-    let _ = registry
-        .persist()
-        .send(PersistCommand::MissionIssueUpdateState {
-            mission_id: mission_id.to_string(),
-            issue_id: issue.id.clone(),
-            orchestration_state: "running".to_string(),
-            session_id: Some(session_id.clone()),
-            attempt: Some(attempt),
-            last_error: Some(None),
-            retry_due_at: None,
-            started_at: None,
-            completed_at: None,
-        })
-        .await;
+    // Update mission issue with session link (synchronous)
+    let db_path = registry.db_path().clone();
+    let mid = mission_id.to_string();
+    let iid = issue.id.clone();
+    let sid = session_id.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path).ok()?;
+        update_mission_issue_state_sync(
+            &conn, &mid, &iid, "running",
+            Some(&sid), Some(attempt), Some(None),
+            None, None,
+        ).ok()
+    })
+    .await;
 
     // Send the prompt as the first message via the connector action channel
     match provider {
