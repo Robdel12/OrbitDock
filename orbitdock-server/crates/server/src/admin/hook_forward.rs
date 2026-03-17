@@ -23,15 +23,15 @@ const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:4000";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[allow(clippy::enum_variant_names)]
 pub enum HookForwardType {
-    #[value(name = "claude_session_start")]
+    #[value(name = "claude-session-start")]
     SessionStart,
-    #[value(name = "claude_session_end")]
+    #[value(name = "claude-session-end")]
     SessionEnd,
-    #[value(name = "claude_status_event")]
+    #[value(name = "claude-status-event")]
     StatusEvent,
-    #[value(name = "claude_tool_event")]
+    #[value(name = "claude-tool-event")]
     ToolEvent,
-    #[value(name = "claude_subagent_event")]
+    #[value(name = "claude-subagent-event")]
     SubagentEvent,
 }
 

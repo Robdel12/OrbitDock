@@ -17,21 +17,21 @@ use super::hook_forward;
 
 /// All Claude Code hook types we register for.
 const HOOK_TYPES: &[(&str, &str)] = &[
-    ("hooks.SessionStart", "claude_session_start"),
-    ("hooks.SessionEnd", "claude_session_end"),
-    ("hooks.UserPromptSubmit", "claude_status_event"),
-    ("hooks.Stop", "claude_status_event"),
-    ("hooks.Notification", "claude_status_event"),
-    ("hooks.PreCompact", "claude_status_event"),
-    ("hooks.TeammateIdle", "claude_status_event"),
-    ("hooks.TaskCompleted", "claude_status_event"),
-    ("hooks.ConfigChange", "claude_status_event"),
-    ("hooks.PreToolUse", "claude_tool_event"),
-    ("hooks.PostToolUse", "claude_tool_event"),
-    ("hooks.PostToolUseFailure", "claude_tool_event"),
-    ("hooks.PermissionRequest", "claude_tool_event"),
-    ("hooks.SubagentStart", "claude_subagent_event"),
-    ("hooks.SubagentStop", "claude_subagent_event"),
+    ("hooks.SessionStart", "claude-session-start"),
+    ("hooks.SessionEnd", "claude-session-end"),
+    ("hooks.UserPromptSubmit", "claude-status-event"),
+    ("hooks.Stop", "claude-status-event"),
+    ("hooks.Notification", "claude-status-event"),
+    ("hooks.PreCompact", "claude-status-event"),
+    ("hooks.TeammateIdle", "claude-status-event"),
+    ("hooks.TaskCompleted", "claude-status-event"),
+    ("hooks.ConfigChange", "claude-status-event"),
+    ("hooks.PreToolUse", "claude-tool-event"),
+    ("hooks.PostToolUse", "claude-tool-event"),
+    ("hooks.PostToolUseFailure", "claude-tool-event"),
+    ("hooks.PermissionRequest", "claude-tool-event"),
+    ("hooks.SubagentStart", "claude-subagent-event"),
+    ("hooks.SubagentStop", "claude-subagent-event"),
     // Intentionally excluded:
     // - WorktreeCreate: adding this hook replaces Claude's default git worktree behavior.
     // - WorktreeRemove: companion cleanup hook for custom worktree providers.
