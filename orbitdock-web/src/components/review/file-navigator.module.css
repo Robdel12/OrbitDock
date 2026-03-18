@@ -1,0 +1,167 @@
+.navigator {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-secondary);
+  border-right: 1px solid var(--color-surface-border);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-surface-border);
+  flex-shrink: 0;
+}
+
+.headerLabel {
+  font-size: var(--type-caption);
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fileCount {
+  font-size: var(--type-caption);
+  color: var(--color-text-quaternary);
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-xs);
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-xs) 0;
+}
+
+/* ── Directory group ──────────────────────────────────────────────────────── */
+
+.dirGroup {
+  margin-bottom: var(--space-xs);
+}
+
+.dirLabel {
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--type-micro);
+  color: var(--color-text-quaternary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── File row ─────────────────────────────────────────────────────────────── */
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  /* 44px tap target on mobile */
+  min-height: 44px;
+  padding: var(--space-xs) var(--space-md);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 0;
+  transition: background var(--transition-fast);
+  /* Prevent overflow from long filenames */
+  min-width: 0;
+}
+
+/* Smaller height on desktop — still comfortable */
+@media (min-width: 768px) {
+  .fileRow {
+    min-height: 32px;
+    padding: var(--space-xxs) var(--space-md);
+  }
+}
+
+.fileRow:hover {
+  background: var(--color-surface-hover);
+}
+
+.fileRowActive {
+  background: var(--color-surface-selected) !important;
+  border-left: var(--edge-bar-width) solid var(--color-accent);
+  padding-left: calc(var(--space-md) - var(--edge-bar-width));
+}
+
+/* ── Status badge ─────────────────────────────────────────────────────────── */
+
+.statusBadge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-xs);
+  font-size: var(--type-micro);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+
+.statusAdded {
+  background: color-mix(in srgb, var(--color-diff-added-edge) 15%, transparent);
+  color: var(--color-diff-added-accent);
+}
+
+.statusDeleted {
+  background: color-mix(in srgb, var(--color-diff-removed-edge) 15%, transparent);
+  color: var(--color-diff-removed-accent);
+}
+
+.statusModified {
+  background: color-mix(in srgb, var(--color-feedback-caution) 15%, transparent);
+  color: var(--color-feedback-caution);
+}
+
+/* ── File name ────────────────────────────────────────────────────────────── */
+
+.fileName {
+  flex: 1;
+  font-size: var(--type-caption);
+  font-family: var(--font-mono);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* ── Line counts ─────────────────────────────────────────────────────────── */
+
+.lineCounts {
+  display: flex;
+  gap: var(--space-xxs);
+  flex-shrink: 0;
+  font-size: var(--type-micro);
+  font-family: var(--font-mono);
+}
+
+.additions {
+  color: var(--color-diff-added-accent);
+}
+
+.deletions {
+  color: var(--color-diff-removed-accent);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+
+.empty {
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xxl) var(--space-xl);
+  text-align: center;
+  font-size: var(--type-subhead);
+  color: var(--color-text-tertiary);
+  margin: var(--space-sm);
+}

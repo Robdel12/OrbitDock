@@ -1,7 +1,15 @@
 .page {
   height: 100%;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: var(--space-xl);
+}
+
+@media (max-width: 767px) {
+  .page {
+    padding: var(--space-lg);
+  }
 }
 
 .loading {
@@ -21,10 +29,12 @@
 }
 
 .empty {
-  color: var(--color-text-tertiary);
-  font-size: var(--type-subhead);
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xxl) var(--space-xl);
   text-align: center;
-  padding: var(--space-xxl);
+  font-size: var(--type-subhead);
+  color: var(--color-text-tertiary);
 }
 
 .list {

@@ -2,8 +2,30 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-xxl);
+  padding: var(--space-xxl) var(--space-lg);
   height: 100%;
+  box-sizing: border-box;
+}
+
+.card {
+  position: relative;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  max-width: 480px;
+  width: 100%;
+}
+
+/* Negative (red) edge bar on the left side */
+.edgeLine {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--edge-bar-width);
+  background: var(--color-feedback-negative);
+  border-radius: var(--radius-xs) 0 0 var(--radius-xs);
 }
 
 .content {
@@ -12,18 +34,27 @@
   align-items: center;
   gap: var(--space-md);
   text-align: center;
+  padding: var(--space-xxl) var(--space-xl);
+}
+
+.iconRow {
+  font-size: 28px;
+  color: var(--color-feedback-negative);
+  line-height: 1;
 }
 
 .title {
   font-size: var(--type-title);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
+  margin: 0;
 }
 
 .message {
   font-size: var(--type-body);
   color: var(--color-text-tertiary);
   font-family: var(--font-mono);
-  max-width: 500px;
+  max-width: 400px;
   word-break: break-word;
+  line-height: 1.5;
 }

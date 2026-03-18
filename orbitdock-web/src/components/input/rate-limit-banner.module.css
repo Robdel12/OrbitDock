@@ -1,0 +1,49 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0 var(--space-lg) 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-feedback-caution) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-feedback-caution) 35%, transparent);
+  font-size: var(--type-meta);
+}
+
+.icon {
+  color: var(--color-feedback-caution);
+  font-size: var(--type-body);
+  flex-shrink: 0;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs);
+  color: var(--color-text-secondary);
+}
+
+.provider {
+  font-weight: 600;
+  color: var(--color-feedback-caution);
+  text-transform: capitalize;
+}
+
+.limitType {
+  color: var(--color-text-secondary);
+  text-transform: capitalize;
+}
+
+.message {
+  color: var(--color-text-tertiary);
+}
+
+.retry {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-feedback-caution);
+  font-weight: 500;
+  font-size: var(--type-meta);
+}

@@ -1,0 +1,80 @@
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid var(--color-surface-border);
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
+  min-height: 48px;
+  gap: var(--space-md);
+}
+
+.headerRight {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+/* ── Status strip ─────────────────────────────────────────────────────────── */
+.strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-xs) var(--space-lg);
+  border-bottom: 1px solid var(--color-surface-border);
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
+  min-height: 32px;
+}
+
+/* ── Rows ─────────────────────────────────────────────────────────────────── */
+.rows {
+  flex: 1;
+  overflow: hidden;
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-start;
+}
+
+.rowUser {
+  flex-direction: row-reverse;
+}
+
+.rowEdge {
+  flex-shrink: 0;
+  padding-top: 3px;
+}
+
+.rowLines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex: 1;
+}
+
+.rowUser .rowLines {
+  align-items: flex-end;
+}
+
+/* ── Composer ─────────────────────────────────────────────────────────────── */
+.composer {
+  padding: var(--space-md) var(--space-lg);
+  border-top: 1px solid var(--color-surface-border);
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
+}

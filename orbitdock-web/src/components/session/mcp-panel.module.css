@@ -1,0 +1,312 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-surface-border);
+  flex-shrink: 0;
+}
+
+.headerTitle {
+  font-size: var(--type-caption);
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.headerCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-elevated);
+  color: var(--color-text-tertiary);
+  font-size: var(--type-mini);
+  font-weight: 600;
+}
+
+.serverList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--space-xs) 0;
+}
+
+/* ── Server card ────────────────────────────────────────────────────────── */
+
+.serverCard {
+  display: flex;
+  background: var(--color-bg-secondary);
+  transition: background var(--transition-fast);
+}
+
+.serverCard:hover {
+  background: var(--color-surface-hover);
+}
+
+.serverDisabled {
+  opacity: 0.55;
+}
+
+.edgeBar {
+  width: var(--edge-bar-width);
+  background: var(--edge-color, transparent);
+  flex-shrink: 0;
+}
+
+.serverMain {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-sm) var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* Server header: expand button + meta badges */
+.serverHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-height: 32px;
+}
+
+.expandBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.expandIcon {
+  font-size: var(--type-mini);
+  color: var(--color-text-quaternary);
+  width: 10px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.serverName {
+  font-size: var(--type-body);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolCountBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-elevated);
+  color: var(--color-text-tertiary);
+  font-size: var(--type-mini);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.serverMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+/* Server action row: toggle + buttons */
+.serverActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+/* ── Toggle switch (shared visual style with skills-panel) ───────────────── */
+
+.toggleSwitch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-surface-border);
+  cursor: pointer;
+  transition: background var(--transition-normal), border-color var(--transition-normal);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggleSwitch::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+  transition: transform var(--transition-normal), background var(--transition-normal);
+}
+
+.toggleSwitch.toggleOn {
+  background: color-mix(in srgb, var(--color-feedback-positive) 20%, transparent);
+  border-color: var(--color-feedback-positive);
+}
+
+.toggleSwitch.toggleOn::after {
+  transform: translateX(16px);
+  background: var(--color-feedback-positive);
+}
+
+.toggleSwitch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Auth form ──────────────────────────────────────────────────────────── */
+
+.authForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-xs) 0 0;
+}
+
+.authLink {
+  font-size: var(--type-caption);
+  color: var(--color-accent);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.authLink:hover {
+  color: var(--color-accent-glow);
+  text-decoration: underline;
+}
+
+.authRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.authInput {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--type-body);
+  font-family: var(--font-system);
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+  box-sizing: border-box;
+}
+
+.authInput:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+
+.authError {
+  font-size: var(--type-caption);
+  color: var(--color-feedback-negative);
+}
+
+/* ── Tool list ──────────────────────────────────────────────────────────── */
+
+.toolsArea {
+  border-top: 1px solid var(--color-surface-border);
+  padding-top: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.toolList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.toolItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.toolItem:hover {
+  background: var(--color-surface-hover);
+}
+
+.toolName {
+  font-size: var(--type-caption);
+  font-weight: 500;
+  color: var(--color-tool-mcp);
+  font-family: var(--font-mono);
+}
+
+.toolDesc {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+}
+
+.noTools {
+  font-size: var(--type-caption);
+  color: var(--color-text-quaternary);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+/* ── States ─────────────────────────────────────────────────────────────── */
+
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+}
+
+.emptyMsg {
+  padding: var(--space-lg) var(--space-md);
+  font-size: var(--type-body);
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.errorMsg {
+  padding: var(--space-md);
+  font-size: var(--type-caption);
+  color: var(--color-feedback-negative);
+  background: color-mix(in srgb, var(--color-feedback-negative) 8%, transparent);
+  border-radius: var(--radius-md);
+  margin: var(--space-sm) var(--space-md);
+}

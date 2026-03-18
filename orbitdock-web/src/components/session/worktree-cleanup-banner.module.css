@@ -1,0 +1,30 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-lg);
+  background: color-mix(in srgb, var(--color-feedback-caution) 8%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--color-feedback-caution) 20%, transparent);
+  flex-shrink: 0;
+  font-size: var(--type-meta);
+}
+
+.icon {
+  color: var(--color-feedback-caution);
+  font-size: var(--type-body);
+  flex-shrink: 0;
+}
+
+.label {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.hint {
+  color: var(--color-text-tertiary);
+}
+
+.deleteBtn {
+  margin-left: auto;
+  flex-shrink: 0;
+}

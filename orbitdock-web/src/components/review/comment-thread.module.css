@@ -1,0 +1,110 @@
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background: color-mix(in srgb, var(--color-accent) 4%, var(--color-bg-secondary));
+  border-left: var(--edge-bar-width) solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  animation: fadeIn 0.15s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Comment bubble ────────────────────────────────────────────────────────── */
+
+.bubble {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-surface-border);
+}
+
+.bubbleMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.author {
+  font-size: var(--type-caption);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.timestamp {
+  font-size: var(--type-micro);
+  color: var(--color-text-quaternary);
+}
+
+.bubbleActions {
+  display: flex;
+  gap: var(--space-xs);
+  margin-left: auto;
+  /* Only shown on hover — hidden by default */
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.bubble:hover .bubbleActions {
+  opacity: 1;
+}
+
+.actionBtn {
+  font-size: var(--type-micro);
+  color: var(--color-text-quaternary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px var(--space-xxs);
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--size-touch-target);
+  min-width: var(--size-touch-target);
+}
+
+.actionBtn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}
+
+.actionBtnDanger:hover {
+  color: var(--color-feedback-negative);
+  background: rgba(242, 102, 115, 0.1);
+}
+
+/* ── Comment body ────────────────────────────────────────────────────────── */
+
+.body {
+  font-size: var(--type-body);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+/* ── Add reply button ────────────────────────────────────────────────────── */
+
+.addReplyBtn {
+  align-self: flex-start;
+  font-size: var(--type-caption);
+  color: var(--color-accent);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-xxs) 0;
+  transition: opacity var(--transition-fast);
+}
+
+.addReplyBtn:hover {
+  opacity: 0.8;
+}

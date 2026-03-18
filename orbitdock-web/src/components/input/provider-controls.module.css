@@ -1,0 +1,48 @@
+.control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.label {
+  font-size: var(--type-caption);
+  font-weight: 500;
+  color: var(--color-text-quaternary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Segmented control track */
+.segmented {
+  display: flex;
+  gap: 1px;
+  background: var(--color-surface-border);
+  border-radius: var(--radius-sm);
+  padding: 1px;
+}
+
+.segment {
+  padding: 2px var(--space-sm);
+  border-radius: calc(var(--radius-sm) - 1px);
+  font-size: var(--type-caption);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
+.segment:hover:not(.segmentActive) {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-hover);
+}
+
+.segmentActive {
+  background: color-mix(in srgb, var(--segment-color, var(--color-accent)) 18%, var(--color-bg-tertiary));
+  color: var(--segment-color, var(--color-accent));
+}

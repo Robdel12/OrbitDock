@@ -1,12 +1,12 @@
 import { useEffect } from 'preact/hooks'
-import { sendWs } from '../stores/connection.js'
+import { subscribeSession, unsubscribeSession } from '../stores/connection.js'
 
 const useSession = (sessionId) => {
   useEffect(() => {
     if (!sessionId) return
-    sendWs({ type: 'subscribe_session', session_id: sessionId, include_snapshot: false })
+    subscribeSession(sessionId)
     return () => {
-      sendWs({ type: 'unsubscribe_session', session_id: sessionId })
+      unsubscribeSession(sessionId)
     }
   }, [sessionId])
 }

@@ -1,0 +1,72 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-lg);
+  background: color-mix(in srgb, var(--color-diff-added-edge) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-diff-added-edge) 25%, transparent);
+  flex-shrink: 0;
+  font-size: var(--type-meta);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-diff-added-edge);
+  flex-shrink: 0;
+}
+
+/* Clickable body — stretches to fill available space */
+.bannerBody {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex: 1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  /* 44px tap target height via parent */
+  min-height: 28px;
+  border-radius: var(--radius-sm);
+  transition: opacity var(--transition-fast);
+  text-align: left;
+}
+
+.bannerBody:hover {
+  opacity: 0.85;
+}
+
+.label {
+  font-weight: 600;
+  color: var(--color-diff-added-accent);
+}
+
+.hint {
+  color: var(--color-text-secondary);
+}
+
+.dismiss {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--type-subhead);
+  line-height: 1;
+  color: var(--color-text-quaternary);
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  /* 44px tap target */
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.dismiss:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}

@@ -1,5 +1,12 @@
 .banner {
-  margin: var(--space-sm) var(--space-lg);
+  margin: 0 var(--space-sm);
+  flex-shrink: 0;
+}
+
+@media (min-width: 768px) {
+  .banner {
+    margin: 0 var(--space-lg);
+  }
 }
 
 .body {
@@ -8,11 +15,45 @@
   gap: var(--space-sm);
 }
 
+/* ── Header row ──────────────────────────────────────────────── */
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
 .title {
   font-size: var(--type-subhead);
   font-weight: 500;
   color: var(--color-text-primary);
+  min-width: 0;
 }
+
+.badge {
+  flex-shrink: 0;
+  font-size: var(--type-caption);
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--color-status-permission);
+  background: color-mix(in srgb, var(--color-status-permission) 12%, transparent);
+  padding: 1px var(--space-xs);
+  border-radius: var(--radius-sm);
+}
+
+.badgeQuestion {
+  color: var(--color-status-question);
+  background: color-mix(in srgb, var(--color-status-question) 12%, transparent);
+}
+
+.badgePermission {
+  color: var(--color-status-permission);
+  background: color-mix(in srgb, var(--color-status-permission) 12%, transparent);
+}
+
+/* ── Shared ──────────────────────────────────────────────────── */
 
 .subtitle {
   font-size: var(--type-meta);
@@ -35,7 +76,125 @@
 .actions {
   display: flex;
   gap: var(--space-sm);
+  align-items: center;
 }
+
+/* ── Exec enhancements ───────────────────────────────────────── */
+
+.execMeta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.cwd {
+  font-size: var(--type-meta);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.cwdLabel {
+  color: var(--color-text-quaternary);
+  margin-right: var(--space-xs);
+  font-style: normal;
+}
+
+.networkHint {
+  font-size: var(--type-meta);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+}
+
+/* ── Patch / diff ────────────────────────────────────────────── */
+
+.diffWrap {
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* ── Permissions ─────────────────────────────────────────────── */
+
+.permList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.permItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-bg-code);
+  border-radius: var(--radius-sm);
+  border-left: var(--edge-bar-width) solid var(--color-status-permission);
+}
+
+.permType {
+  font-size: var(--type-meta);
+  font-weight: 500;
+  color: var(--color-status-permission);
+  font-family: var(--font-mono);
+  text-transform: lowercase;
+}
+
+.permDescription {
+  font-size: var(--type-meta);
+  color: var(--color-text-secondary);
+}
+
+.permScope {
+  font-size: var(--type-caption);
+  color: var(--color-text-quaternary);
+  font-family: var(--font-mono);
+}
+
+/* ── Scope picker ────────────────────────────────────────────── */
+
+.scopeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.scopeLabel {
+  font-size: var(--type-meta);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.scopePicker {
+  display: flex;
+  background: var(--color-bg-code);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.scopeOption {
+  font-size: var(--type-meta);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  padding: var(--space-xxs) var(--space-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  font-family: inherit;
+}
+
+.scopeOption:hover {
+  background: var(--color-surface-hover);
+}
+
+.scopeActive {
+  background: var(--color-surface-selected);
+  color: var(--color-text-primary);
+}
+
+/* ── Questions ───────────────────────────────────────────────── */
 
 .questionGroup {
   display: flex;
@@ -46,10 +205,130 @@
 .questionText {
   font-size: var(--type-body);
   color: var(--color-text-secondary);
+  line-height: var(--line-height-normal);
 }
+
+/* ── Prompt tabs (multi-question navigation) ─────────────────── */
+
+.promptTabs {
+  display: flex;
+  gap: var(--space-xxs);
+  flex-wrap: wrap;
+}
+
+.promptTab {
+  font-size: var(--type-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xxs) var(--space-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  position: relative;
+}
+
+.promptTab:hover {
+  color: var(--color-text-secondary);
+  border-color: var(--color-text-quaternary);
+}
+
+.promptTabActive {
+  color: var(--color-status-question);
+  border-color: var(--color-status-question);
+  background: color-mix(in srgb, var(--color-status-question) 8%, transparent);
+}
+
+.promptTabAnswered::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-feedback-positive);
+}
+
+/* ── Option buttons ──────────────────────────────────────────── */
 
 .options {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--space-xxs);
+}
+
+.optionBtn {
+  display: flex;
+  align-items: flex-start;
   gap: var(--space-xs);
+  width: 100%;
+  text-align: left;
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-bg-code);
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  font-size: var(--type-body);
+  color: var(--color-text-primary);
+}
+
+.optionBtn:hover {
+  border-color: var(--color-text-quaternary);
+  background: var(--color-surface-hover);
+}
+
+.optionSelected {
+  border-color: var(--color-status-question);
+  background: color-mix(in srgb, var(--color-status-question) 10%, var(--color-bg-code));
+}
+
+.checkbox {
+  flex-shrink: 0;
+  font-size: var(--type-body);
+  line-height: 1;
+  color: var(--color-text-tertiary);
+}
+
+.optionSelected .checkbox {
+  color: var(--color-status-question);
+}
+
+.optionLabel {
+  font-weight: var(--font-weight-medium);
+  min-width: 0;
+}
+
+.optionDesc {
+  font-size: var(--type-meta);
+  color: var(--color-text-tertiary);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ── Free-text "Other" input ─────────────────────────────────── */
+
+.otherInput {
+  width: 100%;
+  font-size: var(--type-body);
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-code);
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.otherInput::placeholder {
+  color: var(--color-text-quaternary);
+}
+
+.otherInput:focus {
+  border-color: var(--color-status-question);
 }

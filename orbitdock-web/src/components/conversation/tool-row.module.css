@@ -3,11 +3,12 @@
 }
 
 .card {
-  transition: background 0.15s;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
 }
 
 .card:hover {
   background: var(--color-surface-hover);
+  box-shadow: var(--shadow-sm);
 }
 
 .expanded {
@@ -21,6 +22,8 @@
   width: 100%;
   text-align: left;
   cursor: pointer;
+  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-sm);
 }
 
 .header {
@@ -28,6 +31,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
+  min-width: 0;
 }
 
 .headerRight {
@@ -38,36 +42,71 @@
 }
 
 .chevron {
-  font-size: var(--type-micro);
   color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
 }
 
 .summary {
-  font-size: var(--type-body);
+  font-size: var(--type-meta);
   color: var(--color-text-primary);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+  .summary {
+    font-size: var(--type-body);
+  }
 }
 
 .mono {
   font-family: var(--font-mono);
-  font-size: var(--type-code);
+  font-size: var(--type-caption);
+}
+
+@media (min-width: 768px) {
+  .mono {
+    font-size: var(--type-code);
+  }
 }
 
 .subtitle {
-  font-size: var(--type-meta);
+  font-size: var(--type-caption);
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 768px) {
+  .subtitle {
+    font-size: var(--type-meta);
+  }
 }
 
 .outputPreview {
-  font-size: var(--type-caption);
+  font-size: var(--type-micro);
   color: var(--color-text-tertiary);
   font-family: var(--font-mono);
   margin-top: var(--space-xs);
   padding: var(--space-xs) var(--space-sm);
   background: var(--color-bg-code);
+  border: 1px solid var(--color-surface-border);
   border-radius: var(--radius-sm);
   white-space: pre-wrap;
+  word-break: break-all;
   overflow: hidden;
-  max-height: 120px;
+  max-height: 80px;
+}
+
+@media (min-width: 768px) {
+  .outputPreview {
+    font-size: var(--type-caption);
+    max-height: 160px;
+  }
 }

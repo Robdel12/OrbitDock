@@ -1,6 +1,14 @@
 .indicator {
   font-size: var(--type-caption);
   font-weight: 500;
+  white-space: nowrap;
+}
+
+/* On mobile, hide the text label — the status dot already conveys state */
+@media (max-width: 767px) {
+  .indicator {
+    display: none;
+  }
 }
 
 .working {

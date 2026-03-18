@@ -1,10 +1,10 @@
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: var(--space-xxs) var(--space-xs);
-  border-radius: var(--radius-sm);
+  padding: 3px var(--space-sm);
+  border-radius: var(--radius-md);
   font-size: var(--type-micro);
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
   line-height: 1;
   white-space: nowrap;
 }

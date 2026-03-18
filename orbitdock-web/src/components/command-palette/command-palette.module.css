@@ -1,0 +1,301 @@
+/* =========================================================================
+   Command Palette
+   ========================================================================= */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  /* Sit well above all other surfaces */
+  z-index: var(--z-modal);
+  padding-top: clamp(var(--space-lg), 10vh, 80px);
+  padding-inline: var(--space-lg);
+  animation: overlayFadeIn var(--transition-fast) ease-out;
+}
+
+@keyframes overlayFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* -------------------------------------------------------------------------
+   Panel
+   ------------------------------------------------------------------------- */
+.panel {
+  width: 100%;
+  max-width: 580px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-surface-border-accent);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55), var(--glow-accent);
+  animation: panelSlideIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes panelSlideIn {
+  from { transform: translateY(-10px) scale(0.98); opacity: 0; }
+  to   { transform: translateY(0)     scale(1);    opacity: 1; }
+}
+
+/* -------------------------------------------------------------------------
+   Search row
+   ------------------------------------------------------------------------- */
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-surface-border);
+}
+
+.searchIcon {
+  font-size: var(--type-subhead);
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  line-height: 1;
+  /* Shift the search glyph down a hair to optical-centre it */
+  position: relative;
+  top: 1px;
+}
+
+.input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: var(--type-subhead);
+  font-family: var(--font-system);
+  color: var(--color-text-primary);
+  caret-color: var(--color-accent);
+  /* 44px row height ensures comfortable mobile tap on the whole row */
+  min-height: 44px;
+  line-height: 44px;
+  padding: 0;
+}
+
+.input::placeholder {
+  color: var(--color-text-quaternary);
+}
+
+.escHint {
+  flex-shrink: 0;
+  font-size: var(--type-caption);
+  font-family: var(--font-system);
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 5px;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+
+/* -------------------------------------------------------------------------
+   Results section
+   ------------------------------------------------------------------------- */
+.results {
+  display: flex;
+  flex-direction: column;
+}
+
+.sectionLabel {
+  font-size: var(--type-caption);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: var(--space-sm) var(--space-lg) var(--space-xs);
+}
+
+.resultList {
+  /* Cap the list height so the panel doesn't overflow the viewport */
+  max-height: min(400px, 50vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Hide scrollbar on most browsers while keeping scrollability */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-surface-border) transparent;
+  padding: 0 var(--space-sm) var(--space-sm);
+}
+
+.resultList::-webkit-scrollbar {
+  width: 4px;
+}
+
+.resultList::-webkit-scrollbar-thumb {
+  background: var(--color-surface-border);
+  border-radius: 2px;
+}
+
+/* -------------------------------------------------------------------------
+   Individual result button
+   ------------------------------------------------------------------------- */
+.result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-primary);
+  transition: background var(--transition-fast);
+}
+
+.result:hover {
+  background: var(--color-surface-hover);
+}
+
+.resultActive {
+  background: var(--color-surface-selected);
+}
+
+.resultIcon {
+  flex-shrink: 0;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.commandGlyph {
+  font-size: var(--type-body);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.resultBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.resultLabel {
+  font-size: var(--type-body);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resultMeta {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+.resultRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+.resultTime {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------------------
+   Empty state
+   ------------------------------------------------------------------------- */
+.empty {
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xxl) var(--space-xl);
+  text-align: center;
+  font-size: var(--type-subhead);
+  color: var(--color-text-tertiary);
+  margin: var(--space-sm) var(--space-lg);
+}
+
+/* -------------------------------------------------------------------------
+   Footer hints
+   ------------------------------------------------------------------------- */
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-lg) var(--space-sm);
+  border-top: 1px solid var(--color-surface-border);
+  flex-wrap: wrap;
+  row-gap: var(--space-xs);
+}
+
+.hint {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.hint kbd {
+  font-family: var(--font-system);
+  font-size: var(--type-micro);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-xs);
+  padding: 1px 4px;
+  color: var(--color-text-secondary);
+}
+
+.hintSep {
+  flex: 1;
+}
+
+/* =========================================================================
+   Mobile-first overrides
+   ========================================================================= */
+@media (max-width: 480px) {
+  .overlay {
+    padding-top: var(--space-lg);
+    padding-inline: var(--space-sm);
+  }
+
+  .panel {
+    border-radius: var(--radius-lg);
+  }
+
+  .inputRow {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .sectionLabel {
+    padding-inline: var(--space-md);
+  }
+
+  .resultList {
+    padding-inline: var(--space-xs);
+    max-height: min(320px, 55vh);
+  }
+
+  .footer {
+    padding-inline: var(--space-md);
+    /* On mobile, hide the kbd hints to save space */
+    display: none;
+  }
+
+  .escHint {
+    display: none;
+  }
+}

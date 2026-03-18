@@ -8,9 +8,11 @@ const CreateSessionDialog = ({ open, onClose, onCreate, http }) => {
   const [model, setModel] = useState('')
   const [models, setModels] = useState([])
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     if (!open) return
+    setError(null)
     const fetchModels = async () => {
       try {
         const data = await http.get(`/api/models/${provider}`)
@@ -27,11 +29,14 @@ const CreateSessionDialog = ({ open, onClose, onCreate, http }) => {
     e.preventDefault()
     if (!cwd.trim()) return
     setSubmitting(true)
+    setError(null)
     try {
       const body = { provider, cwd: cwd.trim() }
       if (model) body.model = model
       await onCreate(body)
       onClose()
+    } catch (err) {
+      setError(err.message || 'Failed to create session')
     } finally {
       setSubmitting(false)
     }
@@ -95,6 +100,10 @@ const CreateSessionDialog = ({ open, onClose, onCreate, http }) => {
               ))}
             </select>
           </div>
+
+          {error && (
+            <p class={styles.error}>{error}</p>
+          )}
 
           <div class={styles.actions}>
             <Button variant="ghost" size="md" type="button" onClick={onClose}>

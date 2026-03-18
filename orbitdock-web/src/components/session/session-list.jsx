@@ -1,9 +1,9 @@
-import { grouped } from '../../stores/sessions.js'
 import { SessionCard } from './session-card.jsx'
 import styles from './session-list.module.css'
 
-const SessionList = ({ onSelect }) => {
-  const groups = grouped.value
+// `groups` is an array of { path, name, sessions[] } — passed in from the parent
+// so that filtering / sorting lives outside this component.
+const SessionList = ({ groups, onSelect }) => {
 
   if (groups.length === 0) {
     return <div class={styles.empty}>No sessions yet</div>
