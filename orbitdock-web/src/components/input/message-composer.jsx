@@ -63,7 +63,7 @@ const filesToAttachments = async (files) =>
 // execCommand is deprecated but there is no standard replacement for contenteditable
 // insertText that preserves the browser undo stack.
 const insertTextAtCursor = (text) => {
-  insertTextAtCursor(text)
+  document.execCommand('insertText', false, text)
 }
 
 const getPlainText = (el) => {
