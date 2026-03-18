@@ -142,7 +142,8 @@ fn plan_service_install(
             .as_deref()
             .map(str::trim)
             .filter(|token| !token.is_empty())
-            .map(ToString::to_string),
+            .map(ToString::to_string)
+            .or_else(read_token_from_hook_config),
         enable: opts.enable,
     })
 }
@@ -542,6 +543,16 @@ fn write_service_file(path: &Path, content: &str) -> anyhow::Result<()> {
         std::fs::write(path, content)?;
         Ok(())
     }
+}
+
+/// Read the auth token from the encrypted hook transport config (`hook-forward.json`).
+///
+/// Falls back to this when `--auth-token` is not explicitly passed, so that
+/// `install-service --enable` automatically picks up the token provisioned
+/// by `orbitdock init`.
+fn read_token_from_hook_config() -> Option<String> {
+    let config = super::hook_forward::read_transport_config().ok()??;
+    config.auth_token()
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import os.log
 
 struct ServerEndpointStore {
   static let endpointsStorageKey = "orbitdock.server.endpoints"
@@ -35,17 +36,12 @@ struct ServerEndpointStore {
 
   func endpoints() -> [ServerEndpoint] {
     guard let persisted = persistedEndpoints() else {
-      let seeded = Self.includesLocalManagedEndpoint
-        ? [ServerEndpoint.localDefault(defaultPort: defaultPort)]
-        : []
-      save(seeded)
-      return seeded
+      return []
     }
 
     let normalized = normalizedEndpoints(persisted)
     let hydrated = hydratedEndpoints(normalized)
-    let containsInlineTokens = normalized.contains(where: { Self.normalizedToken($0.authToken) != nil })
-    if normalized != persisted || containsInlineTokens {
+    if normalized != persisted {
       save(hydrated)
     }
     return hydrated
@@ -178,37 +174,21 @@ struct ServerEndpointStore {
       endpoints.removeAll(where: \.isLocalManaged)
     }
 
-    if endpoints.isEmpty, Self.includesLocalManagedEndpoint {
-      endpoints = [ServerEndpoint.localDefault(defaultPort: defaultPort)]
-    }
-
     var seen = Set<UUID>()
     endpoints = endpoints.filter { seen.insert($0.id).inserted }
 
-    if Self.includesLocalManagedEndpoint, !endpoints.contains(where: \.isLocalManaged) {
-      let shouldBeDefault = !endpoints.contains(where: { $0.isDefault && $0.isEnabled })
-      let hasEnabledEndpoint = endpoints.contains(where: \.isEnabled)
-      var local = ServerEndpoint.localDefault(defaultPort: defaultPort)
-      // Keep remote-first setups stable: only auto-enable localhost when no enabled endpoint exists.
-      local.isEnabled = !hasEnabledEndpoint
-      local.isDefault = shouldBeDefault && local.isEnabled
-      endpoints.append(local)
-    }
-
-    if !endpoints.contains(where: \.isEnabled) {
-      if let localIndex = endpoints.firstIndex(where: \.isLocalManaged) {
-        endpoints[localIndex].isEnabled = true
-      } else if let first = endpoints.indices.first {
-        endpoints[first].isEnabled = true
-      }
-    }
-
-    let defaultIndex = endpoints.firstIndex(where: { $0.isDefault && $0.isEnabled })
+    // Reconcile the default flag: pick the first enabled+default, or first enabled
+    if let defaultIndex = endpoints.firstIndex(where: { $0.isDefault && $0.isEnabled })
       ?? endpoints.firstIndex(where: \.isEnabled)
-      ?? 0
-
-    for idx in endpoints.indices {
-      endpoints[idx].isDefault = idx == defaultIndex
+    {
+      for idx in endpoints.indices {
+        endpoints[idx].isDefault = idx == defaultIndex
+      }
+    } else {
+      // All disabled — clear all defaults
+      for idx in endpoints.indices {
+        endpoints[idx].isDefault = false
+      }
     }
 
     return endpoints
@@ -275,6 +255,7 @@ struct ServerEndpointStore {
 }
 
 struct ServerEndpointTokenStore {
+  private static let logger = Logger(subsystem: "com.orbitdock", category: "keychain")
   private let serviceName = "com.orbitdock.server-endpoint-token"
 
   func token(for id: UUID) -> String? {
@@ -288,6 +269,9 @@ struct ServerEndpointTokenStore {
 
     var result: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &result)
+    if status != errSecSuccess, status != errSecItemNotFound {
+      Self.logger.error("Keychain read failed: \(Int(status))")
+    }
     guard status == errSecSuccess, let data = result as? Data else { return nil }
     return String(data: data, encoding: .utf8)
   }
@@ -306,14 +290,21 @@ struct ServerEndpointTokenStore {
     let status = SecItemCopyMatching(query as CFDictionary, nil)
 
     if status == errSecSuccess {
-      SecItemUpdate(query as CFDictionary, [kSecValueData as String: tokenData] as CFDictionary)
+      let updateStatus = SecItemUpdate(
+        query as CFDictionary,
+        [kSecValueData as String: tokenData] as CFDictionary
+      )
+      if updateStatus != errSecSuccess {
+        Self.logger.error("Keychain update failed: \(Int(updateStatus))")
+      }
       return
     }
 
-    if status == errSecItemNotFound {
-      var addQuery = query
-      addQuery[kSecValueData as String] = tokenData
-      SecItemAdd(addQuery as CFDictionary, nil)
+    var addQuery = query
+    addQuery[kSecValueData as String] = tokenData
+    let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+    if addStatus != errSecSuccess {
+      Self.logger.error("Keychain add failed: \(Int(addStatus))")
     }
   }
 
@@ -326,6 +317,8 @@ struct ServerEndpointTokenStore {
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: serviceName,
       kSecAttrAccount as String: endpointID,
+      kSecUseDataProtectionKeychain as String: true,
+      kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
     ]
   }
 }

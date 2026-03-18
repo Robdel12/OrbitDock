@@ -264,13 +264,14 @@ On launch, `ServerManager` still checks local install state for onboarding, whil
 1. Find binary (Bundle Resources → env var → `~/.orbitdock/bin/` → PATH)
 2. Copy to `~/.orbitdock/bin/` if from bundle
 3. `orbitdock ensure-path`
-4. `orbitdock init`
-5. `orbitdock install-hooks`
-6. `orbitdock install-service --enable`
-7. Wait for health check → connect WebSocket
+4. `orbitdock init` — creates data dir, runs migrations, **auto-provisions auth token** (hash in DB, encrypted in `hook-forward.json`)
+5. `orbitdock install-hooks` — picks up encrypted token from `hook-forward.json`
+6. `orbitdock install-service --enable` — picks up token from encrypted config, injects into launchd plist
+7. Wait for health check
+8. `orbitdock auth local-token` → store decrypted token in Keychain for local endpoint → connect WebSocket
 
 ### Development
-In dev, run `make rust-run` — the app detects it via health check and skips setup. Set `ORBITDOCK_SERVER_PATH` in Xcode scheme to test the install flow with a debug binary.
+In dev, run `orbitdock init` first (provisions auth token), then `make rust-run`. The app detects the server via health check, discovers the auth token via `orbitdock auth local-token`, and connects. For LAN testing, `make rust-run-lan` binds to `0.0.0.0:4000` (requires an auth token — auto-provisioned by `init`). Set `ORBITDOCK_SERVER_PATH` in Xcode scheme to test the install flow with a debug binary.
 
 ## File Locations
 
@@ -279,7 +280,7 @@ All server paths are resolved via `infrastructure/paths.rs` from a single data d
 - **Server Binary**: `~/.orbitdock/bin/orbitdock` (installed by app) or on PATH
 - **Database**: `<data_dir>/orbitdock.db` (separate from CLIs to survive reinstalls)
 - **PID File**: `<data_dir>/orbitdock.pid` (written after bind, removed on shutdown)
-- **Auth Token**: `<data_dir>/auth-token` (optional, 0600 permissions)
+- **Auth Token**: encrypted in `<data_dir>/hook-forward.json` (auto-provisioned by `init`, retrieve with `orbitdock auth local-token`)
 - **Encryption Key**: `<data_dir>/encryption.key` (auto-generated, 0600 permissions — see "Config Encryption" below)
 - **Launchd Plist**: `~/Library/LaunchAgents/com.orbitdock.server.plist` (created by `install-service`)
 - **Codex App Logs**: `<data_dir>/logs/codex.log` (structured JSON logs for Codex debugging)
@@ -514,7 +515,7 @@ orbitdock completions zsh|bash|fish           # Shell completions
 **Output modes:** Human-readable tables in TTY, JSON when piped or `--json`/`-j` flag. LLM tool use auto-detects non-TTY.
 
 **Config resolution:** `--server` flag > `ORBITDOCK_URL` env > `~/.orbitdock/cli.toml` > default (`http://127.0.0.1:4000`).
-**Token resolution:** `--token` flag > `ORBITDOCK_TOKEN` env > `cli.toml` > `~/.orbitdock/auth-token` file.
+**Token resolution:** `--token` flag > `ORBITDOCK_TOKEN` env > `cli.toml` > encrypted `hook-forward.json` (via `auth local-token`).
 
 **Key files:**
 - `crates/cli/src/cli.rs` — Clap command tree, ValueEnums, stdin helper

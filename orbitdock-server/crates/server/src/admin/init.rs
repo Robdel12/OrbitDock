@@ -1,12 +1,16 @@
 //! `orbitdock init` — bootstrap a fresh machine.
 //!
-//! Creates data dir structure, runs migrations, and prints helpful next-steps
+//! Creates data dir structure, runs migrations, auto-provisions a local auth
+//! token (encrypted in `hook-forward.json`), and prints helpful next-steps
 //! guidance.
 
 use std::path::Path;
 
+use crate::infrastructure::auth_tokens;
 use crate::infrastructure::migration_runner;
 use crate::infrastructure::paths;
+
+use super::hook_forward;
 
 pub fn initialize_data_dir(data_dir: &Path, _server_url: &str) -> anyhow::Result<()> {
     let installer_mode = installer_mode();
@@ -23,13 +27,37 @@ pub fn initialize_data_dir(data_dir: &Path, _server_url: &str) -> anyhow::Result
         paths::encryption_key_path().display()
     );
 
-    // 2. Run database migrations
+    // 3. Run database migrations
     let db_path = paths::db_path();
     let mut conn = rusqlite::Connection::open(&db_path)?;
     migration_runner::run_migrations(&mut conn)?;
     println!("  Database initialized at {}", db_path.display());
 
-    // 3. Detect Tailscale
+    // 4. Auto-provision local auth token (idempotent — skips if tokens exist)
+    // Check both DB tokens and the encrypted hook config — if the config lost
+    // its token (e.g., install-hooks clobbered it), issue a fresh one.
+    let active_tokens = auth_tokens::active_token_count().unwrap_or(0);
+    let hook_config_has_token = hook_forward::read_transport_config()
+        .ok()
+        .flatten()
+        .and_then(|cfg| cfg.auth_token())
+        .is_some();
+
+    if active_tokens == 0 || !hook_config_has_token {
+        let issued = auth_tokens::issue_token(Some("local"))?;
+        hook_forward::write_transport_config("http://127.0.0.1:4000", Some(&issued.token))?;
+        println!(
+            "  Auth token provisioned (encrypted in {})",
+            paths::hook_transport_config_path().display()
+        );
+    } else {
+        println!(
+            "  Auth tokens already configured ({} active)",
+            active_tokens
+        );
+    }
+
+    // 5. Detect Tailscale
     let ts_ip = detect_tailscale_ip();
 
     if !installer_mode {

@@ -6,6 +6,10 @@ struct OrbitDockWindowRoot: View {
   @State private var router = AppRouter()
   @State private var toastManager = ToastManager()
 
+  private var shouldShowSetup: Bool {
+    !appRuntime.runtimeRegistry.hasConfiguredEndpoints
+  }
+
   init(appRuntime: OrbitDockAppRuntime) {
     self.appRuntime = appRuntime
     _appStore = State(initialValue: AppStore(runtimeRegistry: appRuntime.runtimeRegistry))
@@ -13,11 +17,14 @@ struct OrbitDockWindowRoot: View {
 
   var body: some View {
     ZStack {
-      NavigationStack(path: Binding(get: { router.navigationStack }, set: { router.navigationStack = $0 })) {
-        DashboardView(
-          isInitialLoading: false,
-          isRefreshingCachedSessions: false
-        )
+      if shouldShowSetup {
+        ServerSetupView()
+      } else {
+        NavigationStack(path: Binding(get: { router.navigationStack }, set: { router.navigationStack = $0 })) {
+          DashboardView(
+            isInitialLoading: false,
+            isRefreshingCachedSessions: false
+          )
         .navigationDestination(for: AppNavDestination.self) { destination in
           switch destination {
             case let .session(ref):
@@ -34,6 +41,7 @@ struct OrbitDockWindowRoot: View {
               )
               .id(ref.id)
           }
+        }
         }
       }
 

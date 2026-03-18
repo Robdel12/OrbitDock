@@ -48,7 +48,7 @@ impl HookForwardType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct HookTransportConfig {
+pub struct HookTransportConfig {
     server_url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     auth_token_enc: Option<String>,
@@ -57,7 +57,7 @@ struct HookTransportConfig {
 }
 
 impl HookTransportConfig {
-    fn auth_token(&self) -> Option<String> {
+    pub fn auth_token(&self) -> Option<String> {
         normalized_non_empty(
             self.auth_token_enc
                 .as_ref()
@@ -167,7 +167,7 @@ fn resolve_hook_target_with_persisted(
     })
 }
 
-fn read_transport_config() -> anyhow::Result<Option<HookTransportConfig>> {
+pub fn read_transport_config() -> anyhow::Result<Option<HookTransportConfig>> {
     let path = paths::hook_transport_config_path();
     if !path.exists() {
         return Ok(None);

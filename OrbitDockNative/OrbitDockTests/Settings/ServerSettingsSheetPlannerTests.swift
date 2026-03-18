@@ -201,7 +201,7 @@ struct ServerSettingsSheetPlannerTests {
     #expect(disabled.first(where: { $0.id == endpointB.id })?.isDefault == false)
   }
 
-  @Test func removeLeavesLocalManagedEndpointsUntouched() throws {
+  @Test func removeDeletesAnyEndpoint() throws {
     let local = ServerEndpoint.localDefault()
     let remote = try ServerEndpoint(
       name: "Remote",
@@ -220,7 +220,7 @@ struct ServerSettingsSheetPlannerTests {
       removing: remote
     )
 
-    #expect(afterLocalRemoval.map(\.name) == ["Local Server", "Remote"])
+    #expect(afterLocalRemoval.map(\.name) == ["Remote"])
     #expect(afterRemoteRemoval.map(\.name) == ["Local Server"])
   }
 }
