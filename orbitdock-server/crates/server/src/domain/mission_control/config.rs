@@ -239,7 +239,7 @@ impl AgentConfig {
     ///
     /// Mission agents run headless — defaults ensure agents can operate
     /// autonomously without stalling on permission prompts:
-    /// - Claude: `permission_mode` defaults to `"auto"`
+    /// - Claude: `permission_mode` defaults to `"acceptEdits"`
     /// - Codex: `approval_policy` defaults to `"on-request"`, `sandbox_mode` to `"workspace-write"`
     pub fn resolve_for_provider(&self, provider: &str) -> ResolvedAgentSettings {
         match provider {
@@ -248,7 +248,7 @@ impl AgentConfig {
                     let pm = c
                         .permission_mode
                         .clone()
-                        .unwrap_or_else(|| "auto".to_string());
+                        .unwrap_or_else(|| "acceptEdits".to_string());
                     // Mission sessions default to bypass enabled — unattended agents
                     // that get stuck on a permission prompt are effectively dead.
                     let allow_bypass = true;
@@ -264,7 +264,8 @@ impl AgentConfig {
                 } else {
                     // No claude config at all — still apply mission-safe default
                     ResolvedAgentSettings {
-                        permission_mode: Some("auto".to_string()),
+                        permission_mode: Some("acceptEdits".to_string()),
+                        allow_bypass_permissions: true,
                         ..Default::default()
                     }
                 }
@@ -1089,7 +1090,7 @@ Some prompt body
             claude: Some(ClaudeAgentConfig {
                 model: Some("claude-sonnet-4-6".to_string()),
                 effort: Some("high".to_string()),
-                permission_mode: Some("auto".to_string()),
+                permission_mode: Some("acceptEdits".to_string()),
                 allowed_tools: vec!["Bash".to_string()],
                 disallowed_tools: vec![],
                 allow_bypass_permissions: false,
@@ -1099,7 +1100,7 @@ Some prompt body
         let resolved = agent.resolve_for_provider("claude");
         assert_eq!(resolved.model.as_deref(), Some("claude-sonnet-4-6"));
         assert_eq!(resolved.effort.as_deref(), Some("high"));
-        assert_eq!(resolved.permission_mode.as_deref(), Some("auto"));
+        assert_eq!(resolved.permission_mode.as_deref(), Some("acceptEdits"));
         assert_eq!(resolved.allowed_tools, vec!["Bash"]);
         // Claude resolve doesn't set codex-specific fields
         assert!(resolved.approval_policy.is_none());
@@ -1146,8 +1147,8 @@ Some prompt body
         let resolved = agent.resolve_for_provider("claude");
         assert!(resolved.model.is_none());
         assert!(resolved.effort.is_none());
-        // Mission-safe: auto even with no config
-        assert_eq!(resolved.permission_mode.as_deref(), Some("auto"));
+        // Mission-safe: acceptEdits even with no config
+        assert_eq!(resolved.permission_mode.as_deref(), Some("acceptEdits"));
     }
 
     #[test]
@@ -1172,7 +1173,7 @@ Some prompt body
         };
         let resolved = agent.resolve_for_provider("claude");
         assert_eq!(resolved.model.as_deref(), Some("test-model"));
-        assert_eq!(resolved.permission_mode.as_deref(), Some("auto"));
+        assert_eq!(resolved.permission_mode.as_deref(), Some("acceptEdits"));
     }
 
     #[test]
@@ -1229,7 +1230,7 @@ agent:
   claude:
     model: claude-sonnet-4-6
     effort: high
-    permission_mode: auto
+    permission_mode: acceptEdits
   codex:
     model: gpt-5.3-codex
     approval_policy: on-request
@@ -1244,7 +1245,7 @@ Hello
         let claude = def.config.agent.claude.as_ref().unwrap();
         assert_eq!(claude.model.as_deref(), Some("claude-sonnet-4-6"));
         assert_eq!(claude.effort.as_deref(), Some("high"));
-        assert_eq!(claude.permission_mode.as_deref(), Some("auto"));
+        assert_eq!(claude.permission_mode.as_deref(), Some("acceptEdits"));
 
         let codex = def.config.agent.codex.as_ref().unwrap();
         assert_eq!(codex.model.as_deref(), Some("gpt-5.3-codex"));
@@ -1258,7 +1259,7 @@ Hello
                 claude: Some(ClaudeAgentConfig {
                     model: Some("claude-sonnet-4-6".to_string()),
                     effort: Some("high".to_string()),
-                    permission_mode: Some("auto".to_string()),
+                    permission_mode: Some("acceptEdits".to_string()),
                     allowed_tools: vec!["Read".to_string(), "Edit".to_string()],
                     disallowed_tools: vec![],
                     allow_bypass_permissions: false,

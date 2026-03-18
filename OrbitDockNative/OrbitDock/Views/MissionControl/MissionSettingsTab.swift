@@ -28,10 +28,10 @@ struct MissionSettingsTab: View {
   @State private var maxConcurrent: UInt32 = 3
   @State private var maxConcurrentPrimary: UInt32 = 2
 
-  // Agent — Claude (default to mission-safe: auto)
+  // Agent — Claude (default to mission-safe: acceptEdits)
   @State private var claudeModel = ""
   @State private var claudeEffort: EffortLevel = .default
-  @State private var claudePermission: ClaudePermissionMode = .auto
+  @State private var claudePermission: ClaudePermissionMode = .acceptEdits
   @State private var claudeAllowedTools = ""
   @State private var claudeDisallowedTools = ""
   @State private var claudeAllowBypass = false
@@ -389,7 +389,6 @@ struct MissionSettingsTab: View {
       case "dontAsk": return .dontAsk
       case "default": return .default
       case "acceptEdits": return .acceptEdits
-      case "auto": return .auto
       case "bypassPermissions": return .bypassPermissions
       default: return .default
     }
@@ -435,7 +434,6 @@ struct MissionSettingsTab: View {
         case .dontAsk: "dontAsk"
         case .default: "default"
         case .acceptEdits: "acceptEdits"
-        case .auto: "auto"
         case .bypassPermissions: "bypassPermissions"
       }
     }()

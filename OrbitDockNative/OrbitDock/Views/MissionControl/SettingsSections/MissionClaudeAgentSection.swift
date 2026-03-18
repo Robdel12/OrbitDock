@@ -45,7 +45,6 @@ struct MissionClaudeAgentSection: View {
 
       WrappingFlowLayout(spacing: Spacing.xs) {
         permissionChip(.acceptEdits)
-        permissionChip(.auto)
         permissionChip(.bypassPermissions)
       }
     }
@@ -61,7 +60,6 @@ struct MissionClaudeAgentSection: View {
         case .dontAsk: "Don't Ask"
         case .default: "Default"
         case .acceptEdits: "Edits"
-        case .auto: "Auto"
         case .bypassPermissions: "Bypass"
       }
     }() : mode.displayName
