@@ -100,6 +100,7 @@ pub(crate) async fn start_claude_fork_session(
             forked_from_session_id: Some(source_session_id.to_string()),
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
         })
         .await;
 
@@ -197,6 +198,7 @@ pub(crate) async fn finalize_codex_fork_session(
             forked_from_session_id: Some(source_session_id.to_string()),
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
         })
         .await;
 

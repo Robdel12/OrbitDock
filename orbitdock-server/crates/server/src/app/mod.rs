@@ -260,6 +260,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     unread_count,
                     mission_id,
                     issue_identifier,
+                    allow_bypass_permissions: _,
                 } = rs;
                 let msg_count = rows.len();
 

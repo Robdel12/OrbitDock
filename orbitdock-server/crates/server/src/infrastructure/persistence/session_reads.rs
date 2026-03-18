@@ -70,6 +70,7 @@ pub struct RestoredSession {
     pub unread_count: u64,
     pub mission_id: Option<String>,
     pub issue_identifier: Option<String>,
+    pub allow_bypass_permissions: bool,
 }
 
 fn resolve_custom_name_from_first_prompt(
@@ -473,6 +474,14 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     )
                     .unwrap_or((None, None));
 
+                let allow_bypass_permissions: bool = conn
+                    .query_row(
+                        "SELECT COALESCE(allow_bypass_permissions, 0) FROM sessions WHERE id = ?1",
+                        params![id],
+                        |row| row.get::<_, i64>(0).map(|v| v != 0),
+                    )
+                    .unwrap_or(false);
+
                 let end_reason = end_reason_val;
 
                 let mut summary: Option<String> = conn
@@ -547,6 +556,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     unread_count,
                     mission_id,
                     issue_identifier,
+                    allow_bypass_permissions,
                 });
             }
 
@@ -787,6 +797,14 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 )
                 .unwrap_or((None, None));
 
+            let allow_bypass_permissions: bool = conn
+                .query_row(
+                    "SELECT COALESCE(allow_bypass_permissions, 0) FROM sessions WHERE id = ?1",
+                    params![&id],
+                    |row| row.get::<_, i64>(0).map(|v| v != 0),
+                )
+                .unwrap_or(false);
+
             Ok(Some(RestoredSession {
                 id,
                 provider,
@@ -839,6 +857,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 unread_count,
                 mission_id,
                 issue_identifier,
+                allow_bypass_permissions,
             }))
         },
     )

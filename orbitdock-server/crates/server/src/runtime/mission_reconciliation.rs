@@ -1,6 +1,6 @@
 //! Mission reconciliation: detect stalled sessions and terminal tracker states.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use tracing::{info, warn};
@@ -54,6 +54,9 @@ pub(crate) fn stall_elapsed_secs(
     }
 }
 
+/// Cooldown between continuation nudges for the same issue (5 minutes).
+const NUDGE_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// Reconcile a mission's running issues:
 /// - Check if tracker state moved to terminal -> mark completed
 /// - Check if agent session ended -> mark completed/failed
@@ -64,6 +67,7 @@ pub async fn reconcile_mission(
     mission: &MissionRow,
     existing_issues: &[MissionIssueRow],
     config: &MissionConfig,
+    nudge_tracker: &mut HashMap<String, std::time::Instant>,
 ) {
     let running_issues: Vec<&MissionIssueRow> = existing_issues
         .iter()
@@ -209,6 +213,14 @@ pub async fn reconcile_mission(
     }
 
     // ── Pass 2.5: Continuation nudge for idle sessions ────────────────
+    // Clean up completed/handled issues from the nudge tracker
+    for issue_row in &running_issues {
+        if handled_issue_ids.contains(&issue_row.issue_id) {
+            nudge_tracker.remove(&issue_row.issue_id);
+        }
+    }
+
+    let now = std::time::Instant::now();
     for issue_row in &running_issues {
         if handled_issue_ids.contains(&issue_row.issue_id) {
             continue;
@@ -223,6 +235,13 @@ pub async fn reconcile_mission(
         let snap = actor.snapshot();
 
         if snap.work_status == orbitdock_protocol::WorkStatus::Waiting {
+            // Skip if we nudged this issue within the cooldown period
+            if let Some(last_nudge) = nudge_tracker.get(&issue_row.issue_id) {
+                if now.duration_since(*last_nudge) < NUDGE_COOLDOWN {
+                    continue;
+                }
+            }
+
             let nudge = format!(
                 "The issue {} is still in an active state. \
                  Resume from your current progress. Do not restart from scratch. \
@@ -231,6 +250,7 @@ pub async fn reconcile_mission(
                 issue_row.issue_identifier,
             );
             if send_continuation_message(registry, session_id, &nudge).await {
+                nudge_tracker.insert(issue_row.issue_id.clone(), now);
                 info!(
                     component = "mission_control",
                     event = "reconciliation.continuation_nudge",

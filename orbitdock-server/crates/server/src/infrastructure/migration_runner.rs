@@ -58,6 +58,12 @@ fn ensure_session_control_plane_columns(conn: &Connection) -> anyhow::Result<()>
     ensure_column(conn, "sessions", "personality", "TEXT")?;
     ensure_column(conn, "sessions", "service_tier", "TEXT")?;
     ensure_column(conn, "sessions", "developer_instructions", "TEXT")?;
+    ensure_column(
+        conn,
+        "sessions",
+        "allow_bypass_permissions",
+        "INTEGER DEFAULT 0",
+    )?;
 
     Ok(())
 }
@@ -296,6 +302,7 @@ mod tests {
             "personality",
             "service_tier",
             "developer_instructions",
+            "allow_bypass_permissions",
         ] {
             assert!(
                 session_columns.iter().any(|column| column == expected),

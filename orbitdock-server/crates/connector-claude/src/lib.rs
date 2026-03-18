@@ -552,6 +552,7 @@ pub struct ClaudeConnector {
 
 impl ClaudeConnector {
     /// Spawn a new `claude` CLI subprocess.
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         cwd: &str,
         model: Option<&str>,

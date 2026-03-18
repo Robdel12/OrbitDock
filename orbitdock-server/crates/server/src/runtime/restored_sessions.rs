@@ -26,6 +26,7 @@ pub(crate) struct PreparedResumeSession {
     pub transcript_loaded: bool,
     pub summary: SessionSummary,
     pub handle: SessionHandle,
+    pub allow_bypass_permissions: bool,
 }
 
 pub(crate) async fn hydrate_restored_rows_if_missing(
@@ -292,6 +293,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     let service_tier = restored.service_tier.clone();
     let developer_instructions = restored.developer_instructions.clone();
     let claude_sdk_session_id = restored.claude_sdk_session_id.clone();
+    let allow_bypass_permissions = restored.allow_bypass_permissions;
     let row_count = restored.rows.len();
 
     let mut handle =
@@ -320,6 +322,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
         transcript_loaded,
         summary,
         handle,
+        allow_bypass_permissions,
     }
 }
 

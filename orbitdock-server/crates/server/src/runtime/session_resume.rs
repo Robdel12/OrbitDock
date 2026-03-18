@@ -92,6 +92,7 @@ pub(crate) async fn launch_resumed_session(
                 provider_resume_id,
                 prepared.handle,
                 prepared.row_count,
+                prepared.allow_bypass_permissions,
             )
             .await;
         }
@@ -121,6 +122,7 @@ pub(crate) async fn launch_resumed_session(
     Ok(ResumeSessionLaunch { summary })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn spawn_claude_resume(
     state: &Arc<SessionRegistry>,
     session_id: &str,
@@ -129,6 +131,7 @@ async fn spawn_claude_resume(
     provider_resume_id: orbitdock_protocol::ProviderSessionId,
     mut handle: crate::domain::sessions::session::SessionHandle,
     message_count: usize,
+    allow_bypass_permissions: bool,
 ) {
     let session_id = session_id.to_string();
     let persist_tx = state.persist().clone();
@@ -152,7 +155,7 @@ async fn spawn_claude_resume(
                 &[],
                 &[],
                 None,
-                false,
+                allow_bypass_permissions,
             )
             .await
         });

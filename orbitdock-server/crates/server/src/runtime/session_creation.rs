@@ -90,6 +90,7 @@ struct PersistDirectSessionCreate {
     effort: Option<String>,
     mission_id: Option<String>,
     issue_identifier: Option<String>,
+    allow_bypass_permissions: bool,
 }
 
 pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> PreparedDirectSession {
@@ -158,6 +159,7 @@ async fn persist_direct_session_create(
         effort,
         mission_id,
         issue_identifier,
+        allow_bypass_permissions,
     } = request;
     let _ = persist_tx
         .send(PersistCommand::SessionCreate {
@@ -178,6 +180,7 @@ async fn persist_direct_session_create(
             forked_from_session_id: None,
             mission_id,
             issue_identifier,
+            allow_bypass_permissions,
         })
         .await;
 
@@ -236,6 +239,7 @@ pub(crate) async fn prepare_persist_direct_session(
             effort: request.effort.clone(),
             mission_id: request.mission_id.clone(),
             issue_identifier: request.issue_identifier.clone(),
+            allow_bypass_permissions: request.allow_bypass_permissions,
         },
     )
     .await;

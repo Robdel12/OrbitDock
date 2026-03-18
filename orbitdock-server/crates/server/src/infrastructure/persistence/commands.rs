@@ -28,6 +28,7 @@ pub enum PersistCommand {
         forked_from_session_id: Option<String>,
         mission_id: Option<String>,
         issue_identifier: Option<String>,
+        allow_bypass_permissions: bool,
     },
 
     /// Update session status/work_status
