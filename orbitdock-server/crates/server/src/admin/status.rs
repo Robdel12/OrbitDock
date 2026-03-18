@@ -137,6 +137,19 @@ pub fn print_auth_tokens() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Print the decrypted local auth token from `hook-forward.json` to stdout.
+///
+/// Outputs just the token (no decoration) for programmatic consumption.
+/// Exits non-zero if no token is configured.
+pub fn print_local_token() -> anyhow::Result<()> {
+    let config = super::hook_forward::read_transport_config()?;
+    let token = config
+        .and_then(|cfg| cfg.auth_token())
+        .ok_or_else(|| anyhow::anyhow!("no local auth token configured — run `orbitdock init`"))?;
+    println!("{token}");
+    Ok(())
+}
+
 pub fn revoke_auth_token(token_id: &str) -> anyhow::Result<()> {
     let revoked = auth_tokens::revoke_token(token_id)?;
     println!();

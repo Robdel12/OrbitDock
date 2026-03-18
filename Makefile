@@ -376,7 +376,7 @@ rust-run:
 	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_BIND)
 
 rust-run-lan:
-	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_LAN_BIND) --allow-insecure-no-auth
+	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_LAN_BIND)
 
 rust-run-remote:
 	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_REMOTE_BIND)

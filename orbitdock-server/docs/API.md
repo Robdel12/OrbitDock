@@ -31,11 +31,13 @@ Legacy WebSocket request/response helpers that now map to REST-only routes retur
 
 ## Auth
 
-When auth is configured, all routes except `GET /health` require:
+`orbitdock init` auto-provisions a local auth token — the hash is stored in the database and the plaintext is encrypted in `hook-forward.json`. Once provisioned, all routes except `GET /health` require:
 
 ```http
 Authorization: Bearer <token>
 ```
+
+Retrieve the local token with `orbitdock auth local-token`.
 
 ## Common Response Shapes
 

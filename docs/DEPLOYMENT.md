@@ -142,12 +142,13 @@ orbitdock tunnel --name orbitdock
 
 ### Tailscale
 
-The server auto-detects Tailscale during `init` and prints your Tailscale IP.
+The server auto-detects Tailscale during `init` and prints your Tailscale IP. `init` also provisions an auth token automatically.
 
 ```bash
-orbitdock generate-token
+orbitdock init
 orbitdock start --bind 0.0.0.0:4000
 # Access via your Tailscale IP: http://100.x.y.z:4000
+# Auth token: orbitdock auth local-token
 ```
 
 ### Reverse Proxy (nginx / Caddy)
@@ -197,12 +198,14 @@ orbitdock start \
 
 ### Auth Tokens
 
-Always use an auth token for remote deployments:
+`orbitdock init` automatically provisions a local auth token — the hash is stored in the database and the plaintext is encrypted in `hook-forward.json`. Auth is enforced on all routes except `/health` once a token exists.
 
 ```bash
+# Retrieve the local token (decrypted from hook-forward.json)
+orbitdock auth local-token
+
+# Generate additional tokens for remote clients
 orbitdock generate-token
-# Copy the token now (only shown once), then start normally:
-orbitdock start --bind 0.0.0.0:4000
 ```
 
 The token is required in:

@@ -135,6 +135,12 @@ pub enum BinaryCommand {
     /// Run diagnostics and check system health
     Doctor,
 
+    /// Auth token management
+    Auth {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
+
     /// Interactive setup wizard (init + hooks + token + service)
     Setup {
         #[arg(long, conflicts_with = "remote")]
@@ -400,6 +406,14 @@ pub enum Command {
         /// Shell to generate completions for
         shell: clap_complete::Shell,
     },
+}
+
+// ── Auth ────────────────────────────────────────────────────
+
+#[derive(Clone, Debug, Subcommand)]
+pub enum AuthAction {
+    /// Print the decrypted local auth token (from hook-forward.json)
+    LocalToken,
 }
 
 // ── Session ──────────────────────────────────────────────────

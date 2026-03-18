@@ -150,6 +150,15 @@ fn resolve_auth_token(plan: &HookInstallPlan) -> anyhow::Result<Option<String>> 
         return Ok(Some(token.clone()));
     }
 
+    // Preserve the existing token from hook-forward.json (e.g., provisioned by `init`)
+    if let Some(existing) = hook_forward::read_transport_config()
+        .ok()
+        .flatten()
+        .and_then(|cfg| cfg.auth_token())
+    {
+        return Ok(Some(existing));
+    }
+
     if !plan.auth_token_required {
         return Ok(None);
     }

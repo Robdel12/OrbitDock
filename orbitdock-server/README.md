@@ -42,17 +42,20 @@ default and only installs the service when you pass `--enable-service`.
 The binary is fully self-contained — database migrations are baked in at compile time. No source tree, no Xcode, no app bundle.
 
 ```bash
-# Bootstrap everything: data dir + database
+# Bootstrap everything: data dir + database + auth token
 orbitdock init
 
 # Wire up Claude Code hooks (you'll need Claude Code installed already)
+# Automatically picks up the auth token provisioned by init
 orbitdock install-hooks
 
 # Start the server
 orbitdock start
 ```
 
-That's it. Codex direct sessions work immediately — the server embeds codex-core, so you can create and control Codex sessions without a separate CLI install.
+`init` auto-provisions a local auth token — the hash is stored in the database and the plaintext is encrypted into `hook-forward.json`. All subsequent commands (`install-hooks`, `install-service`) pick it up automatically. To retrieve the token for other tools: `orbitdock auth local-token`.
+
+Codex direct sessions work immediately — the server embeds codex-core, so you can create and control Codex sessions without a separate CLI install.
 
 ### Running Remotely
 
@@ -168,6 +171,7 @@ orbitdock [--data-dir PATH] <command>
 | `generate-token` | Create a secure auth token (stored hashed in DB) |
 | `list-tokens` | Show issued auth tokens and their status |
 | `revoke-token <token-id>` | Revoke a token immediately |
+| `auth local-token` | Print the decrypted local auth token (from `hook-forward.json`) |
 | `doctor` | Run diagnostics and check system health |
 | `tunnel` | Expose the server via Cloudflare Tunnel |
 | `pair` | Generate a connection URL and QR code for clients |
@@ -495,7 +499,7 @@ Everything lives under one directory. Default is `~/.orbitdock/`, override with 
 ~/.orbitdock/
 ├── orbitdock.db              # SQLite database (WAL mode)
 ├── orbitdock.pid             # PID file (created after bind, removed on shutdown)
-├── hook-forward.json         # Hook transport target config (server_url, encrypted auth token)
+├── hook-forward.json         # Hook transport config (server_url, encrypted auth token — also used by `auth local-token`)
 ├── codex-rollout-state.json  # Codex file watcher offsets
 ├── logs/
 │   └── server.log            # Structured JSON logs
@@ -541,8 +545,8 @@ tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
 ```bash
 make rust-build               # dev build
 make rust-run                 # run locally (127.0.0.1:4000)
-make rust-run-lan             # run on LAN without auth (trusted network/dev only)
-make rust-run-remote          # run on 0.0.0.0:4000 (requires DB token or ORBITDOCK_AUTH_TOKEN)
+make rust-run-lan             # run on LAN (0.0.0.0:4000, uses auto-provisioned token)
+make rust-run-remote          # run on 0.0.0.0:4000 (same as rust-run-lan)
 make rust-generate-token      # issue and print a secure token
 make rust-check               # fast compile check
 make rust-ci                  # fmt + clippy + tests

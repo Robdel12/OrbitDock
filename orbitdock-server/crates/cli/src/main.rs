@@ -75,6 +75,12 @@ fn main() -> anyhow::Result<()> {
             return orbitdock_server::admin::revoke_auth_token(token_id);
         }
         Some(Command::Doctor) => return orbitdock_server::admin::print_diagnostics(&data_dir),
+        Some(Command::Auth { action }) => {
+            use orbitdock_cli::cli::AuthAction;
+            match action {
+                AuthAction::LocalToken => return orbitdock_server::admin::print_local_token(),
+            }
+        }
         Some(Command::Tunnel { port, name }) => {
             return orbitdock_server::admin::start_cloudflare_tunnel(*port, name.as_deref());
         }
