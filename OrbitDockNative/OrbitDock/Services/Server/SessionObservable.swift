@@ -35,6 +35,7 @@ final class SessionObservable {
   var autonomy: AutonomyLevel = .autonomous
   var autonomyConfiguredOnServer: Bool = true
   var permissionMode: ClaudePermissionMode = .default
+  var allowBypassPermissions: Bool = false
   var collaborationMode: String?
   var multiAgent: Bool?
   var personality: String?

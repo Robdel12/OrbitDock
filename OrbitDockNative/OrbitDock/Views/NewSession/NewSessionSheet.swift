@@ -330,6 +330,7 @@ struct NewSessionSheet: View {
       customModelInput: $model.customModelInput,
       useCustomModel: $model.useCustomModel,
       selectedPermissionMode: $model.selectedPermissionMode,
+      allowBypassPermissions: $model.allowBypassPermissions,
       selectedEffort: $model.selectedEffort,
       codexModel: $model.codexModel,
       selectedAutonomy: $model.selectedAutonomy,

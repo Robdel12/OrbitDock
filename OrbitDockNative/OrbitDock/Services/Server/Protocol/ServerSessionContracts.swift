@@ -216,6 +216,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let approvalPolicy: String?
   let sandboxMode: String?
   let permissionMode: String?
+  let allowBypassPermissions: Bool?
   let collaborationMode: String?
   let multiAgent: Bool?
   let personality: String?
@@ -264,6 +265,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
     case permissionMode = "permission_mode"
+    case allowBypassPermissions = "allow_bypass_permissions"
     case collaborationMode = "collaboration_mode"
     case multiAgent = "multi_agent"
     case personality
@@ -477,6 +479,7 @@ struct ServerSessionState: Codable, Identifiable {
   let approvalPolicy: String?
   let sandboxMode: String?
   let permissionMode: String?
+  let allowBypassPermissions: Bool?
   let collaborationMode: String?
   let multiAgent: Bool?
   let personality: String?
@@ -538,6 +541,7 @@ struct ServerSessionState: Codable, Identifiable {
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
     case permissionMode = "permission_mode"
+    case allowBypassPermissions = "allow_bypass_permissions"
     case collaborationMode = "collaboration_mode"
     case multiAgent = "multi_agent"
     case personality
@@ -638,6 +642,7 @@ struct ServerSessionState: Codable, Identifiable {
     unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount)
     missionId = try container.decodeIfPresent(String.self, forKey: .missionId)
     issueIdentifier = try container.decodeIfPresent(String.self, forKey: .issueIdentifier)
+    allowBypassPermissions = try container.decodeIfPresent(Bool.self, forKey: .allowBypassPermissions)
   }
 
   func encode(to encoder: Encoder) throws {

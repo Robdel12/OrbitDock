@@ -173,6 +173,7 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         unread_count: restored.unread_count,
         mission_id: restored.mission_id,
         issue_identifier: restored.issue_identifier,
+        allow_bypass_permissions: restored.allow_bypass_permissions,
     }
 }
 
@@ -189,6 +190,7 @@ pub(crate) fn restored_session_to_handle(
 
     let mission_id = restored.mission_id.clone();
     let issue_identifier = restored.issue_identifier.clone();
+    let allow_bypass = restored.allow_bypass_permissions;
 
     let mut handle = SessionHandle::restore(
         restored.id,
@@ -269,6 +271,9 @@ pub(crate) fn restored_session_to_handle(
         restored.unread_count,
     );
     handle.set_mission_context(mission_id, issue_identifier);
+    if allow_bypass {
+        handle.set_allow_bypass_permissions(true);
+    }
     handle
 }
 

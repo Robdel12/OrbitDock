@@ -260,7 +260,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     unread_count,
                     mission_id,
                     issue_identifier,
-                    allow_bypass_permissions: _,
+                    allow_bypass_permissions,
                 } = rs;
                 let msg_count = rows.len();
 
@@ -385,6 +385,9 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                 }
                 if mission_id.is_some() || issue_identifier.is_some() {
                     handle.set_mission_context(mission_id, issue_identifier);
+                }
+                if allow_bypass_permissions {
+                    handle.set_allow_bypass_permissions(true);
                 }
 
                 if is_codex {

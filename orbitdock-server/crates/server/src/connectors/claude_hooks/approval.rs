@@ -237,6 +237,7 @@ mod tests {
             unread_count: 0,
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
             newest_synced_row_id: None,
         }
     }

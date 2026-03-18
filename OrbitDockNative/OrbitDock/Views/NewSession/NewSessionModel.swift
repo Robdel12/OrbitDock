@@ -16,6 +16,7 @@ struct NewSessionModel {
   var customModelInput: String
   var useCustomModel: Bool
   var selectedPermissionMode: ClaudePermissionMode
+  var allowBypassPermissions: Bool
   var allowedToolsText: String
   var disallowedToolsText: String
   var showToolConfig: Bool
@@ -44,6 +45,7 @@ struct NewSessionModel {
     self.customModelInput = ""
     self.useCustomModel = false
     self.selectedPermissionMode = .default
+    self.allowBypassPermissions = false
     self.allowedToolsText = ""
     self.disallowedToolsText = ""
     self.showToolConfig = false
@@ -103,6 +105,7 @@ struct NewSessionModel {
       provider: provider,
       claudeModel: resolvedClaudeModel,
       claudePermissionMode: selectedPermissionMode,
+      claudeAllowBypassPermissions: allowBypassPermissions,
       allowedToolsText: allowedToolsText,
       disallowedToolsText: disallowedToolsText,
       claudeEffort: selectedEffort.serialized,

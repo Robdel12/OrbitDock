@@ -249,7 +249,9 @@ impl AgentConfig {
                         .permission_mode
                         .clone()
                         .unwrap_or_else(|| "auto".to_string());
-                    let allow_bypass = c.allow_bypass_permissions || pm == "bypassPermissions";
+                    // Mission sessions default to bypass enabled — unattended agents
+                    // that get stuck on a permission prompt are effectively dead.
+                    let allow_bypass = true;
                     ResolvedAgentSettings {
                         model: c.model.clone(),
                         effort: c.effort.clone(),

@@ -4,6 +4,7 @@ struct NewSessionProviderConfiguration: Equatable, Sendable {
   let provider: SessionProvider
   let claudeModel: String?
   let claudePermissionMode: ClaudePermissionMode
+  let claudeAllowBypassPermissions: Bool
   let allowedToolsText: String
   let disallowedToolsText: String
   let claudeEffort: String?
@@ -25,6 +26,7 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
   case claude(
     model: String?,
     permissionMode: String?,
+    allowBypassPermissions: Bool,
     allowedTools: [String],
     disallowedTools: [String],
     effort: String?
@@ -42,7 +44,7 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
 
   func makeRequest(cwd: String) -> SessionsClient.CreateSessionRequest {
     switch self {
-      case let .claude(model, permissionMode, allowedTools, disallowedTools, effort):
+      case let .claude(model, permissionMode, allowBypassPermissions, allowedTools, disallowedTools, effort):
         SessionsClient.CreateSessionRequest(
           provider: "claude",
           cwd: cwd,
@@ -50,7 +52,8 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
           permissionMode: permissionMode,
           allowedTools: allowedTools,
           disallowedTools: disallowedTools,
-          effort: effort
+          effort: effort,
+          allowBypassPermissions: allowBypassPermissions ? true : nil
         )
       case let .codex(
       model,
@@ -133,6 +136,7 @@ enum NewSessionRequestPlanner {
           permissionMode: configuration.claudePermissionMode == .default
             ? nil
             : configuration.claudePermissionMode.rawValue,
+          allowBypassPermissions: configuration.claudeAllowBypassPermissions,
           allowedTools: parseToolList(configuration.allowedToolsText),
           disallowedTools: parseToolList(configuration.disallowedToolsText),
           effort: normalizeOptionalText(configuration.claudeEffort)

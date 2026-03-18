@@ -10,6 +10,7 @@ struct NewSessionConfigurationCard: View {
   @Binding var customModelInput: String
   @Binding var useCustomModel: Bool
   @Binding var selectedPermissionMode: ClaudePermissionMode
+  @Binding var allowBypassPermissions: Bool
   @Binding var selectedEffort: ClaudeEffortLevel
   @Binding var codexModel: String
   @Binding var selectedAutonomy: AutonomyLevel
@@ -57,6 +58,8 @@ struct NewSessionConfigurationCard: View {
       switch provider {
         case .claude:
           claudePermissionRow
+
+          claudeBypassRow
 
           Divider()
             .padding(.horizontal, Spacing.lg)
@@ -210,6 +213,34 @@ struct NewSessionConfigurationCard: View {
       }
       .padding(.leading, Spacing.lg)
       .animation(Motion.bouncy, value: selectedPermissionMode)
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.sm)
+  }
+
+  private var claudeBypassRow: some View {
+    HStack(alignment: .top, spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: "bolt.trianglebadge.exclamationmark.fill")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(allowBypassPermissions ? Color.autonomyUnrestricted : Color.textTertiary)
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          Text("Allow Bypass Permissions")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+          Text("Enables switching to full bypass mode mid-session.")
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textQuaternary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+
+      Spacer()
+
+      Toggle("", isOn: $allowBypassPermissions)
+        .labelsHidden()
+        .toggleStyle(.switch)
+        .tint(Color.autonomyUnrestricted)
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.sm)

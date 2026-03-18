@@ -76,6 +76,7 @@ struct SessionDetailSnapshotProjection {
   let unreadCount: UInt64
   let missionId: String?
   let issueIdentifier: String?
+  let allowBypassPermissions: Bool
 
   static func from(_ session: Session) -> SessionDetailSnapshotProjection {
     SessionDetailSnapshotProjection(
@@ -131,7 +132,8 @@ struct SessionDetailSnapshotProjection {
       worktreeId: session.worktreeId,
       unreadCount: session.unreadCount,
       missionId: session.missionId,
-      issueIdentifier: session.issueIdentifier
+      issueIdentifier: session.issueIdentifier,
+      allowBypassPermissions: false
     )
   }
 }
@@ -422,6 +424,7 @@ extension SessionObservable {
     unreadCount = projection.unreadCount
     missionId = projection.missionId
     issueIdentifier = projection.issueIdentifier
+    allowBypassPermissions = projection.allowBypassPermissions
   }
 
   func applyProjection(_ projection: SessionStateProjection) {

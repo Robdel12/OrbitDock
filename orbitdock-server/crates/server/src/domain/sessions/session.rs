@@ -369,6 +369,8 @@ pub struct SessionSnapshot {
     pub mission_id: Option<String>,
     /// Issue identifier (e.g. "PROJ-123") if this session is orchestrated.
     pub issue_identifier: Option<String>,
+    /// Whether the session was launched with `--allow-dangerously-skip-permissions`.
+    pub allow_bypass_permissions: bool,
     /// ID of the newest row that has been synced from the transcript.
     /// Used for sequence-based sync comparison (immune to count inflation).
     pub newest_synced_row_id: Option<String>,
@@ -467,6 +469,8 @@ pub struct SessionHandle {
     mission_id: Option<String>,
     /// Issue identifier (e.g. "PROJ-123") if this session is orchestrated.
     issue_identifier: Option<String>,
+    /// Whether the CLI was launched with `--allow-dangerously-skip-permissions`.
+    allow_bypass_permissions: bool,
     /// ID of the newest row synced from transcript (for sequence-based sync).
     newest_synced_row_id: Option<String>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
@@ -691,6 +695,7 @@ impl SessionHandle {
             unread_count: 0,
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
             newest_synced_row_id: None,
         };
         Self {
@@ -749,6 +754,7 @@ impl SessionHandle {
             unread_count: 0,
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
             newest_synced_row_id: None,
             broadcast_tx,
             list_tx: None,
@@ -856,6 +862,7 @@ impl SessionHandle {
             unread_count,
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
             newest_synced_row_id: None, // Will be derived from rows below
         };
 
@@ -915,6 +922,7 @@ impl SessionHandle {
             unread_count,
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
             newest_synced_row_id: None,
             broadcast_tx,
             list_tx: None,
@@ -1031,6 +1039,7 @@ impl SessionHandle {
             forked_from_session_id: self.forked_from_session_id.clone(),
             mission_id: self.mission_id.clone(),
             issue_identifier: self.issue_identifier.clone(),
+            allow_bypass_permissions: self.allow_bypass_permissions,
         }
     }
 
@@ -1092,6 +1101,7 @@ impl SessionHandle {
             unread_count: self.unread_count,
             mission_id: self.mission_id.clone(),
             issue_identifier: self.issue_identifier.clone(),
+            allow_bypass_permissions: self.allow_bypass_permissions,
             rows: vec![],
             total_row_count: 0,
             has_more_before: false,
@@ -1139,6 +1149,12 @@ impl SessionHandle {
     ) {
         self.mission_id = mission_id;
         self.issue_identifier = issue_identifier;
+        self.refresh_snapshot();
+    }
+
+    /// Mark that the CLI was launched with `--allow-dangerously-skip-permissions`.
+    pub fn set_allow_bypass_permissions(&mut self, enabled: bool) {
+        self.allow_bypass_permissions = enabled;
         self.refresh_snapshot();
     }
 
@@ -2012,6 +2028,7 @@ impl SessionHandle {
             unread_count: self.unread_count,
             mission_id: self.mission_id.clone(),
             issue_identifier: self.issue_identifier.clone(),
+            allow_bypass_permissions: self.allow_bypass_permissions,
             newest_synced_row_id: self.newest_synced_row_id.clone(),
         }
     }

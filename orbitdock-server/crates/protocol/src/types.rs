@@ -387,6 +387,8 @@ pub struct SessionSummary {
     pub sandbox_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_bypass_permissions: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collaboration_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -759,6 +761,8 @@ pub struct SessionState {
     pub pending_approval: Option<ApprovalRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_bypass_permissions: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub collaboration_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1673,6 +1677,7 @@ mod tests {
             forked_from_session_id: Some("sess-0".to_string()),
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
         };
 
         let item = SessionListItem::from_summary(&summary);

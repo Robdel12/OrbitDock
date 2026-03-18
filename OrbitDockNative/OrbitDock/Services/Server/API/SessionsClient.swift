@@ -24,6 +24,7 @@ struct SessionsClient: Sendable {
     var allowedTools: [String] = []
     var disallowedTools: [String] = []
     var effort: String?
+    var allowBypassPermissions: Bool?
   }
 
   struct CreateSessionResponse: Decodable {

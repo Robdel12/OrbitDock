@@ -82,7 +82,8 @@ extension ServerSessionState {
       worktreeId: worktreeId,
       unreadCount: unreadCount ?? 0,
       missionId: missionId,
-      issueIdentifier: issueIdentifier
+      issueIdentifier: issueIdentifier,
+      allowBypassPermissions: allowBypassPermissions ?? false
     )
   }
 

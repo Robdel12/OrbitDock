@@ -310,6 +310,7 @@ impl SessionRegistry {
                     forked_from_session_id: None,
                     mission_id: None,
                     issue_identifier: None,
+                    allow_bypass_permissions: false,
                 }
             })
             .collect()

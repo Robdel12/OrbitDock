@@ -30,6 +30,7 @@ pub(crate) struct DirectSessionCreationInputs {
     pub effort: Option<String>,
     pub mission_id: Option<String>,
     pub issue_identifier: Option<String>,
+    pub allow_bypass_permissions: bool,
 }
 
 pub(crate) struct PreparedDirectSession {
@@ -125,6 +126,9 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
     if input.mission_id.is_some() || input.issue_identifier.is_some() {
         handle.set_mission_context(input.mission_id, input.issue_identifier);
     }
+    if input.allow_bypass_permissions {
+        handle.set_allow_bypass_permissions(true);
+    }
 
     let summary = handle.summary();
     let snapshot = handle.retained_state();
@@ -216,6 +220,7 @@ pub(crate) async fn prepare_persist_direct_session(
         effort: request.effort.clone(),
         mission_id: request.mission_id.clone(),
         issue_identifier: request.issue_identifier.clone(),
+        allow_bypass_permissions: request.allow_bypass_permissions,
     });
 
     let persist_tx = state.persist().clone();
@@ -334,6 +339,7 @@ mod tests {
             effort: Some("high".into()),
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
         });
 
         assert_eq!(prepared.project_name.as_deref(), Some("project"));
@@ -378,6 +384,7 @@ mod tests {
             effort: Some("medium".into()),
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
         });
 
         assert_eq!(
@@ -426,6 +433,7 @@ mod tests {
             effort: request.effort.clone(),
             mission_id: None,
             issue_identifier: None,
+            allow_bypass_permissions: false,
         });
 
         let persisted = PreparedPersistedDirectSession {
