@@ -239,8 +239,9 @@ impl AgentConfig {
     ///
     /// Mission agents run headless — defaults ensure agents can operate
     /// autonomously without stalling on permission prompts:
-    /// - Claude: `permission_mode` defaults to `"acceptEdits"`
-    /// - Codex: `approval_policy` defaults to `"on-request"`, `sandbox_mode` to `"workspace-write"`
+    /// - Claude: `permission_mode` defaults to `"acceptEdits"`, `allowed_tools` to `["Bash(git:*)"]`
+    /// - Codex: `approval_policy` defaults to `"never"` (fullAuto) + `"workspace-write"` sandbox
+    /// - Codex: `approval_policy` defaults to `"never"` (fullAuto), `sandbox_mode` to `"workspace-write"`
     pub fn resolve_for_provider(&self, provider: &str) -> ResolvedAgentSettings {
         match provider {
             "claude" => {
@@ -252,12 +253,26 @@ impl AgentConfig {
                     // Mission sessions default to bypass enabled — unattended agents
                     // that get stuck on a permission prompt are effectively dead.
                     let allow_bypass = true;
+                    // Default allowed/disallowed tools for missions when user hasn't
+                    // configured any. Bash(git:*) lets the agent push branches and
+                    // create PRs without prompting; Bash(rm:*) prevents accidental
+                    // recursive deletion.
+                    let allowed = if c.allowed_tools.is_empty() {
+                        vec!["Bash(git:*)".to_string()]
+                    } else {
+                        c.allowed_tools.clone()
+                    };
+                    let disallowed = if c.disallowed_tools.is_empty() {
+                        vec!["Bash(rm:*)".to_string()]
+                    } else {
+                        c.disallowed_tools.clone()
+                    };
                     ResolvedAgentSettings {
                         model: c.model.clone(),
                         effort: c.effort.clone(),
                         permission_mode: Some(pm),
-                        allowed_tools: c.allowed_tools.clone(),
-                        disallowed_tools: c.disallowed_tools.clone(),
+                        allowed_tools: allowed,
+                        disallowed_tools: disallowed,
                         allow_bypass_permissions: allow_bypass,
                         ..Default::default()
                     }
@@ -278,7 +293,7 @@ impl AgentConfig {
                         approval_policy: Some(
                             x.approval_policy
                                 .clone()
-                                .unwrap_or_else(|| "on-request".to_string()),
+                                .unwrap_or_else(|| "never".to_string()),
                         ),
                         sandbox_mode: Some(
                             x.sandbox_mode
@@ -293,9 +308,9 @@ impl AgentConfig {
                         ..Default::default()
                     }
                 } else {
-                    // No codex config at all — still apply mission-safe defaults
+                    // No codex config at all — fullAuto + sandbox for unattended work
                     ResolvedAgentSettings {
-                        approval_policy: Some("on-request".to_string()),
+                        approval_policy: Some("never".to_string()),
                         sandbox_mode: Some("workspace-write".to_string()),
                         ..Default::default()
                     }
@@ -1156,8 +1171,8 @@ Some prompt body
         let agent = AgentConfig::default();
         let resolved = agent.resolve_for_provider("codex");
         assert!(resolved.model.is_none());
-        // Mission-safe: autonomous level (on-request + workspace-write)
-        assert_eq!(resolved.approval_policy.as_deref(), Some("on-request"));
+        // Mission-safe: fullAuto + workspace-write sandbox
+        assert_eq!(resolved.approval_policy.as_deref(), Some("never"));
         assert_eq!(resolved.sandbox_mode.as_deref(), Some("workspace-write"));
     }
 
@@ -1189,7 +1204,7 @@ Some prompt body
         };
         let resolved = agent.resolve_for_provider("codex");
         assert_eq!(resolved.model.as_deref(), Some("test-model"));
-        assert_eq!(resolved.approval_policy.as_deref(), Some("on-request"));
+        assert_eq!(resolved.approval_policy.as_deref(), Some("never"));
         assert_eq!(resolved.sandbox_mode.as_deref(), Some("workspace-write"));
     }
 
