@@ -150,7 +150,7 @@ struct DashboardStatusBar: View {
     .fixedSize(horizontal: false, vertical: true)
     .background(Color.backgroundSecondary)
     .sheet(isPresented: $showServerSettings) {
-      ServerSettingsSheet()
+      ServerCommPanel()
     }
     .sheet(isPresented: $showAppSettings) {
       SettingsView(showsCloseButton: true)
@@ -382,18 +382,34 @@ struct DashboardStatusBar: View {
   private func serverButton(showLabel: Bool) -> some View {
     Button(action: { showServerSettings = true }) {
       HStack(spacing: Spacing.xs) {
+        Circle()
+          .fill(serverStatusColor)
+          .frame(width: 6, height: 6)
+          .shadow(
+            color: connectedEndpointCount > 0 ? serverStatusColor.opacity(0.5) : .clear,
+            radius: 3
+          )
+
         Image(systemName: "server.rack")
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: 10, weight: .semibold))
           .foregroundStyle(serverStatusColor)
 
         if showLabel, let serverButtonLabelText {
           Text(serverButtonLabelText)
-            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
             .foregroundStyle(serverStatusColor)
         }
       }
-      .frame(height: 28)
-      .padding(.horizontal, showLabel ? Spacing.sm_ : Spacing.xs)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm_)
+      .background(
+        serverStatusColor.opacity(OpacityTier.subtle),
+        in: Capsule()
+      )
+      .overlay(
+        Capsule()
+          .stroke(serverStatusColor.opacity(OpacityTier.light), lineWidth: 1)
+      )
     }
     .buttonStyle(.plain)
     .help(serverButtonHelpText)

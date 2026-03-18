@@ -27,11 +27,16 @@ struct ContentView: View {
     #endif
   }
 
+  private var hasEndpoints: Bool {
+    runtimeRegistry.hasConfiguredEndpoints
+  }
+
   /// Show setup view when server is not configured and not connected
   private var shouldShowSetup: Bool {
     AppWindowPlanner.shouldShowSetup(
       connectedRuntimeCount: runtimeRegistry.connectedRuntimeCount,
-      installState: currentInstallState
+      installState: currentInstallState,
+      hasEndpoints: hasEndpoints
     )
   }
 
@@ -39,6 +44,7 @@ struct ContentView: View {
     AppWindowPlanner.contentDestination(
       connectedRuntimeCount: runtimeRegistry.connectedRuntimeCount,
       installState: currentInstallState,
+      hasEndpoints: hasEndpoints,
       route: router.route
     )
   }

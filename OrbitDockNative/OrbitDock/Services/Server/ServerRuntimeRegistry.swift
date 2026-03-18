@@ -19,6 +19,7 @@ final class ServerRuntimeRegistry {
   private(set) var activeEndpointId: UUID?
   private(set) var primaryEndpointId: UUID?
   private(set) var hasPrimaryEndpointConflict = false
+  private(set) var hasConfiguredEndpoints = false
   let readinessUpdates: AsyncStream<Void>
   @ObservationIgnored private let readinessContinuation: AsyncStream<Void>.Continuation
 
@@ -237,6 +238,7 @@ final class ServerRuntimeRegistry {
 
   func configureFromSettings(startEnabled: Bool) {
     let configuredEndpoints = endpointsProvider()
+    hasConfiguredEndpoints = !configuredEndpoints.isEmpty
     let configuredIds = Set(configuredEndpoints.map(\.id))
 
     for (id, runtime) in runtimesByEndpointId where !configuredIds.contains(id) {

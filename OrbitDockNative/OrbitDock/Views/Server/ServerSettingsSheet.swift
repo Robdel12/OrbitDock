@@ -18,7 +18,6 @@ struct ServerSettingsSheet: View {
   #endif
 
   @State private var endpoints: [ServerEndpoint]
-  @State private var expandedEndpointId: UUID?
   @State private var showEditor = false
   @State private var editingEndpointId: UUID?
   @State private var draft = ServerEndpointEditorDraft(
@@ -51,7 +50,7 @@ struct ServerSettingsSheet: View {
       ScrollView {
         VStack(alignment: .leading, spacing: Spacing.lg) {
           ForEach(orderedEndpoints) { endpoint in
-            endpointRow(endpoint)
+            endpointCard(endpoint)
           }
 
           addEndpointButton
@@ -103,180 +102,177 @@ struct ServerSettingsSheet: View {
     .presentationDragIndicator(.visible)
   }
 
-  // MARK: - Endpoint Row
+  // MARK: - Endpoint Card (flat, no expand/collapse)
 
-  private func endpointRow(_ endpoint: ServerEndpoint) -> some View {
+  private func endpointCard(_ endpoint: ServerEndpoint) -> some View {
     let endpointStatus = status(for: endpoint)
-    let isExpanded = expandedEndpointId == endpoint.id
     let isPrimary = runtimeRegistry.primaryEndpointId == endpoint.id
     let isServerPrimary = runtimeRegistry.serverPrimaryByEndpointId[endpoint.id] == true
+    let isConnected = endpointStatus == .connected
+    let authFailure = isAuthFailure(endpointStatus)
+    let endpointStatusColor = statusColor(for: endpointStatus)
 
     return HStack(alignment: .top, spacing: 0) {
-      // Left accent bar — connection status
-      RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-        .fill(statusColor(for: endpointStatus))
-        .frame(width: EdgeBar.width)
-        .frame(maxHeight: .infinity)
-        .themeShadow(Shadow.glow(
-          color: endpointStatus == .connected ? statusColor(for: endpointStatus) : .clear,
-          intensity: 0.3
-        ))
+      // Left edge bar with glow
+      UnevenRoundedRectangle(
+        topLeadingRadius: Radius.lg,
+        bottomLeadingRadius: Radius.lg,
+        bottomTrailingRadius: 0,
+        topTrailingRadius: 0
+      )
+      .fill(endpointStatusColor)
+      .frame(width: EdgeBar.width)
+      .themeShadow(Shadow.glow(
+        color: isConnected ? endpointStatusColor : .clear,
+        intensity: 0.3
+      ))
 
-      VStack(alignment: .leading, spacing: 0) {
-        // Primary row — name + status + connection action + toggle + chevron
-        Button {
-          withAnimation(Motion.standard) {
-            expandedEndpointId = isExpanded ? nil : endpoint.id
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        // Row 1: Status dot + Name + Primary badge + Connection button + Toggle
+        HStack(spacing: Spacing.sm) {
+          // Status dot with glow
+          Circle()
+            .fill(endpointStatusColor)
+            .frame(width: 7, height: 7)
+            .shadow(color: isConnected ? endpointStatusColor.opacity(0.4) : .clear, radius: 4)
+
+          Text(endpoint.name)
+            .font(.system(size: TypeScale.title, weight: .semibold))
+            .foregroundStyle(endpoint.isEnabled ? Color.textPrimary : Color.textTertiary)
+
+          // Status text
+          Text(statusLabel(for: endpointStatus))
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(endpointStatusColor)
+
+          if isPrimary {
+            HStack(spacing: Spacing.gap) {
+              Image(systemName: "crown.fill")
+                .font(.system(size: 8))
+              Text("Primary")
+                .font(.system(size: TypeScale.micro, weight: .bold))
+            }
+            .foregroundStyle(Color.accent)
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.xxs)
+            .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
           }
-        } label: {
-          HStack(alignment: .center, spacing: Spacing.sm) {
-            VStack(alignment: .leading, spacing: Spacing.xxs) {
-              HStack(spacing: Spacing.sm) {
-                Text(endpoint.name)
-                  .font(.system(size: TypeScale.title, weight: .semibold))
-                  .foregroundStyle(endpoint.isEnabled ? Color.textPrimary : Color.textTertiary)
-                  .lineLimit(1)
 
-                if isPrimary {
-                  HStack(spacing: Spacing.gap) {
-                    Image(systemName: "crown.fill")
-                      .font(.system(size: 8))
-                    Text("Primary")
-                      .font(.system(size: TypeScale.micro, weight: .bold))
-                  }
-                  .foregroundStyle(Color.accent)
-                  .padding(.horizontal, Spacing.sm_)
-                  .padding(.vertical, Spacing.xxs)
-                  .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
-                }
-              }
+          Spacer(minLength: Spacing.sm)
 
-              Text(statusLabel(for: endpointStatus))
-                .font(.system(size: TypeScale.caption, weight: .medium))
-                .foregroundStyle(statusColor(for: endpointStatus))
-                .lineLimit(1)
+          // Connection action button
+          if let action = connectionAction(for: endpointStatus), endpoint.isEnabled {
+            Button {
+              action.handler(endpoint.id)
+            } label: {
+              Image(systemName: connectionIcon(for: endpointStatus))
+                .font(.system(size: IconScale.lg, weight: .semibold))
+                .foregroundStyle(Color.accent)
+                .frame(width: 28, height: 28)
+                .background(Color.accent.opacity(OpacityTier.subtle), in: Circle())
             }
-
-            Spacer(minLength: Spacing.sm)
-
-            // Inline connection action — always visible when relevant
-            if let action = connectionAction(for: endpointStatus), endpoint.isEnabled {
-              Button {
-                action.handler(endpoint.id)
-              } label: {
-                Image(systemName: connectionIcon(for: endpointStatus))
-                  .font(.system(size: 11, weight: .semibold))
-                  .foregroundStyle(Color.accent)
-                  .frame(width: 28, height: 28)
-                  .background(Color.accent.opacity(OpacityTier.subtle), in: Circle())
-              }
-              .buttonStyle(.plain)
-            }
-
-            Toggle(
-              isOn: Binding(
-                get: { endpoint.isEnabled },
-                set: { isEnabled in
-                  updateEndpointEnabled(endpoint.id, isEnabled: isEnabled)
-                }
-              )
-            ) {
-              EmptyView()
-            }
-            .toggleStyle(.switch)
-            .tint(Color.accent)
-            .labelsHidden()
-            .fixedSize()
-
-            Image(systemName: "chevron.right")
-              .font(.system(size: 10, weight: .semibold))
-              .foregroundStyle(Color.textQuaternary)
-              .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            .buttonStyle(.plain)
           }
-          .padding(.horizontal, Spacing.lg)
-          .padding(.vertical, Spacing.md)
+
+          // Enable toggle
+          Toggle(
+            isOn: Binding(
+              get: { endpoint.isEnabled },
+              set: { isEnabled in
+                updateEndpointEnabled(endpoint.id, isEnabled: isEnabled)
+              }
+            )
+          ) {
+            EmptyView()
+          }
+          .toggleStyle(.switch)
+          .tint(Color.accent)
+          .labelsHidden()
+          .fixedSize()
         }
-        .buttonStyle(.plain)
 
-        // Expanded section — secondary actions + details
-        if isExpanded {
-          VStack(alignment: .leading, spacing: Spacing.md) {
-            // Detail line: URL + role tags
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-              Text(endpoint.wsURL.absoluteString)
-                .font(.system(size: TypeScale.caption, design: .monospaced))
-                .foregroundStyle(Color.textQuaternary)
-                .lineLimit(1)
-                .textSelection(.enabled)
+        // Row 2: URL + role tags
+        HStack(spacing: Spacing.sm) {
+          Text(endpoint.wsURL.absoluteString)
+            .font(.system(size: TypeScale.caption, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+            .textSelection(.enabled)
 
-              HStack(spacing: Spacing.sm) {
-                if isServerPrimary {
-                  Text("Server Primary")
-                    .foregroundStyle(Color.textTertiary)
-                }
-                if endpoint.isLocalManaged {
-                  Text("Local")
-                    .foregroundStyle(Color.textTertiary)
-                }
-                if let claimsText = claimingDevicesDescription(for: endpoint) {
-                  Text(claimsText)
-                    .foregroundStyle(Color.textTertiary)
-                }
-              }
+          if isServerPrimary {
+            Text("Server Primary")
               .font(.system(size: TypeScale.caption, weight: .medium))
-            }
+              .foregroundStyle(Color.textTertiary)
+          }
 
-            // Secondary action buttons
-            HStack(spacing: Spacing.sm) {
-              if !isPrimary, endpoint.isEnabled {
-                actionPill("Set as Primary", icon: "crown", color: Color.accent) {
-                  setDefaultEndpoint(endpoint.id)
-                }
-              }
+          if endpoint.isLocalManaged {
+            Text("Local")
+              .font(.system(size: TypeScale.caption, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+              .padding(.horizontal, Spacing.sm_)
+              .padding(.vertical, Spacing.xxs)
+              .background(Color.textTertiary.opacity(OpacityTier.subtle), in: Capsule())
+          }
 
-              if let roleAction = serverRoleAction(for: endpoint, status: endpointStatus) {
-                actionPill(roleAction.label, icon: "server.rack", color: Color.textSecondary) {
-                  roleAction.handler(endpoint.id)
-                }
-              }
-            }
+          if let claimsText = claimingDevicesDescription(for: endpoint) {
+            Text(claimsText)
+              .font(.system(size: TypeScale.caption, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+          }
+        }
 
-            // Edit / Remove row
-            HStack(spacing: Spacing.lg) {
-              Button {
-                beginEditing(endpoint)
-              } label: {
-                HStack(spacing: Spacing.xs) {
-                  Image(systemName: "pencil")
-                    .font(.system(size: 10, weight: .semibold))
-                  Text("Edit")
-                    .font(.system(size: TypeScale.caption, weight: .medium))
-                }
-                .foregroundStyle(Color.textTertiary)
-              }
-              .buttonStyle(.plain)
-
-              if !endpoint.isLocalManaged {
-                Button {
-                  endpointPendingDelete = endpoint
-                } label: {
-                  HStack(spacing: Spacing.xs) {
-                    Image(systemName: "trash")
-                      .font(.system(size: 10, weight: .semibold))
-                    Text("Remove")
-                      .font(.system(size: TypeScale.caption, weight: .medium))
-                  }
-                  .foregroundStyle(Color.statusPermission.opacity(0.7))
-                }
-                .buttonStyle(.plain)
-              }
+        // Row 3: Auth failure banner (conditional)
+        if authFailure {
+          HStack(spacing: Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+              .foregroundStyle(Color.statusPermission)
+              .font(.system(size: IconScale.lg))
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+              Text("Authentication failed")
+                .font(.system(size: TypeScale.body, weight: .semibold))
+                .foregroundStyle(Color.statusPermission)
+              Text("Update the auth token or run `orbitdock auth local-token`")
+                .font(.system(size: TypeScale.caption))
+                .foregroundStyle(Color.textSecondary)
             }
           }
-          .padding(.horizontal, Spacing.lg)
-          .padding(.bottom, Spacing.lg)
-          .transition(.opacity.combined(with: .move(edge: .top)))
+          .padding(Spacing.md)
+          .background(
+            Color.statusPermission.opacity(OpacityTier.light),
+            in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .stroke(Color.statusPermission.opacity(OpacityTier.subtle), lineWidth: 1)
+          )
+        }
+
+        // Row 4: Action pills (always visible)
+        HStack(spacing: Spacing.sm) {
+          actionPill("Edit", icon: "pencil", color: Color.textSecondary) {
+            beginEditing(endpoint)
+          }
+
+          if !isPrimary, endpoint.isEnabled {
+            actionPill("Set Primary", icon: "crown", color: Color.accent) {
+              setDefaultEndpoint(endpoint.id)
+            }
+          }
+
+          if let roleAction = serverRoleAction(for: endpoint, status: endpointStatus) {
+            actionPill(roleAction.label, icon: "server.rack", color: Color.textSecondary) {
+              roleAction.handler(endpoint.id)
+            }
+          }
+
+          if !endpoint.isLocalManaged {
+            actionPill("Remove", icon: "trash", color: Color.statusPermission) {
+              endpointPendingDelete = endpoint
+            }
+          }
         }
       }
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
     }
     .background(
       Color.backgroundSecondary,
@@ -284,7 +280,12 @@ struct ServerSettingsSheet: View {
     )
     .overlay(
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .stroke(Color.panelBorder, lineWidth: 1)
+        .stroke(
+          authFailure
+            ? Color.statusPermission.opacity(OpacityTier.medium)
+            : Color.panelBorder,
+          lineWidth: 1
+        )
     )
     .clipped()
   }
@@ -319,17 +320,21 @@ struct ServerSettingsSheet: View {
       beginAddingEndpoint()
     } label: {
       HStack(spacing: Spacing.sm) {
-        Image(systemName: "plus.circle")
-          .font(.system(size: 14, weight: .medium))
+        Image(systemName: "plus.circle.fill")
+          .font(.system(size: IconScale.xxl))
         Text("Add Endpoint")
-          .font(.system(size: TypeScale.body, weight: .medium))
+          .font(.system(size: TypeScale.body, weight: .semibold))
       }
-      .foregroundStyle(Color.textTertiary)
+      .foregroundStyle(Color.accent)
       .frame(maxWidth: .infinity)
       .padding(.vertical, Spacing.lg)
       .background(
+        Color.accent.opacity(OpacityTier.subtle),
+        in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+      )
+      .overlay(
         RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-          .strokeBorder(Color.panelBorder, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+          .stroke(Color.accent.opacity(OpacityTier.light), lineWidth: 1)
       )
     }
     .buttonStyle(.plain)
@@ -341,32 +346,14 @@ struct ServerSettingsSheet: View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 0) {
-          // Single card with all fields
+          // Single card with terminal-field style
           VStack(alignment: .leading, spacing: 0) {
-            // Name field
-            editorField(label: "Name") {
-              TextField("My Server", text: $draft.name)
-                .textFieldStyle(.plain)
-                .font(.system(size: TypeScale.body))
-              #if os(iOS)
-                .textInputAutocapitalization(.words)
-              #endif
-            }
+            terminalField(icon: "tag", "Name", $draft.name)
 
-            Divider()
-              .overlay(Color.panelBorder)
+            accentDivider
 
-            // Host field
-            editorField(label: "Host") {
-              TextField("10.0.0.5:4000 or https://host.example", text: $draft.hostInput)
-                .textFieldStyle(.plain)
-                .font(.system(size: TypeScale.body, design: .monospaced))
-              #if os(iOS)
-                .textInputAutocapitalization(.never)
-              #endif
-                .autocorrectionDisabled()
-                .disabled(draft.isLocalManaged)
-            }
+            terminalField(icon: "globe", "Host", $draft.hostInput, monospaced: true)
+              .disabled(draft.isLocalManaged)
 
             if draft.isLocalManaged {
               Text("Host is managed automatically for local endpoints.")
@@ -377,53 +364,19 @@ struct ServerSettingsSheet: View {
                 .padding(.top, -Spacing.xs)
             }
 
-            if !draft.isLocalManaged {
-              Divider()
-                .overlay(Color.panelBorder)
+            accentDivider
 
-              // Auth token field
-              editorField(label: "Auth Token") {
-                SecureField("Paste token", text: $draft.authToken)
-                  .textFieldStyle(.plain)
-                  .font(.system(size: TypeScale.body, design: .monospaced))
-                #if os(iOS)
-                  .textInputAutocapitalization(.never)
-                #endif
-                  .autocorrectionDisabled()
-              }
-            }
+            terminalSecureField(icon: "key.fill", "Token", $draft.authToken)
 
-            Divider()
-              .overlay(Color.panelBorder)
+            accentDivider
 
-            // Enabled toggle
-            editorField(label: "Enabled") {
-              Spacer()
-              Toggle(isOn: $draft.isEnabled) {
-                EmptyView()
-              }
-              .toggleStyle(.switch)
-              .tint(Color.accent)
-              .labelsHidden()
-              .fixedSize()
-            }
+            toggleRow(icon: "power", "Enabled", $draft.isEnabled)
 
-            Divider()
-              .overlay(Color.panelBorder)
+            accentDivider
 
-            // Control-plane toggle
             VStack(alignment: .leading, spacing: Spacing.xs) {
-              editorField(label: "Control Plane") {
-                Spacer()
-                Toggle(isOn: $draft.isDefault) {
-                  EmptyView()
-                }
-                .toggleStyle(.switch)
-                .tint(Color.accent)
-                .labelsHidden()
-                .fixedSize()
+              toggleRow(icon: "crown", "Control Plane", $draft.isDefault)
                 .disabled(!draft.isEnabled)
-              }
 
               Text("Route usage and dashboard data through this endpoint.")
                 .font(.system(size: TypeScale.caption))
@@ -432,7 +385,10 @@ struct ServerSettingsSheet: View {
                 .padding(.bottom, Spacing.md)
             }
           }
-          .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+          .background(
+            Color.backgroundSecondary,
+            in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          )
           .overlay(
             RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
               .stroke(Color.panelBorder, lineWidth: 1)
@@ -441,7 +397,7 @@ struct ServerSettingsSheet: View {
           if let editorError {
             HStack(spacing: Spacing.sm) {
               Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
+                .font(.system(size: IconScale.lg))
                 .foregroundStyle(Color.statusPermission)
               Text(editorError)
                 .foregroundStyle(Color.statusPermission)
@@ -481,18 +437,92 @@ struct ServerSettingsSheet: View {
     }
   }
 
-  private func editorField(label: String, @ViewBuilder content: () -> some View) -> some View {
-    HStack(spacing: Spacing.md) {
-      Text(label)
-        .font(.system(size: TypeScale.body, weight: .medium))
-        .foregroundStyle(Color.textSecondary)
-        .frame(width: 90, alignment: .leading)
+  // MARK: - Terminal Field Components
 
-      content()
+  private func terminalField(
+    icon: String,
+    _ placeholder: String,
+    _ text: Binding<String>,
+    monospaced: Bool = false
+  ) -> some View {
+    HStack(spacing: Spacing.md) {
+      Image(systemName: icon)
+        .font(.system(size: IconScale.lg))
+        .foregroundStyle(Color.textTertiary)
+        .frame(width: 20, alignment: .center)
+
+      TextField(placeholder, text: text)
+        .textFieldStyle(.plain)
+        .font(.system(size: TypeScale.body, design: monospaced ? .monospaced : .default))
         .foregroundStyle(Color.textPrimary)
+      #if os(iOS)
+        .textInputAutocapitalization(monospaced ? .never : .words)
+      #endif
+        .autocorrectionDisabled()
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.md)
+  }
+
+  private func terminalSecureField(
+    icon: String,
+    _ placeholder: String,
+    _ text: Binding<String>
+  ) -> some View {
+    HStack(spacing: Spacing.md) {
+      Image(systemName: icon)
+        .font(.system(size: IconScale.lg))
+        .foregroundStyle(Color.textTertiary)
+        .frame(width: 20, alignment: .center)
+
+      SecureField(
+        draft.isLocalManaged ? "orbitdock auth local-token" : placeholder,
+        text: text
+      )
+      .textFieldStyle(.plain)
+      .font(.system(size: TypeScale.body, design: .monospaced))
+      .foregroundStyle(Color.textPrimary)
+      #if os(iOS)
+        .textInputAutocapitalization(.never)
+      #endif
+        .autocorrectionDisabled()
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.md)
+  }
+
+  private func toggleRow(
+    icon: String,
+    _ label: String,
+    _ isOn: Binding<Bool>
+  ) -> some View {
+    HStack(spacing: Spacing.md) {
+      Image(systemName: icon)
+        .font(.system(size: IconScale.lg))
+        .foregroundStyle(Color.textTertiary)
+        .frame(width: 20, alignment: .center)
+
+      Text(label)
+        .font(.system(size: TypeScale.body))
+        .foregroundStyle(Color.textSecondary)
+
+      Spacer()
+
+      Toggle(isOn: isOn) {
+        EmptyView()
+      }
+      .toggleStyle(.switch)
+      .tint(Color.accent)
+      .labelsHidden()
+      .fixedSize()
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.md)
+  }
+
+  private var accentDivider: some View {
+    Divider()
+      .overlay(Color.accent.opacity(OpacityTier.light))
   }
 
   // MARK: - Helpers
@@ -511,6 +541,12 @@ struct ServerSettingsSheet: View {
     }
     let names = claims.map(\.deviceName).joined(separator: ", ")
     return "Claimed as control plane by: \(names)"
+  }
+
+  private func isAuthFailure(_ status: ConnectionStatus) -> Bool {
+    guard case let .failed(message) = status else { return false }
+    let lowered = message.lowercased()
+    return lowered.contains("401") || lowered.contains("unauthorized") || lowered.contains("auth")
   }
 
   private func statusLabel(for status: ConnectionStatus) -> String {

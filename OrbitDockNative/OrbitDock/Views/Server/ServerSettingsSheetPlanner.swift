@@ -129,7 +129,6 @@ enum ServerSettingsSheetPlanner {
     currentEndpoints: [ServerEndpoint],
     removing endpoint: ServerEndpoint
   ) -> [ServerEndpoint] {
-    guard !endpoint.isLocalManaged else { return currentEndpoints }
     return currentEndpoints.filter { $0.id != endpoint.id }
   }
 

@@ -9,14 +9,7 @@ struct ServerEndpointStoreTests {
 
     let endpoints = context.store.endpoints()
 
-    #if os(macOS)
-      #expect(endpoints.count == 1)
-      #expect(endpoints.first?.isLocalManaged == true)
-      #expect(endpoints.first?.isEnabled == true)
-      #expect(endpoints.first?.isDefault == true)
-    #else
-      #expect(endpoints.isEmpty)
-    #endif
+    #expect(endpoints.isEmpty)
     #expect(context.store.hasRemoteEndpoint() == false)
   }
 
@@ -35,15 +28,8 @@ struct ServerEndpointStoreTests {
 
     let endpoints = context.store.endpoints()
     let remote = endpoints.first(where: \.isRemote)
-    let local = endpoints.first(where: \.isLocalManaged)
 
-    #if os(macOS)
-      #expect(endpoints.count == 2)
-      #expect(local != nil)
-      #expect(local?.isDefault == false)
-    #else
-      #expect(endpoints.count == 1)
-    #endif
+    #expect(endpoints.count == 1)
     #expect(remote != nil)
     #expect(remote?.isDefault == true)
     #expect(remote?.wsURL == URL(string: "ws://10.0.0.5:4100/ws"))
@@ -60,13 +46,7 @@ struct ServerEndpointStoreTests {
     let cleared = context.store.endpoints()
 
     #expect(context.store.remoteEndpoint() == nil)
-    #if os(macOS)
-      #expect(cleared.count == 1)
-      #expect(cleared.first?.isLocalManaged == true)
-      #expect(cleared.first?.isDefault == true)
-    #else
-      #expect(cleared.isEmpty)
-    #endif
+    #expect(cleared.isEmpty)
   }
 
   @Test func crudSupportsUpsertDefaultEnableDisableAndRemove() throws {
