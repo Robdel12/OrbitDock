@@ -20,6 +20,12 @@ struct ToolCardView: View {
   var isLoadingContent: Bool = false
   var onToggle: (() -> Void)?
 
+  @Environment(\.horizontalSizeClass) private var sizeClass
+
+  private var previewHorizontalPad: CGFloat {
+    sizeClass == .compact ? Spacing.sm : Spacing.md
+  }
+
   private var display: ServerToolDisplay? {
     toolRow.toolDisplay
   }
@@ -75,7 +81,7 @@ struct ToolCardView: View {
     .background(cardBackground)
     .overlay(alignment: .leading) { accentEdge }
     //  horizontal padding handled by TimelineRowContent
-    .padding(.vertical, Spacing.xs)
+    .padding(.vertical, sizeClass == .compact ? Spacing.sm_ : Spacing.xs)
     .contentShape(Rectangle())
     .onTapGesture { onToggle?() }
   }
@@ -112,67 +118,25 @@ struct ToolCardView: View {
     let isMinimal = displayTier == "minimal"
     let isProminent = displayTier == "prominent"
     let iconSize = isMinimal ? IconScale.sm : IconScale.md
-    let summaryColor = isFailed ? Color.feedbackNegative
-      : isProminent ? Color.textPrimary
-      : Color.textSecondary
-    let subtitleColor = isMinimal ? Color.textQuaternary : Color.textTertiary
 
     return HStack(spacing: Spacing.sm) {
+      // Tool icon
       Image(systemName: glyphSymbol)
         .font(.system(size: iconSize))
         .foregroundStyle(glyphColor)
         .frame(width: 16, height: 16)
 
-      VStack(alignment: .leading, spacing: 0) {
-        HStack(spacing: Spacing.sm_) {
-          Text(summary)
-            .font(display?.summaryFont == "monospace"
-              ? .system(size: TypeScale.body, design: .monospaced)
-              : .system(size: TypeScale.body, weight: .medium))
-            .foregroundStyle(summaryColor)
-
-          if let subtitle, !subtitle.isEmpty, display?.subtitleAbsorbsMeta == true {
-            Text(subtitle)
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(subtitleColor)
-          }
-        }
-
-        if let subtitle, !subtitle.isEmpty, display?.subtitleAbsorbsMeta != true {
-          Text(subtitle)
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(subtitleColor)
-        }
-      }
+      // Primary text: summary + optional inline subtitle
+      primaryText
+        .fixedSize(horizontal: false, vertical: true)
 
       Spacer(minLength: 0)
 
-      // Micro diff stats bar for edit tools
-      if toolType == "edit", let preview = display?.diffPreview {
-        MicroDiffStatsBar(additions: Int(preview.additions), deletions: Int(preview.deletions))
-      }
+      // Compact metric badge (diff stats, duration, line count)
+      compactMetricBadge
 
-      if let rightMeta, !rightMeta.isEmpty {
-        Text(rightMeta)
-          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color.textQuaternary)
-      }
-
-      if let lang = display?.language, !lang.isEmpty, !isExpanded {
-        languageBadge(lang)
-      }
-
-      if isRunning {
-        ProgressView().controlSize(.small)
-      } else if isFailed {
-        Image(systemName: "xmark.circle.fill")
-          .font(.system(size: IconScale.sm))
-          .foregroundStyle(Color.feedbackNegative)
-      }
-
-      Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-        .font(.system(size: 8, weight: .bold))
-        .foregroundStyle(Color.textQuaternary)
+      // Status indicator + expand chevron
+      statusAndChevron
     }
     .padding(.leading, Spacing.md + EdgeBar.width)
     .padding(.trailing, Spacing.md)
@@ -182,6 +146,87 @@ struct ToolCardView: View {
         ? AnyShapeStyle(glyphColor.opacity(OpacityTier.tint))
         : AnyShapeStyle(Color.clear)
     )
+  }
+
+  // MARK: - Compact Row Components
+
+  /// Composed Text with inline styling: "Summary · filename" or just "Summary"
+  private var primaryText: Text {
+    let isProminent = displayTier == "prominent"
+    let summaryColor = isFailed ? Color.feedbackNegative
+      : isProminent ? Color.textPrimary
+      : Color.textSecondary
+
+    let summaryText = Text(summary)
+      .font(display?.summaryFont == "monospace"
+        ? .system(size: TypeScale.body, design: .monospaced)
+        : .system(size: TypeScale.body, weight: .medium))
+      .foregroundColor(summaryColor)
+
+    guard let sub = compactDisplayName, !sub.isEmpty else {
+      return summaryText
+    }
+
+    return summaryText
+      + Text("  ")
+      + Text(sub)
+      .font(.system(size: TypeScale.caption, design: .monospaced))
+      .foregroundColor(Color.textTertiary)
+  }
+
+  /// Short display name for the compact row — filename or command excerpt.
+  /// Full subtitle available in the expanded view.
+  private static let fileToolTypes: Set<String> = ["edit", "write", "read", "glob", "grep"]
+
+  private var compactDisplayName: String? {
+    guard let subtitle, !subtitle.isEmpty else { return nil }
+
+    if Self.fileToolTypes.contains(toolType), subtitle.contains("/") {
+      let filename = (subtitle as NSString).lastPathComponent
+      guard filename.count > 22 else { return filename }
+      return "…" + filename.suffix(18)
+    }
+
+    return subtitle
+  }
+
+  /// Compact badge showing the single most important metric for this tool.
+  @ViewBuilder
+  private var compactMetricBadge: some View {
+    if toolType == "edit" || toolType == "write", let preview = display?.diffPreview,
+       preview.additions > 0 || preview.deletions > 0
+    {
+      HStack(spacing: Spacing.xxs) {
+        if preview.additions > 0 {
+          Text("+\(preview.additions)")
+            .foregroundStyle(Color.diffAddedAccent)
+        }
+        if preview.deletions > 0 {
+          Text("-\(preview.deletions)")
+            .foregroundStyle(Color.diffRemovedAccent)
+        }
+      }
+      .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+    } else if let rightMeta, !rightMeta.isEmpty {
+      Text(rightMeta)
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+    }
+  }
+
+  @ViewBuilder
+  private var statusAndChevron: some View {
+    if isRunning {
+      ProgressView().controlSize(.small)
+    } else if isFailed {
+      Image(systemName: "xmark.circle.fill")
+        .font(.system(size: IconScale.sm))
+        .foregroundStyle(Color.feedbackNegative)
+    }
+
+    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+      .font(.system(size: 8, weight: .bold))
+      .foregroundStyle(Color.textQuaternary)
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -220,21 +265,8 @@ struct ToolCardView: View {
       Text(preview.snippetText)
         .font(.system(size: TypeScale.meta, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
-      Spacer(minLength: 0)
-      HStack(spacing: Spacing.xs) {
-        if preview.additions > 0 {
-          Text("+\(preview.additions)")
-            .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.diffAddedAccent)
-        }
-        if preview.deletions > 0 {
-          Text("-\(preview.deletions)")
-            .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.diffRemovedAccent)
-        }
-      }
     }
-    .padding(.horizontal, Spacing.md)
+    .padding(.horizontal, previewHorizontalPad)
     .padding(.bottom, Spacing.sm_)
   }
 
@@ -249,7 +281,7 @@ struct ToolCardView: View {
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, Spacing.xs)
     .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.xs))
-    .padding(.horizontal, Spacing.md)
+    .padding(.horizontal, previewHorizontalPad)
     .padding(.bottom, Spacing.sm_)
   }
 
@@ -270,7 +302,7 @@ struct ToolCardView: View {
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, Spacing.xs)
     .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.xs))
-    .padding(.horizontal, Spacing.md)
+    .padding(.horizontal, previewHorizontalPad)
     .padding(.bottom, Spacing.sm_)
   }
 
@@ -303,7 +335,7 @@ struct ToolCardView: View {
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, Spacing.xs)
     .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.xs))
-    .padding(.horizontal, Spacing.md)
+    .padding(.horizontal, previewHorizontalPad)
     .padding(.bottom, Spacing.sm_)
   }
 

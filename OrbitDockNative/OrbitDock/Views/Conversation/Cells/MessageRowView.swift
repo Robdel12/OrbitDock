@@ -45,8 +45,10 @@ struct MessageRowView: View {
 
   // MARK: - User (bubble)
 
+  @Environment(\.horizontalSizeClass) private var sizeClass
+
   private var userMessage: some View {
-    let bubbleMax: CGFloat = 780
+    let bubbleMax: CGFloat = sizeClass == .compact ? 320 : 640
 
     return VStack(alignment: .trailing, spacing: Spacing.xs) {
       Text("You")
@@ -57,7 +59,7 @@ struct MessageRowView: View {
         MessageImageView(
           images: images,
           imageLoader: imageLoader,
-          maxWidth: bubbleMax - Spacing.lg_ * 2
+          maxWidth: bubbleMax - Spacing.md * 2
         )
       }
 
@@ -65,17 +67,14 @@ struct MessageRowView: View {
         MarkdownContentView(content: content, style: .standard)
       }
     }
-    .padding(.horizontal, Spacing.lg_)
-    .padding(.vertical, Spacing.md)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
     .frame(maxWidth: bubbleMax, alignment: .trailing)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .fill(Color.accent.opacity(OpacityTier.subtle))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .stroke(Color.accent.opacity(0.06), lineWidth: 1)
-    )
+    .overlay(alignment: .trailing) {
+      Rectangle()
+        .fill(Color.accent.opacity(0.3))
+        .frame(width: EdgeBar.width)
+    }
     .padding(.vertical, Spacing.sm)
   }
 

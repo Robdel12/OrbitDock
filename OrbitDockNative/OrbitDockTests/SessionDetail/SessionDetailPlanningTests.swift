@@ -127,9 +127,10 @@ struct SessionDetailPlanningTests {
     #expect(plan.navigateToComment == nil)
   }
 
-  @Test func footerPlannerOnlyShowsTakeoverForPassiveSessionsWithoutApprovalOverlay() {
+  @Test func footerPlannerShowsPassiveForNonOwnedSessions() {
+    // canTakeOver → passive, even if isDirect
     #expect(
-      isDirectFooterMode(
+      isPassiveFooterMode(
         SessionDetailFooterPlanner.mode(
           isDirect: true,
           canTakeOver: true,
@@ -137,17 +138,9 @@ struct SessionDetailPlanningTests {
         )
       )
     )
+    // canTakeOver with approval → still passive (approval visible in timeline)
     #expect(
-      isPassiveWithTakeOverFooterMode(
-        SessionDetailFooterPlanner.mode(
-          isDirect: false,
-          canTakeOver: true,
-          needsApprovalOverlay: false
-        )
-      )
-    )
-    #expect(
-      isPassiveOnlyFooterMode(
+      isPassiveFooterMode(
         SessionDetailFooterPlanner.mode(
           isDirect: false,
           canTakeOver: true,
@@ -155,8 +148,19 @@ struct SessionDetailPlanningTests {
         )
       )
     )
+    // isDirect without canTakeOver → direct (user owns it)
     #expect(
-      isPassiveOnlyFooterMode(
+      isDirectFooterMode(
+        SessionDetailFooterPlanner.mode(
+          isDirect: true,
+          canTakeOver: false,
+          needsApprovalOverlay: false
+        )
+      )
+    )
+    // Not direct, can't take over → passive
+    #expect(
+      isPassiveFooterMode(
         SessionDetailFooterPlanner.mode(
           isDirect: false,
           canTakeOver: false,
@@ -437,13 +441,8 @@ struct SessionDetailPlanningTests {
     return false
   }
 
-  private func isPassiveWithTakeOverFooterMode(_ mode: SessionDetailFooterMode) -> Bool {
-    if case .passiveWithTakeOver = mode { return true }
-    return false
-  }
-
-  private func isPassiveOnlyFooterMode(_ mode: SessionDetailFooterMode) -> Bool {
-    if case .passiveOnly = mode { return true }
+  private func isPassiveFooterMode(_ mode: SessionDetailFooterMode) -> Bool {
+    if case .passive = mode { return true }
     return false
   }
 

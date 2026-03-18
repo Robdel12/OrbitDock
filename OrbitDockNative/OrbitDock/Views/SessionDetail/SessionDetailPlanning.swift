@@ -208,8 +208,7 @@ enum SessionDetailLayoutIntent {
 
 enum SessionDetailFooterMode: Equatable {
   case direct
-  case passiveWithTakeOver
-  case passiveOnly
+  case passive
 }
 
 struct SessionDetailReviewNavigationPlan {
@@ -388,9 +387,12 @@ enum SessionDetailFooterPlanner {
     canTakeOver: Bool,
     needsApprovalOverlay: Bool
   ) -> SessionDetailFooterMode {
-    guard !isDirect else { return .direct }
-    guard canTakeOver, !needsApprovalOverlay else { return .passiveOnly }
-    return .passiveWithTakeOver
+    // canTakeOver means the user doesn't own this session — show passive view
+    // with takeover option. isDirect alone isn't enough because docked
+    // sessions can be isDirect but not owned.
+    if canTakeOver { return .passive }
+    if isDirect { return .direct }
+    return .passive
   }
 }
 

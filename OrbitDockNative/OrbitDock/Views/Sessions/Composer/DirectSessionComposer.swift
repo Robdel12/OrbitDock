@@ -226,6 +226,10 @@ struct DirectSessionComposer: View {
         clearDictationDraftState()
       }
     }
+    .onChange(of: inputState.focus.measuredHeight) { _, _ in
+      guard isPinned else { return }
+      scrollToBottomTrigger += 1
+    }
     .onChange(of: dictationController.liveTranscript) { _, transcript in
       guard dictationController.isRecording else { return }
       updateDictationLivePreview(transcript)
@@ -266,6 +270,7 @@ struct DirectSessionComposer: View {
     )
     .frame(maxWidth: .infinity, alignment: .leading)
     .frame(height: inputState.focus.measuredHeight)
+    .animation(Motion.snappy, value: inputState.focus.measuredHeight)
     .layoutPriority(1)
     #if os(iOS)
       .toolbar {

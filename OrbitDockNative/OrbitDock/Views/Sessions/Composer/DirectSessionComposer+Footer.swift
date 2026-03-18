@@ -32,24 +32,38 @@ extension DirectSessionComposer {
     .padding(.bottom, Spacing.sm_)
   }
 
+  var isCompactPassiveMode: Bool {
+    guard let model = pendingApprovalModel else { return false }
+    return model.mode == .takeover || model.mode == .passiveBlocked
+  }
+
+  @ViewBuilder
   var compactComposerFooter: some View {
-    HStack(spacing: Spacing.sm_) {
-      ScrollView(.horizontal, showsIndicators: false) {
+    if isCompactPassiveMode {
+      EmptyView()
+    } else if let model = pendingApprovalModel, pendingState.isExpanded {
+      // Active approval — full-width action bar with approve/deny actions trailing
+      HStack(spacing: Spacing.sm_) {
+        Spacer(minLength: 0)
+        pendingFooterActions(model)
+      }
+      .padding(.horizontal, Spacing.sm)
+      .padding(.bottom, Spacing.sm)
+    } else {
+      HStack(spacing: Spacing.sm_) {
         HStack(spacing: Spacing.xs) {
           compactComposeControls
         }
-        .padding(.trailing, Spacing.xs)
+        Spacer(minLength: 0)
+        composerSendButton
       }
-      .scrollIndicators(.hidden)
-
-      // Action cluster (varies by state)
-      composerFooterActions
+      .padding(.horizontal, Spacing.sm)
+      .padding(.bottom, Spacing.sm)
     }
-    .padding(.horizontal, Spacing.sm)
-    .padding(.bottom, Spacing.sm)
   }
 
   /// Footer action cluster — swaps between normal send and pending approval actions.
+  /// Used by desktop layout (compact uses inline send button).
   @ViewBuilder
   var composerFooterActions: some View {
     if let model = pendingApprovalModel, pendingState.isExpanded {
@@ -97,8 +111,11 @@ extension DirectSessionComposer {
       providerModelControlButton
     }
 
-    imageAttachmentDockControl
-    fileMentionControlButton
+    if !isCompact {
+      imageAttachmentDockControl
+      fileMentionControlButton
+    }
+
     commandDeckControlButton
 
     if shouldShowDictation {

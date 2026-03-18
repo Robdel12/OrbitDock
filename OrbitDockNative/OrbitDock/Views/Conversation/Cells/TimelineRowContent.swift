@@ -8,7 +8,6 @@
 
 import SwiftUI
 
-private let horizontalPad: CGFloat = Spacing.lg
 private let userBubbleMaxWidth: CGFloat = 640
 
 struct TimelineRowContent: View {
@@ -23,6 +22,8 @@ struct TimelineRowContent: View {
   var contentForChild: ((String) -> ServerRowContent?)?
   var isChildLoading: ((String) -> Bool)?
 
+  @Environment(\.horizontalSizeClass) private var sizeClass
+
   private var isUserRow: Bool {
     if case .user = entry.row { return true }
     return false
@@ -30,6 +31,10 @@ struct TimelineRowContent: View {
 
   private var imageLoader: ImageLoader? {
     clients?.imageLoader
+  }
+
+  private var horizontalPad: CGFloat {
+    sizeClass == .compact ? Spacing.md : Spacing.lg
   }
 
   var body: some View {

@@ -75,6 +75,39 @@ extension SessionDetailView {
     )
   }
 
+  var passiveStatusStrip: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: Spacing.sm) {
+        ContextGaugeCompact(stats: usageStats)
+
+        if let formattedCost = actionBarState.formattedCost {
+          Text(formattedCost)
+            .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.primary.opacity(OpacityTier.vivid))
+        }
+
+        if let branchLabel = actionBarState.branchLabel {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "arrow.triangle.branch")
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+            Text(branchLabel)
+              .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+          }
+          .foregroundStyle(Color.gitBranch)
+        }
+
+        if let lastActivityAt = actionBarState.lastActivityAt {
+          Text(lastActivityAt, style: .relative)
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+        }
+      }
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm_)
+    }
+    .scrollIndicators(.hidden)
+  }
+
   var compactActionBar: some View {
     SessionDetailCompactActionBar(
       state: actionBarState,

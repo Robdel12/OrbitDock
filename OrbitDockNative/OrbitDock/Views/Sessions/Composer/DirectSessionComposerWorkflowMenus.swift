@@ -86,6 +86,18 @@ extension DirectSessionComposer {
 
     return Menu {
       Section("Compose") {
+        Button {
+          pickImages()
+        } label: {
+          Label("Attach Image", systemImage: "photo.badge.plus")
+        }
+
+        Button {
+          openFilePicker()
+        } label: {
+          Label("Attach File (@)", systemImage: "doc.badge.plus")
+        }
+
         if hasSkillsPanel {
           Button {
             Task { try? await serverState.listSkills(sessionId: sessionId) }

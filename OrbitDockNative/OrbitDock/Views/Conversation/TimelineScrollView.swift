@@ -15,6 +15,14 @@
 //    notifications (macOS) or pan gesture tracking (iOS) through
 //    TimelineUserScrollDetector.
 //
+//  Scroll-to-bottom strategy (two-phase reveal):
+//  1. Timeline renders with .defaultScrollAnchor(.bottom) but is hidden behind
+//     an opaque overlay so the user never sees a half-scrolled state.
+//  2. When the bottom sentinel's onAppear fires (meaning the viewport is at
+//     the bottom), the overlay fades out to reveal the settled timeline.
+//  3. Fallback: if the sentinel doesn't appear after layout yields, a forced
+//     scrollTo + reveal ensures the timeline is never stuck hidden.
+//
 
 import SwiftUI
 
@@ -30,6 +38,10 @@ struct TimelineScrollView: View {
   @State private var rowState = TimelineRowStateStore()
   @State private var sentinelVisible = true
   @State private var userIsLiveScrolling = false
+
+  /// False until the scroll view has settled at the bottom. Content is hidden
+  /// behind an opaque overlay until this flips to true.
+  @State private var isReady = false
 
   /// Tool grouping happens here — computed fresh when entries change.
   private var displayEntries: [ServerConversationRowEntry] {
@@ -71,21 +83,20 @@ struct TimelineScrollView: View {
           }
 
           // Bottom sentinel — tracks viewport visibility for pin state.
-          // onAppear re-pins (user scrolled back to bottom).
-          // onDisappear records that the sentinel left but does NOT unpin —
-          // unpin is deferred to TimelineUserScrollDetector.
+          // Also signals that the scroll view has settled at the bottom (isReady).
           Color.clear
             .frame(height: 1)
             .id("timeline-bottom")
             .onAppear {
               sentinelVisible = true
+              if !isReady {
+                withAnimation(Motion.fade) { isReady = true }
+              }
               guard !isPinned else { return }
               isPinned = true
             }
             .onDisappear {
               sentinelVisible = false
-              // Unpin immediately only if the user is actively scrolling.
-              // Content-push disappearances are corrected by auto-scroll.
               guard isPinned, userIsLiveScrolling else { return }
               isPinned = false
             }
@@ -98,21 +109,29 @@ struct TimelineScrollView: View {
       .scrollDismissesKeyboard(.interactively)
       .defaultScrollAnchor(.bottom)
       .background(Color.backgroundPrimary)
-      .onAppear {
-        guard let lastID = displayed.last?.id else { return }
-        proxy.scrollTo(lastID, anchor: .bottom)
+      // Hide content until scroll position has settled at the bottom.
+      .overlay {
+        if !isReady {
+          Color.backgroundPrimary
+        }
+      }
+      .animation(Motion.fade, value: isReady)
+      // Fallback: if defaultScrollAnchor didn't reach the bottom, force scroll + reveal.
+      .task {
+        await Task.yield()
+        await Task.yield()
+        guard !isReady else { return }
+        proxy.scrollTo("timeline-bottom", anchor: .bottom)
+        await Task.yield()
+        withAnimation(Motion.fade) { isReady = true }
       }
       .onChange(of: autoScrollVersion) { _, _ in
-        guard isPinned, let lastID = displayed.last?.id else { return }
-        proxy.scrollTo(lastID, anchor: .bottom)
+        guard isPinned else { return }
+        proxy.scrollTo("timeline-bottom", anchor: .bottom)
       }
       .onChange(of: scrollToBottomTrigger) { _, _ in
-        guard let lastID = displayed.last?.id else { return }
-        proxy.scrollTo(lastID, anchor: .bottom)
+        proxy.scrollTo("timeline-bottom", anchor: .bottom)
       }
-      // When user scroll ends, check if sentinel is still off-screen → unpin.
-      // Handles momentum scrolling: macOS didEndLiveScrollNotification fires
-      // after momentum settles; iOS tracks deceleration via contentOffset KVO.
       .onChange(of: userIsLiveScrolling) { _, isScrolling in
         guard !isScrolling, isPinned, !sentinelVisible else { return }
         isPinned = false
@@ -137,7 +156,6 @@ struct TimelineScrollView: View {
       isLoadingContent: fetchId.map { rowState.isFetching($0) } ?? false,
       onToggle: { id in
         let nowExpanded = rowState.toggleExpanded(id)
-        // Fetch content for newly expanded children (activity group child tools)
         if nowExpanded {
           rowState.fetchContentIfNeeded(rowId: id, sessionId: sessionId, clients: clients)
         }
@@ -155,7 +173,6 @@ struct TimelineScrollView: View {
     .task(id: isExpanded) {
       guard isExpanded, let fetchId else { return }
       rowState.fetchContentIfNeeded(rowId: fetchId, sessionId: sessionId, clients: clients)
-      // For activity groups, also fetch expanded children
       if case let .activityGroup(group) = entry.row {
         for child in group.children where rowState.isExpanded(child.id) {
           rowState.fetchContentIfNeeded(rowId: child.id, sessionId: sessionId, clients: clients)
@@ -166,7 +183,6 @@ struct TimelineScrollView: View {
 
   // MARK: - Row Identity Helpers
 
-  /// Returns the ID used for expand/collapse state, if the row type supports it.
   private static func expandableId(for entry: ServerConversationRowEntry) -> String? {
     switch entry.row {
       case let .tool(toolRow): toolRow.id
@@ -176,7 +192,6 @@ struct TimelineScrollView: View {
     }
   }
 
-  /// Returns the ID used for fetching expanded content, if applicable.
   private static func fetchableId(for entry: ServerConversationRowEntry) -> String? {
     switch entry.row {
       case let .tool(toolRow): toolRow.id

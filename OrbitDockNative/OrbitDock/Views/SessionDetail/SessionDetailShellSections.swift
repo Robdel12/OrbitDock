@@ -32,17 +32,23 @@ struct SessionDetailFooter<DirectComposer: View, TakeOverBar: View, PassiveActio
   @ViewBuilder let takeOverBar: () -> TakeOverBar
   @ViewBuilder let passiveActionBar: () -> PassiveActionBar
 
+  @Environment(\.horizontalSizeClass) private var sizeClass
+
   var body: some View {
     switch mode {
       case .direct:
         directComposer()
-      case .passiveWithTakeOver:
-        VStack(spacing: 0) {
+      case .passive:
+        if sizeClass == .compact {
+          // Compact: just the takeover bar — clean single element.
+          // Status chips move inside as a secondary row.
           takeOverBar()
-          passiveActionBar()
+        } else {
+          VStack(spacing: 0) {
+            takeOverBar()
+            passiveActionBar()
+          }
         }
-      case .passiveOnly:
-        passiveActionBar()
     }
   }
 }

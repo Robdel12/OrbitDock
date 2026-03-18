@@ -528,6 +528,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OrbitDock/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OrbitDock uses your microphone for local dictation.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OrbitDock uses speech recognition to transcribe local dictation on your device.";
@@ -566,6 +567,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OrbitDock/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OrbitDock uses your microphone for local dictation.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "OrbitDock uses speech recognition to transcribe local dictation on your device.";

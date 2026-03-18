@@ -19,6 +19,8 @@ struct ActivityGroupRowView: View {
   var contentForChild: ((String) -> ServerRowContent?)?
   var isChildLoading: ((String) -> Bool)?
 
+  @Environment(\.horizontalSizeClass) private var sizeClass
+
   private var statusColor: Color {
     group.status == .completed ? .feedbackPositive : .accent
   }
@@ -46,7 +48,7 @@ struct ActivityGroupRowView: View {
         .padding(.top, Spacing.xs)
       }
     }
-    .padding(.vertical, Spacing.xxs)
+    .padding(.vertical, sizeClass == .compact ? Spacing.xs : Spacing.xxs)
   }
 
   // MARK: - Collapsed Header
@@ -97,14 +99,22 @@ struct ActivityGroupRowView: View {
   // MARK: - Summary
 
   private var groupSummaryText: String {
-    // Build a concise summary like "Read, Edit, Bash"
-    let toolNames = group.children.prefix(4).map { child in
-      child.toolDisplay.summary
+    // Count-based summary: "3 Grep, 2 Read, 1 Edit"
+    var counts: [(type: String, count: Int)] = []
+    var seen: [String: Int] = [:]
+
+    for child in group.children {
+      let type = child.toolDisplay.toolType.capitalized
+      if let idx = seen[type] {
+        counts[idx].count += 1
+      } else {
+        seen[type] = counts.count
+        counts.append((type: type, count: 1))
+      }
     }
-    let joined = toolNames.joined(separator: ", ")
-    if group.childCount > 4 {
-      return "\(joined) + \(group.childCount - 4) more"
-    }
-    return joined
+
+    return counts.map { entry in
+      entry.count > 1 ? "\(entry.count) \(entry.type)" : entry.type
+    }.joined(separator: ", ")
   }
 }

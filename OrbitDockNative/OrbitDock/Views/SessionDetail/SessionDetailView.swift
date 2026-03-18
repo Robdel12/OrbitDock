@@ -134,9 +134,16 @@ struct SessionDetailView: View {
           scrollToBottomTrigger: $scrollToBottomTrigger
         )
       } takeOverBar: {
-        TakeOverInputBar {
-          Task { try? await scopedServerState.takeoverSession(sessionId) }
-        }
+        TakeOverInputBar(
+          onTakeOver: {
+            Task { try? await scopedServerState.takeoverSession(sessionId) }
+          },
+          statusContent: {
+            if isCompactLayout {
+              passiveStatusStrip
+            }
+          }
+        )
       } passiveActionBar: {
         actionBar
       }

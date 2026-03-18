@@ -77,7 +77,24 @@ struct ConversationView: View {
               .padding(.bottom, Spacing.xs)
             }
 
-            conversationTimeline
+            ZStack(alignment: .bottomTrailing) {
+              conversationTimeline
+
+              if !isPinned {
+                ConversationFollowPill(
+                  unreadCount: unreadCount,
+                  onTap: {
+                    isPinned = true
+                    unreadCount = 0
+                    scrollToBottomTrigger += 1
+                  }
+                )
+                .padding(.trailing, Spacing.lg)
+                .padding(.bottom, Spacing.sm)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(Motion.standard, value: isPinned)
+              }
+            }
 
             if isSessionActive || displayStatus == .ended {
               OrbitStatusIndicator(
