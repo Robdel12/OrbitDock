@@ -13,6 +13,7 @@ struct NewSessionRequestPlannerTests {
         provider: .claude,
         claudeModel: " claude-opus ",
         claudePermissionMode: .default,
+        claudeAllowBypassPermissions: false,
         allowedToolsText: "Read, Glob, Bash(git:*) ",
         disallowedToolsText: " Write, Edit ",
         claudeEffort: " high ",
@@ -36,7 +37,7 @@ struct NewSessionRequestPlannerTests {
     } else {
       Issue.record("Expected a direct launch target")
     }
-    if case let .claude(model, permissionMode, allowedTools, disallowedTools, effort) = plan.requestTemplate {
+    if case let .claude(model, permissionMode, _, allowedTools, disallowedTools, effort) = plan.requestTemplate {
       #expect(model == "claude-opus")
       #expect(permissionMode == nil)
       #expect(allowedTools == ["Read", "Glob", "Bash(git:*)"])
@@ -58,6 +59,7 @@ struct NewSessionRequestPlannerTests {
         provider: .claude,
         claudeModel: " ",
         claudePermissionMode: .acceptEdits,
+        claudeAllowBypassPermissions: false,
         allowedToolsText: "",
         disallowedToolsText: "",
         claudeEffort: "",
@@ -83,7 +85,7 @@ struct NewSessionRequestPlannerTests {
     } else {
       Issue.record("Expected a worktree launch target")
     }
-    if case let .claude(model, permissionMode, allowedTools, disallowedTools, effort) = plan.requestTemplate {
+    if case let .claude(model, permissionMode, _, allowedTools, disallowedTools, effort) = plan.requestTemplate {
       #expect(model == nil)
       #expect(permissionMode == ClaudePermissionMode.acceptEdits.rawValue)
       #expect(allowedTools.isEmpty)
@@ -104,6 +106,7 @@ struct NewSessionRequestPlannerTests {
         provider: .codex,
         claudeModel: nil,
         claudePermissionMode: .default,
+        claudeAllowBypassPermissions: false,
         allowedToolsText: "Read",
         disallowedToolsText: "Edit",
         claudeEffort: "max",
@@ -160,6 +163,7 @@ struct NewSessionRequestPlannerTests {
         provider: .claude,
         claudeModel: "claude-sonnet",
         claudePermissionMode: .plan,
+        claudeAllowBypassPermissions: false,
         allowedToolsText: "",
         disallowedToolsText: "",
         claudeEffort: nil,
@@ -195,6 +199,7 @@ struct NewSessionRequestPlannerTests {
         provider: .claude,
         claudeModel: "claude-sonnet",
         claudePermissionMode: .plan,
+        claudeAllowBypassPermissions: false,
         allowedToolsText: "",
         disallowedToolsText: "",
         claudeEffort: nil,
@@ -222,6 +227,7 @@ struct NewSessionRequestPlannerTests {
         provider: .codex,
         claudeModel: nil,
         claudePermissionMode: .default,
+        claudeAllowBypassPermissions: false,
         allowedToolsText: "",
         disallowedToolsText: "",
         claudeEffort: nil,
