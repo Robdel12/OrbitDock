@@ -10,7 +10,9 @@ import {
   handleSessionDelta,
   handleSessionEnded,
   handleSessionRemoved,
+  selected,
 } from './sessions.js'
+import { addToast } from './toasts.js'
 
 const wsClient = createWsClient()
 const http = createHttpClient('')
@@ -19,9 +21,20 @@ const connectionActor = createActor(connectionMachine)
 const serverInfo = signal({ isPrimary: false })
 
 let conversationHandler = null
+const subscribedSessions = new Set()
 
 const setConversationHandler = (handler) => {
   conversationHandler = handler
+}
+
+const subscribeSession = (sessionId) => {
+  subscribedSessions.add(sessionId)
+  wsClient.send({ type: 'subscribe_session', session_id: sessionId, include_snapshot: false })
+}
+
+const unsubscribeSession = (sessionId) => {
+  subscribedSessions.delete(sessionId)
+  wsClient.send({ type: 'unsubscribe_session', session_id: sessionId })
 }
 
 connectionActor.subscribe((snapshot) => {
@@ -54,9 +67,28 @@ const routeMessage = (msg) => {
     case 'error':
       console.warn('[ws] server error:', msg.code, msg.message)
       break
+    case 'approval_requested':
+      if (msg.session_id !== selected.value?.id) {
+        addToast({
+          title: 'Approval needed',
+          body: 'A session is waiting for your input.',
+          type: 'attention',
+          sessionId: msg.session_id,
+        })
+      }
+      if (conversationHandler) conversationHandler(msg)
+      break
+    case 'rate_limit_event':
+      addToast({
+        title: 'Rate limited',
+        body: msg.info?.provider ? `Provider: ${msg.info.provider}` : undefined,
+        type: 'error',
+        sessionId: msg.session_id,
+      })
+      if (conversationHandler) conversationHandler(msg)
+      break
     case 'conversation_bootstrap':
     case 'conversation_rows_changed':
-    case 'approval_requested':
     case 'approval_decision_result':
     case 'tokens_updated':
     case 'session_forked':
@@ -64,9 +96,15 @@ const routeMessage = (msg) => {
     case 'undo_started':
     case 'undo_completed':
     case 'thread_rolled_back':
-    case 'rate_limit_event':
     case 'prompt_suggestion':
     case 'files_persisted':
+    case 'skills_list':
+    case 'mcp_tools_list':
+    case 'review_comment_created':
+    case 'review_comment_updated':
+    case 'review_comment_deleted':
+    case 'review_comments_list':
+    case 'turn_diff_snapshot':
       if (conversationHandler) conversationHandler(msg)
       break
   }
@@ -92,6 +130,10 @@ wsClient.status.subscribe((status) => {
       // WS subscribe_list only delivers incremental updates —
       // initial list must be fetched via REST
       wsClient.send({ type: 'subscribe_list' })
+      // Re-subscribe any active session subscriptions (lost on reconnect)
+      for (const sid of subscribedSessions) {
+        wsClient.send({ type: 'subscribe_session', session_id: sid, include_snapshot: false })
+      }
       fetchInitialSessions()
       break
     case 'disconnected':
@@ -133,6 +175,8 @@ export {
   connect,
   disconnect,
   sendWs,
+  subscribeSession,
+  unsubscribeSession,
   setConversationHandler,
   serverInfo,
 }

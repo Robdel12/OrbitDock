@@ -47,6 +47,16 @@ const KNOWN_SERVER_TYPES = new Set([
   'permission_rules',
   'missions_list',
   'mission_delta',
+  'codex_account_updated',
+  'codex_login_chatgpt_started',
+  'codex_login_chatgpt_completed',
+  'codex_login_chatgpt_canceled',
+  'mcp_startup_update',
+  'mcp_startup_complete',
+  'remote_skills_list',
+  'remote_skill_downloaded',
+  'skills_update_available',
+  'subagent_tools_list',
   'error',
 ])
 

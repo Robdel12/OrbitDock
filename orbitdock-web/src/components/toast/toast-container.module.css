@@ -1,0 +1,138 @@
+/* ── Container ───────────────────────────────────────────────────────────────── */
+
+.container {
+  position: fixed;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  pointer-events: none;
+
+  /* Desktop: bottom-right */
+  bottom: calc(var(--space-lg) + env(safe-area-inset-bottom, 0px));
+  right: var(--space-lg);
+  width: 360px;
+}
+
+/* ── Toast ───────────────────────────────────────────────────────────────────── */
+
+.toast {
+  display: flex;
+  align-items: stretch;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glow-accent);
+  overflow: hidden;
+  pointer-events: all;
+
+  animation: slideIn var(--transition-slow) ease both;
+}
+
+.toast.clickable {
+  cursor: pointer;
+}
+
+.toast.clickable:hover {
+  background: var(--color-surface-hover);
+}
+
+/* ── Slide-in from the right (desktop) ──────────────────────────────────────── */
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ── Edge bar ────────────────────────────────────────────────────────────────── */
+
+.edge {
+  width: var(--edge-bar-width);
+  flex-shrink: 0;
+  border-radius: var(--radius-xs) 0 0 var(--radius-xs);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────────── */
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xxs);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.title {
+  font-size: var(--type-subhead);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  line-height: 1.3;
+}
+
+.message {
+  font-size: var(--type-meta);
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Dismiss button ──────────────────────────────────────────────────────────── */
+
+.dismiss {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 44px touch target */
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0 var(--space-md);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-text-tertiary);
+  transition: color var(--transition-fast), background var(--transition-fast);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+}
+
+.dismiss:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}
+
+/* ── Mobile ──────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 767px) {
+  .container {
+    bottom: calc(var(--space-md) + env(safe-area-inset-bottom, 0px));
+    left: var(--space-md);
+    right: var(--space-md);
+    width: auto;
+  }
+
+  .toast {
+    animation: slideUp var(--transition-slow) ease both;
+  }
+
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

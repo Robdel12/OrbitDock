@@ -2,10 +2,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--size-icon-button);
+  height: var(--size-icon-button);
+  padding: calc((var(--size-touch-target) - var(--size-icon-button)) / 2);
+  margin: calc(-1 * (var(--size-touch-target) - var(--size-icon-button)) / 2);
   border-radius: var(--radius-md);
-  transition: background 0.15s;
+  transition: background var(--transition-fast);
   color: var(--color-text-secondary);
 }
 

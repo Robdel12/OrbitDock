@@ -50,9 +50,10 @@
   --color-diff-removed-accent: #FF8080;
 
   /* Surfaces */
-  --color-surface-hover: rgba(84,174,229,0.06);
-  --color-surface-selected: rgba(84,174,229,0.12);
+  --color-surface-hover: rgba(84,174,229,0.10);
+  --color-surface-selected: rgba(84,174,229,0.18);
   --color-surface-border: rgba(84,174,229,0.10);
+  --color-surface-border-accent: rgba(84,174,229,0.18);
   --color-surface-elevated: rgba(255,255,255,0.04);
 
   /* Provider */
@@ -111,4 +112,53 @@
   /* Font stacks */
   --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+
+  /* Font weights */
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* Line heights */
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.6;
+
+  /* Letter spacing */
+  --letter-spacing-tight: -0.02em;
+  --letter-spacing-wide: 0.05em;
+  --letter-spacing-label: 0.06em;
+
+  /* Shadows (elevation) */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.15);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.2);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.25);
+  --shadow-dialog: 0 20px 60px rgba(0,0,0,0.5), var(--glow-accent);
+
+  /* Z-index layers */
+  --z-popover: 50;
+  --z-sidebar: 50;
+  --z-sidebar-backdrop: 40;
+  --z-dropdown: 100;
+  --z-modal: 200;
+  --z-toast: 500;
+  --z-offline: 2000;
+
+  /* Common sizes */
+  --size-dot: 8px;
+  --size-icon-button: 28px;
+  --size-touch-target: 44px;
+  --cursor-width: 2.5px;
+  --radius-bubble: 16px;
+
+  /* Composer */
+  --shadow-composer: 0 -4px 16px rgba(0,0,0,0.20);
+
+  /* Conversation */
+  --color-surface-message-hover: rgba(255,255,255,0.02);
+  --color-system-divider: rgba(255,255,255,0.06);
+
+  /* Breakpoints (reference — not usable in @media directly)
+     --bp-mobile: 480px;
+     --bp-tablet: 768px;
+     --bp-desktop: 1024px;
+  */
 }

@@ -1,0 +1,190 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-surface-border);
+  flex-shrink: 0;
+}
+
+.headerTitle {
+  font-size: var(--type-caption);
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--space-xs) 0;
+}
+
+/* ── Skill row ─────────────────────────────────────────────────────────── */
+
+.skillRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  min-height: 44px;
+  transition: background var(--transition-fast);
+}
+
+.skillRow:hover {
+  background: var(--color-surface-hover);
+}
+
+.skillInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.skillName {
+  font-size: var(--type-body);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.skillDesc {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skillMeta {
+  font-size: var(--type-caption);
+  color: var(--color-text-quaternary);
+  font-family: var(--font-mono);
+}
+
+.skillActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+/* ── Toggle switch ──────────────────────────────────────────────────────── */
+
+.toggleSwitch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-surface-border);
+  cursor: pointer;
+  transition: background var(--transition-normal), border-color var(--transition-normal);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggleSwitch::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+  transition: transform var(--transition-normal), background var(--transition-normal);
+}
+
+.toggleSwitch.toggleOn {
+  background: color-mix(in srgb, var(--color-feedback-positive) 20%, transparent);
+  border-color: var(--color-feedback-positive);
+}
+
+.toggleSwitch.toggleOn::after {
+  transform: translateX(16px);
+  background: var(--color-feedback-positive);
+}
+
+.toggleSwitch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Browse section ─────────────────────────────────────────────────────── */
+
+.browseSection {
+  border-top: 1px solid var(--color-surface-border);
+  background: var(--color-bg-primary);
+}
+
+.browseHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+}
+
+.browseSectionTitle {
+  font-size: var(--type-caption);
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  font-size: var(--type-caption);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.closeBtn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+/* ── States ─────────────────────────────────────────────────────────────── */
+
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl);
+}
+
+.emptyMsg {
+  padding: var(--space-lg) var(--space-md);
+  font-size: var(--type-body);
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.errorMsg {
+  padding: var(--space-md);
+  font-size: var(--type-caption);
+  color: var(--color-feedback-negative);
+  background: color-mix(in srgb, var(--color-feedback-negative) 8%, transparent);
+  border-radius: var(--radius-md);
+  margin: var(--space-sm) var(--space-md);
+}

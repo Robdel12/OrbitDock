@@ -2,13 +2,34 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
-  padding: var(--space-sm) 0;
+  padding: var(--space-sm) var(--space-sm);
+  padding-left: calc(var(--space-sm) + var(--edge-bar-width) + var(--space-sm));
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast);
+  position: relative;
+}
+
+/* Edge bar — left accent stripe like the native app */
+.row::before {
+  content: '';
+  position: absolute;
+  left: var(--space-sm);
+  top: var(--space-sm);
+  bottom: var(--space-sm);
+  width: var(--edge-bar-width);
+  background: var(--color-accent);
+  border-radius: 1px;
+  opacity: 0.65;
+}
+
+.row:hover {
+  background: var(--color-surface-message-hover);
 }
 
 .label {
   font-size: var(--type-micro);
   font-weight: 600;
-  color: var(--color-text-quaternary);
+  color: var(--color-accent-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -17,13 +38,34 @@
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .markdown {
-  font-size: var(--type-reading);
+  font-size: var(--type-body);
   color: var(--color-text-primary);
-  line-height: 1.6;
+  line-height: var(--line-height-relaxed);
   word-break: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .row {
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-sm);
+    padding-left: calc(var(--space-sm) + var(--edge-bar-width) + var(--space-md));
+  }
+
+  .row::before {
+    left: var(--space-sm);
+    top: var(--space-md);
+    bottom: var(--space-md);
+  }
+
+  .markdown {
+    font-size: var(--type-reading);
+  }
 }
 
 .markdown p {
@@ -46,6 +88,7 @@
   background: var(--color-bg-code);
   padding: var(--space-md);
   border-radius: var(--radius-md);
+  border: 1px solid var(--color-surface-border);
   overflow-x: auto;
   margin: var(--space-sm) 0;
 }
@@ -103,6 +146,8 @@
   border-collapse: collapse;
   margin: var(--space-sm) 0;
   width: 100%;
+  display: block;
+  overflow-x: auto;
 }
 
 .markdown th, .markdown td {
@@ -129,15 +174,18 @@
 
 .cursor {
   display: inline-block;
-  width: 2px;
+  width: var(--cursor-width);
   height: 1em;
   background: var(--color-accent);
   margin-left: 2px;
   vertical-align: text-bottom;
-  animation: blink 1s step-end infinite;
+  border-radius: 1px;
+  animation: blink 1.2s ease-in-out infinite;
 }
 
 @keyframes blink {
   0%, 100% { opacity: 1; }
+  40% { opacity: 1; }
   50% { opacity: 0; }
+  90% { opacity: 0; }
 }

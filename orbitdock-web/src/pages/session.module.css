@@ -1,6 +1,78 @@
+/* ── Base page ───────────────────────────────────────────────────────────── */
+
 .page {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+}
+
+/* ── Split layout (review panel open) ───────────────────────────────────── */
+
+/*
+ * On desktop (>= 1024px): side-by-side — conversation on left, review on right.
+ * On tablet (768-1023px): conversation shrinks but both columns show.
+ * On mobile (< 768px): review panel overlays the conversation (full-width).
+ */
+
+@media (min-width: 768px) {
+  .pageWithReview {
+    flex-direction: row;
+  }
+}
+
+/* ── Conversation column ─────────────────────────────────────────────────── */
+
+.conversationCol {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+}
+
+/* When the review panel is open on desktop, cap the conversation column width */
+@media (min-width: 768px) {
+  .conversationColNarrow {
+    flex: 0 0 380px;
+    min-width: 0;
+    max-width: 480px;
+    border-right: 1px solid var(--color-surface-border);
+  }
+}
+
+@media (min-width: 1024px) {
+  .conversationColNarrow {
+    flex: 0 0 420px;
+  }
+}
+
+/* On mobile with review open: conversation shrinks to a thin strip, then hides */
+@media (max-width: 767px) {
+  .conversationColNarrow {
+    /* On mobile we hide the conversation and show review full-screen */
+    display: none;
+  }
+}
+
+/* ── Review column ───────────────────────────────────────────────────────── */
+
+.reviewCol {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* On mobile: review is full-screen overlay */
+@media (max-width: 767px) {
+  .reviewCol {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-dropdown);
+    background: var(--color-bg-primary);
+  }
 }

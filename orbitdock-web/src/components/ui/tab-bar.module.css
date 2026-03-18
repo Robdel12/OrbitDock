@@ -1,0 +1,60 @@
+.tabBar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-surface-border);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  flex-shrink: 0;
+}
+
+.tabBar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-body);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 44px;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+  /* Offset the container border so the active border sits on top of it */
+  margin-bottom: -1px;
+}
+
+.tab:hover:not(.tabActive) {
+  color: var(--color-text-secondary);
+}
+
+.tabActive {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+.tabCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-xxs);
+  border-radius: var(--radius-sm);
+  font-size: var(--type-micro);
+  font-weight: var(--font-weight-semibold);
+  background: var(--color-surface-elevated);
+  color: var(--color-text-tertiary);
+}
+
+.tabActive .tabCount {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  color: var(--color-accent);
+}

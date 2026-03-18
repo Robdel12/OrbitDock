@@ -1,0 +1,88 @@
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-lg);
+  height: 32px;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-surface-border);
+  gap: var(--space-sm);
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.metaItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+}
+
+.metaIcon {
+  color: var(--color-text-quaternary);
+  flex-shrink: 0;
+}
+
+.metaText {
+  font-size: var(--type-caption);
+  font-family: var(--font-mono);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Scroll-to-bottom button */
+.scrollBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xxs) var(--space-sm);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-accent-muted);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent);
+  font-size: var(--type-caption);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.scrollBtn:hover {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  border-color: var(--color-accent);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 var(--space-xxs);
+  border-radius: var(--radius-xl);
+  background: var(--color-accent);
+  color: var(--color-bg-primary);
+  font-size: var(--type-mini);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.scrollIcon {
+  flex-shrink: 0;
+}
+
+.scrollLabel {
+  font-size: var(--type-caption);
+  font-weight: 500;
+}

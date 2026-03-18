@@ -1,6 +1,6 @@
 .row {
-  padding: var(--space-xs) 0;
-  opacity: 0.7;
+  padding: var(--space-sm) 0;
+  opacity: 0.8;
   transition: opacity var(--transition-normal);
 }
 
@@ -17,11 +17,13 @@
   font-size: var(--type-caption);
   cursor: pointer;
   width: 100%;
+  border-radius: var(--radius-sm);
   min-width: 0;
 }
 
 .toggle:hover {
   color: var(--color-text-secondary);
+  background: var(--color-surface-hover);
 }
 
 .icon {
@@ -33,7 +35,7 @@
 }
 
 .preview {
-  color: var(--color-text-quaternary);
+  color: var(--color-text-tertiary);
   font-style: normal;
   flex: 1;
   min-width: 0;
@@ -45,7 +47,7 @@
 .content {
   font-size: var(--type-body);
   color: var(--color-text-tertiary);
-  line-height: 1.5;
+  line-height: var(--line-height-normal);
   white-space: pre-wrap;
   word-break: break-word;
   padding: var(--space-sm) 0 var(--space-sm) var(--space-lg);

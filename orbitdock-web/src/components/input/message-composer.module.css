@@ -1,44 +1,404 @@
+/* ── Composer wrapper ────────────────────────────────────────────────────── */
+
 .composer {
+  position: relative;
   display: flex;
-  align-items: flex-end;
-  gap: var(--space-sm);
-  padding: var(--space-md) var(--space-lg);
-  border-top: 1px solid var(--color-surface-border);
-  background: var(--color-bg-secondary);
-}
-
-.input {
-  flex: 1;
-  resize: none;
-  border: 1px solid var(--color-surface-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-tertiary);
-  padding: var(--space-sm) var(--space-md);
-  color: var(--color-text-primary);
-  font-size: var(--type-body);
-  font-family: var(--font-system);
-  line-height: 1.5;
-  min-height: 36px;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.input::placeholder {
-  color: var(--color-text-quaternary);
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 1px var(--color-accent);
-}
-
-.input:disabled {
-  opacity: 0.5;
-}
-
-.actions {
-  display: flex;
+  flex-direction: column;
   gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  padding-bottom: max(var(--space-xs), env(safe-area-inset-bottom, 0));
+  background: var(--color-bg-primary);
+  box-shadow: 0 -1px 0 var(--color-surface-border);
+}
+
+@media (min-width: 768px) {
+  .composer {
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg);
+    padding-bottom: max(var(--space-md), env(safe-area-inset-bottom, 0));
+    box-shadow: none;
+  }
+}
+
+/* ── Attachment bar (above the surface) ─────────────────────────────────── */
+
+.attachmentBar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm) var(--space-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.attachmentHeader {
+  display: flex;
+  align-items: center;
+}
+
+.attachmentCount {
+  font-size: var(--type-caption);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+.attachmentScroll {
+  display: flex;
+  gap: var(--space-sm);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.attachmentScroll::-webkit-scrollbar {
+  display: none;
+}
+
+.attachmentCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   flex-shrink: 0;
+}
+
+.attachmentImg {
+  width: 112px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: var(--radius-ml);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: block;
+  transition: transform var(--transition-fast);
+}
+
+.attachmentImg:hover {
+  transform: scale(1.02);
+}
+
+.attachmentRemove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.attachmentCard:hover .attachmentRemove {
+  opacity: 1;
+}
+
+/* Always show remove button on touch devices (no hover) */
+@media (hover: none) {
+  .attachmentRemove {
+    opacity: 1;
+  }
+}
+
+.attachmentName {
+  font-size: var(--type-micro);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Composer surface (the rounded input box) ───────────────────────────── */
+
+.surface {
+  display: flex;
+  flex-direction: column;
+  background:
+    linear-gradient(180deg, rgba(84, 174, 229, 0.04) 0%, rgba(84, 174, 229, 0) 100%),
+    rgba(84, 174, 229, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-lg);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  outline: none;
+  box-shadow: var(--shadow-sm);
+}
+
+@media (min-width: 768px) {
+  .surface {
+    border-radius: var(--radius-xl);
+  }
+}
+
+.surfaceFocused {
+  border-color: rgba(84, 174, 229, 0.40);
+  box-shadow: 0 0 0 2px rgba(84, 174, 229, 0.10), var(--shadow-sm);
+}
+
+.surfaceWorking {
+  border-color: rgba(84, 174, 229, 0.30);
+}
+
+/* Provider controls row inside the surface */
+.surfaceControls {
+  padding: var(--space-xs) var(--space-sm) 0;
+}
+
+@media (min-width: 768px) {
+  .surfaceControls {
+    padding: var(--space-sm) 10px 0;
+  }
+}
+
+/* ── Input area ─────────────────────────────────────────────────────────── */
+
+.inputWrap {
+  position: relative;
+  padding: var(--space-xs) var(--space-sm) var(--space-xxs);
+}
+
+@media (min-width: 768px) {
+  .inputWrap {
+    padding: var(--space-sm) 10px var(--space-xs);
+  }
+}
+
+.editor {
+  width: 100%;
+  min-height: 26px;
+  max-height: 120px;
+  overflow-y: auto;
+  outline: none !important;
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-family: var(--font-system);
+  line-height: var(--line-height-normal);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  caret-color: var(--color-accent);
+  -webkit-user-modify: read-write-plaintext-only;
+}
+
+/* Placeholder via ::before pseudo-element */
+.editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+}
+
+/* Scrollbar styling for the editor */
+.editor::-webkit-scrollbar {
+  width: 4px;
+}
+
+.editor::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+  border-radius: 2px;
+}
+
+/* ── Toolbar (below the text input, inside the surface) ─────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-sm) var(--space-xs);
+}
+
+@media (min-width: 768px) {
+  .toolbar {
+    padding: 0 10px var(--space-sm);
+  }
+}
+
+.toolbarLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.toolbarRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.toolbarSep {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0 var(--space-xs);
+  flex-shrink: 0;
+}
+
+/* ── Ghost action buttons (toolbar icons) ───────────────────────────────── */
+
+.ghostAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.ghostAction:hover:not(:disabled) {
+  color: var(--color-text-secondary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ghostAction:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.ghostActionDanger {
+  color: var(--color-feedback-negative);
+}
+
+.ghostActionDanger:hover:not(:disabled) {
+  color: var(--color-feedback-negative);
+  background: rgba(242, 102, 115, 0.08);
+}
+
+@media (max-width: 767px) {
+  .ghostAction {
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-md);
+  }
+}
+
+/* Badge on ghost action (attachment count) */
+.ghostBadge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  line-height: 1;
+  font-family: var(--font-mono);
+}
+
+/* ── Send button ────────────────────────────────────────────────────────── */
+
+.sendBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-surface-hover);
+  color: var(--color-text-quaternary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.sendBtnActive {
+  background: rgba(84, 174, 229, 0.85);
+  color: #fff;
+  box-shadow: var(--glow-accent);
+}
+
+.sendBtnActive:hover {
+  background: var(--color-accent);
+  transform: scale(1.05);
+  box-shadow: var(--glow-accent-strong);
+}
+
+.sendBtn:disabled {
+  cursor: not-allowed;
+}
+
+@media (max-width: 767px) {
+  .sendBtn {
+    width: 34px;
+    height: 34px;
+  }
+}
+
+/* ── Pending dot ────────────────────────────────────────────────────────── */
+
+.pendingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  animation: pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* ── Drop overlay ───────────────────────────────────────────────────────── */
+
+.dropOverlay {
+  position: absolute;
+  inset: 4px;
+  border-radius: var(--radius-xl);
+  background: rgba(84, 174, 229, 0.12);
+  border: 1.5px dashed rgba(84, 174, 229, 0.50);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.dropLabel {
+  font-size: var(--type-body);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  background: rgba(15, 14, 17, 0.82);
+  padding: var(--space-xs) var(--space-lg);
+  border-radius: 999px;
+}
+
+/* ── Resume bar ─────────────────────────────────────────────────────────── */
+
+.resumeBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-bg-primary);
+}
+
+.resumeLabel {
+  font-size: var(--type-body);
+  color: var(--color-text-tertiary);
 }

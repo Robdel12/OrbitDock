@@ -1,0 +1,88 @@
+/* Status strip — thin bar below header showing provider + path + metadata */
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-md);
+  height: 28px;
+  flex-shrink: 0;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-surface-border);
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .strip {
+    padding: 0 var(--space-lg);
+    height: 30px;
+  }
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--type-micro);
+}
+
+@media (min-width: 768px) {
+  .mono {
+    font-size: var(--type-caption);
+  }
+}
+
+.dimmed {
+  color: var(--color-text-quaternary);
+  font-size: var(--type-micro);
+}
+
+@media (min-width: 768px) {
+  .dimmed {
+    font-size: var(--type-caption);
+  }
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* Provider dot — small colored circle */
+.providerDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-text-quaternary);
+}
+
+.dot-claude {
+  background: var(--color-provider-claude);
+}
+
+.dot-codex {
+  background: var(--color-provider-codex);
+}
+
+/* Provider name — colored text */
+.providerName {
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--color-text-tertiary);
+}
+
+.provider-claude {
+  color: var(--color-provider-claude);
+}
+
+.provider-codex {
+  color: var(--color-provider-codex);
+}

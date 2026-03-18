@@ -4,8 +4,8 @@
   justify-content: center;
   gap: var(--space-xs);
   border-radius: var(--radius-md);
-  font-weight: 500;
-  transition: background 0.15s, opacity 0.15s;
+  font-weight: var(--font-weight-medium);
+  transition: background var(--transition-fast), color var(--transition-fast), opacity var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -15,8 +15,9 @@
 }
 
 .sm {
-  padding: var(--space-xs) var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
   font-size: var(--type-caption);
+  min-height: 28px;
 }
 
 .md {
@@ -36,6 +37,10 @@
 
 .primary:hover:not(:disabled) {
   background: var(--color-accent-glow);
+}
+
+.primary:focus-visible {
+  outline-color: #fff;
 }
 
 .secondary {
@@ -64,7 +69,11 @@
 }
 
 .danger:hover:not(:disabled) {
-  opacity: 0.9;
+  background: #d95a5a;
+}
+
+.danger:focus-visible {
+  outline-color: #fff;
 }
 
 .spinner {

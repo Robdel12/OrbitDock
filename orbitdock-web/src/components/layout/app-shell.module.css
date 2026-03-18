@@ -1,9 +1,17 @@
+/* ─── Shell ───────────────────────────────────────────────────────────────── */
+
 .shell {
   display: flex;
   width: 100%;
   height: 100vh;
+  height: 100dvh;
+  /* Safe area: right/top for notched devices */
+  padding-top: env(safe-area-inset-top, 0);
+  padding-right: env(safe-area-inset-right, 0);
   overflow: hidden;
 }
+
+/* ─── Main area ───────────────────────────────────────────────────────────── */
 
 .main {
   flex: 1;
@@ -15,5 +23,47 @@
 
 .content {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── Hamburger button (mobile only) ─────────────────────────────────────── */
+
+.hamburger {
+  /* Hidden on desktop — only shown on mobile */
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .hamburger {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: var(--space-xs) var(--space-sm);
+    /* 44px tap target */
+    min-width: 44px;
+    min-height: 44px;
+    background: var(--color-bg-secondary);
+    border: none;
+    border-bottom: 1px solid var(--color-surface-border);
+    cursor: pointer;
+    flex-shrink: 0;
+    align-self: stretch;
+    /* Rendered in-flow above .content so it doesn't overlap anything */
+  }
+}
+
+.hamburgerLine {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: var(--color-text-secondary);
+  border-radius: 1px;
+  transition: background var(--transition-fast);
+}
+
+.hamburger:hover .hamburgerLine {
+  background: var(--color-text-primary);
 }

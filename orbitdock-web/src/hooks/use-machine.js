@@ -1,6 +1,6 @@
 import { createActor } from 'xstate'
 import { signal } from '@preact/signals'
-import { useRef } from 'preact/hooks'
+import { useRef, useEffect } from 'preact/hooks'
 
 const useMachine = (machine, options) => {
   const ref = useRef(null)
@@ -13,6 +13,11 @@ const useMachine = (machine, options) => {
     actor.start()
     ref.current = { state, send: actor.send.bind(actor), actor }
   }
+  useEffect(() => {
+    return () => {
+      if (ref.current) ref.current.actor.stop()
+    }
+  }, [])
   return [ref.current.state, ref.current.send]
 }
 

@@ -1,0 +1,132 @@
+/* ── Backdrop (mobile overlay only) ──────────────────────────────────────── */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 39; /* local stacking context, below sidebar */
+  background: rgba(0, 0, 0, 0.5);
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Hide backdrop on desktop — panel is a side drawer, not an overlay */
+@media (min-width: 768px) {
+  .backdrop {
+    display: none;
+  }
+}
+
+/* ── Panel shell ─────────────────────────────────────────────────────────── */
+
+.panel {
+  position: fixed;
+  z-index: 40; /* local stacking context, below sidebar */
+  background: var(--color-bg-secondary);
+  border-left: 1px solid var(--color-surface-border);
+  display: flex;
+  flex-direction: column;
+  transition: transform var(--transition-slow), opacity var(--transition-slow);
+  will-change: transform;
+
+  /* Mobile: bottom sheet */
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 70vh;
+  max-height: 100dvh;
+  border-left: none;
+  border-top: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.panel.panelOpen {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Desktop: right-side drawer */
+@media (min-width: 768px) {
+  .panel {
+    top: 0;
+    bottom: 0;
+    right: 0;
+    left: auto;
+    width: 320px;
+    height: 100%;
+    max-height: none;
+    border-top: none;
+    border-left: 1px solid var(--color-surface-border);
+    border-radius: 0;
+    transform: translateX(100%);
+    opacity: 0;
+  }
+
+  .panel.panelOpen {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.panelInner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Panel header ────────────────────────────────────────────────────────── */
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-md) var(--space-sm);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-surface-border);
+}
+
+.panelTitle {
+  font-size: var(--type-subhead);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-tertiary);
+  font-size: var(--type-body);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.closeBtn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+/* ── Content scroll area ─────────────────────────────────────────────────── */
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+
+  /* Nudge bottom safe area on iOS */
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}

@@ -1,0 +1,68 @@
+.skeleton {
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* ── Usage summary bar ────────────────────────────────────────────────────── */
+.usageBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-surface-border);
+}
+
+/* ── Filter toolbar ───────────────────────────────────────────────────────── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid var(--color-surface-border);
+  flex-wrap: wrap;
+}
+
+.toolbarSpacer {
+  flex: 1;
+}
+
+/* ── Groups ───────────────────────────────────────────────────────────────── */
+.groups {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.groupHeader {
+  padding: var(--space-xs) var(--space-md);
+  margin-bottom: var(--space-xs);
+}
+
+/* ── Session card placeholder ─────────────────────────────────────────────── */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding-left: calc(8px + var(--space-sm));
+}
