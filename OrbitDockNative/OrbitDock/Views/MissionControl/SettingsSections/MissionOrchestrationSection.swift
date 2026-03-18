@@ -33,8 +33,8 @@ struct MissionOrchestrationSection: View {
 
         missionCompactField("Base Branch", placeholder: "main", text: $baseBranch)
         missionCompactField("Worktree Root", placeholder: ".orbitdock-worktrees (default)", text: $worktreeRootDir)
-        missionCompactField("State on Dispatch", placeholder: "In Progress", text: $stateOnDispatch)
-        missionCompactField("State on Complete", placeholder: "In Review", text: $stateOnComplete)
+        missionStateChips("State on Dispatch", current: $stateOnDispatch, states: ["In Progress", "Todo", "Next"])
+        missionStateChips("State on Complete", current: $stateOnComplete, states: ["In Review", "Done"])
 
         HStack(spacing: Spacing.sm_) {
           Image(systemName: "folder")

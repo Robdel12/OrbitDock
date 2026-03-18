@@ -304,10 +304,10 @@ impl LinearClient {
         &self,
         identifier: &str,
     ) -> anyhow::Result<Option<TrackerIssue>> {
-        let query = format!(
-            r#"query {{
-                issues(filter: {{ identifier: {{ eq: "{identifier}" }} }}, first: 1) {{
-                    nodes {{
+        let query = r#"
+            query OrbitDockFetchIssue($identifier: String!) {
+                issues(filter: { identifier: { eq: $identifier } }, first: 1) {
+                    nodes {
                         id
                         identifier
                         title
@@ -315,15 +315,17 @@ impl LinearClient {
                         priority
                         url
                         createdAt
-                        state {{ name }}
-                        labels {{ nodes {{ name }} }}
-                        relations {{ nodes {{ type relatedIssue {{ id identifier }} }} }}
-                    }}
-                }}
-            }}"#
-        );
+                        state { name }
+                        labels { nodes { name } }
+                        relations { nodes { type relatedIssue { id identifier } } }
+                    }
+                }
+            }
+        "#;
 
-        let data: SingleIssueData = self.graphql(&query, serde_json::json!({})).await?;
+        let data: SingleIssueData = self
+            .graphql(query, serde_json::json!({ "identifier": identifier }))
+            .await?;
         Ok(data
             .issues
             .nodes

@@ -91,6 +91,7 @@ pub struct UpdateMissionSettingsRequest {
     pub agent_claude_permission_mode: Option<Option<String>>,
     pub agent_claude_allowed_tools: Option<Vec<String>>,
     pub agent_claude_disallowed_tools: Option<Vec<String>>,
+    pub agent_claude_allow_bypass_permissions: Option<bool>,
     // Agent — Codex
     pub agent_codex_model: Option<Option<String>>,
     pub agent_codex_effort: Option<Option<String>>,
@@ -1020,6 +1021,7 @@ pub async fn update_mission_settings(
         agent_claude_permission_mode: req.agent_claude_permission_mode,
         agent_claude_allowed_tools: req.agent_claude_allowed_tools,
         agent_claude_disallowed_tools: req.agent_claude_disallowed_tools,
+        agent_claude_allow_bypass_permissions: req.agent_claude_allow_bypass_permissions,
         agent_codex_model: req.agent_codex_model,
         agent_codex_effort: req.agent_codex_effort,
         agent_codex_approval_policy: req.agent_codex_approval_policy,

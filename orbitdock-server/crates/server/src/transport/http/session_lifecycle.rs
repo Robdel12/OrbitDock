@@ -187,6 +187,8 @@ pub struct CreateSessionRequest {
     pub system_prompt: Option<String>,
     #[serde(default)]
     pub append_system_prompt: Option<String>,
+    #[serde(default)]
+    pub allow_bypass_permissions: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -226,6 +228,7 @@ pub async fn create_session(
             mission_id: None,
             issue_identifier: None,
             dynamic_tools: Vec::new(),
+            allow_bypass_permissions: body.allow_bypass_permissions,
         },
     )
     .await;

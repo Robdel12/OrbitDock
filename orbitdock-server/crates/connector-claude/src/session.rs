@@ -205,6 +205,7 @@ impl ClaudeSession {
         allowed_tools: &[String],
         disallowed_tools: &[String],
         effort: Option<&str>,
+        allow_bypass_permissions: bool,
     ) -> Result<Self, ConnectorError> {
         let connector = ClaudeConnector::new(
             cwd,
@@ -214,6 +215,7 @@ impl ClaudeSession {
             allowed_tools,
             disallowed_tools,
             effort,
+            allow_bypass_permissions,
         )
         .await?;
         Ok(Self {

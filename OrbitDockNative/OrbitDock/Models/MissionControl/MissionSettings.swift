@@ -40,12 +40,14 @@ struct ClaudeAgentSettings: Codable, Equatable {
   let permissionMode: String?
   let allowedTools: [String]
   let disallowedTools: [String]
+  let allowBypassPermissions: Bool?
 
   enum CodingKeys: String, CodingKey {
     case model, effort
     case permissionMode = "permission_mode"
     case allowedTools = "allowed_tools"
     case disallowedTools = "disallowed_tools"
+    case allowBypassPermissions = "allow_bypass_permissions"
   }
 
   init(from decoder: Decoder) throws {
@@ -55,6 +57,7 @@ struct ClaudeAgentSettings: Codable, Equatable {
     permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
     allowedTools = try container.decodeIfPresent([String].self, forKey: .allowedTools) ?? []
     disallowedTools = try container.decodeIfPresent([String].self, forKey: .disallowedTools) ?? []
+    allowBypassPermissions = try container.decodeIfPresent(Bool.self, forKey: .allowBypassPermissions)
   }
 
   init(
@@ -62,13 +65,15 @@ struct ClaudeAgentSettings: Codable, Equatable {
     effort: String? = nil,
     permissionMode: String? = nil,
     allowedTools: [String] = [],
-    disallowedTools: [String] = []
+    disallowedTools: [String] = [],
+    allowBypassPermissions: Bool? = nil
   ) {
     self.model = model
     self.effort = effort
     self.permissionMode = permissionMode
     self.allowedTools = allowedTools
     self.disallowedTools = disallowedTools
+    self.allowBypassPermissions = allowBypassPermissions
   }
 }
 

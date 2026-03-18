@@ -230,6 +230,7 @@ pub async fn dispatch_issue(
         mission_id: Some(mission_id.to_string()),
         issue_identifier: Some(issue.identifier.clone()),
         dynamic_tools,
+        allow_bypass_permissions: resolved.allow_bypass_permissions,
     };
 
     let persisted = prepare_persist_direct_session(registry, session_id.clone(), request).await;

@@ -212,6 +212,25 @@ pub(crate) async fn end_session(state: &Arc<SessionRegistry>, session_id: &str) 
     canceled_shells
 }
 
+pub(crate) async fn send_continuation_message(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    content: &str,
+) -> bool {
+    if let Some(tx) = state.get_claude_action_tx(session_id) {
+        tx.send(ClaudeAction::SendMessage {
+            content: content.to_string(),
+            model: None,
+            effort: None,
+            images: vec![],
+        })
+        .await
+        .is_ok()
+    } else {
+        false
+    }
+}
+
 pub(crate) async fn end_failed_direct_session(state: &Arc<SessionRegistry>, session_id: &str) {
     let _ = state
         .persist()

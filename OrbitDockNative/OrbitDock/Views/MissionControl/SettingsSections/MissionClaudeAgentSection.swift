@@ -6,6 +6,7 @@ struct MissionClaudeAgentSection: View {
   @Binding var claudePermission: ClaudePermissionMode
   @Binding var claudeAllowedTools: String
   @Binding var claudeDisallowedTools: String
+  @Binding var claudeAllowBypass: Bool
   let isCompact: Bool
 
   var body: some View {
@@ -23,6 +24,8 @@ struct MissionClaudeAgentSection: View {
           permissionRow
         }
       }
+
+      bypassRow
 
       if isCompact {
         missionCompactField("Allowed Tools", placeholder: "Read, Edit, Bash(git:*)", text: $claudeAllowedTools)
@@ -75,5 +78,23 @@ struct MissionClaudeAgentSection: View {
       )
     }
     .buttonStyle(.plain)
+  }
+
+  private var bypassRow: some View {
+    HStack(spacing: Spacing.sm) {
+      Toggle(isOn: $claudeAllowBypass) {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          Text("Allow Bypass Permissions")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+          Text("Enables mid-session switching to Bypass mode. Required for unattended agents that may need unrestricted tool access.")
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textQuaternary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+      .toggleStyle(.switch)
+      .tint(Color.autonomyUnrestricted)
+    }
   }
 }

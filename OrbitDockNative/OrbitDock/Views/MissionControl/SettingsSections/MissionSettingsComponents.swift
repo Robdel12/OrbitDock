@@ -145,6 +145,24 @@ func missionIntervalChip(
   .buttonStyle(.plain)
 }
 
+func missionStateChips(
+  _ label: String,
+  current: Binding<String>,
+  states: [String]
+) -> some View {
+  VStack(alignment: .leading, spacing: Spacing.sm_) {
+    missionSectionLabel(label)
+    WrappingFlowLayout(spacing: Spacing.xs) {
+      ForEach(states, id: \.self) { state in
+        Button { current.wrappedValue = state } label: {
+          SelectableOptionChip(label: state, isSelected: current.wrappedValue == state)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+  }
+}
+
 func missionModeButton(
   _ label: String,
   icon: String,

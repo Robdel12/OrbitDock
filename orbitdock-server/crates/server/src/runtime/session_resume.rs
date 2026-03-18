@@ -152,6 +152,7 @@ async fn spawn_claude_resume(
                 &[],
                 &[],
                 None,
+                false,
             )
             .await
         });

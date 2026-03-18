@@ -481,6 +481,7 @@ async fn complete_claude_takeover(
             &allowed_tools,
             &disallowed_tools,
             None,
+            false,
         )
         .await
     });

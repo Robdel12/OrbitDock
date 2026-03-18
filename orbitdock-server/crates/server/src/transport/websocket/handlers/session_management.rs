@@ -73,6 +73,7 @@ pub(crate) async fn handle_create_session(
             mission_id: None,
             issue_identifier: None,
             dynamic_tools: Vec::new(),
+            allow_bypass_permissions: false,
         },
     )
     .await;

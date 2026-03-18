@@ -358,6 +358,7 @@ async fn start_lazy_claude_connector(
             &[],
             &[],
             None,
+            false,
         )
         .await
     });

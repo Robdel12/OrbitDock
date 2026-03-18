@@ -9,7 +9,7 @@ use crate::domain::mission_control::config::MissionConfig;
 use crate::domain::mission_control::tracker::Tracker;
 use crate::infrastructure::persistence::mission_control::{MissionIssueRow, MissionRow};
 use crate::infrastructure::persistence::PersistCommand;
-use crate::runtime::session_mutations::end_session;
+use crate::runtime::session_mutations::{end_session, send_continuation_message};
 use crate::runtime::session_registry::SessionRegistry;
 
 /// Terminal tracker states — if an issue moves to one of these, stop working.
@@ -143,15 +143,8 @@ pub async fn reconcile_mission(
             None => true, // Session no longer in registry
             Some(actor) => {
                 let snap = actor.snapshot();
-                // Ended status is obvious. Also treat Waiting/Reply work_status
-                // as "ended" for mission purposes — the agent finished its turn
-                // and is idle (no longer actively working on the issue).
                 snap.status == orbitdock_protocol::SessionStatus::Ended
-                    || matches!(
-                        snap.work_status,
-                        orbitdock_protocol::WorkStatus::Waiting
-                            | orbitdock_protocol::WorkStatus::Ended
-                    )
+                    || snap.work_status == orbitdock_protocol::WorkStatus::Ended
             }
         };
 
@@ -212,6 +205,41 @@ pub async fn reconcile_mission(
             }
 
             handled_issue_ids.insert(issue_row.issue_id.clone());
+        }
+    }
+
+    // ── Pass 2.5: Continuation nudge for idle sessions ────────────────
+    for issue_row in &running_issues {
+        if handled_issue_ids.contains(&issue_row.issue_id) {
+            continue;
+        }
+
+        let Some(ref session_id) = issue_row.session_id else {
+            continue;
+        };
+        let Some(actor) = registry.get_session(session_id) else {
+            continue;
+        };
+        let snap = actor.snapshot();
+
+        if snap.work_status == orbitdock_protocol::WorkStatus::Waiting {
+            let nudge = format!(
+                "The issue {} is still in an active state. \
+                 Resume from your current progress. Do not restart from scratch. \
+                 Focus on remaining work and do not end your turn while the issue \
+                 stays active unless you are blocked.",
+                issue_row.issue_identifier,
+            );
+            if send_continuation_message(registry, session_id, &nudge).await {
+                info!(
+                    component = "mission_control",
+                    event = "reconciliation.continuation_nudge",
+                    issue_id = %issue_row.issue_id,
+                    session_id = %session_id,
+                    "Sent continuation nudge to idle session"
+                );
+                handled_issue_ids.insert(issue_row.issue_id.clone());
+            }
         }
     }
 

@@ -187,6 +187,10 @@ pub struct ClaudeAgentConfig {
     pub allowed_tools: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub disallowed_tools: Vec<String>,
+    /// When true, pass `--allow-dangerously-skip-permissions` at launch so
+    /// mid-session switches to `bypassPermissions` are permitted.
+    #[serde(default)]
+    pub allow_bypass_permissions: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -227,6 +231,7 @@ pub struct ResolvedAgentSettings {
     pub personality: Option<String>,
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
+    pub allow_bypass_permissions: bool,
 }
 
 impl AgentConfig {
@@ -240,16 +245,18 @@ impl AgentConfig {
         match provider {
             "claude" => {
                 if let Some(c) = &self.claude {
+                    let pm = c
+                        .permission_mode
+                        .clone()
+                        .unwrap_or_else(|| "auto".to_string());
+                    let allow_bypass = c.allow_bypass_permissions || pm == "bypassPermissions";
                     ResolvedAgentSettings {
                         model: c.model.clone(),
                         effort: c.effort.clone(),
-                        permission_mode: Some(
-                            c.permission_mode
-                                .clone()
-                                .unwrap_or_else(|| "auto".to_string()),
-                        ),
+                        permission_mode: Some(pm),
                         allowed_tools: c.allowed_tools.clone(),
                         disallowed_tools: c.disallowed_tools.clone(),
+                        allow_bypass_permissions: allow_bypass,
                         ..Default::default()
                     }
                 } else {
@@ -605,6 +612,7 @@ pub struct MissionConfigUpdate {
     pub agent_claude_permission_mode: Option<Option<String>>,
     pub agent_claude_allowed_tools: Option<Vec<String>>,
     pub agent_claude_disallowed_tools: Option<Vec<String>>,
+    pub agent_claude_allow_bypass_permissions: Option<bool>,
     // Agent — Codex
     pub agent_codex_model: Option<Option<String>>,
     pub agent_codex_effort: Option<Option<String>>,
@@ -658,7 +666,8 @@ impl MissionConfig {
             || u.agent_claude_effort.is_some()
             || u.agent_claude_permission_mode.is_some()
             || u.agent_claude_allowed_tools.is_some()
-            || u.agent_claude_disallowed_tools.is_some();
+            || u.agent_claude_disallowed_tools.is_some()
+            || u.agent_claude_allow_bypass_permissions.is_some();
         if has_claude {
             let claude = self
                 .agent
@@ -678,6 +687,9 @@ impl MissionConfig {
             }
             if let Some(v) = u.agent_claude_disallowed_tools {
                 claude.disallowed_tools = v;
+            }
+            if let Some(v) = u.agent_claude_allow_bypass_permissions {
+                claude.allow_bypass_permissions = v;
             }
         }
 
@@ -1078,6 +1090,7 @@ Some prompt body
                 permission_mode: Some("auto".to_string()),
                 allowed_tools: vec!["Bash".to_string()],
                 disallowed_tools: vec![],
+                allow_bypass_permissions: false,
             }),
             codex: None,
         };
@@ -1246,6 +1259,7 @@ Hello
                     permission_mode: Some("auto".to_string()),
                     allowed_tools: vec!["Read".to_string(), "Edit".to_string()],
                     disallowed_tools: vec![],
+                    allow_bypass_permissions: false,
                 }),
                 codex: Some(CodexAgentConfig {
                     model: Some("gpt-5.3-codex".to_string()),

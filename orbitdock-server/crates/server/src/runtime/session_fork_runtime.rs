@@ -60,6 +60,7 @@ pub(crate) async fn start_claude_fork_session(
         allowed_tools,
         disallowed_tools,
         None,
+        false,
     )
     .await
     .map_err(|error| error.to_string())?;

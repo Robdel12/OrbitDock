@@ -213,9 +213,10 @@ pub(crate) async fn handle(
                         m.as_deref(),
                         Some(&resume_id),
                         pm.as_deref(),
-                        &[],  // allowed_tools
-                        &[],  // disallowed_tools
-                        None, // effort
+                        &[],   // allowed_tools
+                        &[],   // disallowed_tools
+                        None,  // effort
+                        false, // allow_bypass_permissions
                     )
                     .await
                 });
@@ -841,7 +842,8 @@ pub(crate) async fn handle(
                         pm.as_deref(),
                         &at,
                         &dt,
-                        None, // effort
+                        None,  // effort
+                        false, // allow_bypass_permissions
                     )
                     .await
                 });

@@ -59,6 +59,9 @@ pub(crate) struct DirectSessionRequest {
     pub issue_identifier: Option<String>,
     /// Dynamic tool specs for Codex sessions (mission tools).
     pub dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
+    /// When true, pass `--allow-dangerously-skip-permissions` to the Claude CLI,
+    /// enabling mid-session switches to `bypassPermissions` mode.
+    pub allow_bypass_permissions: bool,
 }
 
 pub(crate) struct PreparedPersistedDirectSession {
@@ -287,6 +290,7 @@ pub(crate) async fn launch_prepared_direct_session(
                     allowed_tools: &request.allowed_tools,
                     disallowed_tools: &request.disallowed_tools,
                     effort: request.effort.as_deref(),
+                    allow_bypass_permissions: request.allow_bypass_permissions,
                 },
             )
             .await
@@ -400,6 +404,7 @@ mod tests {
             mission_id: None,
             issue_identifier: None,
             dynamic_tools: Vec::new(),
+            allow_bypass_permissions: false,
         };
         let prepared = prepare_direct_session(DirectSessionCreationInputs {
             id: "session-3".into(),
