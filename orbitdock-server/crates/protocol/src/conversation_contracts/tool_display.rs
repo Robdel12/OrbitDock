@@ -85,6 +85,8 @@ pub struct ToolDiffPreview {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_line: Option<String>,
     pub snippet_text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preview_lines: Vec<String>,
     pub snippet_prefix: String,
     pub is_addition: bool,
     pub additions: u32,
@@ -148,6 +150,22 @@ fn truncate(s: &str, max_chars: usize) -> String {
     }
     let t: String = s.chars().take(max_chars).collect();
     format!("{t}…")
+}
+
+fn preview_lines_from_text(text: &str, max_lines: usize, max_chars: usize) -> Vec<String> {
+    text.lines()
+        .map(|line| truncate(line, max_chars))
+        .filter(|line| !line.trim().is_empty())
+        .take(max_lines)
+        .collect()
+}
+
+fn joined_preview_text(lines: &[String], fallback: &str, max_chars: usize) -> String {
+    if lines.is_empty() {
+        truncate(fallback, max_chars)
+    } else {
+        lines.join("\n")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -475,6 +493,11 @@ fn extract_subtitle_from_input(
             .get("query")
             .and_then(|v| v.as_str())
             .map(|q| truncate(q, 80)),
+        ToolKind::AskUserQuestion => input
+            .get("prompt")
+            .or_else(|| input.get("question"))
+            .and_then(|v| v.as_str())
+            .map(|q| truncate(q, 120)),
         _ => None,
     };
     result.filter(|s| !s.trim().is_empty())
@@ -600,7 +623,82 @@ fn compute_output_preview(kind: ToolKind, result_output: Option<&str>) -> Option
             let first = output.lines().find(|l| !l.trim().is_empty())?;
             Some(truncate(first, 120))
         }
+        ToolKind::WebSearch => compute_web_search_preview(output),
+        ToolKind::McpToolCall | ToolKind::DynamicToolCall => compute_structured_preview(output),
+        ToolKind::SpawnAgent
+        | ToolKind::SendAgentInput
+        | ToolKind::WaitAgent
+        | ToolKind::CloseAgent
+        | ToolKind::ResumeAgent => {
+            let lines: Vec<&str> = output
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .filter(|l| !l.trim().to_lowercase().starts_with("status:"))
+                .take(3)
+                .collect();
+            if lines.is_empty() {
+                None
+            } else {
+                Some(lines.join("\n"))
+            }
+        }
         // Most tools: no preview in compact mode
+        _ => None,
+    }
+}
+
+fn compute_web_search_preview(output: &str) -> Option<String> {
+    let parsed = serde_json::from_str::<serde_json::Value>(output).ok()?;
+    let results = parsed.get("results")?.as_array()?;
+    let lines: Vec<String> = results
+        .iter()
+        .take(3)
+        .filter_map(|item| {
+            let title = item.get("title").and_then(|v| v.as_str())?;
+            Some(truncate(title, 90))
+        })
+        .collect();
+
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
+fn compute_structured_preview(output: &str) -> Option<String> {
+    let parsed = serde_json::from_str::<serde_json::Value>(output).ok()?;
+    match parsed {
+        serde_json::Value::Object(map) => {
+            let lines: Vec<String> = map
+                .iter()
+                .take(3)
+                .map(|(key, value)| match value {
+                    serde_json::Value::String(s) => format!("{key}: {}", truncate(s, 80)),
+                    serde_json::Value::Array(arr) => format!("{key}: [{} items]", arr.len()),
+                    serde_json::Value::Object(obj) => format!("{key}: {{{} keys}}", obj.len()),
+                    other => format!("{key}: {}", truncate(&other.to_string(), 80)),
+                })
+                .collect();
+
+            if lines.is_empty() {
+                None
+            } else {
+                Some(lines.join("\n"))
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            let lines: Vec<String> = arr
+                .iter()
+                .take(3)
+                .map(|item| truncate(&item.to_string(), 80))
+                .collect();
+            if lines.is_empty() {
+                None
+            } else {
+                Some(lines.join("\n"))
+            }
+        }
         _ => None,
     }
 }
@@ -673,16 +771,22 @@ fn compute_diff_preview(
         (Some(old), Some(new)) => {
             let additions = new.lines().count() as u32;
             let deletions = old.lines().count() as u32;
-            let is_addition = deletions == 0;
-            let snippet = if is_addition {
-                new.lines().next().unwrap_or("").to_string()
+            let is_addition = deletions == 0 || additions >= deletions;
+            let preview_lines = if is_addition {
+                preview_lines_from_text(new, 4, 120)
             } else {
-                old.lines().next().unwrap_or("").to_string()
+                preview_lines_from_text(old, 4, 120)
+            };
+            let snippet = if is_addition {
+                new.lines().next().unwrap_or("")
+            } else {
+                old.lines().next().unwrap_or("")
             };
             let prefix = if is_addition { "+" } else { "-" };
             Some(ToolDiffPreview {
                 context_line: None,
-                snippet_text: truncate(&snippet, 80),
+                snippet_text: joined_preview_text(&preview_lines, snippet, 240),
+                preview_lines,
                 snippet_prefix: prefix.to_string(),
                 is_addition,
                 additions,
@@ -693,10 +797,12 @@ fn compute_diff_preview(
             // Write tool — all additions
             let content = input.get("content").and_then(|v| v.as_str())?;
             let lines = content.lines().count() as u32;
-            let first_line = content.lines().next().unwrap_or("").to_string();
+            let preview_lines = preview_lines_from_text(content, 4, 120);
+            let first_line = content.lines().next().unwrap_or("");
             Some(ToolDiffPreview {
                 context_line: None,
-                snippet_text: truncate(&first_line, 80),
+                snippet_text: joined_preview_text(&preview_lines, first_line, 240),
+                preview_lines,
                 snippet_prefix: "+".to_string(),
                 is_addition: true,
                 additions: lines,
@@ -717,6 +823,7 @@ fn compute_diff_preview(
             let mut additions: u32 = 0;
             let mut deletions: u32 = 0;
             let mut first_changed: Option<(&str, bool)> = None;
+            let mut preview_lines: Vec<String> = Vec::new();
             for line in &parsed {
                 match line.kind {
                     DiffLineKind::Addition => {
@@ -724,11 +831,17 @@ fn compute_diff_preview(
                         if first_changed.is_none() {
                             first_changed = Some((&line.content, true));
                         }
+                        if preview_lines.len() < 4 {
+                            preview_lines.push(truncate(&line.content, 120));
+                        }
                     }
                     DiffLineKind::Deletion => {
                         deletions += 1;
                         if first_changed.is_none() {
                             first_changed = Some((&line.content, false));
+                        }
+                        if preview_lines.len() < 4 {
+                            preview_lines.push(truncate(&line.content, 120));
                         }
                     }
                     DiffLineKind::Context => {}
@@ -738,7 +851,8 @@ fn compute_diff_preview(
             let prefix = if is_addition { "+" } else { "-" };
             Some(ToolDiffPreview {
                 context_line: None,
-                snippet_text: truncate(snippet, 80),
+                snippet_text: joined_preview_text(&preview_lines, snippet, 240),
+                preview_lines,
                 snippet_prefix: prefix.to_string(),
                 is_addition,
                 additions,
@@ -822,6 +936,11 @@ pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) 
             // Todo input isn't useful for expanded display — the items are shown via todoItems
             None
         }
+        ToolKind::AskUserQuestion => input
+            .get("prompt")
+            .or_else(|| input.get("question"))
+            .and_then(|v| v.as_str())
+            .map(String::from),
         ToolKind::McpToolCall | ToolKind::DynamicToolCall => {
             serde_json::to_string_pretty(input).ok()
         }

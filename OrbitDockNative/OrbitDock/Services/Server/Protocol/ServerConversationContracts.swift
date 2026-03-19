@@ -969,6 +969,7 @@ struct ServerToolDisplay: Codable {
 struct ServerToolDiffPreview: Codable {
   let contextLine: String?
   let snippetText: String
+  let previewLines: [String]
   let snippetPrefix: String
   let isAddition: Bool
   let additions: UInt32
@@ -977,10 +978,40 @@ struct ServerToolDiffPreview: Codable {
   enum CodingKeys: String, CodingKey {
     case contextLine = "context_line"
     case snippetText = "snippet_text"
+    case previewLines = "preview_lines"
     case snippetPrefix = "snippet_prefix"
     case isAddition = "is_addition"
     case additions
     case deletions
+  }
+
+  init(
+    contextLine: String?,
+    snippetText: String,
+    previewLines: [String] = [],
+    snippetPrefix: String,
+    isAddition: Bool,
+    additions: UInt32,
+    deletions: UInt32
+  ) {
+    self.contextLine = contextLine
+    self.snippetText = snippetText
+    self.previewLines = previewLines
+    self.snippetPrefix = snippetPrefix
+    self.isAddition = isAddition
+    self.additions = additions
+    self.deletions = deletions
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    contextLine = try container.decodeIfPresent(String.self, forKey: .contextLine)
+    snippetText = try container.decode(String.self, forKey: .snippetText)
+    previewLines = try container.decodeIfPresent([String].self, forKey: .previewLines) ?? []
+    snippetPrefix = try container.decode(String.self, forKey: .snippetPrefix)
+    isAddition = try container.decode(Bool.self, forKey: .isAddition)
+    additions = try container.decode(UInt32.self, forKey: .additions)
+    deletions = try container.decode(UInt32.self, forKey: .deletions)
   }
 }
 

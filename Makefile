@@ -9,6 +9,10 @@ XCODE_UNIT_TEST_SCHEME ?= OrbitDock Unit Tests
 XCODE_IOS_SCHEME ?= OrbitDock iOS
 XCODE_IOS_DESTINATION ?= generic/platform=iOS
 XCODE_IOS_TEST_DESTINATION ?= platform=iOS Simulator,name=iPhone 16,OS=18.5
+XCODE_IOS_DEVICE_NAME ?=
+XCODE_IOS_DEVICE_ID ?=
+XCODE_IOS_DEVICE_BUNDLE_ID ?= com.stubborn-mule-software.OrbitDock-iOS
+XCODE_IOS_DEVICE_BUILD_FLAGS ?= -allowProvisioningUpdates
 XCODEBUILD_LOG_DIR ?= .logs
 XCODE_DERIVED_DATA_DIR ?= .build/DerivedData
 XCODE_CACHE_DIR ?= .cache/xcodebuild
@@ -74,7 +78,7 @@ RUST_CARGO = $(RUST_WORKSPACE_PREFIX) cargo
 
 .PHONY: \
 	help \
-	build build-ios build-all clean test test-all test-unit test-unit-ios test-ui \
+	build build-ios build-all run-ios-device clean test test-all test-unit test-unit-ios test-ui \
 	fmt lint swift-fmt swift-lint \
 	rust-ci rust-build rust-build-release rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint \
 	rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token \
@@ -159,6 +163,7 @@ help:
 	@echo "make build      Build the macOS app"
 	@echo "make build-ios  Build the iOS app"
 	@echo "make build-all  Build both macOS and iOS"
+	@echo "make run-ios-device DEVICE='<device name>' | DEVICE_ID=<id>  Build, install, and launch on a physical iOS device"
 	@echo "make test       Run unit tests (no UI tests)"
 	@echo "make test-unit  Run unit tests only (OrbitDockTests)"
 	@echo "make test-unit-ios Run iOS unit tests only (OrbitDock iOSTests)"
@@ -221,6 +226,42 @@ build-ios:
 	$(call run_xcode_logged,$(XCODEBUILD_IOS) build,xcodebuild-build-ios.log)
 
 build-all: build build-ios
+
+run-ios-device:
+	@$(MAKE) xcode-cache-dirs
+	@mkdir -p $(XCODEBUILD_LOG_DIR)
+	@set -euo pipefail; \
+	device_name="$${DEVICE:-$(XCODE_IOS_DEVICE_NAME)}"; \
+	device_id="$${DEVICE_ID:-$(XCODE_IOS_DEVICE_ID)}"; \
+	if [[ -z "$$device_name" && -z "$$device_id" ]]; then \
+		echo "Provide DEVICE='<device name>' or DEVICE_ID=<id>."; \
+		exit 1; \
+	fi; \
+	if [[ -z "$$device_id" ]]; then \
+		device_id="$$(xcrun xcdevice list | ruby -rjson -e 'devices = JSON.parse(STDIN.read); name = ARGV[0].downcase; device = devices.find { |d| !d["simulator"] && d["available"] && d["name"].to_s.downcase == name }; puts device["identifier"] if device' "$$device_name")"; \
+	fi; \
+	if [[ -z "$$device_id" ]]; then \
+		echo "Could not resolve iOS device '$$device_name'. Pass DEVICE_ID=<id> to override."; \
+		exit 1; \
+	fi; \
+	echo "Building for device $$device_name ($$device_id)"; \
+	set -o pipefail; \
+	$(XCODEBUILD_ENV) xcodebuild \
+		-project $(XCODE_PROJECT) \
+		-scheme "$(XCODE_IOS_SCHEME)" \
+		-destination "id=$$device_id" \
+		$(XCODE_IOS_DEVICE_BUILD_FLAGS) \
+		$(XCODEBUILD_ARGS) \
+		build 2>&1 | tee "$(XCODEBUILD_LOG_DIR)/xcodebuild-run-ios-device.log" | xcbeautify --quiet; \
+	app_path="$(abspath $(XCODE_DERIVED_DATA_DIR))/Build/Products/Debug-iphoneos/OrbitDock iOS.app"; \
+	if [[ ! -d "$$app_path" ]]; then \
+		echo "Built app not found at $$app_path"; \
+		exit 1; \
+	fi; \
+	echo "Installing $$app_path"; \
+	xcrun devicectl device install app --device "$$device_id" "$$app_path"; \
+	echo "Launching $(XCODE_IOS_DEVICE_BUNDLE_ID)"; \
+	xcrun devicectl device process launch --device "$$device_id" "$(XCODE_IOS_DEVICE_BUNDLE_ID)"
 
 test: test-unit
 
