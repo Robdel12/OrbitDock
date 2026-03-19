@@ -396,6 +396,12 @@
   cursor: not-allowed;
 }
 
+.overflowDivider {
+  height: 1px;
+  background: var(--color-surface-border);
+  margin: var(--space-xxs) var(--space-md);
+}
+
 /* ── Follow / pin controls ──────────────────────────────────────────────── */
 
 .followBtn {
@@ -650,14 +656,44 @@
 
 .resumeBar {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-lg) var(--space-lg);
   background: var(--color-bg-primary);
+  box-shadow: 0 -1px 0 var(--color-surface-border);
 }
 
-.resumeLabel {
+.resumeContent {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.resumeIcon {
+  color: var(--color-status-ended);
+  flex-shrink: 0;
+}
+
+.resumeText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.resumeTitle {
   font-size: var(--type-body);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.resumeSubtitle {
+  font-size: var(--type-caption);
   color: var(--color-text-tertiary);
+}
+
+.resumeActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
 }

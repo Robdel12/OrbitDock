@@ -128,7 +128,7 @@ const tokenColorClass = (pct) => {
 
 // ── Workflow overflow menu ────────────────────────────────────────────────────
 
-const WorkflowMenu = ({ open, onClose, onUndo, onFork, onCompact, isActive }) => {
+const WorkflowMenu = ({ open, onClose, onUndo, onFork, onForkToWorktree, onContinueInNew, onCompact, isActive }) => {
   if (!open) return null
 
   return (
@@ -138,12 +138,26 @@ const WorkflowMenu = ({ open, onClose, onUndo, onFork, onCompact, isActive }) =>
         <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onUndo(); onClose() }}>
           Undo Last Turn
         </button>
-        <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onFork(); onClose() }}>
-          Fork Conversation
-        </button>
         <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onCompact(); onClose() }}>
           Compact Context
         </button>
+      </div>
+      <div class={styles.overflowDivider} />
+      <div class={styles.overflowSection}>
+        <span class={styles.overflowSectionLabel}>Session</span>
+        <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onFork(); onClose() }}>
+          Fork Conversation
+        </button>
+        {onForkToWorktree && (
+          <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onForkToWorktree(); onClose() }}>
+            Fork to Worktree
+          </button>
+        )}
+        {onContinueInNew && (
+          <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onContinueInNew(); onClose() }}>
+            Continue in New Session
+          </button>
+        )}
       </div>
     </div>
   )
@@ -237,9 +251,12 @@ const MessageComposer = ({
   onSteer,
   onInterrupt,
   onResume,
+  onContinueInNew,
   onUndo,
   onFork,
+  onForkToWorktree,
   onCompact,
+  onEnd,
   disabled,
   isWorking,
   isPending,
@@ -492,15 +509,45 @@ const MessageComposer = ({
   const isActive = session?.status === 'active'
   const showStatusBar = isConnected === false || provider || tokenInfo || model || branch || cwdLabel
 
+  // ── Slash command action dispatch ───────────────────────────────────────────
+
+  const handleSlashAction = useCallback((action) => {
+    const actions = {
+      compact: onCompact,
+      undo: onUndo,
+      resume: onResume,
+      fork: () => onFork?.(),
+      end: onEnd,
+    }
+    const handler = actions[action]
+    if (handler) handler()
+  }, [onCompact, onUndo, onResume, onFork, onEnd])
+
   // ── Ended state ────────────────────────────────────────────────────────────
 
   if (isEnded) {
     return (
       <div class={styles.resumeBar}>
-        <span class={styles.resumeLabel}>This session has ended.</span>
-        <Button variant="primary" size="sm" type="button" onClick={onResume}>
-          Resume Session
-        </Button>
+        <div class={styles.resumeContent}>
+          <svg class={styles.resumeIcon} width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10" cy="10" r="8" />
+            <path d="M7 10l2 2 4-4" />
+          </svg>
+          <div class={styles.resumeText}>
+            <span class={styles.resumeTitle}>Mission Complete</span>
+            <span class={styles.resumeSubtitle}>This session has ended. Resume to continue working.</span>
+          </div>
+        </div>
+        <div class={styles.resumeActions}>
+          <Button variant="primary" size="sm" type="button" onClick={onResume}>
+            Resume Session
+          </Button>
+          {onContinueInNew && (
+            <Button variant="ghost" size="sm" type="button" onClick={onContinueInNew}>
+              Continue in New
+            </Button>
+          )}
+        </div>
       </div>
     )
   }
@@ -589,6 +636,7 @@ const MessageComposer = ({
             value={value}
             cursorPos={cursorPos}
             onInsert={handleInsert}
+            onAction={handleSlashAction}
             skills={skills}
           />
 
@@ -692,6 +740,8 @@ const MessageComposer = ({
                 onClose={() => setWorkflowOpen(false)}
                 onUndo={onUndo}
                 onFork={() => onFork()}
+                onForkToWorktree={onForkToWorktree}
+                onContinueInNew={onContinueInNew}
                 onCompact={onCompact}
                 isActive={isActive}
               />

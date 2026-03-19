@@ -373,6 +373,8 @@ const SessionHeader = ({
   onEnd,
   onRename,
   onFork,
+  onForkToWorktree,
+  onContinueInNew,
   onTakeover,
   onRollback,
   onToggleCapabilities,
@@ -606,6 +608,16 @@ const SessionHeader = ({
                 <button class={styles.overflowItem} onClick={openFork}>
                   Fork…
                 </button>
+                {onForkToWorktree && (
+                  <button class={styles.overflowItem} onClick={() => { onForkToWorktree(); setOverflowOpen(false) }}>
+                    Fork to Worktree
+                  </button>
+                )}
+                {onContinueInNew && (
+                  <button class={styles.overflowItem} onClick={() => { onContinueInNew(); setOverflowOpen(false) }}>
+                    Continue in New Session
+                  </button>
+                )}
                 <button class={styles.overflowItem} onClick={openRollback}>
                   Rollback…
                 </button>

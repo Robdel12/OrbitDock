@@ -127,19 +127,19 @@ The conversation rendering works but is visually thinner than native. Missing st
 
 Missing flows that native supports for session management.
 
-- [ ] **5.1 — Session resume**
+- [x] **5.1 — Session resume**
   When a session is ended, show a resume row at the bottom of the conversation (or in the composer area, which already has a resume bar). Wire to `POST /api/sessions/{id}/resume`. On success, the session's WS events will resume.
 
-- [ ] **5.2 — Continue in new session**
+- [x] **5.2 — Continue in new session**
   Add "Continue in New Session" to the workflow overflow menu and session header overflow. Opens the create session dialog pre-filled with context from the current session. Generates a bootstrap prompt summarizing the previous session's work.
 
-- [ ] **5.3 — Fork to worktree**
+- [x] **5.3 — Fork to worktree**
   Add "Fork to New Worktree" and "Fork to Existing Worktree" options. Fork to New: creates a worktree via `POST /api/worktrees` then forks the session into it. Fork to Existing: shows a worktree picker, then forks.
 
-- [ ] **5.4 — Real slash command dispatch**
+- [x] **5.4 — Real slash command dispatch**
   When the user selects a slash command from the completion menu, dispatch the actual action instead of inserting literal text. `/compact` → `onCompact()`, `/undo` → `onUndo()`, `/end` → `onEnd()`, etc. Only commands that are actually text prompts (like `/help`) should insert text.
 
-- [ ] **5.5 — Take over flow polish**
+- [x] **5.5 — Take over flow polish**
   Ensure the take-over bar renders cleanly when viewing a passive session. Match native's pulsing dot + "Take over to send messages" + "Take Over →" capsule button.
 
 ---
@@ -216,8 +216,8 @@ Systematic pass to replace rough edges and align with native design language.
 | 2. Dashboard Zones | 7 | 7 | Complete |
 | 3. Session Header | 5 | 5 | Complete |
 | 4. Conversation Polish | 6 | 6 | Complete |
-| 5. Session Lifecycle | 5 | 0 | Not started |
+| 5. Session Lifecycle | 5 | 5 | Complete |
 | 6. Command Palette | 5 | 0 | Not started |
 | 7. Visual Polish | 6 | 0 | Not started |
 | 8. Settings & Pages | 5 | 0 | Not started |
-| **Total** | **46** | **24** | |
+| **Total** | **46** | **29** | |

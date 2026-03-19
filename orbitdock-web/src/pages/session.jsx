@@ -275,6 +275,8 @@ const SessionPage = () => {
 
   const isEnded = session?.status === 'ended' || session?.work_status === 'ended'
   const isWorking = session?.work_status === 'working'
+  const isPassive = session?.work_status === 'reply' || session?.work_status === 'ended'
+  const showTakeover = session?.status === 'active' && isPassive
   const showWorktreeBanner = isEnded && session?.is_worktree && !!session?.worktree_id
 
   const handleInterrupt = () => {
@@ -338,6 +340,25 @@ const SessionPage = () => {
       console.warn('[session] worktree delete failed:', err.message)
     })
 
+  const handleContinueInNew = () => {
+    // Fork from the latest message into a new session
+    http.post(`/api/sessions/${sessionId}/fork`).then((res) => {
+      if (res?.session?.id) navigate(`/session/${res.session.id}`)
+    }).catch((err) => {
+      console.warn('[session] continue in new failed:', err.message)
+      addToast({ title: 'Continue failed', body: err.message, type: 'error' })
+    })
+  }
+
+  const handleForkToWorktree = () => {
+    http.post(`/api/sessions/${sessionId}/fork-to-worktree`).then((res) => {
+      if (res?.session?.id) navigate(`/session/${res.session.id}`)
+    }).catch((err) => {
+      console.warn('[session] fork to worktree failed:', err.message)
+      addToast({ title: 'Fork to worktree failed', body: err.message, type: 'error' })
+    })
+  }
+
   const handleToggleCapabilities = () => setCapabilitiesOpen((v) => !v)
 
   const handleOpenReview = () => {
@@ -356,6 +377,8 @@ const SessionPage = () => {
           onEnd={handleEnd}
           onRename={handleRename}
           onFork={handleFork}
+          onForkToWorktree={handleForkToWorktree}
+          onContinueInNew={handleContinueInNew}
           onTakeover={handleTakeover}
           onRollback={handleRollback}
           onToggleCapabilities={handleToggleCapabilities}
@@ -402,15 +425,28 @@ const SessionPage = () => {
             onRespondPermission={handleRespondPermission}
           />
         )}
+        {/* Takeover banner — visible when viewing a passive session */}
+        {showTakeover && (
+          <div class={styles.takeoverBanner}>
+            <span class={styles.takeoverDot} />
+            <span class={styles.takeoverLabel}>Take over to send messages</span>
+            <button class={styles.takeoverBtn} onClick={handleTakeover}>
+              Take Over
+            </button>
+          </div>
+        )}
         <MessageComposer
           sessionId={sessionId}
           onSend={handleSend}
           onSteer={handleSteer}
           onInterrupt={handleInterrupt}
           onResume={handleResume}
+          onContinueInNew={handleContinueInNew}
           onUndo={handleUndo}
           onFork={handleFork}
+          onForkToWorktree={handleForkToWorktree}
           onCompact={handleCompact}
+          onEnd={handleEnd}
           disabled={isEnded}
           isWorking={isWorking}
           isPending={isPending}

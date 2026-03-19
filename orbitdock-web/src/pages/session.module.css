@@ -76,3 +76,50 @@
     background: var(--color-bg-primary);
   }
 }
+
+/* ── Takeover banner ────────────────────────────────────────────────────── */
+
+.takeoverBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-surface-border);
+}
+
+.takeoverDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex-shrink: 0;
+  animation: takeoverPulse 2s ease-in-out infinite;
+}
+
+@keyframes takeoverPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.takeoverLabel {
+  font-size: var(--type-caption);
+  color: var(--color-text-secondary);
+}
+
+.takeoverBtn {
+  font-size: var(--type-caption);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-bg-primary);
+  background: var(--color-accent);
+  border: none;
+  border-radius: var(--radius-xl);
+  padding: var(--space-xxs) var(--space-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.takeoverBtn:hover {
+  filter: brightness(1.1);
+}
