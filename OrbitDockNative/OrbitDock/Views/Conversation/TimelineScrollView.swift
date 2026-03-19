@@ -72,9 +72,12 @@ struct TimelineScrollView: View {
     ScrollViewReader { proxy in
       ScrollView(.vertical) {
         LazyVStack(spacing: 0) {
-          // Pagination sentinel — triggers history load when scrolled into view
+          // Pagination sentinel — triggers history load when scrolled into view.
+          // Identity changes when older messages prepend (first entry's sequence
+          // changes), so onAppear fires again for the next page.
           Color.clear
             .frame(height: 1)
+            .id("pagination-\(entries.first?.sequence ?? 0)")
             .onAppear { onLoadMore?() }
 
           ForEach(displayed) { entry in
@@ -186,7 +189,6 @@ struct TimelineScrollView: View {
   private static func expandableId(for entry: ServerConversationRowEntry) -> String? {
     switch entry.row {
       case let .tool(toolRow): toolRow.id
-      case let .thinking(msg): msg.id
       case let .activityGroup(group): group.id
       default: nil
     }

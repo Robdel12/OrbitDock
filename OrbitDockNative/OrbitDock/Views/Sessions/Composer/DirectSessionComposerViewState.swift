@@ -26,7 +26,7 @@ extension DirectSessionComposer {
       session: obs.approvalCardContext,
       pendingApproval: obs.pendingApproval,
       approvalHistory: obs.approvalHistory,
-      transcriptMessages: serverState.conversation(sessionId).messages
+      rowEntries: obs.rowEntries
     )
   }
 
@@ -388,8 +388,8 @@ extension DirectSessionComposer {
     errorMessage ?? dictationController.errorMessage
   }
 
-  var latestConversationUserMessage: TranscriptMessage? {
-    serverState.conversation(sessionId).messages.last(where: \.isUser)
+  var latestConversationUserEntry: ServerConversationRowEntry? {
+    obs.rowEntries.last { if case .user = $0.row { return true }; return false }
   }
 
   var composerPlaceholder: String {

@@ -246,7 +246,35 @@ extension SessionStore {
   }
 
   func loadOlderMessages(sessionId: String, limit: Int = 50) {
-    conversation(sessionId).loadOlderMessages(limit: limit)
+    let obs = session(sessionId)
+    guard !obs.isLoadingOlderMessages, obs.hasMoreHistoryBefore,
+          let before = obs.oldestLoadedSequence
+    else { return }
+
+    obs.isLoadingOlderMessages = true
+    netLog(.info, cat: .conv, "Loading older messages", sid: sessionId, data: ["beforeSeq": before])
+
+    Task {
+      defer { obs.isLoadingOlderMessages = false }
+      do {
+        let page = try await clients.conversation.fetchConversationHistory(
+          sessionId, beforeSequence: before, limit: limit
+        )
+        obs.applyConversationPage(
+          rows: page.rows,
+          hasMoreBefore: page.hasMoreBefore,
+          oldestSequence: page.oldestSequence
+        )
+      } catch {
+        netLog(
+          .error,
+          cat: .conv,
+          "Load older messages failed",
+          sid: sessionId,
+          data: ["error": error.localizedDescription]
+        )
+      }
+    }
   }
 
   func setSessionAutoMarkRead(_ sessionId: String, enabled: Bool) {
@@ -410,10 +438,6 @@ extension SessionStore {
   }
 
   func handleMemoryPressure() {
-    for (id, _) in _conversationStores where !subscribedSessions.contains(id) {
-      _conversationStores[id]?.clear()
-      _conversationStores.removeValue(forKey: id)
-    }
     for (_, observable) in _sessionObservables where !subscribedSessions.contains(observable.id) {
       observable.trimInactiveDetailPayloads()
     }

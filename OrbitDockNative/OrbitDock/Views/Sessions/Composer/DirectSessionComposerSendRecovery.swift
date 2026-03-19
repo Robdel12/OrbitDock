@@ -24,18 +24,17 @@ enum DirectSessionComposerSendRecovery {
   static func shouldRecover(
     pendingContent: String?,
     pendingStartedAt: Date?,
-    latestUserMessage: TranscriptMessage?
+    latestUserEntry: ServerConversationRowEntry?
   ) -> Bool {
     guard let pendingContent = normalized(pendingContent),
-          let pendingStartedAt,
-          let latestUserMessage,
-          latestUserMessage.timestamp >= pendingStartedAt,
-          normalized(latestUserMessage.content) == pendingContent
+          let _ = pendingStartedAt,
+          let latestUserEntry,
+          case let .user(userMsg) = latestUserEntry.row
     else {
       return false
     }
 
-    return true
+    return normalized(userMsg.content) == pendingContent
   }
 
   private static func normalized(_ content: String?) -> String? {

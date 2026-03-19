@@ -16,6 +16,44 @@
 
 import SwiftUI
 
+private enum DashboardSessionCapability {
+  case direct
+  case passive
+
+  init?(session: RootSessionNode) {
+    if session.isDirect {
+      self = .direct
+      return
+    }
+    if session.isPassiveCodex {
+      self = .passive
+      return
+    }
+    return nil
+  }
+
+  var label: String {
+    switch self {
+      case .direct: "direct"
+      case .passive: "passive"
+    }
+  }
+
+  var foregroundStyle: Color {
+    switch self {
+      case .direct: Color.accent.opacity(0.65)
+      case .passive: Color.textTertiary
+    }
+  }
+
+  var backgroundStyle: Color {
+    switch self {
+      case .direct: Color.accent.opacity(0.10)
+      case .passive: Color.textTertiary.opacity(0.10)
+    }
+  }
+}
+
 // MARK: - Attention Card (large, prominent, demands action)
 
 struct AttentionCard: View {
@@ -47,13 +85,16 @@ struct AttentionCard: View {
     return "Needs your attention"
   }
 
-  private var passiveBadge: some View {
-    Text("passive")
-      .font(.system(size: TypeScale.micro, weight: .semibold))
-      .foregroundStyle(Color.textTertiary)
-      .padding(.horizontal, 5)
-      .padding(.vertical, Spacing.xxs)
-      .background(Color.textTertiary.opacity(0.10), in: Capsule())
+  @ViewBuilder
+  private var capabilityBadge: some View {
+    if let capability = DashboardSessionCapability(session: session) {
+      Text(capability.label)
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(capability.foregroundStyle)
+        .padding(.horizontal, 5)
+        .padding(.vertical, Spacing.xxs)
+        .background(capability.backgroundStyle, in: Capsule())
+    }
   }
 
   var body: some View {
@@ -97,9 +138,9 @@ struct AttentionCard: View {
               .foregroundStyle(Color.gitBranch.opacity(0.7))
           }
 
-          if session.isPassiveCodex {
+          if DashboardSessionCapability(session: session) != nil {
             metadataDivider
-            passiveBadge
+            capabilityBadge
           }
 
           if let issueId = session.issueIdentifier {
@@ -197,13 +238,16 @@ struct WorkingCard: View {
     SessionCardHelpers.agentLabel(for: session)
   }
 
-  private var passiveBadge: some View {
-    Text("passive")
-      .font(.system(size: TypeScale.micro, weight: .semibold))
-      .foregroundStyle(Color.textTertiary)
-      .padding(.horizontal, 5)
-      .padding(.vertical, Spacing.xxs)
-      .background(Color.textTertiary.opacity(0.10), in: Capsule())
+  @ViewBuilder
+  private var capabilityBadge: some View {
+    if let capability = DashboardSessionCapability(session: session) {
+      Text(capability.label)
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(capability.foregroundStyle)
+        .padding(.horizontal, 5)
+        .padding(.vertical, Spacing.xxs)
+        .background(capability.backgroundStyle, in: Capsule())
+    }
   }
 
   var body: some View {
@@ -222,6 +266,10 @@ struct WorkingCard: View {
           Spacer(minLength: Spacing.sm)
 
           HStack(spacing: Spacing.sm_) {
+            if DashboardSessionCapability(session: session) != nil {
+              capabilityBadge
+            }
+
             UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
 
             if let recency = SessionCardHelpers.recency(for: session) {
@@ -246,13 +294,6 @@ struct WorkingCard: View {
             Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.gitBranch.opacity(0.7))
-          }
-
-          if session.isPassiveCodex {
-            Text(" \u{2022} ")
-              .font(.system(size: TypeScale.mini))
-              .foregroundStyle(Color.textQuaternary)
-            passiveBadge
           }
 
           if let issueId = session.issueIdentifier {
@@ -340,13 +381,16 @@ struct CompactSessionRow: View {
     SessionCardHelpers.agentLabel(for: session)
   }
 
-  private var passiveBadge: some View {
-    Text("passive")
-      .font(.system(size: TypeScale.micro, weight: .semibold))
-      .foregroundStyle(Color.textTertiary)
-      .padding(.horizontal, 5)
-      .padding(.vertical, Spacing.xxs)
-      .background(Color.textTertiary.opacity(0.10), in: Capsule())
+  @ViewBuilder
+  private var capabilityBadge: some View {
+    if let capability = DashboardSessionCapability(session: session) {
+      Text(capability.label)
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(capability.foregroundStyle)
+        .padding(.horizontal, 5)
+        .padding(.vertical, Spacing.xxs)
+        .background(capability.backgroundStyle, in: Capsule())
+    }
   }
 
   private var isPhoneCompact: Bool {
@@ -416,11 +460,11 @@ struct CompactSessionRow: View {
               .foregroundStyle(Color.gitBranch.opacity(0.7))
           }
 
-          if session.isPassiveCodex {
+          if DashboardSessionCapability(session: session) != nil {
             Text(" \u{2022} ")
               .font(.system(size: TypeScale.mini))
               .foregroundStyle(Color.textQuaternary)
-            passiveBadge
+            capabilityBadge
           }
 
           if let issueId = session.issueIdentifier {
@@ -507,11 +551,11 @@ struct CompactSessionRow: View {
               .foregroundStyle(Color.gitBranch.opacity(0.7))
           }
 
-          if session.isPassiveCodex {
+          if DashboardSessionCapability(session: session) != nil {
             Text(" \u{2022} ")
               .font(.system(size: TypeScale.mini))
               .foregroundStyle(Color.textQuaternary)
-            passiveBadge
+            capabilityBadge
           }
 
           if let issueId = session.issueIdentifier {

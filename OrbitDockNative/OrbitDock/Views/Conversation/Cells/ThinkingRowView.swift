@@ -2,7 +2,7 @@
 //  ThinkingRowView.swift
 //  OrbitDock
 //
-//  SwiftUI view for reasoning/thinking traces with expand/collapse.
+//  SwiftUI view for reasoning/thinking traces — always shown inline.
 //
 
 import SwiftUI
@@ -10,37 +10,18 @@ import SwiftUI
 struct ThinkingRowView: View {
   let content: String
   let isStreaming: Bool
-  let isExpanded: Bool
-  var onToggle: (() -> Void)?
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xs) {
-      // Header row
-      HStack(spacing: Spacing.sm_) {
-        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-          .font(.system(size: IconScale.xs, weight: .semibold))
-          .foregroundStyle(Color.textTertiary)
+      Text("Reasoning")
+        .font(.system(size: TypeScale.chatLabel, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
 
-        Text("Reasoning")
-          .font(.system(size: TypeScale.chatLabel, weight: .semibold))
-          .foregroundStyle(Color.textTertiary)
-
-        if isStreaming {
-          ProgressView()
-            .controlSize(.small)
-        }
-
-        Spacer()
-      }
-      .contentShape(Rectangle())
-      .onTapGesture { onToggle?() }
-
-      if isExpanded, !content.isEmpty {
+      if !content.isEmpty {
         MarkdownContentView(content: content, style: .thinking)
           .opacity(0.7)
       }
     }
-    //  horizontal padding handled by TimelineRowContent
     .padding(.vertical, Spacing.md)
     .frame(maxWidth: .infinity, alignment: .leading)
   }

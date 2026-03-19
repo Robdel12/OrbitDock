@@ -182,34 +182,52 @@ struct ApprovalCardModelTests {
     1. Clarify requirements
     2. Implement change
     """
-    let transcript = [
-      TranscriptMessage(
-        id: "tool-plan",
-        type: .tool,
-        content: "Exit plan mode",
-        timestamp: Date(),
-        toolName: "ExitPlanMode",
-        isError: false,
-        isInProgress: true,
-        toolDisplay: ServerToolDisplay(
-          summary: "Exit plan mode",
+    let rowEntries = [
+      ServerConversationRowEntry(
+        sessionId: sessionId,
+        sequence: 1,
+        turnId: nil,
+        row: .tool(ServerConversationToolRow(
+          id: "tool-plan",
+          provider: .claude,
+          family: .plan,
+          kind: .exitPlanMode,
+          status: .running,
+          title: "ExitPlanMode",
           subtitle: nil,
-          rightMeta: nil,
-          subtitleAbsorbsMeta: false,
-          glyphSymbol: "list.bullet",
-          glyphColor: "secondaryLabel",
-          language: nil,
-          diffPreview: nil,
-          outputPreview: nil,
-          liveOutputPreview: nil,
-          todoItems: [],
-          toolType: "plan",
-          summaryFont: "system",
-          displayTier: "standard",
-          inputDisplay: "{\"plan\":\"# Plan\\n1. Clarify requirements\\n2. Implement change\"}",
-          outputDisplay: nil,
-          diffDisplay: nil
-        )
+          summary: nil,
+          preview: nil,
+          startedAt: nil,
+          endedAt: nil,
+          durationMs: nil,
+          groupingKey: nil,
+          renderHints: ServerConversationRenderHints(
+            canExpand: false,
+            defaultExpanded: false,
+            emphasized: false,
+            monospaceSummary: false,
+            accentTone: nil
+          ),
+          toolDisplay: ServerToolDisplay(
+            summary: "Exit plan mode",
+            subtitle: nil,
+            rightMeta: nil,
+            subtitleAbsorbsMeta: false,
+            glyphSymbol: "list.bullet",
+            glyphColor: "secondaryLabel",
+            language: nil,
+            diffPreview: nil,
+            outputPreview: nil,
+            liveOutputPreview: nil,
+            todoItems: [],
+            toolType: "plan",
+            summaryFont: "system",
+            displayTier: "standard",
+            inputDisplay: "{\"plan\":\"# Plan\\n1. Clarify requirements\\n2. Implement change\"}",
+            outputDisplay: nil,
+            diffDisplay: nil
+          )
+        ))
       ),
     ]
 
@@ -217,7 +235,7 @@ struct ApprovalCardModelTests {
       session: session.approvalCardContext,
       pendingApproval: pendingApproval,
       approvalHistory: [],
-      transcriptMessages: transcript
+      rowEntries: rowEntries
     )
 
     #expect(model?.toolName == "ExitPlanMode")
@@ -266,7 +284,7 @@ struct ApprovalCardModelTests {
       session: session.approvalCardContext,
       pendingApproval: nil,
       approvalHistory: history,
-      transcriptMessages: []
+      rowEntries: []
     )
 
     #expect(model?.toolName == "ExitPlanMode")

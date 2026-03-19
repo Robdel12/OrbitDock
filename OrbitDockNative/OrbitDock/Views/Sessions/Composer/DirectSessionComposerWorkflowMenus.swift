@@ -12,10 +12,10 @@ extension DirectSessionComposer {
       .disabled(serverState.session(sessionId).undoInProgress)
     }
 
-    if obs.isDirect, let lastUserMsg = serverState.conversation(sessionId).messages.last(where: \.isUser) {
+    if obs.isDirect, let lastUserEntry = obs.rowEntries.last(where: { if case .user = $0.row { return true }; return false }) {
       let hasRecentCheckpoint = obs.lastFilesPersistedAt.map { Date().timeIntervalSince($0) < 300 } ?? false
       Button {
-        Task { try? await serverState.rewindFiles(sessionId, userMessageId: lastUserMsg.id) }
+        Task { try? await serverState.rewindFiles(sessionId, userMessageId: lastUserEntry.id) }
       } label: {
         Label(
           hasRecentCheckpoint ? "Rewind Files (checkpoint saved)" : "Rewind Files",

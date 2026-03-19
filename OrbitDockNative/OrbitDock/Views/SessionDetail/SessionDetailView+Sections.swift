@@ -18,7 +18,7 @@ extension SessionDetailView {
       selectedWorkerID: selectedWorkerId,
       toolsByWorker: obs.subagentTools,
       messagesByWorker: obs.subagentMessages,
-      timelineMessages: scopedServerState.conversation(sessionId).messages
+      timelineMessages: obs.rowEntries.map { $0.toTranscriptMessage(endpointId: endpointId) }
     )
   }
 

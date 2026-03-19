@@ -23,49 +23,50 @@ struct DirectSessionComposerSendRecoveryTests {
 
   @Test func recoversWhenMatchingUserMessageArrivesAfterFailedSend() {
     let sentAt = Date(timeIntervalSince1970: 1_000)
-    let userMessage = TranscriptMessage(
-      id: "user-1",
-      type: .user,
-      content: "Nice, that still shows pending though. Which is interesting.",
-      timestamp: sentAt.addingTimeInterval(1)
+    let userEntry = ServerConversationRowEntry(
+      sessionId: "s1",
+      sequence: 1,
+      turnId: nil,
+      row: .user(ServerConversationMessageRow(
+        id: "user-1",
+        content: "Nice, that still shows pending though. Which is interesting.",
+        turnId: nil,
+        timestamp: nil,
+        isStreaming: false,
+        images: nil
+      ))
     )
 
     let shouldRecover = DirectSessionComposerSendRecovery.shouldRecover(
       pendingContent: "  Nice, that still shows pending though. Which is interesting.  ",
       pendingStartedAt: sentAt,
-      latestUserMessage: userMessage
+      latestUserEntry: userEntry
     )
 
     #expect(shouldRecover)
   }
 
-  @Test func ignoresOlderOrMismatchedUserMessages() {
+  @Test func ignoresMismatchedUserMessages() {
     let sentAt = Date(timeIntervalSince1970: 1_000)
-    let olderMessage = TranscriptMessage(
-      id: "user-1",
-      type: .user,
-      content: "Same content",
-      timestamp: sentAt.addingTimeInterval(-1)
-    )
-    let mismatchedMessage = TranscriptMessage(
-      id: "user-2",
-      type: .user,
-      content: "Different content",
-      timestamp: sentAt.addingTimeInterval(1)
+    let mismatchedEntry = ServerConversationRowEntry(
+      sessionId: "s1",
+      sequence: 2,
+      turnId: nil,
+      row: .user(ServerConversationMessageRow(
+        id: "user-2",
+        content: "Different content",
+        turnId: nil,
+        timestamp: nil,
+        isStreaming: false,
+        images: nil
+      ))
     )
 
     #expect(
       !DirectSessionComposerSendRecovery.shouldRecover(
         pendingContent: "Same content",
         pendingStartedAt: sentAt,
-        latestUserMessage: olderMessage
-      )
-    )
-    #expect(
-      !DirectSessionComposerSendRecovery.shouldRecover(
-        pendingContent: "Same content",
-        pendingStartedAt: sentAt,
-        latestUserMessage: mismatchedMessage
+        latestUserEntry: mismatchedEntry
       )
     )
   }

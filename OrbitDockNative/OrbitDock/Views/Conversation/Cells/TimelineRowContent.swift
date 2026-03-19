@@ -73,9 +73,7 @@ struct TimelineRowContent: View {
 
       case let .thinking(msg):
         ThinkingRowView(
-          content: msg.content, isStreaming: msg.isStreaming,
-          isExpanded: isExpanded,
-          onToggle: { onToggle?(msg.id) }
+          content: msg.content, isStreaming: msg.isStreaming
         )
 
       case let .tool(toolRow):

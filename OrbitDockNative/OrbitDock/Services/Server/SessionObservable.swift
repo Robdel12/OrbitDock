@@ -2,9 +2,7 @@
 //  SessionObservable.swift
 //  OrbitDock
 //
-//  Per-session @Observable detail state for non-conversation session data.
-//  Conversation payload and hydration live in ConversationStore so the client
-//  has one authoritative owner for transcript recovery and rendering.
+//  Per-session @Observable state for session data and conversation timeline.
 //
 
 import Foundation
@@ -63,6 +61,14 @@ final class SessionObservable {
 
   /// Shell context buffer — auto-prepended to next sendMessage
   var pendingShellContext: [ShellContextEntry] = []
+
+  // Conversation
+  private(set) var rowEntries: [ServerConversationRowEntry] = []
+  private(set) var rowEntriesRevision: Int = 0
+  private(set) var hasMoreHistoryBefore: Bool = false
+  var isLoadingOlderMessages: Bool = false
+  var conversationLoaded: Bool = false
+  @ObservationIgnored var oldestLoadedSequence: UInt64?
 
   // Operation flags
   var undoInProgress: Bool = false
@@ -359,6 +365,60 @@ final class SessionObservable {
     ))
   }
 
+  // MARK: - Conversation
+
+  func applyConversationPage(
+    rows: [ServerConversationRowEntry],
+    hasMoreBefore: Bool,
+    oldestSequence: UInt64?,
+    isBootstrap: Bool = false
+  ) {
+    if isBootstrap {
+      rowEntries = rows
+    } else {
+      for entry in rows {
+        if let idx = rowEntries.firstIndex(where: { $0.id == entry.id }) {
+          rowEntries[idx] = entry
+        } else {
+          rowEntries.append(entry)
+        }
+      }
+      rowEntries.sort { $0.sequence < $1.sequence }
+    }
+    hasMoreHistoryBefore = hasMoreBefore
+    oldestLoadedSequence = rowEntries.first.map(\.sequence)
+    rowEntriesRevision += 1
+    conversationLoaded = true
+  }
+
+  func applyRowsChanged(
+    upserted: [ServerConversationRowEntry],
+    removedIds: [String]
+  ) {
+    if !removedIds.isEmpty {
+      let removed = Set(removedIds)
+      rowEntries.removeAll { removed.contains($0.id) }
+    }
+    for entry in upserted {
+      if let idx = rowEntries.firstIndex(where: { $0.id == entry.id }) {
+        rowEntries[idx] = entry
+      } else {
+        rowEntries.append(entry)
+      }
+    }
+    rowEntries.sort { $0.sequence < $1.sequence }
+    rowEntriesRevision += 1
+  }
+
+  func clearConversation() {
+    rowEntries = []
+    rowEntriesRevision = 0
+    hasMoreHistoryBefore = false
+    isLoadingOlderMessages = false
+    conversationLoaded = false
+    oldestLoadedSequence = nil
+  }
+
   /// Clear transient state on session end. Keep messages/tokens/history for viewing.
   func clearTransientState() {
     pendingApproval = nil
@@ -384,10 +444,10 @@ final class SessionObservable {
     currentTurnId = nil
     permissionMode = .default
     attentionReason = .none
+    clearConversation()
   }
 
-  /// Drop heavy non-conversation detail payloads when a session is no longer observed.
-  /// Conversation history is owned by ConversationStore.
+  /// Drop heavy detail payloads when a session is no longer observed.
   func trimInactiveDetailPayloads() {
     turnDiffs = []
     diff = nil
@@ -395,6 +455,7 @@ final class SessionObservable {
     currentTurnId = nil
     pendingShellContext = []
     reviewComments = []
+    clearConversation()
   }
 }
 

@@ -189,7 +189,7 @@ struct DirectSessionComposer: View {
     .onChange(of: message) { _, newValue in
       ComposerDraftStore.save(newValue, for: draftStorageKey)
     }
-    .onChange(of: serverState.conversation(sessionId).messagesRevision) { _, _ in
+    .onChange(of: serverState.session(sessionId).rowEntriesRevision) { _, _ in
       reconcileRecoveredSendIfNeeded()
     }
     .onChange(of: pendingApprovalIdentity) { _, newValue in

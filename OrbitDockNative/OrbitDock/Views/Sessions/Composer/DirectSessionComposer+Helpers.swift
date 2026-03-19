@@ -223,7 +223,7 @@ extension DirectSessionComposer {
     guard DirectSessionComposerSendRecovery.shouldRecover(
       pendingContent: composerState.pendingRecoveredSendContent,
       pendingStartedAt: composerState.pendingRecoveredSendStartedAt,
-      latestUserMessage: latestConversationUserMessage
+      latestUserEntry: latestConversationUserEntry
     )
     else {
       return

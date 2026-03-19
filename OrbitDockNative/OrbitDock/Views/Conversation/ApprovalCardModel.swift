@@ -412,17 +412,20 @@ enum ApprovalCardModelBuilder {
 
   private static func latestToolInput(
     for toolName: String,
-    in transcriptMessages: [TranscriptMessage]
+    in rowEntries: [ServerConversationRowEntry]
   ) -> String? {
     let normalizedToolName = toolName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard !normalizedToolName.isEmpty else { return nil }
 
-    for message in transcriptMessages.reversed() {
-      guard message.isTool else { continue }
-      guard let messageToolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-            messageToolName == normalizedToolName
-      else { continue }
-      if let inputDisplay = normalizedText(message.toolDisplay?.inputDisplay) {
+    for entry in rowEntries.reversed() {
+      guard case let .tool(toolRow) = entry.row else { continue }
+      // Match against kind raw value, title, and kind enum name
+      let candidates = [
+        toolRow.kind.rawValue.lowercased(),
+        toolRow.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+      ]
+      guard candidates.contains(normalizedToolName) else { continue }
+      if let inputDisplay = normalizedText(toolRow.toolDisplay.inputDisplay) {
         return inputDisplay
       }
     }
@@ -465,7 +468,7 @@ enum ApprovalCardModelBuilder {
     session: ApprovalCardSessionContext,
     pendingApproval: ServerApprovalRequest?,
     approvalHistory: [ServerApprovalHistoryItem] = [],
-    transcriptMessages: [TranscriptMessage] = []
+    rowEntries: [ServerConversationRowEntry] = []
   ) -> ApprovalCardModel? {
     let approvalId = normalizedRequestId(session.pendingApprovalId)
     let matchedHistoryItem = historyItem(requestId: approvalId, in: approvalHistory)
@@ -580,7 +583,7 @@ enum ApprovalCardModelBuilder {
         let planText = planTextFromToolInput(activePendingApproval?.toolInput)
           ?? planTextFromToolInput(session.pendingToolInput)
           ?? planTextFromToolInput(
-            latestToolInput(for: "ExitPlanMode", in: transcriptMessages)
+            latestToolInput(for: "ExitPlanMode", in: rowEntries)
           )
         if let planText {
           return (

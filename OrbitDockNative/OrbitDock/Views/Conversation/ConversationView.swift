@@ -34,22 +34,16 @@ struct ConversationView: View {
 
   private let pageSize = 50
 
-  private var conversationStore: ConversationStore? {
+  private var sessionObs: SessionObservable? {
     guard let sessionId else { return nil }
-    return serverState.conversation(sessionId)
+    return serverState.session(sessionId)
   }
 
   private var loadState: ConversationLoadState {
-    guard let store = conversationStore else { return .empty }
-    if !store.rowEntries.isEmpty { return .ready }
-    // If we already rendered content, the store was cleared (e.g. on
-    // unsubscribe). Show nothing instead of re-showing the skeleton.
+    guard let obs = sessionObs else { return .empty }
+    if !obs.rowEntries.isEmpty { return .ready }
     if hasShownContent { return .empty }
-    switch store.state {
-      case .idle, .loading: return .loading
-      case .ready: return .empty
-      case .failed: return .empty
-    }
+    return obs.conversationLoaded ? .empty : .loading
   }
 
   var body: some View {
@@ -110,7 +104,7 @@ struct ConversationView: View {
     .onChange(of: loadState) { _, newState in
       if newState == .ready { hasShownContent = true }
     }
-    .onChange(of: conversationStore?.rowEntries.count ?? 0) { oldCount, newCount in
+    .onChange(of: sessionObs?.rowEntries.count ?? 0) { oldCount, newCount in
       guard !isPinned, newCount > oldCount else { return }
       unreadCount += newCount - oldCount
     }
@@ -120,11 +114,11 @@ struct ConversationView: View {
 
   @ViewBuilder
   private var conversationTimeline: some View {
-    if let conversationStore, let sessionId {
+    if let sessionObs, let sessionId {
       TimelineScrollView(
-        entries: conversationStore.rowEntries,
+        entries: sessionObs.rowEntries,
         sessionId: sessionId,
-        clients: conversationStore.serverClients,
+        clients: serverState.clients,
         viewMode: chatViewMode,
         onLoadMore: {
           serverState.loadOlderMessages(sessionId: sessionId, limit: pageSize)
