@@ -1,48 +1,250 @@
+/* ── Base card ──────────────────────────────────────────────────────────────── */
+
 .card {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
-  text-align: left;
   width: 100%;
-  transition: background var(--transition-fast);
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  font-family: var(--font-system);
+  color: var(--color-text-primary);
+  padding: 0;
 }
 
-.card:hover {
+/* ── Edge bar (attention + working) ────────────────────────────────────────── */
+
+.edgeBar {
+  width: var(--edge-bar-width);
+  flex-shrink: 0;
+  border-radius: var(--edge-bar-width);
+  background: var(--card-status-color, var(--color-status-working));
+}
+
+.cardContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-md) 14px;
+}
+
+.cardSpacer {
+  flex: 1;
+  min-width: var(--space-sm);
+}
+
+/* ── Shared text styles ────────────────────────────────────────────────────── */
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sessionName {
+  font-size: var(--type-subhead);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.metaDot {
+  font-size: var(--type-mini);
+  color: var(--color-text-quaternary);
+  padding: 0 var(--space-xs);
+  flex-shrink: 0;
+}
+
+.metaText {
+  font-size: var(--type-micro);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.branchText {
+  font-size: var(--type-micro);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--color-git-branch);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.modelBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-size: var(--type-mini);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--color-text-tertiary);
+  background: var(--color-surface-elevated);
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.recency {
+  font-size: var(--type-mini);
+  font-weight: 500;
+  font-family: var(--font-mono);
+  color: var(--color-text-quaternary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 24px;
+  text-align: right;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════ */
+/* ATTENTION CARD — largest, tinted background + status border + edge bar     */
+/* ════════════════════════════════════════════════════════════════════════════ */
+
+.cardAttention {
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--card-status-color) 20%, transparent);
+  background: color-mix(in srgb, var(--card-status-color) 4%, transparent);
+}
+
+.cardAttention:hover {
+  border-color: color-mix(in srgb, var(--card-status-color) 35%, transparent);
+  background: color-mix(in srgb, var(--card-status-color) 7%, transparent);
+}
+
+.actionRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.actionLabel {
+  font-size: var(--type-body);
+  font-weight: 600;
+  color: var(--card-status-color);
+}
+
+.contextAttention {
+  font-size: var(--type-caption);
+  color: var(--color-text-secondary);
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: var(--line-height-normal);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════ */
+/* WORKING CARD — medium, cyan border + edge bar                              */
+/* ════════════════════════════════════════════════════════════════════════════ */
+
+.cardWorking {
+  --card-status-color: var(--color-status-working);
+  border-radius: var(--radius-ml);
+  border: 1px solid color-mix(in srgb, var(--color-status-working) 12%, transparent);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.cardWorking:hover {
+  border-color: color-mix(in srgb, var(--color-status-working) 25%, transparent);
   background: var(--color-surface-hover);
 }
 
-.header {
+.cardWorking .cardContent {
+  gap: 6px;
+  padding: 10px 14px;
+}
+
+.nameRow {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
 }
 
-.name {
-  flex: 1;
-  min-width: 0;
+.sessionNameWorking {
+  font-size: var(--type-body);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--type-body);
-  color: var(--color-text-primary);
+  min-width: 0;
+  flex-shrink: 1;
 }
 
-.meta {
+.contextWorking {
+  font-size: var(--type-caption);
+  color: var(--color-text-secondary);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: var(--line-height-normal);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════ */
+/* READY CARD — compact two-line row, no edge bar                             */
+/* ════════════════════════════════════════════════════════════════════════════ */
+
+.cardReady {
+  border-radius: 5px;
+  padding: 10px 14px;
+}
+
+.cardReady:hover {
+  background: var(--color-surface-hover);
+}
+
+.readyContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  width: 100%;
+  min-width: 0;
+}
+
+.readyLine1 {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding-left: calc(8px + var(--space-sm));
+  min-width: 0;
+}
+
+.sessionNameReady {
+  font-size: var(--type-body);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.contextReady {
   font-size: var(--type-caption);
-  color: var(--color-text-tertiary);
-}
-
-.model {
-  font-family: var(--font-mono);
-  font-size: var(--type-micro);
-}
-
-.time {
-  margin-left: auto;
+  color: var(--color-text-secondary);
+  margin: 0;
+  padding-left: calc(8px + var(--space-sm));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: var(--line-height-normal);
 }

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { SessionList } from '../components/session/session-list.jsx'
+import { SessionList, classifyZone } from '../components/session/session-list.jsx'
 import { FilterToolbar } from '../components/dashboard/filter-toolbar.jsx'
 import { UsageSummary } from '../components/dashboard/usage-summary.jsx'
 import { DashboardSkeleton } from '../components/dashboard/dashboard-skeleton.jsx'
@@ -10,17 +10,12 @@ import { groupByRepo, extractRepoName } from '../lib/group-sessions.js'
 import { useKeyboard } from '../hooks/use-keyboard.js'
 import styles from './dashboard.module.css'
 
-const DEFAULT_FILTERS = { provider: 'all', status: 'all', repo: 'all' }
+const DEFAULT_FILTERS = { zone: 'all', repo: 'all' }
 const DEFAULT_SORT = 'activity'
 
 // Sort a flat list of sessions according to the sort key.
-// groupByRepo already handles the "activity" sort by latest group time — we
-// pass the sorted flat list into groupByRepo so that inner sorting is consistent.
 const sortSessions = (list, sort) => {
-  if (sort === 'activity') {
-    // groupByRepo will sort internally; return the list as-is so its logic applies
-    return list
-  }
+  if (sort === 'activity') return list
   const copy = [...list]
   if (sort === 'name') {
     copy.sort((a, b) => {
@@ -55,20 +50,33 @@ const DashboardPage = () => {
       if (!seen.has(path)) seen.set(path, { path, name: extractRepoName(path) })
     }
     return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
-    // sessions.value — signal reference — changes whenever the map is replaced,
-    // which covers additions, removals, and field mutations.
   }, [sessions.value])
+
+  // Compute zone counts (before zone filter, after repo filter)
+  const zoneCounts = useMemo(() => {
+    let baseList = allSessions
+    if (filters.repo !== 'all') {
+      baseList = baseList.filter(
+        (s) => (s.repository_root || s.project_path || 'Unknown') === filters.repo
+      )
+    }
+    const counts = { attention: 0, working: 0, ready: 0, total: baseList.length }
+    for (const s of baseList) {
+      const zone = classifyZone(s)
+      counts[zone]++
+    }
+    return counts
+  }, [sessions.value, filters.repo])
 
   // Apply filters then sort then group.
   const groups = useMemo(() => {
     let filtered = allSessions
 
-    if (filters.provider !== 'all') {
-      filtered = filtered.filter((s) => s.provider === filters.provider)
+    // Zone filter
+    if (filters.zone && filters.zone !== 'all') {
+      filtered = filtered.filter((s) => classifyZone(s) === filters.zone)
     }
-    if (filters.status !== 'all') {
-      filtered = filtered.filter((s) => s.status === filters.status)
-    }
+
     if (filters.repo !== 'all') {
       filtered = filtered.filter(
         (s) => (s.repository_root || s.project_path || 'Unknown') === filters.repo
@@ -79,7 +87,7 @@ const DashboardPage = () => {
     return groupByRepo(sorted)
   }, [sessions.value, filters, sort])
 
-  // Flat ordered list for keyboard nav — mirrors the visual order after grouping.
+  // Flat ordered list for keyboard nav.
   const sessionList = useMemo(
     () => groups.flatMap((g) => g.sessions),
     [groups]
@@ -103,7 +111,6 @@ const DashboardPage = () => {
   })
 
   // Show the skeleton while the WS session list hasn't arrived yet.
-  // Once connected the sessions map is populated; until then it stays empty.
   const connState = connectionState.value
   const isLoading = sessions.value.size === 0 && connState !== 'connected'
 
@@ -118,6 +125,7 @@ const DashboardPage = () => {
         sort={sort}
         onSortChange={setSort}
         repos={repos}
+        zoneCounts={zoneCounts}
       />
       <SessionList groups={groups} onSelect={handleSelect} />
     </div>

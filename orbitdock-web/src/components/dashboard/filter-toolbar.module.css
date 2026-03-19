@@ -1,82 +1,180 @@
-.toolbar {
-  padding: var(--space-sm) var(--space-lg);
-  border-bottom: 1px solid var(--color-surface-border);
-  background: var(--color-bg-secondary);
-}
+/* ── Filter toolbar — chip-style filters + custom dropdowns ─────────────────── */
 
-.row {
+.toolbar {
   display: flex;
   align-items: center;
-  gap: var(--space-lg);
-  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: 6px var(--space-lg);
+  background: color-mix(in srgb, var(--color-bg-secondary) 30%, transparent);
+  overflow: hidden;
 }
 
-.group {
+@media (max-width: 767px) {
+  .toolbar {
+    padding: 6px var(--space-md);
+  }
+}
+
+/* ── Chip row (scrollable on mobile) ───────────────────────────────────────── */
+
+.chipRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.chipRow::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Filter chip ───────────────────────────────────────────────────────────── */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  border-radius: 999px;
+  font-size: var(--type-micro);
+  font-weight: 600;
+  font-family: var(--font-system);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  color: var(--color-text-tertiary);
+  background: color-mix(in srgb, var(--color-surface-hover) 35%, transparent);
+  flex-shrink: 0;
+}
+
+.chip:hover {
+  background: color-mix(in srgb, var(--color-surface-hover) 60%, transparent);
+  color: var(--color-text-secondary);
+}
+
+.chipActive {
+  color: var(--chip-color, var(--color-text-primary));
+  background: color-mix(in srgb, var(--chip-color, var(--color-surface-hover)) 18%, transparent);
+}
+
+.chipActive:hover {
+  background: color-mix(in srgb, var(--chip-color, var(--color-surface-hover)) 24%, transparent);
+}
+
+.chipIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.chipCount {
+  font-weight: 700;
+  font-family: var(--font-system);
+  font-size: var(--type-caption);
+}
+
+.chipLabel {
+  font-size: var(--type-micro);
+  font-weight: 600;
+}
+
+/* ── Controls right side ───────────────────────────────────────────────────── */
+
+.controlsRight {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
+  flex-shrink: 0;
 }
 
-.sortGroup {
-  margin-left: auto;
+@media (max-width: 599px) {
+  .controlsRight {
+    display: none;
+  }
 }
 
-.label {
-  font-size: var(--type-caption);
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-weight: 500;
-  white-space: nowrap;
+/* ── Custom dropdown ───────────────────────────────────────────────────────── */
+
+.dropdown {
+  position: relative;
 }
 
-/* Toggle button group */
-.toggleGroup {
-  display: flex;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  border: 1px solid var(--color-surface-border);
-}
-
-.toggle {
+.dropdownTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
   padding: var(--space-xxs) var(--space-sm);
   font-size: var(--type-caption);
   font-weight: 500;
+  font-family: var(--font-system);
   color: var(--color-text-secondary);
-  background: transparent;
-  transition: background var(--transition-fast), color var(--transition-fast);
-  white-space: nowrap;
-}
-
-.toggle + .toggle {
-  border-left: 1px solid var(--color-surface-border);
-}
-
-.toggle:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
-}
-
-.toggle[data-active='true'] {
-  background: var(--color-surface-selected);
-  color: var(--color-text-primary);
-}
-
-/* Select */
-.select {
-  padding: var(--space-xxs) var(--space-sm);
-  font-size: var(--type-caption);
-  font-weight: 500;
-  color: var(--color-text-primary);
   background: var(--color-surface-elevated);
   border: 1px solid var(--color-surface-border);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  appearance: auto;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+  white-space: nowrap;
 }
 
-.select:focus {
-  outline: none;
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 1px var(--color-accent);
+.dropdownTrigger:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-surface-border-accent);
+}
+
+.dropdownChevron {
+  transition: transform var(--transition-fast);
+  color: var(--color-text-quaternary);
+}
+
+.dropdownChevronOpen {
+  transform: rotate(180deg);
+}
+
+.dropdownMenu {
+  position: absolute;
+  top: calc(100% + var(--space-xs));
+  right: 0;
+  z-index: var(--z-dropdown);
+  min-width: 120px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-surface-border-accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-xxs);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(12px);
+  animation: dropIn 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dropIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+.dropdownItem {
+  display: block;
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--type-caption);
+  font-weight: 500;
+  font-family: var(--font-system);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.dropdownItem:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.dropdownItemActive {
+  color: var(--color-accent);
 }

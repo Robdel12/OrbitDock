@@ -55,25 +55,25 @@ The native dashboard uses a priority-based zone system. The web has a flat list 
 
 Each zone has a labeled header: icon + uppercase label + count capsule.
 
-- [ ] **2.1 — Zone-based session grouping**
+- [x] **2.1 — Zone-based session grouping**
   Replace flat SessionList with three zones: Attention (permission/question), Working (working status), Ready (reply/ended/waiting). Each zone gets a labeled header row. Sessions are sorted within zones by last_activity_at.
 
-- [ ] **2.2 — Attention card format**
+- [x] **2.2 — Attention card format**
   Largest card: status-colored tinted background + status-colored border + 3px solid left edge bar. Shows: status icon + action description (e.g. "Wants to run Bash", "Has a question") + model badge (right). Session name (bold) + dot-separated metadata (project/branch). 2-line context snippet.
 
-- [ ] **2.3 — Working card format**
+- [x] **2.3 — Working card format**
   Medium card: backgroundSecondary fill + cyan border + cyan edge bar. Session name + model badge + recency. Project/branch metadata row. One-line context snippet. 2-column grid on desktop when >1 working session.
 
-- [ ] **2.4 — Ready/compact row format**
+- [x] **2.4 — Ready/compact row format**
   Thin two-line row: status dot + name + inline metadata + model badge + recency. surfaceSelected on hover. No edge bar.
 
-- [ ] **2.5 — Dashboard status bar**
+- [x] **2.5 — Dashboard status bar**
   Add a top bar above the filter toolbar: tab switcher (Active / Missions / Library capsule pills), connection badge, session count, action buttons (new session, search/⌘K, settings).
 
-- [ ] **2.6 — Replace native `<select>` with custom dropdowns**
+- [x] **2.6 — Replace native `<select>` with custom dropdowns**
   The filter toolbar uses browser-native `<select>` for sort and repo filter, clashing with the custom toggle buttons. Replace with styled dropdown menus matching the design system.
 
-- [ ] **2.7 — Empty state with CTA**
+- [x] **2.7 — Empty state with CTA**
   Replace bare "No sessions yet" text with an illustration or icon + descriptive text + "New Session" CTA button.
 
 ---
@@ -213,11 +213,11 @@ Systematic pass to replace rough edges and align with native design language.
 | Phase | Items | Done | Status |
 |-------|-------|------|--------|
 | 1. Composer & Footer | 7 | 6 | In progress (1.5 remaining) |
-| 2. Dashboard Zones | 7 | 0 | Not started |
+| 2. Dashboard Zones | 7 | 7 | Complete |
 | 3. Session Header | 5 | 5 | Complete |
 | 4. Conversation Polish | 6 | 0 | Not started |
 | 5. Session Lifecycle | 5 | 0 | Not started |
 | 6. Command Palette | 5 | 0 | Not started |
 | 7. Visual Polish | 6 | 0 | Not started |
 | 8. Settings & Pages | 5 | 0 | Not started |
-| **Total** | **46** | **11** | |
+| **Total** | **46** | **18** | |

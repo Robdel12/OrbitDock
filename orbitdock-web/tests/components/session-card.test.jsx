@@ -17,32 +17,33 @@ describe('SessionCard', () => {
   }
 
   it('renders session name from summary', () => {
-    const { getByText } = render(
+    const { getAllByText } = render(
       <SessionCard session={mockSession} onClick={() => {}} />
     )
-    expect(getByText('Working on the frontend')).toBeTruthy()
+    // Name appears in the card title and again in the context snippet
+    expect(getAllByText('Working on the frontend').length).toBeGreaterThanOrEqual(1)
   })
 
   it('falls back to first_prompt when no summary', () => {
     const session = { ...mockSession, summary: null }
-    const { getByText } = render(
+    const { getAllByText } = render(
       <SessionCard session={session} onClick={() => {}} />
     )
-    expect(getByText('Build a web UI')).toBeTruthy()
+    expect(getAllByText('Build a web UI').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('renders provider badge', () => {
+  it('renders model badge with short name', () => {
     const { getByText } = render(
       <SessionCard session={mockSession} onClick={() => {}} />
     )
-    expect(getByText('claude')).toBeTruthy()
+    expect(getByText('Opus')).toBeTruthy()
   })
 
-  it('renders status indicator', () => {
+  it('renders project name from path', () => {
     const { getByText } = render(
       <SessionCard session={mockSession} onClick={() => {}} />
     )
-    expect(getByText('Working')).toBeTruthy()
+    expect(getByText('project')).toBeTruthy()
   })
 
   it('calls onClick when clicked', () => {
@@ -54,10 +55,11 @@ describe('SessionCard', () => {
     expect(handleClick).toHaveBeenCalledOnce()
   })
 
-  it('renders model', () => {
+  it('renders attention variant for permission status', () => {
+    const session = { ...mockSession, work_status: 'permission' }
     const { getByText } = render(
-      <SessionCard session={mockSession} onClick={() => {}} />
+      <SessionCard session={session} variant="attention" onClick={() => {}} />
     )
-    expect(getByText('claude-opus-4-6')).toBeTruthy()
+    expect(getByText('Wants to run a tool')).toBeTruthy()
   })
 })
