@@ -3,11 +3,15 @@ use std::time::Duration;
 
 use tracing::{error, info};
 
-use orbitdock_protocol::{Provider, ServerMessage, SessionListItem, SessionSummary};
+use orbitdock_protocol::{
+    CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage, SessionListItem,
+    SessionSummary,
+};
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
 use crate::infrastructure::persistence::{load_session_permission_mode, PersistCommand};
+use crate::runtime::codex_config::resolve_codex_settings;
 use crate::runtime::restored_sessions::PreparedResumeSession;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
@@ -111,6 +115,8 @@ pub(crate) async fn launch_resumed_session(
                     personality: prepared.personality,
                     service_tier: prepared.service_tier,
                     developer_instructions: prepared.developer_instructions,
+                    codex_config_source: prepared.codex_config_source,
+                    codex_config_overrides: prepared.codex_config_overrides,
                     handle: prepared.handle,
                     message_count: prepared.row_count,
                 },
@@ -250,6 +256,8 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
         personality,
         service_tier,
         developer_instructions,
+        codex_config_source,
+        codex_config_overrides,
         mut handle,
         message_count,
     } = request;
@@ -261,21 +269,59 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
         let connector_timeout = Duration::from_secs(15);
         let task_session_id = session_id.clone();
         let mut connector_task = tokio::spawn(async move {
-            let control_plane = orbitdock_connector_codex::CodexControlPlane {
-                collaboration_mode,
+            let fallback_overrides = CodexSessionOverrides {
+                model: model.clone(),
+                approval_policy: approval_policy.clone(),
+                sandbox_mode: sandbox_mode.clone(),
+                collaboration_mode: collaboration_mode.clone(),
                 multi_agent,
-                personality,
-                service_tier,
-                developer_instructions,
+                personality: personality.clone(),
+                service_tier: service_tier.clone(),
+                developer_instructions: developer_instructions.clone(),
+                effort: None,
             };
+            let resolved = resolve_codex_settings(
+                &project_path,
+                codex_config_source.unwrap_or(CodexConfigSource::Orbitdock),
+                codex_config_overrides.unwrap_or(fallback_overrides),
+            )
+            .await
+            .ok();
+            let effective = resolved
+                .as_ref()
+                .map(|resolved| &resolved.effective_settings);
+            let control_plane = orbitdock_connector_codex::CodexControlPlane {
+                collaboration_mode: effective
+                    .and_then(|value| value.collaboration_mode.clone())
+                    .or(collaboration_mode),
+                multi_agent: effective
+                    .and_then(|value| value.multi_agent)
+                    .or(multi_agent),
+                personality: effective
+                    .and_then(|value| value.personality.clone())
+                    .or(personality),
+                service_tier: effective
+                    .and_then(|value| value.service_tier.clone())
+                    .or(service_tier),
+                developer_instructions: effective
+                    .and_then(|value| value.developer_instructions.clone())
+                    .or(developer_instructions),
+            };
+            let effective_model = effective.and_then(|value| value.model.clone()).or(model);
+            let effective_approval = effective
+                .and_then(|value| value.approval_policy.clone())
+                .or(approval_policy);
+            let effective_sandbox = effective
+                .and_then(|value| value.sandbox_mode.clone())
+                .or(sandbox_mode);
             if let Some(thread_id) = codex_thread_id.as_deref() {
                 match CodexSession::resume_with_control_plane(
                     task_session_id.clone(),
                     &project_path,
                     thread_id,
-                    model.as_deref(),
-                    approval_policy.as_deref(),
-                    sandbox_mode.as_deref(),
+                    effective_model.as_deref(),
+                    effective_approval.as_deref(),
+                    effective_sandbox.as_deref(),
                     control_plane.clone(),
                 )
                 .await
@@ -285,9 +331,9 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
                         CodexSession::new_with_control_plane(
                             task_session_id,
                             &project_path,
-                            model.as_deref(),
-                            approval_policy.as_deref(),
-                            sandbox_mode.as_deref(),
+                            effective_model.as_deref(),
+                            effective_approval.as_deref(),
+                            effective_sandbox.as_deref(),
                             control_plane,
                         )
                         .await
@@ -297,9 +343,9 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
                 CodexSession::new_with_control_plane(
                     task_session_id,
                     &project_path,
-                    model.as_deref(),
-                    approval_policy.as_deref(),
-                    sandbox_mode.as_deref(),
+                    effective_model.as_deref(),
+                    effective_approval.as_deref(),
+                    effective_sandbox.as_deref(),
                     control_plane,
                 )
                 .await
@@ -371,6 +417,8 @@ struct CodexResumeRequest {
     personality: Option<String>,
     service_tier: Option<String>,
     developer_instructions: Option<String>,
+    codex_config_source: Option<CodexConfigSource>,
+    codex_config_overrides: Option<CodexSessionOverrides>,
     handle: crate::domain::sessions::session::SessionHandle,
     message_count: usize,
 }

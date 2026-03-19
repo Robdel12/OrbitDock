@@ -280,6 +280,8 @@ impl SessionRegistry {
                     personality: snap.personality.clone(),
                     service_tier: snap.service_tier.clone(),
                     developer_instructions: snap.developer_instructions.clone(),
+                    codex_config_source: snap.codex_config_source,
+                    codex_config_overrides: snap.codex_config_overrides.clone(),
                     pending_tool_name: snap.pending_tool_name.clone(),
                     pending_tool_input: snap.pending_tool_input.clone(),
                     pending_question: snap.pending_question.clone(),

@@ -1,6 +1,10 @@
 use super::errors::{conflict, internal, unprocessable};
 use super::*;
 use crate::connectors::codex_session::CodexAction;
+use crate::runtime::codex_config::{
+    codex_default_config_source, codex_preferences_response, resolve_codex_settings,
+    CodexConfigInspectorResponse, CodexConfigPreferencesResponse,
+};
 use crate::runtime::restored_sessions::load_prepared_resume_session;
 use crate::runtime::session_creation::{
     launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
@@ -21,7 +25,7 @@ use crate::runtime::session_resume::{launch_resumed_session, ResumeSessionError}
 use crate::runtime::session_takeover::{
     takeover_passive_session, TakeoverSessionError, TakeoverSessionInputs,
 };
-use orbitdock_protocol::{Provider, ServerMessage};
+use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage};
 use tracing::error;
 
 fn resolve_developer_instructions(
@@ -74,6 +78,7 @@ fn map_session_mutation_error(error: SessionMutationError) -> (StatusCode, Json<
         SessionMutationError::NotFound(_) => {
             super::errors::api_error(StatusCode::NOT_FOUND, error.code(), error.message())
         }
+        SessionMutationError::InvalidCodexConfig(_) => unprocessable(error.code(), error.message()),
     }
 }
 
@@ -86,25 +91,25 @@ pub struct RenameSessionRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdateSessionConfigRequest {
     #[serde(default)]
-    pub approval_policy: Option<String>,
+    pub approval_policy: Option<Option<String>>,
     #[serde(default)]
-    pub sandbox_mode: Option<String>,
+    pub sandbox_mode: Option<Option<String>>,
     #[serde(default)]
-    pub permission_mode: Option<String>,
+    pub permission_mode: Option<Option<String>>,
     #[serde(default)]
-    pub collaboration_mode: Option<String>,
+    pub collaboration_mode: Option<Option<String>>,
     #[serde(default)]
-    pub multi_agent: Option<bool>,
+    pub multi_agent: Option<Option<bool>>,
     #[serde(default)]
-    pub personality: Option<String>,
+    pub personality: Option<Option<String>>,
     #[serde(default)]
-    pub service_tier: Option<String>,
+    pub service_tier: Option<Option<String>>,
     #[serde(default)]
-    pub developer_instructions: Option<String>,
+    pub developer_instructions: Option<Option<String>>,
     #[serde(default)]
-    pub model: Option<String>,
+    pub model: Option<Option<String>>,
     #[serde(default)]
-    pub effort: Option<String>,
+    pub effort: Option<Option<String>>,
 }
 
 pub async fn rename_session(
@@ -189,6 +194,8 @@ pub struct CreateSessionRequest {
     pub append_system_prompt: Option<String>,
     #[serde(default)]
     pub allow_bypass_permissions: bool,
+    #[serde(default)]
+    pub codex_config_source: Option<CodexConfigSource>,
 }
 
 #[derive(Debug, Serialize)]
@@ -207,28 +214,91 @@ pub async fn create_session(
         body.system_prompt.clone(),
         body.append_system_prompt.clone(),
     );
+    let codex_config_source = if body.provider == Provider::Codex {
+        Some(
+            body.codex_config_source
+                .unwrap_or_else(codex_default_config_source),
+        )
+    } else {
+        None
+    };
+    let codex_overrides = if body.provider == Provider::Codex {
+        Some(CodexSessionOverrides {
+            model: body.model.clone(),
+            approval_policy: body.approval_policy.clone(),
+            sandbox_mode: body.sandbox_mode.clone(),
+            collaboration_mode: body.collaboration_mode.clone(),
+            multi_agent: body.multi_agent,
+            personality: body.personality.clone(),
+            service_tier: body.service_tier.clone(),
+            developer_instructions: developer_instructions.clone(),
+            effort: body.effort.clone(),
+        })
+    } else {
+        None
+    };
+    let resolved_codex = if let (Provider::Codex, Some(source), Some(overrides)) =
+        (body.provider, codex_config_source, codex_overrides.clone())
+    {
+        Some(
+            resolve_codex_settings(&body.cwd, source, overrides)
+                .await
+                .map_err(|error| unprocessable("invalid_codex_config", error))?,
+        )
+    } else {
+        None
+    };
     let prepared = prepare_persist_direct_session(
         &state,
         session_id.clone(),
         DirectSessionRequest {
             provider: body.provider,
             cwd: body.cwd.clone(),
-            model: body.model.clone(),
-            approval_policy: body.approval_policy.clone(),
-            sandbox_mode: body.sandbox_mode.clone(),
+            model: resolved_codex
+                .as_ref()
+                .and_then(|resolved| resolved.effective_settings.model.clone())
+                .or(body.model.clone()),
+            approval_policy: resolved_codex
+                .as_ref()
+                .and_then(|resolved| resolved.effective_settings.approval_policy.clone())
+                .or(body.approval_policy.clone()),
+            sandbox_mode: resolved_codex
+                .as_ref()
+                .and_then(|resolved| resolved.effective_settings.sandbox_mode.clone())
+                .or(body.sandbox_mode.clone()),
             permission_mode: body.permission_mode.clone(),
             allowed_tools: body.allowed_tools.clone(),
             disallowed_tools: body.disallowed_tools.clone(),
-            effort: body.effort.clone(),
-            collaboration_mode: body.collaboration_mode.clone(),
-            multi_agent: body.multi_agent,
-            personality: body.personality.clone(),
-            service_tier: body.service_tier.clone(),
-            developer_instructions,
+            effort: resolved_codex
+                .as_ref()
+                .and_then(|resolved| resolved.effective_settings.effort.clone())
+                .or(body.effort.clone()),
+            collaboration_mode: resolved_codex
+                .as_ref()
+                .and_then(|resolved| resolved.effective_settings.collaboration_mode.clone())
+                .or(body.collaboration_mode.clone()),
+            multi_agent: resolved_codex
+                .as_ref()
+                .and_then(|resolved| resolved.effective_settings.multi_agent)
+                .or(body.multi_agent),
+            personality: resolved_codex
+                .as_ref()
+                .and_then(|resolved| resolved.effective_settings.personality.clone())
+                .or(body.personality.clone()),
+            service_tier: resolved_codex
+                .as_ref()
+                .and_then(|resolved| resolved.effective_settings.service_tier.clone())
+                .or(body.service_tier.clone()),
+            developer_instructions: resolved_codex
+                .as_ref()
+                .and_then(|resolved| resolved.effective_settings.developer_instructions.clone())
+                .or(developer_instructions),
             mission_id: None,
             issue_identifier: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: body.allow_bypass_permissions,
+            codex_config_source,
+            codex_config_overrides: codex_overrides,
         },
     )
     .await;
@@ -252,6 +322,82 @@ pub async fn create_session(
         session_id,
         session: summary,
     }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InspectCodexConfigRequest {
+    pub cwd: String,
+    #[serde(default)]
+    pub codex_config_source: Option<CodexConfigSource>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub approval_policy: Option<String>,
+    #[serde(default)]
+    pub sandbox_mode: Option<String>,
+    #[serde(default)]
+    pub collaboration_mode: Option<String>,
+    #[serde(default)]
+    pub multi_agent: Option<bool>,
+    #[serde(default)]
+    pub personality: Option<String>,
+    #[serde(default)]
+    pub service_tier: Option<String>,
+    #[serde(default)]
+    pub developer_instructions: Option<String>,
+    #[serde(default)]
+    pub effort: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateCodexPreferencesRequest {
+    pub default_config_source: CodexConfigSource,
+}
+
+pub async fn get_codex_preferences() -> Json<CodexConfigPreferencesResponse> {
+    Json(codex_preferences_response())
+}
+
+pub async fn update_codex_preferences(
+    State(registry): State<Arc<SessionRegistry>>,
+    Json(body): Json<UpdateCodexPreferencesRequest>,
+) -> Result<Json<CodexConfigPreferencesResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+    let value = match body.default_config_source {
+        CodexConfigSource::Orbitdock => "orbitdock",
+        CodexConfigSource::User => "user",
+    };
+    let _ = registry
+        .persist()
+        .send(PersistCommand::SetConfig {
+            key: "codex_default_config_source".to_string(),
+            value: value.to_string(),
+        })
+        .await;
+    Ok(Json(codex_preferences_response()))
+}
+
+pub async fn inspect_codex_config(
+    Json(body): Json<InspectCodexConfigRequest>,
+) -> Result<Json<CodexConfigInspectorResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+    let response = resolve_codex_settings(
+        &body.cwd,
+        body.codex_config_source
+            .unwrap_or_else(codex_default_config_source),
+        CodexSessionOverrides {
+            model: body.model,
+            approval_policy: body.approval_policy,
+            sandbox_mode: body.sandbox_mode,
+            collaboration_mode: body.collaboration_mode,
+            multi_agent: body.multi_agent,
+            personality: body.personality,
+            service_tier: body.service_tier,
+            developer_instructions: body.developer_instructions,
+            effort: body.effort,
+        },
+    )
+    .await
+    .map_err(|error| unprocessable("invalid_codex_config", error))?;
+    Ok(Json(response))
 }
 
 #[derive(Debug, Serialize)]

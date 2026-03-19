@@ -23,6 +23,11 @@ enum ServerWorkStatus: String, Codable {
   case ended
 }
 
+enum ServerCodexConfigSource: String, Codable, CaseIterable {
+  case orbitdock
+  case user
+}
+
 struct ServerTokenUsage: Codable, Equatable {
   let inputTokens: UInt64
   let outputTokens: UInt64

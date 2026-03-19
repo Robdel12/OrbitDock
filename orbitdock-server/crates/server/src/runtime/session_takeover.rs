@@ -266,6 +266,8 @@ async fn complete_codex_takeover(
         developer_instructions,
         model: effective_model.clone(),
         effort: effective_effort.clone(),
+        codex_config_source: None,
+        codex_config_overrides: None,
     });
     let control_plane = handle.summary();
 
@@ -593,7 +595,7 @@ fn takeover_permission_persist_op(
         session_id: session_id.to_string(),
         approval_policy: None,
         sandbox_mode: None,
-        permission_mode: Some(permission_mode),
+        permission_mode: Some(Some(permission_mode)),
         collaboration_mode: None,
         multi_agent: None,
         personality: None,
@@ -601,5 +603,7 @@ fn takeover_permission_persist_op(
         developer_instructions: None,
         model: None,
         effort: None,
+        codex_config_source: None,
+        codex_config_overrides_json: None,
     })
 }

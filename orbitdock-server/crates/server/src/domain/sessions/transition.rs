@@ -156,7 +156,7 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             session_id,
             approval_policy: None,
             sandbox_mode: None,
-            permission_mode: Some(permission_mode),
+            permission_mode: Some(Some(permission_mode)),
             collaboration_mode: None,
             multi_agent: None,
             personality: None,
@@ -164,6 +164,8 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             developer_instructions: None,
             model: None,
             effort: None,
+            codex_config_source: None,
+            codex_config_overrides_json: None,
         },
     }
 }

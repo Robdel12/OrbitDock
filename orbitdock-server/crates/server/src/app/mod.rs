@@ -234,6 +234,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     personality,
                     service_tier,
                     developer_instructions,
+                    codex_config_source,
+                    codex_config_overrides,
                     input_tokens,
                     output_tokens,
                     cached_tokens,
@@ -302,6 +304,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     personality,
                     service_tier,
                     developer_instructions,
+                    codex_config_source,
+                    codex_config_overrides,
                     TokenUsage {
                         input_tokens: input_tokens.max(0) as u64,
                         output_tokens: output_tokens.max(0) as u64,

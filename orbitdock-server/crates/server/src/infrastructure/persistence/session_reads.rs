@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
-use orbitdock_protocol::TokenUsageSnapshotKind;
+use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, TokenUsageSnapshotKind};
 
 use super::chrono_now;
 use super::messages::{load_latest_completed_conversation_message_from_db, load_messages_from_db};
@@ -11,6 +11,8 @@ use super::usage::snapshot_kind_from_str;
 type StoredCodexConfigRow = (
     Option<String>,
     Option<bool>,
+    Option<String>,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -43,6 +45,8 @@ pub struct RestoredSession {
     pub personality: Option<String>,
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
+    pub codex_config_source: Option<CodexConfigSource>,
+    pub codex_config_overrides: Option<CodexSessionOverrides>,
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub cached_tokens: i64,
@@ -426,13 +430,22 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     personality,
                     service_tier,
                     developer_instructions,
+                    codex_config_source_raw,
+                    codex_config_overrides_raw,
                 ): StoredCodexConfigRow = conn
                     .query_row(
-                        "SELECT collaboration_mode, multi_agent, personality, service_tier, developer_instructions FROM sessions WHERE id = ?1",
+                        "SELECT collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json FROM sessions WHERE id = ?1",
                         params![id],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
                     )
-                    .unwrap_or((None, None, None, None, None));
+                    .unwrap_or((None, None, None, None, None, None, None));
+                let codex_config_source = match codex_config_source_raw.as_deref() {
+                    Some("orbitdock") => Some(CodexConfigSource::Orbitdock),
+                    Some("user") => Some(CodexConfigSource::User),
+                    _ => None,
+                };
+                let codex_config_overrides = codex_config_overrides_raw
+                    .and_then(|value| serde_json::from_str::<CodexSessionOverrides>(&value).ok());
 
                 let (terminal_session_id, terminal_app): (Option<String>, Option<String>) = conn
                     .query_row(
@@ -529,6 +542,8 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     personality,
                     service_tier,
                     developer_instructions,
+                    codex_config_source,
+                    codex_config_overrides,
                     input_tokens,
                     output_tokens,
                     cached_tokens,
@@ -757,13 +772,22 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 personality,
                 service_tier,
                 developer_instructions,
+                codex_config_source_raw,
+                codex_config_overrides_raw,
             ): StoredCodexConfigRow = conn
                 .query_row(
-                    "SELECT collaboration_mode, multi_agent, personality, service_tier, developer_instructions FROM sessions WHERE id = ?1",
+                    "SELECT collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json FROM sessions WHERE id = ?1",
                     params![&id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
                 )
-                .unwrap_or((None, None, None, None, None));
+                .unwrap_or((None, None, None, None, None, None, None));
+            let codex_config_source = match codex_config_source_raw.as_deref() {
+                Some("orbitdock") => Some(CodexConfigSource::Orbitdock),
+                Some("user") => Some(CodexConfigSource::User),
+                _ => None,
+            };
+            let codex_config_overrides = codex_config_overrides_raw
+                .and_then(|value| serde_json::from_str::<CodexSessionOverrides>(&value).ok());
 
             let pending_approval_id: Option<String> = conn
                 .query_row(
@@ -830,6 +854,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 personality,
                 service_tier,
                 developer_instructions,
+                codex_config_source,
+                codex_config_overrides,
                 input_tokens,
                 output_tokens,
                 cached_tokens,

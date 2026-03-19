@@ -1,6 +1,6 @@
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionStatus,
-    SessionSummary, TokenUsage, TurnDiff, WorkStatus,
+    ClaudeIntegrationMode, CodexConfigSource, CodexIntegrationMode, CodexSessionOverrides,
+    Provider, SessionState, SessionStatus, SessionSummary, TokenUsage, TurnDiff, WorkStatus,
 };
 
 use crate::domain::sessions::session::SessionHandle;
@@ -21,6 +21,8 @@ pub(crate) struct PreparedResumeSession {
     pub personality: Option<String>,
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
+    pub codex_config_source: Option<CodexConfigSource>,
+    pub codex_config_overrides: Option<CodexSessionOverrides>,
     pub claude_sdk_session_id: Option<String>,
     pub row_count: usize,
     pub transcript_loaded: bool,
@@ -111,6 +113,8 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         personality: restored.personality,
         service_tier: restored.service_tier,
         developer_instructions: restored.developer_instructions,
+        codex_config_source: restored.codex_config_source,
+        codex_config_overrides: restored.codex_config_overrides,
         pending_tool_name: restored.pending_tool_name,
         pending_tool_input: restored.pending_tool_input,
         pending_question: restored.pending_question,
@@ -211,6 +215,8 @@ pub(crate) fn restored_session_to_handle(
         restored.personality,
         restored.service_tier,
         restored.developer_instructions,
+        restored.codex_config_source,
+        restored.codex_config_overrides,
         TokenUsage {
             input_tokens: restored.input_tokens.max(0) as u64,
             output_tokens: restored.output_tokens.max(0) as u64,
@@ -297,6 +303,8 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     let personality = restored.personality.clone();
     let service_tier = restored.service_tier.clone();
     let developer_instructions = restored.developer_instructions.clone();
+    let codex_config_source = restored.codex_config_source;
+    let codex_config_overrides = restored.codex_config_overrides.clone();
     let claude_sdk_session_id = restored.claude_sdk_session_id.clone();
     let allow_bypass_permissions = restored.allow_bypass_permissions;
     let row_count = restored.rows.len();
@@ -322,6 +330,8 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
         personality,
         service_tier,
         developer_instructions,
+        codex_config_source,
+        codex_config_overrides,
         claude_sdk_session_id,
         row_count,
         transcript_loaded,

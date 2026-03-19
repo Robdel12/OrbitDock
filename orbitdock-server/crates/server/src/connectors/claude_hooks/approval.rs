@@ -210,6 +210,8 @@ mod tests {
             personality: None,
             service_tier: None,
             developer_instructions: None,
+            codex_config_source: None,
+            codex_config_overrides: None,
             has_pending_approval: true,
             pending_tool_name: Some("Bash".to_string()),
             pending_tool_input: Some("{\"command\":\"ls\"}".to_string()),

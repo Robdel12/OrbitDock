@@ -11,6 +11,7 @@ use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationP
 
 /// A persistence operation that the actor executes on behalf of the caller.
 /// The actor already holds `persist_tx`, so callers don't need to pass it.
+#[allow(clippy::large_enum_variant)]
 pub enum PersistOp {
     SessionUpdate {
         id: String,
@@ -24,16 +25,18 @@ pub enum PersistOp {
     },
     SetSessionConfig {
         session_id: String,
-        approval_policy: Option<String>,
-        sandbox_mode: Option<String>,
-        permission_mode: Option<String>,
-        collaboration_mode: Option<String>,
-        multi_agent: Option<bool>,
-        personality: Option<String>,
-        service_tier: Option<String>,
-        developer_instructions: Option<String>,
-        model: Option<String>,
-        effort: Option<String>,
+        approval_policy: Option<Option<String>>,
+        sandbox_mode: Option<Option<String>>,
+        permission_mode: Option<Option<String>>,
+        collaboration_mode: Option<Option<String>>,
+        multi_agent: Option<Option<bool>>,
+        personality: Option<Option<String>>,
+        service_tier: Option<Option<String>>,
+        developer_instructions: Option<Option<String>>,
+        model: Option<Option<String>>,
+        effort: Option<Option<String>>,
+        codex_config_source: Option<orbitdock_protocol::CodexConfigSource>,
+        codex_config_overrides_json: Option<String>,
     },
 }
 

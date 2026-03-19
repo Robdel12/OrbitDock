@@ -25,6 +25,107 @@ struct SessionsClient: Sendable {
     var disallowedTools: [String] = []
     var effort: String?
     var allowBypassPermissions: Bool?
+    var codexConfigSource: ServerCodexConfigSource?
+  }
+
+  struct CodexPreferencesResponse: Decodable {
+    let defaultConfigSource: ServerCodexConfigSource
+
+    enum CodingKeys: String, CodingKey {
+      case defaultConfigSource = "default_config_source"
+    }
+  }
+
+  struct UpdateCodexPreferencesRequest: Encodable {
+    let defaultConfigSource: ServerCodexConfigSource
+
+    enum CodingKeys: String, CodingKey {
+      case defaultConfigSource = "default_config_source"
+    }
+  }
+
+  struct CodexInspectRequest: Encodable {
+    let cwd: String
+    var codexConfigSource: ServerCodexConfigSource?
+    var model: String?
+    var approvalPolicy: String?
+    var sandboxMode: String?
+    var collaborationMode: String?
+    var multiAgent: Bool?
+    var personality: String?
+    var serviceTier: String?
+    var developerInstructions: String?
+    var effort: String?
+  }
+
+  struct CodexInspectorResponse: Decodable {
+    let effectiveSettings: CodexEffectiveSettings
+    let origins: [String: CodexInspectorOrigin]
+    let layers: [CodexInspectorLayer]
+    let warnings: [String]
+
+    enum CodingKeys: String, CodingKey {
+      case effectiveSettings = "effective_settings"
+      case origins
+      case layers
+      case warnings
+    }
+  }
+
+  struct CodexEffectiveSettings: Decodable {
+    let configSource: ServerCodexConfigSource
+    let model: String?
+    let approvalPolicy: String?
+    let sandboxMode: String?
+    let collaborationMode: String?
+    let multiAgent: Bool?
+    let personality: String?
+    let serviceTier: String?
+    let developerInstructions: String?
+    let effort: String?
+
+    enum CodingKeys: String, CodingKey {
+      case configSource = "config_source"
+      case model
+      case approvalPolicy = "approval_policy"
+      case sandboxMode = "sandbox_mode"
+      case collaborationMode = "collaboration_mode"
+      case multiAgent = "multi_agent"
+      case personality
+      case serviceTier = "service_tier"
+      case developerInstructions = "developer_instructions"
+      case effort
+    }
+  }
+
+  struct CodexInspectorOrigin: Decodable {
+    let sourceKind: String
+    let path: String?
+    let version: String
+
+    enum CodingKeys: String, CodingKey {
+      case sourceKind = "source_kind"
+      case path
+      case version
+    }
+  }
+
+  struct CodexInspectorLayer: Decodable, Identifiable {
+    let sourceKind: String
+    let path: String?
+    let version: String
+    let config: AnyCodable
+    let disabledReason: String?
+
+    var id: String { [sourceKind, path ?? "none", version].joined(separator: "|") }
+
+    enum CodingKeys: String, CodingKey {
+      case sourceKind = "source_kind"
+      case path
+      case version
+      case config
+      case disabledReason = "disabled_reason"
+    }
   }
 
   struct CreateSessionResponse: Decodable {
@@ -152,6 +253,22 @@ struct SessionsClient: Sendable {
 
   func createSession(_ request: CreateSessionRequest) async throws -> CreateSessionResponse {
     try await http.post("/api/sessions", body: request)
+  }
+
+  func fetchCodexPreferences() async throws -> CodexPreferencesResponse {
+    try await http.get("/api/server/codex-preferences")
+  }
+
+  func updateCodexPreferences(_ request: UpdateCodexPreferencesRequest) async throws -> CodexPreferencesResponse {
+    try await http.request(
+      path: "/api/server/codex-preferences",
+      method: "PUT",
+      body: request
+    )
+  }
+
+  func inspectCodexConfig(_ request: CodexInspectRequest) async throws -> CodexInspectorResponse {
+    try await http.post("/api/codex/config/inspect", body: request)
   }
 
   func resumeSession(_ sessionId: String) async throws -> ResumeSessionResponse {

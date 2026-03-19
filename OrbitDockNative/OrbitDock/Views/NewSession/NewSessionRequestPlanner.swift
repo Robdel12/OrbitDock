@@ -9,6 +9,8 @@ struct NewSessionProviderConfiguration: Equatable, Sendable {
   let disallowedToolsText: String
   let claudeEffort: String?
   let codexModel: String
+  let codexConfigSource: ServerCodexConfigSource
+  let codexUseOrbitDockOverrides: Bool
   let codexAutonomy: AutonomyLevel
   let codexCollaborationMode: String?
   let codexMultiAgentEnabled: Bool
@@ -32,7 +34,8 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
     effort: String?
   )
   case codex(
-    model: String,
+    model: String?,
+    codexConfigSource: ServerCodexConfigSource,
     approvalPolicy: String?,
     sandboxMode: String?,
     collaborationMode: String?,
@@ -57,6 +60,7 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
         )
       case let .codex(
       model,
+      codexConfigSource,
       approvalPolicy,
       sandboxMode,
       collaborationMode,
@@ -75,7 +79,8 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
           multiAgent: multiAgent,
           personality: personality,
           serviceTier: serviceTier,
-          developerInstructions: developerInstructions
+          developerInstructions: developerInstructions,
+          codexConfigSource: codexConfigSource
         )
     }
   }
@@ -143,16 +148,25 @@ enum NewSessionRequestPlanner {
         )
       case .codex:
         let normalizedModel = configuration.codexModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedModel.isEmpty else { return nil }
+        let shouldApplyOverrides =
+          configuration.codexConfigSource == .orbitdock || configuration.codexUseOrbitDockOverrides
+        if shouldApplyOverrides, normalizedModel.isEmpty {
+          return nil
+        }
         return .codex(
-          model: normalizedModel,
-          approvalPolicy: configuration.codexAutonomy.approvalPolicy,
-          sandboxMode: configuration.codexAutonomy.sandboxMode,
-          collaborationMode: normalizeOptionalText(configuration.codexCollaborationMode),
-          multiAgent: configuration.codexMultiAgentEnabled,
-          personality: normalizeOptionalText(configuration.codexPersonality),
-          serviceTier: normalizeOptionalText(configuration.codexServiceTier),
-          developerInstructions: normalizeOptionalText(configuration.codexInstructions)
+          model: shouldApplyOverrides ? normalizedModel : nil,
+          codexConfigSource: configuration.codexConfigSource,
+          approvalPolicy: shouldApplyOverrides ? configuration.codexAutonomy.approvalPolicy : nil,
+          sandboxMode: shouldApplyOverrides ? configuration.codexAutonomy.sandboxMode : nil,
+          collaborationMode: shouldApplyOverrides
+            ? normalizeOptionalText(configuration.codexCollaborationMode)
+            : nil,
+          multiAgent: shouldApplyOverrides ? configuration.codexMultiAgentEnabled : nil,
+          personality: shouldApplyOverrides ? normalizeOptionalText(configuration.codexPersonality) : nil,
+          serviceTier: shouldApplyOverrides ? normalizeOptionalText(configuration.codexServiceTier) : nil,
+          developerInstructions: shouldApplyOverrides
+            ? normalizeOptionalText(configuration.codexInstructions)
+            : nil
         )
     }
   }

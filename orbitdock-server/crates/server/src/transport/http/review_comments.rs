@@ -369,6 +369,8 @@ mod tests {
                 personality: None,
                 service_tier: None,
                 developer_instructions: None,
+                codex_config_source: None,
+                codex_config_overrides_json: None,
                 forked_from_session_id: None,
                 mission_id: None,
                 issue_identifier: None,

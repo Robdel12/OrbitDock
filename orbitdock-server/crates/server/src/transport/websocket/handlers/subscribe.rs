@@ -138,6 +138,8 @@ pub(crate) async fn handle(
                             personality: snap.personality.as_deref(),
                             service_tier: snap.service_tier.as_deref(),
                             developer_instructions: snap.developer_instructions.as_deref(),
+                            codex_config_source: snap.codex_config_source,
+                            codex_config_overrides: snap.codex_config_overrides.as_ref(),
                         },
                     )
                     .await

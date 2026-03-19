@@ -11,9 +11,9 @@ use orbitdock_protocol::conversation_contracts::{
 use orbitdock_protocol::domain_events::ToolFamily;
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
-    ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionStatus,
-    SessionSummary, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
-    WorkStatus,
+    ClaudeIntegrationMode, CodexConfigSource, CodexIntegrationMode, CodexSessionOverrides,
+    Provider, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo, TokenUsage,
+    TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 use serde::Serialize;
 use tokio::sync::broadcast;
@@ -338,6 +338,8 @@ pub struct SessionSnapshot {
     pub personality: Option<String>,
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
+    pub codex_config_source: Option<CodexConfigSource>,
+    pub codex_config_overrides: Option<CodexSessionOverrides>,
     pub has_pending_approval: bool,
     pub pending_tool_name: Option<String>,
     pub pending_tool_input: Option<String>,
@@ -419,6 +421,8 @@ pub struct SessionHandle {
     personality: Option<String>,
     service_tier: Option<String>,
     developer_instructions: Option<String>,
+    codex_config_source: Option<CodexConfigSource>,
+    codex_config_overrides: Option<CodexSessionOverrides>,
     codex_integration_mode: Option<CodexIntegrationMode>,
     claude_integration_mode: Option<ClaudeIntegrationMode>,
     status: SessionStatus,
@@ -497,6 +501,8 @@ pub struct SessionConfigPatch {
     pub developer_instructions: Option<String>,
     pub model: Option<String>,
     pub effort: Option<String>,
+    pub codex_config_source: Option<CodexConfigSource>,
+    pub codex_config_overrides: Option<CodexSessionOverrides>,
 }
 
 /// Returns true if the row is NOT a user message (used for unread counting).
@@ -668,6 +674,8 @@ impl SessionHandle {
             personality: None,
             service_tier: None,
             developer_instructions: None,
+            codex_config_source: None,
+            codex_config_overrides: None,
             has_pending_approval: false,
             pending_tool_name: None,
             pending_tool_input: None,
@@ -714,6 +722,8 @@ impl SessionHandle {
             personality: None,
             service_tier: None,
             developer_instructions: None,
+            codex_config_source: None,
+            codex_config_overrides: None,
             codex_integration_mode: None,
             claude_integration_mode: None,
             status: SessionStatus::Active,
@@ -786,6 +796,8 @@ impl SessionHandle {
         personality: Option<String>,
         service_tier: Option<String>,
         developer_instructions: Option<String>,
+        codex_config_source: Option<CodexConfigSource>,
+        codex_config_overrides: Option<CodexSessionOverrides>,
         token_usage: TokenUsage,
         token_usage_snapshot_kind: TokenUsageSnapshotKind,
         started_at: Option<String>,
@@ -831,6 +843,8 @@ impl SessionHandle {
             personality: personality.clone(),
             service_tier: service_tier.clone(),
             developer_instructions: developer_instructions.clone(),
+            codex_config_source,
+            codex_config_overrides: codex_config_overrides.clone(),
             has_pending_approval: pending_tool_name.is_some()
                 || pending_question.is_some()
                 || pending_approval_id.is_some(),
@@ -882,6 +896,8 @@ impl SessionHandle {
             personality,
             service_tier,
             developer_instructions,
+            codex_config_source,
+            codex_config_overrides,
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
             claude_integration_mode: None,
             status,
@@ -1001,6 +1017,8 @@ impl SessionHandle {
             personality: self.personality.clone(),
             service_tier: self.service_tier.clone(),
             developer_instructions: self.developer_instructions.clone(),
+            codex_config_source: self.codex_config_source,
+            codex_config_overrides: self.codex_config_overrides.clone(),
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
@@ -1063,6 +1081,8 @@ impl SessionHandle {
             personality: self.personality.clone(),
             service_tier: self.service_tier.clone(),
             developer_instructions: self.developer_instructions.clone(),
+            codex_config_source: self.codex_config_source,
+            codex_config_overrides: self.codex_config_overrides.clone(),
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
@@ -1286,6 +1306,8 @@ impl SessionHandle {
             developer_instructions,
             model,
             effort,
+            codex_config_source,
+            codex_config_overrides,
         } = patch;
 
         if let Some(approval_policy) = approval_policy {
@@ -1314,6 +1336,12 @@ impl SessionHandle {
         }
         if let Some(effort) = effort {
             self.effort = Some(effort);
+        }
+        if let Some(codex_config_source) = codex_config_source {
+            self.codex_config_source = Some(codex_config_source);
+        }
+        if let Some(codex_config_overrides) = codex_config_overrides {
+            self.codex_config_overrides = Some(codex_config_overrides);
         }
         self.refresh_snapshot();
     }
@@ -1917,6 +1945,12 @@ impl SessionHandle {
         if let Some(ref developer_instructions) = changes.developer_instructions {
             self.developer_instructions = developer_instructions.clone();
         }
+        if let Some(codex_config_source) = changes.codex_config_source {
+            self.codex_config_source = codex_config_source;
+        }
+        if let Some(ref codex_config_overrides) = changes.codex_config_overrides {
+            self.codex_config_overrides = codex_config_overrides.clone();
+        }
         if let Some(ref codex_integration_mode) = changes.codex_integration_mode {
             self.codex_integration_mode = *codex_integration_mode;
         }
@@ -2005,6 +2039,8 @@ impl SessionHandle {
             personality: self.personality.clone(),
             service_tier: self.service_tier.clone(),
             developer_instructions: self.developer_instructions.clone(),
+            codex_config_source: self.codex_config_source,
+            codex_config_overrides: self.codex_config_overrides.clone(),
             has_pending_approval: self.pending_approval.is_some()
                 || self.pending_tool_name.is_some()
                 || self.pending_question.is_some()

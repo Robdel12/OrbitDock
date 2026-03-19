@@ -20,6 +20,10 @@ struct NewSessionSheet: View {
   private let availableEndpointsOverride: [ServerEndpoint]?
   private let endpointSettings: ServerEndpointSettingsClient
   @State private var model: NewSessionModel
+  @State private var codexInspectorResponse: SessionsClient.CodexInspectorResponse?
+  @State private var codexInspectorError: String?
+  @State private var codexInspectorLoading = false
+  @State private var showCodexInspector = false
 
   @MainActor
   init(
@@ -151,7 +155,18 @@ struct NewSessionSheet: View {
       formContent: { formContent },
       footer: { footer }
     )
+    .sheet(isPresented: $showCodexInspector) {
+      CodexConfigInspectorSheet(
+        response: codexInspectorResponse,
+        errorMessage: codexInspectorError,
+        isLoading: codexInspectorLoading,
+        onRefresh: {
+          inspectCodexConfig()
+        }
+      )
+    }
     .onAppear {
+      refreshCodexPreferences()
       applyLifecyclePlan(
         NewSessionLifecyclePlanner.onAppear(
           current: lifecycleState,
@@ -239,6 +254,57 @@ struct NewSessionSheet: View {
         }
       }
     )
+  }
+
+  private func refreshCodexPreferences() {
+    Task {
+      guard let preferences = try? await endpointAppState.clients.sessions.fetchCodexPreferences() else { return }
+      model.codexConfigSource = preferences.defaultConfigSource
+      model.codexUseOrbitDockOverrides = preferences.defaultConfigSource == .orbitdock
+    }
+  }
+
+  private func inspectCodexConfig() {
+    guard !model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      codexInspectorError = "Choose a project folder first so OrbitDock can resolve the active Codex config layers."
+      codexInspectorResponse = nil
+      showCodexInspector = true
+      return
+    }
+
+    codexInspectorLoading = true
+    codexInspectorError = nil
+    showCodexInspector = true
+
+    let shouldApplyOverrides = model.codexConfigSource == .orbitdock || model.codexUseOrbitDockOverrides
+    let request = SessionsClient.CodexInspectRequest(
+      cwd: model.selectedPath,
+      codexConfigSource: model.codexConfigSource,
+      model: shouldApplyOverrides ? model.codexModel : nil,
+      approvalPolicy: shouldApplyOverrides ? model.selectedAutonomy.approvalPolicy : nil,
+      sandboxMode: shouldApplyOverrides ? model.selectedAutonomy.sandboxMode : nil,
+      collaborationMode: shouldApplyOverrides ? model.codexCollaborationMode.rawValue : nil,
+      multiAgent: shouldApplyOverrides ? model.codexMultiAgentEnabled : nil,
+      personality: shouldApplyOverrides ? model.codexPersonality.requestValue : nil,
+      serviceTier: shouldApplyOverrides ? model.codexServiceTier.requestValue : nil,
+      developerInstructions: shouldApplyOverrides ? normalizedCodexInstructions : nil,
+      effort: nil
+    )
+
+    Task {
+      do {
+        codexInspectorResponse = try await endpointAppState.clients.sessions.inspectCodexConfig(request)
+      } catch {
+        codexInspectorResponse = nil
+        codexInspectorError = "Couldn't load the Codex config inspector right now."
+      }
+      codexInspectorLoading = false
+    }
+  }
+
+  private var normalizedCodexInstructions: String? {
+    let trimmed = model.codexInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 
   @ViewBuilder
@@ -333,12 +399,15 @@ struct NewSessionSheet: View {
       allowBypassPermissions: $model.allowBypassPermissions,
       selectedEffort: $model.selectedEffort,
       codexModel: $model.codexModel,
+      codexConfigSource: $model.codexConfigSource,
+      codexUseOrbitDockOverrides: $model.codexUseOrbitDockOverrides,
       selectedAutonomy: $model.selectedAutonomy,
       codexCollaborationMode: $model.codexCollaborationMode,
       codexMultiAgentEnabled: $model.codexMultiAgentEnabled,
       codexPersonality: $model.codexPersonality,
       codexServiceTier: $model.codexServiceTier,
-      codexInstructions: $model.codexInstructions
+      codexInstructions: $model.codexInstructions,
+      onInspectCodexConfig: inspectCodexConfig
     )
   }
 

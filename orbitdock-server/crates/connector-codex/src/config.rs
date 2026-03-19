@@ -185,12 +185,31 @@ impl CodexConnector {
         Ok(connector)
     }
 
-    pub(crate) async fn build_config(
+    pub async fn build_config(
         cwd: &str,
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
         control_plane: &CodexControlPlane,
+    ) -> Result<Config, ConnectorError> {
+        Self::build_config_with_runtime_defaults(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            control_plane,
+            true,
+        )
+        .await
+    }
+
+    pub async fn build_config_with_runtime_defaults(
+        cwd: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        control_plane: &CodexControlPlane,
+        apply_runtime_defaults: bool,
     ) -> Result<Config, ConnectorError> {
         let mut cli_overrides = Vec::new();
 
@@ -198,11 +217,16 @@ impl CodexConnector {
             cli_overrides.push(("model".to_string(), toml::Value::String(model.to_string())));
         }
 
-        let policy = approval_policy.unwrap_or("untrusted");
-        cli_overrides.push((
-            "approval_policy".to_string(),
-            toml::Value::String(policy.to_string()),
-        ));
+        if let Some(policy) = approval_policy.or(if apply_runtime_defaults {
+            Some("untrusted")
+        } else {
+            None
+        }) {
+            cli_overrides.push((
+                "approval_policy".to_string(),
+                toml::Value::String(policy.to_string()),
+            ));
+        }
 
         if let Some(sandbox) = sandbox_mode {
             cli_overrides.push((
@@ -211,28 +235,30 @@ impl CodexConnector {
             ));
         }
 
-        let show_raw_reasoning = parse_bool_env(ENV_CODEX_SHOW_RAW_REASONING)
-            .unwrap_or(DEFAULT_CODEX_SHOW_RAW_REASONING);
-        let hide_reasoning =
-            parse_bool_env(ENV_CODEX_HIDE_REASONING).unwrap_or(DEFAULT_CODEX_HIDE_REASONING);
-        let mut reasoning_summary = parse_reasoning_summary_env(ENV_CODEX_REASONING_SUMMARY)
-            .unwrap_or_else(|| DEFAULT_CODEX_REASONING_SUMMARY.to_string());
-        if model_rejects_reasoning_summary(model) {
-            reasoning_summary = REASONING_SUMMARY_NONE.to_string();
-        }
+        if apply_runtime_defaults {
+            let show_raw_reasoning = parse_bool_env(ENV_CODEX_SHOW_RAW_REASONING)
+                .unwrap_or(DEFAULT_CODEX_SHOW_RAW_REASONING);
+            let hide_reasoning =
+                parse_bool_env(ENV_CODEX_HIDE_REASONING).unwrap_or(DEFAULT_CODEX_HIDE_REASONING);
+            let mut reasoning_summary = parse_reasoning_summary_env(ENV_CODEX_REASONING_SUMMARY)
+                .unwrap_or_else(|| DEFAULT_CODEX_REASONING_SUMMARY.to_string());
+            if model_rejects_reasoning_summary(model) {
+                reasoning_summary = REASONING_SUMMARY_NONE.to_string();
+            }
 
-        cli_overrides.push((
-            "show_raw_agent_reasoning".to_string(),
-            toml::Value::Boolean(show_raw_reasoning),
-        ));
-        cli_overrides.push((
-            "hide_agent_reasoning".to_string(),
-            toml::Value::Boolean(hide_reasoning),
-        ));
-        cli_overrides.push((
-            "model_reasoning_summary".to_string(),
-            toml::Value::String(reasoning_summary),
-        ));
+            cli_overrides.push((
+                "show_raw_agent_reasoning".to_string(),
+                toml::Value::Boolean(show_raw_reasoning),
+            ));
+            cli_overrides.push((
+                "hide_agent_reasoning".to_string(),
+                toml::Value::Boolean(hide_reasoning),
+            ));
+            cli_overrides.push((
+                "model_reasoning_summary".to_string(),
+                toml::Value::String(reasoning_summary),
+            ));
+        }
 
         if let Some(multi_agent) = control_plane.multi_agent {
             cli_overrides.push((

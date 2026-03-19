@@ -5,38 +5,42 @@ use orbitdock_protocol::{ServerMessage, SessionListItem};
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::infrastructure::persistence::PersistCommand;
+use crate::runtime::codex_config::{resolve_codex_settings, serialize_codex_overrides};
 use crate::runtime::session_commands::{PersistOp, SessionCommand};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::session_modes::is_passive_rollout_session;
 
 pub(crate) enum SessionMutationError {
     NotFound(String),
+    InvalidCodexConfig(String),
 }
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SessionConfigUpdate {
-    pub approval_policy: Option<String>,
-    pub sandbox_mode: Option<String>,
-    pub permission_mode: Option<String>,
-    pub collaboration_mode: Option<String>,
-    pub multi_agent: Option<bool>,
-    pub personality: Option<String>,
-    pub service_tier: Option<String>,
-    pub developer_instructions: Option<String>,
-    pub model: Option<String>,
-    pub effort: Option<String>,
+    pub approval_policy: Option<Option<String>>,
+    pub sandbox_mode: Option<Option<String>>,
+    pub permission_mode: Option<Option<String>>,
+    pub collaboration_mode: Option<Option<String>>,
+    pub multi_agent: Option<Option<bool>>,
+    pub personality: Option<Option<String>>,
+    pub service_tier: Option<Option<String>>,
+    pub developer_instructions: Option<Option<String>>,
+    pub model: Option<Option<String>>,
+    pub effort: Option<Option<String>>,
 }
 
 impl SessionMutationError {
     pub(crate) fn code(&self) -> &'static str {
         match self {
             Self::NotFound(_) => "not_found",
+            Self::InvalidCodexConfig(_) => "invalid_codex_config",
         }
     }
 
     pub(crate) fn message(&self) -> String {
         match self {
             Self::NotFound(session_id) => format!("Session {session_id} not found"),
+            Self::InvalidCodexConfig(message) => message.clone(),
         }
     }
 }
@@ -99,20 +103,104 @@ pub(crate) async fn update_session_config(
     let actor = state
         .get_session(session_id)
         .ok_or_else(|| SessionMutationError::NotFound(session_id.to_string()))?;
+    let current_summary = actor
+        .summary()
+        .await
+        .map_err(|_| SessionMutationError::NotFound(session_id.to_string()))?;
+
+    let (
+        approval_policy,
+        sandbox_mode,
+        collaboration_mode,
+        multi_agent,
+        personality,
+        service_tier,
+        developer_instructions,
+        model,
+        effort,
+        codex_config_source,
+        codex_config_overrides,
+    ) = if current_summary.provider == orbitdock_protocol::Provider::Codex {
+        let mut overrides = current_summary.codex_config_overrides.unwrap_or_default();
+        if let Some(value) = model {
+            overrides.model = value;
+        }
+        if let Some(value) = approval_policy {
+            overrides.approval_policy = value;
+        }
+        if let Some(value) = sandbox_mode {
+            overrides.sandbox_mode = value;
+        }
+        if let Some(value) = collaboration_mode {
+            overrides.collaboration_mode = value;
+        }
+        if let Some(value) = multi_agent {
+            overrides.multi_agent = value;
+        }
+        if let Some(value) = personality {
+            overrides.personality = value;
+        }
+        if let Some(value) = service_tier {
+            overrides.service_tier = value;
+        }
+        if let Some(value) = developer_instructions {
+            overrides.developer_instructions = value;
+        }
+        if let Some(value) = effort {
+            overrides.effort = value;
+        }
+
+        let source = current_summary
+            .codex_config_source
+            .unwrap_or(orbitdock_protocol::CodexConfigSource::Orbitdock);
+        let resolved =
+            resolve_codex_settings(&current_summary.project_path, source, overrides.clone())
+                .await
+                .map_err(SessionMutationError::InvalidCodexConfig)?;
+        (
+            Some(resolved.effective_settings.approval_policy.clone()),
+            Some(resolved.effective_settings.sandbox_mode.clone()),
+            Some(resolved.effective_settings.collaboration_mode.clone()),
+            Some(resolved.effective_settings.multi_agent),
+            Some(resolved.effective_settings.personality.clone()),
+            Some(resolved.effective_settings.service_tier.clone()),
+            Some(resolved.effective_settings.developer_instructions.clone()),
+            Some(resolved.effective_settings.model.clone()),
+            Some(resolved.effective_settings.effort.clone()),
+            Some(source),
+            Some(overrides),
+        )
+    } else {
+        (
+            approval_policy,
+            sandbox_mode,
+            collaboration_mode,
+            multi_agent,
+            personality,
+            service_tier,
+            developer_instructions,
+            model,
+            effort,
+            None,
+            None,
+        )
+    };
 
     actor
         .send(SessionCommand::ApplyDelta {
             changes: orbitdock_protocol::StateChanges {
-                approval_policy: Some(approval_policy.clone()),
-                sandbox_mode: Some(sandbox_mode.clone()),
-                permission_mode: Some(permission_mode.clone()),
-                collaboration_mode: Some(collaboration_mode.clone()),
-                multi_agent: Some(multi_agent),
-                personality: Some(personality.clone()),
-                service_tier: Some(service_tier.clone()),
-                developer_instructions: Some(developer_instructions.clone()),
-                model: Some(model.clone()),
-                effort: Some(effort.clone()),
+                approval_policy: approval_policy.clone(),
+                sandbox_mode: sandbox_mode.clone(),
+                permission_mode: permission_mode.clone(),
+                collaboration_mode: collaboration_mode.clone(),
+                multi_agent,
+                personality: personality.clone(),
+                service_tier: service_tier.clone(),
+                developer_instructions: developer_instructions.clone(),
+                model: model.clone(),
+                effort: effort.clone(),
+                codex_config_source: codex_config_source.map(Some),
+                codex_config_overrides: codex_config_overrides.clone().map(Some),
                 ..Default::default()
             },
             persist_op: Some(PersistOp::SetSessionConfig {
@@ -127,6 +215,10 @@ pub(crate) async fn update_session_config(
                 developer_instructions: developer_instructions.clone(),
                 model: model.clone(),
                 effort: effort.clone(),
+                codex_config_source,
+                codex_config_overrides_json: codex_config_overrides
+                    .as_ref()
+                    .and_then(serialize_codex_overrides),
             }),
         })
         .await;
@@ -137,7 +229,7 @@ pub(crate) async fn update_session_config(
         });
     }
 
-    if let Some(ref mode) = permission_mode {
+    if let Some(Some(ref mode)) = permission_mode {
         if let Some(tx) = state.get_claude_action_tx(session_id) {
             let _ = tx
                 .send(ClaudeAction::SetPermissionMode { mode: mode.clone() })
@@ -148,16 +240,16 @@ pub(crate) async fn update_session_config(
     if let Some(tx) = state.get_codex_action_tx(session_id) {
         let _ = tx
             .send(CodexAction::UpdateConfig {
-                approval_policy,
-                sandbox_mode,
-                permission_mode,
-                collaboration_mode,
-                multi_agent,
-                personality,
-                service_tier,
-                developer_instructions,
-                model,
-                effort,
+                approval_policy: approval_policy.flatten(),
+                sandbox_mode: sandbox_mode.flatten(),
+                permission_mode: permission_mode.flatten(),
+                collaboration_mode: collaboration_mode.flatten(),
+                multi_agent: multi_agent.flatten(),
+                personality: personality.flatten(),
+                service_tier: service_tier.flatten(),
+                developer_instructions: developer_instructions.flatten(),
+                model: model.flatten(),
+                effort: effort.flatten(),
             })
             .await;
     }

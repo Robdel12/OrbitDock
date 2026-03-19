@@ -5295,6 +5295,7 @@ dependencies = [
  "chrono",
  "clap",
  "clap_complete",
+ "codex-app-server-protocol",
  "codex-core",
  "codex-protocol",
  "console",

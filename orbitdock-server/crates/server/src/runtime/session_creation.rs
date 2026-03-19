@@ -3,7 +3,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionSummary,
+    ClaudeIntegrationMode, CodexConfigSource, CodexIntegrationMode, CodexSessionOverrides,
+    Provider, SessionState, SessionSummary,
 };
 
 use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
@@ -31,6 +32,8 @@ pub(crate) struct DirectSessionCreationInputs {
     pub mission_id: Option<String>,
     pub issue_identifier: Option<String>,
     pub allow_bypass_permissions: bool,
+    pub codex_config_source: Option<CodexConfigSource>,
+    pub codex_config_overrides: Option<CodexSessionOverrides>,
 }
 
 pub(crate) struct PreparedDirectSession {
@@ -63,6 +66,8 @@ pub(crate) struct DirectSessionRequest {
     /// When true, pass `--allow-dangerously-skip-permissions` to the Claude CLI,
     /// enabling mid-session switches to `bypassPermissions` mode.
     pub allow_bypass_permissions: bool,
+    pub codex_config_source: Option<CodexConfigSource>,
+    pub codex_config_overrides: Option<CodexSessionOverrides>,
 }
 
 pub(crate) struct PreparedPersistedDirectSession {
@@ -92,6 +97,8 @@ struct PersistDirectSessionCreate {
     mission_id: Option<String>,
     issue_identifier: Option<String>,
     allow_bypass_permissions: bool,
+    codex_config_source: Option<CodexConfigSource>,
+    codex_config_overrides_json: Option<String>,
 }
 
 pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> PreparedDirectSession {
@@ -118,6 +125,8 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
             developer_instructions: input.developer_instructions,
             model: input.model,
             effort: input.effort,
+            codex_config_source: input.codex_config_source,
+            codex_config_overrides: input.codex_config_overrides,
         });
     } else if input.provider == Provider::Claude {
         handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
@@ -164,6 +173,8 @@ async fn persist_direct_session_create(
         mission_id,
         issue_identifier,
         allow_bypass_permissions,
+        codex_config_source,
+        codex_config_overrides_json,
     } = request;
     let _ = persist_tx
         .send(PersistCommand::SessionCreate {
@@ -181,6 +192,8 @@ async fn persist_direct_session_create(
             personality,
             service_tier,
             developer_instructions,
+            codex_config_source,
+            codex_config_overrides_json,
             forked_from_session_id: None,
             mission_id,
             issue_identifier,
@@ -221,6 +234,8 @@ pub(crate) async fn prepare_persist_direct_session(
         mission_id: request.mission_id.clone(),
         issue_identifier: request.issue_identifier.clone(),
         allow_bypass_permissions: request.allow_bypass_permissions,
+        codex_config_source: request.codex_config_source,
+        codex_config_overrides: request.codex_config_overrides.clone(),
     });
 
     let persist_tx = state.persist().clone();
@@ -245,6 +260,11 @@ pub(crate) async fn prepare_persist_direct_session(
             mission_id: request.mission_id.clone(),
             issue_identifier: request.issue_identifier.clone(),
             allow_bypass_permissions: request.allow_bypass_permissions,
+            codex_config_source: request.codex_config_source,
+            codex_config_overrides_json: request
+                .codex_config_overrides
+                .as_ref()
+                .and_then(crate::runtime::codex_config::serialize_codex_overrides),
         },
     )
     .await;
@@ -340,6 +360,8 @@ mod tests {
             mission_id: None,
             issue_identifier: None,
             allow_bypass_permissions: false,
+            codex_config_source: None,
+            codex_config_overrides: None,
         });
 
         assert_eq!(prepared.project_name.as_deref(), Some("project"));
@@ -385,6 +407,8 @@ mod tests {
             mission_id: None,
             issue_identifier: None,
             allow_bypass_permissions: false,
+            codex_config_source: None,
+            codex_config_overrides: None,
         });
 
         assert_eq!(
@@ -416,6 +440,8 @@ mod tests {
             issue_identifier: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: false,
+            codex_config_source: None,
+            codex_config_overrides: None,
         };
         let prepared = prepare_direct_session(DirectSessionCreationInputs {
             id: "session-3".into(),
@@ -434,6 +460,8 @@ mod tests {
             mission_id: None,
             issue_identifier: None,
             allow_bypass_permissions: false,
+            codex_config_source: None,
+            codex_config_overrides: None,
         });
 
         let persisted = PreparedPersistedDirectSession {

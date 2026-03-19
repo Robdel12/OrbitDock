@@ -3,8 +3,8 @@ use tokio::sync::oneshot;
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
-    ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Provider, SessionStatus, SubagentInfo,
-    TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, CodexConfigSource, Provider,
+    SessionStatus, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
 };
 
 /// Commands that can be persisted.
@@ -26,6 +26,8 @@ pub enum PersistCommand {
         personality: Option<String>,
         service_tier: Option<String>,
         developer_instructions: Option<String>,
+        codex_config_source: Option<CodexConfigSource>,
+        codex_config_overrides_json: Option<String>,
         forked_from_session_id: Option<String>,
         mission_id: Option<String>,
         issue_identifier: Option<String>,
@@ -119,16 +121,18 @@ pub enum PersistCommand {
     /// Persist session autonomy configuration
     SetSessionConfig {
         session_id: String,
-        approval_policy: Option<String>,
-        sandbox_mode: Option<String>,
-        permission_mode: Option<String>,
-        collaboration_mode: Option<String>,
-        multi_agent: Option<bool>,
-        personality: Option<String>,
-        service_tier: Option<String>,
-        developer_instructions: Option<String>,
-        model: Option<String>,
-        effort: Option<String>,
+        approval_policy: Option<Option<String>>,
+        sandbox_mode: Option<Option<String>>,
+        permission_mode: Option<Option<String>>,
+        collaboration_mode: Option<Option<String>>,
+        multi_agent: Option<Option<bool>>,
+        personality: Option<Option<String>>,
+        service_tier: Option<Option<String>>,
+        developer_instructions: Option<Option<String>>,
+        model: Option<Option<String>>,
+        effort: Option<Option<String>>,
+        codex_config_source: Option<CodexConfigSource>,
+        codex_config_overrides_json: Option<String>,
     },
 
     /// Mark messages as read up to a given sequence number

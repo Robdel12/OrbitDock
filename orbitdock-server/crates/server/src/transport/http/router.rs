@@ -265,9 +265,17 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
         .route("/api/models/codex", get(super::list_codex_models))
         .route("/api/models/claude", get(super::list_claude_models))
         .route("/api/codex/account", get(super::read_codex_account))
+        .route(
+            "/api/codex/config/inspect",
+            post(super::inspect_codex_config),
+        )
         .route("/api/codex/login/start", post(super::codex_login_start))
         .route("/api/codex/login/cancel", post(super::codex_login_cancel))
         .route("/api/codex/logout", post(super::codex_logout))
+        .route(
+            "/api/server/codex-preferences",
+            get(super::get_codex_preferences).put(super::update_codex_preferences),
+        )
 }
 
 fn filesystem_routes() -> Router<Arc<SessionRegistry>> {

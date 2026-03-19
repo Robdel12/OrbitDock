@@ -1579,6 +1579,8 @@ mod tests {
             personality: None,
             service_tier: None,
             developer_instructions: None,
+            codex_config_source: None,
+            codex_config_overrides: None,
             pending_tool_name: None,
             pending_tool_input: None,
             pending_question: None,

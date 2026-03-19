@@ -614,6 +614,8 @@ pub(crate) async fn handle(
                     developer_instructions: control_plane.developer_instructions.clone(),
                     model: effective_model.clone(),
                     effort: effective_effort.clone(),
+                    codex_config_source: None,
+                    codex_config_overrides: None,
                 });
 
                 let thread_id = state.codex_thread_for_session(&session_id);
@@ -879,7 +881,7 @@ pub(crate) async fn handle(
                                                 session_id: session_id.clone(),
                                                 approval_policy: None,
                                                 sandbox_mode: None,
-                                                permission_mode: Some(mode.clone()),
+                                                permission_mode: Some(Some(mode.clone())),
                                                 collaboration_mode: None,
                                                 multi_agent: None,
                                                 personality: None,
@@ -887,6 +889,8 @@ pub(crate) async fn handle(
                                                 developer_instructions: None,
                                                 model: None,
                                                 effort: None,
+                                                codex_config_source: None,
+                                                codex_config_overrides_json: None,
                                             })
                                         } else {
                                             None

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct CodexAccountSetupPane: View {
   @Environment(SessionStore.self) private var serverState
+  @State private var defaultConfigSource: ServerCodexConfigSource = .user
+  @State private var isSavingPreferences = false
 
   var body: some View {
     SettingsSection(title: "CODEX CLI", icon: "sparkles") {
@@ -94,7 +96,36 @@ struct CodexAccountSetupPane: View {
               .foregroundStyle(Color.textSecondary)
           }
         }
+
+        Divider()
+
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+          HStack {
+            Text("Default Session Config")
+              .font(.system(size: TypeScale.body, weight: .semibold))
+              .foregroundStyle(Color.textPrimary)
+            Spacer()
+            Picker("Default Session Config", selection: $defaultConfigSource) {
+              Text("My Codex Config").tag(ServerCodexConfigSource.user)
+              Text("OrbitDock").tag(ServerCodexConfigSource.orbitdock)
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .disabled(isSavingPreferences)
+          }
+
+          Text("New Codex sessions can inherit your Codex files by default, while still allowing OrbitDock-only overrides per session.")
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
+    }
+    .task {
+      await loadCodexPreferences()
+    }
+    .onChange(of: defaultConfigSource) { _, newValue in
+      saveCodexPreferences(newValue)
     }
   }
 
@@ -127,5 +158,25 @@ struct CodexAccountSetupPane: View {
   private func openCodexUsagePage() {
     guard let url = URL(string: "https://chatgpt.com/codex/settings/usage") else { return }
     _ = Platform.services.openURL(url)
+  }
+
+  private func loadCodexPreferences() async {
+    guard let response = try? await serverState.clients.sessions.fetchCodexPreferences() else { return }
+    defaultConfigSource = response.defaultConfigSource
+  }
+
+  private func saveCodexPreferences(_ source: ServerCodexConfigSource) {
+    Task {
+      isSavingPreferences = true
+      defer { isSavingPreferences = false }
+      do {
+        let response = try await serverState.clients.sessions.updateCodexPreferences(
+          .init(defaultConfigSource: source)
+        )
+        defaultConfigSource = response.defaultConfigSource
+      } catch {
+        serverState.codexAuthError = error.localizedDescription
+      }
+    }
   }
 }

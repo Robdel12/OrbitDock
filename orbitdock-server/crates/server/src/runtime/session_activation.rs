@@ -4,12 +4,14 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use orbitdock_protocol::{
-    Provider, ServerMessage, SessionListItem, SessionStatus, StateChanges, WorkStatus,
+    CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage, SessionListItem,
+    SessionStatus, StateChanges, WorkStatus,
 };
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
 use crate::infrastructure::persistence::{load_session_by_id, PersistCommand};
+use crate::runtime::codex_config::resolve_codex_settings;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::{PersistOp, SessionCommand};
 use crate::runtime::session_registry::SessionRegistry;
@@ -88,6 +90,8 @@ pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
         personality,
         service_tier,
         developer_instructions,
+        codex_config_source,
+        codex_config_overrides,
     } = request;
     let (take_tx, take_rx) = tokio::sync::oneshot::channel();
     actor
@@ -117,6 +121,8 @@ pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
                     personality,
                     service_tier,
                     developer_instructions,
+                    codex_config_source,
+                    codex_config_overrides,
                     handle,
                     persist_tx: persist_tx.clone(),
                     connector_timeout,
@@ -165,6 +171,8 @@ pub(crate) struct LazyConnectorStartRequest<'a> {
     pub personality: Option<&'a str>,
     pub service_tier: Option<&'a str>,
     pub developer_instructions: Option<&'a str>,
+    pub codex_config_source: Option<CodexConfigSource>,
+    pub codex_config_overrides: Option<&'a CodexSessionOverrides>,
 }
 
 struct LazyCodexConnectorStart<'a> {
@@ -178,6 +186,8 @@ struct LazyCodexConnectorStart<'a> {
     personality: Option<&'a str>,
     service_tier: Option<&'a str>,
     developer_instructions: Option<&'a str>,
+    codex_config_source: Option<CodexConfigSource>,
+    codex_config_overrides: Option<&'a CodexSessionOverrides>,
     handle: crate::domain::sessions::session::SessionHandle,
     persist_tx: tokio::sync::mpsc::Sender<PersistCommand>,
     connector_timeout: Duration,
@@ -198,6 +208,8 @@ async fn start_lazy_codex_connector(
         personality,
         service_tier,
         developer_instructions,
+        codex_config_source,
+        codex_config_overrides,
         handle,
         persist_tx,
         connector_timeout,
@@ -212,23 +224,62 @@ async fn start_lazy_codex_connector(
     let personality = personality.map(ToOwned::to_owned);
     let service_tier = service_tier.map(ToOwned::to_owned);
     let developer_instructions = developer_instructions.map(ToOwned::to_owned);
+    let codex_config_overrides = codex_config_overrides.cloned();
 
     let mut connector_task = tokio::spawn(async move {
-        let control_plane = orbitdock_connector_codex::CodexControlPlane {
-            collaboration_mode,
+        let fallback_overrides = CodexSessionOverrides {
+            model: model.clone(),
+            approval_policy: approval.clone(),
+            sandbox_mode: sandbox.clone(),
+            collaboration_mode: collaboration_mode.clone(),
             multi_agent,
-            personality,
-            service_tier,
-            developer_instructions,
+            personality: personality.clone(),
+            service_tier: service_tier.clone(),
+            developer_instructions: developer_instructions.clone(),
+            effort: None,
         };
+        let resolved = resolve_codex_settings(
+            &project,
+            codex_config_source.unwrap_or(CodexConfigSource::Orbitdock),
+            codex_config_overrides.unwrap_or(fallback_overrides),
+        )
+        .await
+        .ok();
+        let effective = resolved
+            .as_ref()
+            .map(|resolved| &resolved.effective_settings);
+        let control_plane = orbitdock_connector_codex::CodexControlPlane {
+            collaboration_mode: effective
+                .and_then(|value| value.collaboration_mode.clone())
+                .or(collaboration_mode),
+            multi_agent: effective
+                .and_then(|value| value.multi_agent)
+                .or(multi_agent),
+            personality: effective
+                .and_then(|value| value.personality.clone())
+                .or(personality),
+            service_tier: effective
+                .and_then(|value| value.service_tier.clone())
+                .or(service_tier),
+            developer_instructions: effective
+                .and_then(|value| value.developer_instructions.clone())
+                .or(developer_instructions),
+        };
+        let effective_model = effective.and_then(|value| value.model.clone()).or(model);
+        let effective_approval = effective
+            .and_then(|value| value.approval_policy.clone())
+            .or(approval);
+        let effective_sandbox = effective
+            .and_then(|value| value.sandbox_mode.clone())
+            .or(sandbox);
         if let Some(ref tid) = thread_id {
             match CodexSession::resume_with_control_plane(
                 sid.clone(),
                 &project,
                 tid,
-                model.as_deref(),
-                approval.as_deref(),
-                sandbox.as_deref(),
+                effective_model.as_deref(),
+                effective_approval.as_deref(),
+                effective_sandbox.as_deref(),
                 control_plane.clone(),
             )
             .await
@@ -238,9 +289,9 @@ async fn start_lazy_codex_connector(
                     CodexSession::new_with_control_plane(
                         sid.clone(),
                         &project,
-                        model.as_deref(),
-                        approval.as_deref(),
-                        sandbox.as_deref(),
+                        effective_model.as_deref(),
+                        effective_approval.as_deref(),
+                        effective_sandbox.as_deref(),
                         control_plane,
                     )
                     .await
@@ -250,9 +301,9 @@ async fn start_lazy_codex_connector(
             CodexSession::new_with_control_plane(
                 sid.clone(),
                 &project,
-                model.as_deref(),
-                approval.as_deref(),
-                sandbox.as_deref(),
+                effective_model.as_deref(),
+                effective_approval.as_deref(),
+                effective_sandbox.as_deref(),
                 control_plane,
             )
             .await

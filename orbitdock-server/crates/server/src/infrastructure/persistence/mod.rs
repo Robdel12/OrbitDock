@@ -206,6 +206,8 @@ pub(super) fn execute_command(
             personality,
             service_tier,
             developer_instructions,
+            codex_config_source,
+            codex_config_overrides_json,
             forked_from_session_id,
             mission_id,
             issue_identifier,
@@ -225,16 +227,20 @@ pub(super) fn execute_command(
                 Provider::Claude => Some("direct"),
                 Provider::Codex => None,
             };
+            let codex_config_source = codex_config_source.map(|source| match source {
+                orbitdock_protocol::CodexConfigSource::Orbitdock => "orbitdock",
+                orbitdock_protocol::CodexConfigSource::User => "user",
+            });
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, started_at, last_activity_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?7, ?7, ?11, ?19, ?20, ?21)
+                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json, started_at, last_activity_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?7, ?7, ?11, ?21, ?22, ?23)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    branch = COALESCE(?4, branch),
                    model = COALESCE(?5, model),
-                   last_activity_at = ?7",
-                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, mission_id, issue_identifier, allow_bypass_permissions],
+                    last_activity_at = ?7",
+                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json, mission_id, issue_identifier, allow_bypass_permissions],
             )?;
         }
 
@@ -620,44 +626,74 @@ pub(super) fn execute_command(
             developer_instructions,
             model,
             effort,
+            codex_config_source,
+            codex_config_overrides_json,
         } => {
-            conn.execute(
-                "UPDATE sessions
-                 SET approval_policy = COALESCE(?1, approval_policy),
-                     sandbox_mode = COALESCE(?2, sandbox_mode),
-                     permission_mode = COALESCE(?3, permission_mode),
-                     collaboration_mode = COALESCE(?4, collaboration_mode),
-                     multi_agent = COALESCE(?5, multi_agent),
-                     personality = COALESCE(?6, personality),
-                     service_tier = COALESCE(?7, service_tier),
-                     developer_instructions = CASE
-                         WHEN ?8 IS NULL THEN developer_instructions
-                         WHEN trim(?8) = '' THEN NULL
-                         ELSE ?8
-                     END,
-                     model = COALESCE(?9, model),
-                     effort = CASE
-                         WHEN ?10 IS NULL THEN effort
-                         WHEN trim(?10) = '' THEN NULL
-                         ELSE ?10
-                     END,
-                     last_activity_at = ?11
-                 WHERE id = ?12",
-                params![
-                    approval_policy,
-                    sandbox_mode,
-                    permission_mode,
-                    collaboration_mode,
-                    multi_agent,
-                    personality,
-                    service_tier,
-                    developer_instructions,
-                    model,
-                    effort,
-                    chrono_now(),
-                    session_id
-                ],
-            )?;
+            let codex_config_source = codex_config_source.map(|source| match source {
+                orbitdock_protocol::CodexConfigSource::Orbitdock => "orbitdock",
+                orbitdock_protocol::CodexConfigSource::User => "user",
+            });
+            let mut updates: Vec<String> = Vec::new();
+            let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+            if let Some(value) = approval_policy {
+                updates.push("approval_policy = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = sandbox_mode {
+                updates.push("sandbox_mode = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = permission_mode {
+                updates.push("permission_mode = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = collaboration_mode {
+                updates.push("collaboration_mode = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = multi_agent {
+                updates.push("multi_agent = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = personality {
+                updates.push("personality = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = service_tier {
+                updates.push("service_tier = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = developer_instructions {
+                updates.push("developer_instructions = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = model {
+                updates.push("model = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = effort {
+                updates.push("effort = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = codex_config_source {
+                updates.push("codex_config_source = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = codex_config_overrides_json {
+                updates.push("codex_config_overrides_json = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+
+            if !updates.is_empty() {
+                updates.push("last_activity_at = ?".to_string());
+                params_vec.push(Box::new(chrono_now()));
+                let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
+                params_vec.push(Box::new(session_id));
+                let params_refs: Vec<&dyn rusqlite::ToSql> =
+                    params_vec.iter().map(|value| value.as_ref()).collect();
+                conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
+            }
         }
 
         PersistCommand::MarkSessionRead {

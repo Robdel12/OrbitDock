@@ -74,6 +74,8 @@ pub(crate) async fn handle_create_session(
             issue_identifier: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: false,
+            codex_config_source: None,
+            codex_config_overrides: None,
         },
     )
     .await;

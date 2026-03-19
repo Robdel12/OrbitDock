@@ -29,6 +29,15 @@ pub enum CodexIntegrationMode {
     Passive,
 }
 
+/// Which config baseline OrbitDock should use for Codex sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexConfigSource {
+    #[default]
+    Orbitdock,
+    User,
+}
+
 /// Claude integration mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -399,6 +408,10 @@ pub struct SessionSummary {
     pub service_tier: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub developer_instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_config_source: Option<CodexConfigSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_config_overrides: Option<CodexSessionOverrides>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_tool_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -773,6 +786,10 @@ pub struct SessionState {
     pub service_tier: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub developer_instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_config_source: Option<CodexConfigSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_config_overrides: Option<CodexSessionOverrides>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_tool_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1000,6 +1017,10 @@ pub struct StateChanges {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub developer_instructions: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub codex_config_source: Option<Option<CodexConfigSource>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codex_config_overrides: Option<Option<CodexSessionOverrides>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_turn_id: Option<Option<String>>,
@@ -1027,6 +1048,29 @@ pub struct StateChanges {
     /// Updated unread message count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unread_count: Option<u64>,
+}
+
+/// Explicit OrbitDock-managed overrides layered on top of Codex config.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct CodexSessionOverrides {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collaboration_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_agent: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub personality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub developer_instructions: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// Codex model option exposed to clients.
@@ -1652,6 +1696,8 @@ mod tests {
             personality: None,
             service_tier: None,
             developer_instructions: None,
+            codex_config_source: None,
+            codex_config_overrides: None,
             pending_tool_name: None,
             pending_tool_input: None,
             pending_question: None,
