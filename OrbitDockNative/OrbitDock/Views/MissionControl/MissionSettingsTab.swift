@@ -383,14 +383,14 @@ struct MissionSettingsTab: View {
   }
 
   private func permissionFromString(_ value: String?) -> ClaudePermissionMode {
-    guard let value, !value.isEmpty else { return .default }
+    guard let value, !value.isEmpty else { return .acceptEdits }
     switch value {
       case "plan": return .plan
       case "dontAsk": return .dontAsk
-      case "default": return .default
+      case "default": return .acceptEdits
       case "acceptEdits": return .acceptEdits
       case "bypassPermissions": return .bypassPermissions
-      default: return .default
+      default: return .acceptEdits
     }
   }
 
