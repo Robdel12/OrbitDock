@@ -218,6 +218,113 @@
 }
 
 /* -------------------------------------------------------------------------
+   Activity badges
+   ------------------------------------------------------------------------- */
+.activityBadge {
+  font-size: var(--type-micro);
+  font-weight: 600;
+  padding: 1px var(--space-xs);
+  border-radius: var(--radius-xl);
+  white-space: nowrap;
+  background: var(--color-surface-elevated);
+  color: var(--color-text-tertiary);
+}
+
+.activityWorking {
+  background: rgba(0, 200, 255, 0.12);
+  color: var(--color-status-working);
+}
+
+.activityAttention {
+  background: rgba(255, 160, 0, 0.12);
+  color: var(--color-status-permission);
+}
+
+/* -------------------------------------------------------------------------
+   Hover-reveal action buttons
+   ------------------------------------------------------------------------- */
+.hoverActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.result:hover .hoverActions {
+  opacity: 1;
+}
+
+.hoverAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.hoverAction:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.hoverActionDanger:hover {
+  color: var(--color-feedback-negative);
+}
+
+/* -------------------------------------------------------------------------
+   Rename overlay
+   ------------------------------------------------------------------------- */
+.renameTitle {
+  flex: 1;
+  font-size: var(--type-subhead);
+  color: var(--color-text-primary);
+}
+
+.renameBody {
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.renameRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.renameInput {
+  flex: 1;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-surface-border-accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-body);
+  font-family: var(--font-system);
+  color: var(--color-text-primary);
+  caret-color: var(--color-accent);
+  outline: none;
+}
+
+.renameInput:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px rgba(0, 200, 255, 0.15);
+}
+
+.renameHint {
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+/* -------------------------------------------------------------------------
    Empty state
    ------------------------------------------------------------------------- */
 .empty {

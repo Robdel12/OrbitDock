@@ -148,19 +148,19 @@ Missing flows that native supports for session management.
 
 The shell is polished but functionality is shallow. Missing quick launch, inline rename, hover actions, and activity badges.
 
-- [ ] **6.1 — Quick launch mode**
+- [x] **6.1 — Quick launch mode**
   When user types "new claude" or "new codex", switch to quick launch mode showing recent projects. Selecting a project creates a session immediately.
 
-- [ ] **6.2 — Inline rename**
+- [x] **6.2 — Inline rename**
   Add Cmd+R / F2 shortcut while a session is selected in the palette to activate inline rename. Show a text input replacing the session name.
 
-- [ ] **6.3 — Hover-reveal action buttons**
+- [x] **6.3 — Hover-reveal action buttons**
   On session rows, reveal action buttons on hover: open in finder (copy path on web), rename, copy resume command, end session. Fade in with opacity + scale transition.
 
-- [ ] **6.4 — Activity badges on session rows**
+- [x] **6.4 — Activity badges on session rows**
   Show a colored capsule badge with current action text (e.g. "Running Bash", "Waiting for approval") on each session row.
 
-- [ ] **6.5 — Command mode completeness**
+- [x] **6.5 — Command mode completeness**
   Ensure `>` command mode covers all useful commands: New Claude/Codex Session, End Session, Compact Context, Fork, Settings, Missions, Worktrees.
 
 ---
@@ -217,7 +217,7 @@ Systematic pass to replace rough edges and align with native design language.
 | 3. Session Header | 5 | 5 | Complete |
 | 4. Conversation Polish | 6 | 6 | Complete |
 | 5. Session Lifecycle | 5 | 5 | Complete |
-| 6. Command Palette | 5 | 0 | Not started |
+| 6. Command Palette | 5 | 5 | Complete |
 | 7. Visual Polish | 6 | 0 | Not started |
 | 8. Settings & Pages | 5 | 0 | Not started |
-| **Total** | **46** | **29** | |
+| **Total** | **46** | **34** | |
