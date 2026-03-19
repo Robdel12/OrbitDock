@@ -710,10 +710,8 @@ pub fn transition(
             });
 
             if !is_dup {
-                // Assign sequence from rows vec, not the inflatable counter
-                if entry.sequence == 0 {
-                    entry.sequence = state.rows.last().map(|r| r.sequence + 1).unwrap_or(0);
-                }
+                // In-memory sequence for live ordering; DB assigns authoritative sequence on persist.
+                entry.sequence = state.rows.last().map(|r| r.sequence + 1).unwrap_or(0);
                 state.rows.push(entry.clone());
                 state.total_row_count = entry.sequence + 1;
                 state.last_activity_at = Some(now.to_string());

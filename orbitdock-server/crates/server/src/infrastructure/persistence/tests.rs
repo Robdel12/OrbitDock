@@ -116,10 +116,8 @@ fn row_append_stores_correct_sequence() {
 }
 
 #[test]
-fn row_append_with_zero_sequence_stores_zero() {
-    // This test documents that RowAppend is a dumb write — it persists
-    // whatever sequence it receives. The caller (AddRowAndBroadcast handler)
-    // is responsible for assigning the correct sequence BEFORE sending.
+fn row_append_with_zero_sequence_gets_db_assigned_sequence() {
+    // DB computes MAX(sequence)+1 — callers no longer need to assign sequences.
     let (conn, db_path, _dir) = setup_test_db();
     drop(conn);
 
@@ -130,7 +128,7 @@ fn row_append_with_zero_sequence_stores_zero() {
         },
         PersistCommand::RowAppend {
             session_id: "test-session".to_string(),
-            entry: user_entry("row-b", 0), // Bad: duplicate sequence=0
+            entry: user_entry("row-b", 0),
         },
     ];
 
@@ -139,26 +137,25 @@ fn row_append_with_zero_sequence_stores_zero() {
     let conn = Connection::open(&db_path).unwrap();
     let rows = load_messages_from_db(&conn, "test-session").unwrap();
 
-    // Both rows are stored, both with sequence=0 — this is why callers
-    // MUST go through the actor (AddRowAndBroadcast) to get correct sequences.
+    // DB assigns contiguous sequences regardless of the app-provided value.
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].sequence, 0);
-    assert_eq!(rows[1].sequence, 0);
+    assert_eq!(rows[1].sequence, 1);
 }
 
 #[test]
-fn row_upsert_updates_sequence_on_conflict() {
+fn row_upsert_preserves_original_sequence_on_conflict() {
     let (conn, db_path, _dir) = setup_test_db();
     drop(conn);
 
-    // First: insert a row with sequence=0 (the old buggy behavior)
+    // First: insert a row — DB assigns sequence=0
     let batch = vec![PersistCommand::RowAppend {
         session_id: "test-session".to_string(),
         entry: user_entry("row-0", 0),
     }];
     super::writer::flush_batch_for_test(&db_path, batch).unwrap();
 
-    // Then: upsert the same row with the correct sequence=5
+    // Then: upsert the same row — sequence should be preserved (not overwritten)
     let batch = vec![PersistCommand::RowUpsert {
         session_id: "test-session".to_string(),
         entry: user_entry("row-0", 5),
@@ -169,10 +166,10 @@ fn row_upsert_updates_sequence_on_conflict() {
     let rows = load_messages_from_db(&conn, "test-session").unwrap();
 
     assert_eq!(rows.len(), 1);
-    // The sequence should be corrected from 0 to 5
+    // ON CONFLICT preserves the original DB-assigned sequence
     assert_eq!(
-        rows[0].sequence, 5,
-        "RowUpsert must update the sequence column"
+        rows[0].sequence, 0,
+        "RowUpsert must preserve original sequence on conflict"
     );
 }
 
@@ -192,7 +189,8 @@ fn row_upsert_inserts_when_not_existing() {
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].id(), "new-row");
-    assert_eq!(rows[0].sequence, 3);
+    // DB computes sequence as MAX+1 (0 for first row), ignoring app-provided value
+    assert_eq!(rows[0].sequence, 0);
 }
 
 #[test]

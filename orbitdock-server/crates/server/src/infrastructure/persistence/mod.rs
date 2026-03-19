@@ -332,23 +332,24 @@ pub(super) fn execute_command(
         PersistCommand::RowAppend { session_id, entry } => {
             let row_id = entry.id().to_string();
             let row_type = row_type_str(&entry.row);
-            let seq = entry.sequence as i64;
             let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
 
             // Extract content for last_message updates
             let content_text = extract_row_content(&entry.row);
             let is_user = matches!(&entry.row, ConversationRow::User(_));
 
+            // DB computes sequence as MAX(sequence)+1 — single source of truth.
             conn.execute(
                 "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, row_data)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 VALUES (?1, ?2, ?3, ?4, ?5,
+                   COALESCE((SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
+                   ?6)",
                 params![
                     row_id,
                     session_id,
                     row_type,
                     content_text.as_deref().unwrap_or(""),
                     chrono_now(),
-                    seq,
                     row_data,
                 ],
             )?;
@@ -379,24 +380,24 @@ pub(super) fn execute_command(
         PersistCommand::RowUpsert { session_id, entry } => {
             let row_id = entry.id().to_string();
             let row_type = row_type_str(&entry.row);
-            let seq = entry.sequence as i64;
             let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
             let content_text = extract_row_content(&entry.row);
 
+            // DB computes sequence on insert; ON CONFLICT preserves original ordering.
             conn.execute(
                 "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, row_data)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 VALUES (?1, ?2, ?3, ?4, ?5,
+                   COALESCE((SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
+                   ?6)
                  ON CONFLICT(id) DO UPDATE SET
                    content = excluded.content,
-                   row_data = excluded.row_data,
-                   sequence = excluded.sequence",
+                   row_data = excluded.row_data",
                 params![
                     row_id,
                     session_id,
                     row_type,
                     content_text.as_deref().unwrap_or(""),
                     chrono_now(),
-                    seq,
                     row_data,
                 ],
             )?;

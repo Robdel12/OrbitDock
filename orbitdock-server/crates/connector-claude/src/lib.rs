@@ -7,7 +7,6 @@ pub mod session;
 
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use base64::engine::general_purpose::STANDARD;
@@ -302,10 +301,10 @@ fn make_tool_row(
 }
 
 /// Wrap a ConversationRow in a ConversationRowEntry.
-fn make_entry(session_id: &str, seq: u64, row: ConversationRow) -> ConversationRowEntry {
+fn make_entry(session_id: &str, row: ConversationRow) -> ConversationRowEntry {
     ConversationRowEntry {
         session_id: session_id.to_string(),
-        sequence: seq,
+        sequence: 0,
         turn_id: None,
         row,
     }
@@ -540,7 +539,6 @@ pub struct ClaudeConnector {
     child: Arc<Mutex<Child>>,
     event_rx: Option<mpsc::Receiver<ConnectorEvent>>,
     claude_session_id: Arc<Mutex<Option<String>>>,
-    msg_counter: Arc<AtomicU64>,
     pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
     pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
     models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
@@ -636,12 +634,6 @@ impl ClaudeConnector {
         let (event_tx, event_rx) = mpsc::channel::<ConnectorEvent>(256);
         let (stdin_tx, stdin_rx) = mpsc::channel::<String>(256);
         let claude_session_id = Arc::new(Mutex::new(None));
-        // Seed from epoch millis so IDs never collide across connector restarts
-        let epoch_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        let msg_counter = Arc::new(AtomicU64::new(epoch_ms));
         let pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>> =
@@ -707,7 +699,6 @@ impl ClaudeConnector {
 
         // Spawn stdout reader loop
         let session_clone = claude_session_id.clone();
-        let counter_clone = msg_counter.clone();
         let pending_clone = pending_controls.clone();
         let approvals_clone = pending_approvals.clone();
         let models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>> =
@@ -725,7 +716,6 @@ impl ClaudeConnector {
                 stdout,
                 event_tx,
                 session_clone,
-                counter_clone,
                 pending_clone,
                 approvals_clone,
                 models_clone,
@@ -739,7 +729,6 @@ impl ClaudeConnector {
             child: child_arc,
             event_rx: Some(event_rx),
             claude_session_id,
-            msg_counter,
             pending_controls,
             pending_approvals,
             models: models.clone(),
@@ -1206,7 +1195,6 @@ impl ClaudeConnector {
         stdout: tokio::process::ChildStdout,
         event_tx: mpsc::Sender<ConnectorEvent>,
         session_id: Arc<Mutex<Option<String>>>,
-        msg_counter: Arc<AtomicU64>,
         pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
         pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
         models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
@@ -1271,7 +1259,6 @@ impl ClaudeConnector {
                     let events = Self::dispatch_stdout_message(
                         &raw,
                         &session_id,
-                        &msg_counter,
                         &pending_controls,
                         &pending_approvals,
                         &mut streaming_content,
@@ -1337,7 +1324,6 @@ impl ClaudeConnector {
     async fn dispatch_stdout_message(
         raw: &Value,
         session_id_slot: &Arc<Mutex<Option<String>>>,
-        msg_counter: &Arc<AtomicU64>,
         pending_controls: &Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
         pending_approvals: &Arc<Mutex<HashMap<String, PendingApproval>>>,
         streaming_content: &mut String,
@@ -1392,7 +1378,6 @@ impl ClaudeConnector {
                     models,
                     task_tool_use_map,
                     compacting_msg_id,
-                    msg_counter,
                     tool_rows,
                 )
                 .await
@@ -1401,7 +1386,6 @@ impl ClaudeConnector {
             "assistant" => Self::handle_assistant_message(
                 raw,
                 &session_id,
-                msg_counter,
                 streaming_content,
                 streaming_msg_id,
                 turn_patch_diffs,
@@ -1411,23 +1395,13 @@ impl ClaudeConnector {
                 tool_rows,
             ),
 
-            "user" => Self::handle_user_message(
-                raw,
-                &session_id,
-                msg_counter,
-                task_tool_use_map,
-                tool_rows,
-            ),
+            "user" => Self::handle_user_message(raw, &session_id, task_tool_use_map, tool_rows),
 
-            "stream_event" => Self::handle_stream_event(
-                raw,
-                &session_id,
-                msg_counter,
-                streaming_content,
-                streaming_msg_id,
-            ),
+            "stream_event" => {
+                Self::handle_stream_event(raw, &session_id, streaming_content, streaming_msg_id)
+            }
 
-            "tool_progress" => Self::handle_tool_progress(raw, &session_id, msg_counter, tool_rows),
+            "tool_progress" => Self::handle_tool_progress(raw, &session_id, tool_rows),
 
             "result" => {
                 *in_turn = false;
@@ -1440,7 +1414,6 @@ impl ClaudeConnector {
                     cumulative_output,
                     last_context_window,
                     &session_id,
-                    msg_counter,
                 )
             }
 
@@ -1498,8 +1471,7 @@ impl ClaudeConnector {
                 if summary.is_empty() {
                     vec![]
                 } else {
-                    let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
-                    let id = format!("claude-summary-{}", seq);
+                    let id = format!("claude-summary-{}", uuid::Uuid::new_v4());
                     let row = ConversationRow::Assistant(MessageRowContent {
                         id,
                         content: summary.to_string(),
@@ -1510,7 +1482,6 @@ impl ClaudeConnector {
                     });
                     vec![ConnectorEvent::ConversationRowCreated(make_entry(
                         &session_id,
-                        seq,
                         row,
                     ))]
                 }
@@ -1631,7 +1602,6 @@ impl ClaudeConnector {
         _models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
         task_tool_use_map: &mut HashMap<String, String>,
         compacting_msg_id: &mut Option<String>,
-        msg_counter: &Arc<AtomicU64>,
         tool_rows: &mut HashMap<String, ToolRow>,
     ) -> Vec<ConnectorEvent> {
         let subtype = raw.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
@@ -1749,10 +1719,9 @@ impl ClaudeConnector {
 
                             "summary": "Done",
                         }));
-                        let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                         events.push(ConnectorEvent::ConversationRowUpdated {
                             row_id: row_id.clone(),
-                            entry: make_entry(&session_id, seq, ConversationRow::Tool(tr)),
+                            entry: make_entry(&session_id, ConversationRow::Tool(tr)),
                         });
                     }
                 }
@@ -1817,11 +1786,9 @@ impl ClaudeConnector {
                 } else {
                     Some(description.to_string())
                 };
-                let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                 tool_rows.insert(task_id.to_string(), tr.clone());
                 vec![ConnectorEvent::ConversationRowCreated(make_entry(
                     &session_id,
-                    seq,
                     ConversationRow::Tool(tr),
                 ))]
             }
@@ -1857,10 +1824,9 @@ impl ClaudeConnector {
                 if let Some(tr) = tool_rows.get_mut(task_id) {
                     tr.summary = Some(progress);
                     tr.duration_ms = Some(duration_ms);
-                    let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                     vec![ConnectorEvent::ConversationRowUpdated {
                         row_id: task_id.to_string(),
-                        entry: make_entry(&session_id, seq, ConversationRow::Tool(tr.clone())),
+                        entry: make_entry(&session_id, ConversationRow::Tool(tr.clone())),
                     }]
                 } else {
                     vec![]
@@ -1901,10 +1867,9 @@ impl ClaudeConnector {
 
                         "summary": summary,
                     }));
-                    let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                     vec![ConnectorEvent::ConversationRowUpdated {
                         row_id: task_id.to_string(),
-                        entry: make_entry(&session_id, seq, ConversationRow::Tool(tr)),
+                        entry: make_entry(&session_id, ConversationRow::Tool(tr)),
                     }]
                 } else {
                     vec![]
@@ -1955,11 +1920,9 @@ impl ClaudeConnector {
                             )),
                             ToolStatus::Running,
                         );
-                        let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                         tool_rows.insert(msg_id.clone(), tr.clone());
                         events.push(ConnectorEvent::ConversationRowCreated(make_entry(
                             &session_id,
-                            seq,
                             ConversationRow::Tool(tr),
                         )));
                     }
@@ -2038,7 +2001,6 @@ impl ClaudeConnector {
     fn handle_assistant_message(
         raw: &Value,
         session_id: &str,
-        msg_counter: &Arc<AtomicU64>,
         streaming_content: &mut String,
         streaming_msg_id: &mut Option<String>,
         turn_patch_diffs: &mut Vec<String>,
@@ -2055,13 +2017,7 @@ impl ClaudeConnector {
         let had_streaming = streaming_msg_id.is_some();
 
         // Flush any pending streaming content
-        flush_streaming(
-            &mut events,
-            streaming_content,
-            streaming_msg_id,
-            session_id,
-            msg_counter,
-        );
+        flush_streaming(&mut events, streaming_content, streaming_msg_id, session_id);
 
         let message = match raw.get("message") {
             Some(m) => m,
@@ -2102,11 +2058,10 @@ impl ClaudeConnector {
 
         for block in content_blocks {
             let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
             let id = format!(
                 "claude-msg-{}-{}",
                 &session_id[..8.min(session_id.len())],
-                seq
+                uuid::Uuid::new_v4()
             );
 
             match block_type {
@@ -2123,7 +2078,7 @@ impl ClaudeConnector {
                         images: vec![],
                     });
                     events.push(ConnectorEvent::ConversationRowCreated(make_entry(
-                        session_id, seq, row,
+                        session_id, row,
                     )));
                 }
                 "tool_use" => {
@@ -2144,7 +2099,6 @@ impl ClaudeConnector {
                     tool_rows.insert(message_id.clone(), tr.clone());
                     events.push(ConnectorEvent::ConversationRowCreated(make_entry(
                         session_id,
-                        seq,
                         ConversationRow::Tool(tr),
                     )));
 
@@ -2168,7 +2122,7 @@ impl ClaudeConnector {
                         images: vec![],
                     });
                     events.push(ConnectorEvent::ConversationRowCreated(make_entry(
-                        session_id, seq, row,
+                        session_id, row,
                     )));
                 }
                 _ => {}
@@ -2218,7 +2172,6 @@ impl ClaudeConnector {
     fn handle_user_message(
         raw: &Value,
         session_id: &str,
-        msg_counter: &Arc<AtomicU64>,
         task_tool_use_map: &mut HashMap<String, String>,
         tool_rows: &mut HashMap<String, ToolRow>,
     ) -> Vec<ConnectorEvent> {
@@ -2259,13 +2212,12 @@ impl ClaudeConnector {
         // Emit a User row if there's any text or images
         let user_text = text_parts.join("\n");
         if !user_text.is_empty() || !images.is_empty() {
-            let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
             let msg_id = raw
                 .get("message")
                 .and_then(|m| m.get("id"))
                 .and_then(|v| v.as_str())
                 .map(String::from)
-                .unwrap_or_else(|| format!("claude-user-{}", seq));
+                .unwrap_or_else(|| format!("claude-user-{}", uuid::Uuid::new_v4()));
 
             info!(
                 component = "claude_connector",
@@ -2278,7 +2230,6 @@ impl ClaudeConnector {
 
             events.push(ConnectorEvent::ConversationRowCreated(make_entry(
                 session_id,
-                seq,
                 ConversationRow::User(MessageRowContent {
                     id: msg_id,
                     content: user_text,
@@ -2400,14 +2351,12 @@ impl ClaudeConnector {
                             Some(&content),
                         ),
                     );
-                    let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                     events.push(ConnectorEvent::ConversationRowUpdated {
                         row_id: row_id.clone(),
-                        entry: make_entry(session_id, seq, ConversationRow::Tool(tr)),
+                        entry: make_entry(session_id, ConversationRow::Tool(tr)),
                     });
                 } else {
                     // No tracked row — create a minimal completed tool row.
-                    let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                     let mut tr = make_tool_row(
                         row_id.clone(),
                         "unknown",
@@ -2425,7 +2374,7 @@ impl ClaudeConnector {
                     }));
                     events.push(ConnectorEvent::ConversationRowUpdated {
                         row_id,
-                        entry: make_entry(session_id, seq, ConversationRow::Tool(tr)),
+                        entry: make_entry(session_id, ConversationRow::Tool(tr)),
                     });
                 }
             } else {
@@ -2445,7 +2394,6 @@ impl ClaudeConnector {
     fn handle_stream_event(
         raw: &Value,
         session_id: &str,
-        msg_counter: &Arc<AtomicU64>,
         streaming_content: &mut String,
         streaming_msg_id: &mut Option<String>,
     ) -> Vec<ConnectorEvent> {
@@ -2470,11 +2418,10 @@ impl ClaudeConnector {
                     streaming_content.push_str(text);
 
                     if streaming_msg_id.is_none() {
-                        let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                         let msg_id = format!(
                             "claude-msg-{}-{}",
                             &session_id[..8.min(session_id.len())],
-                            seq
+                            uuid::Uuid::new_v4()
                         );
                         let row = ConversationRow::Assistant(MessageRowContent {
                             id: msg_id.clone(),
@@ -2485,11 +2432,10 @@ impl ClaudeConnector {
                             images: vec![],
                         });
                         events.push(ConnectorEvent::ConversationRowCreated(make_entry(
-                            session_id, seq, row,
+                            session_id, row,
                         )));
                         *streaming_msg_id = Some(msg_id);
                     } else {
-                        let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
                         let msg_id = streaming_msg_id.clone().unwrap();
                         let row = ConversationRow::Assistant(MessageRowContent {
                             id: msg_id.clone(),
@@ -2501,7 +2447,7 @@ impl ClaudeConnector {
                         });
                         events.push(ConnectorEvent::ConversationRowUpdated {
                             row_id: msg_id,
-                            entry: make_entry(session_id, seq, row),
+                            entry: make_entry(session_id, row),
                         });
                     }
                 }
@@ -2515,7 +2461,6 @@ impl ClaudeConnector {
     fn handle_tool_progress(
         raw: &Value,
         session_id: &str,
-        msg_counter: &Arc<AtomicU64>,
         tool_rows: &mut HashMap<String, ToolRow>,
     ) -> Vec<ConnectorEvent> {
         let Some(tool_use_id) = raw.get("tool_use_id").and_then(|v| v.as_str()) else {
@@ -2534,10 +2479,9 @@ impl ClaudeConnector {
         if let Some(tr) = tool_rows.get_mut(tool_use_id) {
             tr.summary = Some(format!("{} running ({}s)", tool_name, elapsed));
             tr.duration_ms = Some(elapsed * 1000);
-            let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
             vec![ConnectorEvent::ConversationRowUpdated {
                 row_id: tool_use_id.to_string(),
-                entry: make_entry(session_id, seq, ConversationRow::Tool(tr.clone())),
+                entry: make_entry(session_id, ConversationRow::Tool(tr.clone())),
             }]
         } else {
             vec![]
@@ -2554,18 +2498,11 @@ impl ClaudeConnector {
         cumulative_output: &mut u64,
         last_context_window: &mut u64,
         session_id: &str,
-        msg_counter: &Arc<AtomicU64>,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
 
         // Flush streaming content
-        flush_streaming(
-            &mut events,
-            streaming_content,
-            streaming_msg_id,
-            session_id,
-            msg_counter,
-        );
+        flush_streaming(&mut events, streaming_content, streaming_msg_id, session_id);
 
         // Build token usage. Prefer per-call input/cached from the last assistant
         // message (accurate for context fill) with cumulative output tokens.
@@ -2980,11 +2917,9 @@ fn flush_streaming(
     streaming_content: &mut String,
     streaming_msg_id: &mut Option<String>,
     session_id: &str,
-    msg_counter: &Arc<AtomicU64>,
 ) {
     if let Some(mid) = streaming_msg_id.take() {
         if !streaming_content.is_empty() {
-            let seq = msg_counter.fetch_add(1, Ordering::Relaxed);
             let row = ConversationRow::Assistant(MessageRowContent {
                 id: mid.clone(),
                 content: std::mem::take(streaming_content),
@@ -2995,7 +2930,7 @@ fn flush_streaming(
             });
             events.push(ConnectorEvent::ConversationRowUpdated {
                 row_id: mid,
-                entry: make_entry(session_id, seq, row),
+                entry: make_entry(session_id, row),
             });
         }
     }
@@ -3142,7 +3077,6 @@ fn resolve_claude_binary() -> Result<String, ConnectorError> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::atomic::AtomicU64;
     use std::sync::Arc;
 
     use serde_json::{json, Value};
@@ -3380,13 +3314,11 @@ mod tests {
         let mut last_turn_input = None;
         let mut cumulative_output = 0;
         let mut last_context_window = 200_000;
-        let msg_counter = Arc::new(AtomicU64::new(1));
         let mut tool_rows = HashMap::new();
 
         let events = ClaudeConnector::handle_assistant_message(
             &raw,
             "sess-1",
-            &msg_counter,
             &mut streaming_content,
             &mut streaming_msg_id,
             &mut turn_patch_diffs,
@@ -3451,13 +3383,11 @@ mod tests {
         let mut last_turn_input = None;
         let mut cumulative_output = 0;
         let mut last_context_window = 200_000;
-        let msg_counter = Arc::new(AtomicU64::new(1));
         let mut tool_rows = HashMap::new();
 
         let _ = ClaudeConnector::handle_assistant_message(
             &raw_edit,
             "sess-1",
-            &msg_counter,
             &mut streaming_content,
             &mut streaming_msg_id,
             &mut turn_patch_diffs,
@@ -3470,7 +3400,6 @@ mod tests {
         let second_events = ClaudeConnector::handle_assistant_message(
             &raw_write,
             "sess-1",
-            &msg_counter,
             &mut streaming_content,
             &mut streaming_msg_id,
             &mut turn_patch_diffs,
