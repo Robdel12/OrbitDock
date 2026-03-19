@@ -1116,6 +1116,12 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_binary_returns_none_for_admin_commands() {
+        // ClientConfig::from_sources falls back to reading hook-forward.json
+        // which needs data_dir to be initialized.
+        let tmp = std::env::temp_dir().join("orbitdock-test-dispatch");
+        let _ = std::fs::create_dir_all(&tmp);
+        orbitdock_server::init_data_dir(Some(&tmp));
+
         let config = ClientConfig::from_sources(None, None, true, None);
         let command = BinaryCommand::GenerateToken;
 
