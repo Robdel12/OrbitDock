@@ -13,6 +13,10 @@ enum ServerConversationRowType: Codable, Equatable {
   case user
   case assistant
   case thinking
+  case context
+  case notice
+  case shellCommand
+  case task
   case tool
   case activityGroup
   case question
@@ -30,6 +34,10 @@ enum ServerConversationRowType: Codable, Equatable {
       case "user": self = .user
       case "assistant": self = .assistant
       case "thinking": self = .thinking
+      case "context": self = .context
+      case "notice": self = .notice
+      case "shell_command": self = .shellCommand
+      case "task": self = .task
       case "tool": self = .tool
       case "activity_group": self = .activityGroup
       case "question": self = .question
@@ -51,6 +59,10 @@ enum ServerConversationRowType: Codable, Equatable {
       case .user: try container.encode("user")
       case .assistant: try container.encode("assistant")
       case .thinking: try container.encode("thinking")
+      case .context: try container.encode("context")
+      case .notice: try container.encode("notice")
+      case .shellCommand: try container.encode("shell_command")
+      case .task: try container.encode("task")
       case .tool: try container.encode("tool")
       case .activityGroup: try container.encode("activity_group")
       case .question: try container.encode("question")
@@ -63,6 +75,49 @@ enum ServerConversationRowType: Codable, Equatable {
       case .unknown: try container.encode("unknown")
     }
   }
+}
+
+enum ServerConversationContextKind: String, Codable {
+  case agentInstructions = "agent_instructions"
+  case environment
+  case skill
+  case reminder
+  case personality
+  case userInstructions = "user_instructions"
+  case generic
+}
+
+enum ServerConversationNoticeKind: String, Codable {
+  case turnAborted = "turn_aborted"
+  case localCommandCaveat = "local_command_caveat"
+  case generic
+}
+
+enum ServerConversationNoticeSeverity: String, Codable {
+  case info
+  case warning
+  case error
+}
+
+enum ServerConversationShellCommandKind: String, Codable {
+  case userShellCommand = "user_shell_command"
+  case slashCommand = "slash_command"
+  case bash
+  case localCommandOutput = "local_command_output"
+  case shellContext = "shell_context"
+  case generic
+}
+
+enum ServerConversationTaskKind: String, Codable {
+  case backgroundCommand = "background_command"
+  case generic
+}
+
+enum ServerConversationTaskStatus: String, Codable {
+  case pending
+  case running
+  case completed
+  case failed
 }
 
 enum ServerConversationToolFamily: String, Codable {
@@ -371,10 +426,116 @@ struct ServerConversationHandoffRow: Codable {
   }
 }
 
+struct ServerConversationContextRow: Codable {
+  let id: String
+  let kind: ServerConversationContextKind
+  let title: String
+  let subtitle: String?
+  let summary: String?
+  let body: String?
+  let sourcePath: String?
+  let cwd: String?
+  let shell: String?
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case kind
+    case title
+    case subtitle
+    case summary
+    case body
+    case sourcePath = "source_path"
+    case cwd
+    case shell
+    case renderHints = "render_hints"
+  }
+}
+
+struct ServerConversationNoticeRow: Codable {
+  let id: String
+  let kind: ServerConversationNoticeKind
+  let severity: ServerConversationNoticeSeverity
+  let title: String
+  let summary: String?
+  let body: String?
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case kind
+    case severity
+    case title
+    case summary
+    case body
+    case renderHints = "render_hints"
+  }
+}
+
+struct ServerConversationShellCommandRow: Codable {
+  let id: String
+  let kind: ServerConversationShellCommandKind
+  let title: String
+  let summary: String?
+  let command: String?
+  let args: [String]
+  let stdout: String?
+  let stderr: String?
+  let exitCode: Int?
+  let durationSeconds: Double?
+  let cwd: String?
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case kind
+    case title
+    case summary
+    case command
+    case args
+    case stdout
+    case stderr
+    case exitCode = "exit_code"
+    case durationSeconds = "duration_seconds"
+    case cwd
+    case renderHints = "render_hints"
+  }
+}
+
+struct ServerConversationTaskRow: Codable {
+  let id: String
+  let kind: ServerConversationTaskKind
+  let status: ServerConversationTaskStatus
+  let title: String
+  let summary: String?
+  let taskId: String?
+  let toolUseId: String?
+  let outputFile: String?
+  let resultText: String?
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case kind
+    case status
+    case title
+    case summary
+    case taskId = "task_id"
+    case toolUseId = "tool_use_id"
+    case outputFile = "output_file"
+    case resultText = "result_text"
+    case renderHints = "render_hints"
+  }
+}
+
 enum ServerConversationRow: Codable {
   case user(ServerConversationMessageRow)
   case assistant(ServerConversationMessageRow)
   case thinking(ServerConversationMessageRow)
+  case context(ServerConversationContextRow)
+  case notice(ServerConversationNoticeRow)
+  case shellCommand(ServerConversationShellCommandRow)
+  case task(ServerConversationTaskRow)
   case tool(ServerConversationToolRow)
   case activityGroup(ServerConversationActivityGroupRow)
   case question(ServerConversationQuestionRow)
@@ -399,6 +560,14 @@ enum ServerConversationRow: Codable {
         self = try .assistant(ServerConversationMessageRow(from: decoder))
       case .thinking:
         self = try .thinking(ServerConversationMessageRow(from: decoder))
+      case .context:
+        self = try .context(ServerConversationContextRow(from: decoder))
+      case .notice:
+        self = try .notice(ServerConversationNoticeRow(from: decoder))
+      case .shellCommand:
+        self = try .shellCommand(ServerConversationShellCommandRow(from: decoder))
+      case .task:
+        self = try .task(ServerConversationTaskRow(from: decoder))
       case .tool:
         self = try .tool(ServerConversationToolRow(from: decoder))
       case .activityGroup:
@@ -438,6 +607,14 @@ enum ServerConversationRow: Codable {
       case let .assistant(row):
         try row.encode(to: encoder)
       case let .thinking(row):
+        try row.encode(to: encoder)
+      case let .context(row):
+        try row.encode(to: encoder)
+      case let .notice(row):
+        try row.encode(to: encoder)
+      case let .shellCommand(row):
+        try row.encode(to: encoder)
+      case let .task(row):
         try row.encode(to: encoder)
       case let .tool(row):
         try row.encode(to: encoder)
@@ -481,6 +658,14 @@ struct ServerConversationRowEntry: Codable, Identifiable {
            let .thinking(message),
            let .system(message):
         message.id
+      case let .context(context):
+        context.id
+      case let .notice(notice):
+        notice.id
+      case let .shellCommand(shellCommand):
+        shellCommand.id
+      case let .task(task):
+        task.id
       case let .tool(tool):
         tool.id
       case let .activityGroup(group):

@@ -506,6 +506,19 @@ pub(crate) async fn dispatch_connector_event(
     handle: &mut SessionHandle,
     persist_tx: &mpsc::Sender<PersistCommand>,
 ) {
+    let event = match event {
+        ConnectorEvent::ConversationRowCreated(mut entry) => {
+            entry.row =
+                crate::domain::conversation_semantics::upgrade_row(handle.provider(), entry.row);
+            ConnectorEvent::ConversationRowCreated(entry)
+        }
+        ConnectorEvent::ConversationRowUpdated { row_id, mut entry } => {
+            entry.row =
+                crate::domain::conversation_semantics::upgrade_row(handle.provider(), entry.row);
+            ConnectorEvent::ConversationRowUpdated { row_id, entry }
+        }
+        other => other,
+    };
     let input = transition::Input::from(event);
     dispatch_transition_input(session_id, input, handle, persist_tx).await;
 }

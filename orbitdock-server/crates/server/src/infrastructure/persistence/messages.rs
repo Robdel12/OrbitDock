@@ -1,4 +1,5 @@
 use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry};
+use orbitdock_protocol::Provider;
 use rusqlite::{params, Connection, OptionalExtension};
 
 /// Deserialize a ConversationRowEntry from a database row.
@@ -13,13 +14,13 @@ fn row_entry_from_db(
 
     let conversation_row = if let Some(json) = row_data {
         match serde_json::from_str::<ConversationRow>(&json) {
-            Ok(cr) => cr,
+            Ok(cr) => crate::domain::conversation_semantics::upgrade_row(Provider::Claude, cr),
             Err(_) => return Ok(None),
         }
     } else {
         // Legacy fallback: reconstruct from flat columns (id, type, content, timestamp).
         match legacy_row_from_db(row) {
-            Some(cr) => cr,
+            Some(cr) => crate::domain::conversation_semantics::upgrade_row(Provider::Claude, cr),
             None => return Ok(None),
         }
     };

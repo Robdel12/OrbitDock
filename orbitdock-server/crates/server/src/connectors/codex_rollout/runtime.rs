@@ -438,6 +438,28 @@ impl WatcherRuntime {
             event_type = ?event.event,
             "passive rollout emitted structured provider event"
         );
+
+        let rows = crate::domain::conversation_semantics::materialize_provider_event(event);
+        if rows.is_empty() {
+            return;
+        }
+
+        let Some(actor) = self.app_state.get_session(session_id) else {
+            return;
+        };
+
+        for row in rows {
+            actor
+                .send(SessionCommand::AddRowAndBroadcast {
+                    entry: ConversationRowEntry {
+                        session_id: session_id.to_string(),
+                        sequence: 0,
+                        turn_id: None,
+                        row,
+                    },
+                })
+                .await;
+        }
     }
 
     // ── Server orchestration (kept from original) ────────────────────────
@@ -686,6 +708,8 @@ impl WatcherRuntime {
             }
             seq
         };
+
+        let row = crate::domain::conversation_semantics::upgrade_row(Provider::Codex, row);
 
         let entry = ConversationRowEntry {
             session_id: session_id.clone(),

@@ -71,6 +71,141 @@ pub struct PlanRow {
     pub render_hints: RenderHints,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextRowKind {
+    AgentInstructions,
+    Environment,
+    Skill,
+    Reminder,
+    Personality,
+    UserInstructions,
+    Generic,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ContextRow {
+    pub id: String,
+    pub kind: ContextRowKind,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
+    #[serde(default)]
+    pub render_hints: RenderHints,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeRowKind {
+    TurnAborted,
+    LocalCommandCaveat,
+    Generic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeRowSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NoticeRow {
+    pub id: String,
+    pub kind: NoticeRowKind,
+    pub severity: NoticeRowSeverity,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub render_hints: RenderHints,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShellCommandRowKind {
+    UserShellCommand,
+    SlashCommand,
+    Bash,
+    LocalCommandOutput,
+    ShellContext,
+    Generic,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShellCommandRow {
+    pub id: String,
+    pub kind: ShellCommandRowKind,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdout: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stderr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_seconds: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub render_hints: RenderHints,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRowKind {
+    BackgroundCommand,
+    Generic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRowStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TaskRow {
+    pub id: String,
+    pub kind: TaskRowKind,
+    pub status: TaskRowStatus,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_use_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_text: Option<String>,
+    #[serde(default)]
+    pub render_hints: RenderHints,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationRowEntry {
     pub session_id: String,
@@ -88,6 +223,10 @@ impl ConversationRowEntry {
             | ConversationRow::Assistant(row)
             | ConversationRow::Thinking(row)
             | ConversationRow::System(row) => &row.id,
+            ConversationRow::Context(row) => &row.id,
+            ConversationRow::Notice(row) => &row.id,
+            ConversationRow::ShellCommand(row) => &row.id,
+            ConversationRow::Task(row) => &row.id,
             ConversationRow::Plan(row) => &row.id,
             ConversationRow::Hook(row) => &row.id,
             ConversationRow::Handoff(row) => &row.id,
@@ -150,6 +289,10 @@ pub enum ConversationRow {
     User(UserRow),
     Assistant(AssistantRow),
     Thinking(ThinkingRow),
+    Context(ContextRow),
+    Notice(NoticeRow),
+    ShellCommand(ShellCommandRow),
+    Task(TaskRow),
     Tool(ToolRow),
     ActivityGroup(ActivityGroupRow),
     Question(QuestionRow),
@@ -239,6 +382,10 @@ pub enum ConversationRowSummary {
     User(UserRow),
     Assistant(AssistantRow),
     Thinking(ThinkingRow),
+    Context(ContextRow),
+    Notice(NoticeRow),
+    ShellCommand(ShellCommandRow),
+    Task(TaskRow),
     Tool(ToolRowSummary),
     ActivityGroup(ActivityGroupRowSummary),
     Question(QuestionRow),
@@ -258,6 +405,10 @@ impl ConversationRow {
             ConversationRow::Assistant(r) => ConversationRowSummary::Assistant(r.clone()),
             ConversationRow::Thinking(r) => ConversationRowSummary::Thinking(r.clone()),
             ConversationRow::System(r) => ConversationRowSummary::System(r.clone()),
+            ConversationRow::Context(r) => ConversationRowSummary::Context(r.clone()),
+            ConversationRow::Notice(r) => ConversationRowSummary::Notice(r.clone()),
+            ConversationRow::ShellCommand(r) => ConversationRowSummary::ShellCommand(r.clone()),
+            ConversationRow::Task(r) => ConversationRowSummary::Task(r.clone()),
             ConversationRow::Tool(r) => ConversationRowSummary::Tool(r.to_summary()),
             ConversationRow::ActivityGroup(r) => {
                 ConversationRowSummary::ActivityGroup(r.to_summary())
@@ -289,6 +440,10 @@ impl RowEntrySummary {
             | ConversationRowSummary::Assistant(row)
             | ConversationRowSummary::Thinking(row)
             | ConversationRowSummary::System(row) => &row.id,
+            ConversationRowSummary::Context(row) => &row.id,
+            ConversationRowSummary::Notice(row) => &row.id,
+            ConversationRowSummary::ShellCommand(row) => &row.id,
+            ConversationRowSummary::Task(row) => &row.id,
             ConversationRowSummary::Plan(row) => &row.id,
             ConversationRowSummary::Hook(row) => &row.id,
             ConversationRowSummary::Handoff(row) => &row.id,
@@ -333,6 +488,14 @@ pub fn extract_row_content_str(row: &ConversationRow) -> String {
         | ConversationRow::Assistant(m)
         | ConversationRow::Thinking(m)
         | ConversationRow::System(m) => m.content.clone(),
+        ConversationRow::Context(c) => c.summary.clone().unwrap_or_else(|| c.title.clone()),
+        ConversationRow::Notice(n) => n.summary.clone().unwrap_or_else(|| n.title.clone()),
+        ConversationRow::ShellCommand(s) => s
+            .summary
+            .clone()
+            .or_else(|| s.command.clone())
+            .unwrap_or_else(|| s.title.clone()),
+        ConversationRow::Task(t) => t.summary.clone().unwrap_or_else(|| t.title.clone()),
         ConversationRow::Tool(t) => t.title.clone(),
         ConversationRow::Plan(p) => p.title.clone(),
         ConversationRow::Hook(h) => h.title.clone(),
@@ -351,6 +514,14 @@ pub fn extract_row_content_str_summary(row: &ConversationRowSummary) -> String {
         | ConversationRowSummary::Assistant(m)
         | ConversationRowSummary::Thinking(m)
         | ConversationRowSummary::System(m) => m.content.clone(),
+        ConversationRowSummary::Context(c) => c.summary.clone().unwrap_or_else(|| c.title.clone()),
+        ConversationRowSummary::Notice(n) => n.summary.clone().unwrap_or_else(|| n.title.clone()),
+        ConversationRowSummary::ShellCommand(s) => s
+            .summary
+            .clone()
+            .or_else(|| s.command.clone())
+            .unwrap_or_else(|| s.title.clone()),
+        ConversationRowSummary::Task(t) => t.summary.clone().unwrap_or_else(|| t.title.clone()),
         ConversationRowSummary::Tool(t) => t.title.clone(),
         ConversationRowSummary::Plan(p) => p.title.clone(),
         ConversationRowSummary::Hook(h) => h.title.clone(),

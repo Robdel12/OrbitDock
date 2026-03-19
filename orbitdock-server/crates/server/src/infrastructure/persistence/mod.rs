@@ -1790,6 +1790,10 @@ fn row_type_str(row: &ConversationRow) -> &'static str {
         ConversationRow::User(_) => "user",
         ConversationRow::Assistant(_) => "assistant",
         ConversationRow::Thinking(_) => "thinking",
+        ConversationRow::Context(_) => "context",
+        ConversationRow::Notice(_) => "notice",
+        ConversationRow::ShellCommand(_) => "shell_command",
+        ConversationRow::Task(_) => "task",
         ConversationRow::Tool(_) => "tool",
         ConversationRow::ActivityGroup(_) => "activity_group",
         ConversationRow::Question(_) => "question",
@@ -1808,6 +1812,15 @@ fn extract_row_content(row: &ConversationRow) -> Option<String> {
         | ConversationRow::Assistant(m)
         | ConversationRow::Thinking(m)
         | ConversationRow::System(m) => Some(m.content.clone()),
+        ConversationRow::Context(c) => Some(c.summary.clone().unwrap_or_else(|| c.title.clone())),
+        ConversationRow::Notice(n) => Some(n.summary.clone().unwrap_or_else(|| n.title.clone())),
+        ConversationRow::ShellCommand(s) => Some(
+            s.summary
+                .clone()
+                .or_else(|| s.command.clone())
+                .unwrap_or_else(|| s.title.clone()),
+        ),
+        ConversationRow::Task(t) => Some(t.summary.clone().unwrap_or_else(|| t.title.clone())),
         ConversationRow::Tool(t) => Some(t.title.clone()),
         ConversationRow::Plan(p) => Some(p.title.clone()),
         ConversationRow::Hook(h) => Some(h.title.clone()),

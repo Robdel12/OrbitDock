@@ -62,7 +62,7 @@ enum TimelineDataSource {
           }
           toolBuffer.append(toolRow)
 
-        case .worker, .plan, .hook, .handoff:
+        case .context, .notice, .shellCommand, .task, .worker, .plan, .hook, .handoff:
           flushBuffer()
           result.append(entry)
 

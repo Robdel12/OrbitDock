@@ -179,6 +179,14 @@ extension ServerConversationRowEntry {
           turnId: turnId,
           endpointId: endpointId
         )
+      case let .context(context):
+        context.toTranscriptMessage(sequence: sequence)
+      case let .notice(notice):
+        notice.toTranscriptMessage(sequence: sequence)
+      case let .shellCommand(shellCommand):
+        shellCommand.toTranscriptMessage(sequence: sequence)
+      case let .task(task):
+        task.toTranscriptMessage(sequence: sequence)
       case let .system(message):
         message.toTranscriptMessage(
           type: .system,
@@ -204,6 +212,67 @@ extension ServerConversationRowEntry {
       case let .handoff(handoff):
         handoff.toTranscriptMessage(sequence: sequence)
     }
+  }
+}
+
+private extension ServerConversationContextRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .system,
+      content: summary ?? subtitle ?? title,
+      timestamp: Date(),
+      toolName: "context",
+      serverToolFamily: "context"
+    )
+  }
+}
+
+private extension ServerConversationNoticeRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .system,
+      content: summary ?? title,
+      timestamp: Date(),
+      toolName: "notice",
+      isError: severity == .error,
+      serverToolFamily: "notice"
+    )
+  }
+}
+
+private extension ServerConversationShellCommandRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .tool,
+      content: summary ?? command ?? title,
+      timestamp: Date(),
+      toolName: "shell_command",
+      toolDuration: durationSeconds,
+      isError: (exitCode ?? 0) != 0 || !(stderr ?? "").isEmpty,
+      serverToolFamily: "shell"
+    )
+  }
+}
+
+private extension ServerConversationTaskRow {
+  func toTranscriptMessage(sequence: UInt64) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      sequence: sequence,
+      type: .system,
+      content: summary ?? title,
+      timestamp: Date(),
+      toolName: "task",
+      isError: status == .failed,
+      isInProgress: status == .running || status == .pending,
+      serverToolFamily: "task"
+    )
   }
 }
 

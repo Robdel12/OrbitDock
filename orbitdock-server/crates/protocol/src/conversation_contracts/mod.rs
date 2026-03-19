@@ -15,9 +15,11 @@ pub use activity_groups::{ActivityGroupKind, ActivityGroupRow, ActivityGroupRowS
 pub use approvals::{ApprovalRow, QuestionRow};
 pub use render_hints::{ConversationDisplayMode, RenderHints};
 pub use rows::{
-    extract_row_content_str, extract_row_content_str_summary, AssistantRow, ConversationRow,
-    ConversationRowEntry, ConversationRowPage, ConversationRowSummary, HandoffRow, HookRow,
-    MessageRowContent, PlanRow, RowEntrySummary, RowPageSummary, SystemRow, ThinkingRow, ToolRow,
+    extract_row_content_str, extract_row_content_str_summary, AssistantRow, ContextRow,
+    ContextRowKind, ConversationRow, ConversationRowEntry, ConversationRowPage,
+    ConversationRowSummary, HandoffRow, HookRow, MessageRowContent, NoticeRow, NoticeRowKind,
+    NoticeRowSeverity, PlanRow, RowEntrySummary, RowPageSummary, ShellCommandRow,
+    ShellCommandRowKind, SystemRow, TaskRow, TaskRowKind, TaskRowStatus, ThinkingRow, ToolRow,
     ToolRowSummary, UserRow,
 };
 pub use tool_display::{

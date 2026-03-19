@@ -76,6 +76,39 @@ struct TimelineRowContent: View {
           content: msg.content, isStreaming: msg.isStreaming
         )
 
+      case let .context(context):
+        SemanticInfoRowView(
+          icon: "text.document",
+          iconColor: .textSecondary,
+          title: context.title,
+          subtitle: context.subtitle,
+          summary: context.summary,
+          detail: context.body
+        )
+
+      case let .notice(notice):
+        SemanticInfoRowView(
+          icon: notice.severity == .error ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill",
+          iconColor: notice.severity == .info ? .feedbackCaution : .statusPermission,
+          title: notice.title,
+          subtitle: nil,
+          summary: notice.summary,
+          detail: notice.body
+        )
+
+      case let .shellCommand(shellCommand):
+        SemanticCommandRowView(row: shellCommand)
+
+      case let .task(task):
+        SemanticInfoRowView(
+          icon: task.status == .failed ? "xmark.circle.fill" : "checkmark.circle.fill",
+          iconColor: task.status == .failed ? .feedbackNegative : .feedbackPositive,
+          title: task.title,
+          subtitle: task.outputFile ?? task.taskId,
+          summary: task.summary,
+          detail: task.resultText
+        )
+
       case let .tool(toolRow):
         ToolCardView(
           toolRow: toolRow, isExpanded: isExpanded,

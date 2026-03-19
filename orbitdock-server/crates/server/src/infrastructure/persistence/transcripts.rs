@@ -10,6 +10,7 @@ use orbitdock_protocol::conversation_contracts::{
     ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
+use orbitdock_protocol::Provider;
 
 enum ParsedItem {
     Message {
@@ -379,6 +380,10 @@ pub(crate) fn load_messages_from_transcript(
                         ParsedRole::Assistant => ConversationRow::Assistant(msg),
                         ParsedRole::Thinking => ConversationRow::Thinking(msg),
                     };
+                    let conversation_row = crate::domain::conversation_semantics::upgrade_row(
+                        Provider::Claude,
+                        conversation_row,
+                    );
                     rows.push(ConversationRowEntry {
                         session_id: String::new(),
                         sequence,
