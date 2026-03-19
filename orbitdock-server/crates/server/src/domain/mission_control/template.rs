@@ -16,11 +16,11 @@ provider:
 #   claude:
 #     # model: claude-sonnet-4-6
 #     # effort: high
-#     permission_mode: auto            # mission-safe default (agents run headless)
+#     permission_mode: acceptEdits      # mission-safe default (agents run headless)
 #   codex:
 #     # model: gpt-5.3-codex
 #     # effort: medium
-#     approval_policy: on-request      # mission-safe default
+#     approval_policy: never           # fullAuto — sandbox provides safety
 #     sandbox_mode: workspace-write    # mission-safe default
 
 trigger:

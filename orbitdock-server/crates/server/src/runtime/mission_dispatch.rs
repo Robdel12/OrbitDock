@@ -193,11 +193,13 @@ pub async fn dispatch_issue(
     // Resolve agent settings for the chosen provider
     let resolved = ctx.agent_config.resolve_for_provider(provider_str);
 
-    // Merge OrbitDock CLI reference into developer_instructions
+    // Merge OrbitDock CLI + mission-specific instructions into developer_instructions
     let cli_ref = crate::domain::instructions::orbitdock_system_instructions();
+    let mission_ref = crate::domain::instructions::mission_agent_instructions();
+    let orbitdock_instructions = format!("{cli_ref}\n\n{mission_ref}");
     let developer_instructions = match resolved.developer_instructions {
-        Some(ref existing) => Some(format!("{existing}\n\n{cli_ref}")),
-        None => Some(cli_ref),
+        Some(ref existing) => Some(format!("{existing}\n\n{orbitdock_instructions}")),
+        None => Some(orbitdock_instructions),
     };
 
     // Build dynamic tool specs for Codex sessions
