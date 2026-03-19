@@ -106,6 +106,129 @@ const setCursorOffset = (el, offset) => {
   sel.addRange(range)
 }
 
+// ── Token formatting ─────────────────────────────────────────────────────────
+
+const formatTokenUsage = (usage) => {
+  if (!usage) return null
+  const total = (usage.input_tokens || 0) + (usage.output_tokens || 0)
+  if (total === 0) return null
+  const display = total >= 1000 ? `${(total / 1000).toFixed(1)}k` : String(total)
+  const pct = usage.context_window_total
+    ? Math.round((total / usage.context_window_total) * 100)
+    : null
+  return { display, pct }
+}
+
+const tokenColorClass = (pct) => {
+  if (pct == null) return ''
+  if (pct >= 90) return styles.tokenDanger
+  if (pct >= 70) return styles.tokenWarning
+  return ''
+}
+
+// ── Workflow overflow menu ────────────────────────────────────────────────────
+
+const WorkflowMenu = ({ open, onClose, onUndo, onFork, onCompact, isActive }) => {
+  if (!open) return null
+
+  return (
+    <div class={styles.overflowMenu} onClick={(e) => e.stopPropagation()}>
+      <div class={styles.overflowSection}>
+        <span class={styles.overflowSectionLabel}>Turn</span>
+        <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onUndo(); onClose() }}>
+          Undo Last Turn
+        </button>
+        <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onFork(); onClose() }}>
+          Fork Conversation
+        </button>
+        <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onCompact(); onClose() }}>
+          Compact Context
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── SVG Icons ────────────────────────────────────────────────────────────────
+
+const StopIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+    <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" fill="currentColor" />
+  </svg>
+)
+
+const ImageIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <rect x="1" y="3" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2" />
+    <circle cx="4.5" cy="6.5" r="1" fill="currentColor" />
+    <path d="M1.5 10l3-3 2 2 2.5-3L13 10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+)
+
+const MentionIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.2" />
+    <path d="M10 7c0 1.66-.67 3-2 3s-1.5-1-1.5-1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+    <path d="M10 10c1.2-1 2-2.5 2-4a5 5 0 10-2.5 4.33" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+  </svg>
+)
+
+const CommandIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <path d="M4 10l3-3-3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M8 10h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+  </svg>
+)
+
+const MoreIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <circle cx="3" cy="7" r="1.2" fill="currentColor" />
+    <circle cx="7" cy="7" r="1.2" fill="currentColor" />
+    <circle cx="11" cy="7" r="1.2" fill="currentColor" />
+  </svg>
+)
+
+const SendIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+    <path d="M6 10V2M6 2L2.5 5.5M6 2l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+)
+
+const SteerIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+    <path d="M2 8.5c1.5-1 3-4.5 4-5.5 1 1 2.5 4.5 4 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path d="M6 3v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+  </svg>
+)
+
+const PinIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 2v8M3 7l3 3 3-3" />
+  </svg>
+)
+
+const PauseIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+    <rect x="2.5" y="2" width="2.5" height="8" rx="0.5" fill="currentColor" />
+    <rect x="7" y="2" width="2.5" height="8" rx="0.5" fill="currentColor" />
+  </svg>
+)
+
+const GitBranchIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="5" cy="4" r="1.5" />
+    <circle cx="5" cy="12" r="1.5" />
+    <circle cx="11" cy="6" r="1.5" />
+    <path d="M5 5.5v5M11 7.5c0 2-2 2.5-6 3" />
+  </svg>
+)
+
+const FolderIcon = () => (
+  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 4v8a1 1 0 001 1h10a1 1 0 001-1V6a1 1 0 00-1-1H8L6.5 3H3a1 1 0 00-1 1z" />
+  </svg>
+)
+
 // ── MessageComposer ──────────────────────────────────────────────────────────
 
 const MessageComposer = ({
@@ -114,15 +237,24 @@ const MessageComposer = ({
   onSteer,
   onInterrupt,
   onResume,
+  onUndo,
+  onFork,
+  onCompact,
   disabled,
   isWorking,
   isPending,
   isEnded,
+  isConnected,
   provider,
   approvalPolicy,
   onApprovalPolicyChange,
   projectPath,
   skills,
+  session,
+  tokenUsage,
+  isPinned,
+  unreadCount,
+  onScrollToBottom,
 }) => {
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState([])
@@ -130,13 +262,18 @@ const MessageComposer = ({
   const [effort, setEffort] = useState('medium')
   const [cursorPos, setCursorPos] = useState(0)
   const [focused, setFocused] = useState(false)
+  const [workflowOpen, setWorkflowOpen] = useState(false)
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)
   const mentionRef = useRef(null)
   const slashRef = useRef(null)
   const skillRef = useRef(null)
+  const workflowRef = useRef(null)
   // Guard against recursive sync between state and DOM.
   const suppressSync = useRef(false)
+
+  // Determine if we're in steer mode
+  const isSteering = isWorking && !!value.trim() && !attachments.length
 
   // Restore draft when switching sessions.
   useEffect(() => {
@@ -160,6 +297,18 @@ const MessageComposer = ({
       setCursorOffset(el, cursorPos)
     }
   }, [value])
+
+  // Close workflow menu on outside click
+  useEffect(() => {
+    if (!workflowOpen) return
+    const handleClick = (e) => {
+      if (workflowRef.current && !workflowRef.current.contains(e.target)) {
+        setWorkflowOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [workflowOpen])
 
   const syncFromDom = useCallback(() => {
     const el = editorRef.current
@@ -333,6 +482,16 @@ const MessageComposer = ({
 
   const canSend = (value.trim() || attachments.length > 0) && !disabled
 
+  // ── Token display ──────────────────────────────────────────────────────────
+
+  const tokenInfo = formatTokenUsage(tokenUsage)
+  const model = session?.model
+  const branch = session?.branch
+  const cwd = session?.project_path || session?.repository_root
+  const cwdLabel = cwd ? cwd.split('/').filter(Boolean).slice(-1)[0] : null
+  const isActive = session?.status === 'active'
+  const showStatusBar = isConnected === false || provider || tokenInfo || model || branch || cwdLabel
+
   // ── Ended state ────────────────────────────────────────────────────────────
 
   if (isEnded) {
@@ -356,6 +515,14 @@ const MessageComposer = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* Steer mode indicator above the surface */}
+      {isSteering && (
+        <div class={styles.steerStrip}>
+          <span class={styles.steerDot} />
+          <span class={styles.steerLabel}>Steering Active Turn</span>
+        </div>
+      )}
+
       {/* Attachment bar above the surface */}
       {attachments.length > 0 && (
         <div class={styles.attachmentBar}>
@@ -456,9 +623,7 @@ const MessageComposer = ({
                 aria-label="Stop agent"
                 title="Stop"
               >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <rect x="1.5" y="1.5" width="9" height="9" rx="1.5" fill="currentColor" />
-                </svg>
+                <StopIcon />
               </button>
             )}
             <button
@@ -469,11 +634,7 @@ const MessageComposer = ({
               aria-label="Attach image"
               title={`Attach image (${attachments.length}/${MAX_IMAGES})`}
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <rect x="1" y="3" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2" />
-                <circle cx="4.5" cy="6.5" r="1" fill="currentColor" />
-                <path d="M1.5 10l3-3 2 2 2.5-3L13 10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
+              <ImageIcon />
               {attachments.length > 0 && (
                 <span class={styles.ghostBadge}>{attachments.length}</span>
               )}
@@ -493,10 +654,7 @@ const MessageComposer = ({
               aria-label="Mention file"
               title="Mention file (@)"
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M2 4.5V3a1 1 0 011-1h8a1 1 0 011 1v8a1 1 0 01-1 1H3a1 1 0 01-1-1V9.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-                <path d="M5 7h4M7 5v4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-              </svg>
+              <MentionIcon />
             </button>
             <button
               type="button"
@@ -515,29 +673,118 @@ const MessageComposer = ({
               aria-label="Commands"
               title="Commands (/)"
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M9.5 2.5l-5 9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
-                <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.2" />
-              </svg>
+              <CommandIcon />
             </button>
             <div class={styles.toolbarSep} />
+            {/* Workflow overflow */}
+            <div class={styles.workflowAnchor} ref={workflowRef}>
+              <button
+                type="button"
+                class={styles.ghostAction}
+                onClick={() => setWorkflowOpen((v) => !v)}
+                aria-label="More actions"
+                title="More actions"
+              >
+                <MoreIcon />
+              </button>
+              <WorkflowMenu
+                open={workflowOpen}
+                onClose={() => setWorkflowOpen(false)}
+                onUndo={onUndo}
+                onFork={() => onFork()}
+                onCompact={onCompact}
+                isActive={isActive}
+              />
+            </div>
           </div>
 
           <div class={styles.toolbarRight}>
+            {/* Follow / pin controls */}
+            {isPinned === false && unreadCount > 0 && (
+              <button
+                type="button"
+                class={styles.unreadBadge}
+                onClick={onScrollToBottom}
+                aria-label={`${unreadCount} new messages`}
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </button>
+            )}
+            {isPinned !== undefined && (
+              <button
+                type="button"
+                class={`${styles.followBtn} ${!isPinned ? styles.followBtnActive : ''}`}
+                onClick={onScrollToBottom}
+                aria-label={isPinned ? 'Following' : 'Scroll to bottom'}
+                title={isPinned ? 'Following' : 'Scroll to bottom'}
+              >
+                {isPinned ? <PinIcon /> : <PauseIcon />}
+              </button>
+            )}
+
             {isPending && <span class={styles.pendingDot} aria-label="Sending..." />}
             <button
               type="submit"
-              class={`${styles.sendBtn} ${canSend ? styles.sendBtnActive : ''}`}
+              class={`${styles.sendBtn} ${canSend ? styles.sendBtnActive : ''} ${isSteering ? styles.sendBtnSteer : ''}`}
               disabled={!canSend}
-              aria-label={isWorking ? 'Steer agent' : 'Send message'}
-              title={isWorking ? 'Steer' : 'Send'}
+              aria-label={isSteering ? 'Steer agent' : 'Send message'}
+              title={isSteering ? 'Steer' : 'Send'}
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M6 10V2M6 2L2.5 5.5M6 2l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
+              {isSteering ? <SteerIcon /> : <SendIcon />}
             </button>
           </div>
         </div>
+
+        {/* Status bar */}
+        {showStatusBar && (
+          <>
+            <div class={styles.statusBarDivider} />
+            <div class={styles.statusBar}>
+              {isConnected === false && (
+                <span class={`${styles.statusItem} ${styles.statusPill} ${styles.statusPillDisconnected}`}>
+                  <span class={styles.statusDotRed} />
+                  Disconnected
+                </span>
+              )}
+              {provider === 'claude' && approvalPolicy && (
+                <button
+                  type="button"
+                  class={`${styles.statusItem} ${styles.statusPill} ${styles.statusPillClickable}`}
+                  onClick={onApprovalPolicyChange ? () => {
+                    const policies = ['ask', 'auto-edit', 'auto-full']
+                    const idx = policies.indexOf(approvalPolicy)
+                    onApprovalPolicyChange(policies[(idx + 1) % policies.length])
+                  } : undefined}
+                  title="Click to cycle permission mode"
+                >
+                  {approvalPolicy === 'ask' ? 'Ask' : approvalPolicy === 'auto-edit' ? 'Auto-Edit' : 'Auto-Full'}
+                </button>
+              )}
+              {tokenInfo && (
+                <span class={`${styles.statusItem} ${styles.statusMono} ${tokenColorClass(tokenInfo.pct)}`}>
+                  {tokenInfo.pct != null ? `${tokenInfo.pct}%` : tokenInfo.display}
+                </span>
+              )}
+              {model && (
+                <span class={`${styles.statusItem} ${styles.statusMono} ${styles.statusDimmed}`}>
+                  {model}
+                </span>
+              )}
+              {branch && (
+                <span class={`${styles.statusItem} ${styles.statusBranch}`} title={branch}>
+                  <GitBranchIcon />
+                  <span class={styles.statusBranchText}>{branch}</span>
+                </span>
+              )}
+              {cwdLabel && (
+                <span class={`${styles.statusItem} ${styles.statusDimmed}`} title={cwd}>
+                  <FolderIcon />
+                  <span class={styles.statusMono}>{cwdLabel}</span>
+                </span>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Drop target overlay */}

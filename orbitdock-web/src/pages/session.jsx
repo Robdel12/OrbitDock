@@ -20,6 +20,7 @@ import { SessionSkeleton } from '../components/session/session-skeleton.jsx'
 import { ReviewPanel } from '../components/review/review-panel.jsx'
 import { ApprovalBanner } from '../components/approval/approval-banner.jsx'
 import { createHttpClient } from '../api/http.js'
+import { connectionState } from '../stores/connection.js'
 import { useMachine } from '../hooks/use-machine.js'
 import { useKeyboard } from '../hooks/use-keyboard.js'
 import { approvalMachine } from '../machines/approval.machine.js'
@@ -386,12 +387,7 @@ const SessionPage = () => {
             onExpired={() => setRateLimitInfo(null)}
           />
         )}
-        <SessionActionBar
-          session={session}
-          isPinned={scrollAnchor.isPinned.value}
-          unreadCount={unreadCount}
-          onScrollToBottom={scrollAnchor.scrollToBottom}
-        />
+        <SessionActionBar session={session} />
         {showWorktreeBanner && (
           <WorktreeCleanupBanner
             worktreeId={session.worktree_id}
@@ -413,15 +409,24 @@ const SessionPage = () => {
           onSteer={handleSteer}
           onInterrupt={handleInterrupt}
           onResume={handleResume}
+          onUndo={handleUndo}
+          onFork={handleFork}
+          onCompact={handleCompact}
           disabled={isEnded}
           isWorking={isWorking}
           isPending={isPending}
           isEnded={isEnded}
+          isConnected={connectionState.value === 'connected'}
           provider={session?.provider}
           approvalPolicy={approvalPolicy}
           onApprovalPolicyChange={handleApprovalPolicyChange}
           projectPath={session?.project_path || session?.repository_root}
           skills={liveSkills}
+          session={session}
+          tokenUsage={tokenUsage}
+          isPinned={scrollAnchor.isPinned.value}
+          unreadCount={unreadCount}
+          onScrollToBottom={scrollAnchor.scrollToBottom}
         />
         <CapabilitiesPanel
           open={capabilitiesOpen}

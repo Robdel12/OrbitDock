@@ -20,6 +20,30 @@
   }
 }
 
+/* ── Steer mode indicator ───────────────────────────────────────────────── */
+
+.steerStrip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xxs) var(--space-sm);
+}
+
+.steerDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.steerLabel {
+  font-size: var(--type-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-accent);
+  letter-spacing: var(--letter-spacing-wide);
+}
+
 /* ── Attachment bar (above the surface) ─────────────────────────────────── */
 
 .attachmentBar {
@@ -236,7 +260,7 @@
   width: 1px;
   height: 16px;
   background: rgba(255, 255, 255, 0.08);
-  margin: 0 var(--space-xs);
+  margin: 0 2px;
   flex-shrink: 0;
 }
 
@@ -306,6 +330,127 @@
   font-family: var(--font-mono);
 }
 
+/* ── Workflow overflow anchor & menu ─────────────────────────────────────── */
+
+.workflowAnchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.overflowMenu {
+  position: absolute;
+  bottom: calc(100% + var(--space-xs));
+  left: 0;
+  min-width: 180px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-surface-border-accent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(12px);
+  z-index: var(--z-popover);
+  padding: var(--space-xs) 0;
+  animation: menuIn var(--transition-fast) ease;
+}
+
+@keyframes menuIn {
+  from { opacity: 0; transform: translateY(4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.overflowSection {
+  padding: var(--space-xs) 0;
+}
+
+.overflowSectionLabel {
+  display: block;
+  font-size: var(--type-micro);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-quaternary);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-label);
+  padding: var(--space-xxs) var(--space-md) var(--space-xs);
+}
+
+.overflowItem {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-body);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.overflowItem:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.overflowItem:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Follow / pin controls ──────────────────────────────────────────────── */
+
+.followBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-quaternary);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.followBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text-secondary);
+}
+
+.followBtnActive {
+  color: var(--color-status-reply);
+  background: color-mix(in srgb, var(--color-status-reply) 12%, transparent);
+}
+
+.followBtnActive:hover {
+  background: color-mix(in srgb, var(--color-status-reply) 18%, transparent);
+}
+
+.unreadBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--color-accent);
+  color: var(--color-bg-primary);
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 0 4px;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+}
+
+.unreadBadge:hover {
+  transform: scale(1.08);
+}
+
 /* ── Send button ────────────────────────────────────────────────────────── */
 
 .sendBtn {
@@ -336,6 +481,14 @@
   box-shadow: var(--glow-accent-strong);
 }
 
+.sendBtnSteer {
+  background: rgba(84, 174, 229, 0.65);
+}
+
+.sendBtnSteer:hover {
+  background: rgba(84, 174, 229, 0.80);
+}
+
 .sendBtn:disabled {
   cursor: not-allowed;
 }
@@ -361,6 +514,112 @@
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* ── Status bar (inside surface, below toolbar) ─────────────────────────── */
+
+.statusBarDivider {
+  height: 0.5px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 0 var(--space-sm);
+}
+
+@media (min-width: 768px) {
+  .statusBarDivider {
+    margin: 0 10px;
+  }
+}
+
+.statusBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm) var(--space-sm);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.statusBar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .statusBar {
+    padding: var(--space-xs) 10px var(--space-sm);
+  }
+}
+
+.statusItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--type-micro);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: var(--font-system);
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.statusMono {
+  font-family: var(--font-mono);
+  font-size: var(--type-micro);
+}
+
+.statusDimmed {
+  color: var(--color-text-quaternary);
+}
+
+.statusPill {
+  padding: 1px var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--type-micro);
+}
+
+.statusPillDisconnected {
+  background: color-mix(in srgb, var(--color-feedback-negative) 12%, transparent);
+  color: var(--color-feedback-negative);
+}
+
+.statusPillClickable {
+  cursor: pointer;
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent);
+  transition: background var(--transition-fast);
+}
+
+.statusPillClickable:hover {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+
+.statusDotRed {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-feedback-negative);
+  flex-shrink: 0;
+}
+
+.statusBranch {
+  color: var(--color-git-branch);
+  opacity: 0.7;
+}
+
+.statusBranchText {
+  font-family: var(--font-mono);
+  font-size: var(--type-micro);
+}
+
+/* Token color states */
+.tokenWarning {
+  color: var(--color-feedback-warning) !important;
+}
+
+.tokenDanger {
+  color: var(--color-feedback-negative) !important;
 }
 
 /* ── Drop overlay ───────────────────────────────────────────────────────── */

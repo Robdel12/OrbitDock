@@ -60,6 +60,9 @@
   --color-provider-claude: #54AEE5;
   --color-provider-codex: #4AC68E;
 
+  /* Git */
+  --color-git-branch: #6BBF8C;
+
   /* Spacing (4pt base grid) */
   --space-xxs: 2px;
   --space-xs: 4px;

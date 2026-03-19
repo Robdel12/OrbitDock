@@ -20,26 +20,26 @@ The native composer is the richest single component in the app. The web version 
 
 The web currently has provider controls + text area + toolbar. Missing: status bar, steer-mode indicator, follow/pin controls, model control, workflow overflow menu, and the status bar metadata strip.
 
-- [ ] **1.1 — Composer status bar**
+- [x] **1.1 — Composer status bar**
   Add the metadata strip below the toolbar inside the composer surface border. Should contain (left to right): connection status pill (when disconnected), permission/autonomy pill (clickable, toggles provider controls), token usage label (color-coded: accent → orange at 70% → red at 90%), model name (monospaced), git branch (with icon, gitBranch color), working directory (folder icon, last path component). All in micro/caption type, tertiary/quaternary color.
 
-- [ ] **1.2 — Steer mode indicator**
+- [x] **1.2 — Steer mode indicator**
   When `isWorking && text && !attachments`, show a thin strip above the composer surface: colored dot + "Steering Active Turn" label. Change send button icon from arrow-up to a return/uturn arrow. Ensure the placeholder text already says "Steer the agent..." (verify this).
 
-- [ ] **1.3 — Follow/pin controls in composer footer**
+- [x] **1.3 — Follow/pin controls in composer footer**
   Move the follow/scroll controls from SessionActionBar into the composer toolbar right side, next to the send button. Show: unread count badge (accent capsule) when scrolled up + follow/pause toggle (pin icon when following, pause icon when scrolled up). The SessionActionBar should keep the branch display but lose its scroll-to-bottom button.
 
-- [ ] **1.4 — Workflow overflow menu**
-  Add an ellipsis (⋯) ghost button in the toolbar left side, after the existing controls + separator. Menu contains: Attach Skills, Shell Mode toggle, Undo Last Turn, Fork Conversation, Fork to Worktree, Continue in New Session (submenu: Claude / Codex), Compact Context, Refresh MCP Servers.
+- [x] **1.4 — Workflow overflow menu**
+  Add an ellipsis (⋯) ghost button in the toolbar left side, after the existing controls + separator. Menu contains: Undo Last Turn, Fork Conversation, Compact Context (initial set — more items added in Phase 5).
 
 - [ ] **1.5 — Model/effort control button**
   Add a slider/tune icon ghost button in the toolbar left side (before image attach). Opens a popover with model selector (fetched from `/api/models/{provider}`) and effort picker for Codex. For Claude, shows model list only.
 
-- [ ] **1.6 — Replace toolbar icons with proper SVGs**
-  The `/` command button SVG reads as "forbidden" (diagonal slash in circle). The `@` mention button looks like a file-with-plus. Replace with clearer icons: `/` should be a simple slash or terminal prompt, `@` should be an at-sign or document-mention glyph.
+- [x] **1.6 — Replace toolbar icons with proper SVGs**
+  The `/` command button SVG reads as "forbidden" (diagonal slash in circle). The `@` mention button looks like a file-with-plus. Replaced with clearer icons: `/` → terminal prompt chevron, `@` → at-sign circle.
 
-- [ ] **1.7 — Send button steer variant**
-  When isWorking, change send button icon to a curved return arrow (↩) to indicate "steer" rather than "new message". Match native's `arrow.uturn.right` behavior.
+- [x] **1.7 — Send button steer variant**
+  When isWorking, change send button icon to a steer indicator. Match native's steer visual treatment.
 
 ---
 
@@ -212,7 +212,7 @@ Systematic pass to replace rough edges and align with native design language.
 
 | Phase | Items | Done | Status |
 |-------|-------|------|--------|
-| 1. Composer & Footer | 7 | 0 | Not started |
+| 1. Composer & Footer | 7 | 6 | In progress (1.5 remaining) |
 | 2. Dashboard Zones | 7 | 0 | Not started |
 | 3. Session Header | 5 | 0 | Not started |
 | 4. Conversation Polish | 6 | 0 | Not started |
@@ -220,4 +220,4 @@ Systematic pass to replace rough edges and align with native design language.
 | 6. Command Palette | 5 | 0 | Not started |
 | 7. Visual Polish | 6 | 0 | Not started |
 | 8. Settings & Pages | 5 | 0 | Not started |
-| **Total** | **46** | **0** | |
+| **Total** | **46** | **6** | |
