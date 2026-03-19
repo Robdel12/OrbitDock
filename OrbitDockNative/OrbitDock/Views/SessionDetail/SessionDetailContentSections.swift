@@ -4,17 +4,9 @@ struct SessionDetailConversationSection: View {
   let sessionId: String
   let endpointId: UUID
   let isSessionActive: Bool
-  let workStatus: Session.WorkStatus
   let displayStatus: SessionDisplayStatus
   let currentTool: String?
-  let pendingToolName: String?
-  let pendingPermissionDetail: String?
-  let provider: Provider
-  let model: String?
-  let selectedWorkerID: String?
   let chatViewMode: ChatViewMode
-  let onNavigateToReviewFile: (String, Int) -> Void
-  let onOpenPendingApprovalPanel: () -> Void
   let openFileInReview: ((String) -> Void)?
   let focusWorkerInDeck: ((String) -> Void)?
   @Binding var jumpToMessageTarget: ConversationJumpTarget?
@@ -27,17 +19,9 @@ struct SessionDetailConversationSection: View {
       sessionId: sessionId,
       endpointId: endpointId,
       isSessionActive: isSessionActive,
-      workStatus: workStatus,
       displayStatus: displayStatus,
       currentTool: currentTool,
-      pendingToolName: pendingToolName,
-      pendingPermissionDetail: pendingPermissionDetail,
-      provider: provider,
-      model: model,
-      selectedWorkerID: selectedWorkerID,
       chatViewMode: chatViewMode,
-      onNavigateToReviewFile: onNavigateToReviewFile,
-      onOpenPendingApprovalPanel: onOpenPendingApprovalPanel,
       jumpToMessageTarget: $jumpToMessageTarget,
       isPinned: $isPinned,
       unreadCount: $unreadCount,

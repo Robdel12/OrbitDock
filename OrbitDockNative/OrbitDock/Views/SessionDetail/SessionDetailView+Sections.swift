@@ -18,7 +18,7 @@ extension SessionDetailView {
       selectedWorkerID: selectedWorkerId,
       toolsByWorker: obs.subagentTools,
       messagesByWorker: obs.subagentMessages,
-      timelineMessages: obs.rowEntries.map { $0.toTranscriptMessage(endpointId: endpointId) }
+      timelineEntries: obs.rowEntries
     )
   }
 
@@ -128,29 +128,9 @@ extension SessionDetailView {
       sessionId: sessionId,
       endpointId: endpointId,
       isSessionActive: obs.isActive,
-      workStatus: obs.workStatus,
       displayStatus: obs.displayStatus,
       currentTool: currentTool,
-      pendingToolName: obs.pendingToolName,
-      pendingPermissionDetail: obs.pendingPermissionDetail,
-      provider: obs.provider,
-      model: obs.model,
-      selectedWorkerID: selectedWorkerId,
       chatViewMode: chatViewMode,
-      onNavigateToReviewFile: { filePath, lineNumber in
-        let plan = SessionDetailLayoutPlanner.reviewFileNavigationPlan(
-          sessionId: sessionId,
-          currentLayout: layoutConfig,
-          filePath: filePath,
-          lineNumber: lineNumber
-        )
-        reviewFileId = plan.reviewFileId
-        navigateToComment = plan.navigateToComment
-        withAnimation(Motion.gentle) {
-          layoutConfig = plan.layoutConfig
-        }
-      },
-      onOpenPendingApprovalPanel: openPendingApprovalPanel,
       openFileInReview: obs.isDirect ? { filePath in
         let plan = SessionDetailLayoutPlanner.openFileInReviewPlan(
           projectPath: obs.projectPath,

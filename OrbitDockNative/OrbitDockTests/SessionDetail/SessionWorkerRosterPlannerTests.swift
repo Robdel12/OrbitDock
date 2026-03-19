@@ -138,7 +138,7 @@ struct SessionWorkerRosterPlannerTests {
         ],
       ],
       messagesByWorker: [:],
-      timelineMessages: []
+      timelineEntries: []
     )
 
     #expect(presentation?.title == "Scout")
@@ -158,39 +158,41 @@ struct SessionWorkerRosterPlannerTests {
       agentType: "explore"
     )
 
-    let message = TranscriptMessage(
-      id: "wait-1",
-      type: .tool,
-      content: "Waiting for agents",
-      timestamp: Date(timeIntervalSince1970: 1_730_000_000),
-      toolName: "task",
-      isError: false,
-      isInProgress: false,
-      toolDisplay: ServerToolDisplay(
-        summary: "Waiting for agents",
-        subtitle: nil,
-        rightMeta: nil,
-        subtitleAbsorbsMeta: false,
-        glyphSymbol: "person.2",
-        glyphColor: "indigo",
-        language: nil,
-        diffPreview: nil,
-        outputPreview: """
-        sender: parent-thread
-        worker-thread - nickname=Scout - role=explore: Completed(Some(\"Scout finished and returned a repo summary.\"))
-        """,
-        liveOutputPreview: nil,
-        todoItems: [],
-        toolType: "task",
-        summaryFont: "system",
-        displayTier: "standard",
-        inputDisplay: "{\"receiver_thread_ids\":[\"\(worker.id)\"]}",
-        outputDisplay: """
-        sender: parent-thread
-        worker-thread - nickname=Scout - role=explore: Completed(Some(\"Scout finished and returned a repo summary.\"))
-        """,
-        diffDisplay: nil
-      )
+    let presentation = SessionWorkerRosterPlanner.detailPresentation(
+      subagents: [worker],
+      selectedWorkerID: worker.id,
+      toolsByWorker: [:],
+      messagesByWorker: [:],
+      timelineEntries: [
+        makeToolEntry(
+          id: "wait-1",
+          sessionId: worker.id,
+          sequence: 1,
+          status: .completed,
+          title: "task",
+          summary: "Waiting for agents",
+          startedAt: "2026-03-10T11:00:00Z",
+          inputDisplay: #"{"receiver_thread_id":"\#(worker.id)"}"#,
+          outputDisplay: """
+          sender: parent-thread
+          worker-thread - nickname=Scout - role=explore: Completed(Some(\"Scout finished and returned a repo summary.\"))
+          """
+        ),
+      ]
+    )
+
+    #expect(presentation?.reportPreview == "Scout finished and returned a repo summary.")
+  }
+
+  @Test func detailPresentationUsesWorkerRowsForAssignmentFallback() {
+    let worker = makeWorker(
+      id: "worker-direct",
+      label: "Ada",
+      status: .running,
+      taskSummary: nil,
+      resultSummary: nil,
+      lastActivityAt: "2026-03-10T11:00:00Z",
+      agentType: "worker"
     )
 
     let presentation = SessionWorkerRosterPlanner.detailPresentation(
@@ -198,10 +200,23 @@ struct SessionWorkerRosterPlannerTests {
       selectedWorkerID: worker.id,
       toolsByWorker: [:],
       messagesByWorker: [:],
-      timelineMessages: [message]
+      timelineEntries: [
+        makeWorkerEntry(
+          id: "worker-row-1",
+          sessionId: worker.id,
+          sequence: 1,
+          workerId: worker.id,
+          title: "Worker started",
+          operation: "Spawned worker",
+          status: .running,
+          taskSummary: "Inspect auth flow"
+        ),
+      ]
     )
 
-    #expect(presentation?.reportPreview == "Scout finished and returned a repo summary.")
+    #expect(presentation?.assignmentPreview == "Inspect auth flow")
+    #expect(presentation?.conversationEvents.first?.title == "Spawned worker")
+    #expect(presentation?.conversationEvents.first?.statusLabel == "Live")
   }
 
   @Test func detailPresentationBuildsThreadFeedFromWorkerMessages() {
@@ -237,11 +252,11 @@ struct SessionWorkerRosterPlannerTests {
           ),
         ],
       ],
-      timelineMessages: []
+      timelineEntries: []
     )
 
     #expect(presentation?.threadEntries.count == 2)
-    // TranscriptMessage mapped from a .user row uses "Worker prompt" title in threadEntryPresentation
+    // Typed .user rows show up as "Worker prompt" in the thread feed.
     #expect(presentation?.threadEntries.first?.title == "Worker prompt")
     #expect(presentation?.threadEntries.last?.body
       .contains("The runtime coordinator owns the auth refresh path.") == true)
@@ -258,70 +273,35 @@ struct SessionWorkerRosterPlannerTests {
       agentType: "explore"
     )
 
-    let spawnMessage = TranscriptMessage(
-      id: "spawn-1",
-      type: .tool,
-      content: "Spawning worker",
-      timestamp: Date(timeIntervalSince1970: 1_730_000_010),
-      toolName: "task",
-      isError: false,
-      isInProgress: true,
-      toolDisplay: ServerToolDisplay(
-        summary: "Spawning worker",
-        subtitle: "Inspect the auth layer",
-        rightMeta: nil,
-        subtitleAbsorbsMeta: false,
-        glyphSymbol: "person.2",
-        glyphColor: "indigo",
-        language: nil,
-        diffPreview: nil,
-        outputPreview: nil,
-        liveOutputPreview: nil,
-        todoItems: [],
-        toolType: "task",
-        summaryFont: "system",
-        displayTier: "standard",
-        inputDisplay: "{\"subagent_id\":\"\(worker.id)\",\"prompt\":\"Inspect the auth layer\"}",
-        outputDisplay: nil,
-        diffDisplay: nil
-      )
-    )
-
-    let waitMessage = TranscriptMessage(
-      id: "wait-1",
-      type: .tool,
-      content: "Waiting for worker",
-      timestamp: Date(timeIntervalSince1970: 1_730_000_100),
-      toolName: "task",
-      isError: false,
-      isInProgress: false,
-      toolDisplay: ServerToolDisplay(
-        summary: "Waiting for worker",
-        subtitle: nil,
-        rightMeta: nil,
-        subtitleAbsorbsMeta: false,
-        glyphSymbol: "person.2",
-        glyphColor: "indigo",
-        language: nil,
-        diffPreview: nil,
-        outputPreview: "Worker found the auth entrypoints and is reporting back.",
-        liveOutputPreview: nil,
-        todoItems: [],
-        toolType: "task",
-        summaryFont: "system",
-        displayTier: "standard",
-        inputDisplay: "{\"receiver_thread_ids\":[\"\(worker.id)\"]}",
-        outputDisplay: "Worker found the auth entrypoints and is reporting back.",
-        diffDisplay: nil
-      )
-    )
-
     let presentation = SessionWorkerRosterPlanner.detailPresentation(
       subagents: [worker],
       selectedWorkerID: worker.id,
       toolsByWorker: [:],
       messagesByWorker: [:],
-      timelineMessages: [spawnMessage, waitMessage]
+      timelineEntries: [
+        makeToolEntry(
+          id: "spawn-1",
+          sessionId: worker.id,
+          sequence: 1,
+          status: .running,
+          title: "task",
+          summary: "Spawning worker",
+          startedAt: "2026-03-10T11:00:10Z",
+          inputDisplay: #"{"subagent_id":"\#(worker.id)","prompt":"Inspect the auth layer"}"#,
+          outputDisplay: nil
+        ),
+        makeToolEntry(
+          id: "wait-1",
+          sessionId: worker.id,
+          sequence: 2,
+          status: .completed,
+          title: "task",
+          summary: "Waiting for worker",
+          startedAt: "2026-03-10T11:01:40Z",
+          inputDisplay: #"{"receiver_thread_id":"\#(worker.id)"}"#,
+          outputDisplay: "Worker found the auth entrypoints and is reporting back."
+        ),
+      ]
     )
 
     #expect(presentation?.assignmentPreview == "Inspect the auth layer")
@@ -367,7 +347,7 @@ struct SessionWorkerRosterPlannerTests {
       selectedWorkerID: child.id,
       toolsByWorker: [:],
       messagesByWorker: [:],
-      timelineMessages: []
+      timelineEntries: []
     )
 
     #expect(presentation?.relatedWorkers.map(\.id) == [parent.id, sibling.id])
@@ -440,6 +420,99 @@ struct SessionWorkerRosterPlannerTests {
       sequence: sequence,
       turnId: nil,
       row: row
+    )
+  }
+
+  private func makeToolEntry(
+    id: String,
+    sessionId: String,
+    sequence: UInt64,
+    status: ServerConversationToolStatus,
+    title: String,
+    summary: String,
+    startedAt: String?,
+    inputDisplay: String?,
+    outputDisplay: String?
+  ) -> ServerConversationRowEntry {
+    ServerConversationRowEntry(
+      sessionId: sessionId,
+      sequence: sequence,
+      turnId: nil,
+      row: .tool(ServerConversationToolRow(
+        id: id,
+        provider: .codex,
+        family: .agent,
+        kind: .taskOutput,
+        status: status,
+        title: title,
+        subtitle: nil,
+        summary: summary,
+        preview: nil,
+        startedAt: startedAt,
+        endedAt: nil,
+        durationMs: nil,
+        groupingKey: nil,
+        renderHints: .init(),
+        toolDisplay: ServerToolDisplay(
+          summary: summary,
+          subtitle: nil,
+          rightMeta: nil,
+          subtitleAbsorbsMeta: false,
+          glyphSymbol: "person.2",
+          glyphColor: "indigo",
+          language: nil,
+          diffPreview: nil,
+          outputPreview: outputDisplay,
+          liveOutputPreview: nil,
+          todoItems: [],
+          toolType: title,
+          summaryFont: "system",
+          displayTier: "standard",
+          inputDisplay: inputDisplay,
+          outputDisplay: outputDisplay,
+          diffDisplay: nil
+        )
+      ))
+    )
+  }
+
+  private func makeWorkerEntry(
+    id: String,
+    sessionId: String,
+    sequence: UInt64,
+    workerId: String,
+    title: String,
+    operation: String?,
+    status: ServerConversationToolStatus,
+    taskSummary: String?
+  ) -> ServerConversationRowEntry {
+    ServerConversationRowEntry(
+      sessionId: sessionId,
+      sequence: sequence,
+      turnId: nil,
+      row: .worker(ServerConversationWorkerRow(
+        id: id,
+        title: title,
+        subtitle: nil,
+        summary: nil,
+        worker: ServerWorkerStateSnapshot(
+          id: workerId,
+          label: nil,
+          agentType: "worker",
+          provider: .codex,
+          model: nil,
+          status: status,
+          taskSummary: taskSummary,
+          resultSummary: nil,
+          errorSummary: nil,
+          parentWorkerId: nil,
+          startedAt: "2026-03-10T11:00:00Z",
+          lastActivityAt: "2026-03-10T11:00:00Z",
+          endedAt: nil
+        ),
+        operation: operation,
+        renderHints: .init()
+      ))
     )
   }
 }

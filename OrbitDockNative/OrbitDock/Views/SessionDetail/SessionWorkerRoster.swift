@@ -137,7 +137,7 @@ enum SessionWorkerRosterPlanner {
     selectedWorkerID: String?,
     toolsByWorker: [String: [ServerSubagentTool]],
     messagesByWorker: [String: [ServerConversationRowEntry]],
-    timelineMessages: [TranscriptMessage]
+    timelineEntries: [ServerConversationRowEntry]
   ) -> SessionWorkerDetailPresentation? {
     guard let selectedWorkerID,
           let subagent = subagents.first(where: { $0.id == selectedWorkerID })
@@ -152,7 +152,7 @@ enum SessionWorkerRosterPlanner {
     let timelineSummary = workerTimelineSummary(
       for: subagent.id,
       subagent: subagent,
-      timelineMessages: timelineMessages
+      timelineEntries: timelineEntries
     )
     let relatedWorkers = relatedWorkers(
       for: subagent,
@@ -336,25 +336,22 @@ enum SessionWorkerRosterPlanner {
     for entries: [ServerConversationRowEntry]
   ) -> [SessionWorkerDetailPresentation.ThreadEntry] {
     entries
-      .map { $0.toTranscriptMessage() }
-      .filter {
-        !$0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-          || (($0.sanitizedToolOutput ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
-      }
+      .compactMap(threadEntryPresentation)
       .suffix(8)
-      .map(threadEntryPresentation)
+      .map { $0 }
   }
 
   private static func threadEntryPresentation(
-    _ message: TranscriptMessage
-  ) -> SessionWorkerDetailPresentation.ThreadEntry {
-    let timestampLabel = formattedEventTime(message.timestamp)
+    _ entry: ServerConversationRowEntry
+  ) -> SessionWorkerDetailPresentation.ThreadEntry? {
+    guard let body = threadEntryBody(for: entry) else { return nil }
+    let timestampLabel = formattedEventTime(entryTimestamp(entry))
 
     let title: String
     let iconName: String
     let tint: Color
 
-    switch message.type {
+    switch entry.row {
       case .user:
         title = "Worker prompt"
         iconName = "arrow.up.circle.fill"
@@ -367,45 +364,141 @@ enum SessionWorkerRosterPlanner {
         title = "Reasoning"
         iconName = "brain.head.profile"
         tint = .textSecondary
-      case .tool, .toolResult:
-        title = message.toolName.map(Self.toolDisplayName) ?? "Tool activity"
-        iconName = ToolCardStyle.icon(for: message.toolName ?? "tool")
-        tint = ToolCardStyle.color(for: message.toolName ?? "tool")
-      case .steer:
-        title = "Steer"
-        iconName = "arrowshape.turn.up.right.fill"
-        tint = .statusReply
-      case .shell:
+      case let .tool(tool):
+        let toolName = tool.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        title = toolName.nilIfEmpty.map(Self.toolDisplayName) ?? "Tool activity"
+        iconName = ToolCardStyle.icon(for: toolName.nilIfEmpty ?? tool.kind.rawValue)
+        tint = ToolCardStyle.color(for: toolName.nilIfEmpty ?? tool.kind.rawValue)
+      case let .activityGroup(group):
+        title = group.title
+        iconName = "square.stack.3d.up.fill"
+        tint = .statusWorking
+      case .shellCommand:
         title = "Shell"
         iconName = "terminal.fill"
         tint = .feedbackWarning
+      case .context:
+        title = "Context"
+        iconName = "info.circle.fill"
+        tint = .textSecondary
+      case .notice:
+        title = "Notice"
+        iconName = "exclamationmark.bubble.fill"
+        tint = .feedbackWarning
+      case .task:
+        title = "Task"
+        iconName = "list.bullet.rectangle.portrait.fill"
+        tint = .statusReply
       case .system:
         title = "System"
         iconName = "info.circle.fill"
         tint = .textSecondary
+      case .question:
+        title = "Question"
+        iconName = "questionmark.bubble.fill"
+        tint = .statusQuestion
+      case .approval:
+        title = "Approval"
+        iconName = "checkmark.shield.fill"
+        tint = .feedbackWarning
+      case .worker:
+        title = "Worker update"
+        iconName = "person.crop.circle.badge.gearshape.fill"
+        tint = .statusWorking
+      case .plan:
+        title = "Plan"
+        iconName = "map.fill"
+        tint = .statusReply
+      case .hook:
+        title = "Hook"
+        iconName = "bolt.horizontal.fill"
+        tint = .accent
+      case .handoff:
+        title = "Handoff"
+        iconName = "arrow.left.arrow.right.circle.fill"
+        tint = .statusReply
     }
 
     return .init(
-      id: message.id,
+      id: entry.id,
       iconName: iconName,
       title: title,
-      body: threadEntryBody(for: message),
+      body: body,
       timestampLabel: timestampLabel,
       tint: tint
     )
   }
 
-  private static func threadEntryBody(for message: TranscriptMessage) -> String {
-    if let output = message.sanitizedToolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-      return truncatedThreadBody(output)
+  private static func threadEntryBody(for entry: ServerConversationRowEntry) -> String? {
+    let body: String? = switch entry.row {
+      case let .user(message),
+           let .assistant(message),
+           let .thinking(message),
+           let .system(message):
+        message.content.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .context(context):
+        context.body?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? context.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? context.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .notice(notice):
+        notice.body?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? notice.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? notice.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .shellCommand(shellCommand):
+        shellCommand.stdout?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? shellCommand.stderr?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? shellCommand.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? shellCommand.command?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? shellCommand.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .task(task):
+        task.resultText?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? task.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? task.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .tool(tool):
+        tool.toolDisplay.outputDisplay?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? tool.toolDisplay.outputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? tool.toolDisplay.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? tool.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? tool.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .activityGroup(group):
+        group.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? group.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? group.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .question(question):
+        question.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? question.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? question.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .approval(approval):
+        approval.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? approval.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? approval.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .worker(worker):
+        worker.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? worker.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? worker.worker.taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? worker.worker.resultSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? worker.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .plan(plan):
+        plan.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? plan.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? plan.payload.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? plan.payload.explanation?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? plan.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .hook(hook):
+        hook.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? hook.payload.output?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? hook.payload.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? hook.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .handoff(handoff):
+        handoff.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? handoff.payload.body?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? handoff.payload.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? handoff.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 
-    let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-    if !content.isEmpty {
-      return truncatedThreadBody(content)
-    }
-
-    return "No readable output yet."
+    guard let body else { return nil }
+    return truncatedThreadBody(body)
   }
 
   private static func truncatedThreadBody(_ body: String) -> String {
@@ -418,48 +511,35 @@ enum SessionWorkerRosterPlanner {
   private static func workerTimelineSummary(
     for subagentID: String,
     subagent: ServerSubagentInfo,
-    timelineMessages: [TranscriptMessage]
+    timelineEntries: [ServerConversationRowEntry]
   ) -> WorkerTimelineSummary {
     let taskSummary = subagent.taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     var derivedAssignmentPreview: String?
     var derivedReportPreview: String?
-    var matchedMessages: [TranscriptMessage] = []
-    matchedMessages.reserveCapacity(8)
+    var matchedEntries: [ServerConversationRowEntry] = []
+    matchedEntries.reserveCapacity(8)
 
-    for message in timelineMessages {
-      guard matchesWorker(message, workerID: subagentID) else { continue }
+    for entry in timelineEntries {
+      guard matchesWorker(entry, workerID: subagentID) else { continue }
 
       if derivedAssignmentPreview == nil {
-        if let description = message.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines)
-          .nilIfEmpty
-        {
-          derivedAssignmentPreview = description
-        } else if let prompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-          derivedAssignmentPreview = prompt
-        } else {
-          let trimmedContent = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-          if !trimmedContent.isEmpty {
-            derivedAssignmentPreview = trimmedContent
-          }
-        }
+        derivedAssignmentPreview = assignmentPreview(for: entry)
       }
 
-      if message.toolName?.lowercased() == "task",
-         let preview = message.sanitizedToolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-      {
+      if let preview = reportPreview(for: entry) {
         derivedReportPreview = cleanedReportPreview(preview)
       }
 
-      matchedMessages.append(message)
-      if matchedMessages.count > 8 {
-        matchedMessages.removeFirst(matchedMessages.count - 8)
+      matchedEntries.append(entry)
+      if matchedEntries.count > 8 {
+        matchedEntries.removeFirst(matchedEntries.count - 8)
       }
     }
 
     return WorkerTimelineSummary(
       assignmentPreview: taskSummary ?? derivedAssignmentPreview,
       reportPreview: derivedReportPreview,
-      conversationEvents: matchedMessages.map(conversationEventPresentation)
+      conversationEvents: matchedEntries.map(conversationEventPresentation)
     )
   }
 
@@ -505,80 +585,68 @@ enum SessionWorkerRosterPlanner {
   }
 
   private static func conversationEventPresentation(
-    _ message: TranscriptMessage
+    _ entry: ServerConversationRowEntry
   ) -> SessionWorkerDetailPresentation.ConversationEvent {
-    let title = workerEventTitle(for: message)
-    let summary = workerEventSummary(for: message) ?? "Worker activity updated."
-    let status = eventStatusPresentation(for: message)
+    let title = workerEventTitle(for: entry)
+    let summary = workerEventSummary(for: entry) ?? "Worker activity updated."
+    let status = eventStatusPresentation(for: entry)
 
     return .init(
-      id: message.id,
-      iconName: workerEventIcon(for: message),
+      id: entry.id,
+      iconName: workerEventIcon(for: entry),
       title: title,
       summary: summary,
-      timestampLabel: formattedEventTime(message.timestamp),
+      timestampLabel: formattedEventTime(entryTimestamp(entry)),
       statusLabel: status.label,
       statusColor: status.color
     )
   }
 
-  private static func matchesWorker(_ message: TranscriptMessage, workerID: String) -> Bool {
-    if linkedWorkerID(for: message) == workerID {
-      return true
+  private static func matchesWorker(_ entry: ServerConversationRowEntry, workerID: String) -> Bool {
+    switch entry.row {
+      case let .worker(worker):
+        return worker.worker.id == workerID
+      case let .tool(tool):
+        return linkedWorkerID(for: tool) == workerID
+      case let .activityGroup(group):
+        return group.children.contains { linkedWorkerID(for: $0) == workerID }
+      default:
+        return false
     }
-
-    // Check toolDisplay inputDisplay for receiver_thread_ids reference
-    if let inputDisplay = message.toolDisplay?.inputDisplay,
-       inputDisplay.contains(workerID)
-    {
-      return true
-    }
-
-    return false
   }
 
-  private static func workerEventTitle(for message: TranscriptMessage) -> String {
-    if let toolName = message.toolName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-      return toolDisplayName(toolName)
-    }
-
-    switch message.type {
+  private static func workerEventTitle(for entry: ServerConversationRowEntry) -> String {
+    switch entry.row {
+      case let .worker(worker):
+        return worker.operation?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? worker.title
+      case let .tool(tool):
+        return toolDisplayName(tool.title)
+      case let .activityGroup(group):
+        return group.title
       case .assistant:
         return "Assistant Update"
       case .thinking:
         return "Reasoning"
-      case .steer:
-        return "Steer"
-      case .shell:
+      case .shellCommand:
         return "Shell"
-      case .toolResult:
-        return "Tool Result"
-      case .system:
+      case .plan:
+        return "Plan"
+      case .hook:
+        return "Hook"
+      case .handoff:
+        return "Handoff"
+      case .system, .context, .notice, .task, .approval, .question:
         return "System"
       case .user:
         return "User"
-      case .tool:
-        return "Tool"
     }
   }
 
-  private static func workerEventSummary(for message: TranscriptMessage) -> String? {
-    if let taskDescription = message.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-      return taskDescription
-    }
-
-    if let output = (message.toolDisplay?.outputDisplay ?? message.toolDisplay?.outputPreview)?
-      .trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-    {
-      return cleanedReportPreview(output)
-    }
-
-    if let taskPrompt = message.taskPrompt?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {
-      return taskPrompt
-    }
-
-    let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-    return content.nilIfEmpty
+  private static func workerEventSummary(for entry: ServerConversationRowEntry) -> String? {
+    reportPreview(for: entry)
+      ?? assignmentPreview(for: entry)
+      ?? threadEntryBody(for: entry)
   }
 
   private static func toolDisplayName(_ toolName: String) -> String {
@@ -597,12 +665,8 @@ enum SessionWorkerRosterPlanner {
     }
   }
 
-  private static func linkedWorkerID(for message: TranscriptMessage) -> String? {
-    // With server-driven display, the toolDisplay subtitle or inputDisplay may contain the subagent ID.
-    // The content field or toolDisplay summary also references the worker.
-    guard let inputDisplay = message.toolDisplay?.inputDisplay else { return nil }
-
-    // Parse subagent_id from the inputDisplay JSON if present
+  private static func linkedWorkerID(for tool: ServerConversationToolRow) -> String? {
+    guard let inputDisplay = tool.toolDisplay.inputDisplay else { return nil }
     if let data = inputDisplay.data(using: .utf8),
        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     {
@@ -620,54 +684,80 @@ enum SessionWorkerRosterPlanner {
     return nil
   }
 
-  private static func workerEventIcon(for message: TranscriptMessage) -> String {
-    if let toolName = message.toolName {
-      return ToolCardStyle.icon(for: toolName)
-    }
-
-    switch message.type {
+  private static func workerEventIcon(for entry: ServerConversationRowEntry) -> String {
+    switch entry.row {
+      case let .tool(tool):
+        return ToolCardStyle.icon(for: tool.title)
+      case let .activityGroup(group):
+        return group.children.first.map { ToolCardStyle.icon(for: $0.title) } ?? "square.stack.3d.up.fill"
+      case let .worker(worker):
+        return visuals(for: worker.worker.agentType ?? "worker").iconName
       case .assistant:
         return "bubble.left.and.text.bubble.right.fill"
       case .thinking:
         return "brain"
-      case .steer:
-        return "arrow.turn.down.right"
-      case .shell:
+      case .shellCommand:
         return "terminal"
-      case .toolResult:
-        return "checkmark.circle"
-      case .system:
+      case .system, .context, .notice, .task, .approval, .question:
         return "gearshape.2.fill"
       case .user:
         return "person.fill"
-      case .tool:
-        return "gearshape"
+      case .plan:
+        return "map.fill"
+      case .hook:
+        return "bolt.horizontal.fill"
+      case .handoff:
+        return "arrow.left.arrow.right.circle.fill"
     }
   }
 
   private static func eventStatusPresentation(
-    for message: TranscriptMessage
+    for entry: ServerConversationRowEntry
   ) -> (label: String, color: Color) {
-    if message.isError {
-      return ("Error", .feedbackNegative)
-    }
-
-    if message.isInProgress {
-      return ("Live", .statusWorking)
-    }
-
-    switch message.type {
+    switch entry.row {
+      case let .worker(worker):
+        switch worker.worker.status {
+          case .failed, .blocked:
+            return ("Error", .feedbackNegative)
+          case .running, .pending, .needsInput:
+            return ("Live", .statusWorking)
+          case .completed:
+            return ("Captured", .feedbackPositive)
+          case .cancelled:
+            return ("Cancelled", .feedbackWarning)
+        }
+      case let .tool(tool):
+        switch tool.status {
+          case .failed, .blocked:
+            return ("Error", .feedbackNegative)
+          case .running, .pending, .needsInput:
+            return ("Live", .statusWorking)
+          case .completed:
+            return ("Captured", .textSecondary)
+          case .cancelled:
+            return ("Cancelled", .feedbackWarning)
+        }
+      case let .activityGroup(group):
+        switch group.status {
+          case .failed, .blocked:
+            return ("Error", .feedbackNegative)
+          case .running, .pending, .needsInput:
+            return ("Live", .statusWorking)
+          case .completed:
+            return ("Captured", .textSecondary)
+          case .cancelled:
+            return ("Cancelled", .feedbackWarning)
+        }
       case .thinking:
         return ("Reasoning", .statusQuestion)
-      case .steer:
-        return ("Guidance", .statusReply)
       default:
         return ("Captured", .textSecondary)
     }
   }
 
-  private static func formattedEventTime(_ date: Date) -> String? {
-    date.formatted(date: .omitted, time: .shortened)
+  private static func formattedEventTime(_ date: Date?) -> String? {
+    guard let date else { return nil }
+    return date.formatted(date: .omitted, time: .shortened)
   }
 
   private static func cleanedReportPreview(_ preview: String) -> String {
@@ -700,6 +790,101 @@ enum SessionWorkerRosterPlanner {
       .replacingOccurrences(of: "\\\"", with: "\"")
       .replacingOccurrences(of: "\\'", with: "'")
       .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private static func assignmentPreview(for entry: ServerConversationRowEntry) -> String? {
+    switch entry.row {
+      case let .worker(worker):
+        return worker.worker.taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? worker.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? worker.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .tool(tool):
+        return parsedStringValue(
+          from: tool.toolDisplay.inputDisplay,
+          keys: ["description", "task_description", "prompt", "task_prompt", "message", "input"]
+        )
+        ?? tool.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .activityGroup(group):
+        return group.children.lazy.compactMap { assignmentPreview(for: $0) }.first
+          ?? group.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      default:
+        return nil
+    }
+  }
+
+  private static func assignmentPreview(for tool: ServerConversationToolRow) -> String? {
+    parsedStringValue(
+      from: tool.toolDisplay.inputDisplay,
+      keys: ["description", "task_description", "prompt", "task_prompt", "message", "input"]
+    )
+    ?? tool.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+  }
+
+  private static func reportPreview(for entry: ServerConversationRowEntry) -> String? {
+    switch entry.row {
+      case let .worker(worker):
+        return worker.worker.resultSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? worker.worker.errorSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? worker.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .tool(tool):
+        return tool.toolDisplay.outputDisplay?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? tool.toolDisplay.outputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? tool.toolDisplay.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .activityGroup(group):
+        return group.children.lazy.compactMap { reportPreview(for: $0) }.first
+      case let .task(task):
+        return task.resultText?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? task.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      default:
+        return nil
+    }
+  }
+
+  private static func reportPreview(for tool: ServerConversationToolRow) -> String? {
+    tool.toolDisplay.outputDisplay?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      ?? tool.toolDisplay.outputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      ?? tool.toolDisplay.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+  }
+
+  private static func parsedStringValue(from jsonString: String?, keys: [String]) -> String? {
+    guard let jsonString,
+          let data = jsonString.data(using: .utf8),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+      return nil
+    }
+
+    for key in keys {
+      if let value = json[key] as? String,
+         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      {
+        return trimmed
+      }
+    }
+
+    return nil
+  }
+
+  private static func entryTimestamp(_ entry: ServerConversationRowEntry) -> Date? {
+    switch entry.row {
+      case let .user(message),
+           let .assistant(message),
+           let .thinking(message),
+           let .system(message):
+        return parseDate(message.timestamp)
+      case let .tool(tool):
+        return parseDate(tool.startedAt) ?? parseDate(tool.endedAt)
+      case let .worker(worker):
+        return parseDate(worker.worker.lastActivityAt)
+          ?? parseDate(worker.worker.startedAt)
+          ?? parseDate(worker.worker.endedAt)
+      case .shellCommand:
+        return nil
+      case .activityGroup, .context, .notice, .task, .question, .approval, .plan, .hook, .handoff:
+        return nil
+    }
   }
 }
 

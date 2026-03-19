@@ -3,7 +3,7 @@
 //  OrbitDock
 //
 //  Structured file logging for the networking layer (typed server clients, ServerConnection,
-//  SessionStore, ConversationStore).
+//  SessionStore, and timeline hydration).
 //
 //  Outputs JSON-per-line for easy parsing with jq:
 //    tail -f ~/.orbitdock/logs/network.log | jq .
@@ -27,7 +27,7 @@ final class NetworkFileLogger: @unchecked Sendable {
     case api // HTTP server client requests
     case ws // ServerConnection WebSocket
     case store // SessionStore event routing & actions
-    case conv // ConversationStore loading pipeline
+    case conv // Conversation timeline hydration and pagination
     case circuit // ConnectionCircuitBreaker state changes
   }
 

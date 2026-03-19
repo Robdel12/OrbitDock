@@ -2,7 +2,7 @@
 //  SessionStore.swift
 //  OrbitDock
 //
-//  Per-endpoint session management: per-session observables, conversation stores,
+//  Per-endpoint session management: per-session observables, timeline row state,
 //  subscription lifecycle, and event routing.
 //  All mutations go via typed server clients (HTTP); events arrive from ServerConnection.
 //

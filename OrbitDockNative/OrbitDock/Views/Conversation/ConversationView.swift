@@ -9,17 +9,9 @@ struct ConversationView: View {
   let sessionId: String?
   var endpointId: UUID?
   var isSessionActive: Bool = false
-  var workStatus: Session.WorkStatus = .unknown
   var displayStatus: SessionDisplayStatus = .ended
   var currentTool: String?
-  var pendingToolName: String?
-  var pendingPermissionDetail: String?
-  var provider: Provider = .claude
-  var model: String?
-  var selectedWorkerID: String?
   var chatViewMode: ChatViewMode = .focused
-  var onNavigateToReviewFile: ((String, Int) -> Void)?
-  var onOpenPendingApprovalPanel: (() -> Void)?
   @Binding var jumpToMessageTarget: ConversationJumpTarget?
 
   @Environment(SessionStore.self) private var serverState
@@ -148,11 +140,8 @@ enum ConversationLoadState: Equatable {
   ConversationView(
     sessionId: nil,
     isSessionActive: true,
-    workStatus: .working,
     displayStatus: .working,
     currentTool: "Edit",
-    provider: .claude,
-    model: "claude-opus-4-6",
     jumpToMessageTarget: $jumpTarget,
     isPinned: $isPinned,
     unreadCount: $unreadCount,
