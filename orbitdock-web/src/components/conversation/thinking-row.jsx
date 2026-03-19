@@ -17,7 +17,9 @@ const ThinkingRow = ({ entry }) => {
         class={styles.toggle}
         onClick={() => setExpanded(!expanded)}
       >
-        <span class={styles.icon}>{expanded ? '▾' : '▸'}</span>
+        <svg class={styles.chevron} width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style={expanded ? { transform: 'rotate(90deg)' } : undefined}>
+          <path d="M3.5 2L6.5 5L3.5 8" />
+        </svg>
         <span class={styles.label}>Thinking</span>
         {!expanded && preview && (
           <span class={styles.preview}>{preview}</span>

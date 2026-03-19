@@ -17,6 +17,7 @@ const UserRow = ({ entry }) => {
 
   return (
     <div class={styles.row}>
+      <div class={styles.label}>You</div>
       <div class={styles.bubble}>
         {images && (
           <div class={styles.images}>

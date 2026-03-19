@@ -26,8 +26,10 @@
   background: var(--color-surface-hover);
 }
 
-.icon {
-  font-size: var(--type-micro);
+.chevron {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
 }
 
 .label {

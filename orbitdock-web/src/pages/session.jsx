@@ -377,6 +377,8 @@ const SessionPage = () => {
           hasMoreBefore={conversation.hasMoreBefore.value}
           onLoadOlder={() => conversation.loadOlder(http, sessionId)}
           scrollRef={scrollAnchor}
+          session={session}
+          unreadCount={unreadCount}
         />
         {rateLimitInfo && (
           <RateLimitBanner

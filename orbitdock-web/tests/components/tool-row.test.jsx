@@ -48,9 +48,10 @@ describe('ToolRow', () => {
     expect(queryByText('0.5s')).toBeNull()
   })
 
-  it('renders output preview', () => {
+  it('renders inline preview for bash output', () => {
     const { getByText } = render(<ToolRow entry={makeToolEntry()} />)
-    expect(getByText(/file1\.txt/)).toBeTruthy()
+    // InlinePreview shows the last line of bash output
+    expect(getByText(/file2\.txt/)).toBeTruthy()
   })
 
   it('returns null when tool_display is missing', () => {

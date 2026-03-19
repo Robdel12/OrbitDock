@@ -6,6 +6,68 @@ import { ToolExpanded } from './tool-expanded.jsx'
 import { http } from '../../stores/connection.js'
 import styles from './tool-row.module.css'
 
+// ---------------------------------------------------------------------------
+// Inline preview — richer collapsed state for different tool types
+// ---------------------------------------------------------------------------
+
+const InlinePreview = ({ display }) => {
+  // Diff preview: show first line of diff in mono with +/- coloring
+  if (display.diff_preview) {
+    const firstLine = display.diff_preview.trim().split('\n')[0] || ''
+    const isDeletion = firstLine.startsWith('-')
+    const isAddition = firstLine.startsWith('+')
+    return (
+      <div class={`${styles.inlinePreview} ${styles.diffPreview}`}>
+        <span class={`${styles.diffLine} ${isAddition ? styles.diffAdd : ''} ${isDeletion ? styles.diffRemove : ''}`}>
+          {firstLine}
+        </span>
+      </div>
+    )
+  }
+
+  // Todo tool: show progress if available in output_preview
+  if (display.glyph_color === 'toolTodo' && display.output_preview) {
+    const match = display.output_preview.match(/(\d+)\s*\/\s*(\d+)/)
+    if (match) {
+      const done = parseInt(match[1], 10)
+      const total = parseInt(match[2], 10)
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0
+      return (
+        <div class={`${styles.inlinePreview} ${styles.todoPreview}`}>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+            <rect x="1" y="1" width="8" height="8" rx="1" />
+            <path d="M3 5l1.5 1.5L7 4" />
+          </svg>
+          <span>{done}/{total} done</span>
+          <span class={styles.todoBar}>
+            <span class={styles.todoBarFill} style={{ width: `${pct}%` }} />
+          </span>
+        </div>
+      )
+    }
+  }
+
+  // Bash tool: show pulsing dot + last output line
+  if (display.glyph_color === 'toolBash' && display.output_preview) {
+    const lastLine = display.output_preview.trim().split('\n').pop() || ''
+    return (
+      <div class={`${styles.inlinePreview} ${styles.bashPreview}`}>
+        <span class={styles.bashDot} />
+        <span class={styles.bashLine}>{lastLine}</span>
+      </div>
+    )
+  }
+
+  // Fallback: plain output preview
+  if (display.output_preview) {
+    return (
+      <div class={styles.outputPreview}>{display.output_preview}</div>
+    )
+  }
+
+  return null
+}
+
 const GLYPH_COLOR_MAP = {
   toolBash: 'tool-bash',
   toolRead: 'tool-read',
@@ -47,9 +109,7 @@ const ToolRow = ({ entry }) => {
             <div class={styles.subtitle}>{display.subtitle}</div>
           )}
         </button>
-        {!expanded && display.output_preview && (
-          <div class={styles.outputPreview}>{display.output_preview}</div>
-        )}
+        {!expanded && <InlinePreview display={display} />}
         {expanded && (
           <ToolExpanded
             sessionId={entry.session_id}

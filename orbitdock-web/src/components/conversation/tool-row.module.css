@@ -110,3 +110,95 @@
     max-height: 160px;
   }
 }
+
+/* ── Inline previews (collapsed state) ─────────────────────────────────────── */
+
+.inlinePreview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+  padding: var(--space-xxs) var(--space-sm);
+  font-size: var(--type-micro);
+  font-family: var(--font-mono);
+  color: var(--color-text-tertiary);
+  min-width: 0;
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .inlinePreview {
+    font-size: var(--type-caption);
+  }
+}
+
+/* Diff preview */
+.diffPreview {
+  background: var(--color-bg-code);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-surface-border);
+}
+
+.diffLine {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diffAdd {
+  color: var(--color-diff-added-accent);
+}
+
+.diffRemove {
+  color: var(--color-diff-removed-accent);
+}
+
+/* Bash preview */
+.bashPreview {
+  gap: var(--space-xs);
+}
+
+.bashDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-feedback-positive);
+  flex-shrink: 0;
+  animation: bashPulse 2s ease-in-out infinite;
+}
+
+@keyframes bashPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.bashLine {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Todo preview */
+.todoPreview {
+  gap: var(--space-xs);
+}
+
+.todoBar {
+  display: inline-block;
+  width: 48px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-surface-elevated);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.todoBarFill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-feedback-positive);
+  transition: width 0.3s ease;
+}

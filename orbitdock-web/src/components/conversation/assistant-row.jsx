@@ -11,7 +11,16 @@ const AssistantRow = ({ entry }) => {
       <div class={styles.label}>Assistant</div>
       <div class={styles.content}>
         <div class={styles.markdown} dangerouslySetInnerHTML={{ __html: html }} />
-        {row.is_streaming && <span class={styles.cursor} />}
+        {row.is_streaming && (
+          <>
+            <span class={styles.cursor} />
+            <span class={styles.dots} aria-label="Streaming">
+              <span class={styles.dot} />
+              <span class={styles.dot} />
+              <span class={styles.dot} />
+            </span>
+          </>
+        )}
       </div>
     </div>
   )

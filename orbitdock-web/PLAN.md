@@ -103,22 +103,22 @@ The web header is functional but thinner than native. Missing model/effort badge
 
 The conversation rendering works but is visually thinner than native. Missing status indicator, tool card inline previews, and some label consistency.
 
-- [ ] **4.1 — Conversation-bottom status indicator**
+- [x] **4.1 — Conversation-bottom status indicator**
   Add an orbital status indicator strip at the bottom of the conversation timeline (above the action bar). Shows animated dot/beacon + status phrase: Working → rotating phrases + current tool name, Permission → "Awaiting clearance", Question → "Standing by", Reply → "Ready for next mission", Ended → "Mission Complete". Text colored by status.
 
-- [ ] **4.2 — "You" label on user messages**
+- [x] **4.2 — "You" label on user messages**
   Add a "YOU" label above user message bubbles, matching the "ASSISTANT" label treatment (uppercase, caption, letter-spaced, muted accent color). Creates visual symmetry.
 
-- [ ] **4.3 — Tool card inline previews (collapsed state)**
+- [x] **4.3 — Tool card inline previews (collapsed state)**
   When collapsed, tool cards should show richer inline previews: diff strip (first line of diff in mono), live bash output indicator (pulsing green dot + last output line), todo progress (checklist + "N/M done" with micro progress bar).
 
-- [ ] **4.4 — Thinking row SVG chevrons**
+- [x] **4.4 — Thinking row SVG chevrons**
   Replace text glyphs (▸/▾) with proper SVG chevron icons matching the design system.
 
-- [ ] **4.5 — Streaming dots animation**
+- [x] **4.5 — Streaming dots animation**
   When assistant is streaming, show 3 animated dots (staggered bounce) as the streaming indicator, complementing the existing blinking cursor.
 
-- [ ] **4.6 — Unify scroll-to-bottom UX**
+- [x] **4.6 — Unify scroll-to-bottom UX**
   The conversation has a "Jump to bottom" text link and the action bar has a "New ↓" pill — these serve the same purpose. Consolidate: use the floating pill from the action bar area, position it as an overlay at bottom-right of conversation (like native's `ConversationFollowPill`). Remove the text link.
 
 ---
@@ -215,9 +215,9 @@ Systematic pass to replace rough edges and align with native design language.
 | 1. Composer & Footer | 7 | 6 | In progress (1.5 remaining) |
 | 2. Dashboard Zones | 7 | 7 | Complete |
 | 3. Session Header | 5 | 5 | Complete |
-| 4. Conversation Polish | 6 | 0 | Not started |
+| 4. Conversation Polish | 6 | 6 | Complete |
 | 5. Session Lifecycle | 5 | 0 | Not started |
 | 6. Command Palette | 5 | 0 | Not started |
 | 7. Visual Polish | 6 | 0 | Not started |
 | 8. Settings & Pages | 5 | 0 | Not started |
-| **Total** | **46** | **18** | |
+| **Total** | **46** | **24** | |
