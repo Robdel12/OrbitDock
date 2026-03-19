@@ -453,17 +453,6 @@ fn worker_hints() -> RenderHints {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::handled_wrappers;
-
-    #[test]
-    fn reports_handled_wrapper_inventory() {
-        assert!(handled_wrappers().contains(&"subagent_notification"));
-        assert!(handled_wrappers().contains(&"proposed_plan"));
-    }
-}
-
 fn notice_hints() -> RenderHints {
     RenderHints {
         can_expand: true,
@@ -481,5 +470,16 @@ fn context_hints() -> RenderHints {
         emphasized: false,
         monospace_summary: false,
         accent_tone: Some("context".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::handled_wrappers;
+
+    #[test]
+    fn reports_handled_wrapper_inventory() {
+        assert!(handled_wrappers().contains(&"subagent_notification"));
+        assert!(handled_wrappers().contains(&"proposed_plan"));
     }
 }

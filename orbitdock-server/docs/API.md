@@ -1,6 +1,6 @@
 # OrbitDock Server API
 
-Last updated: 2026-03-16
+Last updated: 2026-03-19
 
 This doc is the route-level contract for OrbitDock's server. It covers every current HTTP endpoint plus the WebSocket entrypoint.
 
@@ -217,6 +217,8 @@ Notes:
 - The top-level response is flattened: `session`, `total_row_count`, `has_more_before`, `oldest_sequence`, and `newest_sequence`.
 - Every `ConversationRowEntry` now carries row-level `turn_id`.
 - Message rows (`user`, `assistant`, `thinking`, `system`) may carry `is_streaming` and `images`.
+- The server now upgrades many wrapper-style provider messages into semantic rows before they reach clients. For example, bootstrap prompts and environment blocks become `context` rows, lifecycle notices become `notice` rows, shell wrappers become `shell_command` rows, and background task wrappers become `task` rows.
+- Passive Codex provider events are also materialized into typed timeline rows instead of being left as raw text. That includes `worker`, `plan`, `hook`, `handoff`, `approval`, and `question` rows when the provider emits structured events.
 
 Error responses:
 
@@ -262,6 +264,15 @@ Response:
   "newest_sequence": 70
 }
 ```
+
+Common row families returned by both conversation paging endpoints:
+
+- Message rows: `user`, `assistant`, `thinking`, `system`
+- Semantic info rows: `context`, `notice`, `task`
+- Command and execution rows: `shell_command`, `tool`
+- Workflow rows: `worker`, `plan`, `hook`, `handoff`, `approval`, `question`, `activity_group`
+
+For exact payload fields, use `docs/conversation-contracts.md` as the source of truth.
 
 Error responses:
 
@@ -2541,3 +2552,8 @@ Server-pushed event types:
 - `mission_updated` / `mission_issue_updated` / `mission_orchestrator_status`
 
 See `docs/conversation-contracts.md` for the typed row schema used in `conversation_bootstrap` and `conversation_rows_changed`.
+
+Notes:
+
+- `conversation_bootstrap` and `conversation_rows_changed` use the same typed row families as the REST conversation endpoints.
+- Wrapper-style provider text is normalized on the server before broadcast. Clients should treat row typing as authoritative and should not need to parse raw XML-like wrappers such as `<environment_context>`, `<turn_aborted>`, or `<user_shell_command>`.
