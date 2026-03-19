@@ -82,19 +82,19 @@ Each zone has a labeled header: icon + uppercase label + count capsule.
 
 The web header is functional but thinner than native. Missing model/effort badges, layout toggle, and proper intelligence zone.
 
-- [ ] **3.1 — Model + effort badges in header**
+- [x] **3.1 — Model + effort badges in header**
   After the session title, show a compact model badge (monospaced pill) and effort badge (when non-default). Match native's `UnifiedModelBadge` placement.
 
-- [ ] **3.2 — Layout toggle (segmented)**
+- [x] **3.2 — Layout toggle (segmented)**
   Add a segmented icon group for layout modes: conversation only, review split, (optionally) worker panel. Three small icon buttons in a shared container. Place in header trailing controls, before the pill actions.
 
-- [ ] **3.3 — Session header intelligence zone**
+- [x] **3.3 — Session header intelligence zone**
   Between title and actions, show contextual status pills: context % gauge (colored arc or bar), file changes count (when diff available). These duplicate information from the status strip but at a higher visual priority for at-a-glance scanning.
 
-- [ ] **3.4 — View mode toggle tooltip**
+- [x] **3.4 — View mode toggle tooltip**
   Add a tooltip to the focused/verbose toggle icon button explaining what each mode does.
 
-- [ ] **3.5 — Overflow menu restructure**
+- [x] **3.5 — Overflow menu restructure**
   The overflow menu (mobile) should include: continuation actions (Fork, Fork to Worktree, Continue in New Session), context actions (Compact, Undo, Rollback), and destructive (End Session) — grouped by category with section dividers.
 
 ---
@@ -214,10 +214,10 @@ Systematic pass to replace rough edges and align with native design language.
 |-------|-------|------|--------|
 | 1. Composer & Footer | 7 | 6 | In progress (1.5 remaining) |
 | 2. Dashboard Zones | 7 | 0 | Not started |
-| 3. Session Header | 5 | 0 | Not started |
+| 3. Session Header | 5 | 5 | Complete |
 | 4. Conversation Polish | 6 | 0 | Not started |
 | 5. Session Lifecycle | 5 | 0 | Not started |
 | 6. Command Palette | 5 | 0 | Not started |
 | 7. Visual Polish | 6 | 0 | Not started |
 | 8. Settings & Pages | 5 | 0 | Not started |
-| **Total** | **46** | **6** | |
+| **Total** | **46** | **11** | |

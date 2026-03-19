@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
 import { StatusDot } from '../ui/status-dot.jsx'
-import { Badge } from '../ui/badge.jsx'
-import { Button } from '../ui/button.jsx'
 import { ActionPopover } from './action-popover.jsx'
 import { viewMode, toggleViewMode } from '../../stores/view-mode.js'
 import popoverStyles from './action-popover.module.css'
+import { Button } from '../ui/button.jsx'
 import styles from './session-header.module.css'
 
 // ---------------------------------------------------------------------------
@@ -136,7 +135,7 @@ const RollbackPopover = ({ open, onClose, onRollback }) => {
 }
 
 // ---------------------------------------------------------------------------
-// Overflow dropdown — session management actions
+// Overflow dropdown (mobile)
 // ---------------------------------------------------------------------------
 
 const OverflowMenu = ({ open, onClose, children }) => {
@@ -170,25 +169,177 @@ const OverflowMenu = ({ open, onClose, children }) => {
 }
 
 // ---------------------------------------------------------------------------
-// View mode toggle icon (inline SVG)
+// SVG Icons
 // ---------------------------------------------------------------------------
 
-const ViewModeIcon = ({ mode }) => {
-  if (mode === 'focused') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="2" y="3" width="12" height="3" rx="1" />
-        <rect x="2" y="8" width="12" height="5" rx="1" />
-      </svg>
-    )
-  }
+const ConversationIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v7a1.5 1.5 0 01-1.5 1.5H6l-3 2.5V12H3.5A1.5 1.5 0 012 10.5v-7z" />
+  </svg>
+)
+
+const ReviewIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2" y="2" width="12" height="12" rx="1.5" />
+    <path d="M5 6h6M5 8.5h4" />
+    <circle cx="11" cy="11" r="2.5" fill="var(--color-bg-secondary)" />
+    <circle cx="11" cy="11" r="2" />
+  </svg>
+)
+
+const SplitIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
+    <line x1="8" y1="2.5" x2="8" y2="13.5" />
+  </svg>
+)
+
+const FocusedViewIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2" y="3" width="12" height="3" rx="1" />
+    <rect x="2" y="8" width="12" height="5" rx="1" />
+  </svg>
+)
+
+const VerboseViewIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <line x1="2" y1="3" x2="14" y2="3" />
+    <line x1="2" y1="6" x2="14" y2="6" />
+    <line x1="2" y1="9" x2="14" y2="9" />
+    <line x1="2" y1="12" x2="10" y2="12" />
+  </svg>
+)
+
+const SearchIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="7" cy="7" r="4.5" />
+    <path d="M10.5 10.5L14 14" />
+  </svg>
+)
+
+// ---------------------------------------------------------------------------
+// Model badge — compact pill showing model short name
+// ---------------------------------------------------------------------------
+
+const MODEL_LABELS = {
+  'claude-opus-4-6': 'Opus',
+  'claude-sonnet-4-6': 'Sonnet',
+  'claude-haiku-4-5-20251001': 'Haiku',
+  'claude-3-5-sonnet-20241022': 'Sonnet 3.5',
+  'claude-3-5-haiku-20241022': 'Haiku 3.5',
+}
+
+const MODEL_COLORS = {
+  opus: '--color-status-permission',
+  sonnet: '--color-accent',
+  haiku: '--color-feedback-caution',
+}
+
+const getModelLabel = (model) => {
+  if (!model) return null
+  if (MODEL_LABELS[model]) return MODEL_LABELS[model]
+  // Extract short name: "opus", "sonnet", "haiku", or last segment
+  const lower = model.toLowerCase()
+  if (lower.includes('opus')) return 'Opus'
+  if (lower.includes('sonnet')) return 'Sonnet'
+  if (lower.includes('haiku')) return 'Haiku'
+  if (lower.includes('gpt-4')) return 'GPT-4'
+  if (lower.includes('gpt-3')) return 'GPT-3.5'
+  if (lower.includes('o1')) return 'o1'
+  if (lower.includes('o3')) return 'o3'
+  // Fallback: last dash-segment
+  const parts = model.split('-')
+  return parts[parts.length - 1]
+}
+
+const getModelColorVar = (model) => {
+  if (!model) return null
+  const lower = model.toLowerCase()
+  if (lower.includes('opus')) return MODEL_COLORS.opus
+  if (lower.includes('sonnet')) return MODEL_COLORS.sonnet
+  if (lower.includes('haiku')) return MODEL_COLORS.haiku
+  return null
+}
+
+const ModelBadge = ({ model }) => {
+  const label = getModelLabel(model)
+  if (!label) return null
+
+  const colorVar = getModelColorVar(model)
+  const style = colorVar
+    ? { '--model-color': `var(${colorVar})` }
+    : undefined
+
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-      <line x1="2" y1="3" x2="14" y2="3" />
-      <line x1="2" y1="6" x2="14" y2="6" />
-      <line x1="2" y1="9" x2="14" y2="9" />
-      <line x1="2" y1="12" x2="10" y2="12" />
-    </svg>
+    <span
+      class={`${styles.modelBadge} ${colorVar ? styles.modelBadgeColored : ''}`}
+      title={model}
+    >
+      {label}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Effort badge
+// ---------------------------------------------------------------------------
+
+const EFFORT_LABELS = { low: 'Low', medium: 'Med', high: 'High', max: 'Max' }
+const EFFORT_COLORS = {
+  low: '--color-feedback-positive',
+  medium: '--color-feedback-caution',
+  high: '--color-feedback-warning',
+  max: '--color-feedback-negative',
+}
+
+const EffortBadge = ({ effort }) => {
+  if (!effort || effort === 'medium') return null
+  const label = EFFORT_LABELS[effort] || effort
+  const colorVar = EFFORT_COLORS[effort]
+  const style = colorVar
+    ? { '--effort-color': `var(${colorVar})` }
+    : undefined
+
+  return (
+    <span class={styles.effortBadge} style={style}>
+      {label}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Context pill — inline token usage gauge
+// ---------------------------------------------------------------------------
+
+const ContextPill = ({ tokenUsage }) => {
+  if (!tokenUsage) return null
+  const total = (tokenUsage.input_tokens || 0) + (tokenUsage.output_tokens || 0)
+  if (total === 0) return null
+
+  const contextWindow = tokenUsage.context_window_total
+  const pct = contextWindow ? Math.round((total / contextWindow) * 100) : null
+  if (pct == null) return null
+
+  const colorClass = pct >= 90
+    ? styles.contextDanger
+    : pct >= 70
+      ? styles.contextWarning
+      : ''
+
+  return (
+    <span class={`${styles.intelligencePill} ${colorClass}`} title={`Context: ${pct}% used (${total.toLocaleString()} tokens)`}>
+      <svg width="10" height="10" viewBox="0 0 20 20" fill="none">
+        <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="2" opacity="0.2" />
+        <circle
+          cx="10" cy="10" r="8"
+          stroke="currentColor" stroke-width="2"
+          stroke-dasharray={`${(pct / 100) * 50.27} 50.27`}
+          stroke-linecap="round"
+          transform="rotate(-90 10 10)"
+        />
+      </svg>
+      <span>{pct}%</span>
+    </span>
   )
 }
 
@@ -206,13 +357,19 @@ const STATUS_TEXT = {
 }
 
 // ---------------------------------------------------------------------------
-// Main SessionHeader — matches native app: back, dot, name, status, controls
+// Layout mode values
+// ---------------------------------------------------------------------------
+
+const LAYOUT_CONVERSATION = 'conversation'
+const LAYOUT_REVIEW = 'review'
+const LAYOUT_SPLIT = 'split'
+
+// ---------------------------------------------------------------------------
+// Main SessionHeader
 // ---------------------------------------------------------------------------
 
 const SessionHeader = ({
   session,
-  onCompact,
-  onUndo,
   onEnd,
   onRename,
   onFork,
@@ -222,6 +379,10 @@ const SessionHeader = ({
   capabilitiesOpen,
   reviewOpen = false,
   onReviewToggle,
+  tokenUsage,
+  layoutMode,
+  onLayoutChange,
+  onSearch,
 }) => {
   const [, navigate] = useLocation()
   const [renaming, setRenaming] = useState(false)
@@ -253,9 +414,26 @@ const SessionHeader = ({
   const openRollback = () => { setSubPopover('rollback'); setOverflowOpen(false) }
   const closeSubPopover = () => setSubPopover('none')
 
+  // Derive layout mode from reviewOpen for backwards compatibility
+  const currentLayout = layoutMode || (reviewOpen ? LAYOUT_SPLIT : LAYOUT_CONVERSATION)
+
+  const handleLayoutSelect = (mode) => {
+    if (onLayoutChange) {
+      // Clicking active layout toggles back to conversation
+      onLayoutChange(mode === currentLayout ? LAYOUT_CONVERSATION : mode)
+    } else {
+      // Fallback: toggle review panel
+      if (mode === LAYOUT_REVIEW || mode === LAYOUT_SPLIT) {
+        if (!reviewOpen) onReviewToggle?.()
+      } else {
+        if (reviewOpen) onReviewToggle?.()
+      }
+    }
+  }
+
   return (
     <header class={styles.header}>
-      {/* Left: Back + identity */}
+      {/* ── Leading: back + identity + badges ─────────────────────────── */}
       <div class={styles.leading}>
         <button
           class={styles.backBtn}
@@ -287,57 +465,98 @@ const SessionHeader = ({
           </button>
         )}
 
+        <ModelBadge model={session.model} />
+        <EffortBadge effort={session.effort} />
+
         <span class={`${styles.statusLabel} ${styles[`status-${session.work_status}`] || ''}`}>
           {statusText}
         </span>
-
-        <button
-          class={`${styles.iconBtn} ${viewMode.value === 'focused' ? styles.iconBtnActive : ''}`}
-          onClick={toggleViewMode}
-          aria-label={viewMode.value === 'focused' ? 'Switch to verbose view' : 'Switch to focused view'}
-          title={viewMode.value === 'focused' ? 'Focused' : 'Verbose'}
-        >
-          <ViewModeIcon mode={viewMode.value} />
-        </button>
       </div>
 
-      {/* Right: Action pill buttons */}
-      <div class={styles.actions}>
+      {/* ── Intelligence zone: context pills ──────────────────────────── */}
+      <div class={styles.intelligence}>
+        <ContextPill tokenUsage={tokenUsage} />
+      </div>
+
+      {/* ── Controls zone ─────────────────────────────────────────────── */}
+      <div class={styles.controls}>
+        {/* View mode toggle (focused/verbose) */}
+        <div class={styles.toggleGroup}>
+          <button
+            class={`${styles.toggleBtn} ${viewMode.value === 'focused' ? styles.toggleBtnActive : ''}`}
+            onClick={() => { if (viewMode.value !== 'focused') toggleViewMode() }}
+            aria-label="Focused view — shows collapsed tool calls and compact layout"
+            title="Focused view — collapsed tool calls, compact layout"
+          >
+            <FocusedViewIcon />
+          </button>
+          <button
+            class={`${styles.toggleBtn} ${viewMode.value === 'verbose' ? styles.toggleBtnActive : ''}`}
+            onClick={() => { if (viewMode.value !== 'verbose') toggleViewMode() }}
+            aria-label="Verbose view — shows all tool details and full output"
+            title="Verbose view — all tool details, full output"
+          >
+            <VerboseViewIcon />
+          </button>
+        </div>
+
+        {/* Layout toggle (conversation / review / split) */}
+        <div class={styles.toggleGroup}>
+          <button
+            class={`${styles.toggleBtn} ${currentLayout === LAYOUT_CONVERSATION ? styles.toggleBtnActive : ''}`}
+            onClick={() => handleLayoutSelect(LAYOUT_CONVERSATION)}
+            aria-label="Conversation only"
+            title="Conversation"
+          >
+            <ConversationIcon />
+          </button>
+          <button
+            class={`${styles.toggleBtn} ${currentLayout === LAYOUT_REVIEW ? styles.toggleBtnActive : ''}`}
+            onClick={() => handleLayoutSelect(LAYOUT_REVIEW)}
+            aria-label="Review only"
+            title="Review"
+          >
+            <ReviewIcon />
+          </button>
+          <button
+            class={`${styles.toggleBtn} ${currentLayout === LAYOUT_SPLIT ? styles.toggleBtnActive : ''}`}
+            onClick={() => handleLayoutSelect(LAYOUT_SPLIT)}
+            aria-label="Split view"
+            title="Split — conversation + review"
+          >
+            <SplitIcon />
+          </button>
+        </div>
+
+        {/* Tools toggle */}
         <button
-          class={`${styles.pillBtn} ${capabilitiesOpen ? styles.pillBtnActive : ''}`}
+          class={`${styles.iconBtn} ${capabilitiesOpen ? styles.iconBtnActive : ''}`}
           onClick={onToggleCapabilities}
+          aria-label="Toggle tools panel"
+          title="Tools"
         >
-          Tools
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.5 2.5l4 4-7 7H2.5v-4l7-7z" />
+          </svg>
         </button>
 
-        {onReviewToggle && (
+        {/* Search / ⌘K */}
+        {onSearch && (
           <button
-            class={`${styles.pillBtn} ${reviewOpen ? styles.pillBtnActive : ''}`}
-            onClick={onReviewToggle}
+            class={styles.iconBtn}
+            onClick={onSearch}
+            aria-label="Search sessions (⌘K)"
+            title="Search (⌘K)"
           >
-            Review
+            <SearchIcon />
           </button>
         )}
 
-        {isActive && (
-          <>
-            <button class={styles.pillBtn} onClick={onUndo}>Undo</button>
-            <button class={styles.pillBtn} onClick={openFork}>Fork</button>
-            <button class={styles.pillBtn} onClick={openRollback}>Rollback</button>
-            <button class={styles.pillBtn} onClick={onCompact}>Compact</button>
-            <button class={`${styles.pillBtn} ${styles.pillBtnDanger}`} onClick={onEnd}>End</button>
-
-            {showTakeover && (
-              <button class={styles.pillBtn} onClick={onTakeover}>Take Over</button>
-            )}
-          </>
-        )}
-
-        {/* Overflow trigger for narrow viewports */}
+        {/* Overflow trigger (mobile + session actions) */}
         {isActive && (
           <div class={styles.popoverAnchor}>
             <button
-              class={`${styles.iconBtn} ${styles.overflowTrigger}`}
+              class={styles.iconBtn}
               onClick={() => setOverflowOpen((v) => !v)}
               aria-label="More actions"
               aria-expanded={overflowOpen}
@@ -349,28 +568,56 @@ const SessionHeader = ({
               </svg>
             </button>
             <OverflowMenu open={overflowOpen} onClose={() => setOverflowOpen(false)}>
-              {showTakeover && (
-                <button class={styles.overflowItem} onClick={() => { onTakeover?.(); setOverflowOpen(false) }}>
-                  Take Over
+              {/* Layout section — visible on mobile */}
+              <div class={styles.overflowSection}>
+                <span class={styles.overflowSectionLabel}>Layout</span>
+                <button
+                  class={`${styles.overflowItem} ${currentLayout === LAYOUT_CONVERSATION ? styles.overflowItemActive : ''}`}
+                  onClick={() => { handleLayoutSelect(LAYOUT_CONVERSATION); setOverflowOpen(false) }}
+                >
+                  <ConversationIcon />
+                  Conversation
                 </button>
-              )}
-              <button class={styles.overflowItem} onClick={() => { onUndo?.(); setOverflowOpen(false) }}>
-                Undo
-              </button>
-              <button class={styles.overflowItem} onClick={openFork}>
-                Fork…
-              </button>
-              <button class={styles.overflowItem} onClick={openRollback}>
-                Rollback…
-              </button>
-              <button class={styles.overflowItem} onClick={() => { onCompact?.(); setOverflowOpen(false) }}>
-                Compact
-              </button>
+                <button
+                  class={`${styles.overflowItem} ${currentLayout === LAYOUT_REVIEW ? styles.overflowItemActive : ''}`}
+                  onClick={() => { handleLayoutSelect(LAYOUT_REVIEW); setOverflowOpen(false) }}
+                >
+                  <ReviewIcon />
+                  Review
+                </button>
+                <button
+                  class={`${styles.overflowItem} ${currentLayout === LAYOUT_SPLIT ? styles.overflowItemActive : ''}`}
+                  onClick={() => { handleLayoutSelect(LAYOUT_SPLIT); setOverflowOpen(false) }}
+                >
+                  <SplitIcon />
+                  Split
+                </button>
+              </div>
+
+              {/* Session actions */}
+              <div class={styles.overflowDivider} />
+              <div class={styles.overflowSection}>
+                <span class={styles.overflowSectionLabel}>Session</span>
+                {showTakeover && (
+                  <button class={styles.overflowItem} onClick={() => { onTakeover?.(); setOverflowOpen(false) }}>
+                    Take Over
+                  </button>
+                )}
+                <button class={styles.overflowItem} onClick={openFork}>
+                  Fork…
+                </button>
+                <button class={styles.overflowItem} onClick={openRollback}>
+                  Rollback…
+                </button>
+              </div>
+
+              {/* Destructive */}
+              <div class={styles.overflowDivider} />
               <button
                 class={`${styles.overflowItem} ${styles.overflowItemDanger}`}
                 onClick={() => { onEnd?.(); setOverflowOpen(false) }}
               >
-                End
+                End Session
               </button>
             </OverflowMenu>
           </div>

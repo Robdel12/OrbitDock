@@ -1,4 +1,4 @@
-/* ── Header bar — single row, native app style ───────────────────────────── */
+/* ── Header bar — three-zone layout matching native ─────────────────────────── */
 
 .header {
   display: flex;
@@ -19,7 +19,7 @@
   }
 }
 
-/* ── Leading: back + dot + name + status ─────────────────────────────────── */
+/* ── Leading zone: back + dot + name + badges + status ─────────────────────── */
 
 .leading {
   display: flex;
@@ -29,7 +29,7 @@
   min-width: 0;
 }
 
-/* ── Back button ─────────────────────────────────────────────────────────── */
+/* ── Back button ─────────────────────────────────────────────────────────────── */
 
 .backBtn {
   display: inline-flex;
@@ -63,7 +63,7 @@
   }
 }
 
-/* ── Session name ────────────────────────────────────────────────────────── */
+/* ── Session name ──────────────────────────────────────────────────────────── */
 
 .name {
   font-size: var(--type-body);
@@ -112,7 +112,46 @@
   box-sizing: border-box;
 }
 
-/* ── Status label ────────────────────────────────────────────────────────── */
+/* ── Model badge ─────────────────────────────────────────────────────────────── */
+
+.modelBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-md);
+  font-size: var(--type-micro);
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-mono);
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: var(--color-surface-elevated);
+  color: var(--color-text-tertiary);
+}
+
+.modelBadgeColored {
+  background: color-mix(in srgb, var(--model-color) 14%, transparent);
+  color: var(--model-color);
+}
+
+/* ── Effort badge ──────────────────────────────────────────────────────────── */
+
+.effortBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-md);
+  font-size: var(--type-mini);
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-mono);
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--effort-color, var(--color-text-quaternary)) 14%, transparent);
+  color: var(--effort-color, var(--color-text-quaternary));
+}
+
+/* ── Status label ──────────────────────────────────────────────────────────── */
 
 .statusLabel {
   font-size: var(--type-caption);
@@ -129,7 +168,110 @@
 .status-reply { color: var(--color-status-reply); }
 .status-ended { color: var(--color-text-quaternary); }
 
-/* ── Icon button (view toggle, overflow) ─────────────────────────────────── */
+/* Hide status label + badges on very narrow viewports */
+@media (max-width: 479px) {
+  .statusLabel { display: none; }
+  .modelBadge { display: none; }
+  .effortBadge { display: none; }
+}
+
+/* ── Intelligence zone: centered context pills ─────────────────────────────── */
+
+.intelligence {
+  display: none;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+@media (min-width: 768px) {
+  .intelligence {
+    display: flex;
+  }
+}
+
+.intelligencePill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xxs);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-md);
+  font-size: var(--type-micro);
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-mono);
+  line-height: 1;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  cursor: default;
+}
+
+.contextWarning {
+  background: color-mix(in srgb, var(--color-feedback-caution) 12%, transparent);
+  color: var(--color-feedback-caution);
+}
+
+.contextDanger {
+  background: color-mix(in srgb, var(--color-feedback-negative) 12%, transparent);
+  color: var(--color-feedback-negative);
+}
+
+/* ── Controls zone ─────────────────────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+/* ── Toggle group container (segmented) ───────────────────────────────────── */
+
+.toggleGroup {
+  display: none;
+  align-items: center;
+  gap: 1px;
+  background: color-mix(in srgb, var(--color-bg-tertiary) 60%, transparent);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+@media (min-width: 768px) {
+  .toggleGroup {
+    display: flex;
+  }
+}
+
+.toggleBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  color: var(--color-text-quaternary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.toggleBtn:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-hover);
+}
+
+.toggleBtnActive {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+}
+
+.toggleBtnActive:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+/* ── Icon button (tools, search, overflow) ─────────────────────────────────── */
 
 .iconBtn {
   display: inline-flex;
@@ -158,89 +300,6 @@
   color: var(--color-accent);
 }
 
-/* ── Actions: right-aligned pill buttons ─────────────────────────────────── */
-
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-  background: var(--color-surface-elevated);
-  border-radius: var(--radius-ml);
-  padding: 2px;
-}
-
-.pillBtn {
-  display: inline-flex;
-  align-items: center;
-  padding: var(--space-xxs) var(--space-sm);
-  background: transparent;
-  border: none;
-  border-radius: calc(var(--radius-ml) - 2px);
-  color: var(--color-text-secondary);
-  font-size: var(--type-caption);
-  font-family: var(--font-system);
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background var(--transition-fast), color var(--transition-fast);
-  line-height: 1.6;
-}
-
-.pillBtn:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
-}
-
-.pillBtnActive {
-  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
-  color: var(--color-accent);
-}
-
-.pillBtnActive:hover {
-  background: color-mix(in srgb, var(--color-accent) 24%, transparent);
-}
-
-.pillBtnDanger {
-  color: var(--color-feedback-negative);
-}
-
-.pillBtnDanger:hover {
-  background: rgba(242, 102, 115, 0.1);
-  color: var(--color-feedback-negative);
-}
-
-/* On narrow viewports, hide inline action pills — show overflow instead */
-@media (max-width: 767px) {
-  .actions .pillBtn {
-    display: none;
-  }
-
-  /* Always show Tools and Review (first two children) */
-  .actions .pillBtn:first-child,
-  .actions .pillBtn:nth-child(2) {
-    display: inline-flex;
-  }
-
-  .statusLabel {
-    display: none;
-  }
-}
-
-/* ── Overflow trigger ────────────────────────────────────────────────────── */
-
-.overflowTrigger {
-  border: none;
-  background: transparent;
-}
-
-/* Show overflow trigger only on narrow viewports */
-@media (min-width: 768px) {
-  .overflowTrigger {
-    display: none;
-  }
-}
-
 /* ── Popover anchor ──────────────────────────────────────────────────────── */
 
 .popoverAnchor {
@@ -254,7 +313,7 @@
   top: calc(100% + var(--space-xs));
   right: 0;
   z-index: var(--z-popover);
-  min-width: 160px;
+  min-width: 180px;
   max-width: calc(100vw - 32px);
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-surface-border-accent);
@@ -272,13 +331,32 @@
   to   { opacity: 1; transform: translateY(0)    scale(1);    }
 }
 
+.overflowSection {
+  display: flex;
+  flex-direction: column;
+}
+
+.overflowSectionLabel {
+  font-size: var(--type-micro);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-quaternary);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-label);
+  padding: var(--space-xs) var(--space-md) var(--space-xxs);
+}
+
+.overflowDivider {
+  height: 1px;
+  background: var(--color-surface-border);
+  margin: var(--space-xs) var(--space-sm);
+}
+
 .overflowItem {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   width: 100%;
-  min-height: 44px;
-  padding: var(--space-xs) var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   border: none;
   background: transparent;
   color: var(--color-text-secondary);
@@ -294,6 +372,10 @@
 .overflowItem:hover {
   background: var(--color-surface-hover);
   color: var(--color-text-primary);
+}
+
+.overflowItemActive {
+  color: var(--color-accent);
 }
 
 .overflowItemDanger {

@@ -11,7 +11,6 @@ import { MessageComposer } from '../components/input/message-composer.jsx'
 import { RateLimitBanner } from '../components/input/rate-limit-banner.jsx'
 import { SessionHeader } from '../components/session/session-header.jsx'
 import { WorkerRosterPanel } from '../components/session/worker-roster-panel.jsx'
-import { ContextualStatusStrip } from '../components/session/contextual-status-strip.jsx'
 import { SessionActionBar } from '../components/session/session-action-bar.jsx'
 import { DiffAvailableBanner } from '../components/session/diff-available-banner.jsx'
 import { WorktreeCleanupBanner } from '../components/session/worktree-cleanup-banner.jsx'
@@ -354,8 +353,6 @@ const SessionPage = () => {
       <div class={`${styles.conversationCol} ${reviewOpen ? styles.conversationColNarrow : ''}`}>
         <SessionHeader
           session={session}
-          onCompact={handleCompact}
-          onUndo={handleUndo}
           onEnd={handleEnd}
           onRename={handleRename}
           onFork={handleFork}
@@ -365,8 +362,8 @@ const SessionPage = () => {
           capabilitiesOpen={capabilitiesOpen}
           reviewOpen={reviewOpen}
           onReviewToggle={reviewOpen ? handleCloseReview : handleOpenReview}
+          tokenUsage={tokenUsage}
         />
-        <ContextualStatusStrip session={session} tokenUsage={tokenUsage} />
         <WorkerRosterPanel rows={rows} />
         {diffAvailable && (
           <DiffAvailableBanner
