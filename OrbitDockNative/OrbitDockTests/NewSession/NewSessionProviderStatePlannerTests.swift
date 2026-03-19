@@ -15,6 +15,8 @@ struct NewSessionProviderStatePlannerTests {
     #expect(state.showToolConfig == false)
     #expect(state.selectedEffort == .default)
     #expect(state.codexModel.isEmpty)
+    #expect(state.codexConfigSource == .user)
+    #expect(state.codexUseOrbitDockOverrides == false)
     #expect(state.selectedAutonomy == .autonomous)
     #expect(state.codexCollaborationMode == .default)
     #expect(state.codexMultiAgentEnabled == false)
@@ -74,6 +76,7 @@ struct NewSessionProviderStatePlannerTests {
     #expect(
       NewSessionProviderStatePlanner.syncCodexModelSelection(
         currentModel: "",
+        shouldPreferDefaultModel: true,
         models: models
       ) == "gpt-5-codex"
     )
@@ -81,6 +84,7 @@ struct NewSessionProviderStatePlannerTests {
     #expect(
       NewSessionProviderStatePlanner.syncCodexModelSelection(
         currentModel: "gpt-5-codex-mini",
+        shouldPreferDefaultModel: true,
         models: models
       ) == "gpt-5-codex-mini"
     )

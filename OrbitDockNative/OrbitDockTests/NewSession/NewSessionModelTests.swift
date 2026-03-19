@@ -61,6 +61,8 @@ struct NewSessionModelTests {
           showToolConfig: true,
           selectedEffort: .high,
           codexModel: "gpt-5-codex",
+          codexConfigSource: .orbitdock,
+          codexUseOrbitDockOverrides: true,
           selectedAutonomy: .open,
           codexCollaborationMode: .plan,
           codexMultiAgentEnabled: true,

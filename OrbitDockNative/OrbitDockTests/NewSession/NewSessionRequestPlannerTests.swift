@@ -18,6 +18,8 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: " Write, Edit ",
         claudeEffort: " high ",
         codexModel: "",
+        codexConfigSource: .user,
+        codexUseOrbitDockOverrides: false,
         codexAutonomy: .autonomous,
         codexCollaborationMode: nil,
         codexMultiAgentEnabled: false,
@@ -64,6 +66,8 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: "",
         codexModel: "",
+        codexConfigSource: .user,
+        codexUseOrbitDockOverrides: false,
         codexAutonomy: .autonomous,
         codexCollaborationMode: nil,
         codexMultiAgentEnabled: false,
@@ -111,6 +115,8 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "Edit",
         claudeEffort: "max",
         codexModel: " gpt-5-codex ",
+        codexConfigSource: .user,
+        codexUseOrbitDockOverrides: true,
         codexAutonomy: .open,
         codexCollaborationMode: "plan",
         codexMultiAgentEnabled: true,
@@ -132,6 +138,7 @@ struct NewSessionRequestPlannerTests {
     }
     if case let .codex(
       model,
+      codexConfigSource,
       approvalPolicy,
       sandboxMode,
       collaborationMode,
@@ -141,6 +148,7 @@ struct NewSessionRequestPlannerTests {
       developerInstructions
     ) = plan.requestTemplate {
       #expect(model == "gpt-5-codex")
+      #expect(codexConfigSource == .user)
       #expect(approvalPolicy == "on-request")
       #expect(sandboxMode == "danger-full-access")
       #expect(collaborationMode == "plan")
@@ -168,6 +176,8 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: nil,
         codexModel: "",
+        codexConfigSource: .user,
+        codexUseOrbitDockOverrides: false,
         codexAutonomy: .autonomous,
         codexCollaborationMode: nil,
         codexMultiAgentEnabled: false,
@@ -204,6 +214,8 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: nil,
         codexModel: "",
+        codexConfigSource: .user,
+        codexUseOrbitDockOverrides: false,
         codexAutonomy: .autonomous,
         codexCollaborationMode: nil,
         codexMultiAgentEnabled: false,
@@ -232,6 +244,8 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: nil,
         codexModel: " ",
+        codexConfigSource: .orbitdock,
+        codexUseOrbitDockOverrides: true,
         codexAutonomy: .autonomous,
         codexCollaborationMode: nil,
         codexMultiAgentEnabled: false,

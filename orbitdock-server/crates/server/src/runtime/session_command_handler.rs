@@ -53,6 +53,8 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
             developer_instructions,
             model,
             effort,
+            codex_config_source,
+            codex_config_overrides_json,
         } => PersistCommand::SetSessionConfig {
             session_id,
             approval_policy,
@@ -65,6 +67,8 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
             developer_instructions,
             model,
             effort,
+            codex_config_source,
+            codex_config_overrides_json,
         },
     };
     let _ = persist_tx.send(cmd).await;
