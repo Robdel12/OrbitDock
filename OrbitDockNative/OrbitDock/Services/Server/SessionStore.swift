@@ -37,6 +37,9 @@ final class SessionStore {
   var missionDeltaSummary: MissionSummary?
   var missionDeltaIssues: [MissionIssueItem] = []
   var missionDeltaRevision: UInt64 = 0
+  var missionNextTickAt: Date?
+  var missionLastTickAt: Date?
+  var missionHeartbeatRevision: UInt64 = 0
 
   var codexModels: [ServerCodexModelOption] = []
   var claudeModels: [ServerClaudeModelOption] = []
@@ -51,7 +54,6 @@ final class SessionStore {
   // MARK: - Per-session registries (not @Observable tracked)
 
   @ObservationIgnored var _sessionObservables: [String: SessionObservable] = [:]
-  @ObservationIgnored var _conversationStores: [String: ConversationStore] = [:]
 
   // MARK: - Private tracking
 
@@ -107,13 +109,6 @@ final class SessionStore {
     let obs = SessionObservable(id: id)
     _sessionObservables[id] = obs
     return obs
-  }
-
-  func conversation(_ id: String) -> ConversationStore {
-    if let existing = _conversationStores[id] { return existing }
-    let store = ConversationStore(sessionId: id, endpointId: endpointId, clients: clients)
-    _conversationStores[id] = store
-    return store
   }
 
   func requestSelection(_ ref: SessionRef) {
@@ -198,20 +193,26 @@ final class SessionStore {
     }
 
     let task = Task<ServerConversationBootstrap?, Never> {
-      let bootstrap = await conversation(sessionId).fetchBootstrap()
-      guard let bootstrap else { return nil }
+      netLog(.info, cat: .conv, "Fetching bootstrap", sid: sessionId)
+      do {
+        let bootstrap = try await clients.conversation.fetchConversationBootstrap(sessionId, limit: 50)
+        netLog(.info, cat: .conv, "Bootstrap fetched", sid: sessionId, data: ["rows": bootstrap.rows.count])
 
-      handleConversationBootstrap(
-        bootstrap.session,
-        ServerConversationHistoryPage(
-          rows: bootstrap.rows,
-          totalRowCount: bootstrap.totalRowCount,
-          hasMoreBefore: bootstrap.hasMoreBefore,
-          oldestSequence: bootstrap.oldestSequence,
-          newestSequence: bootstrap.newestSequence
+        handleConversationBootstrap(
+          bootstrap.session,
+          ServerConversationHistoryPage(
+            rows: bootstrap.rows,
+            totalRowCount: bootstrap.totalRowCount,
+            hasMoreBefore: bootstrap.hasMoreBefore,
+            oldestSequence: bootstrap.oldestSequence,
+            newestSequence: bootstrap.newestSequence
+          )
         )
-      )
-      return bootstrap
+        return bootstrap
+      } catch {
+        netLog(.error, cat: .conv, "Bootstrap fetch failed", sid: sessionId, data: ["error": error.localizedDescription])
+        return nil
+      }
     }
 
     inFlightBootstraps[sessionId] = task

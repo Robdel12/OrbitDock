@@ -128,6 +128,7 @@ enum ServerToClientMessage: Codable {
 
   case missionsList(missions: [MissionSummary])
   case missionDelta(missionId: String, issues: [MissionIssueItem], summary: MissionSummary)
+  case missionHeartbeat(missionId: String, tickStartedAt: String, nextTickAt: String)
 
   // MARK: Unknown (resilience)
 

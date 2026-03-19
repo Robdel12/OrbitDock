@@ -11,6 +11,8 @@ struct MissionOverviewTab: View {
   let isCompact: Bool
   let endpointId: UUID
   let sessionStore: SessionStore?
+  let nextTickAt: Date?
+  let lastTickAt: Date?
   let onRefresh: () async -> Void
   let onApplyDetail: (MissionDetailResponse) -> Void
   let onSelectTab: (MissionTab) -> Void
@@ -19,6 +21,11 @@ struct MissionOverviewTab: View {
 
   @State private var isStartingOrchestrator = false
   @State private var actionError: String?
+  @State private var expandedAgentId: String?
+
+  private var isPolling: Bool {
+    mission.orchestratorStatus == "polling"
+  }
 
   private var runningIssues: [MissionIssueItem] {
     issues.running
@@ -51,47 +58,43 @@ struct MissionOverviewTab: View {
         onSelectTab: onSelectTab
       )
 
-      // Command Center
-      MissionCommandCenter(
+      // Flight Strip
+      MissionFlightStrip(
         mission: mission,
-        settings: settings,
+        nextTickAt: nextTickAt,
+        lastTickAt: lastTickAt,
         isCompact: isCompact,
         onUpdateMission: onUpdateMission,
         onStartOrchestrator: startOrchestrator
       )
 
-      // Active Threads
-      if !runningIssues.isEmpty {
-        MissionActiveThreads(
-          runningIssues: runningIssues,
+      // Hero Zone — state-driven content
+      heroZone
+
+      // Alert Board — only when failed issues exist
+      if !failedIssues.isEmpty {
+        MissionAlertBoard(
+          failedIssues: failedIssues,
           missionId: missionId,
-          settings: settings,
-          isCompact: isCompact,
-          sessionStore: sessionStore,
+          endpointId: endpointId,
           http: http,
-          onRefresh: onRefresh,
-          onNavigateToSession: onNavigateToSession
+          onNavigateToSession: onNavigateToSession,
+          onRefresh: onRefresh
         )
       }
 
-      // Needs Attention
-      if !failedIssues.isEmpty {
-        attentionSection
-      }
-
-      // Queued
-      if !queuedIssues.isEmpty {
-        queueSection
-      }
-
-      // Completed
-      if !completedIssues.isEmpty {
-        completedSection
-      }
-
-      // Empty State
-      if issues.isEmpty {
-        waitingState
+      // Pipeline — queued + completed
+      if !queuedIssues.isEmpty || !completedIssues.isEmpty {
+        MissionPipeline(
+          queuedIssues: queuedIssues,
+          completedIssues: completedIssues,
+          missionId: missionId,
+          endpointId: endpointId,
+          http: http,
+          onNavigateToSession: onNavigateToSession,
+          onRefresh: onRefresh,
+          onSelectIssuesTab: { onSelectTab(.issues) }
+        )
       }
     }
     .alert("Error", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
@@ -101,172 +104,79 @@ struct MissionOverviewTab: View {
     }
   }
 
-  // MARK: - Attention Section
+  // MARK: - Hero Zone
 
-  private var attentionSection: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      MissionSectionHeader(
-        title: "Needs Attention",
-        icon: "exclamationmark.triangle.fill",
-        color: Color.feedbackNegative,
-        count: failedIssues.count
+  @ViewBuilder
+  private var heroZone: some View {
+    if !runningIssues.isEmpty {
+      // In Flight — Agent Telemetry Cards
+      agentDeck
+    } else if isPolling && issues.isEmpty {
+      // Scanning — countdown + standing by
+      MissionScanningState(
+        nextTickAt: nextTickAt,
+        lastTickAt: lastTickAt,
+        filterContext: filterContextString
       )
-
-      ForEach(failedIssues) { issue in
-        MissionIssueRow(
-          issue: issue,
-          missionId: missionId,
-          endpointId: endpointId,
-          http: http,
-          style: .compact,
-          accentColor: Color.feedbackNegative,
-          onNavigateToSession: onNavigateToSession,
-          onRefresh: onRefresh
-        )
-      }
+    } else if issues.isEmpty {
+      // Docked — no issues at all
+      MissionDockedState(
+        mission: mission,
+        onStartOrchestrator: startOrchestrator,
+        onUpdateMission: onUpdateMission
+      )
     }
+    // When issues exist but none are running, the pipeline + alert board
+    // are the content — no separate hero zone needed
   }
 
-  // MARK: - Queue Section
+  // MARK: - Agent Deck
 
-  private var queueSection: some View {
+  private var agentDeck: some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
       MissionSectionHeader(
-        title: "Queued",
-        icon: "clock.fill",
-        color: Color.feedbackCaution,
-        count: queuedIssues.count
+        title: "Active Agents",
+        icon: "bolt.fill",
+        color: Color.statusWorking,
+        trailing: settings.map { "\(runningIssues.count) of \($0.provider.maxConcurrent)" }
       )
 
-      ForEach(queuedIssues) { issue in
-        MissionIssueRow(
-          issue: issue,
-          missionId: missionId,
-          endpointId: endpointId,
-          http: http,
-          style: .compact,
-          accentColor: Color.feedbackCaution,
-          onNavigateToSession: onNavigateToSession,
-          onRefresh: onRefresh
-        )
-      }
-    }
-  }
+      let layout = isCompact
+        ? AnyLayout(VStackLayout(spacing: Spacing.sm))
+        : AnyLayout(HStackLayout(alignment: .top, spacing: Spacing.sm))
 
-  // MARK: - Completed Section
-
-  private var completedSection: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      MissionSectionHeader(
-        title: "Completed",
-        icon: "checkmark.circle.fill",
-        color: Color.feedbackPositive,
-        count: completedIssues.count
-      )
-
-      ForEach(Array(completedIssues.prefix(5))) { issue in
-        MissionIssueRow(
-          issue: issue,
-          missionId: missionId,
-          endpointId: endpointId,
-          http: http,
-          style: .compact,
-          accentColor: Color.feedbackPositive,
-          onNavigateToSession: onNavigateToSession,
-          onRefresh: onRefresh
-        )
-      }
-
-      if completedIssues.count > 5 {
-        Button {
-          onSelectTab(.issues)
-        } label: {
-          HStack(spacing: Spacing.xs) {
-            Text("View all \(completedIssues.count) completed")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-            Image(systemName: "arrow.right")
-              .font(.system(size: 8, weight: .bold))
-          }
-          .foregroundStyle(Color.accent)
+      layout {
+        ForEach(runningIssues) { issue in
+          MissionAgentCard(
+            issue: issue,
+            sessionStore: sessionStore,
+            isCompact: isCompact,
+            onNavigateToSession: onNavigateToSession,
+            expandedIssueId: $expandedAgentId
+          )
         }
-        .buttonStyle(.plain)
-        .padding(.leading, Spacing.lg)
       }
     }
   }
 
-  // MARK: - Waiting State
+  // MARK: - Helpers
 
-  private var waitingState: some View {
-    let isPolling = mission.orchestratorStatus == "polling"
-    let needsKey = mission.orchestratorStatus == "no_api_key"
-
-    return VStack(spacing: Spacing.lg) {
-      ZStack {
-        Circle()
-          .strokeBorder(
-            (isPolling ? Color.accent : Color.textQuaternary).opacity(OpacityTier.subtle),
-            lineWidth: 2
-          )
-          .frame(width: 56, height: 56)
-
-        Circle()
-          .strokeBorder(
-            (isPolling ? Color.accent : Color.textQuaternary).opacity(OpacityTier.medium),
-            lineWidth: 1.5
-          )
-          .frame(width: 36, height: 36)
-
-        Image(systemName: isPolling ? "antenna.radiowaves.left.and.right" : needsKey ? "key" : "pause")
-          .font(.system(size: 14, weight: .medium))
-          .foregroundStyle(isPolling ? Color.accent : Color.textQuaternary)
-      }
-
-      VStack(spacing: Spacing.sm_) {
-        Text(waitingTitle)
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.textSecondary)
-
-        Text(waitingSubtitle)
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textTertiary)
-          .multilineTextAlignment(.center)
-          .fixedSize(horizontal: false, vertical: true)
-      }
+  private var filterContextString: String? {
+    guard let settings else { return nil }
+    var parts: [String] = []
+    if let project = settings.trigger.filters.project, !project.isEmpty {
+      parts.append("project: \(project)")
     }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, Spacing.xxl)
-  }
-
-  private var waitingTitle: String {
-    switch mission.orchestratorStatus {
-      case "polling": "Scanning for issues"
-      case "no_api_key": "API key required"
-      case "config_error": "Configuration error"
-      case "paused": "Orchestrator paused"
-      case "disabled": "Mission disabled"
-      case "idle": "Ready to start"
-      default: "Orchestrator not started"
+    if let team = settings.trigger.filters.team, !team.isEmpty {
+      parts.append("team: \(team)")
     }
-  }
-
-  private var waitingSubtitle: String {
-    switch mission.orchestratorStatus {
-      case "polling":
-        "The orchestrator is polling your tracker for matching issues. New issues will appear here automatically."
-      case "no_api_key":
-        "Set a Linear API key above or via the LINEAR_API_KEY environment variable, then start the orchestrator."
-      case "config_error":
-        "There's a problem with your MISSION.md configuration. Check the Settings tab for details."
-      case "paused":
-        "Resume the orchestrator to continue processing issues."
-      case "disabled":
-        "Enable the mission to start processing issues."
-      case "idle":
-        "Configuration looks good. Start the orchestrator to begin polling for issues."
-      default:
-        "Start the orchestrator to begin polling for issues."
+    if !settings.trigger.filters.labels.isEmpty {
+      parts.append("labels: \(settings.trigger.filters.labels.joined(separator: ", "))")
     }
+    if !settings.trigger.filters.states.isEmpty {
+      parts.append("states: \(settings.trigger.filters.states.joined(separator: ", "))")
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
   }
 
   // MARK: - Networking
@@ -285,5 +195,4 @@ struct MissionOverviewTab: View {
     isStartingOrchestrator = false
     await onRefresh()
   }
-
 }

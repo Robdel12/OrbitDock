@@ -65,15 +65,19 @@ struct MissionIssueRow: View {
             .font(.system(size: TypeScale.micro, weight: .medium))
             .foregroundStyle(Color.textTertiary)
 
-          Text(issue.trackerState)
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(Color.textQuaternary)
+          Text(issue.orchestrationState.displayLabel)
+            .font(.system(size: TypeScale.micro, weight: .bold))
+            .foregroundStyle(accentColor)
             .padding(.horizontal, Spacing.xs)
             .padding(.vertical, 1)
             .background(
-              Color.backgroundTertiary,
+              accentColor.opacity(OpacityTier.subtle),
               in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
             )
+
+          Text(issue.trackerState)
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
 
           if issue.orchestrationState != .queued {
             Button {
@@ -145,9 +149,13 @@ struct MissionIssueRow: View {
           }
 
           HStack(spacing: Spacing.sm) {
+            Text(issue.orchestrationState.displayLabel)
+              .font(.system(size: TypeScale.micro, weight: .bold))
+              .foregroundStyle(stateColor(issue.orchestrationState))
+
             Text(issue.trackerState)
               .font(.system(size: TypeScale.micro))
-              .foregroundStyle(Color.textTertiary)
+              .foregroundStyle(Color.textQuaternary)
 
             if issue.attempt > 1 {
               Text("Attempt \(issue.attempt)")
@@ -305,6 +313,15 @@ struct MissionIssueRow: View {
       await onRefresh?()
     } catch {
       actionError = error.localizedDescription
+    }
+  }
+
+  private func stateColor(_ state: OrchestrationState) -> Color {
+    switch state {
+    case .queued, .retryQueued: return Color.feedbackCaution
+    case .claimed, .running: return Color.statusWorking
+    case .completed: return Color.feedbackPositive
+    case .failed: return Color.feedbackNegative
     }
   }
 }

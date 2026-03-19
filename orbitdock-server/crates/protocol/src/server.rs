@@ -347,6 +347,11 @@ pub enum ServerMessage {
         issues: Vec<MissionIssueItem>,
         summary: MissionSummary,
     },
+    MissionHeartbeat {
+        mission_id: String,
+        tick_started_at: String,
+        next_tick_at: String,
+    },
 
     // Errors
     Error {

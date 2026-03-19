@@ -91,5 +91,7 @@ extension ServerToClientMessage {
     case missionId = "mission_id"
     case issues
     case summary
+    case tickStartedAt = "tick_started_at"
+    case nextTickAt = "next_tick_at"
   }
 }

@@ -133,6 +133,7 @@ enum ServerEvent: Sendable {
   // Mission Control
   case missionsList(missions: [MissionSummary])
   case missionDelta(missionId: String, issues: [MissionIssueItem], summary: MissionSummary)
+  case missionHeartbeat(missionId: String, tickStartedAt: String, nextTickAt: String)
 
   /// Connection lifecycle
   case connectionStatusChanged(ConnectionStatus)
@@ -695,6 +696,8 @@ final class ServerConnection {
         emit(.missionsList(missions: missions))
       case let .missionDelta(missionId, issues, summary):
         emit(.missionDelta(missionId: missionId, issues: issues, summary: summary))
+      case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
+        emit(.missionHeartbeat(missionId: missionId, tickStartedAt: tickStartedAt, nextTickAt: nextTickAt))
       case .directoryListing, .recentProjectsList, .openAiKeyStatus,
            .codexUsageResult, .claudeUsageResult:
         break

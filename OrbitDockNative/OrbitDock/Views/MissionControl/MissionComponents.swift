@@ -1,5 +1,13 @@
 import SwiftUI
 
+// MARK: - Section Urgency
+
+enum MissionSectionUrgency {
+  case normal
+  case attention
+  case settled
+}
+
 // MARK: - Section Header
 
 struct MissionSectionHeader: View {
@@ -8,25 +16,26 @@ struct MissionSectionHeader: View {
   var color: Color = .accent
   var count: Int?
   var trailing: String?
+  var urgency: MissionSectionUrgency = .normal
 
   var body: some View {
     HStack(spacing: Spacing.sm_) {
       Image(systemName: icon)
         .font(.system(size: 10, weight: .bold))
-        .foregroundStyle(color)
+        .foregroundStyle(iconColor)
 
       Text(title)
         .font(.system(size: TypeScale.caption, weight: .semibold))
-        .foregroundStyle(Color.textPrimary)
+        .foregroundStyle(titleColor)
 
       if let count {
         Text("\(count)")
           .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-          .foregroundStyle(color)
+          .foregroundStyle(countColor)
           .padding(.horizontal, Spacing.xs)
           .padding(.vertical, 1)
           .background(
-            color.opacity(OpacityTier.subtle),
+            countColor.opacity(OpacityTier.subtle),
             in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
           )
       }
@@ -38,6 +47,30 @@ struct MissionSectionHeader: View {
           .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
       }
+    }
+  }
+
+  private var iconColor: Color {
+    switch urgency {
+    case .normal: return color
+    case .attention: return color
+    case .settled: return Color.textQuaternary
+    }
+  }
+
+  private var titleColor: Color {
+    switch urgency {
+    case .normal: return Color.textPrimary
+    case .attention: return Color.textPrimary
+    case .settled: return Color.textTertiary
+    }
+  }
+
+  private var countColor: Color {
+    switch urgency {
+    case .normal: return color
+    case .attention: return Color.feedbackNegative
+    case .settled: return color
     }
   }
 }

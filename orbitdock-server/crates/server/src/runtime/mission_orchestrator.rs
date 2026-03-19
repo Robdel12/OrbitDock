@@ -35,16 +35,21 @@ pub async fn start_mission_orchestrator(registry: Arc<SessionRegistry>, tracker:
         "Mission orchestrator started"
     );
 
-    // Initial poll interval — overridden per-mission once we parse MISSION.md
-    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    // Fast wake-up interval — per-mission gating happens inside process_mission
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
 
     // Track when each issue was last nudged to avoid spamming idle agents
     let mut nudge_tracker: HashMap<String, std::time::Instant> = HashMap::new();
 
+    // Track when each mission was last polled for per-mission interval gating
+    let mut last_poll_at: HashMap<String, std::time::Instant> = HashMap::new();
+
     loop {
         interval.tick().await;
 
-        if let Err(err) = orchestrator_tick(&registry, &tracker, &mut nudge_tracker).await {
+        if let Err(err) =
+            orchestrator_tick(&registry, &tracker, &mut nudge_tracker, &mut last_poll_at).await
+        {
             error!(
                 component = "mission_control",
                 event = "orchestrator.tick_error",
@@ -59,6 +64,7 @@ async fn orchestrator_tick(
     registry: &Arc<SessionRegistry>,
     tracker: &Arc<dyn Tracker>,
     nudge_tracker: &mut HashMap<String, std::time::Instant>,
+    last_poll_at: &mut HashMap<String, std::time::Instant>,
 ) -> anyhow::Result<()> {
     let db_path = registry.db_path().clone();
     let missions = {
@@ -75,7 +81,9 @@ async fn orchestrator_tick(
             continue;
         }
 
-        if let Err(err) = process_mission(registry, tracker, &mission, nudge_tracker).await {
+        if let Err(err) =
+            process_mission(registry, tracker, &mission, nudge_tracker, last_poll_at).await
+        {
             warn!(
                 component = "mission_control",
                 event = "orchestrator.mission_error",
@@ -152,6 +160,7 @@ async fn process_mission(
     tracker: &Arc<dyn Tracker>,
     mission: &MissionRow,
     nudge_tracker: &mut HashMap<String, std::time::Instant>,
+    last_poll_at: &mut HashMap<String, std::time::Instant>,
 ) -> anyhow::Result<()> {
     // Load and parse mission file (MISSION.md or custom path)
     let mission_file_path = mission.resolved_mission_path();
@@ -216,6 +225,24 @@ async fn process_mission(
             mission_file_path: None,
         })
         .await;
+
+    // Per-mission interval gating — skip if not enough time has elapsed
+    let poll_interval_secs = workflow.config.trigger.interval;
+    if let Some(last) = last_poll_at.get(&mission.id) {
+        if last.elapsed() < std::time::Duration::from_secs(poll_interval_secs) {
+            return Ok(());
+        }
+    }
+
+    // Broadcast heartbeat now that this mission is due for processing
+    let tick_now = chrono::Utc::now();
+    let next_tick = tick_now + chrono::Duration::seconds(workflow.config.trigger.interval as i64);
+    let heartbeat = orbitdock_protocol::ServerMessage::MissionHeartbeat {
+        mission_id: mission.id.clone(),
+        tick_started_at: tick_now.to_rfc3339(),
+        next_tick_at: next_tick.to_rfc3339(),
+    };
+    let _ = registry.list_tx().send(heartbeat);
 
     // Load existing mission issues from DB (before candidate fetch so reconciliation runs first)
     let db_path = registry.db_path().clone();
@@ -441,6 +468,9 @@ async fn process_mission(
             broadcast_mission_delta_by_id(&registry, &mission_id).await;
         });
     }
+
+    // Record that we processed this mission
+    last_poll_at.insert(mission.id.clone(), std::time::Instant::now());
 
     // Broadcast MissionDelta
     broadcast_mission_delta(registry, mission).await;

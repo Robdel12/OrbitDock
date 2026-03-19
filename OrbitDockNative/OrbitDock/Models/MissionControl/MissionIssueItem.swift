@@ -39,4 +39,15 @@ enum OrchestrationState: String, Codable {
   case retryQueued = "retry_queued"
   case completed
   case failed
+
+  var displayLabel: String {
+    switch self {
+    case .queued: return "Queued"
+    case .claimed: return "Claimed"
+    case .running: return "Running"
+    case .retryQueued: return "Retry Queued"
+    case .completed: return "Completed"
+    case .failed: return "Failed"
+    }
+  }
 }

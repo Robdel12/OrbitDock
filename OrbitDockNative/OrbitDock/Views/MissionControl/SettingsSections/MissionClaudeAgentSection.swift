@@ -27,14 +27,20 @@ struct MissionClaudeAgentSection: View {
 
       bypassRow
 
-      if isCompact {
-        missionCompactField("Allowed Tools", placeholder: "Read, Edit, Bash(git:*)", text: $claudeAllowedTools)
-        missionCompactField("Disallowed Tools", placeholder: "Bash(rm:*)", text: $claudeDisallowedTools)
-      } else {
-        HStack(alignment: .top, spacing: Spacing.sm) {
+      VStack(alignment: .leading, spacing: Spacing.sm_) {
+        if isCompact {
           missionCompactField("Allowed Tools", placeholder: "Read, Edit, Bash(git:*)", text: $claudeAllowedTools)
           missionCompactField("Disallowed Tools", placeholder: "Bash(rm:*)", text: $claudeDisallowedTools)
+        } else {
+          HStack(alignment: .top, spacing: Spacing.sm) {
+            missionCompactField("Allowed Tools", placeholder: "Read, Edit, Bash(git:*)", text: $claudeAllowedTools)
+            missionCompactField("Disallowed Tools", placeholder: "Bash(rm:*)", text: $claudeDisallowedTools)
+          }
         }
+        Text("Comma-separated tool patterns. Example: Read, Edit, Bash(git:*) pre-approves file ops and git commands.")
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textQuaternary)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
   }
@@ -47,8 +53,28 @@ struct MissionClaudeAgentSection: View {
         permissionChip(.acceptEdits)
         permissionChip(.bypassPermissions)
       }
+
+      Text(permissionDescription)
+        .font(.system(size: TypeScale.micro))
+        .foregroundStyle(Color.textQuaternary)
+        .fixedSize(horizontal: false, vertical: true)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var permissionDescription: String {
+    switch claudePermission {
+    case .acceptEdits:
+      return "Auto-approves file edits. Prompts for shell commands. Good balance for most missions."
+    case .bypassPermissions:
+      return "Auto-approves everything including shell commands. Maximum autonomy \u{2014} use when running in isolated worktrees."
+    case .plan:
+      return "Plans changes before executing. Good for review-first workflows."
+    case .dontAsk:
+      return "Runs without any permission prompts."
+    case .default:
+      return "Uses default Claude permission settings."
+    }
   }
 
   private func permissionChip(_ mode: ClaudePermissionMode) -> some View {

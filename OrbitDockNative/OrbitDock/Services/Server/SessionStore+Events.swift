@@ -91,12 +91,10 @@ extension SessionStore {
         let obs = session(sessionId)
         obs.undoInProgress = false
         if success {
-          let conv = conversation(sessionId)
-          Task { _ = await conv.bootstrapFresh() }
+          Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
         }
       case let .threadRolledBack(sessionId, _):
-        let conv = conversation(sessionId)
-        Task { _ = await conv.bootstrapFresh() }
+        Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
       case let .sessionForked(sourceSessionId, newSessionId, _):
         let obs = session(sourceSessionId)
         obs.forkInProgress = false
@@ -175,6 +173,20 @@ extension SessionStore {
         missionDeltaSummary = summary
         missionDeltaIssues = issues
         missionDeltaRevision &+= 1
+        missionLastTickAt = Date()
+      case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
+        missionDeltaMissionId = missionId
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        missionLastTickAt = iso.date(from: tickStartedAt) ?? {
+          iso.formatOptions = [.withInternetDateTime]
+          return iso.date(from: tickStartedAt)
+        }()
+        missionNextTickAt = iso.date(from: nextTickAt) ?? {
+          iso.formatOptions = [.withInternetDateTime]
+          return iso.date(from: nextTickAt)
+        }()
+        missionHeartbeatRevision &+= 1
       case let .revision(sessionId, revision):
         lastRevision[sessionId] = revision
     }
@@ -199,6 +211,7 @@ extension SessionStore {
       case let .error(code, msg, sid): "error(\(code), \(msg), \(sid ?? "nil"))"
       case .missionsList: "missionsList"
       case .missionDelta: "missionDelta"
+      case .missionHeartbeat: "missionHeartbeat"
       default: String(describing: event).prefix(80).description
     }
   }
@@ -222,16 +235,13 @@ extension SessionStore {
 
     subscribedSessions.insert(state.id)
 
-    self.conversation(state.id).handleConversationBootstrap(
-      upserted: conversation.rows,
-      removedRowIds: [],
-      totalRowCount: conversation.totalRowCount,
+    let obs = self.session(state.id)
+    obs.applyConversationPage(
+      rows: conversation.rows,
       hasMoreBefore: conversation.hasMoreBefore,
       oldestSequence: conversation.oldestSequence,
-      newestSequence: conversation.newestSequence
+      isBootstrap: true
     )
-
-    let obs = self.session(state.id)
     obs.applySnapshotProjection(state.toDetailSnapshotProjection())
     obs.subagents = state.subagents
     let transition = SessionControlStateReducer.snapshotTransition(
@@ -264,11 +274,7 @@ extension SessionStore {
     _ removedRowIds: [String],
     _ totalRowCount: UInt64?
   ) {
-    conversation(sessionId).handleConversationRowsChanged(
-      upserted: upserted,
-      removedRowIds: removedRowIds,
-      totalRowCount: totalRowCount
-    )
+    session(sessionId).applyRowsChanged(upserted: upserted, removedIds: removedRowIds)
     if autoMarkReadSessions.contains(sessionId), !upserted.isEmpty {
       markSessionAsRead(sessionId)
     }
@@ -323,8 +329,7 @@ extension SessionStore {
     if code == "lagged" || code == "replay_oversized" {
       if let sessionId {
         // Session-level lag: re-bootstrap that session
-        let conv = conversation(sessionId)
-        Task { await conv.bootstrapFresh() }
+        Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
       }
       // List-level lag (sessionId == nil): re-fetch sessions list via REST.
       // The initial REST fetch on connect already covers this, and incremental
@@ -430,6 +435,5 @@ extension SessionStore {
 
   func trimInactiveSessionPayload(_ sessionId: String) {
     session(sessionId).trimInactiveDetailPayloads()
-    _conversationStores[sessionId]?.clear()
   }
 }

@@ -349,6 +349,12 @@ extension ServerToClientMessage {
         try container.encode(issues, forKey: .issues)
         try container.encode(summary, forKey: .summary)
 
+      case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
+        try container.encode("mission_heartbeat", forKey: .type)
+        try container.encode(missionId, forKey: .missionId)
+        try container.encode(tickStartedAt, forKey: .tickStartedAt)
+        try container.encode(nextTickAt, forKey: .nextTickAt)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)

@@ -22,6 +22,8 @@ struct MissionShowView: View {
   @State private var selectedTab: MissionTab = .overview
   @State private var showDeleteConfirmation = false
   @State private var actionError: String?
+  @State private var nextTickAt: Date?
+  @State private var lastTickAt: Date?
 
   private var isCompact: Bool {
     #if os(iOS)
@@ -75,6 +77,14 @@ struct MissionShowView: View {
       else { return }
       summary = deltaSummary
       issues = store.missionDeltaIssues
+      lastTickAt = Date()
+    }
+    .onChange(of: sessionStore?.missionHeartbeatRevision) { _, _ in
+      guard let store = sessionStore,
+            store.missionDeltaMissionId == missionId
+      else { return }
+      nextTickAt = store.missionNextTickAt
+      lastTickAt = store.missionLastTickAt
     }
     .alert("Error", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
       Button("OK", role: .cancel) {}
@@ -133,6 +143,8 @@ struct MissionShowView: View {
                 isCompact: isCompact,
                 endpointId: endpointId,
                 sessionStore: sessionStore,
+                nextTickAt: nextTickAt,
+                lastTickAt: lastTickAt,
                 onRefresh: { await fetchDetail() },
                 onApplyDetail: { applyDetail($0) },
                 onSelectTab: { tab in

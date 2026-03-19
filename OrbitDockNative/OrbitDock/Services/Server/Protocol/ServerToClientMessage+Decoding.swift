@@ -393,6 +393,12 @@ extension ServerToClientMessage {
         let summary = try container.decode(MissionSummary.self, forKey: .summary)
         self = .missionDelta(missionId: missionId, issues: issues, summary: summary)
 
+      case "mission_heartbeat":
+        let missionId = try container.decode(String.self, forKey: .missionId)
+        let tickStartedAt = try container.decode(String.self, forKey: .tickStartedAt)
+        let nextTickAt = try container.decode(String.self, forKey: .nextTickAt)
+        self = .missionHeartbeat(missionId: missionId, tickStartedAt: tickStartedAt, nextTickAt: nextTickAt)
+
       default:
         netLog(.error, cat: .ws, "Unknown server message type: \(type)")
         self = .unknown(type: type)

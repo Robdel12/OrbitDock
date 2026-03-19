@@ -53,8 +53,30 @@ struct MissionCodexAgentSection: View {
         autonomyChip(.open)
         autonomyChip(.unrestricted)
       }
+
+      Text(autonomyDescription)
+        .font(.system(size: TypeScale.micro))
+        .foregroundStyle(Color.textQuaternary)
+        .fixedSize(horizontal: false, vertical: true)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var autonomyDescription: String {
+    switch codexAutonomy {
+    case .autonomous:
+      return "Asks permission for uncertain operations. Agents may stall if no human is watching."
+    case .fullAuto:
+      return "Never asks \u{2014} sandbox provides safety. Recommended for unattended missions."
+    case .open:
+      return "Never asks, no sandbox restrictions. Full access to the system."
+    case .unrestricted:
+      return "No sandbox, no approvals. Maximum risk."
+    case .locked:
+      return "Restricted mode. All operations require explicit approval."
+    case .guarded:
+      return "Conservative mode. Most operations require approval."
+    }
   }
 
   private var multiAgentToggleRow: some View {
