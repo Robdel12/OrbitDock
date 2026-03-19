@@ -146,14 +146,10 @@ pub struct SuccessPayload {
 
 // ── Single-issue lookup (for manual dispatch) ──────────────────────
 
+/// Response for the `issue(id:)` query which returns a single issue directly.
 #[derive(Debug, Deserialize)]
-pub struct SingleIssueData {
-    pub issues: SingleIssueConnection,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SingleIssueConnection {
-    pub nodes: Vec<LinearIssue>,
+pub struct DirectIssueData {
+    pub issue: LinearIssue,
 }
 
 // ── Comment models ─────────────────────────────────────────────────

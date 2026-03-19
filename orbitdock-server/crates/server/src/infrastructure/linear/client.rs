@@ -6,8 +6,8 @@ use tracing::debug;
 
 use super::models::{
     AttachmentCreateData, CommentCreateData, CommentUpdateData, CommentsData, CreatedIssue,
-    GraphQLResponse, IssueCreateData, IssueStatesData, IssueTeamData, IssueUpdateData, IssuesData,
-    LinearComment, ResolveStateData, SingleIssueData,
+    DirectIssueData, GraphQLResponse, IssueCreateData, IssueStatesData, IssueTeamData,
+    IssueUpdateData, IssuesData, LinearComment, ResolveStateData,
 };
 use crate::domain::mission_control::tracker::{Tracker, TrackerConfig, TrackerIssue};
 
@@ -300,38 +300,37 @@ impl LinearClient {
     }
 
     /// Fetch a single issue by its human-readable identifier (e.g. "VIZ-240").
+    /// Uses the `issue(id:)` query which accepts both UUIDs and identifiers.
     pub async fn fetch_issue_by_identifier(
         &self,
         identifier: &str,
     ) -> anyhow::Result<Option<TrackerIssue>> {
         let query = r#"
-            query OrbitDockFetchIssue($identifier: String!) {
-                issues(filter: { identifier: { eq: $identifier } }, first: 1) {
-                    nodes {
-                        id
-                        identifier
-                        title
-                        description
-                        priority
-                        url
-                        createdAt
-                        state { name }
-                        labels { nodes { name } }
-                        relations { nodes { type relatedIssue { id identifier } } }
-                    }
+            query OrbitDockFetchIssue($id: String!) {
+                issue(id: $id) {
+                    id
+                    identifier
+                    title
+                    description
+                    priority
+                    url
+                    createdAt
+                    state { name }
+                    labels { nodes { name } }
+                    relations { nodes { type relatedIssue { id identifier } } }
                 }
             }
         "#;
 
-        let data: SingleIssueData = self
-            .graphql(query, serde_json::json!({ "identifier": identifier }))
-            .await?;
-        Ok(data
-            .issues
-            .nodes
-            .into_iter()
-            .next()
-            .map(|n| n.into_tracker_issue()))
+        let result: Result<DirectIssueData, _> = self
+            .graphql(query, serde_json::json!({ "id": identifier }))
+            .await;
+
+        match result {
+            Ok(data) => Ok(Some(data.issue.into_tracker_issue())),
+            Err(e) if e.to_string().contains("not found") => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 }
 
