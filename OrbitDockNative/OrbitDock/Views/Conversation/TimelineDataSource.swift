@@ -27,22 +27,32 @@ enum TimelineDataSource {
           row: .tool(tool)
         ))
       } else {
-        let allCompleted = toolBuffer.allSatisfy { $0.status == .completed }
+        let latestTool = toolBuffer[toolBuffer.count - 1]
+        let archivedTools = Array(toolBuffer.dropLast())
+        let allCompleted = archivedTools.allSatisfy { $0.status == .completed }
         let groupStatus: ServerConversationToolStatus = allCompleted ? .completed : .running
         let group = ServerConversationActivityGroupRow(
-          id: "group:\(toolBuffer.first!.id)",
+          id: "group:\(archivedTools.first!.id)",
           groupKind: .toolBlock,
-          title: "\(toolBuffer.count) tools",
+          title: archivedTools.count == 1 ? "1 previous tool" : "\(archivedTools.count) previous tools",
           subtitle: nil,
-          summary: toolBuffer.map(\.title).joined(separator: ", "),
-          childCount: toolBuffer.count,
-          children: toolBuffer,
+          summary: archivedTools.map(\.title).joined(separator: ", "),
+          childCount: archivedTools.count,
+          children: archivedTools,
           turnId: nil,
           groupingKey: nil,
           status: groupStatus,
           family: nil,
           renderHints: ServerConversationRenderHints()
         )
+
+        result.append(ServerConversationRowEntry(
+          sessionId: bufferSessionId,
+          sequence: bufferStartSequence,
+          turnId: nil,
+          row: .tool(latestTool)
+        ))
+
         result.append(ServerConversationRowEntry(
           sessionId: bufferSessionId,
           sequence: bufferStartSequence,

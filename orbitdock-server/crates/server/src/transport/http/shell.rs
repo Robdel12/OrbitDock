@@ -6,18 +6,16 @@ use axum::{
     Json,
 };
 use orbitdock_protocol::conversation_contracts::{
-    ConversationRow, ConversationRowEntry, SystemRow,
+    ConversationRow, ConversationRowEntry, RenderHints, ShellCommandRow, ShellCommandRowKind,
 };
 use orbitdock_protocol::{ServerMessage, ShellExecutionOutcome};
 use serde::{Deserialize, Serialize};
 
+use super::{session_not_found_error, AcceptedResponse, ApiErrorResponse};
 use crate::domain::sessions::transition::Input;
 use crate::infrastructure::shell::{ShellCancelStatus, ShellOutcome, ShellResult};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::support::session_time::iso_timestamp;
-
-use super::{session_not_found_error, AcceptedResponse, ApiErrorResponse};
 
 const DEFAULT_SHELL_TIMEOUT_SECS: u64 = 120;
 const SHELL_STREAM_THROTTLE_MS: u128 = 120;
@@ -53,24 +51,63 @@ fn resolve_shell_cwd(
         .unwrap_or_else(|| project_path.to_string())
 }
 
+fn shell_render_hints() -> RenderHints {
+    RenderHints {
+        can_expand: true,
+        default_expanded: false,
+        emphasized: false,
+        monospace_summary: true,
+        accent_tone: Some("shell".to_string()),
+    }
+}
+
+fn shell_summary(exit_code: Option<i32>, duration_ms: u64) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(exit_code) = exit_code {
+        parts.push(format!("Exit {exit_code}"));
+    }
+    if duration_ms > 0 {
+        parts.push(format!("{:.2}s", duration_ms as f64 / 1000.0));
+    }
+    (!parts.is_empty()).then(|| parts.join(" • "))
+}
+
+struct ShellRowState {
+    command: Option<String>,
+    stdout: Option<String>,
+    stderr: Option<String>,
+    exit_code: Option<i32>,
+    duration_ms: u64,
+    cwd: Option<String>,
+}
+
 fn build_shell_row_entry(
     request_id: &str,
     session_id: &str,
-    command: &str,
-    ts_millis: u128,
-    sequence: u64,
+    state: ShellRowState,
 ) -> ConversationRowEntry {
     ConversationRowEntry {
         session_id: session_id.to_string(),
-        sequence,
+        sequence: 0,
         turn_id: None,
-        row: ConversationRow::System(SystemRow {
+        row: ConversationRow::ShellCommand(ShellCommandRow {
             id: request_id.to_string(),
-            content: command.to_string(),
-            turn_id: None,
-            timestamp: Some(iso_timestamp(ts_millis)),
-            is_streaming: false,
-            images: vec![],
+            kind: ShellCommandRowKind::UserShellCommand,
+            title: state
+                .command
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("Shell command")
+                .to_string(),
+            summary: shell_summary(state.exit_code, state.duration_ms),
+            command: state.command,
+            args: vec![],
+            stdout: state.stdout,
+            stderr: state.stderr,
+            exit_code: state.exit_code,
+            duration_seconds: (state.duration_ms > 0).then_some(state.duration_ms as f64 / 1000.0),
+            cwd: state.cwd,
+            render_hints: shell_render_hints(),
         }),
     }
 }
@@ -122,22 +159,31 @@ pub async fn execute_shell_endpoint(
     );
 
     let request_id = orbitdock_protocol::new_id();
+    let command = body.command.clone();
+    let timeout_secs = body.timeout_secs.unwrap_or(DEFAULT_SHELL_TIMEOUT_SECS);
 
     actor
         .send(SessionCommand::Broadcast {
             msg: ServerMessage::ShellStarted {
                 session_id: session_id.clone(),
                 request_id: request_id.clone(),
-                command: body.command.clone(),
+                command: command.clone(),
             },
         })
         .await;
 
-    let ts_millis = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let shell_entry = build_shell_row_entry(&request_id, &session_id, &body.command, ts_millis, 0);
+    let shell_entry = build_shell_row_entry(
+        &request_id,
+        &session_id,
+        ShellRowState {
+            command: Some(command.clone()),
+            stdout: None,
+            stderr: None,
+            exit_code: None,
+            duration_ms: 0,
+            cwd: Some(resolved_cwd.clone()),
+        },
+    );
     actor
         .send(SessionCommand::ProcessEvent {
             event: Input::RowCreated(shell_entry),
@@ -149,9 +195,9 @@ pub async fn execute_shell_endpoint(
         .start(
             request_id.clone(),
             session_id.clone(),
-            body.command,
-            resolved_cwd,
-            body.timeout_secs.unwrap_or(DEFAULT_SHELL_TIMEOUT_SECS),
+            command.clone(),
+            resolved_cwd.clone(),
+            timeout_secs,
         )
         .map_err(|_| {
             (
@@ -166,6 +212,8 @@ pub async fn execute_shell_endpoint(
     let state_ref = state.clone();
     let sid = session_id.clone();
     let rid = request_id.clone();
+    let command_for_task = command.clone();
+    let resolved_cwd_for_task = resolved_cwd.clone();
     tokio::spawn(async move {
         let mut chunk_rx = shell_execution.chunk_rx;
         let completion_rx = shell_execution.completion_rx;
@@ -185,19 +233,18 @@ pub async fn execute_shell_endpoint(
             }
             last_stream_emit = now;
             if let Some(actor) = state_ref.get_session(&sid) {
-                let updated_entry = ConversationRowEntry {
-                    session_id: sid.clone(),
-                    sequence: 0,
-                    turn_id: None,
-                    row: ConversationRow::System(SystemRow {
-                        id: rid.clone(),
-                        content: streamed_output.clone(),
-                        turn_id: None,
-                        timestamp: None,
-                        is_streaming: false,
-                        images: vec![],
-                    }),
-                };
+                let updated_entry = build_shell_row_entry(
+                    &rid,
+                    &sid,
+                    ShellRowState {
+                        command: Some(command_for_task.clone()),
+                        stdout: (!streamed_output.is_empty()).then(|| streamed_output.clone()),
+                        stderr: None,
+                        exit_code: None,
+                        duration_ms: 0,
+                        cwd: Some(resolved_cwd_for_task.clone()),
+                    },
+                );
                 actor
                     .send(SessionCommand::ProcessEvent {
                         event: Input::RowUpdated {
@@ -223,19 +270,24 @@ pub async fn execute_shell_endpoint(
             finalize_shell_result(result, streamed_output);
 
         if let Some(actor) = state_ref.get_session(&sid) {
-            let final_entry = ConversationRowEntry {
-                session_id: sid.clone(),
-                sequence: 0,
-                turn_id: None,
-                row: ConversationRow::System(SystemRow {
-                    id: rid.clone(),
-                    content: final_output,
-                    turn_id: None,
-                    timestamp: None,
-                    is_streaming: false,
-                    images: vec![],
-                }),
+            let stdout = if result.stdout.is_empty() {
+                (!final_output.is_empty()).then_some(final_output.clone())
+            } else {
+                Some(result.stdout.clone())
             };
+            let stderr = (!result.stderr.is_empty()).then_some(result.stderr.clone());
+            let final_entry = build_shell_row_entry(
+                &rid,
+                &sid,
+                ShellRowState {
+                    command: Some(command_for_task.clone()),
+                    stdout,
+                    stderr,
+                    exit_code: result.exit_code,
+                    duration_ms: result.duration_ms,
+                    cwd: Some(resolved_cwd_for_task.clone()),
+                },
+            );
             actor
                 .send(SessionCommand::ProcessEvent {
                     event: Input::RowUpdated {
