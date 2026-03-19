@@ -245,10 +245,10 @@ fmt: swift-fmt rust-fmt
 lint: swift-lint rust-lint
 
 swift-fmt:
-	swiftformat OrbitDock
+	swiftformat OrbitDockNative
 
 swift-lint:
-	swiftformat --lint OrbitDock
+	swiftformat --lint OrbitDockNative
 
 rust-env:
 	@echo "RUST_SCCACHE=$(RUST_SCCACHE)"
