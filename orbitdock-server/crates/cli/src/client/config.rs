@@ -61,9 +61,15 @@ impl ClientConfig {
             .or_else(|| normalized_non_empty(file_config.server.as_deref()))
             .unwrap_or_else(|| DEFAULT_SERVER.to_string());
 
-        // Token: flag/env > config file
+        // Token: flag/env > config file > hook-forward.json (local auto-provisioned token)
         let token = normalized_non_empty(token)
-            .or_else(|| normalized_non_empty(file_config.token.as_deref()));
+            .or_else(|| normalized_non_empty(file_config.token.as_deref()))
+            .or_else(|| {
+                orbitdock_server::admin::read_hook_transport_config()
+                    .ok()
+                    .flatten()
+                    .and_then(|cfg| cfg.auth_token())
+            });
 
         // JSON: flag or non-TTY stdout
         let json = json || !atty_stdout();
